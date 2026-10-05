@@ -1,0 +1,2415 @@
+{
+  "schema": 1,
+  "kind": "reference-display-contract",
+  "complete": true,
+  "speed_claim": false,
+  "native_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "rust_sha": "ecacd9d04c48c9d0192510289be664b189634c05",
+  "builds": {
+    "native": {
+      "command": [
+        "go",
+        "build",
+        "-o",
+        "/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "./cmd/reference-spelling"
+      ],
+      "started_at": "2026-10-05T11:28:50.973116+00:00",
+      "terminal": true,
+      "helper_sha256": "80819138e7ee006ff5d00e1bccbfc1a4881e86fddae470b641fbfe8a6829c22c",
+      "native_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "pid": 89528,
+      "exit_code": 0,
+      "finished_at": "2026-10-05T11:28:55.952418+00:00",
+      "binary_sha256": "2be468c3377742b81ef93b8f53b34558af029eb2363faf17984cc2f05b20d084"
+    },
+    "rust": {
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "tsr-conformance",
+        "--example",
+        "reference_spelling_contract"
+      ],
+      "source": "ecacd9d04c48c9d0192510289be664b189634c05",
+      "helper_sha256": "7a46118e0b997bf065c4cd89d1af61cb515dd5fcdb91916b31396474994bd710",
+      "started_at": "2026-10-05T11:44:22.683733+00:00",
+      "terminal": true,
+      "pid": 92988,
+      "exit_code": 0,
+      "finished_at": "2026-10-05T11:44:23.695141+00:00",
+      "binary_sha256": "98625704498f4c64fa60d43dbb4a8e64bb36758822883246a45e10d021d36130"
+    }
+  },
+  "driver_sha256": "faae37e039bac5659c2a2e5b2fb6279bc40e7b7a59725a1e849998e294d44952",
+  "native_options": {
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "esnext",
+    "singleThreaded": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "newLine": "lf"
+  },
+  "rust_options": {
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "esnext"
+  },
+  "raw_receipt": {
+    "path": "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/results.json",
+    "sha256": "a33cab139399ae9106e2198ae7b69899fbc902c0fadc3a350fbb4698ccf9fbbc"
+  },
+  "all_unit_bytes_match": true,
+  "all_rust_displays_match": false,
+  "loaded_native_bundled_inputs": {
+    "bundled:///libs/lib.decorators.d.ts": "1ce14b81c5cc821994aa8ec1d42b220dd41b27fcc06373bce3958af7421b77d4",
+    "bundled:///libs/lib.decorators.legacy.d.ts": "b3a048b3e9302ef9a34ef4ebb9aecfb28b66abb3bce577206a79fee559c230da",
+    "bundled:///libs/lib.dom.asynciterable.d.ts": "7f57fc4404ff020bc45b9c620aff2b40f700b95fe31164024c453a5e3c163c54",
+    "bundled:///libs/lib.dom.d.ts": "d6b1eba8496bdd0eed6fc8a685768fe01b2da4a0388b5fe7df558290bffcf32f",
+    "bundled:///libs/lib.dom.iterable.d.ts": "7f57fc4404ff020bc45b9c620aff2b40f700b95fe31164024c453a5e3c163c54",
+    "bundled:///libs/lib.es2015.collection.d.ts": "f0b6b1d3624fb143656dd86a8dd3e1950b7e65f218319b47bde52f65d47e2e4b",
+    "bundled:///libs/lib.es2015.core.d.ts": "770011bd32a52f929fc98fbf9976c1fa9d80b6445171c02b08627fdba9778933",
+    "bundled:///libs/lib.es2015.d.ts": "3f88bedbeb09c6f5a6645cb24c7c55f1aa22d19ae96c8e6959cbd8b85a707bc6",
+    "bundled:///libs/lib.es2015.generator.d.ts": "00343ca5b2e3d48fa5df1db6e32ea2a59afab09590274a6cccb1dbae82e60c7c",
+    "bundled:///libs/lib.es2015.iterable.d.ts": "ebd9f816d4002697cb2864bea1f0b70a103124e18a8cd9645eeccc09bdf80ab4",
+    "bundled:///libs/lib.es2015.promise.d.ts": "2c1afac30a01772cd2a9a298a7ce7706b5892e447bb46bdbeef720f7b5da77ad",
+    "bundled:///libs/lib.es2015.proxy.d.ts": "7b0225f483e4fa685625ebe43dd584bb7973bbd84e66a6ba7bbe175ee1048b4f",
+    "bundled:///libs/lib.es2015.reflect.d.ts": "c0a4b8ac6ce74679c1da2b3795296f5896e31c38e888469a8e0f99dc3305de60",
+    "bundled:///libs/lib.es2015.symbol.d.ts": "83e3871cda2abd4421970fa923cca51a9ce8cdbece6f898285643ab030cb80f3",
+    "bundled:///libs/lib.es2015.symbol.wellknown.d.ts": "c5079c53f0f141a0698faa903e76cb41cd664e3efb01cc17a5c46ec2eb0bef42",
+    "bundled:///libs/lib.es2016.array.include.d.ts": "32cafbc484dea6b0ab62cf8473182bbcb23020d70845b406f80b7526f38ae862",
+    "bundled:///libs/lib.es2016.d.ts": "7fe93b39b810eadd916be8db880dd7f0f7012a5cc6ffb62de8f62a2117fa6f1f",
+    "bundled:///libs/lib.es2016.intl.d.ts": "fca4cdcb6d6c5ef18a869003d02c9f0fd95df8cfaf6eb431cd3376bc034cad36",
+    "bundled:///libs/lib.es2017.arraybuffer.d.ts": "b93ec88115de9a9dc1b602291b85baf825c85666bf25985cc5f698073892b467",
+    "bundled:///libs/lib.es2017.d.ts": "bb0074cc08b84a2374af33d8bf044b80851ccc9e719a5e202eacf40db2c31600",
+    "bundled:///libs/lib.es2017.date.d.ts": "f5c06dcc3fe849fcb297c247865a161f995cc29de7aa823afdd75aaaddc1419b",
+    "bundled:///libs/lib.es2017.intl.d.ts": "c7b3542146734342e440a84b213384bfa188835537ddbda50d30766f0593aff9",
+    "bundled:///libs/lib.es2017.object.d.ts": "b77e16112127a4b169ef0b8c3a4d730edf459c5f25fe52d5e436a6919206c4d7",
+    "bundled:///libs/lib.es2017.sharedmemory.d.ts": "fbffd9337146eff822c7c00acbb78b01ea7ea23987f6c961eba689349e744f8c",
+    "bundled:///libs/lib.es2017.string.d.ts": "6aaeba1e4f228fda4e9175e34d96807e2c6dc984d0b37a772b3af9365a456681",
+    "bundled:///libs/lib.es2017.typedarrays.d.ts": "ce6180fa19b1cccd07ee7f7dbb9a367ac19c0ed160573e4686425060b6df7f57",
+    "bundled:///libs/lib.es2018.asyncgenerator.d.ts": "3f02e2476bccb9dbe21280d6090f0df17d2f66b74711489415a8aa4df73c9675",
+    "bundled:///libs/lib.es2018.asynciterable.d.ts": "45e3ab34c1c013c8ab2dc1ba4c80c780744b13b5676800ae2e3be27ae862c40c",
+    "bundled:///libs/lib.es2018.d.ts": "1a7daebe4f45fb03d9ec53d60008fbf9ac45a697fdc89e4ce218bc94b94f94d6",
+    "bundled:///libs/lib.es2018.intl.d.ts": "805c86f6cca8d7702a62a844856dbaa2a3fd2abef0536e65d48732441dde5b5b",
+    "bundled:///libs/lib.es2018.promise.d.ts": "e42e397f1a5a77994f0185fd1466520691456c772d06bf843e5084ceb879a0ad",
+    "bundled:///libs/lib.es2018.regexp.d.ts": "f4c2b41f90c95b1c532ecc874bd3c111865793b23aebcc1c3cbbabcd5d76ffb0",
+    "bundled:///libs/lib.es2019.array.d.ts": "ab26191cfad5b66afa11b8bf935ef1cd88fabfcb28d30b2dfa6fad877d050332",
+    "bundled:///libs/lib.es2019.d.ts": "f94b133a3cb14a288803be545ac2683e0d0ff6661bcd37e31aaaec54fc382aed",
+    "bundled:///libs/lib.es2019.intl.d.ts": "689da16f46e647cef0d64b0def88910e818a5877ca5379ede156ca3afb780ac3",
+    "bundled:///libs/lib.es2019.object.d.ts": "2088bc26531e38fb05eedac2951480db5309f6be3fa4a08d2221abb0f5b4200d",
+    "bundled:///libs/lib.es2019.string.d.ts": "cb9d366c425fea79716a8fb3af0d78e6b22ebbab3bd64d25063b42dc9f531c1e",
+    "bundled:///libs/lib.es2019.symbol.d.ts": "500934a8089c26d57ebdb688fc9757389bb6207a3c8f0674d68efa900d2abb34",
+    "bundled:///libs/lib.es2020.bigint.d.ts": "bc21cc8b6fee4f4c2440d08035b7ea3c06b3511314c8bab6bef7a92de58a2593",
+    "bundled:///libs/lib.es2020.d.ts": "f59d0650799f8782fd74cf73c19223730c6d1b9198671b1c5b3a38e1188b5953",
+    "bundled:///libs/lib.es2020.date.d.ts": "7ca53d13d2957003abb47922a71866ba7cb2068f8d154877c596d63c359fed25",
+    "bundled:///libs/lib.es2020.intl.d.ts": "db839fa0625981ae6e20a55e079c3613184310ca246879245b294573e7cc6926",
+    "bundled:///libs/lib.es2020.number.d.ts": "b7bf9377723203b5a6a4b920164df22d56a43f593269ba6ae1fdc97774b68855",
+    "bundled:///libs/lib.es2020.promise.d.ts": "54725f8c4df3d900cb4dac84b64689ce29548da0b4e9b7c2de61d41c79293611",
+    "bundled:///libs/lib.es2020.sharedmemory.d.ts": "e5594bc3076ac29e6c1ebda77939bc4c8833de72f654b6e376862c0473199323",
+    "bundled:///libs/lib.es2020.string.d.ts": "2f3eb332c2d73e729f3364fcc0c2b375e72a121e8157d25a82d67a138c83a95c",
+    "bundled:///libs/lib.es2020.symbol.wellknown.d.ts": "6f4427f9642ce8d500970e4e69d1397f64072ab73b97e476b4002a646ac743b1",
+    "bundled:///libs/lib.es2021.d.ts": "8a15b4607d9a499e2dbeed9ec0d3c0d7372c850b2d5f1fb259e8f6d41d468a84",
+    "bundled:///libs/lib.es2021.intl.d.ts": "a917a49ac94cd26b754ab84e113369a75d1a47a710661d7cd25e961cc797065f",
+    "bundled:///libs/lib.es2021.promise.d.ts": "db9709688f82c9e5f65a119c64d835f906efe5f559d08b11642d56eb85b79357",
+    "bundled:///libs/lib.es2021.string.d.ts": "4b25b8c874acd1a4cf8444c3617e037d444d19080ac9f634b405583fd10ce1f7",
+    "bundled:///libs/lib.es2021.weakref.d.ts": "37be57d7c90cf1f8112ee2636a068d8fd181289f82b744160ec56a7dc158a9f5",
+    "bundled:///libs/lib.es2022.array.d.ts": "6d3261badeb7843d157ef3e6f5d1427d0eeb0af0cf9df84a62cfd29fd47ac86e",
+    "bundled:///libs/lib.es2022.d.ts": "26e0fe14baee4e127f4365d1ae0b276f400562e45e19e35fd2d4c296684715e6",
+    "bundled:///libs/lib.es2022.error.d.ts": "195daca651dde22f2167ac0d0a05e215308119a3100f5e6268e8317d05a92526",
+    "bundled:///libs/lib.es2022.intl.d.ts": "8b11e4285cd2bb164a4dc09248bdec69e9842517db4ca47c1ba913011e44ff2f",
+    "bundled:///libs/lib.es2022.object.d.ts": "0508571a52475e245b02bc50fa1394065a0a3d05277fbf5120c3784b85651799",
+    "bundled:///libs/lib.es2022.regexp.d.ts": "fc611fea8d30ea72c6bbfb599c9b4d393ce22e2f5bfef2172534781e7d138104",
+    "bundled:///libs/lib.es2022.string.d.ts": "8f9af488f510c3015af3cc8c267a9e9d96c4dd38a1fdff0e11dc5a544711415b",
+    "bundled:///libs/lib.es2023.array.d.ts": "0bd714129fca875f7d4c477a1a392200b0bcd13fb2e80928cd334b63830ea047",
+    "bundled:///libs/lib.es2023.collection.d.ts": "e2c9037ae6cd2c52d80ceef0b3c5ffdb488627d71529cf4f63776daf11161c9a",
+    "bundled:///libs/lib.es2023.d.ts": "1e9332c23e9a907175e0ffc6a49e236f97b48838cc8aec9ce7e4cec21e544b65",
+    "bundled:///libs/lib.es2023.intl.d.ts": "135d5cf4d345f59f1a9caadfafcd858d3d9cc68290db616cc85797224448cccc",
+    "bundled:///libs/lib.es2024.arraybuffer.d.ts": "bc238c3f81c2984751932b6aab223cd5b830e0ac6cad76389e5e9d2ffc03287d",
+    "bundled:///libs/lib.es2024.collection.d.ts": "4a07f9b76d361f572620927e5735b77d6d2101c23cdd94383eb5b706e7b36357",
+    "bundled:///libs/lib.es2024.d.ts": "3753fbc1113dc511214802a2342280a8b284ab9094f6420e7aa171e868679f91",
+    "bundled:///libs/lib.es2024.object.d.ts": "7c4e8dc6ab834cc6baa0227e030606d29e3e8449a9f67cdf5605ea5493c4db29",
+    "bundled:///libs/lib.es2024.promise.d.ts": "de7ba0fd02e06cd9a5bd4ab441ed0e122735786e67dde1e849cced1cd8b46b78",
+    "bundled:///libs/lib.es2024.regexp.d.ts": "6148e4e88d720a06855071c3db02069434142a8332cf9c182cda551adedf3156",
+    "bundled:///libs/lib.es2024.sharedmemory.d.ts": "d63dba625b108316a40c95a4425f8d4294e0deeccfd6c7e59d819efa19e23409",
+    "bundled:///libs/lib.es2024.string.d.ts": "0568d6befee03dd435bed4fc25c4e46865b24bdcb8c563fdc21f580a2c301904",
+    "bundled:///libs/lib.es2025.collection.d.ts": "30d62269b05b584741f19a5369852d5d34895aa2ac4fd948956f886d15f9cc0d",
+    "bundled:///libs/lib.es2025.d.ts": "999ca32883495a866aa5737fe1babc764a469e4cde6ee6b136a4b9ae68853e4b",
+    "bundled:///libs/lib.es2025.float16.d.ts": "f128dae7c44d8f35ee42e0a437000a57c9f06cc04f8b4fb42eebf44954d53dc8",
+    "bundled:///libs/lib.es2025.intl.d.ts": "ffbe6d7b295306b2ba88030f65b74c107d8d99bdcf596ea99c62a02f606108b0",
+    "bundled:///libs/lib.es2025.iterator.d.ts": "996fb27b15277369c68a4ba46ed138b4e9e839a02fb4ec756f7997629242fd9f",
+    "bundled:///libs/lib.es2025.promise.d.ts": "79b712591b270d4778c89706ca2cfc56ddb8c3f895840e477388f1710dc5eda9",
+    "bundled:///libs/lib.es2025.regexp.d.ts": "20884846cef428b992b9bd032e70a4ef88e349263f63aeddf04dda837a7dba26",
+    "bundled:///libs/lib.es5.d.ts": "6388847232654d7fcbed7fe89ea511a65ad1f5104b41e905c43f90910e1408b6",
+    "bundled:///libs/lib.esnext.array.d.ts": "5fcab789c73a97cd43828ee3cc94a61264cf24d4c44472ce64ced0e0f148bdb2",
+    "bundled:///libs/lib.esnext.collection.d.ts": "db59a81f070c1880ad645b2c0275022baa6a0c4f0acdc58d29d349c6efcf0903",
+    "bundled:///libs/lib.esnext.d.ts": "17f13ecb98cbc39243f2eee1f16d45cd8ec4706b03ee314f1915f1a8b42f6984",
+    "bundled:///libs/lib.esnext.date.d.ts": "673294292640f5722b700e7d814e17aaf7d93f83a48a2c9b38f33cbc940ad8b0",
+    "bundled:///libs/lib.esnext.decorators.d.ts": "d786b48f934cbca483b3c6d0a798cb43bbb4ada283e76fb22c28e53ae05b9e69",
+    "bundled:///libs/lib.esnext.disposable.d.ts": "1ecb8e347cb6b2a8927c09b86263663289418df375f5e68e11a0ae683776978f",
+    "bundled:///libs/lib.esnext.error.d.ts": "142efd4ce210576f777dc34df121777be89eda476942d6d6663b03dcb53be3ff",
+    "bundled:///libs/lib.esnext.full.d.ts": "ef4a897cd2a3f91000c10264e400b3667c7e51e1b7365f03b62e8081dc53bde6",
+    "bundled:///libs/lib.esnext.intl.d.ts": "379bc41580c2d774f82e828c70308f24a005b490c25ba34d679d84bcf05c3d9d",
+    "bundled:///libs/lib.esnext.sharedmemory.d.ts": "ed484fb2aa8a1a23d0277056ec3336e0a0b52f9b8d6a961f338a642faf43235d",
+    "bundled:///libs/lib.esnext.temporal.d.ts": "4ffedae1d1c2d53fdbca1c96d3c7dda544281f7d262f99b6880634f8fd8d9820",
+    "bundled:///libs/lib.esnext.typedarrays.d.ts": "83a730b125d477dd264df8ba479afab27a3dae7152b005c214ab94dc7ee44fd3",
+    "bundled:///libs/lib.scripthost.d.ts": "f13f4b465c99041e912db5c44129a94588e1aafee35a50eab51044833f50b4ee",
+    "bundled:///libs/lib.webworker.importscripts.d.ts": "2a2de5b9459b3fc44decd9ce6100b72f1b002ef523126c1d3d8b2a4a63d74d78"
+  },
+  "cases": [
+    {
+      "family": "defaults",
+      "fixture_sha256": "da0f27a115606fddd1f3d45b17a5f4039f051b40407a30aad36f9188e6d02b03",
+      "names": [
+        "probe_bare",
+        "probe_full",
+        "probe_partial",
+        "probe_fnBare",
+        "probe_fnPartial",
+        "probe_computed"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnBare",
+            "baseline": "(x: Box) => Box<number>",
+            "other": "(x: Box<number>) => Box<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_fnPartial",
+            "baseline": "(x: Pair<string>) => Pair<string, string>",
+            "other": "(x: Pair<string, string>) => Pair<string, string>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnBare",
+            "baseline": "(x: Box) => Box<number>",
+            "other": "(x: Box<number>) => Box<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_fnPartial",
+            "baseline": "(x: Pair<string>) => Pair<string, string>",
+            "other": "(x: Pair<string, string>) => Pair<string, string>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export interface Box<T = number> { value: T }\nexport interface Pair<T, U = T> { left: T; right: U }\nexport declare const probe_bare: Box;\nexport declare const probe_full: Box<string>;\nexport declare const probe_partial: Pair<string>;\nexport function probe_fnBare(x: Box) { return x; }\nexport function probe_fnPartial(x: Pair<string>) { return x; }\nexport function pass<T>(x: Pair<T>): Pair<T> { return x; }\nexport const probe_computed = pass(probe_partial);\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_bare",
+          "type": "Box<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_full",
+          "type": "Box<string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "type": "Pair<string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnBare",
+          "type": "(x: Box) => Box<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "type": "(x: Pair<string>) => Pair<string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "type": "Pair<string, string>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_bare",
+          "type": "Box<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_full",
+          "type": "Box<string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "type": "Pair<string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnBare",
+          "type": "(x: Box) => Box<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "type": "(x: Pair<string>) => Pair<string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "type": "Pair<string, string>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export interface Box<T = number> {\n    value: T;\n}\nexport interface Pair<T, U = T> {\n    left: T;\n    right: U;\n}\nexport declare const probe_bare: Box;\nexport declare const probe_full: Box<string>;\nexport declare const probe_partial: Pair<string>;\nexport declare function probe_fnBare(x: Box): Box<number>;\nexport declare function probe_fnPartial(x: Pair<string>): Pair<string, string>;\nexport declare function pass<T>(x: Pair<T>): Pair<T>;\nexport declare const probe_computed: Pair<string, string>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "7759abcf6cf450cb47c924dac5aee0e1c90ad2c48fd19088c49703e17b20d317"
+      },
+      "nonzero_native_instantiation_deltas": [
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 22,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 23,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string, string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 22,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 23,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string, string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string, string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 22,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 23,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string, string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_partial",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 22,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_computed",
+          "phase": "before-check",
+          "type": "Pair<string, string>",
+          "query_instantiation_delta": 23,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnPartial",
+          "phase": "before-check",
+          "type": "(x: Pair<string>) => Pair<string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        }
+      ]
+    },
+    {
+      "family": "nested",
+      "fixture_sha256": "589f40456954fbeccd018b1dfb9e2e80cd5a40ba78b88ab99a9af68f8c84ae5c",
+      "names": [
+        "probe_nested",
+        "probe_fnNested"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnNested",
+            "baseline": "(x: Outer<Box>) => Outer<Box<number>>",
+            "other": "(x: Outer<Box<number>>) => Outer<Box<number>>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnNested",
+            "baseline": "(x: Outer<Box>) => Outer<Box<number>>",
+            "other": "(x: Outer<Box<number>>) => Outer<Box<number>>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export interface Box<T = number> { value: T }\nexport interface Outer<T> { child: T }\nexport declare const probe_nested: Outer<Box>;\nexport function probe_fnNested(x: Outer<Box>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_nested",
+          "type": "Outer<Box<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnNested",
+          "type": "(x: Outer<Box>) => Outer<Box<number>>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_nested",
+          "type": "Outer<Box<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnNested",
+          "type": "(x: Outer<Box>) => Outer<Box<number>>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export interface Box<T = number> {\n    value: T;\n}\nexport interface Outer<T> {\n    child: T;\n}\nexport declare const probe_nested: Outer<Box>;\nexport declare function probe_fnNested(x: Outer<Box>): Outer<Box<number>>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "73da424f2c199db9b1b8384c411e2f5511d398a3c7e5b306f0699e6b122112a1"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "dependent",
+      "fixture_sha256": "7b70bd991bbe632c5ee2564b5db287d0bd319e409a8015039e9a48bc14db6946",
+      "names": [
+        "probe_chain",
+        "probe_fnChain"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnChain",
+            "baseline": "(x: Chain<number, string>) => Chain<number, string, string>",
+            "other": "(x: Chain<number, string, string>) => Chain<number, string, string>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnChain",
+            "baseline": "(x: Chain<number, string>) => Chain<number, string, string>",
+            "other": "(x: Chain<number, string, string>) => Chain<number, string, string>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export interface Chain<T = string, U = T, V = U> { one: T; two: U; three: V }\nexport declare const probe_chain: Chain<number, string>;\nexport function probe_fnChain(x: Chain<number, string>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "type": "Chain<number, string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "type": "Chain<number, string, string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export interface Chain<T = string, U = T, V = U> {\n    one: T;\n    two: U;\n    three: V;\n}\nexport declare const probe_chain: Chain<number, string>;\nexport declare function probe_fnChain(x: Chain<number, string>): Chain<number, string, string>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "c8b79e4c3ae8c21483ab94eaa377aa09e9ed2adb52c8a3b26542d39667d22832"
+      },
+      "nonzero_native_instantiation_deltas": [
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnChain",
+          "phase": "before-check",
+          "type": "(x: Chain<number, string>) => Chain<number, string, string>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_chain",
+          "phase": "before-check",
+          "type": "Chain<number, string, string>",
+          "query_instantiation_delta": 1,
+          "print_instantiation_delta": 0
+        }
+      ]
+    },
+    {
+      "family": "recursive",
+      "fixture_sha256": "62ff6a0fc6e9a860f1214f9a16ff5cc8142f23a87afdb5619b0874562922c2e2",
+      "names": [
+        "probe_recursive",
+        "probe_fnRecursive"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnRecursive",
+            "baseline": "(x: Outer<Recursive>) => Outer<Recursive<number>>",
+            "other": "(x: Outer<Recursive<number>>) => Outer<Recursive<number>>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnRecursive",
+            "baseline": "(x: Outer<Recursive>) => Outer<Recursive<number>>",
+            "other": "(x: Outer<Recursive<number>>) => Outer<Recursive<number>>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export interface Recursive<T = number> { value: T; next?: Recursive<T> }\nexport interface Outer<T> { child: T }\nexport declare const probe_recursive: Outer<Recursive>;\nexport function probe_fnRecursive(x: Outer<Recursive>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_recursive",
+          "type": "Outer<Recursive<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnRecursive",
+          "type": "(x: Outer<Recursive>) => Outer<Recursive<number>>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_recursive",
+          "type": "Outer<Recursive<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnRecursive",
+          "type": "(x: Outer<Recursive>) => Outer<Recursive<number>>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export interface Recursive<T = number> {\n    value: T;\n    next?: Recursive<T>;\n}\nexport interface Outer<T> {\n    child: T;\n}\nexport declare const probe_recursive: Outer<Recursive>;\nexport declare function probe_fnRecursive(x: Outer<Recursive>): Outer<Recursive<number>>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "00fabdfcf9c8b72d59ff5291b847479b5ca69918e23e1467b39409a4efa0904b"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "mapped",
+      "fixture_sha256": "3dd4096eef0a7c2663c14df991a4fde55332de83b606d12b933999eb15ef4393",
+      "names": [
+        "probe_mapped",
+        "probe_fnMapped"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnMapped",
+            "baseline": "(x: Outer<Mapped>) => Outer<Mapped<number>>",
+            "other": "(x: Outer<Mapped<number>>) => Outer<Mapped<number>>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnMapped",
+            "baseline": "(x: Outer<Mapped>) => Outer<Mapped<number>>",
+            "other": "(x: Outer<Mapped<number>>) => Outer<Mapped<number>>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export type Mapped<T = number> = { [P in 'key']: T };\nexport interface Outer<T> { child: T }\nexport declare const probe_mapped: Outer<Mapped>;\nexport function probe_fnMapped(x: Outer<Mapped>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "type": "Outer<Mapped<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "type": "(x: Outer<Mapped>) => Outer<Mapped<number>>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "type": "Outer<Mapped<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "type": "(x: Outer<Mapped>) => Outer<Mapped<number>>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export type Mapped<T = number> = {\n    [P in 'key']: T;\n};\nexport interface Outer<T> {\n    child: T;\n}\nexport declare const probe_mapped: Outer<Mapped>;\nexport declare function probe_fnMapped(x: Outer<Mapped>): Outer<Mapped<number>>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "d1f8eb3e7674a5da8cfff491a0ef3fc6e9f8f066aaa5474ec81e416a55d0d758"
+      },
+      "nonzero_native_instantiation_deltas": [
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "phase": "before-check",
+          "type": "Outer<Mapped<number>>",
+          "query_instantiation_delta": 2,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "phase": "before-check",
+          "type": "(x: Outer<Mapped>) => Outer<Mapped<number>>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 2
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "phase": "before-check",
+          "type": "Outer<Mapped<number>>",
+          "query_instantiation_delta": 2,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "phase": "before-check",
+          "type": "(x: Outer<Mapped<number>>) => Outer<Mapped<number>>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 2
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "phase": "before-check",
+          "type": "Outer<Mapped<number>>",
+          "query_instantiation_delta": 2,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "phase": "before-check",
+          "type": "(x: Outer<Mapped<number>>) => Outer<Mapped<number>>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 2
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_mapped",
+          "phase": "before-check",
+          "type": "Outer<Mapped<number>>",
+          "query_instantiation_delta": 2,
+          "print_instantiation_delta": 0
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnMapped",
+          "phase": "before-check",
+          "type": "(x: Outer<Mapped>) => Outer<Mapped<number>>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 2
+        }
+      ]
+    },
+    {
+      "family": "conditional",
+      "fixture_sha256": "d7678ffc10dea12520ce3a3fc6e0cb1ae20e74c487933b6f1716d480ab21ca05",
+      "names": [
+        "probe_conditional",
+        "probe_fnConditional"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [
+        {
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "native": "(x: Outer<Select<number>>) => Outer<{ value: number; }>",
+          "rust": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>"
+        }
+      ],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnConditional",
+            "baseline": "(x: Outer<Select<number>>) => Outer<{ value: number; }>",
+            "other": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnConditional",
+            "baseline": "(x: Outer<Select<number>>) => Outer<{ value: number; }>",
+            "other": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export type Select<T> = T extends string ? {text: T} : {value: T};\nexport interface Outer<T> { child: T }\nexport declare const probe_conditional: Outer<Select<number>>;\nexport function probe_fnConditional(x: Outer<Select<number>>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "type": "Outer<{ value: number; }>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "type": "(x: Outer<Select<number>>) => Outer<{ value: number; }>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "type": "Outer<{ value: number; }>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "type": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export type Select<T> = T extends string ? {\n    text: T;\n} : {\n    value: T;\n};\nexport interface Outer<T> {\n    child: T;\n}\nexport declare const probe_conditional: Outer<Select<number>>;\nexport declare function probe_fnConditional(x: Outer<Select<number>>): Outer<{\n    value: number;\n}>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "ccc5c14f8347a2e888224a4937bec2873ac27cb1bd242000bb0a59058e010ec2"
+      },
+      "nonzero_native_instantiation_deltas": [
+        {
+          "protocol": "baseline",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "phase": "before-check",
+          "type": "Outer<{ value: number; }>",
+          "query_instantiation_delta": 3,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "baseline",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "phase": "before-check",
+          "type": "(x: Outer<Select<number>>) => Outer<{ value: number; }>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 4
+        },
+        {
+          "protocol": "plain",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "phase": "before-check",
+          "type": "Outer<{ value: number; }>",
+          "query_instantiation_delta": 3,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "plain",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "phase": "before-check",
+          "type": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 4
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "phase": "before-check",
+          "type": "Outer<{ value: number; }>",
+          "query_instantiation_delta": 3,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-enclosing",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "phase": "before-check",
+          "type": "(x: Outer<{ value: number; }>) => Outer<{ value: number; }>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 4
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": false,
+          "file": "contract.ts",
+          "name": "probe_conditional",
+          "phase": "before-check",
+          "type": "Outer<{ value: number; }>",
+          "query_instantiation_delta": 3,
+          "print_instantiation_delta": 1
+        },
+        {
+          "protocol": "missing-flags",
+          "reverse": true,
+          "file": "contract.ts",
+          "name": "probe_fnConditional",
+          "phase": "before-check",
+          "type": "(x: Outer<Select<number>>) => Outer<{ value: number; }>",
+          "query_instantiation_delta": 0,
+          "print_instantiation_delta": 4
+        }
+      ]
+    },
+    {
+      "family": "qualified",
+      "fixture_sha256": "7484941752bc3004d9d20d6f18c2d64ad1a25ac910ab01a3ca60aed1e453b2eb",
+      "names": [
+        "probe_qualified",
+        "probe_left",
+        "probe_right",
+        "probe_leftValue",
+        "probe_rightValue",
+        "probe_fnQualified"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [
+        {
+          "file": "contract.ts",
+          "name": "probe_qualified",
+          "native": "Alias<string>",
+          "rust": "error"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_left",
+          "native": "Alias<string>",
+          "rust": "Left.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_right",
+          "native": "Right.Shape<number>",
+          "rust": "Right.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_leftValue",
+          "native": "Alias<string>",
+          "rust": "Left.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_rightValue",
+          "native": "Right.Shape<number>",
+          "rust": "Right.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnQualified",
+          "native": "(x: Left.Shape<number>) => Alias<number>",
+          "rust": "(x: Alias<number>) => Alias<number>"
+        }
+      ],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_qualified",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_left",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_right",
+            "baseline": "Right.Shape<number>",
+            "other": "Shape<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_leftValue",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_rightValue",
+            "baseline": "Right.Shape<number>",
+            "other": "Shape<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_fnQualified",
+            "baseline": "(x: Left.Shape<number>) => Alias<number>",
+            "other": "(x: Shape<number>) => Shape<number>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_qualified",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_left",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_right",
+            "baseline": "Right.Shape<number>",
+            "other": "Shape<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_leftValue",
+            "baseline": "Alias<string>",
+            "other": "Shape<string>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_rightValue",
+            "baseline": "Right.Shape<number>",
+            "other": "Shape<number>"
+          },
+          {
+            "file": "contract.ts",
+            "name": "probe_fnQualified",
+            "baseline": "(x: Left.Shape<number>) => Alias<number>",
+            "other": "(x: Shape<number>) => Shape<number>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export namespace Left { export interface Shape<T = string> { value: T } }\nexport namespace Right { export interface Shape<T = number> { value: T } }\nimport Alias = Left.Shape;\nexport declare const probe_qualified: Alias<string>;\nexport declare const probe_left: Left.Shape;\nexport declare const probe_right: Right.Shape;\nexport const probe_leftValue: Left.Shape = {value: 'ok'};\nexport const probe_rightValue: Right.Shape = {value: 1};\nexport function probe_fnQualified(x: Left.Shape<number>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_qualified",
+          "type": "Alias<string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_left",
+          "type": "Alias<string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_right",
+          "type": "Right.Shape<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_leftValue",
+          "type": "Alias<string>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_rightValue",
+          "type": "Right.Shape<number>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnQualified",
+          "type": "(x: Left.Shape<number>) => Alias<number>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_qualified",
+          "type": "error"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_left",
+          "type": "Left.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_right",
+          "type": "Right.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_leftValue",
+          "type": "Left.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_rightValue",
+          "type": "Right.Shape"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnQualified",
+          "type": "(x: Alias<number>) => Alias<number>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export declare namespace Left {\n    interface Shape<T = string> {\n        value: T;\n    }\n}\nexport declare namespace Right {\n    interface Shape<T = number> {\n        value: T;\n    }\n}\nimport Alias = Left.Shape;\nexport declare const probe_qualified: Alias<string>;\nexport declare const probe_left: Left.Shape;\nexport declare const probe_right: Right.Shape;\nexport declare const probe_leftValue: Left.Shape;\nexport declare const probe_rightValue: Right.Shape;\nexport declare function probe_fnQualified(x: Left.Shape<number>): Alias<number>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "83c1dbb4439007fd3c96448421c65c6567bb003497294755566ebc65e74db75d"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "crossfile",
+      "fixture_sha256": "f4c8721691df14a775f59f48e3bf1db79314c2c30c30478d6e080cb9cf662cee",
+      "names": [
+        "probe_cross",
+        "probe_fnCross"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnCross",
+            "baseline": "(x: Outer<Box>) => Outer<Box<number>>",
+            "other": "(x: Outer<Box<number>>) => Outer<Box<number>>"
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_fnCross",
+            "baseline": "(x: Outer<Box>) => Outer<Box<number>>",
+            "other": "(x: Outer<Box<number>>) => Outer<Box<number>>"
+          }
+        ],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "base.ts": "export interface Box<T = number> { value: T }\nexport interface Outer<T> { child: T }",
+        "contract.ts": "import { Box, Outer } from './base';\nexport declare const probe_cross: Outer<Box>;\nexport function probe_fnCross(x: Outer<Box>) { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_cross",
+          "type": "Outer<Box<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnCross",
+          "type": "(x: Outer<Box>) => Outer<Box<number>>"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_cross",
+          "type": "Outer<Box<number>>"
+        },
+        {
+          "file": "contract.ts",
+          "name": "probe_fnCross",
+          "type": "(x: Outer<Box>) => Outer<Box<number>>"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/base.d.ts": "export interface Box<T = number> {\n    value: T;\n}\nexport interface Outer<T> {\n    child: T;\n}\n",
+        "/contract.d.ts": "import { Box, Outer } from './base';\nexport declare const probe_cross: Outer<Box>;\nexport declare function probe_fnCross(x: Outer<Box>): Outer<Box<number>>;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/base.ts": "094abaedf273b7e71d5f5e1944c523286874c107f4c3b35d199133478b6c1fd6",
+        "/contract.ts": "d067d1b526dbc44629b995e4682b5c694f52aea681ae82bfa95e251c2ca66149"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "unique-symbol",
+      "fixture_sha256": "6574840c53db22975c5e1c871be6f64bdbc45f1d4075f357d514d75189064ca2",
+      "names": [
+        "probe_symbol"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [],
+        "missing-enclosing": [],
+        "missing-flags": [
+          {
+            "file": "contract.ts",
+            "name": "probe_symbol",
+            "baseline": "unique symbol",
+            "other": "typeof probe_symbol"
+          }
+        ]
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export declare const probe_symbol: unique symbol;\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_symbol",
+          "type": "unique symbol"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_symbol",
+          "type": "unique symbol"
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export declare const probe_symbol: unique symbol;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "31d00bb0b8657de70885c6eab17dc677ebaaaffb13b0ef316d6ab4ac505ee020"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "negative",
+      "fixture_sha256": "4e3f36af5e87158de2bdf9d8be38c3473c020f604105371d9798ad39aed4c68b",
+      "names": [
+        "probe_error"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [],
+        "missing-enclosing": [],
+        "missing-flags": []
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export const probe_error: number = 'wrong';\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_error",
+          "type": "number"
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_error",
+          "type": "number"
+        }
+      ],
+      "native_diagnostics": [
+        {
+          "category": 1,
+          "chain": [],
+          "code": 2322,
+          "end": 24,
+          "file": "/contract.ts",
+          "message": "Type 'string' is not assignable to type 'number'.",
+          "pos": 13,
+          "related": [],
+          "reports_deprecated": false,
+          "reports_unnecessary": false
+        }
+      ],
+      "native_declarations": {
+        "/contract.d.ts": "export declare const probe_error: number;\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "b081015a0efe224e3e827ad846594357d378d81e7bae20bb2d9f6e2ca7539ab9"
+      },
+      "nonzero_native_instantiation_deltas": []
+    },
+    {
+      "family": "long-union",
+      "fixture_sha256": "6f64c0ab215c01249621f1edb0b123188492284f79da0ca51b86f938d2a7cc2c",
+      "names": [
+        "probe_long"
+      ],
+      "unit_bytes_match": true,
+      "rust_display_differences": [],
+      "protocol_differences": {
+        "plain": [
+          {
+            "file": "contract.ts",
+            "name": "probe_long",
+            "baseline": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\"",
+            "other": "(x: \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | ... 43 more ... | \"s063\") => \"s000\" | ... 62 more ... | \"s063\""
+          }
+        ],
+        "missing-enclosing": [
+          {
+            "file": "contract.ts",
+            "name": "probe_long",
+            "baseline": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\"",
+            "other": "(x: \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\") => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\""
+          }
+        ],
+        "missing-flags": [
+          {
+            "file": "contract.ts",
+            "name": "probe_long",
+            "baseline": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\"",
+            "other": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | ... 62 more ... | \"s063\""
+          }
+        ]
+      },
+      "complete": true,
+      "units": {
+        "contract.ts": "export function probe_long(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') { return x; }\n"
+      },
+      "native_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_long",
+          "type": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\""
+        }
+      ],
+      "rust_baseline": [
+        {
+          "file": "contract.ts",
+          "name": "probe_long",
+          "type": "(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063') => \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\""
+        }
+      ],
+      "native_diagnostics": [],
+      "native_declarations": {
+        "/contract.d.ts": "export declare function probe_long(x: 's000' | 's001' | 's002' | 's003' | 's004' | 's005' | 's006' | 's007' | 's008' | 's009' | 's010' | 's011' | 's012' | 's013' | 's014' | 's015' | 's016' | 's017' | 's018' | 's019' | 's020' | 's021' | 's022' | 's023' | 's024' | 's025' | 's026' | 's027' | 's028' | 's029' | 's030' | 's031' | 's032' | 's033' | 's034' | 's035' | 's036' | 's037' | 's038' | 's039' | 's040' | 's041' | 's042' | 's043' | 's044' | 's045' | 's046' | 's047' | 's048' | 's049' | 's050' | 's051' | 's052' | 's053' | 's054' | 's055' | 's056' | 's057' | 's058' | 's059' | 's060' | 's061' | 's062' | 's063'): \"s000\" | \"s001\" | \"s002\" | \"s003\" | \"s004\" | \"s005\" | \"s006\" | \"s007\" | \"s008\" | \"s009\" | \"s010\" | \"s011\" | \"s012\" | \"s013\" | \"s014\" | \"s015\" | \"s016\" | \"s017\" | \"s018\" | \"s019\" | \"s020\" | \"s021\" | \"s022\" | \"s023\" | \"s024\" | \"s025\" | \"s026\" | \"s027\" | \"s028\" | \"s029\" | \"s030\" | \"s031\" | \"s032\" | \"s033\" | \"s034\" | \"s035\" | \"s036\" | \"s037\" | \"s038\" | \"s039\" | \"s040\" | \"s041\" | \"s042\" | \"s043\" | \"s044\" | \"s045\" | \"s046\" | \"s047\" | \"s048\" | \"s049\" | \"s050\" | \"s051\" | \"s052\" | \"s053\" | \"s054\" | \"s055\" | \"s056\" | \"s057\" | \"s058\" | \"s059\" | \"s060\" | \"s061\" | \"s062\" | \"s063\";\n"
+      },
+      "native_emit_diagnostics": [],
+      "native_emit_skipped": false,
+      "native_fixture_input_sha256": {
+        "/contract.ts": "29280242b8a4cadcb70d0dee1bbd08e95d48685561d098b076c98db4653fcedc"
+      },
+      "nonzero_native_instantiation_deltas": []
+    }
+  ],
+  "children": [
+    {
+      "family": "defaults",
+      "protocol": "baseline",
+      "pid": 93137,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/defaults.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200713828104000,
+      "stdout_sha256": "4af3118d160ec4668a0c93a780eb4f18440bba50755e6717f87ac1f833a860ef",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "defaults",
+      "protocol": "plain",
+      "pid": 93138,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/defaults.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200713891438000,
+      "stdout_sha256": "c866a314e9c770c73363f4a977595f37470651d79b0f8158d5fabea2fee64114",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "defaults",
+      "protocol": "missing-enclosing",
+      "pid": 93139,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/defaults.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200713939420000,
+      "stdout_sha256": "afdf688ece6ff164e9b22fee05b29ce7275823838087b8d41f34c304ef921b12",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "defaults",
+      "protocol": "missing-flags",
+      "pid": 93140,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/defaults.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200713990299000,
+      "stdout_sha256": "6910db07f9af938446bf41bb7c5955301a5576df894f0e2ff81b9066c542041c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "defaults",
+      "protocol": "rust",
+      "pid": 93141,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/defaults.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714041996000,
+      "stdout_sha256": "61e1f3064625f68cc32710cda00b1bdd4c75524b19a68226870e651f0850b86d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "nested",
+      "protocol": "baseline",
+      "pid": 93143,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/nested.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714228359000,
+      "stdout_sha256": "08a1f23b5b002bc2c198eb98b45cf7a6d5cfc29b1003f618bd80ec7f874af084",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "nested",
+      "protocol": "plain",
+      "pid": 93145,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/nested.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714278917000,
+      "stdout_sha256": "30e8212e8dae8c860993cdae102d70401f7279f1d6a66e08403f6105d194c980",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "nested",
+      "protocol": "missing-enclosing",
+      "pid": 93146,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/nested.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714330537000,
+      "stdout_sha256": "ccef2c952e22f796118ee6c3fb587538b887ae0246c98ab3719ab6a0401c72ff",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "nested",
+      "protocol": "missing-flags",
+      "pid": 93147,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/nested.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714381348000,
+      "stdout_sha256": "42fee2670dd837c338abb3145c31e8b310b81852e5f81a833e9abc481f49073e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "nested",
+      "protocol": "rust",
+      "pid": 93148,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/nested.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714437758000,
+      "stdout_sha256": "58ca467e4be9c583ba536a9652d486a3eae294e5530fd34146b94a200a76a34b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "dependent",
+      "protocol": "baseline",
+      "pid": 93149,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/dependent.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714486152000,
+      "stdout_sha256": "a8958b9469fdb8e4ed8f17a38782da34dd11b230a8ead40e9f228ea82b17606d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "dependent",
+      "protocol": "plain",
+      "pid": 93150,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/dependent.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714562512000,
+      "stdout_sha256": "4c1e6799e2068a152cb36adb7c9bd009ece5fb09676bb69130b80ca900ebca17",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "dependent",
+      "protocol": "missing-enclosing",
+      "pid": 93151,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/dependent.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714616073000,
+      "stdout_sha256": "670018046ce24c0d1fd1d23c1b4a5b8a446b921e9e543f3c3aa28128ff3f4aeb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "dependent",
+      "protocol": "missing-flags",
+      "pid": 93152,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/dependent.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714670939000,
+      "stdout_sha256": "ea7eef7dd3464b440af5344fee6ed9695f15df1a77dfd670d81c0d4891a7b664",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "dependent",
+      "protocol": "rust",
+      "pid": 93153,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/dependent.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714744163000,
+      "stdout_sha256": "17a306e1db8e871f028932c3522509ddc38990e84db6e623f7d44ddb0bfb5dfc",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "recursive",
+      "protocol": "baseline",
+      "pid": 93154,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/recursive.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714797643000,
+      "stdout_sha256": "ab37d060c1e410483c8c7c599db9fe048163c18a0774ce234a93c9c615572dc3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "recursive",
+      "protocol": "plain",
+      "pid": 93155,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/recursive.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714853074000,
+      "stdout_sha256": "8fc93d2a185043c737108cb676d8ef4bf8c5f1a0f95234548b36a6d009cd5dfc",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "recursive",
+      "protocol": "missing-enclosing",
+      "pid": 93157,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/recursive.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714906664000,
+      "stdout_sha256": "16e6f46927d686fdd39fcea176b6f2e020a86f2b1600852e936d32d87f511363",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "recursive",
+      "protocol": "missing-flags",
+      "pid": 93158,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/recursive.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200714961861000,
+      "stdout_sha256": "738ddaaad947131c8e7d1e879801b618188314a157615469fb560ca6292a2a04",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "recursive",
+      "protocol": "rust",
+      "pid": 93159,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/recursive.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715018014000,
+      "stdout_sha256": "e1070e4de67d0ccd974c04289d35158d58e5053d890316a022c4fbeaa8737c7e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "mapped",
+      "protocol": "baseline",
+      "pid": 93160,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/mapped.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715087630000,
+      "stdout_sha256": "5d4196192076439260ba966115a9ca44f86ff9c213ee33ac189e61dedb0b4206",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "mapped",
+      "protocol": "plain",
+      "pid": 93161,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/mapped.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715144931000,
+      "stdout_sha256": "4de8fa56f56eb930001e3139bc20cb49805c466e56d37ab37019824c99835e07",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "mapped",
+      "protocol": "missing-enclosing",
+      "pid": 93162,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/mapped.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715200591000,
+      "stdout_sha256": "ebdfefb831a6d5107959d9c4922d4011d33b0952c04bb800af2027ba10957377",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "mapped",
+      "protocol": "missing-flags",
+      "pid": 93163,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/mapped.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715262611000,
+      "stdout_sha256": "7b1ee36a5d3bc6e27bfd90a4021afeb2c1837129c9efc97d11d65ec8d76294a3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "mapped",
+      "protocol": "rust",
+      "pid": 93164,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/mapped.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715322771000,
+      "stdout_sha256": "667dea772d11262dd915d33c8a76208d42671b9001113cb6305ac5e8a0871068",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "conditional",
+      "protocol": "baseline",
+      "pid": 93165,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/conditional.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715469002000,
+      "stdout_sha256": "8dfc7dac67afdd933b9741a9c3ab0304fa4e2fbc3d2569857dfa704bdee70a4e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "conditional",
+      "protocol": "plain",
+      "pid": 93166,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/conditional.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715555213000,
+      "stdout_sha256": "9ba82246015e20a18b6db37888cc1d7a32a87c3539ddcb4d16a5291a79b88fb1",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "conditional",
+      "protocol": "missing-enclosing",
+      "pid": 93167,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/conditional.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715612371000,
+      "stdout_sha256": "67639e8bee3c59f4c0baca289cfe1be2ed9a480d7b942c55d62d5d5ca9f01cde",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "conditional",
+      "protocol": "missing-flags",
+      "pid": 93168,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/conditional.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715675388000,
+      "stdout_sha256": "c7880da7fcf771b68c4445e6d84bafc46b4e4aad15a913d6cd14a6a0cf9d7fc5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "conditional",
+      "protocol": "rust",
+      "pid": 93169,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/conditional.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715732215000,
+      "stdout_sha256": "6b043ca5db646da824ad7345127414392f24b2c9ce0cfd7974be3520b1708796",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "qualified",
+      "protocol": "baseline",
+      "pid": 93170,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/qualified.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715788247000,
+      "stdout_sha256": "ab393385ee5fa107de2ef275808ae5c0ce6ba96ba176d01494e3a663213dec0b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "qualified",
+      "protocol": "plain",
+      "pid": 93171,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/qualified.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715846727000,
+      "stdout_sha256": "b224f12ebfe63d9d9e1a39bc85f8d0023e0fb119c5e3bdc848b499571a2e07c1",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "qualified",
+      "protocol": "missing-enclosing",
+      "pid": 93172,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/qualified.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715905150000,
+      "stdout_sha256": "82c49721ed69ad1ad92d1e04217b77c509c0396d9c75a565945dbe10a19f2532",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "qualified",
+      "protocol": "missing-flags",
+      "pid": 93173,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/qualified.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200715966308000,
+      "stdout_sha256": "2f8753550c4beb8aad19e4971c25bbfdb208e290d2415cde890a09838be300a0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "qualified",
+      "protocol": "rust",
+      "pid": 93174,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/qualified.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716027432000,
+      "stdout_sha256": "b459331fc74c9603b0a763181eca12600302772c07030bf9dfdae53c3734fb27",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "crossfile",
+      "protocol": "baseline",
+      "pid": 93175,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/crossfile.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716090614000,
+      "stdout_sha256": "ea16fbf355bd4a287f6e2e145a58e3f63713357668ecf6fbbd8b41e691efb337",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "crossfile",
+      "protocol": "plain",
+      "pid": 93176,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/crossfile.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716155342000,
+      "stdout_sha256": "f6d4df79eff3de43886674afb4ec1022ae35862a29d97fe2dd1aedc9e278d917",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "crossfile",
+      "protocol": "missing-enclosing",
+      "pid": 93177,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/crossfile.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716223878000,
+      "stdout_sha256": "3c42b9ee7d577a308f75ddaf5075a2bab7e17a5b6bab70a3c0595ab791611365",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "crossfile",
+      "protocol": "missing-flags",
+      "pid": 93178,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/crossfile.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716314674000,
+      "stdout_sha256": "5a765766c55472675c3ed91a2f6a5c857ca8cad22e7856fabe7b3f85a197332f",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "crossfile",
+      "protocol": "rust",
+      "pid": 93179,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/crossfile.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716381599000,
+      "stdout_sha256": "2d9ed79f3f52fe0a47e825d76ca668f5f3c88411733074342e0f0d0f4ef7d944",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "unique-symbol",
+      "protocol": "baseline",
+      "pid": 93181,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/unique-symbol.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716461108000,
+      "stdout_sha256": "79685d7f5d82d98a142ee0be6b2c95a610ec56b418aaeeeb042324c49c8da25b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "unique-symbol",
+      "protocol": "plain",
+      "pid": 93183,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/unique-symbol.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716539730000,
+      "stdout_sha256": "b5f46abc075bdb756aec46cd26dbedc44bf230f0b2784c1ac43c27b6cdcca3a2",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "unique-symbol",
+      "protocol": "missing-enclosing",
+      "pid": 93184,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/unique-symbol.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716607592000,
+      "stdout_sha256": "8d30e9da7a212985df45076fecc57a1660627ebca687ba07b5af9daa9fd927b3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "unique-symbol",
+      "protocol": "missing-flags",
+      "pid": 93185,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/unique-symbol.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716674329000,
+      "stdout_sha256": "fb97d0663fad0924b21599a503c89d4c663e07c9250cc1aa42272c1f9397f3e3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "unique-symbol",
+      "protocol": "rust",
+      "pid": 93186,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/unique-symbol.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716743775000,
+      "stdout_sha256": "4db5993bf748e2f151b8aec4e3bd09c3081dead277855809ab9dc1cdfa018de1",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "negative",
+      "protocol": "baseline",
+      "pid": 93187,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/negative.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716824356000,
+      "stdout_sha256": "dcf2146dd0b6047a90558c20f94808364e8c4e8c3d2469b37323c484474d105b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "negative",
+      "protocol": "plain",
+      "pid": 93188,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/negative.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716908621000,
+      "stdout_sha256": "07e253203d7adb9e8e8bbff6451630d4c59c21ab396426b731d19b0fb2362684",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "negative",
+      "protocol": "missing-enclosing",
+      "pid": 93189,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/negative.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200716979931000,
+      "stdout_sha256": "5af9bae2d50bf6123bdce236c241cf3d0ef3ee67261fb0513c97f1cf2756e365",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "negative",
+      "protocol": "missing-flags",
+      "pid": 93190,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/negative.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717053235000,
+      "stdout_sha256": "9d1412384a6d28822129dbaa913d977dd597fc4949447e19af3887bca8fa4f1c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "negative",
+      "protocol": "rust",
+      "pid": 93191,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/negative.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717151498000,
+      "stdout_sha256": "94c209887efb9778b559eee7ef9bad7248f945cce62da753590403a528431638",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "long-union",
+      "protocol": "baseline",
+      "pid": 93192,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/long-union.ts",
+        "baseline"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717230808000,
+      "stdout_sha256": "e717689db8c2c4c63df45d3976d899cb6a8a8bf90d9d4d63919caf9fd6694369",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "long-union",
+      "protocol": "plain",
+      "pid": 93193,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/long-union.ts",
+        "plain"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717301199000,
+      "stdout_sha256": "0b8e1601eaa35276cb93052760aaf0f15f6397baed1ec7674cd6507d8f001b83",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "long-union",
+      "protocol": "missing-enclosing",
+      "pid": 93194,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/long-union.ts",
+        "missing-enclosing"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717375648000,
+      "stdout_sha256": "c3e656319dc70fb7e5e0fead2b7d4fb914757bcdc4fa9f2bbff269f82374ae57",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "long-union",
+      "protocol": "missing-flags",
+      "pid": 93195,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/native-reference-spelling-v3",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/long-union.ts",
+        "missing-flags"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717461842000,
+      "stdout_sha256": "041e129da881f21ae57b1973c759e70baac71c36ab8b96aae22b7fd4d65c384b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "family": "long-union",
+      "protocol": "rust",
+      "pid": 93196,
+      "command": [
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-pool-origin-8thyy74j/normal-target/release/examples/reference_spelling_contract",
+        "/private/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-reference-contract-ojz3uwbq/oracle-v3/long-union.ts"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "started_at_unix_ns": 1791200717532398000,
+      "stdout_sha256": "2fdc3dd1f3cb251ec89253be1bab48fe7b0959e020e0a83ff478b6171d3d80e7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

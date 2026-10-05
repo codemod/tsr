@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Site-aware reference oracle (`tsr-1yb.16.3.2.1`), frozen `ecacd9d0` /
+native `5b1047d`, completes two 55-child batches over 11 families and 27
+selected variable/function probes. All fixture unit bytes and repeated
+observables agree; native diagnostics, declarations and loaded-text hashes
+stay identical across four rendering protocols and both query orders. Missing
+enclosing context and missing flags are detected. Native printing performs
+instantiations in default/dependent/mapped/conditional controls; zero counts
+do not prove all lazy effects absent. Nine families match Rust; conditional
+written annotation (`tsr-6.23.1`) and qualified alias/default (`tsr-6.67`,
+`tsr-6.66`) gaps remain explicit. No production change or speed claim; written
+reuse mutations `.16.3.2.2` still precede the measured spelling candidate.
+[Protocols, complete outputs and reproduction](docs/architecture/reference-spelling.md).
+
 Integrated-pool allocation attribution (`tsr-1yb.16.3.1`), frozen `ecacd9d0` /
 native `5b1047d`, verifies actual default/single private and checking peaks of
 4/1, identical 1,397 directly checked identities and 117 diagnostics across
