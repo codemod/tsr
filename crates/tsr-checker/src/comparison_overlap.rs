@@ -116,4 +116,59 @@ impl Checker<'_, '_> {
         self.relate_ternary(left, right, Relation::Comparable) == Ternary::NotRelated
             && self.relate_ternary(right, left, Relation::Comparable) == Ternary::NotRelated
     }
+
+    /// TS2678 — `Type '{0}' is not comparable to type '{1}'.`
+    ///
+    /// `checkSwitchStatement`'s case arm (`checker.go:4188`):
+    ///
+    /// ```go
+    /// if !c.isTypeEqualityComparableTo(expressionType, caseType) {
+    ///     c.checkTypeComparableTo(caseType, expressionType, clause.Expression(), nil)
+    /// }
+    /// ```
+    ///
+    /// Asymmetric, unlike the equality operator: only a nullable **case**
+    /// type takes the flag disjunct, and the reported pair is case → switch.
+    /// The error node is the case expression. Both relations must be a
+    /// confident `NotRelated`, as in [`Checker::check_comparison_overlap`].
+    pub(crate) fn check_switch_case_comparability(
+        &mut self,
+        statement: &tsr_ast::SwitchStatement<'_>,
+    ) {
+        let Some(expression) = statement.expression else { return };
+        let Some(case_block) = statement.case_block else { return };
+        let expression_type = self.check_expression(expression);
+        for clause in case_block.clauses {
+            let Some(case_expression) = clause.expression else { continue };
+            let case_type = self.check_expression(case_expression);
+            // A fresh object literal fails `checkTypeComparableTo` in
+            // `hasExcessProperties` first (`relater.go:2714`), which reports
+            // TS2353 on the property instead of TS2678 on the clause
+            // (`switchStatements`' `case { id: 12, name: '' }`). That
+            // reporter is not this rule's, so the clause is left silent.
+            if self.fresh_object_literal_types.contains(&case_type)
+                || self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
+                || !self.assignability_pair_is_reportable(case_type, expression_type)
+                || self.relate_ternary(expression_type, case_type, Relation::Comparable)
+                    != Ternary::NotRelated
+                || self.relate_ternary(case_type, expression_type, Relation::Comparable)
+                    != Ternary::NotRelated
+            {
+                continue;
+            }
+            let Some(at) = case_expression.node_id() else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            let source_text = self.type_to_string(case_type);
+            let target_text = self.type_to_string(expression_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::TYPE_0_IS_NOT_COMPARABLE_TO_TYPE_1,
+                    span,
+                    [source_text, target_text],
+                ),
+            );
+        }
+    }
 }

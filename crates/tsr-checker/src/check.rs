@@ -3189,13 +3189,6 @@ impl Checker<'_, '_> {
         .then_some(keyword.kind)
     }
 
-    /// TS2678 — `Type '{0}' is not comparable to type '{1}'.`
-    ///
-    /// `checkSwitchStatement`'s comparability arm, bounded to the shape that
-    /// needs no relation: a switch on an **intrinsic primitive** with a `case`
-    /// naming a **class**. A constructor object always carries `prototype`, so
-    /// the empty-interface escape that made §409 decline TS2411 does not apply
-    /// here. §414.
     /// TS1113 — `A 'default' clause cannot appear more than once in a 'switch'
     /// statement.`
     ///
@@ -3230,50 +3223,15 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `checkSwitchStatement`'s per-clause checks: TS1113 here, TS2678 in
+    /// `crate::comparison_overlap`.
     fn check_switch_case_comparable(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
         let Some(Node::SwitchStatement(statement)) = self.node_map.get(node) else { return };
         self.check_duplicate_default_clause(statement);
-        let Some(expression) = statement.expression else { return };
-        let switch_type = self.check_expression(expression);
-        let widened = self.get_base_type_of_literal_type(switch_type);
-        if !self.is_decidable_primitive(widened) {
-            return;
-        }
-        let Some(block) = statement.case_block.and_then(|block| block.node_id) else { return };
-        let Some(Node::CaseBlock(cases)) = self.node_map.get(block) else { return };
-        for clause in cases.clauses {
-            let Some(id) = clause.expression.and_then(|e| e.node_id()) else { continue };
-            if self.nodes.kind(id) != SyntaxKind::Identifier {
-                continue;
-            }
-            let Some(text) = self.identifier_text(id).map(str::to_string) else { continue };
-            let Some(symbol) =
-                self.binder.resolve_name(self.nodes, self.node_map, id, &text, SymbolFlags::VALUE)
-            else {
-                continue;
-            };
-            let symbol = self.binder.merged_symbol(symbol);
-            if !self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-                matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_)))
-            }) {
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.error_span(id);
-            let source = String::new();
-            let target = self.type_to_string(switch_type);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::TYPE_0_IS_NOT_COMPARABLE_TO_TYPE_1,
-                    span,
-                    [source, target],
-                ),
-            );
-        }
+        self.check_switch_case_comparability(statement);
     }
 
     /// TS2307 — `Cannot find module '{0}' or its corresponding type declarations.`

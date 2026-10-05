@@ -44,3 +44,23 @@ at 21 samples, but the project contains no `==`/`!=`/`===`/`!==` at all, the
 baseline binary against itself reads 1.027 in the same slot arrangement, and
 the swapped arrangement (old in the `--tsr` slot, new in `--tsgo`) reads 0.998.
 The excess is slot bias on this box, not the change.
+
+## 2. TS2678 is `checkSwitchStatement`'s comparable arm, not a class test
+
+`check.rs::check_switch_case_comparable` reported TS2678 only for a switch on
+an intrinsic primitive with a `case` naming a class (§414), with an empty
+source type in the message. Ported instead as written (`checker.go:4188`), in
+`comparison_overlap.rs::check_switch_case_comparability`:
+`!isTypeEqualityComparableTo(expr, case)` then `checkTypeComparableTo(case,
+expr)`. Note the asymmetry with the equality operator: only a nullable *case*
+type takes the flag disjunct.
+
+**One decline, and why.** A fresh object-literal case type fails the
+comparable relation in `hasExcessProperties` first, whose reporter emits
+TS2353 on the property rather than TS2678 on the clause (`switchStatements`,
+line 35). That reporter is the excess-property one, so the clause stays
+silent here; the TS2353 stays missing. It would be wrong if a case with a
+fresh literal *and* no excess property were expected to report TS2678 — none
+in the corpus does at this commit.
+
+**Measured.** TS2678 missing 47 → 0, extra 0 → 0; 17 cases converted.
