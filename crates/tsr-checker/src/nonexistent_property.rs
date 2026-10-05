@@ -149,6 +149,7 @@ impl Checker<'_, '_> {
                 // Element access keeps the declared-table certification only.
                 if !self.declared_members_are_complete(receiver_type)
                     || self.get_property_of_type(receiver_type, name_text).is_some()
+                    || self.no_index_signature_admits(receiver_type, name_text) != Some(true)
                 {
                     return;
                 }
@@ -433,7 +434,12 @@ impl Checker<'_, '_> {
     /// key only a numeric one, a `symbol` key none; any other key declines.
     fn apparent_type_lacks(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
         if self.declared_members_are_complete(apparent) {
-            return Some(self.get_property_of_type(apparent, name).is_none());
+            if self.get_property_of_type(apparent, name).is_some() {
+                return Some(false);
+            }
+            // A class's static side is certified without reading its
+            // `static [k: string]` signatures; ask them per name too.
+            return self.no_index_signature_admits(apparent, name);
         }
         let crate::types::TypeData::Named { members: Some(owner), .. } =
             self.store.get(apparent).data
@@ -463,6 +469,13 @@ impl Checker<'_, '_> {
         if self.get_property_of_type(apparent, name).is_some() {
             return Some(false);
         }
+        self.no_index_signature_admits(apparent, name)
+    }
+
+    /// `getApplicableIndexInfoForName(apparent, name) == nil`: a `string` key
+    /// admits every name, a `number` key only a numeric one, a `symbol` key
+    /// none; any other key, or unreadable signatures, decline.
+    fn no_index_signature_admits(&mut self, apparent: TypeId, name: &str) -> Option<bool> {
         for info in self.get_index_infos_of_type(apparent)? {
             if info.key == self.intrinsics.string {
                 return Some(false);

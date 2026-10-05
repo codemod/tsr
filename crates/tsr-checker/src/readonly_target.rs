@@ -35,6 +35,7 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors {
             return;
         }
+        self.check_readonly_index_signature_write(node);
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
@@ -80,20 +81,41 @@ impl Checker<'_, '_> {
             return;
         }
         let receiver_type = self.check_expression(receiver);
-        // The same gate `crate::nonexistent_property` uses: a receiver whose
-        // members this port did not finish resolving cannot be asked whether
-        // one of them is read-only either.
+        // A found readonly property is a positive answer; unlike an absence
+        // it needs no member-completeness certificate (§944.1's measurement
+        // for the type road applies to this one too).
         if self.is_error(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
-            || !self.declared_members_are_complete(receiver_type)
         {
             return;
         }
-        let Some(property) = self.get_property_of_type(receiver_type, name) else { return };
-        if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
-            return;
+        let receiver_type = self.apparent_type(receiver_type);
+        // A union property one constituent lacks (with no applicable index
+        // signature) is partial: `getPropertyOfType` answers nil and the
+        // access reports TS2339, not this.
+        if let crate::types::TypeData::Union { types, .. } =
+            self.store.get(receiver_type).data.clone()
+        {
+            let key = self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(name.to_string()),
+                false,
+            );
+            for part in types {
+                let apparent = self.apparent_type(part);
+                if self.get_property_of_type(apparent, name).is_none()
+                    && self.get_applicable_index_info(apparent, key).is_none()
+                {
+                    return;
+                }
+            }
         }
-        if self.assignment_is_inside_the_declaring_constructor(node, property) {
+        // isAssignmentToReadonlyEntity's last arm: a property found through a
+        // namespace import is readonly whatever its own declaration says.
+        if !self.is_assignment_to_readonly_property(node, receiver_type, name)
+            && (self.receiver_alias_is_namespace_import(receiver) != Some(true)
+                || self.get_property_of_type(receiver_type, name).is_none())
+        {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
@@ -106,6 +128,136 @@ impl Checker<'_, '_> {
                 [name.to_string()],
             ),
         );
+    }
+
+    /// TS2542 — `Index signature in type '{0}' only permits reading.`
+    ///
+    /// An access answered by a readonly index signature, written or deleted:
+    /// `checkPropertyAccessExpressionOrQualifiedName`'s index arm
+    /// (`checker.go:11354`) at the whole access, and
+    /// `getPropertyTypeForIndexType`'s `errorIfWritingToReadonlyIndex`
+    /// (`checker.go:27277`) at the element access. Both print the apparent
+    /// receiver. A union receiver declines: its per-constituent property
+    /// lookup (`createUnionOrIntersectionProperty`) is not this one.
+    fn check_readonly_index_signature_write(&mut self, node: NodeId) {
+        if self.assignment_target_kind(node) == AssignmentTargetKind::None
+            && !self.is_delete_target(node)
+        {
+            return;
+        }
+        let (receiver, written_name, argument) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                if access.question_dot_token.is_some() {
+                    return;
+                }
+                let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+                    (access.expression, access.name)
+                else {
+                    return;
+                };
+                (receiver, Some(name.text), None)
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                if access.question_dot_token.is_some() {
+                    return;
+                }
+                let (Some(receiver), Some(argument)) =
+                    (access.expression, access.argument_expression)
+                else {
+                    return;
+                };
+                (receiver, None, Some(argument))
+            }
+            _ => return,
+        };
+        let receiver_type = self.check_expression(receiver);
+        if self.is_error(receiver_type)
+            || self
+                .type_of(receiver_type)
+                .flags
+                .intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NEVER)
+        {
+            return;
+        }
+        let apparent = self.apparent_type(receiver_type);
+        if self.type_of(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
+            return;
+        }
+        // getPropertyNameFromIndex: a usable literal key names a property,
+        // and a found property is the 2540 road, not an index read.
+        let key = if let Some(name) = written_name {
+            if self.get_property_of_type(apparent, name).is_some() {
+                return;
+            }
+            None
+        } else {
+            let Some(argument) = argument else { return };
+            let key = self.check_expression(argument);
+            if self.is_error(key) {
+                return;
+            }
+            let property_name = match &self.type_of(key).data {
+                crate::types::TypeData::StringLiteral(text)
+                | crate::types::TypeData::NumberLiteral(text) => Some(text.clone()),
+                _ => None,
+            };
+            if let Some(name) = property_name {
+                if self.get_property_of_type(apparent, &name).is_some() {
+                    return;
+                }
+            } else if !self.type_of(key).flags.intersects(
+                TypeFlags::STRING_LIKE | TypeFlags::NUMBER_LIKE | TypeFlags::ES_SYMBOL_LIKE,
+            ) {
+                return;
+            }
+            Some(key)
+        };
+        // Only a readonly signature can answer; skip the applicability
+        // relation for the common mutable `array[i] = v`.
+        if !self
+            .get_index_infos_of_type(apparent)
+            .is_some_and(|infos| infos.iter().any(|info| info.readonly))
+        {
+            return;
+        }
+        let key = match (key, written_name) {
+            (Some(key), _) => key,
+            (None, Some(name)) => self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(name.to_string()),
+                false,
+            ),
+            (None, None) => return,
+        };
+        let Some(info) = self.get_applicable_index_info(apparent, key) else { return };
+        if !info.readonly {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        let printed = self.type_to_string(apparent);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::INDEX_SIGNATURE_IN_TYPE_0_ONLY_PERMITS_READING,
+                span,
+                [printed],
+            ),
+        );
+    }
+
+    /// `isDeleteTarget` (`utilities.go:2059`): the operand of `delete`, through
+    /// parentheses.
+    fn is_delete_target(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::ParenthesizedExpression => current = parent,
+                SyntaxKind::DeleteExpression => return true,
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// Assigning to an identifier that names something other than a variable.
@@ -285,6 +437,22 @@ impl Checker<'_, '_> {
         {
             return false;
         }
+        self.is_assignment_to_readonly_property(node, receiver_type, &name)
+    }
+
+    /// `isAssignmentToReadonlyEntity` (`checker.go:27279`) once the access is
+    /// known to be an assignment target: the property `name` of
+    /// `receiver_type` is readonly (`isReadonlySymbol`, including the
+    /// `CheckFlagsReadonly` of union and intersection properties and of
+    /// mapped `readonly` modifiers) and the write is not inside its declaring
+    /// constructor. Shared by the type road and the TS2540 diagnostic.
+    fn is_assignment_to_readonly_property(
+        &mut self,
+        node: NodeId,
+        receiver_type: crate::types::TypeId,
+        name: &str,
+    ) -> bool {
+        let name = name.to_string();
         // Tuple targets synthesize a readonly `length` property; there is no
         // binder symbol for it to carry `CheckFlagsReadonly` in this port.
         if name == "length" && self.tuple_is_readonly(receiver_type) {
@@ -350,16 +518,23 @@ impl Checker<'_, '_> {
         !self.assignment_is_inside_the_declaring_constructor(node, property)
     }
 
+    /// `getDeclarationModifierFlagsFromSymbol(symbol)&ModifierFlagsReadonly`
+    /// for the declaration kinds `is_readonly_symbol` does not read: a
+    /// property signature and a `readonly` parameter property.
     fn property_signature_is_readonly(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).declarations.iter().any(|declaration| {
-            matches!(
-                self.node_map.get(*declaration),
-                Some(Node::PropertySignatureDeclaration(signature))
-                    if signature.modifiers.iter().any(|modifier| {
-                        matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                            if token.kind == SyntaxKind::ReadonlyKeyword)
-                    })
-            )
+        let is_readonly = |modifiers: &[tsr_ast::ModifierLike<'_>]| {
+            modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::ReadonlyKeyword)
+            })
+        };
+        let entry = self.binder.symbols().get(symbol);
+        entry.declarations.iter().any(|declaration| match self.node_map.get(*declaration) {
+            Some(Node::PropertySignatureDeclaration(signature)) => is_readonly(signature.modifiers),
+            Some(Node::ParameterDeclaration(parameter)) => {
+                entry.flags.intersects(SymbolFlags::PROPERTY) && is_readonly(parameter.modifiers)
+            }
+            _ => false,
         })
     }
 
@@ -515,28 +690,6 @@ impl Checker<'_, '_> {
         }
         let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(left) else { return };
-        // **A namespace import is readonly through every member.**
-        // `isReadonlySymbol` says so of the resolved property; the receiver's
-        // own declaration says so syntactically, and says nothing about an
-        // `import =` or a `const` alias — which is upstream's answer there too.
-        // §668.
-        if let Some(receiver) = access.expression.and_then(|e| e.node_id())
-            && self.receiver_is_namespace_import(receiver)
-            && let Some(tsr_ast::MemberName::Identifier(member)) = access.name
-            && let Some(at) = member.node_id
-            && let Some(file) = self.source_file_of_for_diagnostics(at)
-        {
-            let span = self.nodes.span(at);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_A_READ_ONLY_PROPERTY,
-                    span,
-                    [member.text.to_string()],
-                ),
-            );
-            return;
-        }
         let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
         let Some(class) = self.nearest_class_declaring_private_name(left, name.text) else {
             return;
@@ -576,23 +729,36 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// Does this receiver name a `import * as ns` binding? §668.
-    fn receiver_is_namespace_import(&mut self, receiver: NodeId) -> bool {
-        let Some(text) = self.identifier_text(receiver).map(str::to_string) else { return false };
-        let Some(symbol) = self.binder.resolve_name(
+    /// `isAssignmentToReadonlyEntity`'s namespace-import arm
+    /// (`checker.go:27279`): for a receiver that is (through parentheses) an
+    /// identifier resolving to an alias, `Some(declaration is a
+    /// NamespaceImport)`; `None` for any other receiver.
+    fn receiver_alias_is_namespace_import(
+        &mut self,
+        receiver: tsr_ast::Expression<'_>,
+    ) -> Option<bool> {
+        let mut receiver = receiver.node_id()?;
+        while let Some(Node::ParenthesizedExpression(parenthesized)) = self.node_map.get(receiver) {
+            receiver = parenthesized.expression?.node_id()?;
+        }
+        let text = self.identifier_text(receiver)?.to_string();
+        let symbol = self.binder.resolve_name(
             self.nodes,
             self.node_map,
             receiver,
             &text,
             tsr_binder::SymbolFlags::VALUE | tsr_binder::SymbolFlags::ALIAS,
-        ) else {
-            return false;
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        declarations
-            .iter()
-            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::NamespaceImport)
+        )?;
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(tsr_binder::SymbolFlags::ALIAS) {
+            return None;
+        }
+        Some(
+            entry
+                .declarations
+                .iter()
+                .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::NamespaceImport),
+        )
     }
 
     /// The nearest enclosing class that declares `text`. §628.
