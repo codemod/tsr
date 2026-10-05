@@ -3874,7 +3874,7 @@ impl<'a> Checker<'a, '_> {
     /// and answers only when the set holds a single type, so order cannot reach
     /// the result. A caller that built a union would have to sort this first,
     /// because upstream's union constituents keep insertion order.
-    pub(crate) fn return_expressions_of(
+    fn return_expressions_of(
         &self,
         body: NodeId,
         owner: NodeId,

@@ -4,60 +4,45 @@ Judgment calls made by the `calls-inference` parity box. Numbers are measured
 with `verdictdump` / `diagverdictdump` against the baseline frozen at
 `0d996e8` unless a section says otherwise.
 
-## 1. Untyped calls: widening the provenance gate, not adopting `IsTypeAny` (tsr-2zk.16.5)
+## 1. REFUSED: untyped calls by callee provenance (tsr-2zk.16.5)
 
-**Forcing constraint.** `isUntypedFunctionCall` (`checker.go:9933`) is
-`IsTypeAny(funcType) || …`: any callee typed `any` makes the call an untyped
-call answering `any` (`resolveUntypedCall`, `checker.go:9902`). TSR's
-`is_untyped_call_target` admitted only an `any` the source *wrote* (annotation,
-cast, unresolved name, `any` receiver), because when it last tried the plain
-test it measured 248 gap→wrong. Cluster `UNTYPED-CALL-ANY-CALLEE` is 16 cases
-whose callee is an `any` nobody wrote.
+**Status: reverted** (48ce04a reverted at the integrator's review). Kept here
+because a refused design deleted rather than recorded costs the next session
+the same measurement.
 
-**Alternatives measured** (types lines, unfiltered, against the frozen base):
+**What it was.** `isUntypedFunctionCall`'s first disjunct is
+`IsTypeAny(funcType)` (`checker.go:9933`). TSR's `is_untyped_call_target`
+admits only an `any` the source wrote. 48ce04a added
+`any_is_upstreams_implicit_any`: syntactic arms (unannotated parameter with no
+contextual type, `undefined`/`null`-initialised var, `typeof globalThis`
+property no global declares, member declared `: any`, getter returning only
+`null`, element of `var x = []`) that guessed whether TSR's `any` was the same
+`any` upstream computes. Measured 38 gap->right, 0 gap->wrong.
 
-| Gate | gap→right | gap→wrong | right→other |
-|---|---:|---:|---:|
-| `callee_type == any` (upstream verbatim, error excluded) | 42 | 30 | 0 |
-| ANY-flagged incl. minted unresolved | 42 | 32 | 0 |
-| provenance arms below, all on | 38 | 0 | 0 |
+**Why refused.** It does not ask what upstream asks, on the same data:
+upstream asks a type question; the arms inspect declaration syntax to
+compensate for TSR producing `any` where upstream produces another type or the
+error type. That is a heuristic, and the project rule is to port the
+operation.
 
-The 30 gap→wrong of the verbatim test are callees this port types `any`
-through unported machinery, where upstream has a real type: UMD-augmentation
-members (`umd-augmentation-1..4`), private-name accessors
-(`privateName*AccessorsCallExpression`), module augmentation
-(`module_augmentUninstantiatedModule2`, `typeReferenceDirectives9`), the
-class-expression-name resolver miss (`classBlockScoping`), dynamic import
-unions, `returnInfiniteIntersection`, and a JS overload. Answering `any` there
-converts a gap into a wrong line — the convention's "a gap beats a wrong
-answer".
+**The faithful fix** is on the type side: every TSR producer that answers
+`any` for "could not compute" must answer the error type (or the right type),
+after which `IsTypeAny(funcType)` can be asked literally. Measured at
+`0d996e8`: the literal test (`callee_type == any`, error excluded) gives
+42 gap->right and **30 gap->wrong**; the 30 wrongs name the producers that must
+change first:
 
-**Decision.** Keep the allowlist; add the implicit-any provenances upstream
-computes too (`Checker::any_is_upstreams_implicit_any`, `calls.rs`). Each arm
-measured alone, each zero gap→wrong:
+| Producer of a wrong `any` callee | Cases (gap->wrong lines) |
+|---|---|
+| UMD-global augmentation members (`v.reverse` on an augmented class) | umd-augmentation-1..4 (8) |
+| private-name accessor read (`this.#fieldFunc2` typed `any`) | privateNameAccessorsCallExpression, privateNameStaticAccessorsCallExpression (8) |
+| class-expression name resolves to the outer binding | classBlockScoping (4) |
+| `/// <reference types>` / module augmentation members | typeReferenceDirectives9 (4), module_augmentUninstantiatedModule2 (1) |
+| dynamic `import()` of a union of modules | dynamicImportsDeclaration (2) |
+| recursive intersection return | returnInfiniteIntersection (2) |
+| JS overload via JSDoc | jsFileMethodOverloads (1) |
 
-| Arm | Upstream source of the `any` | gap→right |
-|---|---|---:|
-| unannotated parameter with no contextual type | `getWidenedTypeForVariableLikeDeclaration`, no context | 22 |
-| `typeof globalThis` property no global declares | `checker.go:11337-11344` | 8 |
-| element of unannotated `var x = []`, no `noImplicitAny` | widened auto-array `any[]` | 4 |
-| member declared `: any` | the annotation | 2 |
-| unannotated getter returning only `null`/`undefined` | widening of `null` | 1 |
-| unannotated var initialised `undefined`/`null` | widening | 1 |
-
-The parameter arm refines the old "positional refusal": that refusal was right
-for parameters upstream contextually types, and `has_no_contextual_type`
-(`signatures.rs`) is the existing proof that a position has none. Object-literal
-methods and JS files decline (contextual typing and JSDoc respectively).
-
-**Consequences accepted.** Four lines the verbatim test would also convert
-stay gaps (`decoratorReferences`, `contextuallyTypedIife`, two private-name
-`new` lines). The provenance machinery grows rather than shrinks.
-
-**How to know this is wrong.** Any arm producing a gap→wrong in a later run.
-**When to delete it:** when the verbatim test measures zero gap→wrong — i.e.
-once the unported `any` producers listed above are ported, the allowlist should
-be replaced by `IsTypeAny(funcType)`.
+None of these producers is in this lane's files.
 
 ## 2. `Function`-typed callees are untyped calls (tsr-2zk.16.5)
 
@@ -74,7 +59,7 @@ tagged-template roads; the `new` road has no such disjunct upstream.
 module-clone special case in `check_call_expression_worker` already computed
 the `Function` assignability; it now shares `is_assignable_to_global_function`.
 
-Measured alone on top of §1: +4 gap→right, 0 gap→wrong, 0 losses
+Measured alone on top of the (since reverted) §1 commit: +4 gap→right, 0 gap→wrong, 0 losses
 (`functionType`, `callWithSpreadES6` converted).
 
 **Not ported:** the type-parameter disjunct
@@ -107,7 +92,7 @@ right->gap). Upstream infers before `isSignatureApplicable`; a generic survivor
 now flows to `check_generic_call` unchecked, as a single generic does.
 Measured alone: +2 wrong->right, 0 losses.
 
-**Measured** (types lines vs the frozen base, on top of §1): reorder + survivor
+**Measured** (types lines vs the frozen base, on top of the since-reverted §1 commit): reorder + survivor
 fix +58 gap->right, +98 wrong->right, 0 right->other, **4 gap->wrong**, all in
 `intersectionTypeInference3`: `Array.from(a)` now resolves through the
 es2015.iterable overload (spliced first, as upstream), and the inferred
