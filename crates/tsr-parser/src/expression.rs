@@ -9,6 +9,7 @@ use tsr_ast::*;
 use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
 
+use crate::list::ParsingContext;
 use crate::parser::Parser;
 
 /// How many `>` a token represents.
@@ -987,86 +988,36 @@ impl<'a> Parser<'a> {
         Expression::NewExpression(node)
     }
 
+    /// typescript-go's `Parser.parseArgumentList` (`parser.go`):
+    /// `parseDelimitedList(PCArgumentExpressions, parseArgumentExpression)`
+    /// between parentheses. A token that is no argument is reported and
+    /// skipped unless an enclosing list wants it (§191/§235/§197's stand-ins,
+    /// now the real `isInSomeParsingContext`).
     pub(crate) fn parse_arguments(&mut self) -> Vec<Expression<'a>> {
         self.expect(SyntaxKind::OpenParenToken);
-        let mut arguments = Vec::new();
-        while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
-            // `isListElement(PCArgumentExpressions)` (`parser.go:882`), applied
-            // only where the two-way break cannot disagree with upstream's
-            // three-way one. §197.
-            //
-            // Upstream, on a token that is not an argument, first asks
-            // `isListTerminator` — `)` or `;` for this context (`:938`) — and
-            // then `abortParsingListOrMoveToNextToken` (`:698`), which breaks if
-            // the token belongs to an ENCLOSING list and otherwise reports
-            // `Argument_expression_expected`, skips one token and retries. That
-            // third arm needs the `parsingContexts` bitmask, which only exists
-            // if `parseDelimitedList` runs every list — see
-            // `docs/architecture/checker-notes-nearmiss.md` §191.
-            //
-            // So the guard is deliberately narrow: it fires only on the closers,
-            // where upstream breaks under *either* arm — `;` by the terminator
-            // test, `}` and `]` by the abort test, since both certainly close an
-            // enclosing block, object, array or index. Every other non-argument
-            // token keeps this parser's existing behaviour rather than taking a
-            // recovery decision this port cannot yet make faithfully.
-            //
-            // These three are `isStartOfExpression`'s answer already, and the
-            // first draft said so out loud with a `&& !self.is_start_of_expression()`
-            // beside them. **The mutation run reddened nothing when that clause
-            // was deleted** — a closer cannot begin an expression, so the test
-            // could not change the answer. A condition that cannot change the
-            // answer is not a guard, and keeping it would have read as though
-            // the general predicate were in force here when only three tokens
-            // are.
-            if matches!(
-                self.token.kind,
-                SyntaxKind::SemicolonToken
-                    | SyntaxKind::CloseBraceToken
-                    | SyntaxKind::CloseBracketToken
-            ) {
-                break;
-            }
-            // §235: upstream's THIRD arm, for this context only.
-            // `abortParsingListOrMoveToNextToken` (`parser.go:698`) reports,
-            // **skips one token, and retries** — creating no node — when the
-            // token neither starts an element nor terminates the list nor
-            // belongs to an enclosing one. This port parsed an argument
-            // regardless, so `Foo(,` minted a zero-width missing identifier and
-            // rendered one assertion more than upstream.
-            //
-            // The `parsingContexts` bitmask this arm needs in general does not
-            // exist here — see `checker-notes-nearmiss.md` §191/§228. What
-            // stands in for it is the break above, which already leaves on the
-            // three closers that certainly end an enclosing block, object or
-            // index. A token that starts no expression and is none of those is
-            // one upstream skips.
-            // `isListElement(PCArgumentExpressions)` is
-            // `token == KindDotDotDotToken || isStartOfExpression()`
-            // (`parser.go:884`) — **both halves**. The first draft ported only
-            // the second and measured +2 cases against roughly **three thousand
-            // lines lost**, every one of them a spread argument:
-            // `variadicTuples1` −466, `genericRestParameters1` −310,
-            // `callWithSpread` −218. Corollary 30, by the author of the commit
-            // that had just cited it.
-            if !self.at(SyntaxKind::DotDotDotToken) && !self.is_start_of_expression() {
-                self.next_token();
-                continue;
-            }
-            let before = self.pos();
-            arguments.push(self.parse_argument());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            if self.pos() == before {
-                break;
-            }
-        }
+        // `parseArgumentExpression`: arguments are never in a disallow-in
+        // context.
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let (arguments, _) =
+            self.parse_delimited_list(ParsingContext::ArgumentExpressions, Self::parse_argument);
+        self.no_in = saved_no_in;
         self.expect(SyntaxKind::CloseParenToken);
         arguments
     }
 
+    /// typescript-go's `Parser.parseArgumentOrArrayLiteralElement`
+    /// (`parser.go`).
     fn parse_argument(&mut self) -> Expression<'a> {
+        if self.at(SyntaxKind::CommaToken) {
+            let at = self.node_end();
+            let node = self.finish_node_with_end(
+                OmittedExpression::new(),
+                SyntaxKind::OmittedExpression,
+                at,
+                at,
+            );
+            return Expression::OmittedExpression(node);
+        }
         if self.at(SyntaxKind::DotDotDotToken) {
             let start = self.pos();
             self.next_token();
@@ -1910,12 +1861,37 @@ impl<'a> Parser<'a> {
         self.parse_arrow_body()
     }
 
+    /// typescript-go's `Parser.parseArrowFunctionExpressionBody` (`parser.go`).
     fn parse_arrow_body(&mut self) -> ConciseBody<'a> {
         if self.at(SyntaxKind::OpenBraceToken) {
-            ConciseBody::Block(self.parse_block())
-        } else {
-            ConciseBody::from(self.parse_assignment_expression())
+            return ConciseBody::Block(self.parse_block());
         }
+        // A plain statement (no expression statement, no function or class)
+        // where a body belongs: the user probably left out the `{`, as in
+        // `a =>⏎ let v = 0; }`. Parse a block so the next `}` does not close
+        // the containing construct early.
+        if !matches!(
+            self.token.kind,
+            SyntaxKind::SemicolonToken | SyntaxKind::FunctionKeyword | SyntaxKind::ClassKeyword
+        ) && self.is_start_of_statement()
+            && !self.is_start_of_expression_statement()
+        {
+            return ConciseBody::Block(self.parse_block_ex(true, None));
+        }
+        ConciseBody::from(self.parse_assignment_expression())
+    }
+
+    /// typescript-go's `Parser.isStartOfExpressionStatement` (`parser.go`):
+    /// none of `{`, `function`, `class` or `@` can start an expression
+    /// statement.
+    fn is_start_of_expression_statement(&mut self) -> bool {
+        !matches!(
+            self.token.kind,
+            SyntaxKind::OpenBraceToken
+                | SyntaxKind::FunctionKeyword
+                | SyntaxKind::ClassKeyword
+                | SyntaxKind::AtToken
+        ) && self.is_start_of_expression()
     }
 
     /// Parse `` `a${x}b` ``.

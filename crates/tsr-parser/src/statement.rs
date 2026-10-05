@@ -613,6 +613,17 @@ impl<'a> Parser<'a> {
         &mut self,
         missing_open_brace: Option<&'static tsr_diagnostics::Message>,
     ) -> &'a Block<'a> {
+        self.parse_block_ex(false, missing_open_brace)
+    }
+
+    /// `parseBlock(ignoreMissingOpenBrace, diagnosticMessage)`: with
+    /// `ignore_missing_open_brace` the statements are parsed even though the
+    /// `{` was reported missing.
+    pub(crate) fn parse_block_ex(
+        &mut self,
+        ignore_missing_open_brace: bool,
+        missing_open_brace: Option<&'static tsr_diagnostics::Message>,
+    ) -> &'a Block<'a> {
         let start = self.pos();
         let open_brace_parsed = match missing_open_brace {
             Some(message) if !self.at(SyntaxKind::OpenBraceToken) => {
@@ -621,7 +632,7 @@ impl<'a> Parser<'a> {
             }
             _ => self.expect(SyntaxKind::OpenBraceToken),
         };
-        if !open_brace_parsed {
+        if !open_brace_parsed && !ignore_missing_open_brace {
             return self.finish_node(Block::new(&[], true), SyntaxKind::Block, start);
         }
         let statements = self.parse_statement_list(ParsingContext::BlockStatements);

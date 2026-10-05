@@ -44,12 +44,14 @@ pub(crate) enum ParsingContext {
     EnumMembers = 6,
     /// `PCVariableDeclarations`: declarations of a variable statement.
     VariableDeclarations = 8,
+    /// `PCArgumentExpressions`: arguments of a call or `new`.
+    ArgumentExpressions = 11,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -58,6 +60,7 @@ impl ParsingContext {
         Self::ClassMembers,
         Self::EnumMembers,
         Self::VariableDeclarations,
+        Self::ArgumentExpressions,
     ];
 
     const fn bit(self) -> u32 {
@@ -183,6 +186,9 @@ impl Parser<'_> {
             }
             ParsingContext::VariableDeclarations => {
                 self.is_binding_identifier_or_private_identifier_or_pattern()
+            }
+            ParsingContext::ArgumentExpressions => {
+                self.at(SyntaxKind::DotDotDotToken) || self.is_start_of_expression()
             }
         }
     }
@@ -321,6 +327,10 @@ impl Parser<'_> {
                             | SyntaxKind::EqualsGreaterThanToken
                     )
             }
+            // Tokens other than ')' are here for better error recovery.
+            ParsingContext::ArgumentExpressions => {
+                matches!(self.token.kind, SyntaxKind::CloseParenToken | SyntaxKind::SemicolonToken)
+            }
             ParsingContext::SwitchClauseStatements => matches!(
                 self.token.kind,
                 SyntaxKind::CloseBraceToken | SyntaxKind::CaseKeyword | SyntaxKind::DefaultKeyword
@@ -391,6 +401,9 @@ impl Parser<'_> {
             }
             ParsingContext::VariableDeclarations => {
                 self.error_at_current(&messages::VARIABLE_DECLARATION_EXPECTED);
+            }
+            ParsingContext::ArgumentExpressions => {
+                self.error_at_current(&messages::ARGUMENT_EXPRESSION_EXPECTED);
             }
         }
     }
