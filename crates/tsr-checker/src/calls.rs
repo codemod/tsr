@@ -389,8 +389,9 @@ pub(crate) enum CallHead {
     /// The head reported (or another error was already reported); `resolveCall`
     /// is not reached — `resolveErrorCall`/`resolveUntypedCall` upstream.
     Done,
-    /// The callee has call signatures; `resolveCall` runs over them.
-    Resolve,
+    /// The callee's apparent type has call signatures; `resolveCall` runs
+    /// over them.
+    Resolve(TypeId),
     /// A list this port cannot certify complete: nothing is reported.
     Unknown,
 }
@@ -474,7 +475,7 @@ impl Checker<'_, '_> {
             // resolves return types eagerly, which upstream's
             // `getSignaturesOfType` does not, and building it from inside the
             // callee's own body re-enters its return inference.
-            return CallHead::Resolve;
+            return CallHead::Resolve(apparent);
         } else {
             let Some(call_count) = self.head_signature_count(apparent, SignatureKind::Call) else {
                 return CallHead::Unknown;
@@ -518,7 +519,7 @@ impl Checker<'_, '_> {
             untyped
         };
         if !untyped {
-            return CallHead::Resolve;
+            return CallHead::Resolve(apparent);
         }
         if !self.is_error(func_type) && !call.type_arguments.is_empty() {
             self.report_at_node(
@@ -539,11 +540,107 @@ impl Checker<'_, '_> {
         }
         match self.check_call_expression_head(node) {
             CallHead::Done => {}
-            CallHead::Resolve | CallHead::Unknown => {
+            CallHead::Resolve(apparent) => {
+                self.check_call_arity(node);
+                if !self.check_call_type_argument_arity_of_signatures(node, apparent) {
+                    self.check_call_type_argument_arity(node);
+                }
+            }
+            CallHead::Unknown => {
                 self.check_call_arity(node);
                 self.check_call_type_argument_arity(node);
             }
         }
+    }
+
+    /// `reportCallResolutionErrors`' last arm (`checker.go:9649`) for a call
+    /// with written type arguments: when no candidate passes
+    /// `hasCorrectTypeArgumentArity` (`checker.go:9214`), `chooseOverload`
+    /// skips every candidate before any argument or type-argument check, so
+    /// no other arm has a candidate and the error is
+    /// `getTypeArgumentArityError` (`checker.go:9853`) over all signatures.
+    ///
+    /// `false` when the signature list is not certified, so the caller keeps
+    /// the declaration-based rule; `true` when this decided (reported or not).
+    fn check_call_type_argument_arity_of_signatures(
+        &mut self,
+        node: tsr_ast::NodeId,
+        apparent: TypeId,
+    ) -> bool {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return false;
+        };
+        let type_arguments = call.type_arguments;
+        let (Some(first), Some(last)) = (type_arguments.first(), type_arguments.last()) else {
+            return true;
+        };
+        if self.in_js_file(node) {
+            return false;
+        }
+        let Some(signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
+            return false;
+        };
+        if signatures.is_empty() {
+            return false;
+        }
+        let count = type_arguments.len();
+        let arities: Vec<(usize, usize)> = signatures
+            .iter()
+            .map(|signature| {
+                (
+                    Self::min_type_argument_count(&signature.type_parameters),
+                    signature.type_parameters.len(),
+                )
+            })
+            .collect();
+        if arities.iter().any(|&(min, max)| count >= min && count <= max) {
+            return true;
+        }
+        let (Some(first), Some(last)) = (first.node_id(), last.node_id()) else { return true };
+        let span =
+            tsr_core::Span { start: self.nodes.span(first).start, end: self.nodes.span(last).end };
+        let diagnostic = if let [(min, max)] = arities.as_slice() {
+            let expected = if min < max { format!("{min}-{max}") } else { min.to_string() };
+            Diagnostic::with_args(
+                &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                span,
+                [expected, count.to_string()],
+            )
+        } else {
+            let mut below: Option<usize> = None;
+            let mut above: Option<usize> = None;
+            for &(min, max) in &arities {
+                if min > count {
+                    above = Some(above.map_or(min, |above| above.min(min)));
+                } else if max < count {
+                    below = Some(below.map_or(max, |below| below.max(max)));
+                }
+            }
+            match (below, above) {
+                (Some(below), Some(above)) => Diagnostic::with_args(
+                    &messages::NO_OVERLOAD_EXPECTS_0_TYPE_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_TYPE_ARGUMENTS,
+                    span,
+                    [count.to_string(), below.to_string(), above.to_string()],
+                ),
+                (Some(expected), None) | (None, Some(expected)) => Diagnostic::with_args(
+                    &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                    span,
+                    [expected.to_string(), count.to_string()],
+                ),
+                (None, None) => return true,
+            }
+        };
+        self.report_at_node(node, diagnostic);
+        true
+    }
+
+    /// `getMinTypeArgumentCount` (`checker.go`): one past the last type
+    /// parameter without a default.
+    fn min_type_argument_count(type_parameters: &[crate::signatures::TypeParameter]) -> usize {
+        type_parameters
+            .iter()
+            .rposition(|parameter| parameter.default.is_none())
+            .map_or(0, |i| i + 1)
     }
 
     /// `checkNonNullTypeWithReporter` (`checker.go:7413`) with
@@ -634,7 +731,7 @@ impl Checker<'_, '_> {
     /// list is read without `complete_signature_return` — completing it from
     /// the diagnostic walk re-enters a method's return inference from a call
     /// in its own body. Every other shape goes through the shared resolver.
-    fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {
+    fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
         let t = self.apparent_type(t);
         let is_call = kind == SignatureKind::Call;
         if let Some(signatures) = self.signature_types.get(&t) {
@@ -642,7 +739,8 @@ impl Checker<'_, '_> {
                 signatures
                     .iter()
                     .filter(|signature| (signature.kind == SignatureKind::Call) == is_call)
-                    .count(),
+                    .cloned()
+                    .collect(),
             );
         }
         // A class merged with a function declares call signatures through the
@@ -659,7 +757,11 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        self.signatures_of_type_kind(t, kind).map(|signatures| signatures.len())
+        self.signatures_of_type_kind(t, kind)
+    }
+
+    fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {
+        self.head_signatures(t, kind).map(|signatures| signatures.len())
     }
 
     /// The type-variable half of `couldContainTypeVariables` (`checker.go`),
