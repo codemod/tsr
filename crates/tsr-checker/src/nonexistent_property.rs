@@ -792,11 +792,15 @@ impl Checker<'_, '_> {
     ///   `N.x.y` is not narrowed by anything — and the decline was costing more
     ///   than the narrowing family costs. The narrowing cases are still wrong
     ///   lines; they are outnumbered.
-    /// - **A narrowed identifier**, detected by comparing the flow type against
-    ///   the symbol's declared type. `controlFlowInstanceof`,
-    ///   `narrowByClauseExpressionInSwitchTrue7` and `typePredicateInLoop` are
-    ///   the family, and it is exactly the family `checker-notes-narrow.md`
-    ///   owns.
+    /// - ~~**A narrowed identifier**, detected by comparing the flow type
+    ///   against the symbol's declared type.~~ **Narrowed to a constraint
+    ///   substitution, tsr-2zk.4.** The decline was drawn when
+    ///   `controlFlowInstanceof`, `narrowByClauseExpressionInSwitchTrue7` and
+    ///   `typePredicateInLoop` narrowed wrongly; measured at `0d996e8` without
+    ///   it, every flow-narrowed miss it unlocked was a baseline diagnostic (37
+    ///   lines, 0 false) and the only false reports came from
+    ///   `getNarrowableTypeForReference` substituting an indexed-access or
+    ///   conditional constraint, which is what still declines.
     ///
     /// A `this` receiver is **not** declined: `thisBinding` and `statics` are
     /// conversions and `this` in a class body is not narrowed by anything this
@@ -819,7 +823,32 @@ impl Checker<'_, '_> {
                     return false;
                 };
                 let symbol = self.binder.merged_symbol(symbol);
-                self.get_type_of_symbol(symbol) == flowed
+                let declared = self.get_type_of_symbol(symbol);
+                if declared == flowed {
+                    return true;
+                }
+                // getFlowTypeOfReference (pinned flow.go) starts the walk from
+                // getNarrowableTypeForReference (checker.go:31491). Without a
+                // constraint substitution, the difference is the walk's own
+                // narrowing, which is trusted. A substitution is trusted only
+                // through a declared type parameter's constraint: the
+                // indexed-access and conditional constraint arms are not yet
+                // upstream's. `docs/parity/notes/property.md` §1.
+                if self.narrowable_type_for_reference(declared, receiver) == declared {
+                    return true;
+                }
+                let parts = match &self.store.get(declared).data {
+                    crate::types::TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![declared],
+                };
+                parts.into_iter().all(|part| {
+                    !self.store.get(part).flags.intersects(
+                        crate::flags::TypeFlags::INDEXED_ACCESS
+                            | crate::flags::TypeFlags::CONDITIONAL
+                            | crate::flags::TypeFlags::SUBSTITUTION
+                            | crate::flags::TypeFlags::INTERSECTION,
+                    )
+                })
             }
             _ => true,
         }
