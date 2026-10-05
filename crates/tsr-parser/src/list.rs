@@ -44,6 +44,10 @@ pub(crate) enum ParsingContext {
     EnumMembers = 6,
     /// `PCVariableDeclarations`: declarations of a variable statement.
     VariableDeclarations = 8,
+    /// `PCObjectBindingElements`: elements of an object binding pattern.
+    ObjectBindingElements = 9,
+    /// `PCArrayBindingElements`: elements of an array binding pattern.
+    ArrayBindingElements = 10,
     /// `PCArgumentExpressions`: arguments of a call or `new`.
     ArgumentExpressions = 11,
     /// `PCArrayLiteralMembers`: elements of an array literal.
@@ -55,7 +59,7 @@ pub(crate) enum ParsingContext {
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 13] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -64,6 +68,8 @@ impl ParsingContext {
         Self::ClassMembers,
         Self::EnumMembers,
         Self::VariableDeclarations,
+        Self::ObjectBindingElements,
+        Self::ArrayBindingElements,
         Self::ArgumentExpressions,
         Self::ArrayLiteralMembers,
         Self::Parameters,
@@ -192,6 +198,14 @@ impl Parser<'_> {
             }
             ParsingContext::VariableDeclarations => {
                 self.is_binding_identifier_or_private_identifier_or_pattern()
+            }
+            ParsingContext::ObjectBindingElements => {
+                matches!(self.token.kind, SyntaxKind::OpenBracketToken | SyntaxKind::DotDotDotToken)
+                    || self.is_literal_property_name()
+            }
+            ParsingContext::ArrayBindingElements => {
+                matches!(self.token.kind, SyntaxKind::CommaToken | SyntaxKind::DotDotDotToken)
+                    || self.is_binding_identifier_or_private_identifier_or_pattern()
             }
             ParsingContext::ArgumentExpressions => {
                 self.at(SyntaxKind::DotDotDotToken) || self.is_start_of_expression()
@@ -328,7 +342,8 @@ impl Parser<'_> {
             | ParsingContext::SwitchClauses
             | ParsingContext::TypeMembers
             | ParsingContext::ClassMembers
-            | ParsingContext::EnumMembers => self.at(SyntaxKind::CloseBraceToken),
+            | ParsingContext::EnumMembers
+            | ParsingContext::ObjectBindingElements => self.at(SyntaxKind::CloseBraceToken),
             // If we can consume a semicolon (either explicitly, or with ASI),
             // then consider us done. A for-in/of declaration ends at its
             // keyword, and for error recovery a `=>` stops the list at once.
@@ -345,7 +360,9 @@ impl Parser<'_> {
             ParsingContext::ArgumentExpressions => {
                 matches!(self.token.kind, SyntaxKind::CloseParenToken | SyntaxKind::SemicolonToken)
             }
-            ParsingContext::ArrayLiteralMembers => self.at(SyntaxKind::CloseBracketToken),
+            ParsingContext::ArrayLiteralMembers | ParsingContext::ArrayBindingElements => {
+                self.at(SyntaxKind::CloseBracketToken)
+            }
             // Tokens other than ')' and ']' (the latter for index signatures)
             // are here for better error recovery.
             ParsingContext::Parameters => {
@@ -424,6 +441,12 @@ impl Parser<'_> {
             }
             ParsingContext::VariableDeclarations => {
                 self.error_at_current(&messages::VARIABLE_DECLARATION_EXPECTED);
+            }
+            ParsingContext::ObjectBindingElements => {
+                self.error_at_current(&messages::PROPERTY_DESTRUCTURING_PATTERN_EXPECTED);
+            }
+            ParsingContext::ArrayBindingElements => {
+                self.error_at_current(&messages::ARRAY_ELEMENT_DESTRUCTURING_PATTERN_EXPECTED);
             }
             ParsingContext::ArgumentExpressions => {
                 self.error_at_current(&messages::ARGUMENT_EXPRESSION_EXPECTED);

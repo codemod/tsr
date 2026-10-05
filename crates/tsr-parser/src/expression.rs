@@ -2597,6 +2597,17 @@ impl<'a> Parser<'a> {
                 );
                 PropertyName::NumericLiteral(node)
             }
+            // `parsePropertyNameWorker`: a bigint literal names a property
+            // too (and the checker reports TS1539).
+            SyntaxKind::BigIntLiteral => {
+                let (text, flags) = self.take_literal();
+                let node = self.finish_node(
+                    BigIntLiteral::new(text, flags),
+                    SyntaxKind::BigIntLiteral,
+                    start,
+                );
+                PropertyName::BigIntLiteral(node)
+            }
             SyntaxKind::OpenBracketToken => {
                 self.next_token();
                 let expression = self.parse_assignment_expression();
@@ -2639,76 +2650,63 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// typescript-go's `Parser.parseArrayBindingPattern` (`parser.go`):
+    /// `parseDelimitedList(PCArrayBindingElements, parseArrayBindingElement)`
+    /// outside any disallow-in context.
     fn parse_array_binding_pattern(&mut self) -> BindingName<'a> {
         let start = self.pos();
         let kind_token = self.alloc_token(SyntaxKind::OpenBracketToken, self.token.span);
         self.expect(SyntaxKind::OpenBracketToken);
-        let mut elements = Vec::new();
-        let mut has_trailing_comma = false;
-        while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-            if self.at(SyntaxKind::CommaToken) {
-                // A hole, `[, a]`. Upstream's `parseArrayBindingElement`
-                // (`parser.go:1656`) represents it as a `BindingElement` whose
-                // fields are all nil — "These are all nil for a missing
-                // element" — and `getBindingElementTypeFromParentType` counts
-                // it in `slices.Index(pattern.Elements(), declaration)`
-                // (`checker.go:17750`). Skipping the hole, as this loop did
-                // before `bd tsr-o00`, silently renumbered every element after
-                // it.
-                let hole_start = self.pos();
-                let hole = self.finish_node(
-                    tsr_ast::BindingElement::new(None, None, None, None),
-                    SyntaxKind::BindingElement,
-                    hole_start,
-                );
-                elements.push(hole);
-                self.next_token();
-                has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
-                continue;
-            }
-            elements.push(self.parse_binding_element());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
-        }
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let (elements, has_trailing_comma) = self.parse_delimited_list(
+            ParsingContext::ArrayBindingElements,
+            Self::parse_array_binding_element,
+        );
+        self.no_in = saved_no_in;
         self.expect(SyntaxKind::CloseBracketToken);
-        let elements = self.arena.alloc_slice(&elements);
-        let end = self.node_end();
-        let flags = if has_trailing_comma {
-            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
-        } else {
-            tsr_ast::NodeFlags::empty()
-        };
-        let node = self.finish_node_with_flags(
-            BindingPattern::new(kind_token, elements),
+        self.finish_binding_pattern(
+            kind_token,
+            &elements,
+            has_trailing_comma,
             SyntaxKind::ArrayBindingPattern,
             start,
-            end,
-            flags,
-        );
-        BindingName::BindingPattern(node)
+        )
     }
 
+    /// typescript-go's `Parser.parseObjectBindingPattern` (`parser.go`):
+    /// `parseDelimitedList(PCObjectBindingElements, parseObjectBindingElement)`
+    /// outside any disallow-in context.
     fn parse_object_binding_pattern(&mut self) -> BindingName<'a> {
         let start = self.pos();
         let kind_token = self.alloc_token(SyntaxKind::OpenBraceToken, self.token.span);
         self.expect(SyntaxKind::OpenBraceToken);
-        let mut elements = Vec::new();
-        let mut has_trailing_comma = false;
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            elements.push(self.parse_binding_element());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            has_trailing_comma = self.at(SyntaxKind::CloseBraceToken);
-            if self.pos() == before {
-                break;
-            }
-        }
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let (elements, has_trailing_comma) = self.parse_delimited_list(
+            ParsingContext::ObjectBindingElements,
+            Self::parse_object_binding_element,
+        );
+        self.no_in = saved_no_in;
         self.expect(SyntaxKind::CloseBraceToken);
-        let elements = self.arena.alloc_slice(&elements);
+        self.finish_binding_pattern(
+            kind_token,
+            &elements,
+            has_trailing_comma,
+            SyntaxKind::ObjectBindingPattern,
+            start,
+        )
+    }
+
+    /// The pattern node, with the trailing comma recorded as a flag: upstream
+    /// reads it off the list's span, which this AST does not keep.
+    fn finish_binding_pattern(
+        &mut self,
+        kind_token: &'a tsr_ast::Token<'a>,
+        elements: &[&'a BindingElement<'a>],
+        has_trailing_comma: bool,
+        kind: SyntaxKind,
+        start: u32,
+    ) -> BindingName<'a> {
+        let elements = self.arena.alloc_slice(elements);
         let end = self.node_end();
         let flags = if has_trailing_comma {
             tsr_ast::NodeFlags::HAS_TRAILING_COMMA
@@ -2717,7 +2715,7 @@ impl<'a> Parser<'a> {
         };
         let node = self.finish_node_with_flags(
             BindingPattern::new(kind_token, elements),
-            SyntaxKind::ObjectBindingPattern,
+            kind,
             start,
             end,
             flags,
@@ -2725,86 +2723,66 @@ impl<'a> Parser<'a> {
         BindingName::BindingPattern(node)
     }
 
-    fn parse_binding_element(&mut self) -> &'a BindingElement<'a> {
+    /// typescript-go's `Parser.parseArrayBindingElement` (`parser.go`). A
+    /// hole, `[, a]`, is a `BindingElement` whose fields are all nil —
+    /// "These are all nil for a missing element" — and
+    /// `getBindingElementTypeFromParentType` counts it in
+    /// `slices.Index(pattern.Elements(), declaration)` (`checker.go:17750`),
+    /// so it must stay in the list (`bd tsr-o00`).
+    fn parse_array_binding_element(&mut self) -> &'a BindingElement<'a> {
+        let start = self.pos();
+        if self.at(SyntaxKind::CommaToken) {
+            return self.finish_node(
+                tsr_ast::BindingElement::new(None, None, None, None),
+                SyntaxKind::BindingElement,
+                start,
+            );
+        }
+        let dot_dot_dot =
+            if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
+        let name = self.parse_binding_name();
+        let initializer = self.parse_binding_initializer();
+        self.finish_node(
+            BindingElement::new(dot_dot_dot, None, Some(name), initializer),
+            SyntaxKind::BindingElement,
+            start,
+        )
+    }
+
+    /// typescript-go's `Parser.parseObjectBindingElement` (`parser.go`).
+    ///
+    /// `tokenIsIdentifier` is read **before** the property name is parsed:
+    /// a reserved word (`{ while }`) or a literal name takes the `:` branch
+    /// and reports a single `':' expected` (§202), while a binding
+    /// identifier not followed by `:` is a shorthand.
+    fn parse_object_binding_element(&mut self) -> &'a BindingElement<'a> {
         let start = self.pos();
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
-
-        // `{ [k]: v }` renames via a computed key; `[a, b]` is a nested array
-        // pattern. Both start with `[`, and only the `:` after the closing
-        // bracket tells them apart — reading `[` as a key unconditionally breaks
-        // every nested array destructuring.
-        let bracket_is_computed_key = self.at(SyntaxKind::OpenBracketToken) && {
-            let mut matched = false;
-            self.try_parse(|p| {
-                if p.skip_balanced(SyntaxKind::OpenBracketToken) {
-                    matched = p.at(SyntaxKind::ColonToken);
-                }
-                None::<()>
-            });
-            matched
-        };
-
-        // `{ a: b }` renames; `{ a }` does not. A keyword property that
-        // renames is legal — `{ enum: e }` — because upstream reads the
-        // property with `parsePropertyName`, an identifier-name position
-        // (`declarationEmitKeywordDestructuring`).
-        //
-        // **And a RESERVED word takes this branch whatever follows it.**
-        // `parseObjectBindingElement` (`parser.go:1687`) branches on
-        // `tokenIsIdentifier && p.token != KindColonToken`, where
-        // `tokenIsIdentifier` is `isBindingIdentifier()` (`:6262`) — *"the
-        // token is an identifier, or is past the last reserved word"* — and is
-        // read **before** the property name is parsed. So `{ while }` takes the
-        // `else`, which reports a single `':' expected` on the `}`; this port
-        // asked only whether a colon followed, sent `while` to
-        // `parse_binding_name`, and got `Identifier expected` at the keyword
-        // instead. §202.
-        let binding_identifier = self.token.kind == SyntaxKind::Identifier
-            || (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16);
-        let keyword_renames = self.token.kind.is_keyword()
-            && (!binding_identifier || self.peek_kind(|kind| kind == SyntaxKind::ColonToken));
-        let (property_name, name) = if bracket_is_computed_key
-            || keyword_renames
-            || self.at(SyntaxKind::StringLiteral)
-            || self.at(SyntaxKind::NumericLiteral)
-        {
-            let property = self.parse_property_name();
-            self.expect(SyntaxKind::ColonToken);
-            (Some(property), self.parse_binding_name())
-        } else {
-            let name = self.parse_binding_name();
-            if self.eat(SyntaxKind::ColonToken) {
-                let property = match name {
-                    BindingName::Identifier(id) => PropertyName::Identifier(id),
-                    BindingName::BindingPattern(_) => {
-                        PropertyName::Identifier(self.missing_identifier())
-                    }
-                };
+        let token_is_identifier = self.is_binding_identifier();
+        let property_name = self.parse_property_name();
+        let (property_name, name) = match property_name {
+            PropertyName::Identifier(id)
+                if token_is_identifier && !self.at(SyntaxKind::ColonToken) =>
+            {
+                (None, BindingName::Identifier(id))
+            }
+            property => {
+                self.expect(SyntaxKind::ColonToken);
                 (Some(property), self.parse_binding_name())
-            } else {
-                (None, name)
             }
         };
-
-        let initializer = if self.eat(SyntaxKind::EqualsToken) {
-            // §411: a binding-element DEFAULT re-enables `in` — the for-head
-            // ban covers the declaration's top-level initializer, not the
-            // pattern's element defaults (`for (let [x = 'a' in {}] = [];;)`
-            // parses, `parserForStatement9`).
-            let saved_no_in = std::mem::take(&mut self.no_in);
-            let parsed = self.parse_assignment_expression();
-            self.no_in = saved_no_in;
-            Some(parsed)
-        } else {
-            None
-        };
-
+        let initializer = self.parse_binding_initializer();
         self.finish_node(
             BindingElement::new(dot_dot_dot, property_name, Some(name), initializer),
             SyntaxKind::BindingElement,
             start,
         )
+    }
+
+    /// `parseInitializer` for a binding element.
+    fn parse_binding_initializer(&mut self) -> Option<Expression<'a>> {
+        self.eat(SyntaxKind::EqualsToken).then(|| self.parse_assignment_expression())
     }
 
     /// Parse a parenthesised parameter list.
