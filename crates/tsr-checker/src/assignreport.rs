@@ -2071,12 +2071,11 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let tuple_target = self.tuple_element_lists.contains_key(&target);
-        if !tuple_target
-            && (self.variadic_tuple_elements.contains_key(&target)
-                || self.tuple_spread_array_element(target).is_none())
-        {
+        if !tuple_target && self.variadic_tuple_elements.contains_key(&target) {
             return false;
         }
+        let array_element =
+            if tuple_target { None } else { self.tuple_spread_array_element(target) };
         let source_tuple = self.tuple_element_lists.contains_key(&source);
         let elements: Vec<NodeId> =
             literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
@@ -2096,11 +2095,24 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 member
-            } else {
-                let Some(element_type) = self.tuple_spread_array_element(target) else {
-                    return reported;
-                };
+            } else if let Some(element_type) = array_element {
                 element_type
+            } else {
+                // getIndexedAccessTypeOrUndefined(target, i) on a non-array
+                // object target: a property named `i`, else the applicable
+                // (numeric or string) index signature; neither skips it.
+                let name = index.to_string();
+                let index_type = self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral(name.clone()),
+                    false,
+                );
+                let Some(member) = self.get_type_of_property_of_type(target, &name).or_else(|| {
+                    self.get_applicable_index_info(target, index_type).map(|info| info.value)
+                }) else {
+                    continue;
+                };
+                member
             };
             let check_node = self.effective_check_node(element);
             let source_element = if source_tuple {

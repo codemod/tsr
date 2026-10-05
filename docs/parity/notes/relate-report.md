@@ -268,3 +268,17 @@ overlap. The literal is elaborated against it only when the whole relation is
 Converted: `compiler/errorOnUnionVsObjectShouldDeeplyDisambiguate`. Its
 sibling `…Disambiguate2` (`Stuff | Date`, two object constituents) needs the
 full `findMostOverlappyType` key-overlap count and the discriminant step.
+
+## 12. Ported: `elaborateArrayLiteral` against non-array object targets
+
+`elaborateArrayLiteral` (`relater.go:522`) reads each element's target through
+`getBestMatchIndexedAccessTypeOrUndefined(source, target, i)`, which for any
+object target is a property named `i` or the applicable index signature. The
+port elaborated only tuple and array targets, so `var x3: I = [new Date(), 1]`
+with `interface I { [x: number]: Date }` reported at `x3` rather than at `1`.
+A non-array, non-tuple target now resolves each element through the property
+or `get_applicable_index_info` with the index's number-literal type; an index
+with neither is skipped, as upstream skips a `nil` target member. Variadic
+tuple and union targets keep their declines.
+
+Converted: `compiler/contextualTypingOfArrayLiterals1`, `conformance/arrayLiterals`.
