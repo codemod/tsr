@@ -76,6 +76,17 @@ pub fn decode_bytes(bytes: &[u8]) -> String {
     }
 }
 
+/// [`decode_bytes`] for an owned buffer: BOM-less valid UTF-8, the common
+/// case, becomes the `String` without a second copy.
+#[must_use]
+pub fn decode_owned_bytes(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(text) if !text.starts_with('\u{FEFF}') => text,
+        Ok(text) => decode_bytes(text.as_bytes()),
+        Err(error) => decode_bytes(error.as_bytes()),
+    }
+}
+
 /// Decode UTF-16 code units of a known endianness.
 ///
 /// A trailing odd byte is dropped, as upstream's `binary.Read` into a
@@ -118,6 +129,15 @@ pub trait FileSystem {
     /// an owned `String` cannot express.
     fn read_static(&self, _path: &str) -> Option<&'static str> {
         None
+    }
+
+    /// [`FileSystem::read_file`] for each of `paths`, in order.
+    ///
+    /// Native `filesParser` reads every queued file on its own worker; a file
+    /// system whose reads are independent syscalls overrides this to read
+    /// them concurrently. The answers must equal sequential `read_file`.
+    fn read_files(&self, paths: &[&str]) -> Vec<Option<String>> {
+        paths.iter().map(|path| self.read_file(path)).collect()
     }
 
     /// Whether a directory exists at `path`, following symlinks.

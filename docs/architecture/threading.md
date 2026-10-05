@@ -274,14 +274,25 @@ discovery costs before turning this prototype into a production executor.
 
 - Parallel parsing in any real driver — only the harness uses it.
 - Arena pooling.
-- Parallel binding or checking; both subsystems now exist and run serially.
+- Parallel binding; it runs serially.
+
+The CLI checks with the native pool (`crates/tsr-execute/src/checker_pool.rs`,
+`checkerpool.go`): the count and file affinity below, one scoped worker per
+checker, and each checker publishing only diagnostics located in files it
+owns, as native `GetSemanticDiagnostics` asks the file's associated checker.
+The controls in `crates/tsr-execute/tests/checker_ownership.rs` now compare
+the probe seam against that pooled CLI. Root-file reads run ahead of the
+loader walk through `FileSystem::read_files`: `OsFileSystem` reads them
+concurrently, every other host reads serially, and parsing and node
+numbering stay on the walk. The memory and real-app controls of `tsr-1yb.3.1`
+and `tsr-1yb.3.2` were not rerun for this change.
 
 ## Opt-in worker measurement probe
 
 `cargo build --release -p tsr-execute --example checker_workers` builds a
 standalone ownership/cost probe. Run the resulting absolute executable from the
 project directory with `/absolute/tsconfig.json` and an optional positive
-32-bit count such as `1`, `2`, `4`, or `8`. The production CLI remains serial. The probe shares a fully bound Program and gives each scoped
+32-bit count such as `1`, `2`, `4`, or `8`. The probe shares a fully bound Program and gives each scoped
 worker a private checker; file affinity follows the complete Program array
 index modulo checker count, before filtering eligible files. With no positional
 override it uses parsed `checkers`, or native's default of four. A positional

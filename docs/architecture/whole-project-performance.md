@@ -656,3 +656,26 @@ copied. `--listFiles` and library locations now print native's paths.
 Nine alternating pairs on the same 14-CPU Linux box; loaded scope, options
 and diagnostics match tsgo on both. This box's file opens are unusually slow
 (about 0.1–0.7 ms each), which inflates the I/O share relative to a local SSD.
+
+## Concurrent root reads and lazy diagnostic indexing
+
+Two smaller boundaries follow native. `run_compilation` built a line map and a
+text copy for every program file before any diagnostic existed; it now indexes
+only files that hold a diagnostic, as native `ECMALineMap` is computed on first
+use. The loader reads all root files ahead of its walk through
+`FileSystem::read_files`, which `OsFileSystem` answers on concurrent workers
+(native `filesParser.start` loads queued tasks concurrently) and every other
+host answers serially. Parsing, node numbering and replay order stay on the
+walk; see [threading](threading.md#not-yet-built-in-production). Valid
+BOM-less UTF-8 now becomes the read `String` without a second copy.
+
+| Project | Embedded TSR | + lazy index | + root reads | tsgo | Final ratio |
+|---|---:|---:|---:|---:|---:|
+| domain-model | 215 ms | 207 ms | 199 ms | 216 ms | 0.921 |
+| generic-imports | 101 ms | 94 ms | 96 ms | 122 ms | 0.786 |
+
+The remaining program time on the smoke fixture is parsing (37 ms) and binding
+(12 ms) of the 2.8 MB of libraries on one thread, where native parses files
+concurrently. Parallel parsing needs per-worker arenas and node-id assignment
+that keeps today's deterministic numbering (`bd tsr-1yb.5`); it is outside the
+loader and is the next lever toward the 0.50 target.

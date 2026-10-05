@@ -83,6 +83,13 @@ impl<F: FileSystem> FileSystem for BundledFileSystem<F> {
         }
     }
 
+    fn read_files(&self, paths: &[&str]) -> Vec<Option<String>> {
+        if paths.iter().any(|path| is_bundled(path)) {
+            return paths.iter().map(|path| self.read_file(path)).collect();
+        }
+        self.fs.read_files(paths)
+    }
+
     fn directory_exists(&self, path: &str) -> bool {
         match split_path(path) {
             Some(rest) => rest == "libs",

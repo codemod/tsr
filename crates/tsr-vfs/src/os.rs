@@ -32,7 +32,7 @@ use std::sync::OnceLock;
 
 use tsr_path::{get_root_length, normalize_slashes};
 
-use crate::{DirectoryEntries, FileSystem, decode_bytes};
+use crate::{DirectoryEntries, FileSystem, decode_owned_bytes};
 
 /// The file system backed by the real disk (`osvfs.FS()`).
 ///
@@ -182,7 +182,43 @@ impl FileSystem for OsFileSystem {
     /// only ever asks whether it got text.
     fn read_file(&self, path: &str) -> Option<String> {
         assert_rooted(path);
-        std::fs::read(path).ok().map(|bytes| decode_bytes(&bytes))
+        std::fs::read(path).ok().map(decode_owned_bytes)
+    }
+
+    /// Every read on its own worker, as native `filesParser` loads queued
+    /// files concurrently. Reads are independent syscalls with no shared
+    /// state, so the answers are exactly the sequential ones.
+    fn read_files(&self, paths: &[&str]) -> Vec<Option<String>> {
+        let workers = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .min(paths.len());
+        if workers <= 1 {
+            return paths.iter().map(|path| self.read_file(path)).collect();
+        }
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let mut results: Vec<Option<String>> = vec![None; paths.len()];
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..workers)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut read = Vec::new();
+                        loop {
+                            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(path) = paths.get(index) else { break };
+                            read.push((index, self.read_file(path)));
+                        }
+                        read
+                    })
+                })
+                .collect();
+            for handle in handles {
+                let read = handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                for (index, text) in read {
+                    results[index] = text;
+                }
+            }
+        });
+        results
     }
 
     /// `Common.DirectoryExists` — stat, and require a directory.
@@ -355,6 +391,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[test]
+    fn concurrent_reads_answer_in_request_order_like_sequential_reads() {
+        let tree = TempTree::new("read-files");
+        let mut paths = Vec::new();
+        for index in 0..40 {
+            let contents = match index % 4 {
+                0 => format!("export const v{index} = {index};").into_bytes(),
+                1 => [b"\xEF\xBB\xBF".as_slice(), format!("// {index}").as_bytes()].concat(),
+                2 => [b"\xFF\xFE".as_slice(), &[b'x', 0]].concat(),
+                _ => b"bad \xC3 utf8".to_vec(),
+            };
+            paths.push(tree.file(&format!("f{index}.ts"), &contents));
+        }
+        paths.insert(7, tree.path("missing.ts"));
+        paths.insert(9, tree.dir("directory"));
+        let fs = OsFileSystem::new();
+        let names: Vec<&str> = paths.iter().map(String::as_str).collect();
+        let sequential: Vec<_> = names.iter().map(|path| fs.read_file(path)).collect();
+        assert_eq!(sequential[7], None);
+        assert_eq!(sequential[9], None);
+        assert_eq!(sequential[1].as_deref(), Some("// 1"));
+        assert_eq!(fs.read_files(&names), sequential);
     }
 
     #[test]

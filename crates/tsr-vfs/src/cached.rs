@@ -92,6 +92,10 @@ impl FileSystem for CachedFileSystem<'_> {
         self.fs.read_static(path)
     }
 
+    fn read_files(&self, paths: &[&str]) -> Vec<Option<String>> {
+        self.fs.read_files(paths)
+    }
+
     fn directory_exists(&self, path: &str) -> bool {
         self.cached(&self.directories, path, || self.fs.directory_exists(path))
     }

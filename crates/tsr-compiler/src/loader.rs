@@ -397,6 +397,9 @@ pub struct FileLoader<'host, 'a> {
     /// Where the bundled `lib.*.d.ts` live, normalised and absolute
     /// (`fileLoader.defaultLibraryPath`).
     default_library_path: String,
+    /// Root file texts read ahead of the walk, by file name, consumed by
+    /// [`FileLoader::load_task`]. See [`FileLoader::prefetch_root_files`].
+    prefetched: FxHashMap<String, Option<String>>,
 }
 
 impl<'host, 'a> FileLoader<'host, 'a> {
@@ -444,11 +447,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             package_ids: FxHashMap::default(),
             supported_extensions,
             supported_extensions_with_json,
+            prefetched: FxHashMap::default(),
         };
 
         for root in &root_file_names {
             loader.add_root_file_task(root);
         }
+        loader.prefetch_root_files();
         // `fileloader.go:157`. Both this and the automatic type directives are
         // guarded on there being root files at all: a program with no roots gets
         // no libs, which is why an empty `files`/`include` is an empty program
@@ -524,6 +529,36 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let resolved =
             self.source_file_from_reference(&absolute, &current_directory).unwrap_or(absolute);
         self.push_root(resolved);
+    }
+
+    /// Read every root file concurrently before the walk.
+    ///
+    /// Native `filesParser.start` (`filesparser.go:245`) queues each root task
+    /// on a work group, so their reads overlap. Parsing here stays on the walk
+    /// (one shared node table, ADR-0034); only the reads, which share no
+    /// state, run ahead through [`tsr_vfs::FileSystem::read_files`]. The walk
+    /// consumes each text exactly where it would have read it, so a file the
+    /// walk never loads costs one unused read and changes nothing else.
+    fn prefetch_root_files(&mut self) {
+        let fs = self.host.fs();
+        let mut names: Vec<&str> = self
+            .root_tasks
+            .iter()
+            .map(|&index| self.tasks[index].file_name.as_str())
+            .filter(|name| fs.read_static(name).is_none())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        if names.len() < 2 {
+            return;
+        }
+        let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
+        let texts = fs.read_files(&names);
+        if let Some(started) = read_started {
+            self.statistics.read_time += started.elapsed();
+        }
+        self.prefetched =
+            names.into_iter().map(str::to_owned).zip(texts).collect::<FxHashMap<_, _>>();
     }
 
     /// The default libs, or the ones `--lib` named (`fileloader.go:157-171`).
@@ -707,9 +742,14 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let arena = self.arena;
         let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let fs = self.host.fs();
-        let text: Option<&'a str> = fs
-            .read_static(&file_name)
-            .or_else(|| fs.read_file(&file_name).map(|text| &*arena.alloc_str(&text)));
+        let text: Option<&'a str> = match fs.read_static(&file_name) {
+            Some(text) => Some(text),
+            None => self
+                .prefetched
+                .remove(&file_name)
+                .unwrap_or_else(|| fs.read_file(&file_name))
+                .map(|text| &*arena.alloc_str(&text)),
+        };
         if let Some(started) = read_started {
             self.statistics.read_time += started.elapsed();
         }
