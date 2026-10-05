@@ -1109,7 +1109,7 @@ impl<'a> Checker<'a, '_> {
     /// upstream's relation does: absent required properties are TS2741/2739/2740,
     /// a direct exact-optional missing-property write is TS2412, a whole-object
     /// exact-optional mismatch is TS2375, and other failures are TS2322.
-    fn report_assignability_failure(
+    pub(crate) fn report_assignability_failure(
         &mut self,
         at: NodeId,
         source_node: NodeId,

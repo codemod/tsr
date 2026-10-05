@@ -417,6 +417,7 @@ impl Checker<'_, '_> {
                     ambient,
                 );
                 self.check_annotated_initializer(node, ambient);
+                self.check_jsdoc_annotated_initializer(node, ambient);
                 ambient
             }
             // `checkVariableLikeDeclaration` runs for a binding element too,
@@ -443,6 +444,7 @@ impl Checker<'_, '_> {
                 );
                 self.check_subsequent_declaration_type(node, declaration);
                 self.check_variable_like_declaration(node, declaration, ambient);
+                self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_empty_binding_pattern_source(node, declaration, ambient);
                 self.check_const_is_initialized(node, declaration, ambient);
                 ambient
