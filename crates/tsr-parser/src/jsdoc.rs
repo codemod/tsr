@@ -16,7 +16,7 @@ use tsr_ast::{
     JSDocOverrideTag, JSDocParameterOrPropertyTag, JSDocPrivateTag, JSDocProtectedTag,
     JSDocPublicTag, JSDocReadonlyTag, JSDocReturnTag, JSDocSatisfiesTag, JSDocSeeTag,
     JSDocTemplateTag, JSDocText, JSDocThisTag, JSDocThrowsTag, JSDocTypeExpression, JSDocTypeTag,
-    JSDocTypedefTag, JSDocUnknownTag, Node, PropertyAccessExpression, SyntaxKind,
+    JSDocTypedefTag, JSDocUnknownTag, Node, PropertyAccessExpression, SyntaxKind, TypeNode,
     TypeParameterDeclaration,
 };
 use tsr_core::Span;
@@ -125,12 +125,14 @@ impl<'a> Parser<'a> {
         #[allow(clippy::cast_possible_truncation)]
         let doc = self.parse_jsdoc_comment_worker(range, indent as u32);
 
-        // JSDoc diagnostics are dropped rather than reported. In a `.ts` file the
-        // comment is not part of the program's syntax, so complaining about its
-        // contents would turn a malformed comment into a compile error. Upstream
-        // routes them to a separate `jsdocDiagnostics` list used only for `.js`;
-        // we have no consumer for that list yet — see the bd issue in
-        // docs/architecture/jsdoc.md.
+        // Moved aside rather than reported (`parseJSDocComment`, `jsdoc.go:171`).
+        // In a `.ts` file the comment is not part of the program's syntax, so
+        // complaining about its contents would turn a malformed comment into a
+        // compile error; a checked `.js` file reports them with its semantic
+        // diagnostics (`JSDocTable::diagnostics`). Upstream keeps them only for
+        // JavaScript files; this parser has no JavaScript script kind, so the
+        // gate is the consumer's.
+        self.jsdoc_diagnostics.extend(self.diagnostics.drain(saved_diagnostics..));
         self.diagnostics.truncate(saved_diagnostics);
         self.scanner.restore(saved_scanner);
         self.token = saved_token;
@@ -455,11 +457,8 @@ impl<'a> Parser<'a> {
                 ))
             }
             "see" => {
-                let name_expression = if self.at_jsdoc(SyntaxKind::AtToken) {
-                    None
-                } else {
-                    self.try_parse_type_expression()
-                };
+                self.parse_see_tag_name_reference();
+                let name_expression = None;
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 tsr_ast::JSDocTag::JSDocSeeTag(self.finish_jsdoc_node(
                     JSDocSeeTag::new(tag_name, name_expression, comment),
@@ -503,7 +502,7 @@ impl<'a> Parser<'a> {
         let is_name_first = type_expression.is_none();
         self.skip_whitespace_or_asterisk();
 
-        let (name, is_bracketed) = self.parse_bracket_name_in_property_and_param_tag();
+        let (name, is_bracketed) = self.parse_bracket_name_in_property_and_param_tag(target);
         let indent_text = self.skip_whitespace_or_asterisk();
         if is_name_first {
             type_expression = self.try_parse_type_expression();
@@ -546,53 +545,17 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // `parseTemplateTagTypeParameters` (`jsdoc.go:1279`).
         let mut type_parameters: Vec<&'a TypeParameterDeclaration<'a>> = Vec::new();
         loop {
-            self.skip_whitespace_or_asterisk();
-            let parameter_start = self.pos();
-            let mut word_start = parameter_start;
-            let mut name = self.parse_jsdoc_identifier_name();
-            // `parseTemplateTagTypeParameter` delegates to `parseModifiersEx`
-            // (`parser/jsdoc.go:1259`), so `const`, `in`, `out`, and `in out`
-            // precede the actual parameter name. Parsing only `const` made
-            // `@template out T` declare a parameter literally named `out`
-            // and discard T (`jsdocTemplateTag8`).
-            let mut modifiers = Vec::new();
-            while let Some(kind) = match name.text {
-                "const" => Some(SyntaxKind::ConstKeyword),
-                "in" => Some(SyntaxKind::InKeyword),
-                "out" => Some(SyntaxKind::OutKeyword),
-                _ => None,
-            } {
-                let modifier_end = self.pos();
-                self.skip_whitespace();
-                if !self.at_jsdoc_identifier() {
-                    break;
-                }
-                let token = self.alloc_token(kind, tsr_core::Span::new(word_start, modifier_end));
-                modifiers.push(tsr_ast::ModifierLike::Token(token));
-                word_start = self.pos();
-                name = self.parse_jsdoc_identifier_name();
-            }
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let default = if self.at_jsdoc(SyntaxKind::EqualsToken) {
-                self.next_jsdoc_token();
-                Some(self.parse_jsdoc_type_expression(true))
-            } else {
-                None
-            };
-            let parameter =
-                TypeParameterDeclaration::new(modifiers, Some(name), None, None, default);
-            type_parameters.push(self.finish_jsdoc_node(
-                parameter,
-                SyntaxKind::TypeParameter,
-                parameter_start,
-            ));
             self.skip_whitespace();
-            if !self.at_jsdoc(SyntaxKind::CommaToken) {
+            if let Some(parameter) = self.parse_template_tag_type_parameter() {
+                type_parameters.push(parameter);
+            }
+            self.skip_whitespace_or_asterisk();
+            if !self.eat_jsdoc(SyntaxKind::CommaToken) {
                 break;
             }
-            self.next_jsdoc_token();
         }
 
         let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
@@ -602,6 +565,72 @@ impl<'a> Parser<'a> {
             SyntaxKind::JSDocTemplateTag,
             start,
         ))
+    }
+
+    /// `parseTemplateTagTypeParameter` (`jsdoc.go:1253`): `[`? modifiers name
+    /// (`= default ]`)?. A default exists only inside brackets; a missing name
+    /// yields no parameter.
+    fn parse_template_tag_type_parameter(&mut self) -> Option<&'a TypeParameterDeclaration<'a>> {
+        let parameter_start = self.pos();
+        let is_bracketed = self.eat_jsdoc(SyntaxKind::OpenBracketToken);
+        if is_bracketed {
+            self.skip_whitespace();
+        }
+        let mut word_start = self.pos();
+        let mut name = self.parse_jsdoc_identifier_name_with(
+            &messages::UNEXPECTED_TOKEN_A_TYPE_PARAMETER_NAME_WAS_EXPECTED_WITHOUT_CURLY_BRACES,
+        );
+        // `parseModifiersEx` (`jsdoc.go:1260`): any modifier keyword followed
+        // by a name on the line is a modifier — `const`, `in`, `out`, but also
+        // `@template private T`, whose `private` the checker rejects (TS1273)
+        // rather than taking as the parameter's name (`jsdocTemplateTag7`).
+        // `default` is not one here: `nextTokenCanFollowDefaultKeyword` wants
+        // a declaration keyword after it.
+        let mut modifiers = Vec::new();
+        while let Some(kind) = match name.text {
+            "const" => Some(SyntaxKind::ConstKeyword),
+            "in" => Some(SyntaxKind::InKeyword),
+            "out" => Some(SyntaxKind::OutKeyword),
+            "abstract" => Some(SyntaxKind::AbstractKeyword),
+            "accessor" => Some(SyntaxKind::AccessorKeyword),
+            "async" => Some(SyntaxKind::AsyncKeyword),
+            "declare" => Some(SyntaxKind::DeclareKeyword),
+            "export" => Some(SyntaxKind::ExportKeyword),
+            "override" => Some(SyntaxKind::OverrideKeyword),
+            "private" => Some(SyntaxKind::PrivateKeyword),
+            "protected" => Some(SyntaxKind::ProtectedKeyword),
+            "public" => Some(SyntaxKind::PublicKeyword),
+            "readonly" => Some(SyntaxKind::ReadonlyKeyword),
+            "static" => Some(SyntaxKind::StaticKeyword),
+            _ => None,
+        } {
+            let modifier_end = self.pos();
+            self.skip_whitespace();
+            if !self.at_jsdoc_identifier() {
+                break;
+            }
+            let token = self.alloc_token(kind, tsr_core::Span::new(word_start, modifier_end));
+            modifiers.push(tsr_ast::ModifierLike::Token(token));
+            word_start = self.pos();
+            name = self.parse_jsdoc_identifier_name_with(
+                &messages::UNEXPECTED_TOKEN_A_TYPE_PARAMETER_NAME_WAS_EXPECTED_WITHOUT_CURLY_BRACES,
+            );
+        }
+        let modifiers = self.arena.alloc_slice(&modifiers);
+        let default = if is_bracketed {
+            self.skip_whitespace();
+            self.expect_jsdoc(SyntaxKind::EqualsToken);
+            let default = self.parse_jsdoc_type_from_token();
+            self.expect_jsdoc(SyntaxKind::CloseBracketToken);
+            Some(default)
+        } else {
+            None
+        };
+        if name.text.is_empty() {
+            return None;
+        }
+        let parameter = TypeParameterDeclaration::new(modifiers, Some(name), None, None, default);
+        Some(self.finish_jsdoc_node(parameter, SyntaxKind::TypeParameter, parameter_start))
     }
 
     /// `@import { Foo } from "./types"` — `parseImportTag`
@@ -635,21 +664,28 @@ impl<'a> Parser<'a> {
         let clause_start = self.pos();
         let default_name =
             if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
-        let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
-            self.parse_named_import_bindings()
-        } else {
-            None
-        };
-        // A bare `@import "./m"` carries no clause, as upstream's
-        // `tryParseImportClause` answers nil there.
-        let clause = (default_name.is_some() || named_bindings.is_some()).then(|| {
-            self.finish_node(
+        // `tryParseImportClause` (`parser.go:2332`): a clause, and the `from`
+        // after it, only when a default name, `*` or `{` begins one. A bare
+        // `@import "./m"` — or a bare `@import` — carries no clause and expects
+        // no `from`.
+        let clause = if default_name.is_some()
+            || matches!(self.token.kind, SyntaxKind::AsteriskToken | SyntaxKind::OpenBraceToken)
+        {
+            let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
+                self.parse_named_import_bindings()
+            } else {
+                None
+            };
+            let clause = self.finish_node(
                 tsr_ast::ImportClause::new(None, default_name, named_bindings),
                 SyntaxKind::ImportClause,
                 clause_start,
-            )
-        });
-        self.expect(SyntaxKind::FromKeyword);
+            );
+            self.expect(SyntaxKind::FromKeyword);
+            Some(clause)
+        } else {
+            None
+        };
         let specifier = self.parse_module_specifier();
         let attributes = self.parse_import_attributes();
 
@@ -692,13 +728,24 @@ impl<'a> Parser<'a> {
     }
 
     /// The `[name]` / `name` of a `@param` or `@property`.
-    fn parse_bracket_name_in_property_and_param_tag(&mut self) -> (Option<EntityName<'a>>, bool) {
-        let is_bracketed = self.at_jsdoc(SyntaxKind::OpenBracketToken);
+    ///
+    /// `parseBracketNameInPropertyAndParamTag` (`jsdoc.go:793`). A missing
+    /// `@param` name is not reported (upstream passes no message for the
+    /// parameter target); a missing `@property` name is.
+    fn parse_bracket_name_in_property_and_param_tag(
+        &mut self,
+        target: PropertyLike,
+    ) -> (Option<EntityName<'a>>, bool) {
+        let is_bracketed = self.eat_jsdoc(SyntaxKind::OpenBracketToken);
         if is_bracketed {
-            self.next_jsdoc_token();
             self.skip_whitespace();
         }
-        let name = self.parse_jsdoc_entity_name();
+        // A markdown-quoted name: `arg` is not legal JSDoc, but occurs in the wild.
+        let is_backquoted = self.eat_jsdoc(SyntaxKind::BacktickToken);
+        let name = self.parse_jsdoc_entity_name(matches!(target, PropertyLike::Property));
+        if is_backquoted {
+            self.expect_jsdoc(SyntaxKind::BacktickToken);
+        }
         if is_bracketed {
             self.skip_whitespace();
             // A default value: `@param [x=1]`. The initialiser is not modelled —
@@ -721,7 +768,12 @@ impl<'a> Parser<'a> {
     fn parse_expression_with_type_arguments_for_augments(
         &mut self,
     ) -> Option<&'a tsr_ast::ExpressionWithTypeArguments<'a>> {
+        // `usedBrace := p.parseOptional(OpenBrace)` scans on under the ordinary
+        // rules, which skip the space in `@extends { A }`; so is it skipped here.
         let used_brace = self.eat_jsdoc(SyntaxKind::OpenBraceToken);
+        if used_brace {
+            self.skip_whitespace();
+        }
         let start = self.pos();
         let expression = Some(self.parse_property_access_entity_name_expression()?);
         // `parseTypeArguments` with leading asterisks skipped, handed to the
@@ -744,6 +796,7 @@ impl<'a> Parser<'a> {
         let node = tsr_ast::ExpressionWithTypeArguments::new(expression, type_arguments);
         let node = self.finish_jsdoc_node(node, SyntaxKind::ExpressionWithTypeArguments, start);
         if used_brace {
+            self.skip_whitespace();
             self.expect_jsdoc(SyntaxKind::CloseBraceToken);
         }
         Some(node)
@@ -752,7 +805,12 @@ impl<'a> Parser<'a> {
     /// A dotted name as an expression: `a.b.c`.
     fn parse_property_access_entity_name_expression(&mut self) -> Option<Expression<'a>> {
         let start = self.pos();
+        // `parsePropertyAccessEntityNameExpression` (`jsdoc.go:971`): the head
+        // name is required, so a bare `@implements` reports `Identifier
+        // expected` — but the missing name is not handed on, as no consumer
+        // here distinguishes a missing name from an absent one.
         if !self.at_jsdoc_identifier() {
+            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
             return None;
         }
         let mut expression = Expression::Identifier(self.parse_jsdoc_identifier_name());
@@ -775,6 +833,135 @@ impl<'a> Parser<'a> {
 
     // ---- types and links -------------------------------------------------
 
+    /// `parseJSDocLinkName` (`jsdoc.go:742`): `a.b`, `a.#b` and `a#b`. A
+    /// private name after a dot leaves that dot's right side missing (no
+    /// report), and each `#name` then qualifies the name in turn.
+    fn parse_jsdoc_link_name(&mut self) -> Option<EntityName<'a>> {
+        if !self.at_jsdoc_identifier() {
+            return None;
+        }
+        let start = self.pos();
+        let mut name = EntityName::Identifier(self.parse_jsdoc_identifier_name());
+        let qualify = |p: &mut Self, left: EntityName<'a>, right: &'a Identifier<'a>| {
+            let node = tsr_ast::QualifiedName::new(Some(left), Some(right));
+            EntityName::QualifiedName(p.finish_jsdoc_node(node, SyntaxKind::QualifiedName, start))
+        };
+        while self.eat_jsdoc(SyntaxKind::DotToken) {
+            let right = if self.at_jsdoc(SyntaxKind::HashToken) {
+                self.missing_identifier()
+            } else {
+                self.parse_jsdoc_identifier_name()
+            };
+            name = qualify(self, name, right);
+        }
+        while self.eat_jsdoc(SyntaxKind::HashToken) {
+            let right = self.parse_jsdoc_identifier_name();
+            name = qualify(self, name, right);
+        }
+        Some(name)
+    }
+
+    /// `parseSeeTag`'s name reference (`jsdoc.go:907`, `parseJSDocNameReference`
+    /// at `jsdoc.go:126`): `@see Name`, `@see {Name}` — read for its grammar
+    /// only. The tree's `name_expression` slot is a type node and a
+    /// `JSDocNameReference` is not one; no consumer here reads the name.
+    fn parse_see_tag_name_reference(&mut self) {
+        let has_name_reference = (self.at_jsdoc_identifier()
+            && !self.source[self.token.span.end as usize..].starts_with("://"))
+            || (self.at_jsdoc(SyntaxKind::OpenBraceToken)
+                && self.look_ahead(|p| {
+                    p.next_jsdoc_token();
+                    p.at_jsdoc_identifier()
+                }));
+        if !has_name_reference {
+            return;
+        }
+        let has_brace = self.eat_jsdoc(SyntaxKind::OpenBraceToken);
+        self.skip_whitespace();
+        self.parse_jsdoc_link_name();
+        if has_brace {
+            self.skip_whitespace();
+            self.expect_jsdoc(SyntaxKind::CloseBraceToken);
+        }
+    }
+
+    /// `parseNonArrayType`'s JSDoc arms (`parser.go:2763`): `*` is
+    /// `JSDocAllType` (`*=` is `*` then a postfix `=`), `?T` is
+    /// `JSDocNullableType` (`??T` is `?` then `?T`), `!T` is
+    /// `JSDocNonNullableType`. Upstream parses them in every file; the checker
+    /// owns the complaint outside a comment.
+    pub(crate) fn parse_jsdoc_prefix_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        match self.token.kind {
+            SyntaxKind::AsteriskToken | SyntaxKind::AsteriskEqualsToken => {
+                // `ReScanAsteriskEqualsToken`: the `*` alone, then rescan from
+                // just past it.
+                let limit = self.scanner.limit();
+                self.scanner.set_range(start + 1, limit);
+                let node =
+                    self.finish_node(tsr_ast::JSDocAllType::new(), SyntaxKind::JSDocAllType, start);
+                self.next_token();
+                TypeNode::JSDocAllType(node)
+            }
+            SyntaxKind::QuestionToken | SyntaxKind::QuestionQuestionToken => {
+                // `ReScanQuestionToken` for `??`: the first `?` alone.
+                let limit = self.scanner.limit();
+                self.scanner.set_range(start + 1, limit);
+                self.next_token();
+                let inner = self.parse_type_operator_or_higher();
+                TypeNode::JSDocNullableType(self.finish_node(
+                    tsr_ast::JSDocNullableType::new(Some(inner)),
+                    SyntaxKind::JSDocNullableType,
+                    start,
+                ))
+            }
+            _ => {
+                self.next_token();
+                let inner = self.parse_type_operator_or_higher();
+                TypeNode::JSDocNonNullableType(self.finish_node(
+                    tsr_ast::JSDocNonNullableType::new(Some(inner)),
+                    SyntaxKind::JSDocNonNullableType,
+                    start,
+                ))
+            }
+        }
+    }
+
+    /// `parsePostfixTypeOrHigher`'s JSDoc arms (`parser.go:2719`): `T!`, and
+    /// `T?` unless a type follows the `?` (then it opens a conditional type's
+    /// true branch). `None` leaves the cursor alone.
+    pub(crate) fn parse_jsdoc_postfix_type(
+        &mut self,
+        start: u32,
+        type_node: TypeNode<'a>,
+    ) -> Option<TypeNode<'a>> {
+        match self.token.kind {
+            SyntaxKind::ExclamationToken => {
+                self.next_token();
+                Some(TypeNode::JSDocNonNullableType(self.finish_node(
+                    tsr_ast::JSDocNonNullableType::new(Some(type_node)),
+                    SyntaxKind::JSDocNonNullableType,
+                    start,
+                )))
+            }
+            SyntaxKind::QuestionToken => {
+                if self.look_ahead(|p| {
+                    p.next_token();
+                    p.is_start_of_type(false)
+                }) {
+                    return None;
+                }
+                self.next_token();
+                Some(TypeNode::JSDocNullableType(self.finish_node(
+                    tsr_ast::JSDocNullableType::new(Some(type_node)),
+                    SyntaxKind::JSDocNullableType,
+                    start,
+                )))
+            }
+            _ => None,
+        }
+    }
+
     /// `{T}`, or a bare `T` when `may_omit_braces`.
     fn parse_jsdoc_type_expression(&mut self, may_omit_braces: bool) -> tsr_ast::TypeNode<'a> {
         let start = self.pos();
@@ -790,6 +977,28 @@ impl<'a> Parser<'a> {
         // JSDoc diagnostics are discarded, and shows up only as a silently
         // mis-parsed type.
         let resume = if has_brace { self.token.span.end } else { self.token.span.start };
+        let inner = self.parse_jsdoc_type_at(resume);
+        if has_brace {
+            self.expect_jsdoc(SyntaxKind::CloseBraceToken);
+        }
+        let node = JSDocTypeExpression::new(Some(inner));
+        tsr_ast::TypeNode::JSDocTypeExpression(self.finish_jsdoc_node(
+            node,
+            SyntaxKind::JSDocTypeExpression,
+            start,
+        ))
+    }
+
+    /// `parseJSDocType` (`parser.go:2858`) from the current JSDoc token's start
+    /// — the unbraced type of a `@template [T=default]`.
+    fn parse_jsdoc_type_from_token(&mut self) -> tsr_ast::TypeNode<'a> {
+        self.parse_jsdoc_type_at(self.token.span.start)
+    }
+
+    /// `parseJSDocType` (`parser.go:2858`) under the ordinary type grammar,
+    /// rescanning from `resume` and handing back to JSDoc tokens at the token
+    /// the type parser stopped on.
+    fn parse_jsdoc_type_at(&mut self, resume: u32) -> tsr_ast::TypeNode<'a> {
         let limit = self.scanner.limit();
         self.scanner.set_range(resume, limit);
 
@@ -801,7 +1010,7 @@ impl<'a> Parser<'a> {
         // parseJSDocType (parser.go): a leading `...` makes the parsed type a
         // JSDocVariadicType.
         let has_dot_dot_dot = self.eat(SyntaxKind::DotDotDotToken);
-        let mut inner = self.parse_type();
+        let mut inner = self.parse_type_or_type_predicate();
         if has_dot_dot_dot {
             inner = tsr_ast::TypeNode::JSDocVariadicType(self.finish_node(
                 tsr_ast::JSDocVariadicType::new(Some(inner)),
@@ -823,15 +1032,7 @@ impl<'a> Parser<'a> {
         // Back to JSDoc tokens, rescanning the token the type parser stopped on.
         self.scanner_reset_to_token_start();
         self.next_jsdoc_token();
-        if has_brace {
-            self.expect_jsdoc(SyntaxKind::CloseBraceToken);
-        }
-        let node = JSDocTypeExpression::new(Some(inner));
-        tsr_ast::TypeNode::JSDocTypeExpression(self.finish_jsdoc_node(
-            node,
-            SyntaxKind::JSDocTypeExpression,
-            start,
-        ))
+        inner
     }
 
     /// A `{T}` if one is present, otherwise nothing.
@@ -862,8 +1063,7 @@ impl<'a> Parser<'a> {
         // The whitespace after `@link` comes first: testing for the name before
         // skipping it puts the target in the link's display text instead.
         self.skip_whitespace();
-        let name =
-            if self.at_jsdoc_identifier() { Some(self.parse_jsdoc_entity_name()) } else { None };
+        let name = self.parse_jsdoc_link_name();
         self.skip_whitespace();
 
         // Everything up to the closing brace is the link's display text.
@@ -912,9 +1112,17 @@ impl<'a> Parser<'a> {
     }
 
     /// A dotted name inside JSDoc: `a.b.c`, `a#b`.
-    fn parse_jsdoc_entity_name(&mut self) -> EntityName<'a> {
+    /// `parseJSDocEntityName(diagnosticMessage)` (`jsdoc.go:1321`): a missing
+    /// head name reports `Identifier expected` only when `report` — upstream's
+    /// non-nil message.
+    fn parse_jsdoc_entity_name(&mut self, report: bool) -> EntityName<'a> {
         let start = self.pos();
-        let mut entity = EntityName::Identifier(self.parse_jsdoc_identifier_name());
+        let head = if report || self.at_jsdoc_identifier() {
+            self.parse_jsdoc_identifier_name()
+        } else {
+            self.missing_identifier()
+        };
+        let mut entity = EntityName::Identifier(head);
         while self.at_jsdoc(SyntaxKind::DotToken) || self.at_jsdoc(SyntaxKind::HashToken) {
             self.next_jsdoc_token();
             let right = self.parse_jsdoc_identifier_name();
@@ -933,8 +1141,16 @@ impl<'a> Parser<'a> {
     /// Every keyword is a valid JSDoc name — `@param {T} default` is ordinary —
     /// so the test is "does it look like a word", not "is it an identifier".
     fn parse_jsdoc_identifier_name(&mut self) -> &'a Identifier<'a> {
+        self.parse_jsdoc_identifier_name_with(&messages::IDENTIFIER_EXPECTED)
+    }
+
+    /// `parseJSDocIdentifierName(diagnosticMessage)` (`jsdoc.go:1340`).
+    fn parse_jsdoc_identifier_name_with(
+        &mut self,
+        message: &'static tsr_diagnostics::Message,
+    ) -> &'a Identifier<'a> {
         if !self.at_jsdoc_identifier() {
-            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+            self.error_at_current(message);
             return self.missing_identifier();
         }
         let start = self.pos();
@@ -979,10 +1195,15 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_jsdoc(&mut self, kind: SyntaxKind) -> bool {
+        // `parseExpectedJSDoc` (`parser.go:959`): `'{0}' expected.`
         if self.eat_jsdoc(kind) {
             true
         } else {
-            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+            let text = match kind {
+                SyntaxKind::BacktickToken => "`",
+                kind => crate::parser::token_to_text(kind),
+            };
+            self.error_at_current_with(&messages::_0_EXPECTED, &[text]);
             false
         }
     }
