@@ -194,6 +194,13 @@ fn parse_config_file_at_depth(
     // gets its own. So `config_dir` is threaded down unchanged through every
     // `extends` hop rather than recomputed per file.
     expand_config_dir(&mut compiler_options, config_dir);
+    // `paths` substitutions resolve against the directory of the config that
+    // *wrote* them (`parseConfig`, `tsconfigparsing.go:1092`): set on the own
+    // options before any base is merged, so inherited `paths` keep the base
+    // config's directory.
+    if !compiler_options.paths.is_empty() {
+        compiler_options.paths_base_path.clone_from(&base_path_for_file_names);
+    }
 
     let (extended, mut extend_errors) =
         extended_configs(&raw, config_file_name, &base_path_for_file_names, fs, depth, config_dir);
@@ -225,12 +232,6 @@ fn parse_config_file_at_depth(
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
     }
-    // `paths` substitutions resolve against the config's directory, and nothing
-    // else knows where that was.
-    if !compiler_options.paths.is_empty() {
-        compiler_options.paths_base_path.clone_from(&base_path_for_file_names);
-    }
-
     let specs = file_specs(&raw, &compiler_options, config_file_name, &mut errors);
     let (file_names, literal_file_count) =
         file_names::expand(&specs, &base_path_for_file_names, &compiler_options, fs);
@@ -877,6 +878,35 @@ mod tests {
         );
         assert_eq!(parsed.compiler_options.paths.keys().collect::<Vec<_>>(), ["z/*", "a/*"]);
         assert_eq!(parsed.compiler_options.paths_base_path, "/project");
+    }
+
+    #[test]
+    fn inherited_paths_resolve_from_the_config_that_wrote_them() {
+        let fs = InMemoryFileSystem::new(
+            [
+                (
+                    "/other/tsconfig.base.json".into(),
+                    r#"{"compilerOptions":{"paths":{"p1":["./lib/p1"]}}}"#.into(),
+                ),
+                ("/project/index.ts".into(), String::new()),
+            ],
+            [],
+            true,
+        );
+        let inherited = parse_config_file(
+            "/project/tsconfig.json",
+            r#"{"extends":"../other/tsconfig.base.json"}"#,
+            "/",
+            &fs,
+        );
+        assert_eq!(inherited.compiler_options.paths_base_path, "/other");
+        let own = parse_config_file(
+            "/project/tsconfig.json",
+            r#"{"extends":"../other/tsconfig.base.json","compilerOptions":{"paths":{"q":["./q"]}}}"#,
+            "/",
+            &fs,
+        );
+        assert_eq!(own.compiler_options.paths_base_path, "/project");
     }
     #[test]
     fn own_worker_options_replace_base_values_and_explicit_false_survives() {
