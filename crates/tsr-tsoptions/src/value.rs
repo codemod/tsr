@@ -104,6 +104,9 @@ pub struct ConfigProperty<'a> {
     pub value_expression: Option<Expression<'a>>,
     /// The span of the value, or of the property when it has none.
     pub span: Span,
+    /// The span of the key (`propertyAssignment.Name()`), where an unknown
+    /// option is reported.
+    pub name_span: Span,
 }
 
 /// The top-level properties of a parsed config file, in order
@@ -150,7 +153,8 @@ pub fn properties_of<'a>(
                 .and_then(|value| span_of(Node::from(value), nodes))
                 .or_else(|| property.node_id.map(|id| nodes.span(id)))
                 .unwrap_or_default();
-            Some(ConfigProperty { name, value, value_expression, span })
+            let name_span = span_of(Node::from(property.name), nodes).unwrap_or(span);
+            Some(ConfigProperty { name, value, value_expression, span, name_span })
         })
         .collect()
 }

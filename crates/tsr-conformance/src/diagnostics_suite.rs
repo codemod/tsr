@@ -81,7 +81,7 @@ use crate::{
     errors_baseline::{self, BaselineDiagnostic},
     suite::{Outcome, Suite},
     symbols_baseline::line_and_character,
-    types_producer::program_for_case,
+    types_producer::{program_and_config_for_case, program_for_case},
 };
 
 /// The `diagnostics` suite.
@@ -252,7 +252,7 @@ fn printed_name(unit_name: &str, test: &crate::TestCase) -> String {
 /// documentation for the shape.
 fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     let arena = tsr_core::Arena::new();
-    let program = program_for_case(&arena, test);
+    let (program, config) = program_and_config_for_case(&arena, test);
     let options = program.compiler_options();
     let units = program_units(test, &program);
 
@@ -381,6 +381,54 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
                 code: diagnostic.message.code(),
             },
             diagnostic,
+        ));
+    }
+    if let Some(config) = &config {
+        out.extend(config_file_parsing_diagnostics(test, config));
+    }
+    out
+}
+
+/// `GetConfigFileParsingDiagnostics`: the errors of the case's `tsconfig.json`
+/// parse, each in the config file it is positioned in. An error without a
+/// position prints no `(line,column)` and is not part of the compared set.
+fn config_file_parsing_diagnostics(
+    test: &crate::TestCase,
+    config: &tsr_tsoptions::ParsedCommandLine,
+) -> Vec<(BaselineDiagnostic, Diagnostic)> {
+    // The directory `program_and_config_for_case` named the config against.
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        test.current_directory.as_deref().unwrap_or("/"),
+        "/",
+    );
+    let mut seen: HashSet<(&str, u32, u32, u32, &[String])> = HashSet::new();
+    let mut out = Vec::new();
+    for (diagnostic, file) in config.errors.iter().zip(&config.error_files) {
+        let Some(file) = file else { continue };
+        let Some(unit) = test.files.iter().find(|unit| {
+            tsr_path::get_normalized_absolute_path(&unit.name, &current_directory) == *file
+        }) else {
+            continue;
+        };
+        let key = (
+            file.as_str(),
+            diagnostic.span.start,
+            diagnostic.span.end,
+            diagnostic.message.code(),
+            diagnostic.args.as_slice(),
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+        out.push((
+            BaselineDiagnostic {
+                file: printed_name(&unit.name, test),
+                line: line + 1,
+                column: character + 1,
+                code: diagnostic.message.code(),
+            },
+            diagnostic.clone(),
         ));
     }
     out

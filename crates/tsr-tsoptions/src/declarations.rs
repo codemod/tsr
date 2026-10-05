@@ -83,8 +83,9 @@ pub struct OptionDeclaration {
     /// and which diagnostic depends on the option's kind and on whether the
     /// following argument was `null`, `true` or `false`.
     pub is_tsconfig_only: bool,
-    /// The accepted spellings of an [`OptionKind::Enum`], in upstream's
-    /// declaration order.
+    /// The spellings an [`OptionKind::Enum`]'s error lists: the enum map's
+    /// keys in upstream's order less `commandLineOptionDeprecated`'s
+    /// (`formatEnumTypeKeys`, `tsoptions/errors.go:21`).
     ///
     /// Only needed to *render the error*: `Argument for '--target' option must
     /// be: 'es5', 'es2015', …` lists them in this order. Matching is done by
@@ -186,12 +187,11 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         kind: OptionKind::Enum,
         is_file_path: false,
         apply: |options, value| {
-            // `es3` is upstream's deprecated alias for `es5`, and `latest` for
-            // `esnext`; both still appear in the corpus.
+            // `targetOptionMap` (`tsoptions/enummaps.go:154`): `es3` and
+            // `latest` are gone, and a config naming them gets TS6046.
             let Some(target) = enum_value(
                 value,
                 &[
-                    ("es3", ScriptTarget::ES5),
                     ("es5", ScriptTarget::ES5),
                     ("es6", ScriptTarget::ES2015),
                     ("es2015", ScriptTarget::ES2015),
@@ -206,7 +206,6 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
                     ("es2024", ScriptTarget::ES2024),
                     ("es2025", ScriptTarget::ES2025),
                     ("esnext", ScriptTarget::ESNext),
-                    ("latest", ScriptTarget::ESNext),
                 ],
             ) else {
                 return false;
@@ -216,7 +215,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         },
         short_name: Some("t"),
         enum_names: &[
-            "es5", "es2015", "es2016", "es2017", "es2018", "es2019", "es2020", "es2021", "es2022",
+            "es6", "es2015", "es2016", "es2017", "es2018", "es2019", "es2020", "es2021", "es2022",
             "es2023", "es2024", "es2025", "esnext",
         ],
         ..OptionDeclaration::DEFAULT
@@ -253,8 +252,8 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         },
         short_name: Some("m"),
         enum_names: &[
-            "none", "commonjs", "amd", "system", "umd", "es6", "es2015", "es2020", "es2022",
-            "esnext", "node16", "node18", "node20", "nodenext", "preserve",
+            "commonjs", "es6", "es2015", "es2020", "es2022", "esnext", "node16", "node18",
+            "node20", "nodenext", "preserve",
         ],
         ..OptionDeclaration::DEFAULT
     },
@@ -283,7 +282,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.module_resolution = resolution;
             true
         },
-        enum_names: &["node10", "classic", "node16", "nodenext", "bundler"],
+        enum_names: &["node16", "nodenext", "bundler"],
         ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {
@@ -307,7 +306,7 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
             options.jsx = jsx;
             true
         },
-        enum_names: &["preserve", "react-native", "react", "react-jsx", "react-jsxdev"],
+        enum_names: &["preserve", "react-native", "react-jsx", "react-jsxdev", "react"],
         ..OptionDeclaration::DEFAULT
     },
     OptionDeclaration {

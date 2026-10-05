@@ -639,8 +639,14 @@ mod tests {
         let parsed = parse(&["--target", "es2099"]);
         assert_eq!(parsed.errors.len(), 1);
         let text = parsed.errors[0].text();
-        assert!(text.starts_with("Argument for '--target' option must be:"), "{text}");
-        assert!(text.contains("'es5'"), "{text}");
+        // `formatEnumTypeKeys` drops the deprecated `es5`; upstream's
+        // baselines print exactly this list.
+        assert_eq!(
+            text,
+            "Argument for '--target' option must be: 'es6', 'es2015', 'es2016', 'es2017', \
+             'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'es2024', 'es2025', \
+             'esnext'."
+        );
     }
 
     #[test]

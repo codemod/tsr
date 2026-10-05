@@ -84,6 +84,11 @@ pub struct ParsedCommandLine {
     pub raw: OrderedMap<ConfigValue>,
     /// What was wrong with it.
     pub errors: Vec<Diagnostic>,
+    /// The config file each of [`Self::errors`] is positioned in, by index:
+    /// an `extends` base's errors are in the base. `None` for an error this
+    /// port reports without a position (`ast.NewCompilerDiagnostic`
+    /// upstream, or a location it does not record).
+    pub error_files: Vec<Option<String>>,
 }
 
 /// Parse `text` as the config file at `config_file_name`
@@ -180,6 +185,9 @@ fn parse_config_file_at_depth(
             ["tsconfig.json".to_string()],
         ));
     }
+    // Everything so far is positioned in this file's own text.
+    let own_file = (!config_file_name.is_empty()).then(|| normalize_slashes(config_file_name));
+    let mut error_files = vec![own_file; errors.len()];
     // `extends` — resolve, parse the base, and layer this config over it.
     //
     // Ported from `getExtendsConfigPathOrArray` (`tsconfigparsing.go:509`) and
@@ -205,6 +213,8 @@ fn parse_config_file_at_depth(
     let (extended, mut extend_errors) =
         extended_configs(&raw, config_file_name, &base_path_for_file_names, fs, depth, config_dir);
     errors.append(&mut extend_errors);
+    // Unpositioned here, where upstream points at the `extends` value.
+    error_files.resize(errors.len(), None);
     // Native parseConfig merges bases left-to-right, then the real own fields.
     // Do not treat a previously inherited worker value as an own override.
     let own_workers = (compiler_options.checkers, compiler_options.single_threaded);
@@ -225,6 +235,7 @@ fn parse_config_file_at_depth(
         }
         compiler_options = merge_options(base.compiler_options, compiler_options);
         errors.splice(0..0, base.errors);
+        error_files.splice(0..0, base.error_files);
     }
     (compiler_options.checkers, compiler_options.single_threaded) =
         merge_worker_options(inherited_workers, own_workers, &raw);
@@ -244,7 +255,10 @@ fn parse_config_file_at_depth(
         ));
     }
 
-    ParsedCommandLine { compiler_options, file_names, literal_file_count, raw, errors }
+    // The specs and no-inputs errors carry no position.
+    error_files.resize(errors.len(), None);
+
+    ParsedCommandLine { compiler_options, file_names, literal_file_count, raw, errors, error_files }
 }
 
 /// Substitute `${configDir}` in every path-valued option.
@@ -559,11 +573,26 @@ impl Config {
     /// One `compilerOptions` entry (`onPropertySet` → `ParseCompilerOptions`).
     fn set_compiler_option(&mut self, property: &ConfigProperty<'_>, base_path: &str) {
         let Some(declaration) = declarations::find(&property.name) else {
-            self.errors.push(Diagnostic::with_args(
-                &messages::UNKNOWN_COMPILER_OPTION_0,
-                property.span,
-                [property.name.clone()],
-            ));
+            // `onPropertySet` (`tsconfigparsing.go:215`): at the key, naming
+            // `ElementOptions.GetSpellingSuggestion` (`:611`) when it has one.
+            let suggestion = tsr_core::get_spelling_suggestion(
+                &property.name,
+                declarations::COMPILER_OPTIONS,
+                |option| option.name,
+                |a, b| a.name.cmp(b.name),
+            );
+            self.errors.push(match suggestion {
+                Some(option) => Diagnostic::with_args(
+                    &messages::UNKNOWN_COMPILER_OPTION_0_DID_YOU_MEAN_1,
+                    property.name_span,
+                    [property.name.clone(), option.name.to_string()],
+                ),
+                None => Diagnostic::with_args(
+                    &messages::UNKNOWN_COMPILER_OPTION_0,
+                    property.name_span,
+                    [property.name.clone()],
+                ),
+            });
             return;
         };
         // A path option is made absolute against the config's directory
@@ -571,6 +600,19 @@ impl Config {
         // config was (`normalizeNonListOptionValue`).
         let value = normalize_option_value(declaration, &property.value, base_path);
         if !(declaration.apply)(&mut self.compiler_options, &value) {
+            // `convertJsonOptionOfEnumType`: a string outside the map is
+            // `createDiagnosticForInvalidEnumType` (`errors.go:14`).
+            if declaration.kind == declarations::OptionKind::Enum && value.as_str().is_some() {
+                self.errors.push(Diagnostic::with_args(
+                    &messages::ARGUMENT_FOR_0_OPTION_MUST_BE_COLON_1,
+                    property.span,
+                    [
+                        format!("--{}", declaration.name),
+                        format!("'{}'", declaration.enum_names.join("', '")),
+                    ],
+                ));
+                return;
+            }
             self.errors.push(Diagnostic::with_args(
                 &messages::COMPILER_OPTION_0_REQUIRES_A_VALUE_OF_TYPE_1,
                 property.span,
@@ -810,6 +852,25 @@ mod tests {
         assert_eq!(parsed.compiler_options.strict, Tristate::True);
         assert_eq!(parsed.errors.len(), 1);
         assert!(parsed.errors[0].text().contains("nonsense"), "{}", parsed.errors[0].text());
+    }
+
+    #[test]
+    fn option_errors_point_at_the_key_or_the_value_and_name_their_file() {
+        // An unknown option is reported at its key, with a suggestion when one
+        // is close; a value outside the enum map is TS6046 at the value. `es3`
+        // left `targetOptionMap` with TypeScript 6.
+        let text = r#"{ "compilerOptions": { "strictt": true, "target": "ES3" } }"#;
+        let parsed = parse(text, &["/a.ts"]);
+        let found: Vec<_> = parsed
+            .errors
+            .iter()
+            .map(|d| (d.message.code(), &text[d.span.start as usize..d.span.end as usize]))
+            .collect();
+        assert_eq!(found, [(5025, "\"strictt\""), (6046, "\"ES3\"")]);
+        assert_eq!(
+            parsed.error_files,
+            [Some("/tsconfig.json".to_string()), Some("/tsconfig.json".to_string())]
+        );
     }
 
     #[test]

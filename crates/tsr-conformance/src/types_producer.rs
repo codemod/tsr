@@ -2027,6 +2027,18 @@ pub fn program_for_case<'a>(
     arena: &'a tsr_core::Arena,
     case: &crate::TestCase,
 ) -> tsr_compiler::Program<'a> {
+    program_and_config_for_case(arena, case).0
+}
+
+/// [`program_for_case`], with the case's parsed `tsconfig.json` when it has
+/// one: the `diagnostics` suite reports that parse's errors
+/// (`GetConfigFileParsingDiagnostics`), so it must be the same parse the
+/// program was built from.
+#[must_use]
+pub fn program_and_config_for_case<'a>(
+    arena: &'a tsr_core::Arena,
+    case: &crate::TestCase,
+) -> (tsr_compiler::Program<'a>, Option<tsr_tsoptions::ParsedCommandLine>) {
     // **`@currentDirectory` is a directive, not decoration** (50 corpus cases).
     // The *default* stays `/` — `trace_case` defaults to `/.src` because the
     // resolution traces are baselined against those paths and the diagnostics
@@ -2137,7 +2149,7 @@ pub fn program_for_case<'a>(
         })
         .collect::<Vec<_>>();
     let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, case_sensitive) };
-    tsr_compiler::Program::from_root_files(
+    let program = tsr_compiler::Program::from_root_files(
         arena,
         &host,
         tsr_compiler::LoadOptions {
@@ -2145,7 +2157,8 @@ pub fn program_for_case<'a>(
             root_file_names: roots,
             default_library_path: LIB_DIRECTORY.to_string(),
         },
-    )
+    );
+    (program, parsed_config)
 }
 
 /// Why a property access answered `errorType`: the receiver, or the property.
