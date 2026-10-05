@@ -727,6 +727,7 @@ impl Checker<'_, '_> {
             }
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
+                self.check_circular_import_alias(node);
                 self.check_alias_symbol(node);
                 self.check_export_specifier_is_local(node);
             }
@@ -734,6 +735,7 @@ impl Checker<'_, '_> {
             // `checkExportDeclaration`'s clause (`:5534`).
             Node::ImportClause(_) | Node::NamespaceImport(_) | Node::NamespaceExport(_) => {
                 self.check_module_has_default_export(node);
+                self.check_circular_import_alias(node);
                 self.check_alias_symbol(node);
             }
             // `NodeCanBeDecorated` rejects every one of these outright.
@@ -1392,6 +1394,10 @@ impl Checker<'_, '_> {
     }
 
     fn check_export_assignment_alone(&mut self, node: NodeId) {
+        // `checkExternalModuleExports` resolves the module's `export=` symbol,
+        // which is where an `export = self` cycle reports. Not grammar, so
+        // ahead of the parse-error bail below.
+        self.check_circular_import_alias(node);
         if self.file_has_parse_errors {
             return;
         }

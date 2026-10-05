@@ -91,3 +91,52 @@ written text was printed:
 What would make it land: the type-refs box's unknown-target arm, plus the
 recursive-alias deferral. Then re-apply the two-arm change in
 `is_exported_from_container` and re-measure.
+
+## §2. TS2303 follows `resolveAlias`'s recursion, not two syntactic shapes
+
+Cluster: the MISSING 2303 bucket (`recursiveExportAssignmentAndFindAliasedType1`–`6`,
+`circular1`, `circular3`).
+
+### The forcing constraint
+
+Upstream reports `Circular definition of import alias` from `resolveAlias`
+(`checker.go:16266`) when `popTypeResolution` fails. It fails for **every alias
+whose resolution recursed back into itself**, because the target lookups
+(`resolveEntityName`, `getExternalModuleMember`, `resolveExternalModuleSymbol`)
+end in `resolveSymbol`. That function recurses into any non-local alias
+(`IsNonLocalAlias`: an alias without its own value, type or namespace meaning).
+§955/§956 (`docs/architecture/checker-notes-diag2.md`) ported two syntactic
+shapes of that: an `import A = B; import B = A` chain, and
+`import self = require("m")` inside `declare module "m"`. They missed `export =`
+cycles through a file module and cross-file `export type { A } from` cycles.
+
+### What was built
+
+`circular_alias.rs` walks the same recursion. At each alias, it takes the
+symbol upstream would recurse into: the module's `export=` for a
+`require`/namespace import, the `Namespace`-meaning hit for `import x = y`, or
+[`Checker::resolve_alias`]'s immediate target for every other form. The walk
+continues only while the hop is a non-local alias. It reports when the walk
+reaches the start, and stops on a repeat that is not the start (that alias only
+*leads into* a cycle; upstream's frame pops `true` there). The check runs at
+every alias-declaration check site: import-equals, import/export specifiers,
+import clause, namespace import/export, and export assignment.
+
+Alternative rejected: making `resolve_alias` recursive with a resolution frame.
+That is upstream's shape, but `resolve_alias` is the non-recursive base every
+types consumer relies on. Its own doc records that the frame could not fire
+there. Changing it is a types-wide change for one diagnostic.
+
+### Measured
+
+Diagnostics +8 cases, 0 lost. `checker_types` unchanged. The self-ratio is
+0.96 on `domain-model` and 1.009 on `generic-imports` (21 samples; it read 1.11
+at 9 samples). The walk is per alias *declaration*, never per reference.
+
+### Not converted
+
+`exportAsNamespaceConflict` needs `initializeChecker`'s merge order
+(`checker.go:1320-1343`). UMD `GlobalExports` enter `globals` first-in-wins,
+*then* global augmentations merge into them, so `export = N` meets the UMD
+alias. This binder keeps them apart, so the cycle never forms. That is a
+`tsr-binder/src/lib.rs` globals change.
