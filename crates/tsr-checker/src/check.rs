@@ -507,6 +507,9 @@ impl Checker<'_, '_> {
                 if operands_ok {
                     self.check_enum_member_overshift(node);
                 }
+                // The assignment arm's other rule, for the compound forms this
+                // arm takes from it.
+                self.check_private_accessor_is_writable(node);
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -690,11 +693,10 @@ impl Checker<'_, '_> {
                 // `checkPrefixUnaryExpression` wraps its operand in
                 // `checkNonNullType` exactly as the binary arms wrap theirs.
                 // §759.
-                self.check_nullable_operand(node, ambient);
                 // `if ok { checkReferenceExpression(...) }` — upstream gates
                 // the reference check on the arithmetic one so a non-numeric
                 // operand reports TS2356 alone. §741.
-                if self.check_increment_operand_type(node, ambient) {
+                if self.check_unary_operator_operands(node, ambient) {
                     self.check_reference_expression(node);
                 }
                 ambient
@@ -14949,6 +14951,16 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::AsteriskEqualsToken
             | SyntaxKind::SlashEqualsToken
             | SyntaxKind::PercentEqualsToken
+            // The rest of `checkBinaryLikeExpressionWorker`'s arithmetic arm
+            // (`checker.go:12358`): every compound form reaches
+            // `checkArithmeticOperandType` before `checkAssignmentOperator`.
+            | SyntaxKind::AsteriskAsteriskEqualsToken
+            | SyntaxKind::LessThanLessThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanEqualsToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+            | SyntaxKind::AmpersandEqualsToken
+            | SyntaxKind::BarEqualsToken
+            | SyntaxKind::CaretEqualsToken
     )
 }
 

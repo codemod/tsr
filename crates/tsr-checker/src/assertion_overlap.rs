@@ -22,7 +22,7 @@
 use tsr_ast::{Node, NodeId};
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{checker::Checker, relater::Relation, relater::Ternary, types::TypeId};
+use crate::{checker::Checker, relater::Relation, relater::Ternary};
 
 impl Checker<'_, '_> {
     /// The overlap check for one `as` or `<T>` assertion.
@@ -89,20 +89,5 @@ impl Checker<'_, '_> {
                 [source_text, target_text],
             ),
         );
-    }
-
-    /// A **union or intersection** on either side, which every rule that
-    /// substitutes assignability for comparability must decline.
-    ///
-    /// `fooOrBar as "baz"` with `fooOrBar: "foo" | "bar"` is comparable
-    /// upstream — the constituents and the target are one primitive family —
-    /// and a flag test on the union cannot see through it.
-    /// [`Checker::check_comparison_overlap`] keeps this decline
-    /// (`checker-notes-diag2.md` §45); the assertion check above now asks the
-    /// comparable relation itself.
-    pub(crate) fn either_is_composite(&self, source: TypeId, target: TypeId) -> bool {
-        let composite = crate::flags::TypeFlags::UNION.union(crate::flags::TypeFlags::INTERSECTION);
-        self.type_of(source).flags.intersects(composite)
-            || self.type_of(target).flags.intersects(composite)
     }
 }

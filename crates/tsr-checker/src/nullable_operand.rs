@@ -31,24 +31,6 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || !self.strict_null_checks {
             return;
         }
-        // **A prefix operator's operand is a non-null position too.**
-        // `checkPrefixUnaryExpression` wraps it in `checkNonNullType`
-        // (`checker.go:10899` and the arithmetic arms above it), exactly as
-        // `checkBinaryLikeExpression` wraps both sides. `!`, `typeof` and
-        // `void` are excluded — upstream's wrap is on the arithmetic arms only
-        // and `!undefined` is legal. §759.
-        if let Some(Node::PrefixUnaryExpression(unary)) = self.node_map.get(node) {
-            if !matches!(
-                unary.operator.kind,
-                SyntaxKind::MinusToken | SyntaxKind::PlusToken | SyntaxKind::TildeToken
-            ) {
-                return;
-            }
-            let Some(operand) = unary.operand else { return };
-            let _ = self.check_expression(operand);
-            self.report_nullable_operand(operand);
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         let Some(operator) = binary.operator_token else { return };
         if !is_numeric_operator(operator.kind) {
@@ -207,6 +189,33 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `checkNonNullType` (`checker.go:7409`) **with** its reporter
+    /// (`reportObjectPossiblyNullOrUndefinedError`, `checker.go:7455`): the
+    /// checked operand's type with `null`/`undefined` removed, `errorType`
+    /// for an `unknown` operand under `strictNullChecks` (whose TS18046 /
+    /// TS2571 is not yet reported, see below) or for one that is nothing but
+    /// nullable.
+    pub(crate) fn check_non_null_type_reporting(
+        &mut self,
+        ty: TypeId,
+        operand: tsr_ast::Expression<'_>,
+    ) -> TypeId {
+        if self.strict_null_checks && self.type_of(ty).flags.intersects(TypeFlags::UNKNOWN) {
+            // TS18046 / TS2571 are **not reported yet**. A context-sensitive
+            // arrow argument of a generic call (`Map.groupBy([0], x => x < 5)`)
+            // has its parameter read as `unknown` by the diagnostics walk while
+            // the type dump answers `number` — a node type cached during an
+            // inference pass, outside this file. Reporting here measured two
+            // EMPTY_RIGHT losses (`mapGroupBy`, `nonInferrableTypePropagation2`);
+            // `docs/parity/notes/operators.md`.
+            return self.intrinsics.error;
+        }
+        if self.strict_null_checks {
+            self.report_nullable_operand_of_type(operand, ty);
+        }
+        self.check_non_null_type(ty)
+    }
+
     /// `getTypeFacts(t, TypeFactsIsUndefinedOrNull)` reduced to the two bits
     /// the reporter branches on — union-aware, since that is the whole of what
     /// "may be" means here.
@@ -266,30 +275,9 @@ impl Checker<'_, '_> {
     }
 }
 
-/// The operators whose operands must be numeric — `+` excluded, see the module
-/// header.
+/// The binary operators this rule still reports for: `+` alone. The
+/// relational and arithmetic arms report through
+/// [`Checker::check_non_null_type_reporting`] from their own ports.
 fn is_numeric_operator(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::MinusToken
-            | SyntaxKind::AsteriskToken
-            | SyntaxKind::AsteriskAsteriskToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::PercentToken
-            | SyntaxKind::LessThanLessThanToken
-            | SyntaxKind::GreaterThanGreaterThanToken
-            | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
-            | SyntaxKind::AmpersandToken
-            | SyntaxKind::BarToken
-            | SyntaxKind::CaretToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::LessThanToken
-            | SyntaxKind::GreaterThanToken
-            | SyntaxKind::LessThanEqualsToken
-            | SyntaxKind::GreaterThanEqualsToken
-            | SyntaxKind::MinusEqualsToken
-            | SyntaxKind::AsteriskEqualsToken
-            | SyntaxKind::SlashEqualsToken
-            | SyntaxKind::PercentEqualsToken
-    )
+    kind == SyntaxKind::PlusToken
 }
