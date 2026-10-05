@@ -58,3 +58,16 @@ call whose member is not a `Constructor` answers the deliberate error-any (the
 same convention as the existing arrow arm: upstream's `errorType` after
 TS2337, printed `any`). A container the walk does not model (a class static
 block, a plain function) keeps its existing answer.
+
+## 3. `AccessFlagsAllowMissing` for defaulted binding elements (tsr-2zk.16.35, BINDING-ELEMENT-ALLOW-MISSING-DEFAULT)
+
+`getBindingElementTypeFromParentType` indexes an object pattern's parent with
+`AccessFlagsAllowMissing` when the element has a default (`checker.go:17736`),
+and `getPropertyTypeForIndexType` answers `undefined` for that flag when the
+(apparent) object type is an object-literal type and neither a property nor an
+index signature matched (`checker.go:27187`). The default then supplies the
+element's type through the existing default union. `destructuring_property_lookup`
+takes the flag and applies the same test with `is_object_literal_type`; a
+non-literal parent (an interface, a primitive's apparent type) keeps the miss,
+as upstream does. The arm sits after the index-signature lookup, the same
+order as upstream, so a literal with a matching index signature is unaffected.

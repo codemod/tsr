@@ -178,7 +178,7 @@ impl Checker<'_, '_> {
                     {
                         let numeric =
                             self.store.get(key).flags.intersects(TypeFlags::NUMBER_LITERAL);
-                        self.destructuring_property_lookup(parent_type, &name, numeric)
+                        self.destructuring_property_lookup(parent_type, &name, numeric, true)
                     } else {
                         // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
                         // adds undefined to an index-signature result
@@ -198,7 +198,10 @@ impl Checker<'_, '_> {
                     let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                         return error;
                     };
-                    self.destructuring_property_lookup(parent_type, &name, numeric)
+                    // `AccessFlagsAllowMissing` when the element has a
+                    // default (`checker.go:17736`).
+                    let allow_missing = element.initializer.is_some();
+                    self.destructuring_property_lookup(parent_type, &name, numeric, allow_missing)
                 }
             }
             SyntaxKind::ArrayBindingPattern => {
@@ -995,12 +998,16 @@ impl Checker<'_, '_> {
     /// reverse index without an arm of its own here.
     ///
     /// A miss on both is a gap: upstream reports TS2339/TS2493 and answers
-    /// `errorType`, the same text by a different route.
+    /// `errorType`, the same text by a different route — except under
+    /// `allow_missing` (`AccessFlagsAllowMissing`, a defaulted element), where
+    /// `getPropertyTypeForIndexType` answers `undefined` for an object-literal
+    /// object type (`checker.go:27187`) and the default supplies the type.
     fn destructuring_property_lookup(
         &mut self,
         parent_type: TypeId,
         name: &str,
         numeric: bool,
+        allow_missing: bool,
     ) -> TypeId {
         if let Some(property_type) = self.get_type_of_property_of_type(parent_type, name) {
             return property_type;
@@ -1051,6 +1058,9 @@ impl Checker<'_, '_> {
         // result exactly as an element access read does (`checker.go:26947`,
         // `getPropertyTypeForIndexType` `:27117`).
         let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+            if allow_missing && self.is_object_literal_type(apparent) {
+                return self.intrinsics.undefined;
+            }
             return self.intrinsics.error;
         };
         let include = self.no_unchecked_indexed_access;
