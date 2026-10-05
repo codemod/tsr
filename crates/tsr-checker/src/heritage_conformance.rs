@@ -28,7 +28,19 @@ use crate::{
 impl Checker<'_, '_> {
     /// The heritage conformance checks for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if self.in_js_file(node) {
+            // The JS arm is the implemented-type loop over the `@implements`
+            // tags `reparseHosted` moves into the class's implements clause;
+            // the extends arm and interfaces still decline in JS.
+            if matches!(
+                self.node_map.get(node),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            ) {
+                self.check_class_implemented_types(node, true);
+            }
             return;
         }
         match self.node_map.get(node) {
@@ -74,37 +86,78 @@ impl Checker<'_, '_> {
                 &messages::CLASS_0_INCORRECTLY_EXTENDS_BASE_CLASS_1,
             );
         }
-        for clause in clauses {
-            if clause.token.kind != SyntaxKind::ImplementsKeyword {
+        self.check_class_implemented_types(node, false);
+    }
+
+    /// `checkClassLikeDeclaration`'s implemented-type loop (`checker.go:4293`)
+    /// over `ast.GetEffectiveImplementsTypeNodes` (`ast/utilities.go`): the
+    /// written `implements` clause, followed in a JS file by each JSDoc
+    /// `@implements` tag's class name — the order `reparseHosted`'s
+    /// `KindJSDocImplementsTag` arm (`parser/reparser.go:563`) appends them in.
+    /// `jsdoc_only` skips the written clause, which the JS arm of
+    /// [`Checker::check_heritage_conformance`] still declines.
+    fn check_class_implemented_types(&mut self, node: NodeId, jsdoc_only: bool) {
+        let clauses = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
+            Some(Node::ClassExpression(class)) => class.heritage_clauses,
+            _ => return,
+        };
+        let mut entries: Vec<&tsr_ast::ExpressionWithTypeArguments<'_>> = Vec::new();
+        if !jsdoc_only {
+            for clause in clauses {
+                if clause.token.kind == SyntaxKind::ImplementsKeyword {
+                    entries.extend(clause.types.iter().copied());
+                }
+            }
+        }
+        if self.in_js_file(node)
+            && let Some(docs) = self.jsdoc_entries.get(&node)
+        {
+            for doc in *docs {
+                for tag in doc.tags {
+                    if let tsr_ast::JSDocTag::JSDocImplementsTag(tag) = tag
+                        && let Some(class_name) = tag.class_name
+                    {
+                        entries.push(class_name);
+                    }
+                }
+            }
+        }
+        if entries.is_empty() {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        // A **merged** declaration assembles its member table from several
+        // declarations, and upstream's merge is not this port's.
+        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+            return;
+        }
+        let source = self.get_declared_type_of_class_or_interface(symbol);
+        for entry in entries {
+            let Some(expression) = entry.expression else { continue };
+            let Some(implemented) = self.heritage_entity_symbol(expression, SymbolFlags::TYPE)
+            else {
+                continue;
+            };
+            let flags = self.binder.symbols().get(implemented).flags;
+            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                || !self.has_single_type_declaration(implemented)
+            {
                 continue;
             }
-            for entry in clause.types {
-                let Some(expression) = entry.expression else { continue };
-                let Some(implemented) = self.heritage_entity_symbol(expression, SymbolFlags::TYPE)
-                else {
-                    continue;
-                };
-                let flags = self.binder.symbols().get(implemented).flags;
-                if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                    || !self.has_single_type_declaration(implemented)
-                {
-                    continue;
-                }
-                let Some(target) = self.instantiated_heritage_base(
-                    implemented,
-                    entry.type_arguments,
-                    entry.node_id,
-                ) else {
-                    continue;
-                };
-                // `t.symbol.Flags&ast.SymbolFlagsClass` picks the message.
-                let message = if flags.contains(SymbolFlags::CLASS) {
-                    &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
-                } else {
-                    &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
-                };
-                self.check_class_heritage_entry(node, source, target, message);
-            }
+            let Some(target) =
+                self.instantiated_heritage_base(implemented, entry.type_arguments, entry.node_id)
+            else {
+                continue;
+            };
+            // `t.symbol.Flags&ast.SymbolFlagsClass` picks the message.
+            let message = if flags.contains(SymbolFlags::CLASS) {
+                &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
+            } else {
+                &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
+            };
+            self.check_class_heritage_entry(node, source, target, message);
         }
     }
 
