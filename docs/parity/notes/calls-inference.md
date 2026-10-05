@@ -80,3 +80,40 @@ Measured alone on top of §1: +4 gap→right, 0 gap→wrong, 0 losses
 **Not ported:** the type-parameter disjunct
 (`IsTypeAny(apparent) && funcType is TypeParameter`); TSR does not answer an
 `any` apparent type for an unconstrained type parameter.
+
+## 3. `reorderCandidates` on the call road (tsr-2zk.16.9)
+
+**Forcing constraint.** `resolveCall` reorders candidates once before any pass
+(`checker.go:8843` -> `reorderCandidates`, `:8957`): literal-typed
+("specialized") signatures are hoisted ahead of the rest, and a later
+declaration group of a merged symbol is spliced ahead of the earlier group.
+TSR ported it only for `new` (`reorder_construct_candidates`); the call road
+walked declaration order and, to stay sound, its subtype pass declined
+(Undecidable) any set containing a specialized signature.
+
+**Decision.** Rename the port `reorder_candidates` and apply it once at the
+`choose_overload` entry and on the named-callee subtype pass; delete the
+Undecidable guard. The construct road already passes reordered candidates, so
+`choose_construct_overload` enters `choose_ordered_overload` directly — the
+reorder is not idempotent (a second application splices merged groups back).
+
+**Prerequisite fix found by the reorder.** The single-arity-survivor arm of
+`choose_overload` related arguments to a *generic* survivor's uninstantiated
+parameters. That answered NotRelated for `proxy<T, U>(fn: (options: T) => U)`
+given `oneArg: (input: string) => string`, and the arm then returned the
+order-sensitive "longest candidate" — after reordering, the 2-parameter
+specialized overload (`declarationEmitOverloadedPrivateInference`, 2
+right->gap). Upstream infers before `isSignatureApplicable`; a generic survivor
+now flows to `check_generic_call` unchecked, as a single generic does.
+Measured alone: +2 wrong->right, 0 losses.
+
+**Measured** (types lines vs the frozen base, on top of §1): reorder + survivor
+fix +58 gap->right, +98 wrong->right, 0 right->other, **4 gap->wrong**, all in
+`intersectionTypeInference3`: `Array.from(a)` now resolves through the
+es2015.iterable overload (spliced first, as upstream), and the inferred
+element prints `Nominal<"A", string>[]` where upstream keeps the alias `A[]`.
+The selection is upstream's; the alias is lost in inference from `Set<A>`'s
+iterator member. Accepted as an inference alias-retention gap, outside this
+change.
+
+**Not ported:** `getOptionalCallSignature` for call chains (`callChainFlags`).

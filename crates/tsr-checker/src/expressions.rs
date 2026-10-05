@@ -2517,7 +2517,7 @@ impl Checker<'_, '_> {
             }) {
                 return self.intrinsics.any;
             }
-            let candidates = self.reorder_construct_candidates(candidates);
+            let candidates = self.reorder_candidates(candidates);
             let selected = match candidates.as_slice() {
                 [single] => Some(single.clone()),
                 _ => self.choose_construct_overload(

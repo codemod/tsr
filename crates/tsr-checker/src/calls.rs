@@ -1500,6 +1500,7 @@ impl Checker<'_, '_> {
                     self.signature_candidates_of_named_type(callee, SignatureKind::Call)
                 && !candidates.is_empty()
             {
+                let candidates = self.reorder_candidates(candidates);
                 let clean = Self::clean_candidate_prefix_len(&candidates);
                 if clean > 0
                     && let Some(signature) =
@@ -1672,17 +1673,18 @@ impl Checker<'_, '_> {
         {
             return Some(picked);
         }
-        self.choose_overload(candidates, arguments, has_type_arguments, call)
+        self.choose_ordered_overload(candidates, arguments, has_type_arguments, call)
     }
 
     /// The first candidate every argument is assignable to, or `None`.
     ///
     /// Ported from `Checker.chooseOverload` (`checker.go:9025`), which walks the
-    /// candidate list in declaration order, keeps the ones `hasCorrectArity`
+    /// candidate list in `reorderCandidates` order, keeps the ones `hasCorrectArity`
     /// (`checker.go:9107`) admits, and returns the first whose parameters every
-    /// argument satisfies under the assignable relation. Declaration order is
-    /// load-bearing — it is the whole tie-break — and
-    /// [`Checker::get_signatures_of_symbol`] preserves it.
+    /// argument satisfies under the assignable relation. Order is
+    /// load-bearing — it is the whole tie-break — so this entry applies
+    /// [`Checker::reorder_candidates`] to the declaration-order list
+    /// [`Checker::get_signatures_of_symbol`] produces.
     ///
     /// # What is reduced away, each answering `None` so the call is `errorType`
     ///
@@ -1706,6 +1708,25 @@ impl Checker<'_, '_> {
     ///   without it, taking the first is a guess. Where every match returns the
     ///   *same* type the pass could not have changed the answer, so it is taken.
     pub(crate) fn choose_overload(
+        &mut self,
+        candidates: &[Signature],
+        arguments: &[Expression<'_>],
+        has_type_arguments: bool,
+        call: Option<tsr_ast::NodeId>,
+    ) -> Option<Signature> {
+        // `resolveCall` reorders once before any pass (`checker.go:8843` ->
+        // `reorderCandidates`, `:8957`); every first-match walk below assumes
+        // that order. Construct candidates arrive reordered and enter at
+        // `choose_ordered_overload` directly — the reorder is not idempotent
+        // (a second pass splices merged groups back).
+        if candidates.len() > 1 {
+            let reordered = self.reorder_candidates(candidates.to_vec());
+            return self.choose_ordered_overload(&reordered, arguments, has_type_arguments, call);
+        }
+        self.choose_ordered_overload(candidates, arguments, has_type_arguments, call)
+    }
+
+    fn choose_ordered_overload(
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],
@@ -1757,7 +1778,15 @@ impl Checker<'_, '_> {
                 // `compiler/functionOverloads`). A born-single candidate
                 // keeps the unguarded return; an UNDECIDABLE pair keeps the
                 // survivor, which is this path's pre-§359 behaviour.
-                if candidates.len() > 1 {
+                // A GENERIC survivor is not argument-checked here: upstream
+                // infers before `isSignatureApplicable` (`chooseOverload`,
+                // `checker.go:9040-9080`), and relating arguments to its
+                // uninstantiated parameters answered NotRelated for
+                // `proxy<T, U>(fn: (options: T) => U)` given `oneArg`, which
+                // then fell to the order-sensitive longest-candidate pick.
+                // It flows to the caller's `check_generic_call` like a single
+                // generic does. `docs/parity/notes/calls-inference.md` §3.
+                if candidates.len() > 1 && survivor.type_parameters.is_empty() {
                     let mut verdict = Ternary::Related;
                     for (index, &argument) in arguments.iter().enumerate() {
                         let Some(parameter) = survivor.parameters.get(index) else { break };
@@ -2667,23 +2696,13 @@ impl Checker<'_, '_> {
         clean_len: usize,
         arguments: &[Expression<'_>],
     ) -> SubtypePassOutcome {
-        // Upstream REORDERS candidates before any pass — `reorderCandidates`
-        // (`checker.go:8957`) splices every specialized signature (one with a
-        // literal-typed parameter, GH#1133) ahead of the non-specialized
-        // ones. This port keeps declaration order, so a first-match walk is
-        // only sound when the set — the WHOLE set, tail included, since the
-        // splice hoists from anywhere — holds no specialized candidate:
-        // `inheritedOverloadedSpecializedSignatures` lost a passing
-        // diagnostics case to exactly this before the guard (the pick took a
-        // general overload upstream had spliced behind `(x: 'B1')`).
-        // signatureHasLiteralTypes is set from literal type syntax, not
-        // semantic flags: an enum-member reference is not specialized.
-        if candidates
-            .iter()
-            .any(|candidate| self.signature_has_literal_types(candidate.declaration))
-        {
-            return SubtypePassOutcome::Undecidable;
-        }
+        // Callers pass candidates in `reorderCandidates` order
+        // (`checker.go:8957`, [`Checker::reorder_candidates`]): specialized
+        // (literal-typed) signatures first, later merged declaration groups
+        // ahead of earlier ones. So the first-match walk here is upstream's,
+        // and the old declaration-order guard that declined every set with a
+        // specialized candidate is gone (`docs/parity/notes/calls-inference.md`
+        // §3).
         let prefix = &candidates[..clean_len];
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
