@@ -147,7 +147,41 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — canonical JavaScript loop flow
+### Current checker checkpoint — original recursive-array length ownership
+
+Measured production/test revision **`738dea54`**, pinned native **`5b1047d`**:
+**463,997/478,855 RIGHT assertions**, **475,538 aligned positions**, 1,611 GAP
+and 9,930 WRONG. The fixed 99% target remains **474,067 RIGHT**;
+**10,070 additional matches remain**. This is a checkpoint, not completion.
+
+The Temporal checkpoint `9c9a9e5f` adds 128 RIGHT over the JavaScript loop
+checkpoint below; the completed original array-alias index view `ffbd00cc` adds
+five. JSX mixed signatures `91a2b646` and source qualification `2ffe256a` preserve
+all corpus payloads while improving their independent native controls. This
+length-only successor adds exactly two WRONG-to-RIGHT rows at
+`recursiveTypeReferences1` positions 308/310. Every prior RIGHT payload, key and
+GAP survives. Original placeholders, tuple elements and concrete receiver `this`
+remain unchanged; only a uniquely owned inactive canonical Array/ReadonlyArray
+completion with an explicit nonoptional `number` length property is reused.
+Other members, captured/active images and Stage2 inference remain declined.
+
+All **10,570 duplicate/empty diagnostic bags are byte-identical**: 30,874 expected
+occurrences, 24,533 actual, 20,829 matched, 10,045 missing and 3,704 extras.
+Default/work-trace workspace release tests pass **3,044/3,056**, with zero
+failures and six existing ignores each. Strict all-target Clippy in both modes,
+format/whitespace, 3,397 anchors and 16,596 section citations pass; rebuilt default
+scan binaries equal the captured full-scan binaries. No speed claim follows.
+
+The independent source-text API `4706d907` has no production consumer or corpus
+gain claim: six host tests and 1,528 checker/compiler tests pass (three existing
+ignores), with strict targeted Clippy and formatting checks. The narrow consumer
+and privacy target-meaning/name prerequisites remain pending combined replay.
+The inferred-call publication trial is rejected for a new GAP-to-WRONG
+contextual-source recovery; the parser/variable-consumer combination remains
+rejected for nine authored matched diagnostic losses even after restoring all
+14 corpus occurrences.
+
+### Historical JavaScript loop checkpoint — canonical flow worker
 
 Measured production/test revision **`a072b4d7`**, pinned native **`5b1047d`**:
 **463,862/478,855 RIGHT assertions (96.87%)**, **475,538 aligned positions**,
