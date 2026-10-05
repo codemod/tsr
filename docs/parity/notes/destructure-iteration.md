@@ -71,3 +71,25 @@ takes the flag and applies the same test with `is_object_literal_type`; a
 non-literal parent (an interface, a primitive's apparent type) keeps the miss,
 as upstream does. The arm sits after the index-signature lookup, the same
 order as upstream, so a literal with a matching index signature is unaffected.
+
+## 4. Pattern-implied type of a declaration with no source (tsr-2zk.16.47, BINDING-PATTERN-IMPLIED-TYPE, partial)
+
+`getTypeForVariableLikeDeclaration` ends with `getTypeFromBindingPattern(name,
+false, true)` for any pattern-named declaration that reached no annotation,
+initializer, catch, for-in or for-of arm (`checker.go:16790`), and
+`getTypeForBindingElementParent` reads it unwidened. For a
+`VariableDeclaration` (`declare var [a, b];`), `get_type_for_binding_element_parent`
+answered `error`; it now returns `binding_pattern_implied_type`, and a pattern
+the builder cannot spell still gaps. The for-in arm (`checker.go:16658`) was
+added ahead of it in the same function so a (grammatically invalid) for-in
+pattern reads the key type rather than the implied type, as upstream orders
+them.
+
+**Not done here (files not owned).** The cluster's other two legs live in
+`symbols.rs` `get_widened_type_for_variable_like_declaration`: the rest
+parameter exclusion (`...{ a, b }` must take the implied type before the
+`any[]` fallback, `restParameterWithBindingPattern1`) and the container gate
+that excludes bodyless signatures (`FunctionType`, `ConstructorType`,
+`MethodSignature`, call/construct signatures — `renamingDestructuredPropertyInFunctionType`).
+The parameter gate in `destructure.rs` mirrors that gate and must move with it,
+or the element and the declaration would disagree.

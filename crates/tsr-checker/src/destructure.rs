@@ -497,6 +497,14 @@ impl Checker<'_, '_> {
                 // `for_of_element_type` the plain-name arm has had since §38.
                 // `for await` takes the async-first resolver
                 // (FOR-AWAIT-OF-BINDING-PARENT); undecidable iterables gap.
+                // The for-in arm precedes it (`checker.go:16700`): a pattern
+                // there is a grammar error, but its type is still the key type.
+                if let Some(list) = self.nodes.parent(holder)
+                    && let Some(statement) = self.nodes.parent(list)
+                    && self.nodes.kind(statement) == SyntaxKind::ForInStatement
+                {
+                    return self.for_in_variable_type(statement);
+                }
                 if let Some(list) = self.nodes.parent(holder)
                     && let Some(statement) = self.nodes.parent(list)
                     && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
@@ -554,6 +562,19 @@ impl Checker<'_, '_> {
                         return error;
                     }
                     return self.widen_type_inferred_from_initializer(holder, initializer_type);
+                }
+                // `getTypeForVariableLikeDeclaration`'s last arm
+                // (`checker.go:16790`): a pattern-named declaration with no
+                // annotation and no initializer — `declare var [a, b];` —
+                // reads `getTypeFromBindingPattern(name, false, true)`, the
+                // pattern's implied type (`[any, any]`, `{ a: any }`). The
+                // parent read goes through `getTypeForBindingElementParent`,
+                // which takes this type unwidened. A pattern the builder cannot
+                // spell stays a gap.
+                if let Some(Node::VariableDeclaration(variable)) = self.node_map.get(holder)
+                    && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = variable.name
+                {
+                    return self.binding_pattern_implied_type(pattern).unwrap_or(error);
                 }
                 error
             }
