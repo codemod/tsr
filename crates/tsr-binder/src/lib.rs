@@ -439,7 +439,34 @@ impl<'a> BindResult<'a> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
-        let resolved = self.resolve_name_excluding(nodes, node_map, start, name, meaning, None)?;
+        self.resolve_name_with_export_alias(nodes, node_map, start, name, meaning, |_, _| {
+            Some(false)
+        })
+    }
+
+    /// Pinned 5b1047d nameresolver.go:99 / checker.go:2176 delegates exported
+    /// alias meaning to the checker while retaining this exact ancestor walk.
+    /// The callback handles only nonambient external import-equals exports:
+    /// `Some(false)` continues outward; `None` declines an unsupported target
+    /// without claiming an outer binding. No symbols or scope tables change.
+    pub fn resolve_name_with_export_alias(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+        mut exported_alias: impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+    ) -> Option<SymbolId> {
+        let resolved = self.resolve_name_excluding_with_export_alias(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            None,
+            &mut exported_alias,
+        )?;
         // §265. `declare global { … }` does NOT declare a binding called
         // `global` — the keyword is syntax, not a name. Upstream reports
         // `TS2304: Cannot find name 'global'` for `global.x` (checker-1's
@@ -606,6 +633,28 @@ impl<'a> BindResult<'a> {
         meaning: SymbolFlags,
         exclude: Option<NodeId>,
     ) -> Option<SymbolId> {
+        self.resolve_name_excluding_with_export_alias(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            exclude,
+            &mut |_, _| Some(false),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_name_excluding_with_export_alias(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+        exclude: Option<NodeId>,
+        exported_alias: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+    ) -> Option<SymbolId> {
         // Upstream's `lastLocation`: the node the walk came *from*. The static
         // rule below is a question about it, not about the class.
         let mut last: Option<NodeId> = None;
@@ -753,24 +802,6 @@ impl<'a> BindResult<'a> {
             if let Some(mask) = exported
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
-                && (self.symbols.get(self.merged_symbol(found)).flags.intersects(meaning & mask)
-                    // getSymbol (checker.go:2183) admits aliases by their
-                    // target meaning. The checker validates this qualified
-                    // import-equals target in get_type_of_alias; the binder
-                    // only supplies the symbol. Other exported aliases and
-                    // ambient namespaces still need deferred-alias recovery
-                    // (tsr-6.44.1), so keep this prerequisite bounded.
-                    || (!nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
-                        && self.symbols.get(self.merged_symbol(found)).flags
-                            .intersects(SymbolFlags::ALIAS)
-                        && self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
-                            matches!(
-                                node_map.get(d),
-                                Some(tsr_ast::Node::ImportEqualsDeclaration(alias))
-                                    if matches!(alias.module_reference,
-                                        Some(tsr_ast::ModuleReference::QualifiedName(_)))
-                            )
-                        })))
                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
                     || !self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
                         matches!(
@@ -784,7 +815,34 @@ impl<'a> BindResult<'a> {
                 // here after the `locals` arm had been filtered.
                 && !self.symbol_is_declared_within(found, exclude, nodes)
             {
-                return Some(self.merged_symbol(found));
+                let found = self.merged_symbol(found);
+                let entry = self.symbols.get(found);
+                if entry.flags.intersects(meaning & mask) {
+                    return Some(found);
+                }
+                if !nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                    && entry.flags.intersects(SymbolFlags::ALIAS)
+                {
+                    // Preserve the existing qualified import-equals admission.
+                    // Only external require aliases use the checker callback.
+                    for &declaration in &entry.declarations {
+                        if let Some(tsr_ast::Node::ImportEqualsDeclaration(alias)) =
+                            node_map.get(declaration)
+                        {
+                            match alias.module_reference {
+                                Some(tsr_ast::ModuleReference::QualifiedName(_)) => {
+                                    return Some(found);
+                                }
+                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                                    if exported_alias(found, meaning & mask)? =>
+                                {
+                                    return Some(found);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
             }
 
             last = Some(node);

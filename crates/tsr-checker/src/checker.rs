@@ -3389,6 +3389,39 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(locals) = self.binder.locals(node) {
                 tables.push(locals.values().copied().collect());
             }
+            // Pinned 5b1047d someSymbolTableInScope (:746-775) visits raw
+            // exports after locals. The original Program owns these symbols;
+            // only sole external import-equals declarations extend this view.
+            // Existing alias resolution, meaning/shadow checks and per-table
+            // native ordering below own selection. No completion/publication
+            // or new cache; re-export/default/internal aliases stay excluded.
+            if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration
+            ) && let Some(owner) = self.binder.symbol_of(node)
+            {
+                let owner = self.binder.merged_symbol(owner);
+                tables.push(
+                    self.binder
+                        .symbols()
+                        .get(owner)
+                        .exports
+                        .values()
+                        .copied()
+                        .filter(|&candidate| {
+                            let [declaration] =
+                                self.binder.symbols().get(candidate).declarations.as_slice()
+                            else {
+                                return false;
+                            };
+                            matches!(self.node_map.get(*declaration),
+                                Some(Node::ImportEqualsDeclaration(alias))
+                                    if matches!(alias.module_reference,
+                                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))))
+                        })
+                        .collect(),
+                );
+            }
             current = self.nodes.parent(node);
         }
         tables.push(self.binder.globals().values().copied().collect());

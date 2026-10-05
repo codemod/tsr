@@ -8,11 +8,16 @@ fn reads(
     reversed_declarations: bool,
     precheck: bool,
     reversed_queries: bool,
+    modifier: &str,
 ) -> Vec<String> {
     let aliases = if reversed_declarations {
-        "import first = require(\"./mod\");\nimport second = require(\"./mod\");"
+        format!(
+            "{modifier}import first = require(\"./mod\");\n{modifier}import second = require(\"./mod\");"
+        )
     } else {
-        "import second = require(\"./mod\");\nimport first = require(\"./mod\");"
+        format!(
+            "{modifier}import second = require(\"./mod\");\n{modifier}import first = require(\"./mod\");"
+        )
     };
     let source = format!(
         "// @target: es2015\n// @module: commonjs\n// @filename: mod.ts\nexport const token = 17;\nexport class Thing {{ value = 1; }}\n// @filename: other.ts\nexport const token = 29;\n// @filename: use.ts\n{aliases}\nimport foreign = require(\"./other\");\n{body}"
@@ -76,6 +81,9 @@ fn reads(
         passes.push(results);
     }
     assert_eq!(passes[0], passes[1], "cold/warm drift: {body}");
+    if !modifier.is_empty() && precheck {
+        assert!(checker.diagnostics().is_empty(), "native exported controls have no diagnostics");
+    }
     passes.remove(0)
 }
 
@@ -99,7 +107,7 @@ fn module_values_and_type_containers_use_distinct_meanings() {
                     vec!["first.Thing", "typeof second"],
                 ),
             ] {
-                assert_eq!(reads(body, false, checked, reversed_queries), expected, "{body}");
+                assert_eq!(reads(body, false, checked, reversed_queries, ""), expected, "{body}");
             }
         }
     }
@@ -138,9 +146,52 @@ fn accessible_aliases_keep_scope_order_identity_and_fallback() {
                     ),
                 ] {
                     assert_eq!(
-                        reads(body, reversed_declarations, checked, reversed_queries),
+                        reads(body, reversed_declarations, checked, reversed_queries, ""),
                         expected,
                         "{body}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn exports_only_external_aliases_follow_native_table_order_and_meaning() {
+    for checked in [false, true] {
+        for reverse_queries in [false, true] {
+            for reverse_declarations in [false, true] {
+                let preferred = if reverse_declarations { "first" } else { "second" };
+                for (body, expected) in [
+                    (
+                        "first; let value!: first.Thing; value;",
+                        vec![format!("typeof {preferred}"), format!("{preferred}.Thing")],
+                    ),
+                    (
+                        "function f(second: number) { first; let value!: first.Thing; value; }",
+                        vec!["typeof first".to_string(), format!("{preferred}.Thing")],
+                    ),
+                    (
+                        "function f() { interface second {} first; let value!: first.Thing; value; }",
+                        vec![format!("typeof {preferred}"), format!("{preferred}.Thing")],
+                    ),
+                    (
+                        "import local = require(\"./mod\"); first; let value!: first.Thing; value;",
+                        vec!["typeof local".to_string(), "local.Thing".to_string()],
+                    ),
+                    (
+                        "export { first as hidden }; first; let value!: first.Thing; value;",
+                        vec![format!("typeof {preferred}"), format!("{preferred}.Thing")],
+                    ),
+                    (
+                        "const captured = first; function f(second: number, first: string) { captured; }",
+                        vec!["typeof import(\"./mod\")".to_string()],
+                    ),
+                ] {
+                    assert_eq!(
+                        reads(body, reverse_declarations, checked, reverse_queries, "export "),
+                        expected,
+                        "native exported-alias control: {body}"
                     );
                 }
             }

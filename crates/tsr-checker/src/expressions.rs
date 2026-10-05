@@ -683,13 +683,8 @@ impl Checker<'_, '_> {
                 // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
                 // what keeps an enclosing class's type parameter from being
                 // resolved here — see `BindResult::resolve_name`.
-                let resolved = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    node.text,
-                    SymbolFlags::VALUE,
-                );
+                let resolved =
+                    self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);
                 if let Some(symbol) = resolved {
                     {
                         // §213: upstream refuses this resolution outright when

@@ -673,6 +673,39 @@ impl<'a> Checker<'a, '_> {
             .flatten()
     }
 
+    /// Pinned 5b1047d getSymbol (checker.go:2176) supplies target meaning to
+    /// the binder's original ancestor walk for external import-equals exports.
+    /// The immutable Program owns symbols and module identities; the existing
+    /// alias worker owns resolution. A direct completed nonalias target may
+    /// admit this export or continue to an outer meaning. Missing/alias targets
+    /// decline rather than claiming absence. No new completion cache or image;
+    /// repeated alias-worker attribution remains tsr-1yb.11.
+    pub(crate) fn resolve_name_with_export_alias(
+        &mut self,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let binder = self.binder;
+        let nodes = self.nodes;
+        let node_map = self.node_map;
+        binder.resolve_name_with_export_alias(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            |alias, mask| {
+                let target = self.resolve_alias(alias)?;
+                let flags = binder.symbols().get(binder.merged_symbol(target)).flags;
+                if flags.intersects(SymbolFlags::ALIAS) {
+                    return None;
+                }
+                Some(flags.intersects(mask))
+            },
+        )
+    }
+
     /// A symbol's flags, **following the alias chain**.
     ///
     /// Ported from `Checker.getSymbolFlagsEx` (`checker.go:16367`) with both of

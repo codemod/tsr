@@ -943,3 +943,160 @@ fn a_directly_declared_export_is_unaffected() {
     let fixture = program(&arena, &[M, ("a", "import * as p from \"./m\";\nconst v = p.x;\n")]);
     assert_eq!(type_of_variable_with_host(&fixture, "v", true), "number");
 }
+
+#[test]
+fn exported_require_aliases_use_target_meaning_in_the_original_scope_walk() {
+    // Pinned 5b1047d getSymbol / nameresolver.go:99: a class export has
+    // TYPE and VALUE, but namespace/function exports must leave an outer TYPE
+    // binding visible. Unconditional exported ALIAS admission fails the latter.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "globals",
+                "interface NamespaceAlias { marker: string; }
+interface CallableAlias { marker: number; }
+interface ClassAlias { marker: boolean; }",
+            ),
+            ("namespace", "export const value = 'west';"),
+            ("callable", "declare function callable(value: number): number; export = callable;"),
+            ("class", "declare class ClassTarget { marker: number; } export = ClassTarget;"),
+            (
+                "entry",
+                "export import NamespaceAlias = require('./namespace');
+export import CallableAlias = require('./callable');
+export import ClassAlias = require('./class');
+declare const namespaceType: NamespaceAlias;
+declare const callableType: CallableAlias;
+declare const classType: ClassAlias;
+export const namespaceMarker = namespaceType.marker;
+export const callableMarker = callableType.marker;
+export const classMarker = classType.marker;
+export const value = NamespaceAlias.value;
+export const result = CallableAlias(7);
+export const instance = new ClassAlias();
+export const instanceMarker = instance.marker;",
+            ),
+        ],
+    );
+    let entry = fixture.host.files.last().unwrap().1;
+    let module = fixture.bound.symbol_of(entry).unwrap();
+    for name in ["NamespaceAlias", "CallableAlias", "ClassAlias"] {
+        assert!(fixture.bound.lookup_local(entry, name).is_none(), "exports-only owner");
+        assert!(fixture.bound.symbols().get(module).exports.contains_key(name));
+    }
+    let expectations = [
+        ("classMarker", "number"),
+        ("namespaceMarker", "string"),
+        ("callableMarker", "number"),
+        ("value", "\"west\""),
+        ("result", "number"),
+        // Native prints the instance as ClassAlias; the unrelated declaration
+        // naming gap remains. Its semantic member must still be number.
+        ("instanceMarker", "number"),
+    ];
+    for reverse in [false, true] {
+        let mut checker = Checker::with_module_host(
+            &fixture.bound,
+            &fixture.nodes,
+            &fixture.node_map,
+            Some(&fixture.host),
+        );
+        for warm in [false, true] {
+            for index in 0..expectations.len() {
+                let index = if reverse ^ warm { expectations.len() - index - 1 } else { index };
+                let (name, expected) = expectations[index];
+                let symbol = fixture.bound.symbols().get(module).exports[name];
+                let ty = checker.get_type_of_symbol(symbol);
+                assert_eq!(checker.type_to_string(ty), expected, "{name}, {reverse}, {warm}");
+            }
+        }
+    }
+    let mut checker = Checker::with_module_host(
+        &fixture.bound,
+        &fixture.nodes,
+        &fixture.node_map,
+        Some(&fixture.host),
+    );
+    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+        module: tsr_core::ModuleKind::CommonJS,
+        ..Default::default()
+    });
+    for &(_, file) in &fixture.host.files {
+        checker.check_source_file(
+            file,
+            tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+        );
+    }
+    assert!(checker.diagnostics().is_empty(), "native empty bag: {:?}", checker.diagnostics());
+}
+
+#[test]
+fn unsupported_exported_require_target_does_not_claim_an_outer_binding() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("globals", "interface MissingAlias { marker: boolean; }"),
+            (
+                "entry",
+                "export import MissingAlias = require('./missing');
+declare const typed: MissingAlias;
+export const marker = typed.marker;",
+            ),
+        ],
+    );
+    let entry = fixture.host.files.last().unwrap().1;
+    let module = fixture.bound.symbol_of(entry).unwrap();
+    let alias = fixture.bound.symbols().get(module).exports["MissingAlias"];
+    for with_host in [false, true] {
+        assert_eq!(type_of_variable_with_host(&fixture, "marker", with_host), "error");
+    }
+    // The binder does not decide target meaning. Its legacy caller continues
+    // outward, while an unsupported checker target stops without substituting
+    // the otherwise-compatible global TYPE symbol.
+    let outer = fixture.bound.resolve_name(
+        &fixture.nodes,
+        &fixture.node_map,
+        entry,
+        "MissingAlias",
+        SymbolFlags::TYPE,
+    );
+    assert!(outer.is_some());
+    assert_ne!(outer, Some(alias));
+    assert_eq!(
+        fixture.bound.resolve_name_with_export_alias(
+            &fixture.nodes,
+            &fixture.node_map,
+            entry,
+            "MissingAlias",
+            SymbolFlags::TYPE,
+            |found, _| {
+                assert_eq!(found, alias);
+                None
+            },
+        ),
+        None,
+    );
+}
+
+#[test]
+fn exported_require_meaning_declines_a_cyclic_indirect_target() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("globals", "interface Cycle { marker: boolean; }"),
+            ("a", "import back = require('./b'); export = back;"),
+            ("b", "import back = require('./a'); export = back;"),
+            (
+                "entry",
+                "export import Cycle = require('./a');
+declare const typed: Cycle;
+export const marker = typed.marker;",
+            ),
+        ],
+    );
+    assert_eq!(type_of_variable_with_host(&fixture, "marker", true), "error");
+}

@@ -1427,13 +1427,9 @@ impl<'a> Checker<'a, '_> {
                 }
                 let tsr_ast::EntityName::Identifier(root) = root else { return error };
                 let Some(root_id) = root.node_id else { return error };
-                let Some(namespace) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    root_id,
-                    root.text,
-                    SymbolFlags::NAMESPACE,
-                ) else {
+                let Some(namespace) =
+                    self.resolve_name_with_export_alias(root_id, root.text, SymbolFlags::NAMESPACE)
+                else {
                     return self.unresolved_type_reference(node);
                 };
                 return self.qualified_type_reference(node, qualified, namespace);
@@ -1445,8 +1441,7 @@ impl<'a> Checker<'a, '_> {
         // (`resolveTypeReferenceName`). It is what lets the resolver consult an
         // enclosing class's or interface's `members` for a type parameter — see
         // `BindResult::resolve_name`.
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, id, name.text, SymbolFlags::TYPE)
+        let Some(symbol) = self.resolve_name_with_export_alias(id, name.text, SymbolFlags::TYPE)
         else {
             return self.unresolved_type_reference(node);
         };

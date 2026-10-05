@@ -4269,7 +4269,6 @@ impl Checker<'_, '_> {
             return;
         }
         if self
-            .binder
             // `getResolvedSymbol` (`checker.go:13890`) resolves an identifier at
             // `SymbolFlagsValue | SymbolFlagsExportValue`. **`EXPORT_VALUE` is
             // part of the meaning, not a separate question.** An exported
@@ -4282,9 +4281,7 @@ impl Checker<'_, '_> {
             // `A`, so a later arm recovers it. `export default class A` does
             // not: the export is named `default`, and the written name exists
             // **only** as the flagless local. §251.
-            .resolve_name(
-                self.nodes,
-                self.node_map,
+            .resolve_name_with_export_alias(
                 node,
                 text,
                 SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
@@ -4819,9 +4816,7 @@ impl Checker<'_, '_> {
         //   last five wrong lines were all `import type` through a re-export.
         //
         // §692.
-        if let Some(hit) =
-            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
-        {
+        if let Some(hit) = self.resolve_name_with_export_alias(node, text, SymbolFlags::TYPE) {
             // `getSymbol` tests `symbol.Flags & meaning` **first** and only
             // then falls back to the alias. `import * as B from "./b"` merged
             // with `interface B {}` carries both, and the interface half is a
