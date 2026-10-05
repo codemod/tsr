@@ -318,10 +318,11 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
         // `getSemanticDiagnosticsWithChecker` (`program.go:1342`): bind and
         // check, then the include processor's.
         let from_checker = from_checker.get(&unit.id).into_iter().flatten().map(|d| (*d).clone());
+        let bound = file_bind_diagnostics(&arena, &program, unit.file);
         let semantic = program_diagnostics::bind_and_check_diagnostics(
-            &arena,
             &program,
             unit.index,
+            &bound,
             from_checker,
         );
         reported.extend(semantic.into_iter().map(|d| (position, d)));
@@ -387,6 +388,33 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
         out.extend(config_file_parsing_diagnostics(test, config));
     }
     out
+}
+
+/// `sourceFile.BindDiagnostics()`, from binding the file on its own.
+///
+/// Not [`Program::bind_diagnostics_of`], which the CLI reads: the program binds
+/// every file into **one** store, and that store reports collisions *across*
+/// files that upstream's per-file binder never sees: two
+/// `export as namespace Alpha` files (`umdGlobalConflict`) earn a TS2300 that
+/// upstream's checker merges away. A fresh store over the program's tree and
+/// JSDoc table is upstream's per-file binding; the binder reads both and
+/// mutates neither. Costs a program-sized side-table allocation per file,
+/// which is why the CLI does not do it.
+fn file_bind_diagnostics<'a>(
+    arena: &'a tsr_core::Arena,
+    program: &Program<'a>,
+    file: &ProgramFile<'a>,
+) -> Vec<Diagnostic> {
+    let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+    let bound = tsr_binder::bind_into_with_jsdoc(
+        tsr_binder::BindResult::empty(),
+        arena,
+        file.source_file(),
+        program.nodes(),
+        tsr_binder::FileInfo { name: file.file_name(), text: file.text() },
+        &jsdoc,
+    );
+    bound.diagnostics().to_vec()
 }
 
 /// `GetConfigFileParsingDiagnostics`: the errors of the case's `tsconfig.json`

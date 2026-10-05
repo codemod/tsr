@@ -19,7 +19,7 @@
 //! Project-reference redirects (`IsSourceFromProjectReference`) are not loaded
 //! by this port's program, so that arm has nothing to test.
 
-use tsr_core::{Arena, CompilerOptions};
+use tsr_core::CompilerOptions;
 use tsr_diagnostics::Diagnostic;
 
 use crate::{Program, ProgramFile, comment_directives};
@@ -116,36 +116,12 @@ pub fn skip_type_checking(
     None
 }
 
-/// `sourceFile.BindDiagnostics()` for one program file.
-///
-/// The program binds every file into **one** store whose diagnostic list has
-/// no per-file attribution, so the file is bound again on its own, over the
-/// program's own tree and JSDoc table, and the binder reads both and mutates
-/// neither, and the fresh store is dropped on return. Cross-file merges are the
-/// checker's, upstream and here.
-#[must_use]
-pub fn bind_diagnostics<'a>(
-    arena: &'a Arena,
-    program: &Program<'a>,
-    file: &ProgramFile<'a>,
-) -> Vec<Diagnostic> {
-    let jsdoc: Vec<_> = file.jsdoc().iter().collect();
-    let bound = tsr_binder::bind_into_with_jsdoc(
-        tsr_binder::BindResult::empty(),
-        arena,
-        file.source_file(),
-        program.nodes(),
-        tsr_binder::FileInfo { name: file.file_name(), text: file.text() },
-        &jsdoc,
-    );
-    bound.diagnostics().to_vec()
-}
-
 /// `Program.getBindAndCheckDiagnosticsWithChecker` (`program.go:1352`) for
-/// program file `file_index`, given what the checker reported in it.
+/// program file `file_index`, given the file's `BindDiagnostics()` and what
+/// the checker reported in it.
 ///
-/// Nothing for a file [`skip_type_checking`] skips. Otherwise the file's
-/// binder diagnostics and `checker_diagnostics`; in a plain JavaScript file
+/// Nothing for a file [`skip_type_checking`] skips. Otherwise
+/// `bind_diagnostics` and `checker_diagnostics`; in a plain JavaScript file
 /// only the [`is_plain_js_error`] codes, returned before any comment
 /// directive is consulted; elsewhere the survivors of
 /// `getDiagnosticsWithPrecedingDirectives` plus a TS2578 for each
@@ -158,17 +134,17 @@ pub fn bind_diagnostics<'a>(
 ///
 /// Panics if `file_index` is outside `program.source_files()`.
 #[must_use]
-pub fn bind_and_check_diagnostics<'a>(
-    arena: &'a Arena,
-    program: &Program<'a>,
+pub fn bind_and_check_diagnostics(
+    program: &Program<'_>,
     file_index: usize,
+    bind_diagnostics: &[Diagnostic],
     checker_diagnostics: impl IntoIterator<Item = Diagnostic>,
 ) -> Vec<Diagnostic> {
     if skip_type_checking(program, file_index, false).is_some() {
         return Vec::new();
     }
     let file = &program.source_files()[file_index];
-    let mut diagnostics = bind_diagnostics(arena, program, file);
+    let mut diagnostics = bind_diagnostics.to_vec();
     diagnostics.extend(checker_diagnostics);
     if is_plain_js_file(file, program.compiler_options()) {
         diagnostics.retain(|d| is_plain_js_error(d.message.code()));
@@ -177,6 +153,45 @@ pub fn bind_and_check_diagnostics<'a>(
     let (mut kept, unused) = with_preceding_directives(file.text(), diagnostics);
     kept.extend(unused);
     kept
+}
+
+/// `GetDiagnosticsOfAnyProgram` (`program.go:1782`) once the checkers have
+/// run, as `(file index, diagnostic)`.
+///
+/// Every file's `GetSyntacticDiagnostics` (`program.go:626`): its parse
+/// diagnostics and its `js_syntax` (`SourceFile.JSDiagnostics()`, which this
+/// port's checker produces). Only when there are none, each file's semantic
+/// diagnostics: [`bind_and_check_diagnostics`] over
+/// [`Program::bind_diagnostics_of`] and the `checker` diagnostics located in
+/// it, then [`include_processor_diagnostics`].
+/// `GetProgramDiagnostics` is empty here (every loader diagnostic names a
+/// file), and `GetGlobalDiagnostics` has no producer in this port.
+#[must_use]
+pub fn diagnostics_of_any_program(
+    program: &Program<'_>,
+    js_syntax: Vec<(usize, Diagnostic)>,
+    checker: Vec<(usize, Diagnostic)>,
+) -> Vec<(usize, Diagnostic)> {
+    let files = program.source_files();
+    let mut out: Vec<(usize, Diagnostic)> = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        out.extend(file.diagnostics().iter().map(|d| (index, d.clone())));
+    }
+    out.extend(js_syntax);
+    if !out.is_empty() {
+        return out;
+    }
+    let mut by_file: Vec<Vec<Diagnostic>> = vec![Vec::new(); files.len()];
+    for (index, diagnostic) in checker {
+        by_file[index].push(diagnostic);
+    }
+    for (index, checked) in by_file.into_iter().enumerate() {
+        let semantic =
+            bind_and_check_diagnostics(program, index, program.bind_diagnostics_of(index), checked);
+        out.extend(semantic.into_iter().map(|d| (index, d)));
+        out.extend(include_processor_diagnostics(program, index).into_iter().map(|d| (index, d)));
+    }
+    out
 }
 
 /// `Program.GetIncludeProcessorDiagnostics` (`program.go:705`): the loader's

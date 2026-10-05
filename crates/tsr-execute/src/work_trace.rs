@@ -220,7 +220,7 @@ impl WorkTrace {
                 "full_check_eligible": exclusion.is_none(),
                 "full_check_exclusion": exclusion,
                 "declaration_file": tsr_path::is_declaration_file_name(name),
-                "javascript_source": crate::compile::is_javascript_file(name),
+                "javascript_source": tsr_compiler::program_diagnostics::is_source_file_js(name),
                 "json_source": tsr_parser::ScriptKind::from_file_name(name) == tsr_parser::ScriptKind::Json,
                 "check_js_directive": file.file_references().check_js_directive.map(|directive| directive.enabled),
             }));

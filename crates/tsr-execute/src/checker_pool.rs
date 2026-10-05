@@ -62,10 +62,17 @@ pub fn checker_count(options: &CompilerOptions, file_count: usize) -> usize {
     requested.min(file_count).clamp(1, MAX_CHECKERS)
 }
 
+/// `(program file index, diagnostic)` pairs.
+type Located = Vec<(usize, Diagnostic)>;
+
 /// What a pool run produced.
 pub struct PoolOutcome {
     /// `(program file index, diagnostic)`, in no particular order.
     pub diagnostics: Vec<(usize, Diagnostic)>,
+    /// `SourceFile.JSDiagnostics()` of every JavaScript file, checked or not:
+    /// syntactic upstream, produced by this port's checker
+    /// (`Checker::js_syntax_diagnostics`).
+    pub js_syntax: Vec<(usize, Diagnostic)>,
     /// Files actually passed to `check_source_file`.
     pub checked_files: usize,
     /// Wall time until the last checker finished construction.
@@ -97,7 +104,7 @@ pub fn check_program_files<'a>(
         .filter_map(|(index, file)| file.source_file().node_id.map(|id| (id, index)))
         .collect();
 
-    let run = |owner: usize| -> (Vec<(usize, Diagnostic)>, usize, Duration) {
+    let run = |owner: usize| -> (Located, Located, usize, Duration) {
         let mut checker = tsr_checker::Checker::with_module_host(
             program.binder(),
             program.nodes(),
@@ -112,9 +119,16 @@ pub fn check_program_files<'a>(
         checker.set_checked_files(eligible.iter().copied());
         let constructed = started.elapsed();
         let mut checked_count = 0;
-        // `SourceFile.JSDiagnostics()`, which this port's checker produces on
-        // the parser's behalf (`Checker::js_syntax_diagnostics`).
         let mut js_syntax = Vec::new();
+        for (index, file) in files.iter().enumerate() {
+            if index % count != owner {
+                continue;
+            }
+            if let Some(id) = file.source_file().node_id {
+                js_syntax
+                    .extend(checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (index, d)));
+            }
+        }
         if !options.no_check.is_true() {
             for (index, file) in files.iter().enumerate() {
                 if index % count != owner || full_check_exclusion(program, index).is_some() {
@@ -133,19 +147,17 @@ pub fn check_program_files<'a>(
                     },
                 );
                 checked_count += 1;
-                js_syntax.extend(checker.js_syntax_diagnostics(id));
             }
         }
         let diagnostics = checker
             .diagnostics()
             .iter()
-            .chain(&js_syntax)
             .filter_map(|(file_id, diagnostic)| {
                 let index = *file_index.get(file_id)?;
                 (index % count == owner).then(|| (index, diagnostic.clone()))
             })
             .collect();
-        (diagnostics, checked_count, constructed)
+        (diagnostics, js_syntax, checked_count, constructed)
     };
 
     let results: Vec<_> = if count == 1 {
@@ -171,10 +183,15 @@ pub fn check_program_files<'a>(
         })
     };
 
-    let mut outcome =
-        PoolOutcome { diagnostics: Vec::new(), checked_files: 0, construction: Duration::ZERO };
-    for (diagnostics, checked_count, constructed) in results {
+    let mut outcome = PoolOutcome {
+        diagnostics: Vec::new(),
+        js_syntax: Vec::new(),
+        checked_files: 0,
+        construction: Duration::ZERO,
+    };
+    for (diagnostics, js_syntax, checked_count, constructed) in results {
         outcome.diagnostics.extend(diagnostics);
+        outcome.js_syntax.extend(js_syntax);
         outcome.checked_files += checked_count;
         outcome.construction = outcome.construction.max(constructed);
     }

@@ -223,6 +223,10 @@ pub struct Program<'a> {
     /// `SymbolStore` is filled by one sequential accumulation. See
     /// [`Program::bind_source_files`].
     bound_file_count: usize,
+    /// `binder.diagnostics().len()` after each bound file, by file index: the
+    /// one store's flat list, cut back into upstream's per-file
+    /// `BindDiagnostics()` ([`Program::bind_diagnostics_of`]).
+    bind_diagnostic_ends: Vec<usize>,
     statistics: ProgramStatistics,
 }
 
@@ -319,6 +323,7 @@ impl<'a> Program<'a> {
             node_map,
             binder: BindResult::empty(),
             bound_file_count: 0,
+            bind_diagnostic_ends: Vec::new(),
             statistics: ProgramStatistics::default(),
         }
     }
@@ -381,6 +386,7 @@ impl<'a> Program<'a> {
             node_map: loaded.node_map,
             binder: BindResult::empty(),
             bound_file_count: 0,
+            bind_diagnostic_ends: Vec::new(),
             statistics: ProgramStatistics { load: loaded.statistics, ..Default::default() },
         };
         if let Some(started) = indexing_started {
@@ -420,8 +426,19 @@ impl<'a> Program<'a> {
                 FileInfo { name: file.file_name(), text: file.text() },
                 &jsdoc,
             );
+            self.bind_diagnostic_ends.push(self.binder.diagnostics().len());
         }
         self.bound_file_count = self.files.len();
+    }
+
+    /// `sourceFile.BindDiagnostics()` for the file at `file_index`: what the
+    /// binder reported while binding it. Empty for a file not yet bound.
+    #[must_use]
+    pub fn bind_diagnostics_of(&self, file_index: usize) -> &[tsr_diagnostics::Diagnostic] {
+        let Some(&end) = self.bind_diagnostic_ends.get(file_index) else { return &[] };
+        let start =
+            file_index.checked_sub(1).map_or(0, |previous| self.bind_diagnostic_ends[previous]);
+        &self.binder.diagnostics()[start..end]
     }
 
     /// The options every file is compiled under.

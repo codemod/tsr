@@ -339,8 +339,15 @@ pub fn run_compilation(
     let checker_initialized = program_finished + pool.construction;
     let checked_file_count = pool.checked_files;
     let checking_finished = sys.since_start();
-    let mut diagnostics: Vec<(String, Diagnostic)> = pool
-        .diagnostics
+    // `GetDiagnosticsOfAnyProgram`: syntactic first, the semantic set only
+    // when there is none (`tsr_compiler::program_diagnostics`, shared with the
+    // conformance harness).
+    let mut diagnostics: Vec<(String, Diagnostic)> =
+        tsr_compiler::program_diagnostics::diagnostics_of_any_program(
+            &program,
+            pool.js_syntax,
+            pool.diagnostics,
+        )
         .into_iter()
         .map(|(index, diagnostic)| {
             (program.source_files()[index].file_name().to_string(), diagnostic)
@@ -358,34 +365,6 @@ pub fn run_compilation(
             *slot = Some(DiagnosticFile::new(file.file_name(), file.text()));
         }
     };
-    let line_of = |slot: &Option<DiagnosticFile>, position: u32| {
-        slot.as_ref().expect("indexed before use").line_of_position(position)
-    };
-
-    if !options.no_check.is_true() {
-        let mut filtered = Vec::with_capacity(diagnostics.len());
-        for (index, source) in program.source_files().iter().enumerate() {
-            // Match SkipTypeChecking: skipped declaration files must not earn
-            // unused-directive errors without ever being checked.
-            if full_check_exclusion(&program, index).is_some() {
-                continue;
-            }
-            let directives = tsr_compiler::comment_directives::directives_in(source.text());
-            let mut entries = Vec::new();
-            for entry in diagnostics.iter().filter(|(name, _)| name == source.file_name()) {
-                let slot = &mut indexed_files[index];
-                index_file(slot, index);
-                entries.push((line_of(slot, entry.1.span.start), entry.clone()));
-            }
-            let (kept, unused) =
-                tsr_compiler::comment_directives::filter(source.text(), &entries, &directives);
-            filtered.extend(kept);
-            filtered.extend(
-                unused.into_iter().map(|diagnostic| (source.file_name().to_string(), diagnostic)),
-            );
-        }
-        diagnostics = filtered;
-    }
 
     // `SortAndDeduplicateDiagnostics` / `ast.CompareDiagnostics`: worker and
     // Program order do not determine diagnostic order. This port's diagnostic
@@ -572,40 +551,17 @@ pub fn full_check_exclusion(
     program: &tsr_compiler::Program<'_>,
     file_index: usize,
 ) -> Option<&'static str> {
-    let options = program.compiler_options();
-    let file = &program.source_files()[file_index];
-    if options.no_check.is_true() {
-        return Some("no_check");
+    // Skipped files remain bound and available to cross-file queries; this is
+    // not a loader filter.
+    if let Some(reason) =
+        tsr_compiler::program_diagnostics::skip_type_checking(program, file_index, false)
+    {
+        return Some(reason);
     }
-    if options.skip_lib_check.is_true() && tsr_path::is_declaration_file_name(file.file_name()) {
-        return Some("skip_lib_check");
-    }
-    if options.skip_default_lib_check.is_true() && file_index < program.lib_files().len() {
-        return Some("skip_default_lib_check");
-    }
-    let directive = file.file_references().check_js_directive;
-    if directive.is_some_and(|directive| !directive.enabled) {
-        return Some("file_no_check");
-    }
-    if tsr_parser::ScriptKind::from_file_name(file.file_name()) == tsr_parser::ScriptKind::Json {
-        return Some("json_source");
-    }
-    // `IsPlainJSFile` includes JS with checkJs unset, but not explicitly false.
-    // A file directive overrides the option. Skipped files remain bound and
-    // available to cross-file queries; this is not a loader filter.
-    if is_javascript_file(file.file_name()) && directive.is_none() && options.check_js.is_false() {
-        return Some("check_js_false");
-    }
-    if file.source_file().node_id.is_none() {
+    if program.source_files()[file_index].source_file().node_id.is_none() {
         return Some("missing_source_node");
     }
     None
-}
-
-/// Shared immutable file-kind fact for eligibility and its opt-in observer.
-pub(crate) fn is_javascript_file(name: &str) -> bool {
-    let extension = name.rsplit('.').next().unwrap_or_default();
-    ["js", "jsx", "cjs", "mjs"].iter().any(|ext| extension.eq_ignore_ascii_case(ext))
 }
 
 /// The `ResolutionHost` the driver hands to the loader.
@@ -719,6 +675,23 @@ mod directive_tests {
         assert_eq!(status, ExitStatus::Success, "{output}");
         assert!(!output.contains("error TS"), "{output}");
         assert!(output.contains("Checked files:         0\n"), "{output}");
+    }
+
+    #[test]
+    fn a_syntax_error_is_reported_and_suppresses_the_semantic_pass() {
+        // `GetDiagnosticsOfAnyProgram`: semantic diagnostics are asked for
+        // only when no file has a syntactic one.
+        let (status, output) = compile("const bad: number = 'bad';\nlet y = ;\n");
+        assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped, "{output}");
+        assert!(output.contains("a.ts(2,9): error TS1109"), "{output}");
+        assert!(!output.contains("TS2322"), "{output}");
+    }
+
+    #[test]
+    fn binder_diagnostics_are_reported() {
+        let (_, output) = compile("let a = 1;\nlet a = 2;\n");
+        assert!(output.contains("a.ts(1,5): error TS2451"), "{output}");
+        assert!(output.contains("a.ts(2,5): error TS2451"), "{output}");
     }
 
     #[test]
