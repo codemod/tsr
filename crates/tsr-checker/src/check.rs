@@ -4110,6 +4110,9 @@ impl Checker<'_, '_> {
             && !self.file_has_parse_errors
             && !self.reference_has_non_arrow_function_container(node)
         {
+            if self.check_and_report_error_for_missing_prefix(node, text) {
+                return;
+            }
             if let Some(file) = self.source_file_of_for_diagnostics(node) {
                 let span = self.error_span(node);
                 self.report(
@@ -4257,6 +4260,20 @@ impl Checker<'_, '_> {
         if let Some(property) =
             self.property_initializer_referencing_a_constructor_parameter(node, text)
         {
+            // `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`)
+            // tries the missing prefix first when the name resolved nowhere
+            // else (`result == nil`).
+            if self
+                .resolve_name_with_export_alias(
+                    node,
+                    text,
+                    SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+                )
+                .is_none()
+                && self.check_and_report_error_for_missing_prefix(node, text)
+            {
+                return;
+            }
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             self.report(
                 file,
@@ -4351,6 +4368,11 @@ impl Checker<'_, '_> {
         // across the pair. The second was unreachable — the first returns on
         // every path that reports — so it cost nothing and read as though two
         // different cascades were being run. §248.
+        // `onFailedToResolveSymbol` (`checker.go:1564`) asks for the missing
+        // `this.`/class prefix before any other arm.
+        if self.check_and_report_error_for_missing_prefix(node, text) {
+            return;
+        }
         if self.report_meaning_mismatch_in_value_position(node, text) {
             return;
         }

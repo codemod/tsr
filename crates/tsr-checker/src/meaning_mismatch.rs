@@ -108,6 +108,109 @@ impl Checker<'_, '_> {
         self.binder.symbols().get(target).flags.intersects(meaning).then_some(target)
     }
 
+    /// `checkAndReportErrorForMissingPrefix` (`checker.go:1532`): the first arm
+    /// of `onFailedToResolveSymbol`, TS2662 / TS2663 for a name that is a
+    /// static member of an enclosing class, or an instance member of the class
+    /// whose non-static member directly contains the reference.
+    ///
+    /// The walk starts at `getThisContainer(errorLocation, false, false)` and
+    /// visits every ancestor whose parent is class-like, so a reference inside
+    /// a nested class also finds an outer class's static member. The instance
+    /// arm reads `getDeclaredTypeOfSymbol(class).thisType`; the `this` type's
+    /// constraint is the class's declared instance type, so its properties are
+    /// read from that declared type. No cache: this runs only on a name that
+    /// failed to resolve, after resolution has already done its work.
+    pub(crate) fn check_and_report_error_for_missing_prefix(
+        &mut self,
+        node: NodeId,
+        text: &str,
+    ) -> bool {
+        if self.nodes.kind(node) != SyntaxKind::Identifier || self.is_in_type_query(node) {
+            return false;
+        }
+        let Some(container) = self.get_this_container(node, false) else { return false };
+        let mut location = container;
+        while let Some(parent) = self.nodes.parent(location) {
+            if matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            ) {
+                let Some(class_symbol) = self.binder.symbol_of(parent) else { break };
+                let constructor_type = self.get_type_of_symbol(class_symbol);
+                if self.get_property_of_type(constructor_type, text).is_some() {
+                    let class_name = self.class_symbol_to_string(class_symbol);
+                    let Some(file) = self.source_file_of_for_diagnostics(node) else {
+                        return true;
+                    };
+                    let span = self.error_span(node);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_THE_STATIC_MEMBER_1_0,
+                            span,
+                            [text.to_string(), class_name],
+                        ),
+                    );
+                    return true;
+                }
+                if location == container && !self.is_static_class_element(location) {
+                    let instance_type = self.get_declared_type_of_symbol(class_symbol);
+                    if self.get_property_of_type(instance_type, text).is_some() {
+                        self.report_at(
+                            node,
+                            &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_THE_INSTANCE_MEMBER_THIS_0,
+                            text,
+                        );
+                        return true;
+                    }
+                }
+            }
+            location = parent;
+        }
+        false
+    }
+
+    /// `IsInTypeQuery` (`checker/utilities.go`): an ancestor walk through
+    /// identifiers and qualified names that stops at a `TypeQuery`.
+    fn is_in_type_query(&self, node: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                SyntaxKind::TypeQuery => return true,
+                SyntaxKind::Identifier | SyntaxKind::QualifiedName => {}
+                _ => return false,
+            }
+            current = self.nodes.parent(id);
+        }
+        false
+    }
+
+    /// `ast.IsStatic` (`ast/utilities.go`): a class element with the `static`
+    /// modifier, or a class static block.
+    fn is_static_class_element(&self, node: NodeId) -> bool {
+        let modifiers = match self.node_map.get(node) {
+            Some(Node::ClassStaticBlockDeclaration(_)) => return true,
+            Some(Node::MethodDeclaration(member)) => member.modifiers,
+            Some(Node::PropertyDeclaration(member)) => member.modifiers,
+            Some(Node::GetAccessorDeclaration(member)) => member.modifiers,
+            Some(Node::SetAccessorDeclaration(member)) => member.modifiers,
+            _ => return false,
+        };
+        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+    }
+
+    /// `symbolToString(classSymbol)` with no enclosing declaration: the class's
+    /// own name, or the written name of an anonymous class expression.
+    fn class_symbol_to_string(&self, symbol: tsr_binder::SymbolId) -> String {
+        let name = self.binder.symbols().get(symbol).name;
+        if name.is_empty() || name == "__class" {
+            return self
+                .anonymous_class_written_name(symbol)
+                .unwrap_or_else(|| "(Anonymous class)".to_string());
+        }
+        name.to_string()
+    }
+
     /// `c.error(errorLocation, message, name)` — both arms report at the same
     /// place with the same single argument.
     fn report_at(&mut self, node: NodeId, message: &'static tsr_diagnostics::Message, text: &str) {
