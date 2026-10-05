@@ -87,7 +87,60 @@ plain-JS diagnostic policy, project references, all forcing/input/worker budgets
 and comparable native median <=0.50 are not certified.
 [Qualified alignment evidence](docs/architecture/tsr-work-trace-producer.md#eligibility-alignment-after-the-producer).
 
-### Current checker checkpoint — four parallel native fidelity ports
+### Current checker checkpoint — original publication and source-owned views
+
+Measured production/test revision **`fc1c865f`**, pinned native **`5b1047d`**:
+**463,731/478,855 RIGHT assertions (96.84%)**, **475,538 aligned positions**,
+1,611 GAP and 10,196 WRONG. The fixed 99% goal is **474,067 RIGHT**;
+**10,336 additional matches remain**. This is a checkpoint, not completion.
+The original v13 source commit is `9dab3683`, rebased as `b067fbfe` over the
+newer CLI/work-trace changes. Fresh v14 scans at `fc1c865f` preserve every v13
+assertion payload byte; the fixture-only ledger gate changes no production type.
+
+Relative to published `e6ca6547`, all 461,575 previous RIGHT payloads survive,
+with 2,156 additional RIGHT and 686 native-proven added positions. There are no
+removed keys or native baseline/eligibility changes. Keep the adverse ledger
+explicit: 55 GAP-to-WRONG, 151 changed-WRONG and six WRONG-to-GAP rows remain;
+net gains do not make those rows correct. The complete transition and occurrence
+ledgers are preserved with the before/after dumps.
+
+The combined stack includes frozen original lazy-return completion and the
+separate uncontextual callable-entry prerequisite, original CommonJS assignment
+owners, independent callable/object/module/class views, bounded parameter source
+views, JSX composite names with the mapped-symbol producer guard, binding-pattern
+defaults, awaited constraints, native flow facts, singleton reduction and parser
+successors. Unsupported source qualification, mapped provenance and deferred
+return images remain refusals. No alias/getter expansion or general unknown
+property admission is inferred from the accepted source views.
+
+All **10,570 diagnostic bags** retain their exact expected occurrence population
+of 30,874, including duplicates and empty bags. Native matches are **20,829**,
+missing 10,045, actual 24,533 and false extras **3,704**: versus `e6ca6547`,
+105 additional matches and 94 fewer extras, with **zero lost native matches,
+new false occurrences or previously RIGHT/EMPTY_RIGHT losses**. The upstream
+CLI fixes account for 24 fewer extras after v13, without changing a type row.
+The two new recursive TS7024 extras are removed; the preexisting TS2464 and
+already-WRONG generic display limitations remain explicit.
+
+Validation at `fc1c865f`: **3,026 default and 3,036 work-trace workspace release
+passes**, zero failures and six existing ignores in each mode; strict release
+all-target Clippy in both modes, formatting/source whitespace, 3,395 upstream
+anchors and 16,596 section citations pass. Final rebuilt scan binaries equal
+the captured v14 binaries. The standalone module fixture retains all 51 native
+type rows (45 exact and six named error/native-any gaps) and all four diagnostic
+occurrences; unexpected type mismatches now fail, verified by a rejected
+receiver-payload mutation. Native fixture bytes are unchanged.
+
+Evidence correction: the preliminary v13 index snapshot predates four synthetic
+constructor fields, but both delivered v13 capsules (`d9229e2a` and `83c96089`)
+contain them and replay to the identical tested tree. The earlier capsule-missing
+wording was wrong; do not apply its redundant constructor correction.
+Complete coordinator evidence is in
+`.amp/in/artifacts/tsr-native-wave47-v14-evidence.tar.gz`. Local Beads data remains
+preserved; unrelated Dolt histories still block sync without a reset or force
+push. The performance target remains unverified; no speed claim follows.
+
+### Historical checker checkpoint — four parallel native fidelity ports
 
 Production revision **`7942ce47`**, pinned native **`5b1047d`**:
 **460,066/478,855 assertions (96.08%)**, **7,198/9,538 complete cases
