@@ -43,3 +43,55 @@ checked; then both residual false reports disappear and this gate can go.
 **Falsifier.** A new false TS2339 on an identifier receiver whose declared type
 is a plain type parameter or a non-generic type would show the flow walk, not
 the constraint road, is wrong.
+
+## 2. TS2339 certified by a captured member image
+
+**Forcing constraint.** `property_is_known_absent` certified a miss only
+through `declared_members_are_complete` (class/interface/type-literal
+declarations) or a lib interface. An object literal, spread result, JSON module
+or contextually instantiated image is a `Named` type whose binder symbol is an
+`ObjectLiteralExpression` or nothing, so the walk declined it — even though the
+checker had already published the image's complete property list in
+`anonymous_properties`, the list `property_names_of` treats as
+`getPropertiesOfType` for the TS2551 suggestion.
+
+**Decision.** `apparent_type_lacks` accepts that list as the certificate when
+both roads miss (the image lacks the name *and* `get_property_of_type` answers
+`None`), then asks index signatures per name as before. A name the image holds
+but the lookup cannot reach declines: that is this port's gap.
+
+Two prerequisites came with it, because the certificate exposed them:
+
+- **`isJSLiteralType`** (`utilities.go:1753`) is upstream's arm in
+  `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11344`) that
+  answers `any` silently for a JS literal receiver when `noImplicitAny` is off.
+  It was not ported because nothing reached it; without it `expandoOnAlias`,
+  `exportNestedNamespaces2`, `amdLikeInputDeclarationEmit` and
+  `propertyAssignmentOnImportedSymbol` lose. Ported for property access only;
+  the element-access miss already has its own JS-literal handling in
+  `crate::indexed`.
+- **Three roads whose image is not upstream's type** decline
+  (`object_image_road_is_uncertified`): a literal symbol with `exports` (JS
+  expando assignments, `ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge`);
+  a JS `/** @type {T} */ (literal)` whose tag does not compute and falls through
+  to the literal (`strictOptionalProperties4`); a binding/parameter default,
+  whose union reduction with the declared property type keeps the fresh `{}`
+  where upstream's strict-subtype rule keeps the declared type
+  (`nonPrimitiveAndEmptyObject`). Each is owned elsewhere (js, js, destructure);
+  when it is fixed its decline can go.
+
+**Measured.** 49 baseline lines, 0 false, 0 losses; 9 cases convert
+(`checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1`,
+`importWithTrailingSlash`, `lambdaParamTypes`, `requireOfJsonFileInJsFile`,
+`requireOfJsonFileWithEmptyObjectWithErrors`, `checkJsdocSatisfiesTag6`,
+`requireOfESWithPropertyAccess`, `spreadMethods`,
+`typeSatisfaction_optionalMemberConformance`).
+
+**Cost.** No new table: the image lookup is one hash probe after a miss that
+already paid for `get_property_of_type`. `is_js_literal_type` runs only after a
+certified miss.
+
+**Falsifier.** A false TS2339 on a receiver whose image is published by a
+producer that captures a partial list (an inserter that stores fewer properties
+than `getPropertiesOfType` would) shows the list is not a certificate for that
+producer; the fix is at the producer, or a decline naming it here.
