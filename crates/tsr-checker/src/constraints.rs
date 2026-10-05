@@ -591,6 +591,288 @@ impl Checker<'_, '_> {
     }
 }
 
+/// One candidate's `checkTypeArguments` answer as this port can give it.
+enum TypeArgumentVerdict {
+    /// Every constrained argument is assignable to its instantiated constraint.
+    Satisfied,
+    /// The argument at this index definitely fails (the first such, as
+    /// upstream's loop returns at it).
+    Fails(usize),
+    /// Some argument's relation cannot be decided here.
+    Undecidable,
+}
+
+impl Checker<'_, '_> {
+    /// `resolveCall`'s type-argument failure (`checker.go:9049`, reported by
+    /// `reportCallResolutionErrors`' `candidateForTypeArgumentError` arm,
+    /// `checker.go:9671`) for a call or `new` with written type arguments:
+    /// TS2344 at the first argument that does not satisfy its parameter's
+    /// constraint.
+    ///
+    /// `chooseOverload` skips every candidate whose type-argument or value
+    /// arity is wrong, then runs `checkTypeArguments` (`checker.go:9222`)
+    /// without reporting; a failure records the candidate and continues. The
+    /// error reaches the user only when no candidate got past that check,
+    /// because an argument-applicability failure outranks it and a success
+    /// resolves the call. So this reports exactly when every candidate was
+    /// skipped by arity or *definitely* failed its type arguments, re-running
+    /// the last failure with reporting on, as upstream does. A candidate whose
+    /// check this port cannot decide, or that passes, ends the walk silently:
+    /// upstream's outcome then depends on argument checking.
+    ///
+    /// The relation side shares [`Checker::check_type_argument_constraints`]'
+    /// declines (an undecidable side or a generic written argument is never
+    /// evidence). No cache or side table; the callee type and signature lists
+    /// are the checker's existing memoised queries.
+    /// `docs/parity/notes/misc-checks.md` §1.
+    pub(crate) fn check_call_type_argument_constraints(&mut self, node: NodeId) {
+        if self.in_js_file(node) {
+            return;
+        }
+        let (callee, type_arguments, arguments, kind) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => (
+                call.expression,
+                call.type_arguments,
+                call.arguments,
+                crate::signatures::SignatureKind::Call,
+            ),
+            Some(tsr_ast::Node::NewExpression(new)) => (
+                new.expression,
+                new.type_arguments,
+                new.arguments,
+                crate::signatures::SignatureKind::Construct,
+            ),
+            _ => return,
+        };
+        if type_arguments.is_empty()
+            || arguments.iter().any(|a| matches!(a, tsr_ast::Expression::SpreadElement(_)))
+        {
+            return;
+        }
+        // A generic written argument is never evidence (see
+        // `call_type_arguments_failure`); declining before the callee query
+        // also keeps this check from resolving a callee whose own type is
+        // still being computed (a recursive local function).
+        if type_arguments.iter().any(|argument| {
+            argument.node_id().is_none_or(|at| self.type_argument_node_is_generic(at))
+        }) {
+            return;
+        }
+        let Some(callee) = callee else { return };
+        if callee.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SuperKeyword) {
+            return;
+        }
+        let callee_type = self.check_expression(callee);
+        if self.is_error(callee_type)
+            || self.store.get(callee_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return;
+        }
+        let Some(mut candidates) = self.signatures_of_type_kind(callee_type, kind) else { return };
+        if kind == crate::signatures::SignatureKind::Construct {
+            // getSignaturesOfType(_, SignatureKindConstruct) includes the
+            // abstract ones; their own error (TS2511) is not this check's.
+            if candidates.iter().any(|c| c.kind != crate::signatures::SignatureKind::Construct) {
+                return;
+            }
+        } else {
+            candidates.retain(|c| c.kind == crate::signatures::SignatureKind::Call);
+        }
+        let written: Vec<TypeId> =
+            type_arguments.iter().map(|&argument| self.get_type_from_type_node(argument)).collect();
+        if written.iter().any(|&argument| self.is_error(argument)) {
+            return;
+        }
+        let mut failed: Option<(crate::signatures::Signature, usize)> = None;
+        for candidate in candidates {
+            // hasCorrectTypeArgumentArity, then hasCorrectArity.
+            let minimum = candidate
+                .type_parameters
+                .iter()
+                .rposition(|parameter| parameter.default.is_none())
+                .map_or(0, |index| index + 1);
+            if written.len() < minimum || written.len() > candidate.type_parameters.len() {
+                continue;
+            }
+            let required = candidate
+                .parameters
+                .iter()
+                .take_while(|parameter| !parameter.optional && !parameter.rest)
+                .count();
+            let has_rest = candidate.parameters.iter().any(|parameter| parameter.rest);
+            if arguments.len() < required
+                || (!has_rest && arguments.len() > candidate.parameters.len())
+            {
+                continue;
+            }
+            match self.call_type_arguments_failure(&candidate, type_arguments, &written) {
+                TypeArgumentVerdict::Fails(index) => failed = Some((candidate, index)),
+                // Satisfied, or undecidable here: argument checking decides.
+                _ => return,
+            }
+        }
+        let Some((candidate, index)) = failed else { return };
+        let Some((source, target)) = self.call_type_argument_pair(&candidate, &written, index)
+        else {
+            return;
+        };
+        let Some(at) = type_arguments[index].node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        // reportRelationError (relater.go:4751) drops the TS2344 head when the
+        // chain ends in the pair's missing-property message, as it does for
+        // TS2322/TS2345 (`report_argument_failure`'s order).
+        if let Some(properties) = self
+            .declared_missing_required_properties(source, target)
+            .or_else(|| self.unmatched_property_report(source, target))
+        {
+            self.report_missing_constraint_properties(file, span, source, target, &properties);
+            return;
+        }
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            tsr_diagnostics::Diagnostic::with_args(
+                &tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+    }
+
+    /// `getUnmatchedProperties` over two certified declared property tables:
+    /// the required target properties the source lacks. The non-fresh half of
+    /// `assignreport.rs`'s `missing_required_property` (a type argument is
+    /// never a fresh literal), restated because that helper is private to the
+    /// relate box's file.
+    fn declared_missing_required_properties(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Vec<String>> {
+        let target_properties = self.declared_property_table(target)?;
+        let source_properties = self.declared_property_table(source)?;
+        let mut missing = Vec::new();
+        for (name, optional) in target_properties {
+            if !optional
+                && !source_properties.iter().any(|(seen, _)| seen == &name)
+                && self.get_type_of_property_of_type(source, &name).is_none()
+            {
+                missing.push(name);
+            }
+        }
+        (!missing.is_empty()).then_some(missing)
+    }
+
+    /// `reportUnmatchedProperty`'s messages (`relater.go:4345`): TS2741 for one
+    /// missing property, else TS2739, or TS2740 past five names.
+    fn report_missing_constraint_properties(
+        &mut self,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        properties: &[String],
+    ) {
+        use tsr_diagnostics::messages;
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        let (message, args) = if properties.len() == 1 {
+            (
+                &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
+                vec![properties[0].clone(), source_text, target_text],
+            )
+        } else if properties.len() > 5 {
+            (
+                &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE,
+                vec![
+                    source_text,
+                    target_text,
+                    properties[..4].join(", "),
+                    (properties.len() - 4).to_string(),
+                ],
+            )
+        } else {
+            (
+                &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2,
+                vec![source_text, target_text, properties.join(", ")],
+            )
+        };
+        self.report(file, tsr_diagnostics::Diagnostic::with_args(message, span, args));
+    }
+
+    /// `checkTypeArguments(candidate, typeArguments, false)`, three-valued: see
+    /// [`TypeArgumentVerdict`].
+    fn call_type_arguments_failure(
+        &mut self,
+        candidate: &crate::signatures::Signature,
+        type_argument_nodes: &[tsr_ast::TypeNode<'_>],
+        written: &[TypeId],
+    ) -> TypeArgumentVerdict {
+        for (index, argument_node) in type_argument_nodes.iter().enumerate() {
+            if candidate.type_parameters[index].constraint.is_none() {
+                continue;
+            }
+            let Some(at) = argument_node.node_id() else { return TypeArgumentVerdict::Undecidable };
+            let Some((source, target)) = self.call_type_argument_pair(candidate, written, index)
+            else {
+                return TypeArgumentVerdict::Undecidable;
+            };
+            if self.is_error(target)
+                || self.type_argument_node_is_generic(at)
+                || self.relation_undecidable_for_constraint(source)
+                || self.relation_undecidable_for_constraint(target)
+            {
+                return TypeArgumentVerdict::Undecidable;
+            }
+            match self.relate_ternary(source, target, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => {}
+                crate::relater::Ternary::Unknown => return TypeArgumentVerdict::Undecidable,
+                crate::relater::Ternary::NotRelated => {
+                    return if self.pair_is_reportable(source, target) {
+                        TypeArgumentVerdict::Fails(index)
+                    } else {
+                        TypeArgumentVerdict::Undecidable
+                    };
+                }
+            }
+        }
+        TypeArgumentVerdict::Satisfied
+    }
+
+    /// The `(typeArgument, instantiate(constraint, mapper))` pair of
+    /// `checkTypeArguments`' loop for slot `index`, the mapper built from
+    /// `fillMissingTypeArguments` over the written arguments (a missing slot
+    /// takes its default instantiated over the prefix). `None` when the
+    /// signature's type parameters or a default cannot be resolved.
+    fn call_type_argument_pair(
+        &mut self,
+        candidate: &crate::signatures::Signature,
+        written: &[TypeId],
+        index: usize,
+    ) -> Option<(TypeId, TypeId)> {
+        let constraint = candidate.type_parameters[index].constraint?;
+        let parameters = self.type_parameter_types(candidate)?;
+        let names: Vec<&str> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+        let mut arguments = written.to_vec();
+        for slot in written.len()..parameters.len() {
+            let default = candidate.type_parameters[slot].default?;
+            let map: Vec<(TypeId, TypeId)> =
+                parameters[..slot].iter().copied().zip(arguments.iter().copied()).collect();
+            arguments.push(self.instantiate_type(default, &map, &parameters, &names));
+        }
+        if arguments.iter().any(|&argument| self.is_error(argument)) {
+            return None;
+        }
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().copied().zip(arguments.iter().copied()).collect();
+        let target = self.instantiate_type(constraint, &map, &parameters, &names);
+        Some((written[index], target))
+    }
+}
+
 impl Checker<'_, '_> {
     /// A side of a constraint check whose relation this port cannot decide:
     /// an instantiable type (type parameter, indexed access, conditional,

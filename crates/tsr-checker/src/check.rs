@@ -643,6 +643,7 @@ impl Checker<'_, '_> {
                 self.check_class_called_without_new(node);
                 self.check_call_arity(node);
                 self.check_call_type_argument_arity(node);
+                self.check_call_type_argument_constraints(node);
                 self.check_untyped_call_type_arguments(node, typed);
                 ambient
             }
@@ -650,6 +651,7 @@ impl Checker<'_, '_> {
                 self.check_new_on_instance(node);
                 self.check_new_arity(node);
                 self.check_call_type_argument_arity(node);
+                self.check_call_type_argument_constraints(node);
                 self.check_untyped_call_type_arguments(node, typed);
                 ambient
             }
