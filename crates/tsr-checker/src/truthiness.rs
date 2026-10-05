@@ -258,21 +258,20 @@ impl Checker<'_, '_> {
                 self.syntactic_truthy_semantics(when_true, depth + 1)
                     .union(self.syntactic_truthy_semantics(when_false, depth + 1))
             }
-            // `undefined` is a value the global scope declares and no user
-            // declaration shadows here; a shadowed one resolves and is
-            // `Sometimes`, which is upstream's `symbol != c.undefinedSymbol`.
+            // `getResolvedSymbol(node) == c.undefinedSymbol`: the synthesised
+            // global the binder seeds (`declare_synthesised_globals`), so a
+            // local or parameter named `undefined` shadowing it is `Sometimes`.
+            // This arm used to test for *no* resolution, which never held once
+            // the global was seeded — every `undefined && x` was silent.
             Some(Node::Identifier(identifier)) if identifier.text == "undefined" => {
-                if self
-                    .binder
-                    .resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        node,
-                        identifier.text,
-                        tsr_binder::SymbolFlags::VALUE,
-                    )
-                    .is_none()
-                {
+                let resolved = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    node,
+                    identifier.text,
+                    tsr_binder::SymbolFlags::VALUE,
+                );
+                if resolved.is_some() && resolved == self.binder.undefined_symbol() {
                     PredicateSemantics::NEVER
                 } else {
                     PredicateSemantics::SOMETIMES
