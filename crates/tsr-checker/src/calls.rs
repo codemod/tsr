@@ -396,6 +396,25 @@ pub(crate) enum CallHead {
     Unknown,
 }
 
+/// What the arity half of `resolveCall` decided for one call.
+enum CallArity {
+    /// The signature list is not certified; the declaration rules run.
+    Undecided,
+    /// A type-argument or argument arity error was reported; upstream
+    /// reports nothing else for the call.
+    Reported,
+    /// Some candidate has a correct arity; the arguments decide.
+    Applicable,
+}
+
+/// One entry of `getEffectiveCallArguments`: the written argument (or the
+/// spread a synthetic element came from) and whether it is spread-like
+/// (`isSpreadArgument`).
+struct EffectiveArgument {
+    node: tsr_ast::NodeId,
+    spread: bool,
+}
+
 /// `checkNonNullTypeWithReporter`'s result for a callee.
 enum NonNullCallee {
     Type(TypeId),
@@ -541,53 +560,98 @@ impl Checker<'_, '_> {
         match self.check_call_expression_head(node) {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
-                self.check_call_arity(node);
-                if !self.check_call_type_argument_arity_of_signatures(
-                    node,
-                    apparent,
-                    SignatureKind::Call,
-                ) {
-                    self.check_call_type_argument_arity(node);
+                match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
+                    CallArity::Reported => {}
+                    CallArity::Applicable => self.check_call_arity(node, false),
+                    CallArity::Undecided => {
+                        self.check_call_arity(node, true);
+                        self.check_call_type_argument_arity(node);
+                    }
                 }
             }
             CallHead::Unknown => {
-                self.check_call_arity(node);
+                self.check_call_arity(node, true);
                 self.check_call_type_argument_arity(node);
             }
         }
     }
 
-    /// `reportCallResolutionErrors`' last arm (`checker.go:9649`) for a call
-    /// with written type arguments: when no candidate passes
-    /// `hasCorrectTypeArgumentArity` (`checker.go:9214`), `chooseOverload`
-    /// skips every candidate before any argument or type-argument check, so
-    /// no other arm has a candidate and the error is
-    /// `getTypeArgumentArityError` (`checker.go:9853`) over all signatures.
+    /// The arity half of `resolveCall` (`checker.go:8843`) and its
+    /// `reportCallResolutionErrors` (`checker.go:9649`).
     ///
-    /// `false` when the signature list is not certified, so the caller keeps
-    /// the declaration-based rule; `true` when this decided (reported or not).
-    fn check_call_type_argument_arity_of_signatures(
+    /// `chooseOverload` skips a candidate failing `hasCorrectTypeArgumentArity`
+    /// (`checker.go:9214`) or `hasCorrectArity` (`checker.go:9107`) before any
+    /// argument or type-argument check. When every candidate is skipped, no
+    /// candidate reaches the argument-error, generic-rest or constraint arms,
+    /// so the report is the last arm alone: `getTypeArgumentArityError`
+    /// (`checker.go:9853`) when no signature has a correct type-argument
+    /// count, else `getArgumentArityError` (`checker.go:9705`) over those that
+    /// do. When some candidate passes both, the arguments decide and
+    /// [`CallArity::Applicable`] hands over to the argument-type rules.
+    ///
+    /// Reads the callee type's signature list (no new cache); an uncertified
+    /// list or a JS file is [`CallArity::Undecided`].
+    fn check_resolve_call_arity(
         &mut self,
         node: tsr_ast::NodeId,
         apparent: TypeId,
         kind: SignatureKind,
-    ) -> bool {
-        let type_arguments = match self.node_map.get(node) {
-            Some(tsr_ast::Node::CallExpression(call)) => call.type_arguments,
-            Some(tsr_ast::Node::NewExpression(new)) => new.type_arguments,
-            _ => return false,
-        };
-        let (Some(first), Some(last)) = (type_arguments.first(), type_arguments.last()) else {
-            return true;
+    ) -> CallArity {
+        let (type_arguments, arguments, callee, is_call) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                (call.type_arguments, call.arguments, call.expression, true)
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => {
+                (new.type_arguments, new.arguments, new.expression, false)
+            }
+            _ => return CallArity::Undecided,
         };
         if self.in_js_file(node) {
-            return false;
+            return CallArity::Undecided;
         }
         let Some(signatures) = self.head_signatures(apparent, kind) else {
-            return false;
+            return CallArity::Undecided;
         };
         if signatures.is_empty() {
-            return false;
+            return CallArity::Undecided;
+        }
+        // A union's composite signatures take the parameters of whichever
+        // member list matched first, and their return types subtype-reduce
+        // (`getReturnTypeOfSignature`, `checker.go:20013`); this port has no
+        // subtype reduction, so a receiver typed by such a return can reach a
+        // different member list than upstream's. The argument count decides
+        // nothing there.
+        if self.store.get(apparent).flags.intersects(TypeFlags::UNION) {
+            return if type_arguments.is_empty() {
+                CallArity::Undecided
+            } else {
+                self.check_type_argument_arity_only(node, type_arguments, &signatures)
+            };
+        }
+        // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
+        // tuple type; this port's signature carries `any[]` there, so its
+        // parameter count is not upstream's.
+        if signatures.iter().any(|signature| self.has_binding_pattern_rest(signature)) {
+            return CallArity::Undecided;
+        }
+        // An immediately invoked function's minimum reads the written
+        // argument count while its printed optionality reads the expanded
+        // one; with a spread argument the two differ and this port's
+        // signature carries neither (`immediately_invoked_argument_count`),
+        // so its minimum is not upstream's.
+        if arguments.iter().any(|argument| matches!(argument, Expression::SpreadElement(_)))
+            && callee.is_some_and(|callee| {
+                let mut callee = callee;
+                while let Expression::ParenthesizedExpression(inner) = callee {
+                    match inner.expression {
+                        Some(expression) => callee = expression,
+                        None => return false,
+                    }
+                }
+                matches!(callee, Expression::FunctionExpression(_) | Expression::ArrowFunction(_))
+            })
+        {
+            return CallArity::Undecided;
         }
         let count = type_arguments.len();
         let arities: Vec<(usize, usize)> = signatures
@@ -599,13 +663,325 @@ impl Checker<'_, '_> {
                 )
             })
             .collect();
-        if arities.iter().any(|&(min, max)| count >= min && count <= max) {
-            return true;
+        let type_argument_arity_ok =
+            |&(min, max): &(usize, usize)| count == 0 || count >= min && count <= max;
+        if !arities.iter().any(type_argument_arity_ok) {
+            self.report_type_argument_arity_error(node, type_arguments, &arities);
+            return CallArity::Reported;
         }
-        let (Some(first), Some(last)) = (first.node_id(), last.node_id()) else { return true };
+        let candidates: Vec<Signature> = signatures
+            .into_iter()
+            .zip(&arities)
+            .filter(|(_, arity)| type_argument_arity_ok(arity))
+            .map(|(signature, _)| signature)
+            .collect();
+        let Some(effective) = self.effective_call_arguments(arguments) else {
+            return CallArity::Undecided;
+        };
+        let no_argument_list =
+            !is_call && self.new_has_no_argument_list(node, callee, type_arguments);
+        let mut applicable = false;
+        for candidate in &candidates {
+            match self.has_correct_arity(candidate, &effective, no_argument_list) {
+                Some(true) => {
+                    applicable = true;
+                    break;
+                }
+                Some(false) => {}
+                None => return CallArity::Undecided,
+            }
+        }
+        if applicable {
+            return CallArity::Applicable;
+        }
+        let error_node = match callee.and_then(|callee| callee.node_id()) {
+            Some(callee) if is_call => self.call_error_node(callee),
+            _ => node,
+        };
+        self.report_argument_arity_error(node, error_node, &candidates, &effective);
+        CallArity::Reported
+    }
+
+    /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
+    fn check_type_argument_arity_only(
+        &mut self,
+        node: tsr_ast::NodeId,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+        signatures: &[Signature],
+    ) -> CallArity {
+        let count = type_arguments.len();
+        let arities: Vec<(usize, usize)> = signatures
+            .iter()
+            .map(|signature| {
+                (
+                    Self::min_type_argument_count(&signature.type_parameters),
+                    signature.type_parameters.len(),
+                )
+            })
+            .collect();
+        if arities.iter().any(|&(min, max)| count >= min && count <= max) {
+            return CallArity::Undecided;
+        }
+        self.report_type_argument_arity_error(node, type_arguments, &arities);
+        CallArity::Reported
+    }
+
+    /// Whether the signature's declaration ends in `...[a, b]`.
+    fn has_binding_pattern_rest(&self, signature: &Signature) -> bool {
+        let parameters = match self.node_map.get(signature.declaration) {
+            Some(tsr_ast::Node::FunctionDeclaration(node)) => node.parameters,
+            Some(tsr_ast::Node::FunctionExpression(node)) => node.parameters,
+            Some(tsr_ast::Node::ArrowFunction(node)) => node.parameters,
+            Some(tsr_ast::Node::MethodDeclaration(node)) => node.parameters,
+            Some(tsr_ast::Node::ConstructorDeclaration(node)) => node.parameters,
+            _ => return false,
+        };
+        parameters.last().is_some_and(|parameter| {
+            parameter.dot_dot_dot_token.is_some()
+                && matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+        })
+    }
+
+    /// `getEffectiveCallArguments` (`checker.go:30042`) for a call or `new`:
+    /// a spread of a tuple type becomes one synthetic argument per element,
+    /// a rest/variadic element a spread one. `None` when a spread's type is
+    /// not settled.
+    fn effective_call_arguments(
+        &mut self,
+        arguments: &[Expression<'_>],
+    ) -> Option<Vec<EffectiveArgument>> {
+        let mut effective = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            let node = argument.node_id()?;
+            let Expression::SpreadElement(spread) = argument else {
+                effective.push(EffectiveArgument { node, spread: false });
+                continue;
+            };
+            let spread_type = self.check_expression(spread.expression?);
+            if self.is_error(spread_type) {
+                return None;
+            }
+            if let Some((elements, _)) = self.tuple_element_lists.get(&spread_type) {
+                let n = elements.len();
+                effective.extend((0..n).map(|_| EffectiveArgument { node, spread: false }));
+            } else if let Some((elements, _)) = self.variadic_tuple_elements.get(&spread_type) {
+                let flags: Vec<bool> = elements.iter().map(|element| element.spread).collect();
+                effective
+                    .extend(flags.into_iter().map(|spread| EffectiveArgument { node, spread }));
+            } else {
+                effective.push(EffectiveArgument { node, spread: true });
+            }
+        }
+        Some(effective)
+    }
+
+    /// `new C` without an argument list (`node.ArgumentList() == nil`): the
+    /// node ends where its callee, or its type-argument list's `>`, ends.
+    fn new_has_no_argument_list(
+        &self,
+        node: tsr_ast::NodeId,
+        callee: Option<Expression<'_>>,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+    ) -> bool {
+        let end = self.nodes.span(node).end;
+        if let Some(last) = type_arguments.last().and_then(tsr_ast::TypeNode::node_id) {
+            return end <= self.nodes.span(last).end + 1;
+        }
+        callee
+            .and_then(|callee| callee.node_id())
+            .is_some_and(|callee| end == self.nodes.span(callee).end)
+    }
+
+    /// `hasCorrectArity` (`checker.go:9107`) for a call or `new` with a
+    /// complete argument list. `None` when a parameter type is unsupported.
+    fn has_correct_arity(
+        &mut self,
+        signature: &Signature,
+        arguments: &[EffectiveArgument],
+        no_argument_list: bool,
+    ) -> Option<bool> {
+        let minimum = self.signature_min_argument_count(signature);
+        if no_argument_list {
+            return Some(minimum == 0);
+        }
+        let parameter_count = self.signature_parameter_count(signature);
+        let has_rest = self.signature_has_effective_rest(signature);
+        if let Some(spread_index) = arguments.iter().position(|argument| argument.spread) {
+            return Some(spread_index >= minimum && (has_rest || spread_index < parameter_count));
+        }
+        let count = arguments.len();
+        if !has_rest && count > parameter_count {
+            return Some(false);
+        }
+        if count >= minimum {
+            return Some(true);
+        }
+        for position in count..minimum {
+            // `getTypeAtPosition` answers `any` for a missing position.
+            let Some(t) = self.signature_type_at_position(signature, position) else {
+                return Some(false);
+            };
+            if self.is_error(t) {
+                return None;
+            }
+            // `filterType(t, acceptsVoid)` is `never` unless a constituent is
+            // `void`.
+            let accepts_void = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => {
+                    types.iter().any(|&part| self.store.get(part).flags.contains(TypeFlags::VOID))
+                }
+                _ => self.store.get(t).flags.contains(TypeFlags::VOID),
+            };
+            if !accepts_void {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// `getArgumentArityError` (`checker.go:9705`), without the related
+    /// information and the decorator messages.
+    fn report_argument_arity_error(
+        &mut self,
+        node: tsr_ast::NodeId,
+        error_node: tsr_ast::NodeId,
+        signatures: &[Signature],
+        arguments: &[EffectiveArgument],
+    ) {
+        if let Some(spread) = arguments.iter().find(|argument| argument.spread) {
+            let span = self.error_span(spread.node);
+            self.report_at_node(
+                node,
+                Diagnostic::new(
+                    &messages::A_SPREAD_ARGUMENT_MUST_EITHER_HAVE_A_TUPLE_TYPE_OR_BE_PASSED_TO_A_REST_PARAMETER,
+                    span,
+                ),
+            );
+            return;
+        }
+        let count = arguments.len();
+        let mut min_count = usize::MAX;
+        let mut max_count = 0usize;
+        let mut max_below: Option<usize> = None;
+        let mut min_above: Option<usize> = None;
+        for signature in signatures {
+            let min_parameter = self.signature_min_argument_count(signature);
+            let max_parameter = self.signature_parameter_count(signature);
+            min_count = min_count.min(min_parameter);
+            max_count = max_count.max(max_parameter);
+            if min_parameter < count && max_below.is_none_or(|below| min_parameter > below) {
+                max_below = Some(min_parameter);
+            }
+            if count < max_parameter && min_above.is_none_or(|above| max_parameter < above) {
+                min_above = Some(max_parameter);
+            }
+        }
+        let has_rest =
+            signatures.iter().any(|signature| self.signature_has_effective_rest(signature));
+        let range = if !has_rest && min_count < max_count {
+            format!("{min_count}-{max_count}")
+        } else {
+            min_count.to_string()
+        };
+        let void_promise =
+            !has_rest && range == "1" && count == 0 && self.is_promise_resolve_arity_error(node);
+        let message = if has_rest {
+            &messages::EXPECTED_AT_LEAST_0_ARGUMENTS_BUT_GOT_1
+        } else if void_promise {
+            &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1_DID_YOU_FORGET_TO_INCLUDE_VOID_IN_YOUR_TYPE_ARGUMENT_TO_PROMISE
+        } else {
+            &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1
+        };
+        let diagnostic = if min_count < count && count < max_count {
+            Diagnostic::with_args(
+                &messages::NO_OVERLOAD_EXPECTS_0_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_ARGUMENTS,
+                self.error_span(error_node),
+                [
+                    count.to_string(),
+                    max_below.map_or_else(String::new, |n| n.to_string()),
+                    min_above.map_or_else(String::new, |n| n.to_string()),
+                ],
+            )
+        } else if count < min_count || max_count >= count {
+            Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
+        } else {
+            let start = self.nodes.span(arguments[max_count].node).start;
+            let end = self.nodes.span(arguments[count - 1].node).end.max(start);
+            Diagnostic::with_args(
+                message,
+                tsr_core::Span { start, end },
+                [range, count.to_string()],
+            )
+        };
+        self.report_at_node(node, diagnostic);
+    }
+
+    /// `isPromiseResolveArityError` (`checker.go`): the callee is a parameter
+    /// of a function passed to `new Promise(...)`.
+    fn is_promise_resolve_arity_error(&mut self, node: tsr_ast::NodeId) -> bool {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(Expression::Identifier(callee)) = call.expression else { return false };
+        let Some(callee_id) = callee.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee_id,
+            callee.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        if self.nodes.kind(declaration) != tsr_ast::SyntaxKind::Parameter {
+            return false;
+        }
+        let Some(function) = self.nodes.parent(declaration) else { return false };
+        if !matches!(
+            self.nodes.kind(function),
+            tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction
+        ) {
+            return false;
+        }
+        let Some(new) = self.nodes.parent(function) else { return false };
+        let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(new) else { return false };
+        let Some(Expression::Identifier(constructor)) = new.expression else { return false };
+        let Some(constructor_id) = constructor.node_id else { return false };
+        let Some(global) = self.binder.globals().get("Promise").copied() else { return false };
+        self.binder
+            .resolve_name(
+                self.nodes,
+                self.node_map,
+                constructor_id,
+                constructor.text,
+                SymbolFlags::VALUE,
+            )
+            .is_some_and(|resolved| {
+                self.binder.merged_symbol(resolved) == self.binder.merged_symbol(global)
+            })
+    }
+
+    /// `getTypeArgumentArityError` (`checker.go:9853`), the span over the
+    /// type-argument list.
+    fn report_type_argument_arity_error(
+        &mut self,
+        node: tsr_ast::NodeId,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+        arities: &[(usize, usize)],
+    ) {
+        let (Some(first), Some(last)) = (
+            type_arguments.first().and_then(tsr_ast::TypeNode::node_id),
+            type_arguments.last().and_then(tsr_ast::TypeNode::node_id),
+        ) else {
+            return;
+        };
+        let count = type_arguments.len();
         let span =
             tsr_core::Span { start: self.nodes.span(first).start, end: self.nodes.span(last).end };
-        let diagnostic = if let [(min, max)] = arities.as_slice() {
+        let diagnostic = if let [(min, max)] = arities {
             let expected = if min < max { format!("{min}-{max}") } else { min.to_string() };
             Diagnostic::with_args(
                 &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
@@ -615,7 +991,7 @@ impl Checker<'_, '_> {
         } else {
             let mut below: Option<usize> = None;
             let mut above: Option<usize> = None;
-            for &(min, max) in &arities {
+            for &(min, max) in arities {
                 if min > count {
                     above = Some(above.map_or(min, |above| above.min(min)));
                 } else if max < count {
@@ -633,11 +1009,10 @@ impl Checker<'_, '_> {
                     span,
                     [expected.to_string(), count.to_string()],
                 ),
-                (None, None) => return true,
+                (None, None) => return,
             }
         };
         self.report_at_node(node, diagnostic);
-        true
     }
 
     /// `getMinTypeArgumentCount` (`checker.go`): one past the last type
@@ -667,7 +1042,6 @@ impl Checker<'_, '_> {
         match self.check_new_expression_head(node) {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
-                self.check_new_arity(node);
                 let kind = if self
                     .head_signature_count(apparent, SignatureKind::Construct)
                     .is_some_and(|count| count != 0)
@@ -676,12 +1050,17 @@ impl Checker<'_, '_> {
                 } else {
                     SignatureKind::Call
                 };
-                if !self.check_call_type_argument_arity_of_signatures(node, apparent, kind) {
-                    self.check_call_type_argument_arity(node);
+                match self.check_resolve_call_arity(node, apparent, kind) {
+                    CallArity::Reported => {}
+                    CallArity::Applicable => self.check_new_arity(node, false),
+                    CallArity::Undecided => {
+                        self.check_new_arity(node, true);
+                        self.check_call_type_argument_arity(node);
+                    }
                 }
             }
             CallHead::Unknown => {
-                self.check_new_arity(node);
+                self.check_new_arity(node, true);
                 self.check_call_type_argument_arity(node);
             }
         }
