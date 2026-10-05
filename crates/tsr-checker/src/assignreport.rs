@@ -1204,7 +1204,7 @@ impl<'a> Checker<'a, '_> {
         {
             return false;
         }
-        if !self.pair_is_reportable(source, target) {
+        if !self.assignability_pair_is_reportable(source, target) {
             return false;
         }
         if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
@@ -1276,7 +1276,7 @@ impl<'a> Checker<'a, '_> {
             probe!(PROBE_REPORTED);
             return true;
         }
-        if !self.pair_is_reportable(source, target) {
+        if !self.assignability_pair_is_reportable(source, target) {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
         }
@@ -1483,9 +1483,29 @@ impl<'a> Checker<'a, '_> {
     /// - **`any` and the error type**, unchanged: neither can fail a relation,
     ///   so admitting them can only produce accidents.
     ///
-    /// The enum veto stays where it was, in
-    /// [`Checker::assignability_is_decidable`]'s successor below.
+    /// The **enum** veto was added when `isSimpleTypeRelatedTo`'s enum arms
+    /// (`relater.go:206`) were unported. They are ported now (`relater.rs`'s
+    /// member-level arms), and the assignability reporters ask
+    /// [`Checker::assignability_pair_is_reportable`], which lifts the enum veto.
+    /// The veto stays for the other rules sharing this gate (operators,
+    /// comparisons, heritage, assertions), whose own enum-literal handling — e.g.
+    /// `getBaseTypeOfLiteralTypeForComparison` for relational operators — is not
+    /// ported (`mixedTypeEnumComparison`).
     pub(crate) fn pair_is_reportable(&mut self, source: TypeId, target: TypeId) -> bool {
+        self.assignability_pair_is_reportable(source, target)
+            && ![source, target].iter().any(|&side| {
+                self.type_of(side).flags.intersects(TypeFlags::ENUM | TypeFlags::ENUM_LITERAL)
+            })
+    }
+
+    /// [`Checker::pair_is_reportable`] without the enum veto: the gate for
+    /// `checkTypeRelatedTo`'s own reporters (TS2322/TS2345 and their
+    /// elaborations), whose verdict comes from the relater's ported enum arms.
+    pub(crate) fn assignability_pair_is_reportable(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         let intrinsics = self.intrinsics();
         let (unknown, any) = (intrinsics.unknown, intrinsics.any);
         for side in [source, target] {
@@ -1499,7 +1519,7 @@ impl<'a> Checker<'a, '_> {
             if self.is_error(side) || side == unknown || side == any {
                 return false;
             }
-            if self.type_of(side).flags.intersects(UNDECIDABLE_HERE) {
+            if self.type_of(side).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
                 return false;
             }
         }
@@ -1627,7 +1647,7 @@ impl<'a> Checker<'a, '_> {
             {
                 continue;
             }
-            if !self.pair_is_reportable(source_property_type, target_property_type) {
+            if !self.assignability_pair_is_reportable(source_property_type, target_property_type) {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
@@ -1689,13 +1709,3 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// lists them. Deleting the code would make the refusal unrevisitable, which is
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
-
-/// Flags that veto [`Checker::pair_is_reportable`] outright.
-///
-/// The **enum** flags are here for a measured reason: `isTypeRelatedTo`'s enum arms (`checker.go`'s `EnumLiteral` /
-/// `EnumLike` special cases, plus `numberAssignableToEnum`'s numeric-enum
-/// widening) are not ported, and enums accounted for 11 of one measurement's 40
-/// wrong lines *and its only loss*. They are admitted to the constant only so
-/// that the two sets read as one list; the veto is what decides.
-const UNDECIDABLE_HERE: TypeFlags =
-    TypeFlags::ANY.union(TypeFlags::UNKNOWN).union(TypeFlags::ENUM).union(TypeFlags::ENUM_LITERAL);
