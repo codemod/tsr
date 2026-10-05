@@ -285,6 +285,16 @@ impl<'a> Checker<'a, '_> {
             if simple_new && tokens.len() == expected.len() + 2 {
                 expected.extend([SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken]);
             }
+            // Native isBindingIdentifier (parser.go:6262) accepts keyword
+            // tokens after LastReservedWord as Identifier bindings. Only the
+            // original binding name gets this rule, not a type or callee name.
+            if let Some(token) = tokens.first()
+                && token.kind.is_keyword()
+                && token.kind > SyntaxKind::LAST_RESERVED_WORD
+                && source.get(name_span.start as usize..name_span.end as usize) == Some(name.text)
+            {
+                expected[0] = token.kind;
+            }
             if !tokens.iter().map(|token| token.kind).eq(expected) {
                 return None;
             }

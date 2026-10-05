@@ -8,6 +8,10 @@ const SOURCE: &str = "export {};\ninterface Required { tag: string; count: numbe
 
 fn case(source: &str) -> TestCase {
     let mut case = TestCase::parse("probe/source-variable-initializer", "initializer.ts", source);
+    // These single-unit controls have no harness directives. Preserve CRLF
+    // bytes instead of exercising TestCase's normalised LF source twice.
+    assert_eq!(case.files.len(), 1);
+    case.files[0].content = source.to_string();
     case.options.insert("target".into(), "es2015".into());
     case.options.insert("strict".into(), "false".into());
     case
@@ -33,6 +37,48 @@ fn complete_root_initializers_on_both_sides_of_an_error_keep_native_occurrences(
             (13, 5, 2322),
         ]
     );
+}
+
+#[test]
+fn contextual_binding_keywords_keep_native_initializer_bags() {
+    // Pinned native isBindingIdentifier accepts keywords after LastReservedWord.
+    // These are AST Identifier bindings, but their source tokens are keywords.
+    let source = "export {};\ninterface Required { tag: string; count: number }\nclass Empty {}\nvar object: Required = {};\nvar type: Required = function () {};\nvar readonly: Required = new Empty();\nvar as: number = {};\nconst broken = ;\nvar unknown: Required = {};\nvar from: Required = function () {};\nvar of: Required = new Empty;\nvar satisfies: Empty = {};\n";
+    for source in [source.to_string(), source.replace('\n', "\r\n")] {
+        let mut actual: Vec<_> =
+            reported_for(&case(&source)).into_iter().map(|d| (d.line, d.column, d.code)).collect();
+        actual.sort_unstable();
+        assert_eq!(
+            actual,
+            [
+                (4, 5, 2739),
+                (5, 5, 2322),
+                (6, 5, 2739),
+                (7, 5, 2322),
+                (8, 16, 1109),
+                (9, 5, 2739),
+                (10, 5, 2322),
+                (11, 5, 2739),
+            ]
+        );
+    }
+}
+
+#[test]
+fn last_reserved_word_and_escaped_bindings_keep_their_source_declines() {
+    let source = "interface BoundaryRequired { tag: string; count: number }\nconst broken = ;\nvar implements: BoundaryRequired = {};\nvar with: BoundaryRequired = {};\nvar after: BoundaryRequired = {};\nvar escaped: BoundaryRequired = {};\nvar \\u006fbject: BoundaryRequired = {};\n";
+    // `with` is LastReservedWord, while `implements` is the first permitted
+    // binding keyword. Native has no written variable owner for `var with`.
+    // The escaped object binding retains the frozen Unicode-escape decline;
+    // its native TS2739 at (7,5) remains a known unsupported occurrence.
+    for source in [source.to_string(), source.replace('\n', "\r\n")] {
+        let actual: Vec<_> = reported_for(&case(&source))
+            .into_iter()
+            .filter(|d| d.code == 2322 || d.code == 2739)
+            .map(|d| (d.line, d.column, d.code))
+            .collect();
+        assert_eq!(actual, [(3, 5, 2739), (5, 5, 2739), (6, 5, 2739)]);
+    }
 }
 
 #[test]
