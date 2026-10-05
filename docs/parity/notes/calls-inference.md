@@ -117,3 +117,62 @@ iterator member. Accepted as an inference alias-retention gap, outside this
 change.
 
 **Not ported:** `getOptionalCallSignature` for call chains (`callChainFlags`).
+
+## 4. TS2349 for object-shaped callees (tsr-2zk.9)
+
+**Forcing constraint.** `resolveCallExpression`'s `len(callSignatures) == 0`
+arm (`checker.go:8555-8571`) reports `invocationError` → TS2349 for any callee
+whose apparent type has no call signatures, is not an untyped call, and (else
+TS2348) has no construct signatures. TSR reported TS2349 only for primitives
+(§318), declining every object-shaped callee because an incomplete signature
+list would read as "not callable". 23 TS2349 lines were missing in the lane.
+
+**Decision.** `check_callee_without_signatures` (`check.rs`) reports when
+`signatures_of_type_kind` returns **complete** (`Some`) and empty lists for
+both kinds, the callee is not `Function`-typed (§2), and TS2348 stays with
+`check_class_called_without_new`. The target is the member name for a
+property-access callee (`invocationErrorDetails`, `checker.go:9946`) — also
+applied to the primitive arm. A zero-argument property-access call now
+resolves the member: a `get` accessor heads with TS6234 (`checker.go:9983`),
+an unresolved member declines, element access still declines.
+
+Declines, each from a measured false positive (measured at the occurrence
+level too, since an extra line inside an already-WRONG case changes no
+verdict):
+
+- **Union with a `Function` constituent.** `resolveUnionTypeMembers`
+  (`checker.go:21056`) gives the global `Function` constituent the
+  `unknownSignature`, so `Function | (() => object)` is callable (no report;
+  the call types `error`). `resolved_union_signatures` (`union_signatures.rs`)
+  now answers *unresolved* for such a union instead of an empty list, since
+  `unknownSignature` is not modelled (`unionOfFunctionAndSignatureIsCallable`).
+- **Generic context.** Inside a declaration with type parameters, a callee can
+  be typed through mapped/indexed machinery this port types incompletely:
+  `promises.map` on `{ [K in keyof T]: … }` with `T extends readonly
+  unknown[]` read as `PromiseSettledResult<Awaited<T["map"]>>`
+  (`dependentDestructuredVariablesFromNestedPatterns`). The arm declines when
+  any ancestor declares type parameters — before any signature query, which
+  itself forced recursive return types (TS7024 in
+  `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`, caught by
+  `tests/original_callable_entry.rs`). **How to know it is wrong:** lifting
+  this decline once homomorphic mapped types over array type parameters are
+  ported should measure zero new false positives.
+- **Union callees.** Whether constituents share signatures depends on
+  narrowing: `result()` under `result instanceof Function` stays the whole
+  un-narrowed `(() => EffectResult) | Promise<EffectResult>` in this port
+  (`unresolvableSelfReferencingAwaitedUnion`), which upstream narrows first.
+  No conversion came from a union (`betterErrorForUnionCall` stays wrong).
+- **JS files**, as `check_call_arity` (`typeTagNoErasure`).
+- **`this` receiver on the zero-argument path.** Resolving `this.g` from the
+  rule forces an object literal's `this` type early and manufactured a TS7023
+  circularity (`thisTypeInObjectLiterals2`); declined.
+
+**Measured** (diagnostics, vs the previous commit): 7 cases wrong→right
+(`callOnInstance`, `constructorOverloads4`, `neverIntersectionNotCallable`,
+`valuesMergingAcrossModules`, `esModuleInteropDefaultImports`,
+`methodChainError`, `instancePropertyInClassType`), 0 losses; types
+unchanged.
+
+**Not ported:** the tagged-template road's TS2349
+(`taggedTemplateWithConstructableTag01/02`, `templateStringInTaggedTemplate*`)
+and the union sub-messages (head code only is compared).

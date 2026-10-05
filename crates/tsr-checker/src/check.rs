@@ -8567,8 +8567,11 @@ impl Checker<'_, '_> {
     /// incomplete list would read as "not callable" and over-report.
     ///
     /// **A primitive answers without it**: no signature resolution can make a
-    /// `string` callable. Object-shaped types decline, which is exactly where an
-    /// incomplete list would lie. §318.
+    /// `string` callable. §318. Object-shaped callees go through
+    /// [`Checker::check_callee_without_signatures`], which reports only when
+    /// both signature lists are complete and empty
+    /// (`docs/parity/notes/calls-inference.md` §4). The report targets the
+    /// member name of a property-access callee, as upstream does.
     fn check_callee_is_callable(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.file_is_ambient {
             return;
@@ -8586,34 +8589,144 @@ impl Checker<'_, '_> {
         ) {
             return;
         }
-        // **A zero-argument call on a member is upstream's TS6234**, the head
-        // message it substitutes when the callee resolves to a `get` accessor
-        // (`checker.go:9983`). The accessor test needs the resolved symbol;
-        // declining the whole zero-argument member-call shape is a superset of
-        // it, so this trades a possible missing line for a certain wrong one.
-        // `instancePropertyInClassType` wants TS6234 at (17,16) and this
-        // produced TS2349 at (17,14). §319.
+        // **A zero-argument call on a member may be upstream's TS6234**, the
+        // head message `invocationErrorDetails` substitutes when the callee
+        // resolves to a `get` accessor (`checker.go:9983`). A property access
+        // is resolved by `member_callee_is_get_accessor`; one that does not
+        // resolve declines (its head is unknowable), and an element access
+        // still declines as a whole (§319, `instancePropertyInClassType`).
+        let mut head = &messages::THIS_EXPRESSION_IS_NOT_CALLABLE;
         if call.arguments.is_empty()
-            && matches!(
-                self.nodes.kind(callee_id),
-                SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
-            )
+            && self.nodes.kind(callee_id) == SyntaxKind::ElementAccessExpression
         {
             return;
+        }
+        if call.arguments.is_empty()
+            && self.nodes.kind(callee_id) == SyntaxKind::PropertyAccessExpression
+        {
+            match self.member_callee_is_get_accessor(callee) {
+                Some(true) => {
+                    head = &messages::THIS_EXPRESSION_IS_NOT_CALLABLE_BECAUSE_IT_IS_A_GET_ACCESSOR_DID_YOU_MEAN_TO_USE_IT_WITHOUT;
+                }
+                Some(false) => {}
+                None => return,
+            }
         }
         let target = self.check_expression(callee);
         if self.is_error(target) {
             return;
         }
         let flags = self.type_of(target).flags;
-        if !flags.intersects(NEVER_CALLABLE)
-            || flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
-        {
+        if flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN) {
+            return;
+        }
+        if !flags.intersects(NEVER_CALLABLE) {
+            self.check_callee_without_signatures(callee_id, target, head);
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(callee_id) else { return };
-        let span = self.error_span(callee_id);
-        self.report(file, Diagnostic::new(&messages::THIS_EXPRESSION_IS_NOT_CALLABLE, span));
+        let span = self.error_span(self.invocation_error_target(callee_id));
+        self.report(file, Diagnostic::new(head, span));
+    }
+
+    /// `invocationErrorDetails`' target (`checker.go:9946`): the member NAME
+    /// of a property-access callee, else the callee itself.
+    fn invocation_error_target(&self, callee_id: NodeId) -> NodeId {
+        match self.node_map.get(callee_id) {
+            Some(Node::PropertyAccessExpression(access)) => access
+                .name
+                .and_then(|name| tsr_ast::Node::from(name).node_id())
+                .unwrap_or(callee_id),
+            _ => callee_id,
+        }
+    }
+
+    /// `getResolvedSymbolOrNil(errorTarget).Flags & GetAccessor`
+    /// (`checker.go:9983`) for a property-access callee: `None` when the
+    /// member does not resolve (the head message is then unknowable).
+    fn member_callee_is_get_accessor(&mut self, callee: tsr_ast::Expression<'_>) -> Option<bool> {
+        let tsr_ast::Expression::PropertyAccessExpression(access) = callee else { return None };
+        let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+        // A `this` receiver in an object-literal member resolves the
+        // literal's own type; demanding it from this rule reorders type
+        // resolution and manufactured a TS7023 circularity upstream never
+        // reports (`thisTypeInObjectLiterals2`). Declined.
+        let receiver = access.expression?;
+        if matches!(receiver, tsr_ast::Expression::KeywordExpression(keyword)
+            if keyword.kind == SyntaxKind::ThisKeyword)
+        {
+            return None;
+        }
+        let receiver = self.check_expression(receiver);
+        if self.is_error(receiver) {
+            return None;
+        }
+        let apparent = self.apparent_type(receiver);
+        let property = self.get_property_of_type(apparent, name.text)?;
+        Some(self.binder.symbols().get(property).flags.intersects(SymbolFlags::GET_ACCESSOR))
+    }
+
+    /// `resolveCallExpression`'s `len(callSignatures) == 0` arm
+    /// (`checker.go:8555-8571`) for an object-shaped callee, reporting through
+    /// `invocationError` (`checker.go:9943`). Reports TS2349 only when BOTH
+    /// signature lists are complete and empty (an unresolved list declines),
+    /// the call is not untyped (`isUntypedFunctionCall`'s `Function` arm), and
+    /// the callee is not constructable — the TS2348 arm is
+    /// `check_class_called_without_new`'s.
+    ///
+    /// Target is the member NAME for a property-access callee
+    /// (`invocationErrorDetails`, `checker.go:9946`).
+    fn check_callee_without_signatures(
+        &mut self,
+        callee_id: NodeId,
+        callee_type: TypeId,
+        head: &'static tsr_diagnostics::Message,
+    ) {
+        use crate::signatures::SignatureKind;
+        // Inside a generic declaration a callee's type can depend on type
+        // parameters through mapped/indexed machinery this port types
+        // incompletely (`promises.map` on a homomorphic mapped type over
+        // `T extends readonly unknown[]` read as `T["map"]`), and a wrong
+        // callee type would assert "not callable" upstream never reports.
+        // Declined before any signature query, which would itself force
+        // recursive return types (TS7024 in
+        // `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`).
+        // `docs/parity/notes/calls-inference.md` §4.
+        if self.nodes.ancestors(callee_id).any(|ancestor| self.declares_type_parameters(ancestor)) {
+            return;
+        }
+        // JSDoc-typed callees decline as `check_call_arity` does.
+        if self.in_js_file(callee_id) {
+            return;
+        }
+        let apparent = self.apparent_type(callee_type);
+        // A UNION callee declines: whether its constituents share signatures
+        // depends on narrowing this port does not complete — `result()` under
+        // `result instanceof Function` stays the whole un-narrowed union
+        // (`unresolvableSelfReferencingAwaitedUnion`). §4.
+        if self.is_error(apparent)
+            || self.type_of(apparent).flags.intersects(
+                crate::flags::TypeFlags::ANY_OR_UNKNOWN | crate::flags::TypeFlags::UNION,
+            )
+        {
+            return;
+        }
+        if !self
+            .signatures_of_type_kind(apparent, SignatureKind::Call)
+            .is_some_and(|s| s.is_empty())
+            || !self
+                .signatures_of_type_kind(apparent, SignatureKind::Construct)
+                .is_some_and(|s| s.is_empty())
+        {
+            return;
+        }
+        if self.is_untyped_function_typed_callee(callee_type) {
+            return;
+        }
+        let target = self.invocation_error_target(callee_id);
+        let Some(file) = self.source_file_of_for_diagnostics(callee_id) else { return };
+        let span = self.error_span(target);
+        self.report(file, Diagnostic::new(head, span));
     }
 
     /// TS2729 — `Property '{0}' is used before its initialization.`

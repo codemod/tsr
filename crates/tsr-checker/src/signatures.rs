@@ -5897,6 +5897,16 @@ impl<'a> Checker<'a, '_> {
     /// an accessor's type comes from `getTypeOfAccessors`, a constructor's from
     /// the class, and the three signature members are reached through a type
     /// literal rather than through a symbol's type.
+    /// Whether `id` is a function-like declaration (or class) that declares
+    /// its own type parameters — a generic context.
+    pub(crate) fn declares_type_parameters(&self, id: NodeId) -> bool {
+        self.signature_parts_of(id).is_some_and(|parts| !parts.type_parameters.is_empty())
+            || matches!(self.node_map.get(id),
+                Some(Node::ClassDeclaration(class)) if !class.type_parameters.is_empty())
+            || matches!(self.node_map.get(id),
+                Some(Node::ClassExpression(class)) if !class.type_parameters.is_empty())
+    }
+
     fn signature_parts_of(&self, id: NodeId) -> Option<SignatureParts<'a>> {
         match self.node_map.get(id)? {
             Node::FunctionDeclaration(node) => Some(SignatureParts {

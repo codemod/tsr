@@ -189,6 +189,24 @@ impl Checker<'_, '_> {
             return cached.clone();
         }
         let TypeData::Union { types, .. } = self.store.get(ty).data.clone() else { return None };
+        // resolveUnionTypeMembers (checker.go:21056) gives a constituent that
+        // IS the global `Function` type the `unknownSignature` call list.
+        // That signature is not modelled here, so the union's call list is
+        // unresolved rather than an empty one that reads as "not callable".
+        if kind == SignatureKind::Call
+            && let Some(function) = self.global_type_symbol_with_arity("Function", 0)
+            && self
+                .binder
+                .symbols()
+                .get(function)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
+        {
+            let function = self.get_declared_type_of_symbol(function);
+            if types.contains(&function) {
+                return None;
+            }
+        }
         self.composite_signature_types.insert(key, None);
         let mut result = self.union_signatures_of_types(&types, kind);
         if kind == SignatureKind::Call && result.as_ref().is_some_and(Vec::is_empty) {
