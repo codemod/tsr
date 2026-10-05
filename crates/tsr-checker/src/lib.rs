@@ -165,6 +165,7 @@ pub mod symbol_access;
 pub mod symbols;
 mod template_match;
 mod templates;
+mod this_expression;
 pub mod truthiness;
 mod tuples;
 pub mod type_argument_arity;

@@ -829,7 +829,6 @@ impl Checker<'_, '_> {
         }
         self.check_grammar_heritage_clauses(typed);
         self.check_override_kind(node, typed);
-        self.check_this_before_super(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -936,12 +935,7 @@ impl Checker<'_, '_> {
             self.check_super_expression_diagnostics(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
-            // §103's order: the computed-property arm runs first and excludes
-            // the module arm below. §500.
-            if !self.check_this_in_computed_name(node) {
-                self.check_this_in_module_body(node);
-            }
-            self.check_implicit_this(node);
+            self.check_this_expression_diagnostics(node);
         }
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
@@ -1274,107 +1268,6 @@ impl Checker<'_, '_> {
                     span,
                 ),
             );
-        }
-    }
-
-    /// TS2331 — `'this' cannot be referenced in a module or namespace body.`
-    ///
-    /// `checkThisExpression`'s container switch (`checker.go:12104`). Purely
-    /// syntactic: the `this` container is a `ModuleDeclaration`.
-    ///
-    /// An **arrow function is transparent** to the container — the rule
-    /// `expressions.rs:932` already states for `this`'s *type* — so
-    /// `namespace M { var f = () => this }` reports, which is `topLevelLambda`.
-    /// Every other function-like kind is opaque and stops the walk. §392.
-    /// TS2683 — `'this' implicitly has type 'any' because it does not have a
-    /// type annotation.`
-    ///
-    /// `checkThisExpression`'s `noImplicitThis` arm (`checker.go:12119`), which
-    /// fires when `tryGetThisTypeAtEx` answers `nil`. `expressions.rs:939`
-    /// records the exact shape where that happens and where this port already
-    /// answers `any`: a **plain function** rebinds `this`, and an arrow does
-    /// not. A `this` parameter is what upstream reads instead of falling
-    /// through, so a function that declares one declines. §416.
-    fn check_implicit_this(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || !self.no_implicit_this {
-            return;
-        }
-        // **TS7041 first** (`checker.go:12115`): a `this` that reaches the file
-        // through at least one arrow and no opaque container is the global
-        // `this`, captured by that arrow. Upstream's two arms are exclusive and
-        // this one is above §416's, so it returns rather than falling through.
-        // §103's order. §519.
-        let mut through_arrow = false;
-        for ancestor in self.nodes.ancestors(node) {
-            let kind = self.nodes.kind(ancestor);
-            if kind == SyntaxKind::ArrowFunction {
-                through_arrow = true;
-                continue;
-            }
-            if kind == SyntaxKind::SourceFile {
-                if !through_arrow {
-                    break;
-                }
-                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                let span = self.nodes.span(node);
-                self.report(
-                    file,
-                    Diagnostic::new(
-                        &messages::THE_CONTAINING_ARROW_FUNCTION_CAPTURES_THE_GLOBAL_VALUE_OF_THIS,
-                        span,
-                    ),
-                );
-                return;
-            }
-            if self.is_function_like_or_static_block(ancestor)
-                || matches!(
-                    kind,
-                    SyntaxKind::ClassDeclaration
-                        | SyntaxKind::ClassExpression
-                        | SyntaxKind::ModuleDeclaration
-                )
-            {
-                break;
-            }
-        }
-        for ancestor in self.nodes.ancestors(node) {
-            let kind = self.nodes.kind(ancestor);
-            if kind == SyntaxKind::ArrowFunction {
-                continue;
-            }
-            let parameters = match self.node_map.get(ancestor) {
-                Some(Node::FunctionDeclaration(function)) => function.parameters,
-                Some(Node::FunctionExpression(function)) => function.parameters,
-                _ => {
-                    if self.is_function_like_or_static_block(ancestor)
-                        || matches!(
-                            kind,
-                            SyntaxKind::SourceFile
-                                | SyntaxKind::ClassDeclaration
-                                | SyntaxKind::ClassExpression
-                                | SyntaxKind::ModuleDeclaration
-                        )
-                    {
-                        return;
-                    }
-                    continue;
-                }
-            };
-            if parameters.iter().any(|parameter| {
-                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-            }) {
-                return;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
-                    span,
-                ),
-            );
-            return;
         }
     }
 
@@ -2748,51 +2641,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// TS2465 — `'this' cannot be referenced in a computed property name.`
-    ///
-    /// `checkThisExpression`'s **first** arm (`checker.go:12100`), whose `else`
-    /// branch §392 ported as TS2331. §103's rule makes the dependency explicit:
-    /// a `this` inside a computed property name inside a namespace is TS2465,
-    /// **not** TS2331, so [`Checker::check_this_in_module_body`] declines where
-    /// this fires. Sibling of §468's `super` rule, in upstream's source too.
-    /// §500.
-    fn check_this_in_computed_name(&mut self, node: NodeId) -> bool {
-        if self.file_has_parse_errors {
-            return false;
-        }
-        // **A class computed name, not any computed name.** Upstream's walk
-        // (`checker.go:12086`) sets the flag only when the *container* is a
-        // computed property name, and `GetThisContainer` is passed
-        // `includeClassComputedPropertyName: false` — so an object literal's
-        // computed name is transparent and the `this` inside it is an ordinary
-        // implicitly-any `this` (TS2683). §500 ported this arm from the line
-        // that emits it rather than from the walk above it. §872.
-        let in_class_computed_name = self.nodes.ancestors(node).any(|ancestor| {
-            self.nodes.kind(ancestor) == SyntaxKind::ComputedPropertyName
-                && self.nodes.parent(ancestor).is_some_and(|member| {
-                    self.nodes.parent(member).is_some_and(|owner| {
-                        matches!(
-                            self.nodes.kind(owner),
-                            SyntaxKind::ClassDeclaration
-                                | SyntaxKind::ClassExpression
-                                | SyntaxKind::InterfaceDeclaration
-                                | SyntaxKind::TypeLiteral
-                        )
-                    })
-                })
-        });
-        if !in_class_computed_name {
-            return false;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(&messages::THIS_CANNOT_BE_REFERENCED_IN_A_COMPUTED_PROPERTY_NAME, span),
-        );
-        true
-    }
-
     /// TS1245 — `Method '{0}' cannot have an implementation because it is
     /// marked abstract.`
     ///
@@ -3022,58 +2870,6 @@ impl Checker<'_, '_> {
                 [keyword.to_string()],
             ),
         );
-    }
-
-    fn check_this_in_module_body(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        for ancestor in self.nodes.ancestors(node) {
-            match self.nodes.kind(ancestor) {
-                SyntaxKind::ArrowFunction => {}
-                SyntaxKind::ModuleDeclaration => {
-                    let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                    let span = self.nodes.span(node);
-                    self.report(
-                        file,
-                        Diagnostic::new(
-                            &messages::THIS_CANNOT_BE_REFERENCED_IN_A_MODULE_OR_NAMESPACE_BODY,
-                            span,
-                        ),
-                    );
-                    // **Upstream does not return here**, and its comment says
-                    // why: *"do not return here so in case if lexical this is
-                    // captured…"*. It falls through to the `noImplicitThis`
-                    // block, where `tryGetThisTypeAt` answers nothing — there is
-                    // no `this` in a namespace body, which is what the
-                    // diagnostic above already established — and TS2683 is
-                    // reported at the same position. Two diagnostics, one node.
-                    // §986.
-                    if self.no_implicit_this {
-                        self.report(
-                            file,
-                            Diagnostic::new(
-                                &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
-                                span,
-                            ),
-                        );
-                    }
-                    return;
-                }
-                kind if self.is_function_like_or_static_block(ancestor)
-                    || matches!(
-                        kind,
-                        SyntaxKind::SourceFile
-                            | SyntaxKind::ClassDeclaration
-                            | SyntaxKind::ClassExpression
-                            | SyntaxKind::PropertyDeclaration
-                    ) =>
-                {
-                    return;
-                }
-                _ => {}
-            }
-        }
     }
 
     /// TS1156 — `'{0}' declarations can only be declared inside a block.`
@@ -8906,38 +8702,6 @@ impl Checker<'_, '_> {
                 span,
                 [name.text.to_string()],
             ),
-        );
-    }
-
-    /// TS17009 — `'super' must be called before accessing 'this' in the
-    /// constructor of a derived class.`
-    ///
-    /// `checkThisExpression`'s constructor arm (`checker.go:12077`) into
-    /// `checkThisBeforeSuper`, whose decidable shapes are
-    /// `super_expression.rs`'s. A `this` inside a nested function-like
-    /// declines, because an arrow captures the constructor's `this` and
-    /// upstream decides it by where the arrow *runs*. §307.
-    fn check_this_before_super(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        if self.nodes.kind(node) != SyntaxKind::ThisKeyword {
-            return;
-        }
-        // The nearest function-like must be the constructor itself; anything
-        // nested captures and is upstream's flow question.
-        let Some(container) =
-            self.nodes.ancestors(node).find(|&it| self.is_function_like_or_static_block(it))
-        else {
-            return;
-        };
-        if self.nodes.kind(container) != SyntaxKind::Constructor {
-            return;
-        }
-        self.check_this_before_super_in(
-            node,
-            container,
-            &messages::SUPER_MUST_BE_CALLED_BEFORE_ACCESSING_THIS_IN_THE_CONSTRUCTOR_OF_A_DERIVED_CLASS,
         );
     }
 
