@@ -102,11 +102,25 @@ install_bd() {
   bd bootstrap --yes --quiet
 }
 
+build_tsgo() {
+  # The pinned native oracle for perf-project comparisons, rebuilt only when the
+  # vendored typescript-go commit changes.
+  local rev
+  rev="$(git -C vendor/typescript-go rev-parse HEAD)"
+  if [ ! -x target/tsgo-pinned ] || [ "$(cat target/tsgo-pinned.rev 2>/dev/null)" != "$rev" ]; then
+    mkdir -p target
+    (cd vendor/typescript-go && GOTOOLCHAIN=local "$HOME/.local/bin/go" build -o ../../target/tsgo-pinned ./cmd/tsgo)
+    echo "$rev" >target/tsgo-pinned.rev
+  fi
+  target/tsgo-pinned --version
+}
+
 step "rust toolchain" install_rust
 step "login shell PATH" persist_path
 step "git submodules" init_submodules
 step "tsgo oracle toolchain" install_go
 step "beads (bd)" install_bd
+step "pinned tsgo (target/tsgo-pinned)" build_tsgo
 # Fetch locked dependencies, but leave compilation to the task that needs it.
 # Building every debug, test, Clippy and release target here took over five
 # minutes on a 2-CPU orb and produced a roughly 12 GB snapshot.

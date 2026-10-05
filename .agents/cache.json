@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "enabled": true,
+  "caches": [
+    {
+      "name": "cargo",
+      "type": "cargo-downloads",
+      "keyFiles": ["Cargo.lock"],
+      "restore": "compatible"
+    }
+  ]
+}
