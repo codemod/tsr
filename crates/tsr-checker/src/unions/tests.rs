@@ -155,8 +155,13 @@ fn ordinary_undefined_dominates_missing_only_in_reduced_unions() {
                                 };
                                 if !strict && inputs.len() > 1 {
                                     expected.retain(|&t| t != undefined && t != missing);
+                                    // getUnionTypeWorker's empty-set arm
+                                    // (checker.go:25692) answers the plain
+                                    // undefined for these non-widening
+                                    // inputs; without reduction the empty
+                                    // sorted list is never.
                                     if expected.is_empty() {
-                                        expected = vec![error];
+                                        expected = vec![if reduce { undefined } else { never }];
                                     }
                                     // Existing literal never filtering returns the singleton unchanged.
                                     if reduce && matches!(case, "m-never" | "u-never") {

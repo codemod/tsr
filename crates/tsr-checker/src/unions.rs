@@ -121,6 +121,10 @@ struct Includes {
     /// or the body of a named type alias. Upstream keeps those unexpanded
     /// through `origin`; this port has no origin and gaps instead.
     named_union: bool,
+    /// `TypeFlagsIncludesNonWideningType` (`checker.go:25784`): with
+    /// `strictNullChecks` off, a dropped nullable constituent was the plain
+    /// `null`/`undefined` rather than a `createWideningType` twin.
+    non_widening: bool,
 }
 
 /// Create a union type, interned on its contents.
@@ -206,8 +210,8 @@ fn create_union_with_text(
 ///
 /// The names are hardcoded because upstream appends the *canonical* intrinsics
 /// rather than the constituents it found — which is also how `nullWideningType`
-/// comes to print `null`. This port does not model the widening variants, so the
-/// two coincide.
+/// comes to print `null`: `Intrinsics::null_widening` is a distinct identity
+/// with the same name.
 ///
 /// **One of upstream's clauses is still not here.** Enum-like constituents are
 /// collapsed to their base enum type; an enum member only reaches a union
@@ -687,15 +691,23 @@ impl Checker<'_, '_> {
         }
 
         if set.is_empty() {
-            // With `strictNullChecks` off a union of nothing but `null` and
-            // `undefined` empties the set, and upstream answers
-            // `undefinedWideningType` or `nullWideningType`
-            // (`checker.go:25692`). Neither widening intrinsic exists here —
-            // the same recorded divergence as `Checker::with_module_host`'s
-            // `undefined` seeding — and answering the non-widening twins would
-            // merge identities upstream keeps apart, so this is a gap.
-            if !self.strict_null_checks && includes.flags.intersects(TypeFlags::NULLABLE) {
-                return self.intrinsics.error;
+            // `checker.go:25692`: with `strictNullChecks` off a union of
+            // nothing but `null` and `undefined` empties the set, and `null`
+            // beats `undefined`; the result is the widening twin unless some
+            // constituent was the plain type (`IncludesNonWideningType`).
+            if reduce_literals && includes.flags.contains(TypeFlags::NULL) {
+                return if includes.non_widening {
+                    self.intrinsics.null
+                } else {
+                    self.intrinsics.null_widening
+                };
+            }
+            if reduce_literals && includes.flags.contains(TypeFlags::UNDEFINED) {
+                return if includes.non_widening {
+                    self.intrinsics.undefined
+                } else {
+                    self.intrinsics.undefined_widening
+                };
             }
             // Every constituent was `never`, the only other way to empty the
             // set.
@@ -1162,6 +1174,9 @@ impl Checker<'_, '_> {
         // the flag is on, the constituents survive into the type and
         // `format_union_types` moves them to the end of the printed form.
         if !self.strict_null_checks && flags.intersects(TypeFlags::NULLABLE) {
+            if !self.intrinsics.is_widening_nullable(id) {
+                includes.non_widening = true;
+            }
             return;
         }
         types.push(id);

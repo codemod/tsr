@@ -130,14 +130,16 @@ fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 24] {
 fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations() {
     let mut store = tsr_checker::types::TypeStore::new();
     let i = tsr_checker::Intrinsics::create(&mut store);
-    // The loose identity still occupies slot 5; the active strict slot aliases
-    // ordinary undefined. All following intrinsic allocations keep their IDs.
-    assert_eq!(store.len(), 25);
+    // The loose identities occupy slots 5 (undefined) and 8 (null, created
+    // right after nullType as upstream does, checker.go:990); the active
+    // strict slots alias the ordinary types.
+    assert_eq!(store.len(), 26);
     assert_eq!(
         other_intrinsic_indices(&i),
-        [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+        [0, 1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
     );
     assert_eq!(i.undefined_widening, i.undefined);
+    assert_eq!(i.null_widening, i.null);
 }
 
 #[test]
@@ -170,12 +172,14 @@ fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global(
             }
             let i = checker.intrinsics();
             assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
-            assert_eq!(checker.type_count(), 25);
+            assert_eq!(i.null_widening.index(), if strict { 7 } else { 8 });
+            assert_eq!(checker.type_count(), 26);
             assert_eq!(other_intrinsic_indices(i), other_ids);
             assert_eq!(
                 checker.type_of(i.undefined_widening).flags,
                 tsr_checker::TypeFlags::UNDEFINED
             );
+            assert_eq!(checker.type_of(i.null_widening).flags, tsr_checker::TypeFlags::NULL);
         }
         // Select loose only after the identity/allocation checks, then query:
         // global reseeding is a separate prerequisite, deliberately not fixed.
