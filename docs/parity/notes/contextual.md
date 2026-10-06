@@ -166,13 +166,40 @@ That covers methods; it does not yet cover a getter, whose cycle runs through
 the accessor symbol's `Type` frame (`accessorInferredReturnTypeErrorInReturnStatement`
 still lost five lines with the draft) — the draft needs that frame added too.
 
-The draft is not committed (a loss is fixed, never accepted). It is kept as
-[`contextual-6-object-literal-this.diff`](contextual-6-object-literal-this.diff)
-against `contextual.rs`, and waits on the three property-access fixes above,
-which are reported to the integrator. The measured draft also flipped three
-diagnostics cases EMPTY_RIGHT→EMPTY_WRONG (`vueLikeDataAndPropsInference`,
-`vueLikeDataAndPropsInference2`, `thisTypeInObjectLiterals2`), not yet
-analysed.
+### Round 3: the losses are fixed; the patch waits on two other lanes' files
+
+Re-measured on the round-3 integration head (`ebf1951`), the draft's three
+diagnostics flips (`vueLikeDataAndPropsInference{,2}`,
+`thisTypeInObjectLiterals2`) no longer reproduce — the cases print nothing
+with the draft applied — so whatever drove them was fixed upstream of this
+lane in round 2. The type losses each have a faithful fix, now in the patch
+[`contextual-6-object-literal-this.diff`](contextual-6-object-literal-this.diff):
+
+- **Getter cycle** (`accessorInferredReturnTypeErrorInReturnStatement`, own
+  file): the decline also checks the accessor symbol's `Type` frame
+  (`getTypeOfAccessors` resolves a getter's return there).
+- **`constAssertions` `this.x = 20`** (`readonly_target.rs`):
+  `checkObjectLiteral` gives every member of a const-context literal
+  `CheckFlagsReadonly` (`checker.go:13175`); the port records it on the
+  literal's captured member image (`AnonymousProperty::readonly`), which
+  `is_assignment_to_readonly_property` now reads. `o9.x = 20` on an
+  `as const` literal was `10`, upstream `any`, independently of `this`.
+- **`contextualThisTypeInJavascript` `this.unknown`** (`members.rs`):
+  `checkPropertyAccessExpressionOrQualifiedName`'s miss arm answers `anyType`
+  for an `isJSLiteralType` receiver (`checker.go:11334`) — TSR only skipped
+  the report.
+- **`constructorTagOnObjectLiteralMethod` `this.bar`** (`members.rs`):
+  `bindThisPropertyAssignment` (`binder.go:1115`) declares a JS
+  `this.bar = …` inside an object-literal method on the *literal's* symbol, but
+  `checkObjectLiteral` builds the literal's type from its elements only, so
+  that member is not a property of the type. TSR's declared-owner lookup read
+  the binder table and found it (`obj.bar : string | undefined`).
+
+Measured with the whole patch against `ebf1951`: +37 types lines, both loss
+checks empty, diagnostics `checkingObjectWithThisInNamePositionNoCrash`,
+`jsPropertyAssignedAfterMethodDeclaration`, `thisInObjectLiterals`
+WRONG→RIGHT, perf CPU self-ratio 0.999 / 0.991. The `contextual.rs` hunk alone
+still loses the lines above, so it is not committed on its own.
 
 ## 7. The widening nullables exist (`tsr-2zk.16.7`)
 
