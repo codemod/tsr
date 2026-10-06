@@ -692,6 +692,10 @@ impl Checker<'_, '_> {
                 self.check_qualified_type_name(node);
                 ambient
             }
+            Node::TemplateSpan(_) => {
+                self.check_template_span_symbol_conversion(node);
+                ambient
+            }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
                 // `checkPrefixUnaryExpression` wraps its operand in
                 // `checkNonNullType` exactly as the binary arms wrap theirs.

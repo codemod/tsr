@@ -929,6 +929,44 @@ impl Checker<'_, '_> {
     }
 }
 
+impl Checker<'_, '_> {
+    /// TS2731 from `checkTemplateExpression` (`checker.go:7976`): a span
+    /// expression that may be a symbol, considering its base constraint, is
+    /// an implicit string conversion that throws at runtime. Reported on the
+    /// span's expression. Kept with the operator rules because it is the
+    /// template form of `+`'s `checkForDisallowedESSymbolOperand`
+    /// (`docs/parity/notes/operators.md` §7).
+    pub(crate) fn check_template_span_symbol_conversion(&mut self, span: NodeId) {
+        let Some(Node::TemplateSpan(template_span)) = self.node_map.get(span) else { return };
+        // A tagged template's spans are arguments, checked by call resolution
+        // (`checkTaggedTemplateExpression`, `checker.go:10034`) rather than by
+        // `checkTemplateExpression`.
+        let Some(template) = self.nodes.parent(span) else { return };
+        if self
+            .nodes
+            .parent(template)
+            .is_some_and(|tag| self.nodes.kind(tag) == SyntaxKind::TaggedTemplateExpression)
+        {
+            return;
+        }
+        let Some(expression) = template_span.expression else { return };
+        let Some(at) = expression.node_id() else { return };
+        let ty = self.check_expression(expression);
+        if !self.maybe_type_of_kind_considering_base_constraint(ty, TypeFlags::ES_SYMBOL_LIKE) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::IMPLICIT_CONVERSION_OF_A_SYMBOL_TO_A_STRING_WILL_FAIL_AT_RUNTIME_CONSIDER_WRAPPING_THIS_EXPRESSION_IN_STRING,
+                span,
+            ),
+        );
+    }
+}
+
 /// `getSuggestedBooleanOperator` (`checker.go:12780`).
 fn suggested_boolean_operator(operator: SyntaxKind) -> Option<SyntaxKind> {
     match operator {

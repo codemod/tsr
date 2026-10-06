@@ -212,3 +212,20 @@ under `CheckModeTypeOnly`; the diagnostics walk is never that mode.
 `functionImplementations`, `plainJSTypeErrors`), zero losses in either dump;
 MISSING TS2839 28 → 0, TS2845 17 → 0.
 
+## 7. TS2731 — the template form of the symbol check
+
+`check_template_span_symbol_conversion` is `checkTemplateExpression`'s one
+diagnostic (`checker.go:7976`): a span expression that
+`maybeTypeOfKindConsideringBaseConstraint(t, ESSymbolLike)` reports TS2731 on
+the expression. The walk reaches it from a new `TemplateSpan` arm in
+`check.rs`. A span whose template is the template of a
+`TaggedTemplateExpression` is skipped: upstream never calls
+`checkTemplateExpression` there (the spans are call arguments,
+`checkTaggedTemplateExpression`, `checker.go:10034`) — the first measurement
+without that test turned `taggedTemplateStringWithSymbolExpression01`
+EMPTY_RIGHT → EMPTY_WRONG. It lives in this lane's file because it is the
+template counterpart of `+`'s `checkForDisallowedESSymbolOperand`.
+
+**Measured** (against §6's tree): MISSING TS2731 7 → 0, extra 0, zero
+losses; no case converts alone — `noImplicitSymbolToString` also needs the
+five `+`/`+=` TS2469 lines of the held §5 port.
