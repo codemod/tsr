@@ -413,3 +413,39 @@ in a recovered file, so there is nothing for the gate to protect. Removed.
 **Measured** (round 3, re-measured on the integration branch at `8b24e49`):
 `enumErrors`, `reservedNamesInAliases`, `interfacesWithPredefinedTypesAsNames`
 converted; none lost.
+
+## §19 TS2451 / TS2300: a merge into an alias target
+
+**Forcing constraint.** `mergeSymbol` (`checker.go:14146`) tests
+`target.Flags & getExcludedSymbolFlags(source.Flags)` first; when that passes
+and the target is not transient it resolves the target (`resolveSymbol`) and
+re-tests the excludes against the *resolved* symbol, reporting
+`reportMergeSymbolError(target, source)` when they hit. The binder's
+`merge_symbol` returned on any alias before the excludes test, unreported, so
+`export as namespace THREE` (an alias of its module) against
+`declare global { const THREE }` drew nothing where upstream reports TS2451 on
+both names (the module is a `ValueModule`, which a `const` excludes).
+
+**What was ported.** The excludes test now runs first, as upstream's does, so
+an alias whose own flags the source excludes (alias against alias) goes to
+`merge_conflicts`. A merge whose *target* is an alias is recorded in a new
+`BindResult::alias_merges`; `Checker::report_merge_conflicts` resolves it with
+`resolve_alias_fully` and reports the error arm. The span of an
+`export as namespace N` declaration is its name (`GetNameOfDeclaration`),
+handled locally because the shared `error_span` declaration list lacks it.
+
+**Why the merge arm stays a decline.** The binder follows no aliases
+(`bd tsr-y4u.12`), and the checker cannot rewrite the binder's tables. The
+same limit leaves one upstream consequence unported: on the error arm
+`mergeSymbol` returns `source`, and `mergeSymbolTable` stores it, so the table
+entry *becomes* the refused source. In `umdGlobalAugmentationNoCrash` the
+global `React` is then the `const`, not the UMD alias, and upstream reports no
+TS2686; this port keeps the alias and still reports it. Likewise
+`mergeSymbolRexportFunction`'s TS1362 (the export stays the `export type`
+alias). Both are pre-existing wrong lines, not new ones.
+
+**Measured.** `checkMergedGlobalUMDSymbol` converted; the TS2451 lines of
+`crashDeclareGlobalTypeofExport`, `mergeSymbolRexportFunction`,
+`umdGlobalAugmentationNoCrash` and
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular` are now right (those
+cases still owe the table replacement above, or TS2502).

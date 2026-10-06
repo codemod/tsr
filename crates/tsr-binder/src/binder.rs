@@ -270,6 +270,9 @@ pub(crate) struct Binder<'a, 'n> {
     merged: rustc_hash::FxHashMap<SymbolId, SymbolId>,
     /// Merges the excludes masks forbade; see [`BindResult::merge_conflicts`].
     merge_conflicts: Vec<(SymbolId, SymbolId)>,
+    /// Merges into an alias target left for the checker to resolve; see
+    /// [`BindResult::alias_merges`].
+    alias_merges: Vec<(SymbolId, SymbolId)>,
     /// The declaration [`Self::declare`] is binding, when it is a default
     /// export in `declareSymbolEx`'s sense — `isDefaultExport`, or an
     /// `export default` assignment — which is what selects TS2528 over TS2300
@@ -383,6 +386,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals,
             merged,
             merge_conflicts,
+            alias_merges,
             module_augmentations,
             undefined_symbol,
             computed_names,
@@ -448,6 +452,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals,
             merged,
             merge_conflicts,
+            alias_merges,
             default_export_declaration: None,
             flow,
             node_flow,
@@ -585,6 +590,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals: self.globals,
             merged: self.merged,
             merge_conflicts: self.merge_conflicts,
+            alias_merges: self.alias_merges,
             module_augmentations: self.module_augmentations,
             undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
@@ -854,18 +860,6 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.merged.insert(source, target);
         let (source_flags, target_flags) =
             (self.symbols.get(source).flags, self.symbols.get(target).flags);
-        if (source_flags | target_flags).intersects(SymbolFlags::ALIAS) {
-            // Upstream does **not** stop here: `mergeSymbol` calls
-            // `resolveSymbol` on a non-transient target and re-tests the
-            // excludes against what the alias resolves to
-            // (`checker.go:14153-14164`), so it can reach either the merge or
-            // the error. Nothing here follows aliases (`bd tsr-y4u.12`), so
-            // this stays a decline — and, deliberately, an *unreported* one:
-            // a diagnostic issued at a position upstream may never reach is a
-            // false positive, which §159 records as this build's first
-            // falsifier.
-            return;
-        }
         // `(source.Flags|target.Flags)&ast.SymbolFlagsAssignment != 0`
         // (`checker.go:14147`) — the *second* disjunct of the merge condition,
         // and it bypasses the excludes masks entirely. A JavaScript
@@ -874,14 +868,36 @@ impl<'a, 'n> Binder<'a, 'n> {
         // upstream lets it through by name. Twenty-two of §159's first
         // measurement's thirty-three new wrong lines were this one disjunct,
         // all in `typeFromPropertyAssignment32` and `33`.
-        if (source_flags | target_flags).intersects(SymbolFlags::ASSIGNMENT) {
-            // Fall through to the union below, which is what upstream does.
-        } else if source_flags.excludes().intersects(target_flags) {
+        let assignment = (source_flags | target_flags).intersects(SymbolFlags::ASSIGNMENT);
+        if !assignment && source_flags.excludes().intersects(target_flags) {
             // `checker.go:14199`'s `else` arm — `reportMergeSymbolError`. The
             // report itself is the checker's, because only the checker knows
             // which *file* each declaration is in and only its diagnostics are
             // collected across files (§159).
+            //
+            // Tested **before** the alias arm below, as upstream's first
+            // condition is: an alias whose own flags the source excludes (an
+            // alias against an alias) is refused without resolving anything
+            // (`docs/parity/notes/misc-checks.md` §19).
             self.merge_conflicts.push((target, source));
+            return;
+        }
+        if (source_flags | target_flags).intersects(SymbolFlags::ALIAS) {
+            // Upstream does **not** stop here: `mergeSymbol` calls
+            // `resolveSymbol` on a non-transient target and re-tests the
+            // excludes against what the alias resolves to
+            // (`checker.go:14153-14164`), so it can reach either the merge or
+            // the error. Nothing here follows aliases (`bd tsr-y4u.12`), so
+            // the merge stays a decline. The error arm needs only the
+            // resolution, which the checker has: an alias *target* is recorded
+            // and `Checker::report_merge_conflicts` resolves it and reports
+            // `reportMergeSymbolError` when the resolved symbol's flags are
+            // excluded. A non-alias target resolves to itself, and the excludes
+            // test above already passed, so upstream merges and there is
+            // nothing to report (`misc-checks.md` §19).
+            if target_flags.intersects(SymbolFlags::ALIAS) && !assignment {
+                self.alias_merges.push((target, source));
+            }
             return;
         }
 
