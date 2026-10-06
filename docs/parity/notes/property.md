@@ -236,3 +236,43 @@ was bit-identical. The function returns on the first `match` for every
 non-`#name` access, so the cost was code placement, not work:
 `#[inline(never)]` on it measured 0.943 / 0.983 / 0.956. Kept, with this
 record, so the next reader does not remove it as noise.
+
+## 7. TS2576 by `typeHasStaticProperty`, and a clodule's instance side
+
+**`typeHasStaticProperty`** (`checker.go:27215`) asks
+`getPropertyOfType(getTypeOfSymbol(containingType.symbol), name)` and tests the
+found property's `valueDeclaration` for `static`. This port answered TS2576
+from the receiver symbol's own `exports` table (`other_side_of_class_has`), so
+an **inherited** static (`c2.bar()` with `class C2 extends A`, `static bar` on
+`A`) fell to TS2339 (`classSideInheritance1`, `classImplementsClass6`). Ported
+as `type_has_static_property` (`nonexistent_property.rs`), which reads the
+`typeof C` lookup and so its inherited statics.
+
+**Removed decline.** When the other side held the name but not as a static
+(a namespace export merged onto the class, `$.sammy.x`), the rule answered
+silence. Upstream has no such arm: `typeHasStaticProperty` is false and the
+plain TS2339 follows (`staticMemberExportAccess`, `cloduleTest2`,
+`staticPropertyNotInClassType`).
+
+**A clodule's instance members are complete.** `declared_members_are_complete`
+(`member_completeness.rs`, the one function this lane may edit there) refused
+every symbol with a `ModuleDeclaration`, because the shared walk reads one as an
+unreadable declaration. A namespace merged onto a class files its declarations
+in `exports` only — the `typeof C` side — never in `members`, which is what
+`getPropertyOfType` reads for the instance type. So for a class symbol the
+module declarations are skipped and the class/interface declarations and bases
+walked as usual.
+
+**The decline that rode on it.** Measured without one, the arm lost 6 cases
+(`moduleAugmentation{DeclarationEmit,ExtendAmbientModule,ExtendFileModule}{1,2}`):
+the binder does not run `mergeModuleAugmentation` (`checker.go:1407`), so an
+augmented class's members lack what `declare module "./m" { interface C {…} }`
+adds, and the old `ModuleDeclaration` refusal had been hiding that by
+coincidence. The clodule arm therefore declines a class declared in an external
+module or an ambient `declare module "name"` body — the two places an
+augmentation can reach. Waits on tsr-2zk.38; when augmentations merge, the
+decline goes and the falsifier is those 6 cases staying RIGHT.
+
+**Measured.** 15 baseline lines, 0 false, 0 losses; `classImplementsClass6`,
+`classSideInheritance1`, `cloduleTest2`, `mergedClassNamespaceRecordCast`,
+`staticMemberExportAccess`, `staticPropertyNotInClassType` convert.

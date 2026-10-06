@@ -348,14 +348,11 @@ impl Checker<'_, '_> {
         // the answer only to suppress TS2339. `this.Foo()` on a static `Foo` is
         // upstream's suggestion form, and the instance→static direction is the
         // one the corpus writes. §447.
-        if self.other_side_of_class_has(receiver_type, name_text) {
-            let statically_declared = self.owning_symbol_of(receiver_type).is_some_and(|symbol| {
-                let entry = self.binder.symbols().get(symbol);
-                entry.exports.contains_key(name_text) && !entry.members.contains_key(name_text)
-            });
-            if !statically_declared {
-                return;
-            }
+        // `typeHasStaticProperty` (`checker.go:27215`) asks the class's
+        // `typeof` side through `getPropertyOfType`, so an inherited static
+        // (`c2.bar()` with `class C2 extends A`, `bar` static on `A`) is
+        // TS2576 too, not TS2339 (`classSideInheritance1`).
+        if self.type_has_static_property(name_text, receiver_type) {
             let class_name = self
                 .owning_symbol_of(receiver_type)
                 .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
@@ -1149,6 +1146,25 @@ impl Checker<'_, '_> {
     pub(crate) fn is_const_enum_object_type(&self, id: TypeId) -> bool {
         matches!(self.store.get(id).data, crate::types::TypeData::Anonymous { symbol, .. }
             if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CONST_ENUM))
+    }
+
+    /// `typeHasStaticProperty` (`checker.go:27215`): the receiver's symbol's
+    /// type has a property `name` whose `valueDeclaration` is static.
+    fn type_has_static_property(&mut self, name: &str, receiver: TypeId) -> bool {
+        let Some(symbol) = self.owning_symbol_of(receiver) else { return false };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS) {
+            return false;
+        }
+        let side = self.get_type_of_symbol(symbol);
+        let Some(property) = self.get_property_of_type(side, name) else { return false };
+        let Some(declaration) = self.binder.symbols().get(property).value_declaration else {
+            return false;
+        };
+        self.node_map.get(declaration).and_then(crate::check::modifiers_of).is_some_and(
+            |modifiers| {
+                tsr_ast::has_syntactic_modifier(modifiers, tsr_ast::SyntaxKind::StaticKeyword)
+            },
+        )
     }
 
     /// Is `name` declared on the class's *other* side?
