@@ -289,6 +289,29 @@ pub trait ModuleHost {
     fn is_declaration_file(&self, _file: NodeId) -> bool {
         false
     }
+
+    /// `resolveHelpersModule`'s program half (`checker.go:28676`): what the
+    /// synthetic `tslib` import the loader adds under `importHelpers`
+    /// (`fileloader.go:543`) resolved to, for this file. Defaulted to
+    /// [`ImportHelpersModule::NotRequested`]: a host without that import
+    /// makes the checker answer `unknownSymbol` and report nothing.
+    fn import_helpers_module(&self, _file: NodeId) -> ImportHelpersModule {
+        ImportHelpersModule::NotRequested
+    }
+}
+
+/// [`ModuleHost::import_helpers_module`]'s answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportHelpersModule {
+    /// The file got no synthetic `tslib` import.
+    NotRequested,
+    /// The import resolved to nothing: TS2354 territory.
+    NotFound,
+    /// The import resolved to a file the program does not hold (an untyped
+    /// package; upstream's TS7016 family).
+    OutsideProgram,
+    /// The import resolved to this source file.
+    File(NodeId),
 }
 
 /// `getSuggestedImportExtension`'s answer (`checker.go:15461`) for an

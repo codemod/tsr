@@ -1,0 +1,105 @@
+diff --git a/crates/tsr-conformance/src/trace_case.rs b/crates/tsr-conformance/src/trace_case.rs
+index 9760426..ee14cf6 100644
+--- a/crates/tsr-conformance/src/trace_case.rs
++++ b/crates/tsr-conformance/src/trace_case.rs
+@@ -519,6 +519,7 @@ pub fn apply_test_directives(
+         composite: tristate("composite", base.composite),
+         isolated_declarations: tristate("isolateddeclarations", base.isolated_declarations),
+         es_module_interop: tristate("esmoduleinterop", base.es_module_interop),
++        import_helpers: tristate("importhelpers", base.import_helpers),
+         allow_synthetic_default_imports: tristate(
+             "allowsyntheticdefaultimports",
+             base.allow_synthetic_default_imports,
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -192,6 +192,7 @@
+             return;
+         }
+         let Some(typed) = self.node_map.get(node) else { return };
++        self.check_construct_emit_helpers(node, typed);
+         let ambient = match typed {
+             Node::ImportDeclaration(declaration) => {
+                 // `import "x"` with no clause is a **side-effect import**, and
+@@ -14746,3 +14747,82 @@
+     bindings: Vec<(NodeId, NodeId, usize)>,
+     parent: Option<usize>,
+ }
++
++impl Checker<'_, '_> {
++    /// `checkExternalEmitHelpers` requests made outside the names lane:
++    /// `checkSignatureDeclaration` (`checker.go:2731-2741`),
++    /// `checkVariableDeclarationList` (`:5775`) and `checkDecorators`'
++    /// legacy and ES arms (`:6031-6040`). Each runs at the node upstream
++    /// requests from; the helper itself is `crate::emit_helpers`.
++    fn check_construct_emit_helpers(&mut self, node: NodeId, typed: Node<'_>) {
++        use crate::emit_helpers::helpers;
++        use tsr_ast::NodeFlags;
++        if !self.import_helpers {
++            return;
++        }
++        // `GetFunctionFlags`: generator only for the three kinds that can
++        // carry `*`; invalid without a body.
++        let function = match typed {
++            Node::FunctionDeclaration(n) => {
++                Some((n.modifiers, n.asterisk_token.is_some(), n.body.is_some()))
++            }
++            Node::MethodDeclaration(n) => {
++                Some((n.modifiers, n.asterisk_token.is_some(), n.body.is_some()))
++            }
++            Node::FunctionExpression(n) => {
++                Some((n.modifiers, n.asterisk_token.is_some(), n.body.is_some()))
++            }
++            Node::ArrowFunction(n) => Some((n.modifiers, false, n.body.is_some())),
++            _ => None,
++        };
++        if let Some((modifiers, generator, body)) = function
++            && body
++            && has_modifier(modifiers, SyntaxKind::AsyncKeyword)
++        {
++            if generator && self.language_version < tsr_core::ScriptTarget::ES2018 {
++                self.check_external_emit_helpers(node, helpers::ASYNC_GENERATOR_INCLUDES);
++            }
++            if !generator && self.language_version < tsr_core::ScriptTarget::ES2017 {
++                self.check_external_emit_helpers(node, helpers::AWAITER);
++            }
++        }
++        if matches!(typed, Node::VariableDeclarationList(_)) {
++            let scope = self.nodes.flags(node) & NodeFlags::BLOCK_SCOPED;
++            if (scope == NodeFlags::USING || scope == NodeFlags::USING | NodeFlags::CONST)
++                && self.language_version < tsr_core::ScriptTarget::ESNext
++            {
++                self.check_external_emit_helpers(
++                    node,
++                    helpers::ADD_DISPOSABLE_RESOURCE_AND_DISPOSE_RESOURCES,
++                );
++            }
++        }
++        // `checkVariableLikeDeclaration`'s binding-element arm (`:5821`).
++        if let Node::BindingElement(element) = typed
++            && element.dot_dot_dot_token.is_some()
++            && self
++                .nodes
++                .parent(node)
++                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ObjectBindingPattern)
++            && self.language_version < tsr_core::ScriptTarget::ES2018
++        {
++            self.check_external_emit_helpers(node, helpers::REST);
++        }
++        let first_decorator = modifiers_of(typed).and_then(|modifiers| {
++            modifiers.iter().find_map(|modifier| match modifier {
++                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
++                tsr_ast::ModifierLike::Token(_) => None,
++            })
++        });
++        if let Some(first) = first_decorator {
++            if self.legacy_decorators {
++                self.check_external_emit_helpers(first, helpers::DECORATE);
++                if matches!(typed, Node::ParameterDeclaration(_)) {
++                    self.check_external_emit_helpers(first, helpers::PARAM);
++                }
++            } else if self.language_version < tsr_core::ScriptTarget::ESNext {
++                self.check_external_emit_helpers(first, helpers::ES_DECORATE_AND_RUN_INITIALIZERS);
++            }
++        }
++    }
++}

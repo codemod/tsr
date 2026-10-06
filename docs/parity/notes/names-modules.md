@@ -538,3 +538,88 @@ The TS2307 rule (`module_specifier_unfindable`, `check.rs`) declined whenever
 *any* pattern module existed, because a match was possible and could not be
 tested. It now declines only when a pattern matches. Measured with the rest of
 this section: no diagnostics verdict moved from it alone.
+
+## §7. `checkExternalEmitHelpers` and the synthetic `tslib` import (`tsr-2zk.41`)
+
+Cases: TS2354 `This syntax requires an imported helper but module 'tslib'
+cannot be found` and TS2343 `… helper named '{1}' which does not exist in
+'tslib'` — `ctsFileInEsnextHelpers`, `esModuleInteropTslibHelpers`,
+`importHelpersES6`, `tslibMissingHelper`, `tslibMultipleMissingHelper`,
+`tslibNotFoundDifferentModules`, `usingDeclarationsWithImportHelpers`,
+`awaitUsingDeclarationsWithImportHelpers`, `exportAsNamespace_missingEmitHelpers`.
+
+### The forcing constraint
+
+Under `importHelpers`, upstream's loader gives every eligible file a
+synthetic `import "tslib"` ahead of its own imports (`fileloader.go:542-547`:
+a JS file, or a non-declaration file that is a module or compiled with
+`isolatedModules`), and `checkExternalEmitHelpers` (`checker.go:28576`)
+resolves it once per file and looks each requested helper up in it. This
+port's loader did not synthesise the import (its module docs said no trace
+baseline would test it, which is still true), so there was nothing to check
+against; and nothing requested a helper.
+
+### What was built (owned files)
+
+- **Loader** (`crates/tsr-compiler/src/loader.rs`): the synthetic `tslib`
+  specifier, first, under upstream's condition. Resolving it also adds the
+  resolved `tslib.d.ts` to the program, as upstream does: 8 new aligned type
+  lines appear (the tslib files of `tslibMissingHelper`,
+  `tslibMultipleMissingHelper`, `tslibNotFoundDifferentModules`), all RIGHT.
+- **Host** (`ModuleHost::import_helpers_module`, `resolution.rs`;
+  `Program::import_helpers_module`, `tsr-compiler/src/lib.rs`): what that
+  first `tslib` resolution named — nothing, a file outside the program, or a
+  source file.
+- **Checker** (`crates/tsr-checker/src/emit_helpers.rs`):
+  `checkExternalEmitHelpers`, `resolveHelpersModule` (ambient module, then the
+  host, then the pattern modules of §6; TS2354 only when all miss — a
+  resolution to a file outside the program answers `unknownSymbol` silently,
+  the TS2307 rule's bound), `getHelperNames`, and
+  `hasSignatureWithArityGreaterThan` (declared parameter count). Per-file
+  links (`Checker::external_helpers`) are upstream's two `sourceFileLinks`
+  fields, so each helper is reported once per file at its first request.
+- **Call sites in this lane's functions**: `checkImportDeclaration`'s and
+  `checkExportDeclaration`'s requests (`import * as`, default import,
+  `export *`, `export * as`) from `check_module_specifier` once its position
+  test (`checkExternalImportOrExportDeclaration`) holds; the `default`
+  specifier requests of `checkImportBinding` / `checkExportSpecifier` from
+  `check_export_specifier_is_local` (`meaning_mismatch.rs`), which is already
+  `checkExportSpecifier`'s port and runs for both specifier kinds.
+
+Not ported: `IsEffectiveExternalModule`'s `CommonJSModuleIndicator` half (the
+binder does not expose the indicator; such a JS file declines), and
+`getParameterCount`'s rest-tuple expansion.
+
+### The rest is a patch: `docs/parity/notes/names-emit-helpers.diff`
+
+Two pieces outside owned files:
+
+1. **The harness directive** (`crates/tsr-conformance/src/trace_case.rs`):
+   `@importHelpers` was never mapped into `CompilerOptions`, so the
+   directive-driven cases never enable the option (the tsconfig-driven ones
+   do). One line, the same shape as §644's `experimentalDecorators`.
+2. **The other lanes' call sites** (`check.rs`, a new
+   `check_construct_emit_helpers` called at the top of `check_node`):
+   `checkSignatureDeclaration`'s `__awaiter` / async-generator requests,
+   `checkVariableDeclarationList`'s `using` request,
+   `checkVariableLikeDeclaration`'s object-rest request, and
+   `checkDecorators`' legacy/ES requests. Still unported after the patch,
+   each one line at its owner: `checkForOfStatement` (for-await),
+   `checkYieldExpression` (`yield*` in async generators), the private-field
+   get/set/in requests (`checkPropertyAccessExpressionOrQualifiedName`,
+   `checkInExpression`), `checkObjectLiteralDestructuringPropertyAssignment`,
+   `checkClassExpressionExternalHelpers`, `markDecoratorAliasReferenced`
+   (metadata), and `checkDecorators`' `__setFunctionName` / `__propKey`
+   arms.
+
+### Measured (unfiltered, against the box baseline at `fae453f`)
+
+- **This commit alone:** 0 diagnostics verdicts move, 0 type lines lost,
+  8 type lines added (the tslib files, RIGHT). Every target case also needs
+  the directive or an out-of-lane call site. Median CPU self-ratio 0.958
+  (`domain-model`) and 0.913 (`generic-imports`), 21 samples.
+- **With the patch:** diagnostics **+8 cases** (all the above but
+  `awaitUsingDeclarationsWithImportHelpers`), **0 lost**; types unchanged
+  beyond the 8 added lines. The remaining case reports at column 11 where
+  tsc reports 5: this parser's `VariableDeclarationList` span for
+  `await using` starts at `using`, not `await` (parser lane).

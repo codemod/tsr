@@ -1281,7 +1281,7 @@ impl Checker<'_, '_> {
     /// The same stand-in [`crate::check`] documents: this port's parser never
     /// sets the flag (`bd tsr-o9tl`), so the question is answered by walking to
     /// the nearest `declare` or ambient module.
-    fn is_in_ambient_context(&self, node: NodeId) -> bool {
+    pub(crate) fn is_in_ambient_context(&self, node: NodeId) -> bool {
         if self.file_is_ambient {
             return true;
         }

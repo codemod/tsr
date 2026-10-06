@@ -3623,6 +3623,9 @@ impl Checker<'_, '_> {
         if !self.external_import_is_positioned_for_resolution(declaration) {
             return;
         }
+        // `checkExternalImportOrExportDeclaration` held: the declaration's
+        // `checkExternalEmitHelpers` requests. names-modules notes §7.
+        self.check_declaration_emit_helpers(declaration);
         if !self.module_specifier_unfindable(specifier) {
             // **The other branch of the load-bearing distinction.** A specifier
             // that resolved to a file which is not in the program is not
