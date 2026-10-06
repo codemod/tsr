@@ -4329,9 +4329,9 @@ impl<'a> Checker<'a, '_> {
             }
             return;
         }
-        let target_reference = self.type_reference_targets.get(&target).cloned();
-        let source_reference = self.type_reference_targets.get(&source).cloned();
-        if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
+        // inferFromTypes' reference arm (`inference.go:233`); a generic
+        // declared type is its own reference ([`Checker::same_target_references`]).
+        if let Some(((ss, sa), (ts, ta))) = self.same_target_references(source, target) {
             // §787: `Array` and `ReadonlyArray` are ONE reference target for
             // inference. `mk<T>(values: readonly T[])` called with `[0, 1, 2]`
             // puts an `Array<number>` source against a `ReadonlyArray<T>`
@@ -4350,17 +4350,7 @@ impl<'a> Checker<'a, '_> {
             // 180 wrong lines against 37 right for exactly this reason.
             let same_target = ts == ss || self.is_array_like_pair(ts, ss);
             if same_target && ta.len() == sa.len() {
-                let variances = self.inference_variances(ts);
-                for (index, (t, s)) in ta.iter().zip(sa.iter()).enumerate() {
-                    let saved = self.inference_contravariant;
-                    if variances.as_ref().and_then(|variances| variances.get(index))
-                        == Some(&crate::variances::Variance::Contravariant)
-                    {
-                        self.inference_contravariant = !saved;
-                    }
-                    self.infer_from_types_within(*s, *t, original, parameters, out, depth + 1);
-                    self.inference_contravariant = saved;
-                }
+                self.infer_from_type_arguments(ts, &sa, &ta, original, parameters, out, depth);
                 return;
             }
             // inferFromObjectTypes (internal/checker/inference.go) continues
@@ -4585,6 +4575,32 @@ impl<'a> Checker<'a, '_> {
         self.inference_priority = saved;
     }
 
+    /// inferFromTypeArguments (`inference.go:284`): each argument pair in the
+    /// target's measured variance direction.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_from_type_arguments(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+        sources: &[TypeId],
+        targets: &[TypeId],
+        original: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<InferenceInfo>,
+        depth: usize,
+    ) {
+        let variances = self.inference_variances(symbol);
+        for (index, (&target, &source)) in targets.iter().zip(sources).enumerate() {
+            let saved = self.inference_contravariant;
+            if variances.as_ref().and_then(|variances| variances.get(index))
+                == Some(&crate::variances::Variance::Contravariant)
+            {
+                self.inference_contravariant = !saved;
+            }
+            self.infer_from_types_within(source, target, original, parameters, out, depth + 1);
+            self.inference_contravariant = saved;
+        }
+    }
+
     /// The structural member portion of inferFromObjectTypes (inference.go).
     fn infer_from_members(
         &mut self,
@@ -4595,6 +4611,21 @@ impl<'a> Checker<'a, '_> {
         out: &mut Vec<InferenceInfo>,
         depth: usize,
     ) {
+        // inferFromObjectTypes' reference arm (`inference.go:701`) reads the
+        // APPARENT source `inferFromTypes` hands it (`inference.go:268`): a
+        // class's `this` type meets `Bar<T>` through its constraint, the
+        // declared `Bar` ([`Checker::same_target_references`]).
+        if self.store.get(source).flags.intersects(crate::flags::TypeFlags::TYPE_PARAMETER) {
+            let apparent = self.apparent_type(source);
+            if apparent != source
+                && let Some(((ss, sa), (ts, ta))) = self.same_target_references(apparent, target)
+                && ss == ts
+                && sa.len() == ta.len()
+            {
+                self.infer_from_type_arguments(ts, &sa, &ta, original, parameters, out, depth);
+                return;
+            }
+        }
         let target_names =
             if self.target_could_contain_parameter(target, parameters, &mut Vec::new()) {
                 // inferFromProperties includes late-bound members such as

@@ -87,7 +87,7 @@
 //! checker-local metadata-lifetime contracts (tsr-1yb.4.1.3).
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
@@ -476,7 +476,59 @@ bitflags::bitflags! {
     }
 }
 
+/// A type reference's `(target, typeArguments)`, as
+/// [`Checker::type_reference_targets`] stores it.
+type ReferenceParts = (SymbolId, Vec<TypeId>);
+
 impl Checker<'_, '_> {
+    /// The `(target, typeArguments)` pairs of two type references, as
+    /// `structuredTypeRelatedToWorker`'s same-target arm (`relater.go:3821`)
+    /// and `inferFromTypes`' reference arm read them.
+    /// [`Checker::type_reference_targets`] interns only instantiations; the
+    /// declared type of a generic class or interface is a reference too —
+    /// `getDeclaredTypeOfClassOrInterface` (`checker.go:17319`) sets its
+    /// `target` to itself and its `resolvedTypeArguments` to its own type
+    /// parameters — so a class's `this` type, constrained to that declared
+    /// type, meets `Bar<any>` through `getVariances` rather than member by
+    /// member. It is recognised from the other side's target symbol,
+    /// read-only over `declared_types`; nothing is cached.
+    pub(crate) fn same_target_references(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<(ReferenceParts, ReferenceParts)> {
+        match (
+            self.type_reference_targets.get(&source).cloned(),
+            self.type_reference_targets.get(&target).cloned(),
+        ) {
+            (Some(source), Some(target)) => Some((source, target)),
+            (Some(source), None) => {
+                let target = self.declared_self_reference(target, source.0)?;
+                Some((source, target))
+            }
+            (None, Some(target)) => {
+                let source = self.declared_self_reference(source, target.0)?;
+                Some((source, target))
+            }
+            (None, None) => None,
+        }
+    }
+
+    /// `ty` as the self-reference of `symbol`'s generic declared type, keyed
+    /// by `symbol` as the other side spells it (see
+    /// [`Checker::same_target_references`]).
+    fn declared_self_reference(&mut self, ty: TypeId, symbol: SymbolId) -> Option<ReferenceParts> {
+        let merged = self.binder.merged_symbol(symbol);
+        if self.declared_types.get(&merged) != Some(&ty) {
+            return None;
+        }
+        let parameters = self.local_type_parameter_types_of(merged)?;
+        if parameters.is_empty() {
+            return None;
+        }
+        Some((symbol, parameters.into_iter().map(|(parameter, _)| parameter).collect()))
+    }
+
     /// getRecursionIdentity (internal/checker/relater.go). Shapes whose native
     /// origin is not represented keep their unique type identity.
     fn relation_recursion_identity(&self, ty: TypeId) -> RecursionIdentity {
@@ -3069,13 +3121,8 @@ impl Relater<'_, '_, '_> {
         // instances and an active recursive measurement compare structurally.
         if !self.checker.variance_marker_types.contains(&source)
             && !self.checker.variance_marker_types.contains(&target)
-            && let (
-                Some((source_symbol, source_arguments)),
-                Some((target_symbol, target_arguments)),
-            ) = (
-                self.checker.type_reference_targets.get(&source).cloned(),
-                self.checker.type_reference_targets.get(&target).cloned(),
-            )
+            && let Some(((source_symbol, source_arguments), (target_symbol, target_arguments))) =
+                self.checker.same_target_references(source, target)
             && source_symbol == target_symbol
             && source_arguments.len() == target_arguments.len()
         {
