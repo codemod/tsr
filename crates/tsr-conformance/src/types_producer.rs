@@ -233,6 +233,24 @@ fn is_ewta_in_class_extends_clause(id: NodeId, nodes: &NodeTable, map: &NodeMap<
         )
 }
 
+/// Whether `id` carries upstream's `NodeFlagsInWithStatement`: it is the
+/// body statement of a `with` statement or inside it (`parseWithStatement`
+/// parses the body under `doInContext(NodeFlagsInWithStatement)`,
+/// `parser/parser.go:1386`; the expression is outside the context).
+fn in_with_statement_body(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
+    let mut child = id;
+    while let Some(parent) = nodes.parent(child) {
+        if let Some(Node::WithStatement(with)) = map.get(parent)
+            && with.statement.and_then(|statement| tsr_ast::Node::from(statement).node_id())
+                == Some(child)
+        {
+            return true;
+        }
+        child = parent;
+    }
+    false
+}
+
 /// `isInRightSideOfImportOrExportAssignment` (`checker/utilities.go:1107`):
 /// walk up through qualified names, then the outermost must be an
 /// import-equals' module reference or an export assignment's expression.
@@ -502,6 +520,17 @@ pub fn type_id_at_location_tracking<'a>(
 ) -> tsr_checker::TypeId {
     let error = checker.intrinsics().error;
     let Some(node) = map.get(id) else { return error };
+
+    // `getTypeOfNode` (`checker.go:31927`) opens with `if
+    // node.Flags&ast.NodeFlagsInWithStatement != 0 { return c.errorType }` —
+    // "we cannot answer semantic questions within a with block". The parser
+    // sets that context flag on every node of a `with` statement's BODY
+    // (`parseWithStatement` parses it under `doInsideOfContext`); this
+    // parser does not record it, so the ancestor walk recomputes it.
+    if in_with_statement_body(id, nodes, map) {
+        *saw_checker_error = true;
+        return error;
+    }
 
     // The writer's base-class workaround, `type_symbol_baseline.go:370-374`:
     //
@@ -2234,6 +2263,17 @@ mod tests {
         let labels: Vec<_> =
             out.iter().filter(|(text, _)| text == "outer").map(|(_, ty)| ty.as_str()).collect();
         assert_eq!(labels, ["any", "any"], "in {out:?}");
+    }
+
+    #[test]
+    fn a_with_statement_body_answers_the_error_type() {
+        // `NodeFlagsInWithStatement` covers the body only: the expression
+        // `o` keeps its type, everything in the body is `errorType`.
+        let out = typed("declare const o: { x: number };\nwith (o) { x; }");
+        let o = out.iter().filter(|(text, _)| text == "o").map(|(_, ty)| ty.as_str()).next_back();
+        let x = out.iter().filter(|(text, _)| text == "x").map(|(_, ty)| ty.as_str()).next_back();
+        assert_eq!(o, Some("{ x: number; }"), "in {out:?}");
+        assert_eq!(x, Some("error"), "in {out:?}");
     }
 
     #[test]
