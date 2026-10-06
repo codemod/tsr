@@ -2361,6 +2361,13 @@ impl<'a> Checker<'a, '_> {
                     // narrowing family's RHS literals carry. Every other
                     // computed name keeps the whole-literal decline.
                     let name = match method.name {
+                        // `classifyPropertyName` (`nodebuilderimpl.go:2384`):
+                        // a METHOD named `new` prints as a string literal, or
+                        // it would read back as a construct signature
+                        // (`{ "new"?(): any; }`, `parser645484`).
+                        tsr_ast::PropertyName::Identifier(name) if name.text == "new" => {
+                            "\"new\"".to_string()
+                        }
                         tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                         tsr_ast::PropertyName::ComputedPropertyName(computed)
                             if computed.expression.is_some_and(|e| {
