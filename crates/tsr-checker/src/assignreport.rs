@@ -732,80 +732,77 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
-    /// `checkVariableLikeDeclaration`'s binding-element default check, limited
-    /// to annotated variable leaves with literal sources and string-unit targets.
-    /// The symbol supplier owns default adjustment; context is not a write target.
+    /// `checkVariableLikeDeclaration` (`checker.go:5790`) on a binding element
+    /// with an identifier name and an initializer: the element is its
+    /// symbol's value declaration, so the initializer's type is checked with
+    /// `checkTypeAssignableToAndOptionallyElaborate` against
+    /// `getTypeOfSymbol` — the element's type from its parent
+    /// (`getBindingElementTypeFromParentType`, which already folds the
+    /// default in when the binding root carries no annotation) — at the
+    /// element, elaborating into the initializer.
+    ///
+    /// A parameter element whose containing function has no body exits
+    /// before the check (TS2371 is that arm's report), as does an ambient or
+    /// type-node position (`isInAmbientOrTypeNode`). An element named by a
+    /// nested pattern takes the binding-pattern arm, which is not this one.
     pub(crate) fn check_binding_element_initializer(&mut self, node: NodeId, ambient: bool) {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
-        if !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_)))
-            || element.dot_dot_dot_token.is_some()
-            || !matches!(
-                element.property_name,
-                None | Some(
-                    tsr_ast::PropertyName::Identifier(_)
-                        | tsr_ast::PropertyName::StringLiteral(_)
-                        | tsr_ast::PropertyName::NumericLiteral(_)
-                )
-            )
-        {
-            return;
-        }
-        let Some(pattern) = self.nodes.parent(node) else { return };
-        if !matches!(
-            self.nodes.kind(pattern),
-            SyntaxKind::ObjectBindingPattern | SyntaxKind::ArrayBindingPattern
-        ) {
-            return;
-        }
-        let root = self.root_declaration_of(node);
-        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(root) else { return };
-        if declaration.r#type.is_none() {
+        if !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))) {
             return;
         }
         let Some(initializer) = element.initializer else { return };
-        let undefined = match initializer {
-            tsr_ast::Expression::StringLiteral(_) => false,
-            tsr_ast::Expression::KeywordExpression(keyword)
-                if keyword.kind == SyntaxKind::NullKeyword =>
-            {
-                false
+        let root = self.root_declaration_of(node);
+        match self.node_map.get(root) {
+            Some(Node::VariableDeclaration(_)) => {}
+            Some(Node::ParameterDeclaration(_)) => {
+                let Some(function) = self.nodes.parent(root) else { return };
+                let has_body = match self.node_map.get(function) {
+                    Some(Node::FunctionDeclaration(f)) => f.body.is_some(),
+                    Some(Node::MethodDeclaration(f)) => f.body.is_some(),
+                    Some(Node::ConstructorDeclaration(f)) => f.body.is_some(),
+                    Some(Node::GetAccessorDeclaration(f)) => f.body.is_some(),
+                    Some(Node::SetAccessorDeclaration(f)) => f.body.is_some(),
+                    Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => true,
+                    _ => false,
+                };
+                if !has_body {
+                    return;
+                }
             }
-            tsr_ast::Expression::Identifier(identifier) if identifier.text == "undefined" => true,
-            // Primitive-typed expressions can still have unsupported production
-            // or circularity; structured defaults widen under nullable contexts.
             _ => return,
-        };
+        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         if self.binder.symbols().get(symbol).value_declaration != Some(node) {
             return;
         }
+        let Some(initializer_id) = initializer.node_id() else { return };
+        // Supplier decline, not an upstream rule: an object, array or class
+        // literal is typed under the element's contextual type, and this
+        // port's literal checking loses member context through a union with
+        // a nullable constituent (`const f: [I?] = [{ tag: "right" }]` widens
+        // `tag` to `string`). Such a source is not upstream's source.
+        if matches!(
+            initializer,
+            tsr_ast::Expression::ObjectLiteralExpression(_)
+                | tsr_ast::Expression::ArrayLiteralExpression(_)
+                | tsr_ast::Expression::ClassExpression(_)
+        ) && self.get_contextual_type(initializer_id).is_some_and(|contextual| {
+            matches!(&self.type_of(contextual).data, TypeData::Union { types, .. }
+                if types.iter().any(|&part| self.type_of(part).flags.intersects(TypeFlags::NULLABLE)))
+        }) {
+            return;
+        }
         // Native computes the adjusted symbol type before checking the source.
         let target = self.get_type_of_symbol(symbol);
-        let supported_part = |ty| {
-            let flags = self.type_of(ty).flags;
-            flags == TypeFlags::STRING_LITERAL
-                || flags == TypeFlags::NULL
-                || flags == TypeFlags::UNDEFINED
-        };
-        let supported = match &self.type_of(target).data {
-            TypeData::StringLiteral(_) => true,
-            TypeData::Union { types, .. } => {
-                types.iter().copied().all(supported_part)
-                    && types.iter().any(|&ty| self.type_of(ty).flags == TypeFlags::STRING_LITERAL)
-            }
-            _ => false,
-        };
-        if !supported {
-            return;
-        }
         let source = self.check_expression(initializer);
-        if undefined && source != self.intrinsics.undefined {
+        let before = self.diagnostics.len();
+        self.check_excess_properties(target, initializer_id);
+        if self.diagnostics.len() != before {
             return;
         }
-        let Some(initializer_id) = initializer.node_id() else { return };
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 

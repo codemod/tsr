@@ -16,13 +16,17 @@ use tsr_conformance::{Corpus, errors_baseline, repo_root};
 
 fn main() {
     let root = repo_root();
-    let lane: HashSet<String> =
-        std::fs::read_to_string(root.join("docs/parity/lanes/relate-report.txt"))
-            .expect("lane file")
-            .lines()
-            .filter(|line| !line.starts_with('#'))
-            .filter_map(|line| line.split('\t').next().map(str::to_string))
-            .collect();
+    // `LANE_FILE=<path>`: another case list (first tab-separated column).
+    let lane_file = std::env::var("LANE_FILE").map_or_else(
+        |_| root.join("docs/parity/lanes/relate-report.txt"),
+        std::path::PathBuf::from,
+    );
+    let lane: HashSet<String> = std::fs::read_to_string(lane_file)
+        .expect("lane file")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split('\t').next().map(str::to_string))
+        .collect();
     let code: u32 = std::env::var("CODE").ok().and_then(|c| c.parse().ok()).unwrap_or(2322);
     let cases = Corpus::from_repo_root(&root).discover().expect("corpus");
     // `VERDICT=1`: the lane's cases in `diagverdictdump`'s format instead.
