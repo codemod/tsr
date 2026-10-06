@@ -354,3 +354,24 @@ the declaration it binds is a default export in upstream's sense, and the
 conflict branch reads that.
 
 Measured: +1 (`es6ImportNamedImportIdentifiersParsing`), no loss.
+
+## §15 Binder: the local half of an exported member is tested with the declaration's excludes
+
+`declareModuleMember` (`binder.go:406`) declares an exported member twice:
+a local carrying only `ExportValue` (or nothing, for a type), and the export.
+Both calls pass the declaration's `symbolExcludes`. The port derived the
+local's excludes from its flags — `ExportValue` or empty — so the local half
+collided with nothing, and `class Box {}` followed by `export type Box;`
+(a type alias, `TypeAliasExcludes = Type`) merged silently instead of
+reporting TS2300/TS2567 on both. The local is now declared with
+`flags.excludes()`, the same mask the export half uses.
+
+Measured: +1 (`exportDeclaration_missingBraces`), no loss. Four extra TS2300
+lines appear in `ambientModuleDeclarationWithReservedIdentifierInDottedPath`
+and `…2`, both already WRONG: the parser fails on `namespace chrome.debugger`
+(an extra TS1359), so the namespace's `declare var tabId` lands at file scope
+and does collide with `export const tabId`. Upstream parses the dotted name;
+the conflict disappears with the parser fix (parser lane).
+
+**Falsifier.** A new extra TS2300/TS2451 between an exported declaration and
+a same-named local in a correctly parsed file.

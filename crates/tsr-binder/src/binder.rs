@@ -3971,12 +3971,20 @@ impl<'a, 'n> Binder<'a, 'n> {
                 } else {
                     SymbolFlags::empty()
                 };
-                Some(self.declare_into(
+                // `declareSymbol(GetLocals(container), nil, node, exportKind,
+                // symbolExcludes)` (`binder.go:406`): the local carries only
+                // `ExportValue`, but it is tested with the *declaration's*
+                // excludes, so `class Box {}` then `export type Box;` collides
+                // in the locals table. Deriving excludes from `exportKind`
+                // made the local half collide with nothing.
+                // `docs/parity/notes/decls.md` §15.
+                Some(self.declare_into_with_excludes(
                     Destination::Locals,
                     local_owner,
                     self.owner,
                     name,
                     export_value,
+                    flags.excludes(),
                     id,
                 ))
             } else {
