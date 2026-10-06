@@ -144,3 +144,17 @@ remaining merged-function diagnostic boundary. It preserves deferred signature
 and return work rather than removing the Rust guard. `.27` stays in progress
 until the compiling seam handoff; `.28` and the earlier 18/one retention gates
 remain. The separate missing circular-annotation diagnostic is `tsr-6.74`.
+
+## Mapped wrapper continuation at `0b18d357`
+
+The [mapped contextual replay](checker-member-mapped-contextual.md) combines the
+qualified signature seam with the refreshed member candidate. Passive traces
+identify the wrapper-to-declaration contextual reader as the cause of inherited
+option inference loss; the existing concrete semantic reader repairs it. Fresh
+477,970/10,570 complete corpora now preserve every prior passing row, improving
+49 type rows and six diagnostic cases. All changed already-WRONG rows and full
+public outputs are retained. The original frozen538 eighteen/one refusal remains
+unchanged historical evidence. Corrected private package passes 1,523 tests with
+three existing ignored tests; no runtime, strict-lint, cost or speed gain is
+retained on main. Builder4.2.1 still needs current expensive-worker attribution
+and complete equivalent-work benefit qualification; PR5 regression34 remains.

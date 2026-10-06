@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Mapped contextual prerequisite (`tsr-1yb.33.1`), frozen `0b18d357` / native
+`5b1047d`: private member-plus-signature replay now preserves all prior passing
+477,970 type rows and 10,570 diagnostic cases, improving 49 type rows and six
+cases. One compiling raw-reader mutant is detected; 205 library tests pass
+on exact restoration. Corrected complete checker package has 1,523 passes and
+three existing ignored tests over 101 blocks. The 344-child public matrix has
+66/86 native agreements versus main56, with zero lost agreement; an additional
+36 children qualify explicit old-gap/circular-shortcut test corrections.
+Canonical runtime and headline coverage remain unchanged. Current construction
+cost, broad metadata and complete-work benefit gates remain; `.33.1` stays in
+progress. [Exact replay and remaining boundaries](docs/architecture/checker-member-mapped-contextual.md).
+
 Compiling signature prerequisite (`tsr-1yb.27` / `.28`), frozen `f2325620`:
 189 library/package/strict-Clippy checks; 204 combined member library checks,
 four compiling mutants, six fresh native budget controls. Final 120 CLI children
@@ -3380,6 +3392,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+At frozen `0b18d357`, member-plus-signature `.33.1` no longer loses prior
+passing corpus rows. Builder `tsr-1yb.4.2.1` should consume the exact private
+12-path replay for current expensive construction attribution, preserving
+publication/receiver/mapper/natural reset boundaries. Full metadata, canonical
+integration, strict lint/format and equivalent-work cost/benefit remain gates;
+no main runtime or speed improvement is delivered. PR5 `.34` remains unresolved.
+[Current prerequisite](docs/architecture/checker-member-mapped-contextual.md).
 
 Late-bound lookup measurement `.16.2.3` supplies a material allocation site,
 but prototype `.7.5.1.1` is rejected by its unchanged public timing policy.
@@ -6920,6 +6940,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+New frozen `0b18d357` runs supersede the old no-RIGHT-loss failure as a current
+gate: zero losses over 477,970/10,570 rows, while historical eighteen/one remains
+unchanged below. Production is still unretained: 20/86 full public case/mode
+pairs differ, the archived containing-field warning and unformatted source
+remain, and current complete-work cost/benefit is unmeasured. The initial
+three integration failures are preserved and explicitly corrected against
+native controls; the final package passes with three pre-existing ignores.
+[Source-bound qualification](docs/architecture/checker-member-mapped-contextual.md).
 
 Signature seam/member integration at `f2325620` is not production-qualified:
 20/24 bounded case/mode comparisons agree, with TS2577 and thisless cases still
@@ -14801,3 +14830,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `51960e07` / native `5b1047d` | — | — | **Native signature-admission progress, tsr-1yb.27.** 80 fresh parsed controls; three compiling mutants detect eager return, skipped signature completion and premature success. Exact qualified rerun passes 80 controls; all 4,988 Go files and 108 libraries restored. 60 CLI children/20 pairs: main has 18 native agreements and private replay has 16. Merged generic TS2411 loss reproduced; missing circular TS2577 filed as tsr-6.74. False direct-recursion any expectation corrected explicitly from native never; original failed run retained. Compiling Rust seam pending; .27 in progress, .28 open, no runtime, coverage or speed gain. [Contract](docs/architecture/checker-signature-admission-native.md). |
 
 | 2026-10-06 | `f2325620` / native `5b1047d` | — | — | **Compiling signature-admission handoff, tsr-1yb.27/.28.** Final 189 library/package/strict-Clippy/fmt checks, 204 combined member library checks, four compiling mutants detected and exact restoration. Six parsed native injected-budget controls expose/fix early identity resource bypass; all 4,988 Go files restored. Three public matrices total 360 terminal children; final 20/24 baseline/seam/member-plus-seam case/mode native agreements versus member16, zero bounded agreement losses. Merged and original subtypesOfUnion TS2411 restored; TS2577/thisless still differ. No fresh full corpus, runtime retention, coverage or speed gain; previous18/one remains frozen538. [Replay](docs/architecture/checker-signature-admission-rust.md). |
+
+| 2026-10-06 | `0b18d357` / native `5b1047d` | — | — | **Mapped contextual ownership prerequisite, tsr-1yb.33.1.** Existing semantic contextual reader fixes Partial-wrapped inherited option inference privately; qualified red/green and one compiling raw-reader mutant, exact restoration and 205 library passes. Fresh477970 type rows improve49 and10570 diagnostic cases improve6, zero prior passing losses; all54/6 changed rows kept.344 public children: final66/86 native agreements versus main56, no lost agreement and172 full mode pairs equal;36 additional native contract children qualify explicit old-gap/circular-shortcut test corrections. Corrected full checker package1523pass/3pre-existing ignored over101blocks. Release/full corpus11-source and test-corrected12-source boundaries remain separate. No main runtime, strict-lint, CPU/RSS or speed claim;4.2.1 cost/benefit and PR5 regression34 remain. [Replay and limits](docs/architecture/checker-member-mapped-contextual.md). |
