@@ -1508,6 +1508,29 @@ impl<'a> Checker<'a, '_> {
         self.report(file, Diagnostic::with_args(message, span, args));
     }
 
+    /// `tryElaborateArrayLikeErrors`' TS4104 (`relater.go:4379`), reported by
+    /// `reportErrorResults` (`relater.go:4705`) in place of the head message,
+    /// which `reportRelationError` (`relater.go:4751`) suppresses for the
+    /// same pair.
+    fn report_readonly_to_mutable(
+        &mut self,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+    ) {
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THE_TYPE_0_IS_READONLY_AND_CANNOT_BE_ASSIGNED_TO_THE_MUTABLE_TYPE_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+    }
+
     /// TS2345 at an argument position — the same verdict machinery as
     /// [`Checker::report_assignability_failure`] with a different head code.
     /// Answers **whether it reported**, so the caller can stop:
@@ -1559,6 +1582,10 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        if not_related && self.readonly_to_mutable_array_like(source, target) {
+            self.report_readonly_to_mutable(file, span, source, target);
+            return true;
+        }
         // reportRelationError suppresses the TS2345 head when the chain ends in
         // the pair's missing-property message (relater.go:4751), exactly as it
         // does for TS2322; a fresh literal keeps the written-key guard.
@@ -1717,6 +1744,10 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
+        if not_related && self.readonly_to_mutable_array_like(source, target) {
+            self.report_readonly_to_mutable(file, span, source, target);
+            return true;
+        }
         if not_related
             && union_literal.is_none()
             && let Some(properties) = self.unmatched_property_report(source, target)

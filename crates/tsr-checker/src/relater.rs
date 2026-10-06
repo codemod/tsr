@@ -767,21 +767,58 @@ impl Checker<'_, '_> {
         if missing.len() == 1 {
             return Some(missing);
         }
-        // tryElaborateArrayLikeErrors with reportErrors false.
+        let (elaborates, _) = self.try_elaborate_array_like_errors(source, target);
+        elaborates.then_some(missing)
+    }
+
+    /// `tryElaborateArrayLikeErrors` (`relater.go:4379`): its answer, and
+    /// whether with `reportErrors` it reports TS4104 (`The type '{0}' is
+    /// 'readonly' and cannot be assigned to the mutable type '{1}'`) — a
+    /// readonly tuple or `ReadonlyArray` source against a mutable array or
+    /// tuple target. Pure reads of the tuple/array reference tables.
+    pub(crate) fn try_elaborate_array_like_errors(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> (bool, bool) {
+        let is_tuple = |id: TypeId| {
+            self.tuple_element_lists.contains_key(&id)
+                || self.variadic_tuple_elements.contains_key(&id)
+        };
         let target_array = self.array_reference_readonly(target);
+        let target_tuple = is_tuple(target);
+        // isMutableArrayOrTuple (checker.go)
         let target_mutable_array_or_tuple =
             target_array == Some(false) || (target_tuple && !self.tuple_is_readonly(target));
-        let elaborates = if source_tuple {
-            !(self.tuple_is_readonly(source) && target_mutable_array_or_tuple)
-                && (target_tuple || target_array.is_some())
-        } else if source_array == Some(true) && target_mutable_array_or_tuple {
-            false
-        } else if target_tuple {
-            source_array.is_some()
-        } else {
-            true
+        if is_tuple(source) {
+            if self.tuple_is_readonly(source) && target_mutable_array_or_tuple {
+                return (false, true);
+            }
+            return (target_tuple || target_array.is_some(), false);
+        }
+        let source_array = self.array_reference_readonly(source);
+        if source_array == Some(true) && target_mutable_array_or_tuple {
+            return (false, true);
+        }
+        if target_tuple {
+            return (source_array.is_some(), false);
+        }
+        (true, false)
+    }
+
+    /// `reportErrorResults`' (`relater.go:4705`) array-like arm: for two
+    /// object types it calls `tryElaborateArrayLikeErrors` with
+    /// `reportErrors`, and `reportRelationError` (`relater.go:4751`) then
+    /// suppresses the head because the chain's TS4104 names the same pair.
+    /// The caller must already hold a `NotRelated` verdict for the pair.
+    pub(crate) fn readonly_to_mutable_array_like(&self, source: TypeId, target: TypeId) -> bool {
+        let object_only = |flags: TypeFlags| {
+            flags.contains(TypeFlags::OBJECT)
+                && !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
         };
-        elaborates.then_some(missing)
+        object_only(self.type_of(source).flags)
+            && object_only(self.type_of(target).flags)
+            && self.try_elaborate_array_like_errors(source, target).1
     }
 
     /// `isArrayType` (`checker.go`): `Some(readonly)` for a reference to the
