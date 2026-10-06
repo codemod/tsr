@@ -639,29 +639,55 @@ pub fn type_id_at_location_tracking<'a>(
     // wrong, which is why the zero looked like a missing capability. Ordering
     // is upstream's rule here in the same way it is in `getTypeOfNode`.
     //
-    // A specifier's own symbol is an alias, so the target is what carries the
-    // declared type; upstream folds that into `getSymbolAtLocation`.
+    // `IsTypeDeclarationName` (`ast/utilities.go:3598`) covers the name of a
+    // type-only `ImportClause` too (`IsTypeDeclaration`'s `KindImportClause`
+    // arm), and only the declaration's NAME (`GetNameOfDeclaration`), not a
+    // specifier's property name. The answer is `getDeclaredTypeOfSymbol` of
+    // the alias, i.e. `getDeclaredTypeOfAlias` (`checker.go:24094`): the
+    // declared type of the resolved target, errorType when it declares no
+    // type — there is no fallthrough to the value type.
     if nodes.kind(id) == SyntaxKind::Identifier
         && let Some(parent) = nodes.parent(id)
-        && matches!(nodes.kind(parent), SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier)
-        && let Some(grandparent) = nodes.parent(parent).and_then(|p| nodes.parent(p))
-        && match map.get(grandparent) {
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && match map.get(parent) {
             // An import clause spells type-only with its PHASE MODIFIER token,
             // not a bool — `import defer` is a different phase and must not
             // qualify.
             Some(Node::ImportClause(clause)) => {
                 clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
             }
-            Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
+            Some(Node::ImportSpecifier(_) | Node::ExportSpecifier(_)) => {
+                match nodes.parent(parent).and_then(|p| nodes.parent(p)).and_then(|g| map.get(g)) {
+                    Some(Node::ImportClause(clause)) => clause
+                        .phase_modifier
+                        .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword),
+                    Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
+                    _ => false,
+                }
+            }
             _ => false,
         }
         && let Some(symbol) = binder.symbol_of(parent)
     {
-        let target = checker.resolve_alias(symbol).unwrap_or(symbol);
-        let declared = checker.get_declared_type_of_symbol(target);
-        if declared != error {
-            return declared;
+        // `tryGetDeclaredTypeOfSymbol` (`checker.go:23678`) tests the type
+        // meanings before the alias arm, so an alias merged with a local type
+        // declaration answers that declaration's type.
+        let symbol = binder.merged_symbol(symbol);
+        let flags = binder.symbols().get(symbol).flags;
+        if flags.intersects(
+            SymbolFlags::CLASS
+                | SymbolFlags::INTERFACE
+                | SymbolFlags::TYPE_PARAMETER
+                | SymbolFlags::TYPE_ALIAS
+                | SymbolFlags::ENUM
+                | SymbolFlags::ENUM_MEMBER,
+        ) {
+            return checker.get_declared_type_of_symbol(symbol);
         }
+        return match checker.resolve_alias(symbol) {
+            Some(target) => checker.get_declared_type_of_symbol(target),
+            None => error,
+        };
     }
 
     // A declaration name resolves through its parent's symbol.
