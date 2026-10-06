@@ -520,7 +520,17 @@ impl Checker<'_, '_> {
             }
         }
         let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
-        if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
+        // `checkObjectLiteral` (`checker.go:13175`) gives every member of a
+        // const-context literal `CheckFlagsReadonly`; this port records it on
+        // the literal's captured member image, not the binder symbol.
+        let literal_member_readonly =
+            self.anonymous_properties.get(&receiver_type).is_some_and(|(properties, _)| {
+                properties.iter().any(|member| member.name == name && member.readonly)
+            });
+        if !literal_member_readonly
+            && !self.is_readonly_symbol(property)
+            && !self.property_signature_is_readonly(property)
+        {
             return false;
         }
         // The constructor permission is upstream's own

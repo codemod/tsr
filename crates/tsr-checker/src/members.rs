@@ -339,6 +339,14 @@ impl Checker<'_, '_> {
             return self.get_flow_type_of_property_symbol(access, None, property);
         }
         let result = self.access_member_lookup(stripped, name, node.node_id);
+        // checkPropertyAccessExpressionOrQualifiedName (`checker.go:11334`): a
+        // miss on a JS literal receiver (`isJSLiteralType`) answers `anyType`.
+        if result == error
+            && self.get_property_of_type(stripped, name).is_none()
+            && self.is_js_literal_type(receiver_type)
+        {
+            return self.intrinsics.any;
+        }
         if result == error {
             return error;
         }
@@ -2071,7 +2079,26 @@ impl Checker<'_, '_> {
             match owner {
                 Owner::Declared(owner) => {
                     let mut visiting = Vec::new();
-                    self.get_property_of_declared_symbol(owner, name, &mut visiting)
+                    let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
+                    // `bindThisPropertyAssignment` (`binder.go:1115`) declares a
+                    // JS `this.x = …` inside an object-literal method on the
+                    // literal's symbol, but `checkObjectLiteral` builds the
+                    // literal's type from its elements only
+                    // (`checker.go:13173`), so such a member is not a property
+                    // of the type.
+                    if self.binder.symbols().get(owner).flags.contains(SymbolFlags::OBJECT_LITERAL)
+                        && let Some(member) = found
+                        && self.binder.symbols().get(member).declarations.iter().all(
+                            |&declaration| {
+                                self.nodes.kind(declaration)
+                                    == tsr_ast::SyntaxKind::BinaryExpression
+                            },
+                        )
+                    {
+                        None
+                    } else {
+                        found
+                    }
                 }
                 Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
             }
