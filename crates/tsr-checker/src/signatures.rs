@@ -776,12 +776,17 @@ impl<'a> Checker<'a, '_> {
             let parts = self.signature_parts_of(declaration);
             let (symbol, parent) = if parts.is_some() {
                 let parent = self.nodes.parent(declaration);
-                // The Rust binder does not allocate __new member symbols.
-                // Their owning type uniquely identifies that native symbol;
-                // constructor type nodes instead own individual symbols.
+                // The Rust binder does not allocate __new/__call member
+                // symbols. Their owning type uniquely identifies that native
+                // symbol (merged across the owner's declarations); constructor
+                // type nodes instead own individual symbols.
                 let owner = if matches!(
                     self.node_map.get(declaration),
-                    Some(Node::ConstructSignatureDeclaration(_) | Node::ConstructorDeclaration(_))
+                    Some(
+                        Node::ConstructSignatureDeclaration(_)
+                            | Node::CallSignatureDeclaration(_)
+                            | Node::ConstructorDeclaration(_)
+                    )
                 ) {
                     parent.unwrap_or(declaration)
                 } else {
