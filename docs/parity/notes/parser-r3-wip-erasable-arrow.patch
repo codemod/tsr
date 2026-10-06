@@ -1,0 +1,246 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index cc9dbc0..59f7f21 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -563,6 +563,9 @@ pub struct Checker<'a, 'n> {
+     pub(crate) module_kind: tsr_core::ModuleKind,
+     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
+     pub(crate) legacy_decorators: bool,
++    /// `compilerOptions.ErasableSyntaxOnly.IsTrue()`, the option half of
++    /// `shouldCheckErasableSyntax` (`checker.go:2650`); TS1294's gate.
++    pub(crate) erasable_syntax_only: bool,
+     /// `emitStandardClassFields` — `useDefineForClassFields` with upstream's
+     /// `target >= ES2022` default. A derived field shadows its base at
+     /// construction time only under `[[Define]]` semantics, which is what
+@@ -1403,6 +1406,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             no_implicit_this: false,
+             module_kind: tsr_core::ModuleKind::None,
+             legacy_decorators: false,
++            erasable_syntax_only: false,
+             standard_class_fields: false,
+             allow_synthetic_defaults: false,
+             allow_importing_ts_extensions: false,
+@@ -1604,6 +1608,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
+         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
+         self.legacy_decorators = options.experimental_decorators.is_true();
++        self.erasable_syntax_only = options.erasable_syntax_only.is_true();
+         // `GetEmitStandardClassFields` — the flag, defaulting to
+         // `target >= ES2022`. §751.
+         self.standard_class_fields = match options.use_define_for_class_fields {
+diff --git a/crates/tsr-checker/src/grammar.rs b/crates/tsr-checker/src/grammar.rs
+index a961619..ad92e43 100644
+--- a/crates/tsr-checker/src/grammar.rs
++++ b/crates/tsr-checker/src/grammar.rs
+@@ -215,6 +215,9 @@ impl Checker<'_, '_> {
+         if let Some(module_name) = module_name {
+             self.check_external_module_name_is_string_literal(module_name);
+         }
++        if self.erasable_syntax_only {
++            self.check_erasable_syntax(typed);
++        }
+         // `Checker.checkIfStatement` (`checker.go:3808`): TS1313 on an empty
+         // `then` statement.
+         if let Node::IfStatement(statement) = typed
+@@ -233,6 +236,121 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    /// TS1294, `This syntax is not allowed when 'erasableSyntaxOnly' is
++    /// enabled.` — every `shouldCheckErasableSyntax` (`checker.go:2650`) site,
++    /// each a `c.error`, so it stands in a file with parse errors:
++    ///
++    /// | upstream | construct | span |
++    /// |---|---|---|
++    /// | `checkParameter` (`:2667`) | parameter property | the parameter |
++    /// | `checkEnumDeclaration` (`:5076`) | non-ambient enum | its name |
++    /// | `checkModuleDeclaration` (`:5165`) | non-ambient instantiated namespace | its name |
++    /// | `checkImportEqualsDeclaration` (`:5469`) | non-ambient `import x =` | the declaration |
++    /// | `checkExportAssignment` (`:5595`) | non-ambient `export =` | the declaration |
++    /// | `checkAssertion` (`:12293`) | `<T>x` | `<` through `>` |
++    ///
++    /// Upstream's `NodeFlagsAmbient` is `declaration_is_in_an_ambient_context`
++    /// here (the parser never sets the flag). The three module-element sites
++    /// sit after `checkGrammarModuleElementContext`, whose report returns
++    /// first: a grammar error, so it only reports in a file without parse
++    /// errors, for a declaration whose parent is neither a source file nor a
++    /// module block. `symbol.Flags&SymbolFlagsValueModule` in front of
++    /// `isInstantiatedModule` is implied by it for the declaration itself.
++    fn check_erasable_syntax(&mut self, typed: Node<'_>) {
++        let Some(node) = typed.node_id() else { return };
++        if self.in_js_file(node) {
++            return;
++        }
++        let module_element_bails = |checker: &Self| {
++            !checker.file_has_parse_errors
++                && !checker.nodes.parent(node).is_some_and(|parent| {
++                    matches!(
++                        checker.nodes.kind(parent),
++                        SyntaxKind::SourceFile | SyntaxKind::ModuleBlock
++                    )
++                })
++        };
++        let span = match typed {
++            Node::ParameterDeclaration(parameter)
++                if parameter.modifiers.iter().any(|modifier| {
++                    matches!(
++                        modifier,
++                        ModifierLike::Token(token) if matches!(
++                            token.kind,
++                            SyntaxKind::PublicKeyword
++                                | SyntaxKind::PrivateKeyword
++                                | SyntaxKind::ProtectedKeyword
++                                | SyntaxKind::ReadonlyKeyword
++                                | SyntaxKind::OverrideKeyword
++                        )
++                    )
++                }) =>
++            {
++                self.error_span(node)
++            }
++            Node::EnumDeclaration(_) if !self.declaration_is_in_an_ambient_context(node) => {
++                self.error_span(node)
++            }
++            Node::ModuleDeclaration(_)
++                if !module_element_bails(self)
++                    && !self.declaration_is_in_an_ambient_context(node)
++                    && match tsr_ast::module_instance_state(typed) {
++                        tsr_ast::ModuleInstanceState::Instantiated => true,
++                        tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
++                        tsr_ast::ModuleInstanceState::NonInstantiated => false,
++                    } =>
++            {
++                self.error_span(node)
++            }
++            Node::ImportEqualsDeclaration(_)
++                if !module_element_bails(self)
++                    && !self.declaration_is_in_an_ambient_context(node) =>
++            {
++                self.error_span(node)
++            }
++            Node::ExportAssignment(assignment)
++                if assignment.is_export_equals
++                    && !module_element_bails(self)
++                    && !self.declaration_is_in_an_ambient_context(node) =>
++            {
++                self.error_span(node)
++            }
++            // `SkipTrivia(node.Pos())` to `node.Expression().Pos()`, the `>`'s
++            // end: the token after the asserted type.
++            Node::TypeAssertion(assertion) => {
++                let Some(close) = assertion
++                    .r#type
++                    .and_then(|t| t.node_id())
++                    .and_then(|t| self.token_after(t))
++                else {
++                    return;
++                };
++                tsr_core::Span::new(self.nodes.span(node).start, close.end)
++            }
++            _ => return,
++        };
++        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
++        self.report(
++            file,
++            Diagnostic::new(
++                &messages::THIS_SYNTAX_IS_NOT_ALLOWED_WHEN_ERASABLESYNTAXONLY_IS_ENABLED,
++                span,
++            ),
++        );
++    }
++
++    /// The span of the first token after `node` in its file's source text;
++    /// `None` without source text.
++    fn token_after(&self, node: NodeId) -> Option<tsr_core::Span> {
++        let file = self.source_file_of_for_diagnostics(node)?;
++        let text = self.module_host?.source_text(file, self.nodes)?;
++        let mut scanner = tsr_scanner::Scanner::new(text);
++        let end = u32::try_from(text.len()).ok()?;
++        scanner.set_range(self.nodes.span(node).end, end);
++        let token = scanner.scan();
++        (token.kind != SyntaxKind::EndOfFile).then_some(token.span)
++    }
++
+     /// The first arms of `Checker.checkExternalImportOrExportDeclaration`
+     /// (`checker.go:5333`): a missing name is the parser's error, and any
+     /// other non-string-literal name is TS1141 — a `c.error`, so it stands in
+@@ -322,6 +440,14 @@ impl Checker<'_, '_> {
+                 }
+                 None
+             }
++            Node::ArrowFunction(arrow) => {
++                if self.nodes.flags(node).contains(NodeFlags::EMPTY_TYPE_LIST) {
++                    self.check_grammar_empty_type_list(node, typed);
++                } else {
++                    self.check_grammar_arrow_line_terminator(typed, arrow);
++                }
++                None
++            }
+             _ => {
+                 if self.nodes.flags(node).contains(NodeFlags::EMPTY_TYPE_LIST) {
+                     self.check_grammar_empty_type_list(node, typed);
+@@ -761,6 +887,64 @@ impl Checker<'_, '_> {
+         self.report(file, Diagnostic::new(message, tsr_core::Span::new(open, close + 1)));
+     }
+ 
++    /// The last arm of `Checker.checkGrammarArrowFunction`
++    /// (`grammarchecks.go:790`): TS1200 on the `=>` when its full text — the
++    /// token and the trivia before it — holds a line break.
++    ///
++    /// The trivia starts where the previous token ends, which is the end of
++    /// the arrow's last child before the `=>` or a `)` after it, so the scan
++    /// runs from there and reads the scanner's `PRECEDING_LINE_BREAK` on the
++    /// `=>` (set for a line break in whitespace or inside a comment, as
++    /// `strings.ContainsFunc(…, IsLineBreak)` is). Upstream reaches it after
++    /// `checkGrammarModifiers`, the type-parameter list and the parameter
++    /// list report nothing; the first two are this dispatcher's own gates and
++    /// the empty-list arm, the third (`check_grammar_parameter_list`) is not
++    /// consulted.
++    fn check_grammar_arrow_line_terminator(
++        &mut self,
++        typed: Node<'_>,
++        arrow: &tsr_ast::ArrowFunction<'_>,
++    ) {
++        let Some(arrow_token) = arrow.equals_greater_than_token.and_then(|t| t.node_id) else {
++            return;
++        };
++        let Some(node) = typed.node_id() else { return };
++        let arrow_span = self.nodes.span(arrow_token);
++        if arrow_span.start == arrow_span.end {
++            return;
++        }
++        let mut from = self.nodes.span(node).start;
++        tsr_ast::for_each_child_id(typed, |child| {
++            let end = self.nodes.span(child).end;
++            if child != arrow_token && end <= arrow_span.start {
++                from = from.max(end);
++            }
++        });
++        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
++        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
++        else {
++            return;
++        };
++        let mut scanner = tsr_scanner::Scanner::new(text);
++        scanner.set_range(from, arrow_span.end);
++        let line_break = loop {
++            let token = scanner.scan();
++            if token.kind == SyntaxKind::EndOfFile {
++                return;
++            }
++            if token.span.start >= arrow_span.start {
++                break token.span.start == arrow_span.start
++                    && token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK);
++            }
++        };
++        if line_break {
++            self.report(
++                file,
++                Diagnostic::new(&messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW, arrow_span),
++            );
++        }
++    }
++
+     /// The `<` and `>` of a node's empty type list (see
+     /// [`NodeFlags::EMPTY_TYPE_LIST`]), read from the source text.
+     ///

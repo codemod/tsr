@@ -512,3 +512,19 @@ Cases converted: `classWithEmptyTypeParameter`, `emptyGenericParamList`,
 `parserConstructorDeclaration11`, `parserConstructorDeclaration12`;
 `jsxIntrinsicElementsTypeArgumentErrors` gains its two TS1099 (its TS2558 and
 TS1009 rows remain).
+
+### Unfinished at the end of round 3 (not built)
+
+`parser-r3-wip-erasable-arrow.patch` (beside this file) holds two ports
+that compile but did **not** pass the box gates before the round closed.
+Nothing in it has been measured:
+
+- TS1294 (`shouldCheckErasableSyntax`, `checker.go:2650`): an
+  `erasable_syntax_only` field in `checker.rs` set in
+  `apply_compiler_options`, and `check_erasable_syntax` in `grammar.rs` for
+  its six sites. Targets: `erasableSyntaxOnly`, `erasableSyntaxOnly2`.
+- TS1200 (`checkGrammarArrowFunction`, `grammarchecks.go:790`): the `=>`
+  token's `PRECEDING_LINE_BREAK`, scanned from the arrow's last child before
+  it. Targets: `arrowFunctionErrorSpan`, `disallowLineTerminatorBeforeArrow`.
+
+Apply it, run the §5 gates, then commit.
