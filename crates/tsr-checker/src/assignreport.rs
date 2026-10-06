@@ -1720,6 +1720,14 @@ impl<'a> Checker<'a, '_> {
         let intrinsics = self.intrinsics();
         let (unknown, any) = (intrinsics.unknown, intrinsics.any);
         for side in [source, target] {
+            // An exact `unknown` SOURCE is upstream's answer where the
+            // instantiation road now computes it (`getNoInferType`,
+            // `getIndexedAccessTypeEx`'s nil-node `unknownType`); the veto
+            // below stays for flagged look-alikes and every target.
+            // Measured: no corpus verdict changes (tsr-2zk.44).
+            if side == source && side == unknown {
+                continue;
+            }
             // `Checker::is_error` and not `== intrinsics.error`: an unresolved
             // type REFERENCE mints a `TypeData::Named` carrying the written
             // text and answers `is_error` without being that intrinsic

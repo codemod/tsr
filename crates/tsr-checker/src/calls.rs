@@ -803,6 +803,16 @@ impl Checker<'_, '_> {
         };
         let instantiated =
             if call.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
+                // checkCallExpression resolves the call (`resolveCall`,
+                // assigning the callbacks' contextual parameter types once)
+                // before any callback body is checked. The diagnostic walk
+                // reaches this rule before the call's children; resolving
+                // here keeps a body from typing its parameters through the
+                // stateless contextual road, which fills `unknown` for type
+                // parameters an earlier argument would have fixed.
+                if !self.resolved_call_signatures.contains_key(&node) {
+                    self.check_call_expression(call);
+                }
                 match self.resolved_call_signatures.get(&node) {
                     Some(resolved) if resolved.type_parameters.is_empty() => resolved.clone(),
                     _ => return false,
@@ -4474,16 +4484,18 @@ mod tests {
                     if name != "ordered" {
                         // Native eraseTypeParameters does not instantiate a
                         // constraint/default which belongs only to the target.
-                        // The present-only object has no 'absent' property;
-                        // moving erasure after the existing worker would turn
-                        // its metadata-only indexed substitution into refusal.
+                        // The present-only object has no 'absent' property:
+                        // instantiating that metadata answers
+                        // getIndexedAccessTypeEx's `unknownType` (no access
+                        // node, `checker.go:26930`), which the published
+                        // target above must not carry.
                         let out = checker.instantiate_signature(
                             original.clone(),
                             &[(parameters[0], answer), (parameters[1], written_u)],
                             &parameters,
                             &["T", "U"],
                         );
-                        assert!(out.is_none(), "metadata substitution must decline {name}");
+                        assert!(out.is_some(), "metadata substitution answers unknown {name}");
                     }
                     eprintln!("{name} {stage} call={id:?} concrete={concrete:?}");
                 }
