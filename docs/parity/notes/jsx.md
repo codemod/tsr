@@ -317,3 +317,23 @@ a value tag typed as a string literal missing from `IntrinsicElements`
 list it returns then reports TS2604 on the tag, a string literal not being an
 untyped call. `check_jsx_string_literal_tag` ports exactly that, so it
 cannot inherit the producer gap above (`tsxDynamicTagName3`).
+
+## 9. `checkGrammarJsxElement`
+
+`check_grammar_jsx_element` ports `checkGrammarJsxElement`
+(`grammarchecks.go:1156`) and `checkGrammarJsxName` (`:1180`), first in the
+walk's opening-element arms as upstream calls it first in
+`checkJsxOpeningLikeElementOrOpeningFragment`: TS17010 / TS2639 on the tag
+(answer ignored), then the attribute loop that returns at the first
+duplicate name (TS17001) or empty `{}` initializer (TS17000). The
+`checkGrammarTypeArguments` call between them is not part of this port.
+`grammarErrorOnNode`'s parse-error gate is `file_has_parse_errors`, as in §2.
+
+### TS17004 is blocked on the harness, not ported
+
+`checkJsxPreconditions`' TS17004 (`jsx.go:159`, `jsx` unset) was ported and
+withdrawn in the same session: ten `EMPTY_RIGHT` cases lost, every one a case
+whose `@jsx` directive lists variants (`@jsx: react-jsx,react-jsxdev`). The
+conformance harness leaves `jsx` unset for those, so the checker sees "no
+`--jsx`" where the baseline was produced under a concrete variant. The rule
+is three lines; it waits on the harness choosing a variant.

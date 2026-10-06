@@ -4,7 +4,10 @@
 //!
 //! See `docs/parity/notes/jsx.md` §6 for what is declined and why.
 
-use tsr_ast::{Expression, JsxTagNameExpression, Node, NodeId};
+use tsr_ast::{
+    Expression, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxTagNameExpression, Node,
+    NodeId,
+};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -153,6 +156,102 @@ impl Checker<'_, '_> {
                 [text],
             ),
         );
+    }
+
+    /// `checkGrammarJsxElement` (`grammarchecks.go:1156`), called first by
+    /// `checkJsxOpeningLikeElementOrOpeningFragment` for an opening-like
+    /// element.
+    ///
+    /// `checkGrammarJsxName` (`:1180`) reports TS17010 on a property access
+    /// whose object is a namespaced name and, under a JSX transform, TS2639
+    /// on a namespaced tag whose namespace is not intrinsic; its answer is
+    /// ignored. `checkGrammarTypeArguments` comes next and is not ported here
+    /// (its JSX arm belongs with the type-argument grammar). Then the
+    /// attributes, in order, stopping at the first duplicate name (TS17001 on
+    /// the name) or empty `{}` initializer (TS17000 on the initializer).
+    /// `grammarErrorOnNode` reports nothing in a file with parse errors.
+    pub(crate) fn check_grammar_jsx_element(&mut self, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (tag, attributes) = match typed {
+            Node::JsxOpeningElement(element) => (element.tag_name, element.attributes),
+            Node::JsxSelfClosingElement(element) => (element.tag_name, element.attributes),
+            _ => return,
+        };
+        if let Some(tag) = tag.and_then(|tag| tag.node_id()) {
+            self.check_grammar_jsx_name(tag);
+        }
+        let Some(attributes) = attributes else { return };
+        let mut seen: Vec<String> = Vec::new();
+        for attribute in attributes.properties {
+            let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
+            let (text, name_id) = match attribute.name {
+                Some(JsxAttributeName::Identifier(name)) => (name.text.to_string(), name.node_id),
+                Some(JsxAttributeName::JsxNamespacedName(name)) => {
+                    let (Some(namespace), Some(local)) = (name.namespace, name.name) else {
+                        continue;
+                    };
+                    (format!("{}:{}", namespace.text, local.text), name.node_id)
+                }
+                None => continue,
+            };
+            if seen.contains(&text) {
+                if let Some(name_id) = name_id {
+                    self.grammar_error_on_node(
+                        name_id,
+                        &messages::JSX_ELEMENTS_CANNOT_HAVE_MULTIPLE_ATTRIBUTES_WITH_THE_SAME_NAME,
+                    );
+                }
+                return;
+            }
+            seen.push(text);
+            if let Some(JsxAttributeValue::JsxExpression(initializer)) = attribute.initializer
+                && initializer.expression.is_none()
+            {
+                if let Some(id) = initializer.node_id {
+                    self.grammar_error_on_node(
+                        id,
+                        &messages::JSX_ATTRIBUTES_MUST_ONLY_BE_ASSIGNED_A_NON_EMPTY_EXPRESSION,
+                    );
+                }
+                return;
+            }
+        }
+    }
+
+    /// `checkGrammarJsxName` (`grammarchecks.go:1180`).
+    fn check_grammar_jsx_name(&mut self, tag: NodeId) {
+        match self.node_map.get(tag) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                if let Some(object) = access.expression.and_then(|e| e.node_id())
+                    && self.nodes.kind(object) == tsr_ast::SyntaxKind::JsxNamespacedName
+                {
+                    self.grammar_error_on_node(
+                        object,
+                        &messages::JSX_PROPERTY_ACCESS_EXPRESSIONS_CANNOT_INCLUDE_JSX_NAMESPACE_NAMES,
+                    );
+                }
+            }
+            Some(Node::JsxNamespacedName(name)) => {
+                let transform = matches!(
+                    self.jsx_emit,
+                    tsr_core::JsxEmit::React
+                        | tsr_core::JsxEmit::ReactJsx
+                        | tsr_core::JsxEmit::ReactJsxDev
+                );
+                if transform
+                    && let Some(namespace) = name.namespace
+                    && !crate::jsx_intrinsic::is_intrinsic_jsx_name(namespace.text)
+                {
+                    self.grammar_error_on_node(
+                        tag,
+                        &messages::REACT_COMPONENTS_CANNOT_INCLUDE_JSX_NAMESPACE_NAMES,
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 
     /// `getJsxReferenceKind` (`jsx.go:1159`) for a value tag: construct

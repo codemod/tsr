@@ -891,6 +891,7 @@ impl Checker<'_, '_> {
             self.check_grammar_modifier_shapes(node, typed);
         }
         self.check_parser_lane_statement(typed);
+        self.check_grammar_jsx_element(typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_intrinsic_tag_exists(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
