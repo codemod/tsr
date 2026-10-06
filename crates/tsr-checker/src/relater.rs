@@ -721,6 +721,25 @@ impl Checker<'_, '_> {
         if target_tuple && (source_tuple || source_array.is_some()) {
             return None;
         }
+        // A tuple target's properties are its elements, `length` and the
+        // inherited array members (`tuple_target_properties`); a non-array
+        // source meets them in propertiesRelatedTo's general walk.
+        if target_tuple && !source_tuple && source_array.is_none() {
+            let properties = self.tuple_target_properties(target)?;
+            let source_names = self.get_property_names_of_type(source)?;
+            let missing: Vec<String> = properties
+                .into_iter()
+                .filter(|(name, optional)| {
+                    !optional
+                        && !source_names.contains(name)
+                        && self.get_type_of_property_of_type(source, name).is_none()
+                })
+                .map(|(name, _)| name)
+                .collect();
+            // tryElaborateArrayLikeErrors: a tuple target elaborates several
+            // missing properties only for an array source.
+            return (missing.len() == 1).then_some(missing);
+        }
         let names = self.get_property_names_of_type(target)?;
         self.get_property_names_of_type(source)?;
         let mut relater = Relater {
@@ -782,6 +801,66 @@ impl Checker<'_, '_> {
             true
         };
         elaborates.then_some(missing)
+    }
+
+    /// `getPropertiesOfType` of a tuple target, as `(name, optional)` in
+    /// upstream's order: the leading fixed elements (`"0"`, `"1"`, …,
+    /// optional where the element is), `length`, then the string-named
+    /// members of the global `Array` (or `ReadonlyArray`) its reference
+    /// inherits, all required. Symbol-named members are left out; neither
+    /// caller reads them. `None` for a non-tuple or a lib without the base.
+    pub(crate) fn tuple_target_properties(
+        &mut self,
+        target: TypeId,
+    ) -> Option<Vec<(String, bool)>> {
+        let (elements, readonly) = if let Some(tuple) = self.variadic_tuple_elements.get(&target) {
+            tuple.clone()
+        } else {
+            let (types, readonly) = self.tuple_element_lists.get(&target)?.clone();
+            let mask = self.tuple_optional_masks.get(&target).cloned();
+            (
+                types
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &t)| crate::tuples::TupleElement {
+                        r#type: t,
+                        spread: false,
+                        optional: mask
+                            .as_ref()
+                            .and_then(|mask| mask.get(index))
+                            .copied()
+                            .unwrap_or(false),
+                        label: None,
+                    })
+                    .collect(),
+                readonly,
+            )
+        };
+        let array = self.global_type_symbol(if readonly { "ReadonlyArray" } else { "Array" })?;
+        let array = self.binder.merged_symbol(array);
+        let mut properties: Vec<(String, bool)> = elements
+            .iter()
+            .take_while(|element| !element.spread)
+            .enumerate()
+            .map(|(index, element)| (index.to_string(), element.optional))
+            .collect();
+        properties.push(("length".to_string(), false));
+        for (name, &member) in &self.binder.symbols().get(array).members {
+            let name = name.to_string();
+            if self
+                .binder
+                .symbols()
+                .get(member)
+                .flags
+                .intersects(SymbolFlags::PROPERTY | SymbolFlags::METHOD)
+                && !name.starts_with("__@")
+                && !name.starts_with('[')
+                && !properties.iter().any(|(seen, _)| seen == &name)
+            {
+                properties.push((name, false));
+            }
+        }
+        Some(properties)
     }
 
     /// `isArrayType` (`checker.go`): `Some(readonly)` for a reference to the
@@ -1036,6 +1115,13 @@ impl Relater<'_, '_, '_> {
             if self.mapped_modifiers_reject(source, target) {
                 return RelationResult::NotRelated;
             }
+        }
+        // propertiesRelatedTo (relater.go:4100) for a tuple target and a
+        // source that is neither an array nor a tuple: the tuple's
+        // properties are compared one by one, and only a definite failure is
+        // taken from that walk here.
+        if let Some(result) = self.non_array_source_tuple_target(source, target) {
+            return result;
         }
         // Nothing fired. That is an **answer** only where the simple arms above
         // are a complete decision procedure for both sides — `string -> number`
@@ -3102,6 +3188,74 @@ impl Relater<'_, '_, '_> {
             parts.push(self.is_related_to(source_type, target_type));
         }
         Some(RelationResult::all(parts))
+    }
+
+    /// `propertiesRelatedTo` (relater.go:4100) with a tuple target and a
+    /// plain object source (not an array or tuple, so the arity arm does not
+    /// apply). The target's properties are its leading fixed elements
+    /// (`"0"`, `"1"`, …, required unless optional), `length`, and the global
+    /// `Array`/`ReadonlyArray` members, all required. Answers `NotRelated`
+    /// when the source's complete name table lacks a required one, or when a
+    /// fixed element's property type is not related; `Unknown` otherwise (the
+    /// method types are not compared, so no positive answer is given). `None`
+    /// outside the shape.
+    fn non_array_source_tuple_target(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let (elements, _) = self.tuple_relation_elements(target)?;
+        if !self.checker.type_of(source).flags.contains(TypeFlags::OBJECT)
+            || !self.has_members(source)
+            || self.tuple_relation_elements(source).is_some()
+            || self.checker.tuple_spread_array_element(source).is_some()
+            || self.checker.mapped_types.contains_key(&source)
+            || self.is_qualified_alias_mint(source)
+            || elements.iter().any(|element| {
+                element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
+            })
+        {
+            return None;
+        }
+        let names = self.checker.get_property_names_of_type(source)?;
+        let target_properties = self.checker.tuple_target_properties(target)?;
+        let fixed: Vec<_> =
+            elements.iter().take_while(|element| !element.spread).cloned().collect();
+        // getPropertyOfType: a name the table lacks can still be supplied by
+        // the global Object augmentation (`toString`, …).
+        let missing_required = target_properties.iter().any(|(name, optional)| {
+            !optional
+                && !names.contains(name)
+                && self.checker.get_type_of_property_of_type(source, name).is_none()
+        });
+        if missing_required {
+            return Some(RelationResult::NotRelated);
+        }
+        let mut parts = Vec::with_capacity(fixed.len());
+        for (index, element) in fixed.iter().enumerate() {
+            let name = index.to_string();
+            let Some(source_type) = self.checker.get_type_of_property_of_type(source, &name) else {
+                continue;
+            };
+            let target_type = if element.optional && self.checker.strict_null_checks {
+                self.checker.get_union_type(&[element.r#type, self.checker.intrinsics.undefined])
+            } else {
+                element.r#type
+            };
+            parts.push(self.is_related_to(source_type, target_type));
+        }
+        // A plain tuple's `length` is the literal union of its possible
+        // lengths (createNormalizedTupleType); a rest makes it `number`.
+        if self.checker.tuple_element_lists.contains_key(&target)
+            && let Some(target_length) = self.checker.get_type_of_property_of_type(target, "length")
+            && let Some(source_length) = self.checker.get_type_of_property_of_type(source, "length")
+        {
+            parts.push(self.is_related_to(source_length, target_length));
+        }
+        if parts.contains(&RelationResult::NotRelated) {
+            return Some(RelationResult::NotRelated);
+        }
+        Some(RelationResult::Unknown)
     }
 
     fn tuple_relation_elements(

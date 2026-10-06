@@ -354,3 +354,39 @@ Would be wrong if: a pair of type parameters upstream relates under
 comparability without one constraining the other. The rejected alternative —
 relating through the constraint as assignability does — is what produced the
 silent `Unknown`.
+
+## 16. Round 2: a tuple target against a plain object source
+
+`propertiesRelatedTo` (`relater.go:4100`) takes its arity arm only for an
+array or tuple source; any other object source meets the tuple target's
+properties one by one — its leading fixed elements (`"0"`, `"1"`, …, optional
+where the element is), `length` (the literal union of the possible lengths for
+a plain tuple), and every member inherited from `Array`/`ReadonlyArray`. The
+port had no arm: `StrNum` (an interface extending `Array<string | number>`)
+and `{ 0: string; 1: number; length: 2 }` against `[number, number, number]`
+fell through every gate to `Unknown`.
+
+`Relater::non_array_source_tuple_target` takes only the definite failures of
+that walk: a required name absent from the source's complete name table and
+not supplied by the Object augmentation (`getPropertyOfType`), a fixed
+element's property type that is not related, or a `length` that is not
+related. Method types are never compared, so the arm never answers `Related`;
+a pair that passes stays `Unknown`. `Checker::tuple_target_properties` is the
+shared property list, in upstream's order; symbol-named array members
+(`[Symbol.iterator]`) are left out of it.
+
+`unmatched_property_report` reads the same list for a tuple target and a
+non-array source, so one missing element is TS2741 (`Property '2' is missing
+in type 'StrNum'…`) and several are left to TS2322 —
+`tryElaborateArrayLikeErrors` elaborates a tuple target only for an array
+source.
+
+Converted: `compiler/assigningFunctionToTupleIssuesError`,
+`conformance/arityAndOrderCompatibility01`, `conformance/iterableArrayPattern10`,
+`conformance/iterableArrayPattern13`; +11 `checker_types` lines. Two new
+TS2345 lines in the already-wrong `destructuringParameterDeclaration3ES5/ES6`
+(`a10([1, 2, 3, false, true])`: `3` against `[[any]]` is now decided, and the
+argument path did not elaborate) are fixed by §17.
+
+Would be wrong if: a plain object source upstream relates to a tuple target
+while lacking one of the listed names. Zero-loss checks empty.
