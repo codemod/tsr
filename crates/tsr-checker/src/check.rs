@@ -506,6 +506,7 @@ impl Checker<'_, '_> {
                 if operands_ok
                     && binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
                 {
+                    self.check_assignment_operator(node, binary, ambient);
                     self.check_reference_expression(node);
                 }
                 if operands_ok {
@@ -525,14 +526,15 @@ impl Checker<'_, '_> {
             // **The dispatch is the guard.** §542 widened the rule to every
             // assignment operator and measured +0, because this arm still
             // admitted `=` alone — §380's "dispatch never called", for the
-            // fourth time. `check_assignment_operator` stays on `=`;
-            // `check_reference_expression` takes them all, as upstream's
-            // `checkBinaryLikeExpression` does. §543.
+            // fourth time. `=`, `+=`, `&&=`, `||=` and `??=` reach
+            // `checkAssignmentOperator` here (`checker.go:12458`, `:12506`,
+            // `:12515`, `:12527`, `:12531`); the arithmetic compound forms
+            // reach it from the arm above, behind `leftOk && rightOk`. §543.
             Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
+                self.check_assignment_operator(node, binary, ambient);
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
-                    self.check_assignment_operator(binary, ambient);
                     self.check_destructuring_assignment_targets(node);
                 }
                 self.check_private_accessor_is_writable(node);
@@ -680,6 +682,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
+                self.check_circular_type_parameter_default(node);
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }
@@ -2134,6 +2137,39 @@ impl Checker<'_, '_> {
                 _ => {}
             }
         }
+    }
+
+    /// Ported from typescript-go's `checkTypeParameter`
+    /// (`internal/checker/checker.go:2603`), the TS2716 default-state check.
+    /// Check the written default first: its nested parameter resolutions decide
+    /// which participant native marks circular, including mutual defaults.
+    fn check_circular_type_parameter_default(&mut self, node: NodeId) {
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(default) = parameter.default_type else { return };
+        let (Some(at), Some(symbol)) = (default.node_id(), self.binder.symbol_of(node)) else {
+            return;
+        };
+        self.get_type_from_type_node(default);
+        let ty = self.get_declared_type_of_symbol(symbol);
+        if self.get_resolved_type_parameter_default(ty)
+            != crate::declared::TypeParameterDefaultState::Circular
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        if !self.circularity_reported.insert(at) {
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_DEFAULT,
+                self.error_span(at),
+                [self.binder.symbols().get(symbol).name.to_string()],
+            ),
+        );
     }
 
     /// TS2637 — `Variance annotations are only supported in type aliases for
@@ -6672,22 +6708,10 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        // §839.1: a reference guarded by a condition that both names it **and**
-        // uses a narrowing this port does not model. Upstream removes
-        // `undefined` there and this port does not, so the arm would fire where
-        // upstream's does not and hand back the declared type.
-        //
-        // Measured, not assumed: without this the type road took
-        // `RIGHT->WRONG 67` — `typeGuardOfFormIsType` 37 (`isC1(c1Orc2) && …`),
-        // `typeGuardOfFormInstanceOf` 10, `parserindenter` 10 — against
-        // `WRONG->RIGHT 126`. Most of the 67 read `want string got any`, which
-        // is the *follow-on*: `c1Orc2.p1` off an un-narrowed `C1 | C2` is an
-        // error, and `errorType` prints `any`.
-        //
-        // The guard costs none of §839's wins because it already requires
-        // `subtree_has_unported_narrowing` — a pure `typeof` condition, which
-        // is every row of that family, does not match.
-        let guarded_by_unported_narrowing = self.reference_is_guarded_by_a_condition_on(node, text);
+        // §839.1's guard — decline a reference under a condition naming it
+        // that used a predicate call, `instanceof` or `.constructor` — is
+        // gone: each of those narrowings is ported in `crate::flow`, and
+        // removing it lost no case (`docs/parity/notes/flow.md` §11).
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
         // flow type at `x` carries `undefined`. `getAssignmentTargetKind`
@@ -6723,15 +6747,62 @@ impl Checker<'_, '_> {
         else {
             return false;
         };
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+        // A binding element is checked as its root `VariableDeclaration`
+        // (`GetRootDeclaration`); a parameter root is `isParameter`, assumed
+        // initialized. The element itself is never `isNeverInitialized`
+        // (that wants a `VariableDeclaration`) and carries no `!`.
+        let is_binding_element = self.nodes.kind(declaration) == SyntaxKind::BindingElement;
+        let mut root = declaration;
+        while self.nodes.kind(root) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(root) else { return false };
+            let Some(owner) = self.nodes.parent(pattern) else { return false };
+            root = owner;
+        }
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(root) else {
             return false;
         };
-        // No initialiser, no `!`, and an explicit annotation — the annotation is
-        // what keeps the auto-typed path (`t == autoType`, a different
-        // diagnostic entirely) out of this rule.
-        if variable.initializer.is_some()
-            || variable.exclamation_token.is_some()
-            || variable.r#type.is_none()
+        // `isSameScopedBindingElement` (`checker.go:11202`): a read inside a
+        // binding element of the same root declaration (`const { a, b = a }`).
+        if is_binding_element
+            && let Some(element) = self
+                .nodes
+                .ancestors(node)
+                .find(|&id| self.nodes.kind(id) == SyntaxKind::BindingElement)
+        {
+            let mut element_root = element;
+            while self.nodes.kind(element_root) == SyntaxKind::BindingElement {
+                let Some(owner) =
+                    self.nodes.parent(element_root).and_then(|pattern| self.nodes.parent(pattern))
+                else {
+                    break;
+                };
+                element_root = owner;
+            }
+            if element_root == root {
+                return false;
+            }
+        }
+        // No `!`, and an annotation or an initialiser — neither is upstream's
+        // auto-typed path (`t == autoType`, a different diagnostic entirely).
+        // An initialised declaration still reports when some path reaches the
+        // read without passing it (a `catch` after a throwing initialiser,
+        // `controlFlowDestructuringVariablesInTryCatch`).
+        let Some(list) = self.nodes.parent(root) else { return false };
+        // A catch-clause variable is typed `any`, `unknown` or `errorType`
+        // whatever its annotation (`getTypeForVariableLikeDeclaration`,
+        // `checker.go:16678`), each of which `assumeInitialized` accepts.
+        if !is_binding_element && self.nodes.kind(list) == SyntaxKind::CatchClause {
+            return false;
+        }
+        // A `for (… of/in …)` head is assigned by the loop, not auto-typed.
+        let for_head = self.nodes.parent(list).filter(|&owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+            )
+        });
+        if variable.exclamation_token.is_some()
+            || (variable.r#type.is_none() && variable.initializer.is_none() && for_head.is_none())
         {
             return false;
         }
@@ -6741,23 +6812,53 @@ impl Checker<'_, '_> {
         // (`checker.go:11158`). `declare const b: B` supplied **227 of the
         // first measurement's 4,781 wrong lines from one case**
         // (`compiler/genericDefaults`), which is what put both tests here.
-        let Some(list) = self.nodes.parent(declaration) else { return false };
-        if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
+        if variable.initializer.is_none()
+            && for_head.is_none()
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+        {
+            return false;
+        }
+        // Exact fast path, not a decline: an initialised block-scoped
+        // declaration read *after* it in its own block is assigned on every
+        // path to the read — a block's statements run in order, loops re-enter
+        // past the head, exceptions leave the scope — so the walk below could
+        // only answer "no `undefined`". The one way to enter a block past a
+        // statement is a `switch` jumping to a later `case`, which keeps the
+        // walk. Measured: walking every such read cost ~5% CPU on
+        // `domain-model` (`docs/parity/notes/flow.md` §13). A block-scoped
+        // `for..in`/`for..of` head is assigned before its body runs, so the
+        // same holds past the iterated expression.
+        let assigned_by = if variable.initializer.is_some() {
+            Some(self.nodes.span(root).end)
+        } else {
+            for_head.and_then(|statement| match self.node_map.get(statement) {
+                Some(Node::ForInOrOfStatement(head)) => head
+                    .expression
+                    .and_then(|expression| expression.node_id())
+                    .map(|expression| self.nodes.span(expression).end),
+                _ => None,
+            })
+        };
+        if let Some(assigned_by) = assigned_by
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED)
+            && self.nodes.span(node).start >= assigned_by
+            && !self
+                .nodes
+                .parent(list)
+                .and_then(|statement| self.nodes.parent(statement))
+                .is_some_and(|block| {
+                    matches!(
+                        self.nodes.kind(block),
+                        SyntaxKind::CaseClause | SyntaxKind::DefaultClause
+                    )
+                })
+        {
             return false;
         }
         // `declaration.Flags&NodeFlagsAmbient != 0` (`checker.go:11158`): a
         // `declare` on the statement or any container — `var a` inside
         // `declare module "a"` — or a declaration file.
         if self.declaration_is_in_an_ambient_context(declaration) {
-            return false;
-        }
-        // `for (x of …)` and `for (x in …)` assign on entry.
-        if self.nodes.parent(list).is_some_and(|owner| {
-            matches!(
-                self.nodes.kind(owner),
-                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
-            )
-        }) {
             return false;
         }
         // `isOuterVariable` (`checker.go:11128`) is a disjunct of
@@ -6768,8 +6869,9 @@ impl Checker<'_, '_> {
         // gave up.
         //
         // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`,
-        // not a `for-in`/`for-of` head, with no initializer and no `!` — all
-        // four already established above — that
+        // not a `for-in`/`for-of` head, with no initializer and no `!` (the
+        // binding-element, initializer and head tests below; `!` exited above)
+        // — that
         // `isMutableLocalVariableDeclaration` accepts and
         // `isSymbolAssignedDefinitely` does not.
         //
@@ -6780,7 +6882,10 @@ impl Checker<'_, '_> {
         let is_outer_variable =
             self.control_flow_container(node) != self.control_flow_container(declaration);
         if is_outer_variable {
-            let is_never_initialized = self.is_mutable_local_variable_declaration(declaration)
+            let is_never_initialized = !is_binding_element
+                && variable.initializer.is_none()
+                && for_head.is_none()
+                && self.is_mutable_local_variable_declaration(declaration)
                 && !self.is_symbol_assigned_definitely(symbol);
             if !is_never_initialized {
                 return false;
@@ -6792,8 +6897,10 @@ impl Checker<'_, '_> {
         // `checker-notes-diag2.md` §76, which is §42.1 one level up. Every
         // other annotation shape answers identically through both.
         let declared = match variable.r#type {
-            Some(annotation) => self.get_type_from_type_node_unprinted(annotation),
-            None => self.get_type_of_symbol(symbol),
+            Some(annotation) if !is_binding_element => {
+                self.get_type_from_type_node_unprinted(annotation)
+            }
+            _ => self.get_type_of_symbol(symbol),
         };
         if declared == self.intrinsics.error
             || declared == self.intrinsics.any
@@ -6834,13 +6941,6 @@ impl Checker<'_, '_> {
             .unwrap_or(symbol);
         let flow =
             self.get_flow_type_of_reference_ex(node, Some(flow_symbol), declared, Some(initial));
-        // The preceding blanket guard predates predicate subtype comparison.
-        // A computed narrowing of the optional initial type can now retain
-        // undefined on a false branch: checkIdentifier must then recover the
-        // declared type. Preserve the guard when that query made no progress.
-        if guarded_by_unported_narrowing && flow == initial {
-            return false;
-        }
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return false;
         }
@@ -6853,14 +6953,6 @@ impl Checker<'_, '_> {
     /// [`Checker::uninitialized_variable_reads_declared`], because
     /// `checkIdentifier` uses one condition for two answers and this port had
     /// split them — see `docs/architecture/checker-notes-deferred.md` §839.
-    ///
-    /// The guard below is why the two roads cannot share a single entry point.
-    /// `reference_is_guarded_by_a_condition_on` stands in for the narrowings
-    /// this port does not model, all of which leave `undefined` in the flow
-    /// type; declining costs a *missing diagnostic*, which is the direction
-    /// this rule may safely fail in. Upstream has no such guard, and it returns
-    /// true for every row in §839's family — so the **type** road must ask the
-    /// structural question without it.
     fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
         if !self.uninitialized_variable_reads_declared(node, text) {
             return;
@@ -6875,125 +6967,6 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
-    }
-
-    /// Is this reference in a position a *condition naming the same identifier*
-    /// dominates?
-    ///
-    /// A syntactic over-approximation of "upstream narrowed this before the
-    /// check", and deliberately one: every narrowing this port does not model —
-    /// user-defined type predicates, `instanceof` on an interface,
-    /// discriminated switches — removes `undefined` upstream and leaves it here,
-    /// and each of them is written as a guard. Declining costs a *missing*
-    /// diagnostic, which is the direction this rule may fail in.
-    ///
-    /// The three guard shapes, all of which put the reference in a subtree the
-    /// condition dominates:
-    ///
-    /// - the right operand of `&&`, `||` or `??` whose left mentions the name;
-    /// - the then/else branch of a conditional expression;
-    /// - the body of an `if`, `while` or `do` whose condition mentions it.
-    fn reference_is_guarded_by_a_condition_on(&self, node: NodeId, text: &str) -> bool {
-        let mut child = node;
-        let mut at = self.nodes.parent(node);
-        let mut depth = 0u32;
-        while let Some(current) = at {
-            depth += 1;
-            if depth > 64 {
-                return false;
-            }
-            let condition = match self.node_map.get(current) {
-                Some(Node::BinaryExpression(binary))
-                    if matches!(
-                        binary.operator_token.map(|token| token.kind),
-                        Some(
-                            SyntaxKind::AmpersandAmpersandToken
-                                | SyntaxKind::BarBarToken
-                                | SyntaxKind::QuestionQuestionToken
-                        )
-                    ) && binary.right.and_then(|right| right.node_id()) == Some(child) =>
-                {
-                    binary.left.and_then(|left| left.node_id())
-                }
-                Some(Node::ConditionalExpression(conditional))
-                    if conditional.condition.and_then(|c| c.node_id()) != Some(child) =>
-                {
-                    conditional.condition.and_then(|c| c.node_id())
-                }
-                Some(Node::IfStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::WhileStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::DoStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                _ => None,
-            };
-            // The condition must both name the reference **and** contain one of
-            // the narrowing mechanisms this port does not model — a call
-            // (a user-defined type predicate), an `instanceof`, or a
-            // `.constructor === C` comparison. Requiring the mechanism as well
-            // as the name is what keeps the guard from declining a TS2454
-            // upstream really does report.
-            if let Some(condition) = condition
-                && self.subtree_mentions(condition, text, 0)
-                && self.subtree_has_unported_narrowing(condition, 0)
-            {
-                return true;
-            }
-            child = current;
-            at = self.nodes.parent(current);
-        }
-        false
-    }
-
-    /// Does the subtree contain one of the narrowing mechanisms `crate::flow`
-    /// does not model — a call, an `instanceof`, or a `.constructor`
-    /// comparison?
-    ///
-    /// The list names *mechanisms* rather than a syntax and is meant to grow:
-    /// `narrowTypeByConstructor` was the third
-    /// (`checker-notes-diag2.md` §58), and it is the whole of TS2454's share of
-    /// `extraonly.rs`'s single-false-positive cases.
-    fn subtree_has_unported_narrowing(&self, node: NodeId, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::CallExpression(_))
-            || matches!(typed, Node::BinaryExpression(binary)
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::InstanceOfKeyword))
-            || matches!(typed, Node::PropertyAccessExpression(access)
-                if matches!(access.name, Some(tsr_ast::MemberName::Identifier(name))
-                    if name.text == "constructor"))
-        {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_has_unported_narrowing(child, depth + 1))
-    }
-
-    /// Does the subtree rooted at `node` contain an identifier spelled `text`?
-    pub(crate) fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::Identifier(identifier) if identifier.text == text) {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
     }
 
     /// TS2428 — `All declarations of '{0}' must have identical type
@@ -10156,7 +10129,7 @@ impl Checker<'_, '_> {
 
     /// `SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`, or
     /// `SkipParentheses` when `assertions` is false.
-    fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
+    pub(crate) fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {
                 Some(Node::ParenthesizedExpression(inner)) => inner.expression,
@@ -10170,6 +10143,34 @@ impl Checker<'_, '_> {
             node = next;
         }
         node
+    }
+
+    /// Whether the spine contains a `?.`. Written (§181) when
+    /// `NodeFlags::OPTIONAL_CHAIN` was never set; the flag exists since
+    /// §748 and this walk is retained unchanged until the TS2779 arm is
+    /// ported over it (through parentheses this walk and the flag differ).
+    pub(crate) fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
+        for _ in 0..64 {
+            let next = match self.node_map.get(node) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression
+                }
+                Some(Node::ParenthesizedExpression(inner)) => inner.expression,
+                _ => return false,
+            };
+            let Some(next) = next.and_then(|expression| expression.node_id()) else { return false };
+            node = next;
+        }
+        false
     }
 
     /// TS2371 — `A parameter initializer is only allowed in a function or
@@ -10725,10 +10726,19 @@ impl Checker<'_, '_> {
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
-    /// function, module block, source file or property declaration.
+    /// function that is not immediately invoked, module block, source file or
+    /// property declaration. An IIFE's body is part of its caller's flow.
     pub(crate) fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+            ) && self.immediately_invoked_call(id).is_some()
+            {
+                current = self.nodes.parent(id);
+                continue;
+            }
             if matches!(
                 self.nodes.kind(id),
                 SyntaxKind::FunctionDeclaration
