@@ -60,7 +60,12 @@ impl Checker<'_, '_> {
                     }
                     None => return,
                 };
-                (receiver, id, text, access.question_dot_token.is_some())
+                (
+                    receiver,
+                    id,
+                    std::borrow::Cow::Borrowed(text),
+                    access.question_dot_token.is_some(),
+                )
             }
             Some(Node::ElementAccessExpression(access)) => {
                 let (Some(receiver), Some(argument)) =
@@ -68,15 +73,30 @@ impl Checker<'_, '_> {
                 else {
                     return;
                 };
-                let Some(tsr_ast::Expression::StringLiteral(literal)) = Some(argument) else {
-                    return;
+                // getPropertyNameFromIndex (checker.go): a string or numeric
+                // literal names its property by the literal type's text, so
+                // `t[0]` names `"0"` exactly as `t["0"]` does.
+                let (id, text) = match argument {
+                    tsr_ast::Expression::StringLiteral(literal) => {
+                        let Some(id) = literal.node_id else { return };
+                        (id, literal.text.to_string())
+                    }
+                    tsr_ast::Expression::NumericLiteral(literal) => {
+                        let Some(id) = literal.node_id else { return };
+                        let key = self.check_expression(argument);
+                        let crate::types::TypeData::NumberLiteral(text) = &self.type_of(key).data
+                        else {
+                            return;
+                        };
+                        (id, text.clone())
+                    }
+                    _ => return,
                 };
-                let Some(id) = literal.node_id else { return };
-                (receiver, id, literal.text, access.question_dot_token.is_some())
+                (receiver, id, std::borrow::Cow::Owned(text), access.question_dot_token.is_some())
             }
             _ => return,
         };
-        let name = name_text;
+        let name: &str = &name_text;
         if optional {
             return;
         }
@@ -92,7 +112,9 @@ impl Checker<'_, '_> {
         let receiver_type = self.apparent_type(receiver_type);
         // A union property one constituent lacks (with no applicable index
         // signature) is partial: `getPropertyOfType` answers nil and the
-        // access reports TS2339, not this.
+        // access reports TS2339, not this. createUnionOrIntersectionProperty
+        // also answers nil when no constituent has a real property (index
+        // signatures alone make none), and the access is the index road.
         if let crate::types::TypeData::Union { types, .. } =
             self.store.get(receiver_type).data.clone()
         {
@@ -101,13 +123,17 @@ impl Checker<'_, '_> {
                 crate::types::TypeData::StringLiteral(name.to_string()),
                 false,
             );
+            let mut single_prop = false;
             for part in types {
                 let apparent = self.apparent_type(part);
-                if self.get_property_of_type(apparent, name).is_none()
-                    && self.get_applicable_index_info(apparent, key).is_none()
-                {
+                if self.get_property_of_type(apparent, name).is_some() {
+                    single_prop = true;
+                } else if self.get_applicable_index_info(apparent, key).is_none() {
                     return;
                 }
+            }
+            if !single_prop {
+                return;
             }
         }
         // isAssignmentToReadonlyEntity's last arm: a property found through a
@@ -214,6 +240,47 @@ impl Checker<'_, '_> {
             }
             Some(key)
         };
+        // A tuple is `createNormalizedTupleType`'s reference here: its leading
+        // fixed elements are properties `"0"`…, and its only index info is the
+        // `number` one of its `Array`/`ReadonlyArray` base, readonly exactly
+        // when the tuple is. This port's tuple carries neither symbols nor
+        // base, so the lookup is answered from its element list.
+        if written_name.is_none()
+            && let Some(fixed) = self.tuple_fixed_length(apparent)
+        {
+            let Some(key) = key else { return };
+            let applicable = match &self.type_of(key).data {
+                crate::types::TypeData::StringLiteral(text)
+                | crate::types::TypeData::NumberLiteral(text) => {
+                    match text.parse::<usize>() {
+                        // A fixed element is the TS2540 road. Past them
+                        // getPropertyTypeForIndexType's tuple arm
+                        // (checker.go:27061) reports any bounds error and then
+                        // errorIfWritingToReadonlyIndex for every index >= 0.
+                        Ok(index) if index.to_string() == *text => index >= fixed,
+                        // A negative index returns before that check when the
+                        // tuple has no variable element; decline the rest.
+                        _ => return,
+                    }
+                }
+                _ => self.type_of(key).flags.intersects(TypeFlags::NUMBER_LIKE),
+            };
+            if !applicable || !self.tuple_is_readonly(apparent) {
+                return;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(node);
+            let printed = self.type_to_string(apparent);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::INDEX_SIGNATURE_IN_TYPE_0_ONLY_PERMITS_READING,
+                    span,
+                    [printed],
+                ),
+            );
+            return;
+        }
         // Only a readonly signature can answer; skip the applicability
         // relation for the common mutable `array[i] = v`.
         if !self
@@ -452,6 +519,17 @@ impl Checker<'_, '_> {
         self.is_assignment_to_readonly_property(node, receiver_type, &name)
     }
 
+    /// `createTupleTargetType`'s `fixedLength`: the elements before the first
+    /// rest or variadic element, which become the numeric properties, for a
+    /// tuple this port minted; `None` for any other type.
+    fn tuple_fixed_length(&self, id: crate::types::TypeId) -> Option<usize> {
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+            return Some(elements.len());
+        }
+        let (elements, _) = self.variadic_tuple_elements.get(&id)?;
+        Some(elements.iter().position(|element| element.spread).unwrap_or(elements.len()))
+    }
+
     /// `isAssignmentToReadonlyEntity` (`checker.go:27279`) once the access is
     /// known to be an assignment target: the property `name` of
     /// `receiver_type` is readonly (`isReadonlySymbol`, including the
@@ -465,10 +543,20 @@ impl Checker<'_, '_> {
         name: &str,
     ) -> bool {
         let name = name.to_string();
-        // Tuple targets synthesize a readonly `length` property; there is no
-        // binder symbol for it to carry `CheckFlagsReadonly` in this port.
-        if name == "length" && self.tuple_is_readonly(receiver_type) {
-            return true;
+        // Tuple targets synthesize a readonly `length` property, and a
+        // readonly tuple's leading fixed elements `"0"`… carry
+        // `CheckFlagsReadonly` (`createTupleTargetType`); this port's tuple has
+        // no binder symbols for either.
+        if self.tuple_is_readonly(receiver_type) {
+            if name == "length" {
+                return true;
+            }
+            if let Ok(index) = name.parse::<usize>()
+                && index.to_string() == name
+                && self.tuple_fixed_length(receiver_type).is_some_and(|fixed| index < fixed)
+            {
+                return true;
+            }
         }
         // §952: a homomorphic `readonly` mapping makes EVERY member read-only,
         // and the reused member owner cannot say so — the modifier lives beside
