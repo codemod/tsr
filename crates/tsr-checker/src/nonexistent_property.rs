@@ -512,22 +512,34 @@ impl Checker<'_, '_> {
         // getApparentType(never) is never, whose getPropertyOfType misses with
         // no index info; only silentNeverType is any-like
         // (checkPropertyAccessExpressionOrQualifiedName, checker.go:11280).
-        // getFlowTypeOfReference (flow.go:111) answers the declared type, not
-        // unreachableNeverType, and for the operand of `x!` whenever narrowing
-        // left only null/undefined. This port's flow walk has neither rule
-        // yet, so a `never` reached through either is not certified.
+        // getFlowTypeOfReferenceEx (flow.go:111) answers the declared type, not
+        // unreachableNeverType, and for the operand of `x!` when the walk's
+        // result is not `never` but getTypeWithFacts(NEUndefinedOrNull) of it
+        // is. This port's flow walk lacks the `x!` half, so such a receiver is
+        // certified only when the operand's own flow type is already `never`,
+        // where the rule's `resultType.flags&TypeFlagsNever == 0` arm is false.
         // `docs/parity/notes/property.md` §3.
         if flags.contains(TypeFlags::NEVER) {
-            let receiver_is_non_null = match self.node_map.get(access) {
+            let non_null_operand = match self.node_map.get(access) {
                 Some(Node::PropertyAccessExpression(node)) => node.expression,
                 Some(Node::ElementAccessExpression(node)) => node.expression,
                 _ => None,
             }
             .and_then(|receiver| receiver.node_id())
-            .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::NonNullExpression);
+            .and_then(|receiver| match self.node_map.get(receiver) {
+                Some(Node::NonNullExpression(node)) => Some(node.expression),
+                _ => None,
+            });
+            if let Some(operand) = non_null_operand {
+                let operand = operand?;
+                let operand_type = self.check_expression(operand);
+                if !self.store.get(operand_type).flags.contains(TypeFlags::NEVER) {
+                    return None;
+                }
+            }
             let silent = self.silent_never_type == Some(receiver)
                 || receiver == self.intrinsics.unreachable_never;
-            return (!silent && !receiver_is_non_null).then_some(receiver);
+            return (!silent).then_some(receiver);
         }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
@@ -1208,10 +1220,11 @@ impl Checker<'_, '_> {
     ///
     /// Three shapes are declined, each with its case:
     ///
-    /// - **A call receiver.** `c.foo().bar()` — `fluentClasses` — returns the
-    ///   polymorphic `this` type, which this port does not model. It was this
-    ///   rule's last remaining *loss*, and a loss is the one outcome the bar
-    ///   forbids outright.
+    /// - **A call receiver**, unless its type is `never`. `c.foo().bar()` —
+    ///   `fluentClasses`, `superPropertyAccessNoError` — returns the
+    ///   polymorphic `this` type, which this port does not model; a `never`
+    ///   result (`inferentiallyTypingAnEmptyArray`, an overload failure in
+    ///   `orderMattersForSignatureGroupIdentity`) cannot be that type.
     /// - ~~**A dotted name.**~~ **DELETED, §37's audit, +2.** It was declined
     ///   because `narrowingOfDottedNames` narrows `a.b` by a guard on `a.b`
     ///   itself and this port's flow graph keys on a narrower set of references.
@@ -1237,7 +1250,11 @@ impl Checker<'_, '_> {
             return false;
         }
         match self.node_map.get(receiver) {
-            Some(Node::CallExpression(_)) => false,
+            // A `never` result carries no members whatever the return
+            // modelling; `getApparentType(never)` misses every name.
+            Some(Node::CallExpression(_)) => {
+                self.store.get(flowed).flags.contains(crate::flags::TypeFlags::NEVER)
+            }
             Some(Node::Identifier(identifier)) => {
                 let text = identifier.text;
                 let Some(symbol) = self.binder.resolve_name(
