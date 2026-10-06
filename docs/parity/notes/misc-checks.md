@@ -356,3 +356,46 @@ evaluates to null is not seen).
 **Measured.** `classExtendsNull`, `superCallBeforeThisAccessing4`,
 `superCallBeforeThisAccessing5` converted, `classExtendsNull2` +1 line; none
 lost.
+
+## §17 TS17009 / TS17011: `this`/`super` before `super()` without the flow graph
+
+**Forcing constraint.** `checkThisBeforeSuper` (`checker.go:12263`) reports
+when `!isPostSuperFlowNode(node.FlowNode)` (`flow.go:2611`): walking flow
+antecedents back from the use, some path reaches the function start without
+a `super(...)` call node (a branch label needs every antecedent post-super; a
+loop label follows its entry edge only; unreachable is post-super). §307 of
+`checker-notes-diag2.md` approximated it by top-level statement index and
+reported when the use and the `super()` shared a top-level statement, which
+is undecidable by index: `if (c) { super(); this.x }` and
+`let x = { k: super(), j: this._t }` drew wrong TS17009s
+(`checkSuperCallBeforeThisAccess`, `superCallBeforeThisAccessing8`), while
+uses in an `else` branch or a `switch` clause entered by jump were missed.
+
+**What was ported.** `certainly_reached_before_super` walks the use's
+ancestor chain top-down from the constructor body and answers "certainly not
+post-super" only when a super-free completing path to the use is certain:
+- at a statement list (block, case clause) every earlier sibling has a path
+  that completes without `super()` (`super_free_completion`: no `super()`
+  and no jump; an `if` with a super-free condition and a super-free branch
+  or no `else`; a block of such statements);
+- an `if` is entered through the branch on the chain once its condition is
+  super-free; a `switch` clause through the dispatch jump once the
+  discriminant and case labels are super-free (`d2` after a `super()` in the
+  previous clause is reported, as upstream does: the jump bypasses it);
+- any other container is a leaf: every `super()` in it must enclose the use
+  (arguments run before the call's flow node: `super(this)` is an error) or
+  start after it (left-to-right evaluation; a loop's later `super()` is not
+  on the entry edge upstream follows).
+Everything else declines. Parameter initializers keep §307's arm.
+
+**Declines.** A preceding `super()` under a conditional expression,
+`&&`/`||`/`??`, a loop, `try` or `switch` (`e2` after
+`{ w: c ? super() : 0 }` still owes TS17009); never-returning calls and
+other unreachable-code shapes are not modelled, which is why a jump anywhere
+in a "super-free" sibling makes it uncertain.
+
+**Measured.** `superCallBeforeThisAccessing8` converted; +7 correct lines and
+three wrong TS17009/TS17011 lines removed in `checkSuperCallBeforeThisAccess`
+(still owing TS2855 and the declines above); none lost. A first draft with
+the leaf rule "the leaf holds no `super()`" lost 19 lines over 11 cases
+(`super(this)` in `thisInSuperCall*`, `derivedClassSuperCallsWithThisArg`).
