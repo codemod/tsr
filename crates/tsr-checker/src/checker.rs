@@ -754,6 +754,9 @@ pub struct Checker<'a, 'n> {
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
+    /// `c.languageVersion` (`checker.go:948`, `GetEmitScriptTarget`), read by
+    /// the operators lane's TS2791 (`docs/parity/notes/operators.md` §8).
+    pub(crate) language_version: tsr_core::ScriptTarget,
     /// §82: depth cap for aliased-condition inlining — upstream's
     /// `inlineLevel` (`flow.go`), capped at 5.
     pub(crate) alias_inline_level: u8,
@@ -1415,6 +1418,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
+            language_version: tsr_core::ScriptTarget::ESNext,
             alias_inline_level: 0,
             non_null_refinement_bases: FxHashMap::default(),
             pre_optional_marker: FxHashMap::default(),
@@ -1627,6 +1631,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
         self.exact_optional_property_types = options.exact_optional_property_types.is_true();
+        self.language_version = options.emit_script_target();
 
         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
         // reports nothing at all, which is what confines the unused family to the

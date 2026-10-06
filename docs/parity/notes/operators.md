@@ -234,3 +234,45 @@ template counterpart of `+`'s `checkForDisallowedESSymbolOperand`.
 **Measured** (against §6's tree): MISSING TS2731 7 → 0, extra 0, zero
 losses; no case converts alone — `noImplicitSymbolToString` also needs the
 five `+`/`+=` TS2469 lines of the held §5 port.
+
+## 8. TS2791 — `**` on bigint below ES2016
+
+The arithmetic arm's `bothAreBigIntLike` branch (`checker.go:12390`) reports
+TS2791 on the binary expression for `**`/`**=` when `c.languageVersion <
+ES2016`. The checker did not hold the target; `Checker::language_version` is
+that field, set from `CompilerOptions::emit_script_target()` exactly as
+upstream sets `languageVersion` from `GetEmitScriptTarget()`. It is a plain
+option read, not a cache. Default `ESNext` for a checker built without
+options, which reports nothing.
+
+**Measured** (against `e749442`): +1 case (`bigIntWithTargetLessThanES2016`,
+WRONG → RIGHT), zero losses; MISSING TS2791 2 → 0.
+
+## 9. `||` / `??` generic gate (types cluster `LOGICAL-OR-COALESCE-GENERIC-GATE`) — blocked, not shipped
+
+`check_logical_or_coalescing` (`binary.rs`) returns `errorType` when either
+side of the reduced pair is a type parameter or `unknown` (or a reference
+with such arguments) instead of running `removeSubtypes`. Deleting that gate
+and letting `union_with_subtype_reduction` decide measured, on the cluster's
+five cases:
+
+- `nonNullableTypes1`, `nullishCoalescingOperator_not_strict`: all lines RIGHT.
+- `nullishCoalescingOperator2`, `nullishCoalescingOperator_es2020`: still a
+  gap on `a7 ?? 'whatever'` (want `{}`). `GetNonNullableType(unknown)` is
+  already `{}`; the subtype reducer cannot decide `"whatever"` against `{}`
+  and returns `None` (`unions.rs` / relater — not this lane).
+- `discriminatedUnionJsxElement`: **stack overflow** in the type dump. With
+  `data.menuItemsVariant ?? ListItemVariant.OneLine` now generic,
+  `narrowable_type_for_reference` asks for the contextual type of
+  `listItemVariant` in `<ListItem variant={listItemVariant} />`, JSX
+  discrimination (`jsx_intrinsic.rs` `jsx_discriminant_value_type`) calls
+  `check_expression` on that same attribute expression, which asks for its
+  narrowable type again. Upstream breaks the cycle with
+  `getContextFreeTypeOfExpression` (`checker.go:7542`): push an `any`
+  contextual type, check with `CheckModeSkipContextSensitive`, cache in
+  `contextFreeTypes`. That function belongs in the JSX lane's file.
+
+So the gate stays until `jsx_discriminant_value_type` reads the
+context-free type; then removing the type-parameter half should convert the
+first two cases with no crash. Narrowing only the `unknown` half converts
+nothing on its own (the reducer gap above), so it was not committed either.

@@ -313,8 +313,8 @@ impl Checker<'_, '_> {
         );
         // The result-type cascade: `number` when both are any-like or neither
         // may be bigint-like; `bigint` when both are bigint-like (where `>>>`
-        // is TS2365 and `**` below ES2016 is TS2791 — not reported: the
-        // checker does not hold `target`); otherwise TS2365 on the pair.
+        // is TS2365 and `**` below ES2016 is TS2791); otherwise TS2365 on the
+        // pair.
         let any_or_unknown = |checker: &Self, id: TypeId| {
             checker.type_of(id).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         };
@@ -323,12 +323,9 @@ impl Checker<'_, '_> {
                 && !self.maybe_type_of_kind(right_type, TypeFlags::BIG_INT_LIKE));
         if !numeric {
             match self.both_are_bigint_like(left_type, right_type) {
-                Ternary::Related => {
-                    if matches!(
-                        operator,
-                        SyntaxKind::GreaterThanGreaterThanGreaterThanToken
-                            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
-                    ) {
+                Ternary::Related => match operator {
+                    SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+                    | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken => {
                         self.report_operator_error(
                             left_type,
                             operator,
@@ -337,7 +334,22 @@ impl Checker<'_, '_> {
                             OperatorRelation::None,
                         );
                     }
-                }
+                    SyntaxKind::AsteriskAsteriskToken | SyntaxKind::AsteriskAsteriskEqualsToken
+                        if self.language_version < tsr_core::ScriptTarget::ES2016 =>
+                    {
+                        if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                            let span = self.error_span(node);
+                            self.report(
+                                file,
+                                Diagnostic::new(
+                                    &messages::EXPONENTIATION_CANNOT_BE_PERFORMED_ON_BIGINT_VALUES_UNLESS_THE_TARGET_OPTION_IS_SET_TO_ES2016_OR_LATER,
+                                    span,
+                                ),
+                            );
+                        }
+                    }
+                    _ => {}
+                },
                 Ternary::NotRelated => self.report_operator_error(
                     left_type,
                     operator,
