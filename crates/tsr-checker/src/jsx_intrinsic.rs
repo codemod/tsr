@@ -39,7 +39,7 @@ const JSX: &str = "JSX";
 /// hyphen anywhere. The second is what makes `<foo-bar/>` and `<my-element/>`
 /// intrinsic regardless of case, and dropping it would send custom elements to
 /// the value-tag path instead.
-fn is_intrinsic_jsx_name(name: &str) -> bool {
+pub(crate) fn is_intrinsic_jsx_name(name: &str) -> bool {
     let Some(first) = name.chars().next() else { return false };
     first.is_ascii_lowercase() || name.contains('-')
 }
@@ -66,7 +66,7 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
+    pub(crate) fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
         if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
             return Some("children".to_string());
         }
@@ -927,6 +927,70 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS2339 — `Property '{0}' does not exist on type
+    /// 'JSX.IntrinsicElements'.`
+    ///
+    /// `getIntrinsicTagSymbol`'s "wasn't found" arm (`jsx.go:1228-1250`):
+    /// with a `JSX.IntrinsicElements` type in hand, an intrinsic tag that is
+    /// neither a property of it nor covered by an applicable index signature
+    /// reports on the element, opening and closing tag alike (§255's node
+    /// set). Unlike TS7026 this arm is not inside `noImplicitAny`.
+    ///
+    /// The table must be completely enumerable
+    /// ([`Checker::get_property_names_of_type`] answering `Some`): a name
+    /// missing from an unresolved table is not evidence, so that declines.
+    pub(crate) fn check_jsx_intrinsic_tag_exists(&mut self, node: NodeId, typed: Node<'_>) {
+        let tag = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name,
+            Node::JsxSelfClosingElement(element) => element.tag_name,
+            Node::JsxClosingElement(element) => element.tag_name,
+            _ => return,
+        };
+        let Some(tag_id) = tag.and_then(|tag| tag.node_id()) else { return };
+        let name = match self.node_map.get(tag_id) {
+            Some(Node::Identifier(identifier)) if is_intrinsic_jsx_name(identifier.text) => {
+                identifier.text.to_string()
+            }
+            Some(Node::JsxNamespacedName(namespaced)) => {
+                match (namespaced.namespace, namespaced.name) {
+                    (Some(namespace), Some(name)) => format!("{}:{}", namespace.text, name.text),
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let Some(symbol) = self.jsx_type_symbol(node, INTRINSIC_ELEMENTS) else { return };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return;
+        }
+        let table = self.get_declared_type_of_symbol(symbol);
+        if self.is_error(table) {
+            return;
+        }
+        let Some(names) = self.get_property_names_of_type(table) else { return };
+        if names.contains(&name) {
+            return;
+        }
+        let key = self.store.intern_literal(
+            crate::flags::TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(name.clone()),
+            false,
+        );
+        if self.get_applicable_index_info(table, key).is_some() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                span,
+                [name, format!("{JSX}.{INTRINSIC_ELEMENTS}")],
+            ),
+        );
+    }
+
     /// `getJsxType(JsxNames.IntrinsicElements, location)` reduced to the
     /// question its failure arm asks: does the name resolve at all?
     ///
@@ -935,8 +999,9 @@ impl Checker<'_, '_> {
     /// `getJsxNamespaceAt` (`internal/checker/jsx.go:1306`) is three roads:
     ///
     /// 1. the **implicit-import container** — `react/jsx-runtime` via
-    ///    `jsxImportSource`, under `jsx: react-jsx` (`:1451`). Not ported; see
-    ///    the note on direction below;
+    ///    `jsxImportSource`, under `jsx: react-jsx` (`:1451`) —
+    ///    [`Checker::jsx_implicit_import_container`], resolved through the
+    ///    host's record of the loader's synthetic runtime import;
     /// 2. **`getJsxNamespace(location)` resolved as a namespace, then its `JSX`
     ///    export** (`:1317-1321`);
     /// 3. the **global `JSX`** (`:1334`), and only then.
@@ -956,11 +1021,11 @@ impl Checker<'_, '_> {
     /// rule reported **1,642 TS7026 against `tsc`'s zero**, one per JSX
     /// element. `checker-notes-diag2.md` §221.
     ///
-    /// # Road 1 is not ported, and the direction of that is the safety argument
+    /// # The direction of every decline is the safety argument
     ///
-    /// It needs a module resolution with no specifier node to hang it on —
-    /// upstream synthesises the reference from the first JSX tag in the file.
-    /// Every road here is a **lookup** and the rule fires only when all of them
+    /// Road 1 resolves by specifier *text* (the loader records the synthetic
+    /// runtime import; a runtime named only by an `@jsxImportSource` pragma is
+    /// not loaded and so does not resolve here). Every road here is a **lookup** and the rule fires only when all of them
     /// miss, so an unported road can make this rule *report where upstream is
     /// silent*, never the reverse. The same holds for a qualified
     /// `export = A.B` and for a module with a real `default` export.
@@ -972,72 +1037,48 @@ impl Checker<'_, '_> {
         // falls back on *namespace resolution* failing, not on the member
         // lookup failing, so a `React` that exports a `JSX` without
         // `IntrinsicElements` is answered from there and not from the global.
-        let Some(namespace) =
-            self.binder.resolve_name(self.nodes, self.node_map, location, JSX, SymbolFlags::MODULE)
-        else {
+        //
+        // The fallback is `getGlobalSymbol(JSX, Namespace)` (`jsx.go:1334`):
+        // the **globals** table, not a scoped lookup from the tag. A module
+        // that declares its own `namespace JSX` is not seen here, which is
+        // why upstream reports TS7026 in `jsxPropsAsIdentifierNames`.
+        let Some(&namespace) = self.binder.globals().get(JSX) else { return false };
+        let namespace = self.binder.merged_symbol(namespace);
+        if !self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::NAMESPACE) {
             return false;
-        };
+        }
         self.exports_intrinsic_elements(namespace)
     }
 
     /// Road 2: the JSX namespace hanging off `getJsxNamespace`'s name.
-    /// TS2874 — `This JSX tag requires '{0}' to be in scope, but it could not
-    /// be found.`
-    ///
-    /// `markJsxAliasReferenced` (`checker.go:28502`): resolve the JSX factory
-    /// namespace as a **value** at the tag name, and report if it is not in
-    /// scope. Only under [`tsr_core::JsxEmit::React`] — `preserve` emits the
-    /// tag as written and the automatic runtime imports its factory.
-    ///
-    /// **Fragments are not ported.** Upstream resolves those through
-    /// `getJsxFactoryEntity` and `jsxFragmentFactory` (`checker.go:28533`), a
-    /// second lookup with its own entity and its own `null` exemption;
-    /// `jsx_namespace_name` answers the *element* factory and is the wrong name
-    /// for a `<>`. §262 measured that at 49 wrong lines.
-    pub(crate) fn check_jsx_factory_in_scope(&mut self, typed: Node<'_>) {
-        if self.jsx_emit != tsr_core::JsxEmit::React || self.file_has_parse_errors {
-            return;
-        }
-        let location = match typed {
-            Node::JsxOpeningElement(element) => element.tag_name.and_then(|t| t.node_id()),
-            Node::JsxSelfClosingElement(element) => element.tag_name.and_then(|t| t.node_id()),
-            _ => return,
-        };
-        let Some(location) = location else { return };
-        let Some(name) = self.jsx_namespace_name(location) else { return };
-        if self
-            .binder
-            .resolve_name(self.nodes, self.node_map, location, &name, SymbolFlags::VALUE)
-            .is_some()
-        {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(location) else { return };
-        let span = self.nodes.span(location);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::THIS_JSX_TAG_REQUIRES_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND,
-                span,
-                [name],
-            ),
-        );
-    }
-
     fn jsx_namespace_symbol(&mut self, location: NodeId) -> Option<SymbolId> {
-        let name = self.jsx_namespace_name(location)?;
-        let container = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            location,
-            &name,
-            SymbolFlags::MODULE | SymbolFlags::ALIAS,
-        )?;
-        let container = self.binder.merged_symbol(container);
-        // `c.resolveSymbol(resolvedNamespace)` before `getExportsOfSymbol`.
-        let container = self.resolve_jsx_namespace_container(container);
+        // Road 1 (`jsx.go:1315`): the automatic runtime's module, when it
+        // resolves. Only when it does not is road 2's name looked up.
+        let container = if let Some(container) = self.jsx_implicit_import_container(location) {
+            container
+        } else {
+            let name = self.jsx_namespace_name(location)?;
+            let container = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                location,
+                &name,
+                SymbolFlags::MODULE | SymbolFlags::ALIAS,
+            )?;
+            let container = self.binder.merged_symbol(container);
+            // `c.resolveSymbol(resolvedNamespace)` before `getExportsOfSymbol`.
+            self.resolve_jsx_namespace_container(container)
+        };
         let container = self.follow_export_assignment(container);
-        self.binder.symbols().get(container).exports.get(JSX).copied()
+        let candidate = self.binder.symbols().get(container).exports.get(JSX).copied()?;
+        // The outer `c.resolveSymbol(...)` (`jsx.go:1321`): preact's runtime
+        // writes `export import JSX = JSXInternal`.
+        let candidate = self.binder.merged_symbol(candidate);
+        if self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+            let target = self.resolve_alias_fully(candidate);
+            return Some(self.binder.merged_symbol(target));
+        }
+        Some(candidate)
     }
 
     /// `getJsxNamespace(location)` (`jsx.go:1341`): the file's `@jsx` pragma,
@@ -1195,7 +1236,7 @@ fn is_comma_sequence(expression: tsr_ast::Expression<'_>) -> bool {
     )
 }
 
-fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
+pub(crate) fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
     match child {
         tsr_ast::JsxChild::JsxText(text) => !text.contains_only_trivia_white_spaces,
         tsr_ast::JsxChild::JsxExpression(expression) => expression.expression.is_some(),

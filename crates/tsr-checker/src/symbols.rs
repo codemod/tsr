@@ -3145,7 +3145,7 @@ impl<'a> Checker<'a, '_> {
     /// below as a second gate rather than the only one — an unquoted name can
     /// no longer reach here, so it now only excludes a quoted symbol that is
     /// somehow not a module declaration.
-    fn ambient_module(&self, name: &str) -> Option<SymbolId> {
+    pub(crate) fn ambient_module(&self, name: &str) -> Option<SymbolId> {
         // `IsExternalModuleNameRelative` short-circuits first, exactly as
         // upstream does — and through `tsr_path`, which is the port of
         // `tspath`, rather than a local prefix test that would miss `.\`,

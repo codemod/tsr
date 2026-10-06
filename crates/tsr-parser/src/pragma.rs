@@ -96,6 +96,25 @@ pub struct FileReferences {
     /// namespace among that symbol's exports — so this name replaces the global
     /// `JSX` for the whole file. See `checker-notes-diag2.md` §211.
     pub jsx_factory_namespace: Option<String>,
+    /// The namespace of an `@jsxFrag` pragma's factory: `Fragment` for
+    /// `@jsxFrag Fragment`, `null` for `@jsxfrag null`.
+    ///
+    /// `getJsxNamespace` (`checker/jsx.go:1346`) answers a fragment from this
+    /// pragma first; `markJsxAliasReferenced` (`checker.go:28517`) exempts the
+    /// name `null` from resolution.
+    pub jsx_fragment_factory_namespace: Option<String>,
+    /// The argument of the last `@jsxImportSource` pragma
+    /// (`ast.GetJSXImplicitImportBase`, `utilities.go:2771`).
+    pub jsx_import_source: Option<String>,
+    /// The argument of the last `@jsxRuntime` pragma (`classic` or
+    /// `automatic`; `utilities.go:2774`).
+    pub jsx_runtime: Option<String>,
+    /// Whether the file carries an `@jsx` pragma at all, parseable or not
+    /// (`GetPragmaFromSourceFile(file, "jsx") != nil`, `checkJsxFragment`,
+    /// `checker/jsx.go:114`).
+    pub has_jsx_pragma: bool,
+    /// Whether the file carries an `@jsxFrag` pragma at all.
+    pub has_jsx_frag_pragma: bool,
     /// Spans of `<reference />` directives naming none of `path`, `types`, or
     /// `lib`, which the parser reports as invalid syntax.
     pub invalid_reference_directives: Vec<Span>,
@@ -208,19 +227,56 @@ fn process_pragma(pragma: &Pragma, result: &mut FileReferences) {
             }
         }
         // `@jsx <factory>` names the JSX namespace for the file; only the
-        // factory's first identifier matters, because `getJsxNamespace` splits
-        // on the first `.`. `jsxfrag`, `jsximportsource` and `jsxruntime` are
-        // still recognised only so they are not mistaken for anything else.
+        // factory's first identifier matters (`getLocalJsxNamespace`,
+        // `checker/jsx.go:1390`). The *last* pragma of a name wins
+        // (`GetPragmaFromSourceFile`, `utilities.go:2801`), and a factory that
+        // `parseIsolatedEntityName` rejects leaves the file without one.
         "jsx" => {
+            result.has_jsx_pragma = true;
             if let Some((_, value, _)) = pragma.args.first() {
-                let namespace = value.split('.').next().unwrap_or(value).trim();
-                if !namespace.is_empty() {
-                    result.jsx_factory_namespace = Some(namespace.to_string());
-                }
+                result.jsx_factory_namespace = isolated_entity_name_root(value).map(str::to_string);
             }
+        }
+        // `@jsxFrag <factory>` (`getJsxNamespace`'s fragment arm,
+        // `checker/jsx.go:1350`): the same parse, its own field.
+        "jsxfrag" => {
+            result.has_jsx_frag_pragma = true;
+            if let Some((_, value, _)) = pragma.args.first() {
+                result.jsx_fragment_factory_namespace =
+                    isolated_entity_name_root(value).map(str::to_string);
+            }
+        }
+        "jsximportsource" => {
+            result.jsx_import_source = pragma.args.first().map(|(_, value, _)| value.clone());
+        }
+        "jsxruntime" => {
+            result.jsx_runtime = pragma.args.first().map(|(_, value, _)| value.clone());
         }
         _ => {}
     }
+}
+
+/// The first identifier of `parser.ParseIsolatedEntityName(text)`
+/// (`parser.go:279`), or `None` where that parse fails.
+///
+/// The parse is `parseEntityName(allowReservedWords: true)` over the text and
+/// must end at end of input with no diagnostics: identifier names (keywords
+/// included, so `null` is accepted) joined by `.`, with whitespace between
+/// tokens. Unicode escapes are not decoded here; a factory spelled with one is
+/// rejected rather than guessed at.
+#[must_use]
+pub fn isolated_entity_name_root(text: &str) -> Option<&str> {
+    let mut root = None;
+    for part in text.split('.') {
+        let part = part.trim_matches(|c: char| c.is_whitespace());
+        let mut chars = part.chars();
+        let first = chars.next()?;
+        if !tsr_scanner::is_identifier_start(first) || !chars.all(tsr_scanner::is_identifier_part) {
+            return None;
+        }
+        root.get_or_insert(part);
+    }
+    root
 }
 
 /// `parser.extractPragmas`.

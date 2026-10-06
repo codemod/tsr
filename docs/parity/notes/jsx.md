@@ -124,3 +124,226 @@ the spread child's type is the memoised `check_expression`, and an `errorType`
 (a gap) reports nothing. `grammarErrorOnNode`'s parse-error gate is
 `file_has_parse_errors`.
 
+
+## 3. The JSX factory is a name per file, not an entity
+
+### Forcing constraint
+
+`markJsxAliasReferenced` (`checker.go:28502`) was ported only as its TS2874
+report, under `jsx: react`, for elements. Its other effect — `isUse` marking
+of the factory's root symbol — is what keeps `import React = require("react")`
+from being TS6133 under `noUnusedLocals` in **every** emit mode, and
+fragments resolve a second name (the `@jsxFrag` / `jsxFragmentFactory` root,
+then the element factory's root). At round 2's baseline that was 13 lane
+cases (`unusedImports13`–`16` EXTRA 6133, `inlineJsxAndJsxFragPragma`,
+`jsxFragmentAndFactoryUsedOnFragmentUse` EXTRA 6192, three `jsxFactory*`
+cases with a wrong TS2874 or a missing TS2552).
+
+### What was ported, and the representational choice
+
+`crates/tsr-checker/src/jsx_factory.rs` holds `getJsxNamespace`,
+`getJsxFactoryEntity` (its root) and `markJsxAliasReferenced` whole. Upstream
+parses each factory into a synthetic entity with `parseIsolatedEntityName`
+and caches it in `sourceFileLinks`; every reader here takes only
+`GetFirstIdentifier` of it, so this port keeps the root *string*: per file
+from the parser's `FileReferences` (`@jsx`, `@jsxFrag`, `@jsxImportSource`,
+`@jsxRuntime`, last pragma wins as in `GetPragmaFromSourceFile`), per checker
+from the options. Rejected: storing the entity — nothing reads its tail.
+
+`parseIsolatedEntityName` matters for its *failures*: `jsxFactory:
+Element.createElement=` does not parse, so upstream falls back to `React`
+(`jsxFactoryNotIdentifierOrQualifiedName{,2}`). The old `split('.')` took
+`Element`. The parse is identifier names joined by `.` (keywords allowed, so
+`@jsxfrag null` names `null`, which the fragment arm exempts). It exists twice
+— `tsr_parser::pragma::isolated_entity_name_root` and
+`jsx_factory::isolated_entity_name_root` — because the checker does not depend
+on the parser crate; adding that dependency for eight lines was rejected.
+
+A miss under `jsx: react` goes through `onFailedToResolveSymbol`'s lib and
+spelling arms before the TS2874 fallback, so `jsxFactory: createElement` with
+`frameElement` in the DOM lib is TS2552 (`jsxFactoryIdentifierWithAbsentParameter`).
+The `checkAndReportErrorFor*` arms before those are not ported; none fires on
+a tag name in the corpus.
+
+The old `file_has_parse_errors` gate on TS2874 was removed: TS2874 is a
+`resolveName` error, not a grammar error, and upstream reports it in files
+with parse errors (`tsxErrorRecovery3`).
+
+### The decline kept
+
+`getJsxNamespaceContainerForImplicitImport` returns early only when the
+automatic runtime's module *resolves*; this port returns whenever
+`GetJSXImplicitImportBase` selects the automatic runtime (host method
+`jsx_implicit_import_base`). The difference is the TS2875 population, where
+upstream still marks and reports `React`; there this port does neither, which
+was its behaviour before (nothing marked the factory at all). Lifting it needs
+module resolution by name from the checker, filed with the round-2 report.
+
+### `checkJsxFragment`'s TS17016/TS17017
+
+Reported from the per-node walk on the `JsxFragment` (§2's split): under a
+JSX transform, a `jsxFactory` option or `@jsx` pragma without a fragment
+factory. The pragma test is *presence* (`has_jsx_pragma`), parseable or not.
+`getJSXFragmentType`'s TS2879 is not ported: it lives inside fragment
+signature resolution, which this port does not have.
+
+### How we would know this is wrong
+
+An EXTRA TS6133 on a JSX factory import under classic runtime, or a TS2874
+naming a different root than the baseline, is a divergence in
+`jsx_namespace_at`; an EXTRA TS6133 under `jsx: react-jsx` with an unresolved
+runtime module is the decline above.
+
+## 4. JSX `checkSpreadPropOverrides` reports from the attributes walk
+
+`createJsxAttributesTypeFromAttributesProperty` (`jsx.go:709`) keeps, under
+`strictNullChecks`, an `allAttributesTable` of every attribute so far (a later
+attribute of the same name replaces the earlier) and runs
+`checkSpreadPropOverrides` (`checker.go:13371`) for each valid spread: TS2783
+on the overwritten attribute. It is a type function upstream; here it is
+`check_jsx_spread_property_overrides`, the per-node walk's `JsxAttributes` arm
+(§2's split). Differences from the object-literal arm in
+`crate::spread_overrides`, all upstream's: no
+`tryMergeUnionOfObjectTypeAndEmptyObject`, no assignment-target exemption, and
+the spread's properties are read from its **apparent** type, because
+`getPropertiesOfType` reduces to it — `{...props}` with `props: T extends { x:
+number }` overwrites `x` (`tsxGenericAttributesType1`). `getReducedType` is not
+ported; it only turns a disjoint-discriminant intersection into `never`, which
+`isValidSpreadType` rejects in either form. Two spreads overwriting one
+attribute are one line, as the baseline folds upstream's two diagnostics that
+differ only in related information.
+
+## 5. `getJsxNamespaceAt`'s first and last roads
+
+Road 1, `getJsxNamespaceContainerForImplicitImport` (`jsx.go:1451`), is now
+`jsx_implicit_import_container`: `GetJSXRuntimeImport` of the host's
+`GetJSXImplicitImportBase`, resolved as an ambient module or through the
+host's record of the loader's synthetic runtime import, then past its
+`export =`. When it resolves, road 2's name is not consulted, as upstream.
+The loader records only the option-level runtime, so a runtime named only by
+an `@jsxImportSource` pragma does not resolve here and falls through to road
+2 — the one-sided failure the TS7026 rule already documents.
+
+The `JSX` export found on either road is resolved through aliases
+(`resolveSymbol`, `jsx.go:1321`), so `export import JSX = …` works when
+`resolve_alias` follows it. Preact's runtime (`export import JSX =
+JSXInternal`, where `JSXInternal` is itself a named import from `'..'`) is
+still declined by `resolve_alias`, which is why
+`jsxNamespaceImplicitImportJSXNamespace` keeps its EXTRA TS7026 — reported
+to the integrator, not worked around.
+
+Road 3, the global fallback, is `getGlobalSymbol(JSX, Namespace)`
+(`jsx.go:1334`): the globals table, not a scoped lookup from the tag. A
+module declaring its own `namespace JSX` is invisible to it, which is why
+upstream reports TS7026 in `jsxPropsAsIdentifierNames`. The old scoped
+lookup was not upstream's and found it.
+
+`markJsxAliasReferenced`'s early return stays keyed on the implicit-import
+*base* (§3's decline), not on road 1 resolving: with a pragma-only runtime
+the container cannot resolve here, and falling through would start marking
+and reporting `React` where upstream resolved the runtime and returned.
+
+## 6. TS2786 on the one signature this port resolves
+
+`checkJsxOpeningLikeElementOrOpeningFragment` (`jsx.go:131`) relates the
+resolved signature's return type to the bound its `getJsxReferenceKind`
+selects (`checkJsxReturnAssignableToAppropriateBound`, `jsx.go:168`):
+`JSX.Element | null` for a function, `JSX.ElementClass` for a class, their
+union for a mixed tag. Ported as `check_jsx_component_bound`, reporting
+TS2786 on the tag name (the chained detail lines are not modelled; the code
+and span are upstream's).
+
+The signature is the one `jsx_attributes_context` publishes in
+`resolved_call_signatures`: a single candidate, instantiated when generic —
+what `resolveCall` returns for a one-candidate list whether or not the
+arguments fit. Declined, each because the faithful answer lives elsewhere:
+
+- **overloads and union tags** — the candidate is `resolveCall`'s choice
+  (calls lane; `tsxElementResolution9` keeps two missing TS2786);
+- **`JSX.ElementType` in scope** — upstream takes the `elementTypeConstraint`
+  branch instead (tag type against `ElementType`, instantiated with
+  defaults); not ported (`jsxElementType*`);
+- **intrinsic tags** — the fake signature returns `JSX.Element`, which the
+  mixed bound always accepts, so nothing is lost by skipping them;
+- **an `errorType` bound or return** — relates to everything upstream.
+
+A false TS2786 here would mean the published signature is not upstream's
+resolved one; compare against `resolveJsxOpeningLikeElement`, not this rule.
+
+## 7. TS2710 from the attributes walk
+
+`createJsxAttributesTypeFromAttributesProperty` (`jsx.go:819-826`) reports
+`'children' are specified twice` on the attributes node when an explicit
+attribute names the children property and the element's body has semantic
+children (`GetSemanticJsxChildren`), unless a spread typed `any` (or the
+error type, which `IsTypeAny` also accepts) made the attributes type `any`.
+Same §2 split as §4: `check_jsx_children_specified_twice`, on the
+`JsxAttributes` arm of the walk. A `children` that arrives through a spread
+is not explicit and does not report, as upstream.
+
+## 8. TS2339 from `getIntrinsicTagSymbol`
+
+The arm after TS7026's in `getIntrinsicTagSymbol` (`jsx.go:1228-1250`): with
+`JSX.IntrinsicElements` resolved, an intrinsic tag (opening, self-closing or
+closing — §255's node set) that is neither a property nor covered by an
+applicable index signature reports `Property 'x' does not exist on type
+'JSX.IntrinsicElements'` on the element. It is not inside `noImplicitAny`.
+`check_jsx_intrinsic_tag_exists` requires the table to be completely
+enumerable (`get_property_names_of_type` answering `Some`); a name missing from
+an unresolved table is not evidence and declines.
+
+### Round 1's TS2604 stays unlanded, and why
+
+Round 1's `resolveJsxOpeningLikeElement` no-signature arm (1da6e97, reverted
+as 6eb0a11) still reports a false TS2604 on
+`compiler/reactSFCAndFunctionResolvable` after the round-2 calls merge. The
+cause is not `getUnionSignatures`: the conditional `cond ? Radio : Checkbox`
+reduces to `React.SFC` (subtype reduction), and `signatures_of_type_kind`
+answers a *complete, empty* call list for that type — `React.SFC` is
+`type SFC<P = {}> = StatelessComponent<P>`, an interface with a call
+signature, reached through `import * as React` from `react16.d.ts`. A small
+local repro of the alias-with-defaults shape resolves its signature, so the
+gap is in how that declaration file's reference is resolved. Until the
+producer answers the signature (or `None`), the arm cannot trust an empty
+list.
+
+### The string-literal arm is landed on its own
+
+`resolveJsxOpeningLikeElement`'s string-literal arm
+(`getUninstantiatedJsxSignaturesOfType`, `jsx.go:902-909`, through
+`getIntrinsicAttributesTypeFromStringLiteralType`) reads no signature list:
+a value tag typed as a string literal missing from `IntrinsicElements`
+(property or `string` index) reports TS2339 on the element, and the empty
+list it returns then reports TS2604 on the tag, a string literal not being an
+untyped call. `check_jsx_string_literal_tag` ports exactly that, so it
+cannot inherit the producer gap above (`tsxDynamicTagName3`).
+
+## 9. `checkGrammarJsxElement`
+
+`check_grammar_jsx_element` ports `checkGrammarJsxElement`
+(`grammarchecks.go:1156`) and `checkGrammarJsxName` (`:1180`), first in the
+walk's opening-element arms as upstream calls it first in
+`checkJsxOpeningLikeElementOrOpeningFragment`: TS17010 / TS2639 on the tag
+(answer ignored), then the attribute loop that returns at the first
+duplicate name (TS17001) or empty `{}` initializer (TS17000). The
+`checkGrammarTypeArguments` call between them is not part of this port.
+`grammarErrorOnNode`'s parse-error gate is `file_has_parse_errors`, as in §2.
+
+### TS17004 is blocked on the harness, not ported
+
+`checkJsxPreconditions`' TS17004 (`jsx.go:159`, `jsx` unset) was ported and
+withdrawn in the same session: ten `EMPTY_RIGHT` cases lost, every one a case
+whose `@jsx` directive lists variants (`@jsx: react-jsx,react-jsxdev`). The
+conformance harness leaves `jsx` unset for those, so the checker sees "no
+`--jsx`" where the baseline was produced under a concrete variant. The rule
+is three lines; it waits on the harness choosing a variant.
+
+## 10. JSX spread TS2698 has no parse-error gate
+
+`createJsxAttributesTypeFromAttributesProperty` reports `Spread types may
+only be created from object types` with `c.error` (`jsx.go:785`), not
+`grammarErrorOnNode`, so upstream reports it in files with parse errors —
+where `<a:b={…}>`-style recovery yields a spread attribute
+(`jsxNamespacePrefixInName{,React}`). `check_jsx_spread_of_non_object_type`
+carried a `file_has_parse_errors` gate copied from its object-literal
+sibling; it is removed for the JSX arm only.

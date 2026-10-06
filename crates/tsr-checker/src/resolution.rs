@@ -272,6 +272,32 @@ pub trait ModuleHost {
         None
     }
 
+    /// The namespace an `@jsxFrag` pragma names for this file, if it has one
+    /// (`getJsxNamespace`'s fragment arm, `checker/jsx.go:1350`).
+    ///
+    /// Defaulted to `None` for the reason [`ModuleHost::jsx_factory_namespace`]
+    /// gives.
+    fn jsx_fragment_factory_namespace(&self, _file: NodeId) -> Option<String> {
+        None
+    }
+
+    /// `ast.GetJSXImplicitImportBase(options, file)` (`utilities.go:2771`):
+    /// the package the automatic JSX runtime imports from, or `None` under
+    /// the classic runtime.
+    ///
+    /// Defaulted to `None`: a host with no options and no pragmas is the
+    /// classic runtime.
+    fn jsx_implicit_import_base(&self, _file: NodeId) -> Option<String> {
+        None
+    }
+
+    /// Whether the file has an `@jsx` pragma and an `@jsxFrag` pragma, in that
+    /// order — present at all, whether or not their factories parse
+    /// (`checkJsxFragment`, `checker/jsx.go:114`).
+    fn jsx_pragmas_present(&self, _file: NodeId) -> (bool, bool) {
+        (false, false)
+    }
+
     /// Is this file a `.d.ts`?
     ///
     /// `SourceFile.IsDeclarationFile`, which the checker reads in

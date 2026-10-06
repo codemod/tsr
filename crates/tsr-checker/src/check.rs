@@ -907,8 +907,13 @@ impl Checker<'_, '_> {
             self.check_grammar_modifier_shapes(node, typed);
         }
         self.check_parser_lane_statement(typed);
+        self.check_grammar_jsx_element(typed);
         self.check_jsx_intrinsic_element(node, typed);
-        self.check_jsx_factory_in_scope(typed);
+        self.check_jsx_intrinsic_tag_exists(node, typed);
+        self.mark_jsx_alias_referenced(node, typed);
+        self.check_jsx_component_bound(node, typed);
+        self.check_jsx_string_literal_tag(node, typed);
+        self.check_jsx_fragment_factory(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
@@ -1004,6 +1009,10 @@ impl Checker<'_, '_> {
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
             Node::JsxSpreadAttribute(_) => self.check_jsx_spread_of_non_object_type(node),
+            Node::JsxAttributes(_) => {
+                self.check_jsx_spread_property_overrides(node);
+                self.check_jsx_children_specified_twice(node);
+            }
             Node::JsxExpression(_) => self.check_jsx_expression(node),
             Node::YieldExpression(_) => self.check_yield_star_iteration(node),
             _ => {}
@@ -5100,7 +5109,7 @@ impl Checker<'_, '_> {
     /// it: `$ERROR` against `Error` is one deletion plus five case differences,
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
+    pub(crate) fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
         let candidates = self.binder.names_in_scope_with_meaning(
             self.nodes,
             self.node_map,
@@ -14296,7 +14305,7 @@ fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Mess
     })
 }
 
-fn suggested_lib_for(name: &str) -> Option<&'static str> {
+pub(crate) fn suggested_lib_for(name: &str) -> Option<&'static str> {
     LIB_FEATURE_NAMES
         .binary_search_by_key(&name, |(feature, _)| *feature)
         .ok()
