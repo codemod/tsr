@@ -90,45 +90,75 @@ fn private_binds_publish_identically_in_file_order() {
         let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
         serial = bind_into_with_jsdoc(serial, &arena, parsed.source_file, &nodes, *info, &jsdoc);
     }
-    let completed = std::thread::scope(|scope| {
-        let handles: Vec<_> = files
-            .iter()
-            .rev()
-            .map(|(info, parsed)| {
-                let names = &names;
-                let nodes = &nodes;
-                scope.spawn(move || {
-                    if parsed.source_file.statements.iter().any(|statement| {
-                        matches!(statement, tsr_ast::Statement::NamespaceExportDeclaration(_))
-                    }) {
-                        return None;
-                    }
-                    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
-                    Some(bind_file(
-                        names,
-                        nodes,
-                        parsed.source_file,
-                        *info,
-                        &jsdoc,
-                        parsed.node_range.clone(),
-                    ))
+    for workers in [
+        1,
+        2,
+        std::thread::available_parallelism()
+            .map_or(1, std::num::NonZeroUsize::get)
+            .min(files.len()),
+    ] {
+        let (ready, wait) = std::sync::mpsc::channel();
+        let wait = std::sync::Mutex::new(wait);
+        let mut completed = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..workers)
+                .map(|worker| {
+                    let files = &files;
+                    let names = &names;
+                    let nodes = &nodes;
+                    let ready = &ready;
+                    let wait = &wait;
+                    scope.spawn(move || {
+                        (worker..files.len())
+                            .step_by(workers)
+                            .map(|index| {
+                                if workers > 1 && index == 0 {
+                                    wait.lock().unwrap().recv().unwrap();
+                                }
+                                let (info, parsed) = &files[index];
+                                let local =
+                                    if parsed.source_file.statements.iter().any(|statement| {
+                                        matches!(
+                                            statement,
+                                            tsr_ast::Statement::NamespaceExportDeclaration(_)
+                                        )
+                                    }) {
+                                        None
+                                    } else {
+                                        let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
+                                        Some(bind_file(
+                                            names,
+                                            nodes,
+                                            parsed.source_file,
+                                            *info,
+                                            &jsdoc,
+                                            parsed.node_range.clone(),
+                                        ))
+                                    };
+                                if workers > 1 && index == 1 {
+                                    ready.send(()).unwrap();
+                                }
+                                (index, local)
+                            })
+                            .collect::<Vec<_>>()
+                    })
                 })
-            })
-            .collect();
-        handles.into_iter().map(|handle| handle.join().unwrap()).collect::<Vec<_>>()
-    });
-    let mut parallel = BindResult::empty();
-    let identity = parallel.symbols.identity().clone();
-    for (local, (info, parsed)) in completed.into_iter().rev().zip(&files) {
-        parallel = if let Some(local) = local {
-            parallel.publish_file(&arena, &nodes, local)
-        } else {
-            let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
-            bind_into_with_jsdoc(parallel, &arena, parsed.source_file, &nodes, *info, &jsdoc)
-        };
-        assert_eq!(parallel.symbols.identity(), &identity);
+                .collect();
+            handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<Vec<_>>()
+        });
+        completed.sort_by_key(|(index, _)| *index);
+        let mut parallel = BindResult::empty();
+        let identity = parallel.symbols.identity().clone();
+        for (local, (info, parsed)) in completed.into_iter().map(|(_, local)| local).zip(&files) {
+            parallel = if let Some(local) = local {
+                parallel.publish_file(&arena, &nodes, local)
+            } else {
+                let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
+                bind_into_with_jsdoc(parallel, &arena, parsed.source_file, &nodes, *info, &jsdoc)
+            };
+            assert_eq!(parallel.symbols.identity(), &identity);
+        }
+        assert_equivalent(&parallel, &serial);
     }
-    assert_equivalent(&parallel, &serial);
 }
 
 #[test]

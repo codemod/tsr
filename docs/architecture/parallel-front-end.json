@@ -1,0 +1,2091 @@
+{
+  "schema": 1,
+  "baseline_source_sha": "6d55ae54c2ca1062efdb16ceb2181b3c6a785591",
+  "runtime_source_sha": "d5ee4f365a2d320bdf7fa5a083c129303fca364f",
+  "probe_source_sha": "57b381b303ef91a24c3e4fff5feaaf661612d407",
+  "native_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "fixture_sha": "4d4f005c8541e0255a9d8791205fdce326e462bc",
+  "binary_sha256": {
+    "baseline": "8cf80dfbe2c03d80b8737a0a5b4d8455023acf186bb8001915edecc471e4cda0",
+    "candidate": "78a2cf4fb530b19a023645e4d23a0128aad69b83234b17e724690bd0dde5ad51"
+  },
+  "flags": [
+    "--noEmit",
+    "--incremental",
+    "false",
+    "--composite",
+    "false",
+    "--pretty",
+    "false"
+  ],
+  "machine": {
+    "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+    "cpu_count": 16,
+    "load_average": [
+      5.38720703125,
+      5.16015625,
+      5.4482421875
+    ]
+  },
+  "initial_API": {
+    "identity": "Uncommitted initial iteration; its CLI binary/source hash was not retained. These rows are not final-source confirmation.",
+    "samples": [
+      {
+        "pair": 0,
+        "tool": "baseline",
+        "pid": 8383,
+        "started_at_unix_ns": 1791322372334610000,
+        "wall_seconds": 8.940769625012763,
+        "user_seconds": 15.783019,
+        "system_seconds": 0.8661359999999999,
+        "peak_rss_bytes": 1578254336,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           2.667s\nFile read time:        1.100s\nMetadata time:         0.031s\nParse time:            0.475s\nFile discovery time:   1.017s\nResolver time:         0.950s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.146s\nConfig time:           0.022s\nProgram time:          2.853s\nChecker init time:     0.011s\nCheck time:            5.943s\nReporting time:        0.001s\nCompilation time:      8.831s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 0,
+        "tool": "candidate",
+        "pid": 8485,
+        "started_at_unix_ns": 1791322381276489000,
+        "wall_seconds": 7.309409500041511,
+        "user_seconds": 15.410751,
+        "system_seconds": 1.024016,
+        "peak_rss_bytes": 1667497984,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.424s\nFile read time:        0.161s\nMetadata time:         0.055s\nParse time:            0.466s\nFile discovery time:   0.690s\nResolver time:         0.646s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.104s\nConfig time:           0.020s\nProgram time:          1.573s\nChecker init time:     0.010s\nCheck time:            5.629s\nReporting time:        0.002s\nCompilation time:      7.234s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 1,
+        "tool": "candidate",
+        "pid": 8647,
+        "started_at_unix_ns": 1791322388586832000,
+        "wall_seconds": 8.170701750030275,
+        "user_seconds": 15.162901,
+        "system_seconds": 0.838565,
+        "peak_rss_bytes": 1715077120,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           2.652s\nFile read time:        1.105s\nMetadata time:         0.030s\nParse time:            0.463s\nFile discovery time:   1.006s\nResolver time:         0.945s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.100s\nConfig time:           0.009s\nProgram time:          2.792s\nChecker init time:     0.009s\nCheck time:            5.291s\nReporting time:        0.001s\nCompilation time:      8.103s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 1,
+        "tool": "baseline",
+        "pid": 8732,
+        "started_at_unix_ns": 1791322396759038000,
+        "wall_seconds": 6.899421041016467,
+        "user_seconds": 15.496873,
+        "system_seconds": 0.704352,
+        "peak_rss_bytes": 1651326976,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.175s\nFile read time:        0.141s\nMetadata time:         0.024s\nParse time:            0.507s\nFile discovery time:   0.470s\nResolver time:         0.409s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.156s\nConfig time:           0.015s\nProgram time:          1.374s\nChecker init time:     0.010s\nCheck time:            5.436s\nReporting time:        0.001s\nCompilation time:      6.836s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 2,
+        "tool": "baseline",
+        "pid": 8779,
+        "started_at_unix_ns": 1791322403660755000,
+        "wall_seconds": 6.7919026669696905,
+        "user_seconds": 15.036934,
+        "system_seconds": 0.63834,
+        "peak_rss_bytes": 1658388480,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.240s\nFile read time:        0.121s\nMetadata time:         0.023s\nParse time:            0.489s\nFile discovery time:   0.576s\nResolver time:         0.513s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.147s\nConfig time:           0.017s\nProgram time:          1.428s\nChecker init time:     0.010s\nCheck time:            5.276s\nReporting time:        0.001s\nCompilation time:      6.732s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 2,
+        "tool": "candidate",
+        "pid": 8844,
+        "started_at_unix_ns": 1791322410453839000,
+        "wall_seconds": 6.807060583028942,
+        "user_seconds": 15.195597,
+        "system_seconds": 0.970691,
+        "peak_rss_bytes": 1725644800,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.284s\nFile read time:        0.171s\nMetadata time:         0.024s\nParse time:            0.472s\nFile discovery time:   0.564s\nResolver time:         0.522s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.103s\nConfig time:           0.021s\nProgram time:          1.429s\nChecker init time:     0.010s\nCheck time:            5.284s\nReporting time:        0.001s\nCompilation time:      6.744s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 3,
+        "tool": "candidate",
+        "pid": 8928,
+        "started_at_unix_ns": 1791322417262599000,
+        "wall_seconds": 6.403090792009607,
+        "user_seconds": 15.096864,
+        "system_seconds": 0.680456,
+        "peak_rss_bytes": 1720336384,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.940s\nFile read time:        0.135s\nMetadata time:         0.023s\nParse time:            0.472s\nFile discovery time:   0.279s\nResolver time:         0.227s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.101s\nConfig time:           0.005s\nProgram time:          1.083s\nChecker init time:     0.009s\nCheck time:            5.243s\nReporting time:        0.001s\nCompilation time:      6.341s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 3,
+        "tool": "baseline",
+        "pid": 8988,
+        "started_at_unix_ns": 1791322423666914000,
+        "wall_seconds": 6.683072458021343,
+        "user_seconds": 14.787544,
+        "system_seconds": 0.64642,
+        "peak_rss_bytes": 1662156800,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.257s\nFile read time:        0.125s\nMetadata time:         0.024s\nParse time:            0.491s\nFile discovery time:   0.586s\nResolver time:         0.523s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.146s\nConfig time:           0.017s\nProgram time:          1.444s\nChecker init time:     0.009s\nCheck time:            5.145s\nReporting time:        0.002s\nCompilation time:      6.618s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 4,
+        "tool": "baseline",
+        "pid": 8995,
+        "started_at_unix_ns": 1791322430351908000,
+        "wall_seconds": 6.471296167001128,
+        "user_seconds": 15.000652,
+        "system_seconds": 0.6340439999999999,
+        "peak_rss_bytes": 1600274432,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.988s\nFile read time:        0.140s\nMetadata time:         0.024s\nParse time:            0.502s\nFile discovery time:   0.298s\nResolver time:         0.236s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.145s\nConfig time:           0.005s\nProgram time:          1.175s\nChecker init time:     0.010s\nCheck time:            5.219s\nReporting time:        0.001s\nCompilation time:      6.409s\n",
+        "stderr": ""
+      },
+      {
+        "pair": 4,
+        "tool": "candidate",
+        "pid": 9102,
+        "started_at_unix_ns": 1791322436824872000,
+        "wall_seconds": 6.869348666979931,
+        "user_seconds": 15.849424,
+        "system_seconds": 0.81709,
+        "peak_rss_bytes": 1667284992,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.081s\nFile read time:        0.128s\nMetadata time:         0.024s\nParse time:            0.480s\nFile discovery time:   0.408s\nResolver time:         0.357s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.106s\nConfig time:           0.018s\nProgram time:          1.230s\nChecker init time:     0.009s\nCheck time:            5.545s\nReporting time:        0.001s\nCompilation time:      6.804s\n",
+        "stderr": ""
+      }
+    ],
+    "summaries": {
+      "baseline": {
+        "wall_seconds": 6.7919026669696905,
+        "user_seconds": 15.036934,
+        "system_seconds": 0.64642,
+        "peak_rss_bytes": 1651326976
+      },
+      "candidate": {
+        "wall_seconds": 6.869348666979931,
+        "user_seconds": 15.195597,
+        "system_seconds": 0.838565,
+        "peak_rss_bytes": 1715077120
+      }
+    }
+  },
+  "confirmation": {
+    "frontend": {
+      "input_path_count": 195,
+      "input_reference_fingerprint": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+      "summary": {
+        "baseline": {
+          "wall_seconds": {
+            "median": 0.12003749998984858,
+            "p95": 0.1262271250016056,
+            "min": 0.1157855829806067,
+            "max": 0.1262271250016056
+          },
+          "user_seconds": {
+            "median": 0.098448,
+            "p95": 0.10003899999999999,
+            "min": 0.09577,
+            "max": 0.10003899999999999
+          },
+          "system_seconds": {
+            "median": 0.033046,
+            "p95": 0.034642,
+            "min": 0.028741,
+            "max": 0.034642
+          },
+          "peak_rss_bytes": {
+            "median": 182026240,
+            "p95": 213893120,
+            "min": 171245568,
+            "max": 213893120
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 0.08814083295874298,
+            "p95": 0.08853225002530962,
+            "min": 0.08447800000431016,
+            "max": 0.08853225002530962
+          },
+          "user_seconds": {
+            "median": 0.132109,
+            "p95": 0.13380999999999998,
+            "min": 0.13056399999999999,
+            "max": 0.13380999999999998
+          },
+          "system_seconds": {
+            "median": 0.051073,
+            "p95": 0.055824,
+            "min": 0.044416,
+            "max": 0.055824
+          },
+          "peak_rss_bytes": {
+            "median": 281427968,
+            "p95": 295731200,
+            "min": 279101440,
+            "max": 295731200
+          }
+        }
+      },
+      "phase_medians": {
+        "baseline": {
+          "Loader time": 0.068,
+          "Parse time": 0.061,
+          "Bind time": 0.034,
+          "Check time": 0.0
+        },
+        "candidate": {
+          "Loader time": 0.055,
+          "Parse time": 0.048,
+          "Bind time": 0.015,
+          "Check time": 0.0
+        }
+      },
+      "wall_ratio": 0.7342774796725767,
+      "diagnostics_identical": true,
+      "counts_identical": true,
+      "warmups": [
+        {
+          "pid": 21396,
+          "started_at_unix_ns": 1791323966071546000,
+          "wall_seconds": 0.1213673329912126,
+          "user_seconds": 0.09853999999999999,
+          "system_seconds": 0.036252,
+          "peak_rss_bytes": 196050944,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.069s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.062s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.035s\nConfig time:           0.000s\nProgram time:          0.104s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.105s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": -1,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.069,
+            "Parse time": 0.062,
+            "Bind time": 0.035,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21398,
+          "started_at_unix_ns": 1791323966224244000,
+          "wall_seconds": 0.08930708398111165,
+          "user_seconds": 0.135176,
+          "system_seconds": 0.047476,
+          "peak_rss_bytes": 290832384,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.056s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.049s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.015s\nConfig time:           0.000s\nProgram time:          0.071s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.072s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": -1,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.056,
+            "Parse time": 0.049,
+            "Bind time": 0.015,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        }
+      ],
+      "samples": [
+        {
+          "pid": 21400,
+          "started_at_unix_ns": 1791323966343132000,
+          "wall_seconds": 0.08845916698919609,
+          "user_seconds": 0.13380999999999998,
+          "system_seconds": 0.052343999999999995,
+          "peak_rss_bytes": 279101440,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.057s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.050s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.015s\nConfig time:           0.000s\nProgram time:          0.072s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.073s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 0,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.057,
+            "Parse time": 0.05,
+            "Bind time": 0.015,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21401,
+          "started_at_unix_ns": 1791323966461505000,
+          "wall_seconds": 0.1180807079654187,
+          "user_seconds": 0.097492,
+          "system_seconds": 0.033046,
+          "peak_rss_bytes": 179437568,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.068s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.060s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.034s\nConfig time:           0.000s\nProgram time:          0.102s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.102s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 0,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.068,
+            "Parse time": 0.06,
+            "Bind time": 0.034,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21402,
+          "started_at_unix_ns": 1791323966610494000,
+          "wall_seconds": 0.12003749998984858,
+          "user_seconds": 0.098448,
+          "system_seconds": 0.034642,
+          "peak_rss_bytes": 182026240,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.068s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.061s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.034s\nConfig time:           0.000s\nProgram time:          0.103s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.104s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 1,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.068,
+            "Parse time": 0.061,
+            "Bind time": 0.034,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21403,
+          "started_at_unix_ns": 1791323966760490000,
+          "wall_seconds": 0.08447800000431016,
+          "user_seconds": 0.132109,
+          "system_seconds": 0.044416,
+          "peak_rss_bytes": 281427968,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.054s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.047s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.014s\nConfig time:           0.000s\nProgram time:          0.069s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.069s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 1,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.054,
+            "Parse time": 0.047,
+            "Bind time": 0.014,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21404,
+          "started_at_unix_ns": 1791323966875743000,
+          "wall_seconds": 0.08799545798683539,
+          "user_seconds": 0.13328399999999999,
+          "system_seconds": 0.055824,
+          "peak_rss_bytes": 279511040,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.055s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.048s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.015s\nConfig time:           0.000s\nProgram time:          0.070s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.071s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 2,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.055,
+            "Parse time": 0.048,
+            "Bind time": 0.015,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21405,
+          "started_at_unix_ns": 1791323966994781000,
+          "wall_seconds": 0.1157855829806067,
+          "user_seconds": 0.09577,
+          "system_seconds": 0.034283999999999995,
+          "peak_rss_bytes": 171245568,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.066s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.059s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.034s\nConfig time:           0.000s\nProgram time:          0.101s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.101s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 2,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.066,
+            "Parse time": 0.059,
+            "Bind time": 0.034,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21406,
+          "started_at_unix_ns": 1791323967141451000,
+          "wall_seconds": 0.1262271250016056,
+          "user_seconds": 0.10003899999999999,
+          "system_seconds": 0.029279999999999997,
+          "peak_rss_bytes": 184401920,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.071s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.064s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.041s\nConfig time:           0.000s\nProgram time:          0.112s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.112s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 3,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.071,
+            "Parse time": 0.064,
+            "Bind time": 0.041,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21408,
+          "started_at_unix_ns": 1791323967298528000,
+          "wall_seconds": 0.08814083295874298,
+          "user_seconds": 0.131233,
+          "system_seconds": 0.044697999999999995,
+          "peak_rss_bytes": 294600704,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.055s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.048s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.015s\nConfig time:           0.000s\nProgram time:          0.071s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.071s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 3,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.055,
+            "Parse time": 0.048,
+            "Bind time": 0.015,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21409,
+          "started_at_unix_ns": 1791323967416157000,
+          "wall_seconds": 0.08853225002530962,
+          "user_seconds": 0.13056399999999999,
+          "system_seconds": 0.051073,
+          "peak_rss_bytes": 295731200,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.054s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.047s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.015s\nConfig time:           0.000s\nProgram time:          0.070s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.070s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 4,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.054,
+            "Parse time": 0.047,
+            "Bind time": 0.015,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        },
+        {
+          "pid": 21425,
+          "started_at_unix_ns": 1791323967541708000,
+          "wall_seconds": 0.12443475000327453,
+          "user_seconds": 0.09914099999999999,
+          "system_seconds": 0.028741,
+          "peak_rss_bytes": 213893120,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "Files:                 274\nChecked files:         0\nParsed files:          274\nLoader time:           0.071s\nFile read time:        0.002s\nMetadata time:         0.000s\nParse time:            0.063s\nFile discovery time:   0.003s\nResolver time:         0.000s\nResolver requests:     0\nReusable modules:      0\nReusable type refs:    0\nIndexing time:         0.000s\nBind time:             0.035s\nConfig time:           0.000s\nProgram time:          0.106s\nChecker init time:     0.000s\nCheck time:            0.000s\nReporting time:        0.000s\nCompilation time:      0.106s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 4,
+          "input_before": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "input_after": "421cfd07d5e73c7cd195199c2ec2cc3c8ad8f8094393c7d10ab19fca2c5fa773",
+          "phases": {
+            "Loader time": 0.071,
+            "Parse time": 0.063,
+            "Bind time": 0.035,
+            "Check time": 0.0
+          },
+          "counts": {
+            "Files": 274,
+            "Checked files": 0,
+            "Parsed files": 274
+          }
+        }
+      ],
+      "scope": {
+        "baseline": {
+          "loaded_order_sha256": "5acc10fbd030e6eea88c43d5e46df416ecefb46df45243bb6202033157fb199a",
+          "count": 274
+        },
+        "candidate": {
+          "loaded_order_sha256": "5acc10fbd030e6eea88c43d5e46df416ecefb46df45243bb6202033157fb199a",
+          "count": 274
+        }
+      },
+      "preflight_resources": {
+        "baseline": {
+          "config": {
+            "wall_seconds": 0.03966308297822252,
+            "user_seconds": 0.001431,
+            "system_seconds": 0.0019329999999999998,
+            "peak_rss_bytes": 2506752,
+            "exit_code": 0
+          },
+          "listing": {
+            "wall_seconds": 0.13084920798428357,
+            "user_seconds": 0.097938,
+            "system_seconds": 0.077093,
+            "peak_rss_bytes": 197296128,
+            "exit_code": 0
+          }
+        },
+        "candidate": {
+          "config": {
+            "wall_seconds": 0.17857941699912772,
+            "user_seconds": 0.002571,
+            "system_seconds": 0.002825,
+            "peak_rss_bytes": 2441216,
+            "exit_code": 0
+          },
+          "listing": {
+            "wall_seconds": 0.10963320801965892,
+            "user_seconds": 0.167676,
+            "system_seconds": 0.06501599999999999,
+            "peak_rss_bytes": 276987904,
+            "exit_code": 0
+          }
+        }
+      }
+    },
+    "API": {
+      "input_path_count": 9805,
+      "input_reference_fingerprint": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+      "summary": {
+        "baseline": {
+          "wall_seconds": {
+            "median": 7.2652677920414135,
+            "p95": 8.004192834021524,
+            "min": 7.15790933300741,
+            "max": 8.004192834021524
+          },
+          "user_seconds": {
+            "median": 16.297148,
+            "p95": 16.483448,
+            "min": 16.136143,
+            "max": 16.483448
+          },
+          "system_seconds": {
+            "median": 0.847472,
+            "p95": 0.893581,
+            "min": 0.6872969999999999,
+            "max": 0.893581
+          },
+          "peak_rss_bytes": {
+            "median": 1593622528,
+            "p95": 1649475584,
+            "min": 1579155456,
+            "max": 1649475584
+          }
+        },
+        "candidate": {
+          "wall_seconds": {
+            "median": 7.143317500012927,
+            "p95": 7.711113665951416,
+            "min": 6.709655875049066,
+            "max": 7.711113665951416
+          },
+          "user_seconds": {
+            "median": 16.258602,
+            "p95": 16.804682,
+            "min": 15.593047,
+            "max": 16.804682
+          },
+          "system_seconds": {
+            "median": 0.8912819999999999,
+            "p95": 1.045217,
+            "min": 0.7088519999999999,
+            "max": 1.045217
+          },
+          "peak_rss_bytes": {
+            "median": 1669152768,
+            "p95": 1693843456,
+            "min": 1612644352,
+            "max": 1693843456
+          }
+        }
+      },
+      "phase_medians": {
+        "baseline": {
+          "Loader time": 1.062,
+          "Parse time": 0.515,
+          "Bind time": 0.16,
+          "Check time": 5.892
+        },
+        "candidate": {
+          "Loader time": 1.101,
+          "Parse time": 0.51,
+          "Bind time": 0.111,
+          "Check time": 5.788
+        }
+      },
+      "wall_ratio": 0.9832146184395192,
+      "diagnostics_identical": true,
+      "counts_identical": true,
+      "warmups": [
+        {
+          "pid": 21467,
+          "started_at_unix_ns": 1791323972993756000,
+          "wall_seconds": 6.457564958021976,
+          "user_seconds": 14.924821,
+          "system_seconds": 0.63845,
+          "peak_rss_bytes": 1656913920,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.944s\nFile read time:        0.120s\nMetadata time:         0.023s\nParse time:            0.498s\nFile discovery time:   0.282s\nResolver time:         0.218s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.146s\nConfig time:           0.004s\nProgram time:          1.131s\nChecker init time:     0.010s\nCheck time:            5.244s\nReporting time:        0.001s\nCompilation time:      6.390s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": -1,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 0.944,
+            "Parse time": 0.498,
+            "Bind time": 0.146,
+            "Check time": 5.244
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21490,
+          "started_at_unix_ns": 1791323980853451000,
+          "wall_seconds": 6.625847749994136,
+          "user_seconds": 15.423484,
+          "system_seconds": 0.699283,
+          "peak_rss_bytes": 1637957632,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.965s\nFile read time:        0.123s\nMetadata time:         0.024s\nParse time:            0.491s\nFile discovery time:   0.305s\nResolver time:         0.240s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.104s\nConfig time:           0.015s\nProgram time:          1.111s\nChecker init time:     0.010s\nCheck time:            5.419s\nReporting time:        0.001s\nCompilation time:      6.555s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": -1,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 0.965,
+            "Parse time": 0.491,
+            "Bind time": 0.104,
+            "Check time": 5.419
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        }
+      ],
+      "samples": [
+        {
+          "pid": 21513,
+          "started_at_unix_ns": 1791323988758810000,
+          "wall_seconds": 6.709655875049066,
+          "user_seconds": 15.593047,
+          "system_seconds": 0.7088519999999999,
+          "peak_rss_bytes": 1669152768,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.995s\nFile read time:        0.125s\nMetadata time:         0.025s\nParse time:            0.498s\nFile discovery time:   0.324s\nResolver time:         0.257s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.108s\nConfig time:           0.015s\nProgram time:          1.148s\nChecker init time:     0.009s\nCheck time:            5.470s\nReporting time:        0.001s\nCompilation time:      6.643s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 0,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 0.995,
+            "Parse time": 0.498,
+            "Bind time": 0.108,
+            "Check time": 5.47
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21544,
+          "started_at_unix_ns": 1791323996824050000,
+          "wall_seconds": 7.15790933300741,
+          "user_seconds": 16.136143,
+          "system_seconds": 0.6872969999999999,
+          "peak_rss_bytes": 1605926912,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           0.987s\nFile read time:        0.120s\nMetadata time:         0.024s\nParse time:            0.507s\nFile discovery time:   0.315s\nResolver time:         0.248s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.015s\nBind time:             0.144s\nConfig time:           0.016s\nProgram time:          1.172s\nChecker init time:     0.010s\nCheck time:            5.886s\nReporting time:        0.001s\nCompilation time:      7.085s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 0,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 0.987,
+            "Parse time": 0.507,
+            "Bind time": 0.144,
+            "Check time": 5.886
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21631,
+          "started_at_unix_ns": 1791324005715590000,
+          "wall_seconds": 8.004192834021524,
+          "user_seconds": 16.400348,
+          "system_seconds": 0.892733,
+          "peak_rss_bytes": 1649475584,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.030s\nFile read time:        0.131s\nMetadata time:         0.027s\nParse time:            0.515s\nFile discovery time:   0.330s\nResolver time:         0.263s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.161s\nConfig time:           0.011s\nProgram time:          1.235s\nChecker init time:     0.011s\nCheck time:            6.662s\nReporting time:        0.001s\nCompilation time:      7.920s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 1,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.03,
+            "Parse time": 0.515,
+            "Bind time": 0.161,
+            "Check time": 6.662
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21706,
+          "started_at_unix_ns": 1791324015733467000,
+          "wall_seconds": 7.711113665951416,
+          "user_seconds": 16.804682,
+          "system_seconds": 1.045217,
+          "peak_rss_bytes": 1612644352,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.279s\nFile read time:        0.173s\nMetadata time:         0.063s\nParse time:            0.526s\nFile discovery time:   0.490s\nResolver time:         0.416s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.017s\nBind time:             0.129s\nConfig time:           0.014s\nProgram time:          1.455s\nChecker init time:     0.011s\nCheck time:            6.154s\nReporting time:        0.001s\nCompilation time:      7.635s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 1,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.279,
+            "Parse time": 0.526,
+            "Bind time": 0.129,
+            "Check time": 6.154
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21734,
+          "started_at_unix_ns": 1791324025159049000,
+          "wall_seconds": 7.351617707987316,
+          "user_seconds": 16.093319,
+          "system_seconds": 0.9223859999999999,
+          "peak_rss_bytes": 1693843456,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.269s\nFile read time:        0.195s\nMetadata time:         0.037s\nParse time:            0.515s\nFile discovery time:   0.496s\nResolver time:         0.426s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.017s\nBind time:             0.247s\nConfig time:           0.013s\nProgram time:          1.561s\nChecker init time:     0.010s\nCheck time:            5.687s\nReporting time:        0.001s\nCompilation time:      7.272s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 2,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.269,
+            "Parse time": 0.515,
+            "Bind time": 0.247,
+            "Check time": 5.687
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21757,
+          "started_at_unix_ns": 1791324034146682000,
+          "wall_seconds": 7.257462999958079,
+          "user_seconds": 16.277235,
+          "system_seconds": 0.8067,
+          "peak_rss_bytes": 1579155456,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.062s\nFile read time:        0.165s\nMetadata time:         0.028s\nParse time:            0.506s\nFile discovery time:   0.341s\nResolver time:         0.274s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.017s\nBind time:             0.156s\nConfig time:           0.014s\nProgram time:          1.263s\nChecker init time:     0.010s\nCheck time:            5.892s\nReporting time:        0.001s\nCompilation time:      7.180s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 2,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.062,
+            "Parse time": 0.506,
+            "Bind time": 0.156,
+            "Check time": 5.892
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21796,
+          "started_at_unix_ns": 1791324042697474000,
+          "wall_seconds": 7.409359083976597,
+          "user_seconds": 16.483448,
+          "system_seconds": 0.893581,
+          "peak_rss_bytes": 1593622528,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.191s\nFile read time:        0.223s\nMetadata time:         0.030s\nParse time:            0.529s\nFile discovery time:   0.384s\nResolver time:         0.314s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.017s\nBind time:             0.166s\nConfig time:           0.017s\nProgram time:          1.404s\nChecker init time:     0.010s\nCheck time:            5.900s\nReporting time:        0.001s\nCompilation time:      7.332s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 3,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.191,
+            "Parse time": 0.529,
+            "Bind time": 0.166,
+            "Check time": 5.9
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21819,
+          "started_at_unix_ns": 1791324051572342000,
+          "wall_seconds": 7.142603749991395,
+          "user_seconds": 16.320016,
+          "system_seconds": 0.873265,
+          "peak_rss_bytes": 1673265152,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.084s\nFile read time:        0.166s\nMetadata time:         0.029s\nParse time:            0.510s\nFile discovery time:   0.355s\nResolver time:         0.285s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.017s\nBind time:             0.111s\nConfig time:           0.013s\nProgram time:          1.239s\nChecker init time:     0.009s\nCheck time:            5.793s\nReporting time:        0.001s\nCompilation time:      7.055s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 3,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.084,
+            "Parse time": 0.51,
+            "Bind time": 0.111,
+            "Check time": 5.793
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21843,
+          "started_at_unix_ns": 1791324060378736000,
+          "wall_seconds": 7.143317500012927,
+          "user_seconds": 16.258602,
+          "system_seconds": 0.8912819999999999,
+          "peak_rss_bytes": 1664712704,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.101s\nFile read time:        0.173s\nMetadata time:         0.029s\nParse time:            0.508s\nFile discovery time:   0.364s\nResolver time:         0.295s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.018s\nBind time:             0.110s\nConfig time:           0.015s\nProgram time:          1.257s\nChecker init time:     0.010s\nCheck time:            5.788s\nReporting time:        0.001s\nCompilation time:      7.070s\n",
+          "stderr": "",
+          "tool": "candidate",
+          "pair": 4,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.101,
+            "Parse time": 0.508,
+            "Bind time": 0.11,
+            "Check time": 5.788
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        },
+        {
+          "pid": 21885,
+          "started_at_unix_ns": 1791324069259189000,
+          "wall_seconds": 7.2652677920414135,
+          "user_seconds": 16.297148,
+          "system_seconds": 0.847472,
+          "peak_rss_bytes": 1590099968,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1952,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1958,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1969,17): error TS1005: ',' expected.\n../../node_modules/ioredis/built/utils/RedisCommander.d.ts(1975,17): error TS1005: ',' expected.\nFiles:                 9861\nChecked files:         615\nParsed files:          10555\nLoader time:           1.104s\nFile read time:        0.166s\nMetadata time:         0.029s\nParse time:            0.530s\nFile discovery time:   0.356s\nResolver time:         0.288s\nResolver requests:     32364\nReusable modules:      15490\nReusable type refs:    39\nIndexing time:         0.016s\nBind time:             0.160s\nConfig time:           0.014s\nProgram time:          1.309s\nChecker init time:     0.010s\nCheck time:            5.853s\nReporting time:        0.001s\nCompilation time:      7.187s\n",
+          "stderr": "",
+          "tool": "baseline",
+          "pair": 4,
+          "input_before": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "input_after": "88f85b5358af5d7bedacd15f8929b1b26dc1dc4f7be4a949fd680879a7e766b2",
+          "phases": {
+            "Loader time": 1.104,
+            "Parse time": 0.53,
+            "Bind time": 0.16,
+            "Check time": 5.853
+          },
+          "counts": {
+            "Files": 9861,
+            "Checked files": 615,
+            "Parsed files": 10555
+          }
+        }
+      ],
+      "scope": {
+        "baseline": {
+          "loaded_order_sha256": "3ff8766c974c929b15d7bb380b26fa933c19ea88e2b8b624a4d6ed117815a6ab",
+          "count": 9861
+        },
+        "candidate": {
+          "loaded_order_sha256": "3ff8766c974c929b15d7bb380b26fa933c19ea88e2b8b624a4d6ed117815a6ab",
+          "count": 9861
+        }
+      },
+      "preflight_resources": {
+        "baseline": {
+          "config": {
+            "wall_seconds": 0.02547879097983241,
+            "user_seconds": 0.0046489999999999995,
+            "system_seconds": 0.005475,
+            "peak_rss_bytes": 3211264,
+            "exit_code": 0
+          },
+          "listing": {
+            "wall_seconds": 2.963854583038483,
+            "user_seconds": 0.909756,
+            "system_seconds": 0.552523,
+            "peak_rss_bytes": 693829632,
+            "exit_code": 0
+          }
+        },
+        "candidate": {
+          "config": {
+            "wall_seconds": 0.009912583976984024,
+            "user_seconds": 0.004373999999999999,
+            "system_seconds": 0.0038429999999999996,
+            "peak_rss_bytes": 2883584,
+            "exit_code": 0
+          },
+          "listing": {
+            "wall_seconds": 1.1665403330116533,
+            "user_seconds": 1.039795,
+            "system_seconds": 0.41142199999999995,
+            "peak_rss_bytes": 851427328,
+            "exit_code": 0
+          }
+        }
+      }
+    }
+  },
+  "ownership_probe": {
+    "source_sha": "57b381b303ef91a24c3e4fff5feaaf661612d407",
+    "runtime_source_sha": "d5ee4f365a2d320bdf7fa5a083c129303fca364f",
+    "binary_sha256": "7ef3e33b6548f838f08b82ae4023eaad4e456ec67746919efee2082710af2fa1",
+    "input_fingerprint": "a86769a7098360c1e05c04be8a130023e3115f928ab5b15f23d37f0203ace291",
+    "limitations": [
+      "This probe retains all private results, an upper envelope rather than the production bounded queue.",
+      "Arena allocated_bytes counts requested bytes; heap capacities, allocator overhead and padding are separate.",
+      "Per-phase timings are wall time; per-process user/system CPU and RSS include all phases and startup.",
+      "It omits loader discovery, resolution and checking, so it cannot establish a release speed target."
+    ],
+    "summary": {
+      "1": {
+        "workers": 1,
+        "files": 192,
+        "nodes": 876480,
+        "private_parse_seconds": 0.043610792,
+        "publication_seconds": 0.022736167,
+        "name_preparation_seconds": 0.00109075,
+        "private_bind_seconds": 0.030532292,
+        "merge_seconds": 0.010767584,
+        "private_ast_requested_bytes": 38736384,
+        "canonical_ast_requested_bytes": 42015346,
+        "canonical_binder_heap_bytes": 15387136
+      },
+      "2": {
+        "workers": 2,
+        "files": 192,
+        "nodes": 876480,
+        "private_parse_seconds": 0.02226175,
+        "publication_seconds": 0.023207458,
+        "name_preparation_seconds": 0.001087792,
+        "private_bind_seconds": 0.015877083,
+        "merge_seconds": 0.010936584,
+        "private_ast_requested_bytes": 38736384,
+        "canonical_ast_requested_bytes": 42015346,
+        "canonical_binder_heap_bytes": 15387136
+      },
+      "default": {
+        "workers": 16,
+        "files": 192,
+        "nodes": 876480,
+        "private_parse_seconds": 0.00592075,
+        "publication_seconds": 0.023985708,
+        "name_preparation_seconds": 0.001119958,
+        "private_bind_seconds": 0.004223083,
+        "merge_seconds": 0.009092458,
+        "private_ast_requested_bytes": 38736384,
+        "canonical_ast_requested_bytes": 42015346,
+        "canonical_binder_heap_bytes": 15387136
+      }
+    },
+    "resources": {
+      "1": {
+        "wall_seconds": {
+          "median": 0.1314991670078598,
+          "p95": 0.13454224995803088,
+          "min": 0.12786329101072624,
+          "max": 0.13454224995803088
+        },
+        "user_seconds": {
+          "median": 0.094582,
+          "p95": 0.09593499999999999,
+          "min": 0.09404699999999999,
+          "max": 0.09593499999999999
+        },
+        "system_seconds": {
+          "median": 0.032826,
+          "p95": 0.03576,
+          "min": 0.029994999999999997,
+          "max": 0.03576
+        },
+        "peak_rss_bytes": {
+          "median": 298598400,
+          "p95": 319242240,
+          "min": 284065792,
+          "max": 319242240
+        }
+      },
+      "2": {
+        "wall_seconds": {
+          "median": 0.09655187500175089,
+          "p95": 0.0969647919991985,
+          "min": 0.08944766694912687,
+          "max": 0.0969647919991985
+        },
+        "user_seconds": {
+          "median": 0.095417,
+          "p95": 0.097068,
+          "min": 0.092928,
+          "max": 0.097068
+        },
+        "system_seconds": {
+          "median": 0.035001,
+          "p95": 0.035338999999999995,
+          "min": 0.028700999999999997,
+          "max": 0.035338999999999995
+        },
+        "peak_rss_bytes": {
+          "median": 319963136,
+          "p95": 343162880,
+          "min": 280182784,
+          "max": 343162880
+        }
+      },
+      "default": {
+        "wall_seconds": {
+          "median": 0.06225237500621006,
+          "p95": 0.06364975002361462,
+          "min": 0.059348167036660016,
+          "max": 0.06364975002361462
+        },
+        "user_seconds": {
+          "median": 0.103047,
+          "p95": 0.104131,
+          "min": 0.099198,
+          "max": 0.104131
+        },
+        "system_seconds": {
+          "median": 0.041353999999999995,
+          "p95": 0.043067999999999995,
+          "min": 0.035509,
+          "max": 0.043067999999999995
+        },
+        "peak_rss_bytes": {
+          "median": 290881536,
+          "p95": 301580288,
+          "min": 280428544,
+          "max": 301580288
+        }
+      }
+    },
+    "samples": [
+      {
+        "pid": 25768,
+        "started_at_unix_ns": 1791324475168328000,
+        "wall_seconds": 0.09339370799716562,
+        "user_seconds": 0.095417,
+        "system_seconds": 0.031319,
+        "peak_rss_bytes": 280182784,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.022253709,\"publication_seconds\":0.022463541,\"name_preparation_seconds\":0.001087792,\"private_bind_seconds\":0.015627709,\"merge_seconds\":0.010936584,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": 0,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.022253709,
+          "publication_seconds": 0.022463541,
+          "name_preparation_seconds": 0.001087792,
+          "private_bind_seconds": 0.015627709,
+          "merge_seconds": 0.010936584,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25769,
+        "started_at_unix_ns": 1791324475280589000,
+        "wall_seconds": 0.06103375001111999,
+        "user_seconds": 0.103047,
+        "system_seconds": 0.037743,
+        "peak_rss_bytes": 290881536,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.005396125,\"publication_seconds\":0.021973625,\"name_preparation_seconds\":0.001052709,\"private_bind_seconds\":0.004227292,\"merge_seconds\":0.009292375,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": 0,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.005396125,
+          "publication_seconds": 0.021973625,
+          "name_preparation_seconds": 0.001052709,
+          "private_bind_seconds": 0.004227292,
+          "merge_seconds": 0.009292375,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25770,
+        "started_at_unix_ns": 1791324475361797000,
+        "wall_seconds": 0.12990366597659886,
+        "user_seconds": 0.09404699999999999,
+        "system_seconds": 0.031925999999999996,
+        "peak_rss_bytes": 296583168,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.043625,\"publication_seconds\":0.022300709,\"name_preparation_seconds\":0.001105458,\"private_bind_seconds\":0.030532292,\"merge_seconds\":0.010767584,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": 0,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.043625,
+          "publication_seconds": 0.022300709,
+          "name_preparation_seconds": 0.001105458,
+          "private_bind_seconds": 0.030532292,
+          "merge_seconds": 0.010767584,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25771,
+        "started_at_unix_ns": 1791324475511572000,
+        "wall_seconds": 0.059348167036660016,
+        "user_seconds": 0.099198,
+        "system_seconds": 0.035509,
+        "peak_rss_bytes": 280428544,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.00592075,\"publication_seconds\":0.022334542,\"name_preparation_seconds\":0.000961917,\"private_bind_seconds\":0.004006125,\"merge_seconds\":0.008896666,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": 1,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.00592075,
+          "publication_seconds": 0.022334542,
+          "name_preparation_seconds": 0.000961917,
+          "private_bind_seconds": 0.004006125,
+          "merge_seconds": 0.008896666,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25772,
+        "started_at_unix_ns": 1791324475591832000,
+        "wall_seconds": 0.1317671249853447,
+        "user_seconds": 0.0943,
+        "system_seconds": 0.03576,
+        "peak_rss_bytes": 313475072,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.043610792,\"publication_seconds\":0.02265225,\"name_preparation_seconds\":0.001142208,\"private_bind_seconds\":0.030020125,\"merge_seconds\":0.01140425,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": 1,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.043610792,
+          "publication_seconds": 0.02265225,
+          "name_preparation_seconds": 0.001142208,
+          "private_bind_seconds": 0.030020125,
+          "merge_seconds": 0.01140425,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25774,
+        "started_at_unix_ns": 1791324475743476000,
+        "wall_seconds": 0.09655187500175089,
+        "user_seconds": 0.09504399999999999,
+        "system_seconds": 0.035329,
+        "peak_rss_bytes": 325091328,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.02226175,\"publication_seconds\":0.023207458,\"name_preparation_seconds\":0.001204459,\"private_bind_seconds\":0.01641775,\"merge_seconds\":0.012041125,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": 1,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.02226175,
+          "publication_seconds": 0.023207458,
+          "name_preparation_seconds": 0.001204459,
+          "private_bind_seconds": 0.01641775,
+          "merge_seconds": 0.012041125,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25787,
+        "started_at_unix_ns": 1791324475873396000,
+        "wall_seconds": 0.13454224995803088,
+        "user_seconds": 0.09593499999999999,
+        "system_seconds": 0.035266,
+        "peak_rss_bytes": 284065792,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.043358458,\"publication_seconds\":0.025008333,\"name_preparation_seconds\":0.00109075,\"private_bind_seconds\":0.030813917,\"merge_seconds\":0.010818416,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": 2,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.043358458,
+          "publication_seconds": 0.025008333,
+          "name_preparation_seconds": 0.00109075,
+          "private_bind_seconds": 0.030813917,
+          "merge_seconds": 0.010818416,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25788,
+        "started_at_unix_ns": 1791324476026974000,
+        "wall_seconds": 0.0969647919991985,
+        "user_seconds": 0.096534,
+        "system_seconds": 0.035001,
+        "peak_rss_bytes": 343162880,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.022271542,\"publication_seconds\":0.02391875,\"name_preparation_seconds\":0.001017042,\"private_bind_seconds\":0.015902166,\"merge_seconds\":0.012534,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": 2,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.022271542,
+          "publication_seconds": 0.02391875,
+          "name_preparation_seconds": 0.001017042,
+          "private_bind_seconds": 0.015902166,
+          "merge_seconds": 0.012534,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25789,
+        "started_at_unix_ns": 1791324476143127000,
+        "wall_seconds": 0.06364975002361462,
+        "user_seconds": 0.104131,
+        "system_seconds": 0.042720999999999995,
+        "peak_rss_bytes": 285671424,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.006791084,\"publication_seconds\":0.02401775,\"name_preparation_seconds\":0.001202167,\"private_bind_seconds\":0.004578459,\"merge_seconds\":0.009207459,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": 2,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.006791084,
+          "publication_seconds": 0.02401775,
+          "name_preparation_seconds": 0.001202167,
+          "private_bind_seconds": 0.004578459,
+          "merge_seconds": 0.009207459,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25790,
+        "started_at_unix_ns": 1791324476226773000,
+        "wall_seconds": 0.09687112498795614,
+        "user_seconds": 0.097068,
+        "system_seconds": 0.035338999999999995,
+        "peak_rss_bytes": 319963136,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.022988875,\"publication_seconds\":0.024676125,\"name_preparation_seconds\":0.001199375,\"private_bind_seconds\":0.015877083,\"merge_seconds\":0.010819375,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": 3,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.022988875,
+          "publication_seconds": 0.024676125,
+          "name_preparation_seconds": 0.001199375,
+          "private_bind_seconds": 0.015877083,
+          "merge_seconds": 0.010819375,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25791,
+        "started_at_unix_ns": 1791324476342778000,
+        "wall_seconds": 0.06356187496567145,
+        "user_seconds": 0.10317899999999999,
+        "system_seconds": 0.043067999999999995,
+        "peak_rss_bytes": 301580288,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.006320583,\"publication_seconds\":0.023985708,\"name_preparation_seconds\":0.001119958,\"private_bind_seconds\":0.0040885,\"merge_seconds\":0.009092458,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": 3,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.006320583,
+          "publication_seconds": 0.023985708,
+          "name_preparation_seconds": 0.001119958,
+          "private_bind_seconds": 0.0040885,
+          "merge_seconds": 0.009092458,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25792,
+        "started_at_unix_ns": 1791324476425351000,
+        "wall_seconds": 0.1314991670078598,
+        "user_seconds": 0.09497399999999999,
+        "system_seconds": 0.032826,
+        "peak_rss_bytes": 319242240,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.043622458,\"publication_seconds\":0.023940834,\"name_preparation_seconds\":0.001082166,\"private_bind_seconds\":0.030657125,\"merge_seconds\":0.010570333,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": 3,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.043622458,
+          "publication_seconds": 0.023940834,
+          "name_preparation_seconds": 0.001082166,
+          "private_bind_seconds": 0.030657125,
+          "merge_seconds": 0.010570333,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25793,
+        "started_at_unix_ns": 1791324476575811000,
+        "wall_seconds": 0.06225237500621006,
+        "user_seconds": 0.102757,
+        "system_seconds": 0.041353999999999995,
+        "peak_rss_bytes": 293109760,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.005837084,\"publication_seconds\":0.024124875,\"name_preparation_seconds\":0.001156917,\"private_bind_seconds\":0.004223083,\"merge_seconds\":0.008148458,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": 4,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.005837084,
+          "publication_seconds": 0.024124875,
+          "name_preparation_seconds": 0.001156917,
+          "private_bind_seconds": 0.004223083,
+          "merge_seconds": 0.008148458,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25794,
+        "started_at_unix_ns": 1791324476658696000,
+        "wall_seconds": 0.12786329101072624,
+        "user_seconds": 0.094582,
+        "system_seconds": 0.029994999999999997,
+        "peak_rss_bytes": 298598400,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.04312,\"publication_seconds\":0.022736167,\"name_preparation_seconds\":0.001041875,\"private_bind_seconds\":0.030290708,\"merge_seconds\":0.009777042,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": 4,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.04312,
+          "publication_seconds": 0.022736167,
+          "name_preparation_seconds": 0.001041875,
+          "private_bind_seconds": 0.030290708,
+          "merge_seconds": 0.009777042,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25795,
+        "started_at_unix_ns": 1791324476806103000,
+        "wall_seconds": 0.08944766694912687,
+        "user_seconds": 0.092928,
+        "system_seconds": 0.028700999999999997,
+        "peak_rss_bytes": 298778624,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.021897708,\"publication_seconds\":0.022188792,\"name_preparation_seconds\":0.001087334,\"private_bind_seconds\":0.0157015,\"merge_seconds\":0.008017042,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": 4,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.021897708,
+          "publication_seconds": 0.022188792,
+          "name_preparation_seconds": 0.001087334,
+          "private_bind_seconds": 0.0157015,
+          "merge_seconds": 0.008017042,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      }
+    ],
+    "warmups": [
+      {
+        "pid": 25765,
+        "started_at_unix_ns": 1791324474699384000,
+        "wall_seconds": 0.25556991703342646,
+        "user_seconds": 0.096842,
+        "system_seconds": 0.035563,
+        "peak_rss_bytes": 331218944,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":1,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.043353167,\"publication_seconds\":0.024884708,\"name_preparation_seconds\":0.00118,\"private_bind_seconds\":0.031335083,\"merge_seconds\":0.01167475,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "1",
+        "pair": -1,
+        "probe": {
+          "workers": 1,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.043353167,
+          "publication_seconds": 0.024884708,
+          "name_preparation_seconds": 0.00118,
+          "private_bind_seconds": 0.031335083,
+          "merge_seconds": 0.01167475,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25766,
+        "started_at_unix_ns": 1791324474975333000,
+        "wall_seconds": 0.09419400000479072,
+        "user_seconds": 0.095688,
+        "system_seconds": 0.032119999999999996,
+        "peak_rss_bytes": 303546368,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":2,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.021680958,\"publication_seconds\":0.024145459,\"name_preparation_seconds\":0.001099375,\"private_bind_seconds\":0.015853958,\"merge_seconds\":0.009359083,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "2",
+        "pair": -1,
+        "probe": {
+          "workers": 2,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.021680958,
+          "publication_seconds": 0.024145459,
+          "name_preparation_seconds": 0.001099375,
+          "private_bind_seconds": 0.015853958,
+          "merge_seconds": 0.009359083,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      },
+      {
+        "pid": 25767,
+        "started_at_unix_ns": 1791324475087452000,
+        "wall_seconds": 0.06166120897978544,
+        "user_seconds": 0.102515,
+        "system_seconds": 0.040444999999999995,
+        "peak_rss_bytes": 289947648,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "{\"workers\":16,\"files\":192,\"nodes\":876480,\"private_parse_seconds\":0.005501125,\"publication_seconds\":0.022884292,\"name_preparation_seconds\":0.001111792,\"private_bind_seconds\":0.004285,\"merge_seconds\":0.008709792,\"private_ast_requested_bytes\":38736384,\"canonical_ast_requested_bytes\":42015346,\"canonical_binder_heap_bytes\":15387136}\n",
+        "stderr": "",
+        "mode": "default",
+        "pair": -1,
+        "probe": {
+          "workers": 16,
+          "files": 192,
+          "nodes": 876480,
+          "private_parse_seconds": 0.005501125,
+          "publication_seconds": 0.022884292,
+          "name_preparation_seconds": 0.001111792,
+          "private_bind_seconds": 0.004285,
+          "merge_seconds": 0.008709792,
+          "private_ast_requested_bytes": 38736384,
+          "canonical_ast_requested_bytes": 42015346,
+          "canonical_binder_heap_bytes": 15387136
+        }
+      }
+    ]
+  },
+  "type_fidelity": {
+    "source_sha": "d5ee4f365a2d320bdf7fa5a083c129303fca364f",
+    "exit_code": 0,
+    "seconds": 144.72949370904826,
+    "before_sha256": "acdc6a1df173b7b598b8627c3ad27dbd1758b94301a992722a02477a7f586b50",
+    "final_sha256": "acdc6a1df173b7b598b8627c3ad27dbd1758b94301a992722a02477a7f586b50",
+    "byte_identical": true,
+    "previously_RIGHT_losses": 0,
+    "summary": "TOTAL 477970  right 469765  gap 993  wrong 7212\n"
+  },
+  "corpus_suites": {
+    "baseline": {
+      "exit_code": 0,
+      "seconds": 110.3739085830166,
+      "hashes": {
+        "binder_symbols": "f69792fe70eb4abb7e027ca3f0bdb976afcb5bccaf127e180a11f1d2002e514b",
+        "file_loader": "644a3d468538f0d83bd7bee86986991dd1e5a4e8cf955c5fb0db7df075b9791e",
+        "diagnostics": "26cb89fa3950f693755483bc4d5e337e2b99a4e09ece7321b4732dc710666e50"
+      },
+      "summary": "corpus: 12444 cases, upstream 5b1047d10d32e7d5b446be4de56b126ff42f82bb\n\nsuite                                    passed      rate   skipped     lines\nbinder_symbols                        8508/8508   100.00%      3936         \u2014\nfile_loader                               96/96   100.00%     12348         \u2014\ndiagnostics                           4221/5502    76.72%      6942         \u2014\n\n"
+    },
+    "candidate": {
+      "exit_code": 0,
+      "seconds": 118.00836383301066,
+      "hashes": {
+        "binder_symbols": "f69792fe70eb4abb7e027ca3f0bdb976afcb5bccaf127e180a11f1d2002e514b",
+        "file_loader": "644a3d468538f0d83bd7bee86986991dd1e5a4e8cf955c5fb0db7df075b9791e",
+        "diagnostics": "26cb89fa3950f693755483bc4d5e337e2b99a4e09ece7321b4732dc710666e50"
+      },
+      "summary": "corpus: 12444 cases, upstream 5b1047d10d32e7d5b446be4de56b126ff42f82bb\n\nsuite                                    passed      rate   skipped     lines\nbinder_symbols                        8508/8508   100.00%      3936         \u2014\nfile_loader                               96/96   100.00%     12348         \u2014\ndiagnostics                           4221/5502    76.72%      6942         \u2014\n\n"
+    },
+    "identical": true
+  },
+  "negative_controls": [
+    {
+      "mutation": "symbol-offset",
+      "exit": 101,
+      "test_rejected": true,
+      "seconds": 2.854840707965195,
+      "original_sha256": "e9dfb35fb4e18da0f73262e79bbfd2cff326c697b7583c8c80ba1021c1529cd3",
+      "restored": true
+    },
+    {
+      "mutation": "node-base",
+      "exit": 101,
+      "test_rejected": true,
+      "seconds": 4.896848917007446,
+      "original_sha256": "6d2a7534f271512f78369d4d006a6b78626778e581614e272bc1e1fbcb98026e",
+      "restored": true
+    },
+    {
+      "mutation": "merge-order",
+      "source_sha": "d5ee4f365a2d320bdf7fa5a083c129303fca364f",
+      "exit": 101,
+      "test_rejected": true,
+      "seconds": 3.623499667039141,
+      "original_sha256": "4211ac510f8ccecf23baed97a2dc45c8bae3daa53a8b5aef8bb3a26abaa6d4e4",
+      "restored": true
+    }
+  ],
+  "consumer_inventory": {
+    "source_sha": "d5ee4f365a2d320bdf7fa5a083c129303fca364f",
+    "pattern": "\\.node_id\\b|NodeId|SymbolId|FlowId|CellId|PreparedNames",
+    "inventory_sha256": "aabc73496c576e5c657f245fa729cd22d4a7ae2ec04ab81036113bd79f3d41b2",
+    "matching_lines": 8392,
+    "files": 299,
+    "per_path": {
+      "crates/tsr-ast/src/generated/alias.rs": 1115,
+      "crates/tsr-ast/src/generated/nodes.rs": 1147,
+      "crates/tsr-ast/src/generated/publish.rs": 192,
+      "crates/tsr-ast/src/generated/visit.rs": 454,
+      "crates/tsr-ast/src/lib.rs": 24,
+      "crates/tsr-ast/src/node_map.rs": 5,
+      "crates/tsr-ast/src/parent.rs": 3,
+      "crates/tsr-ast/src/predicates.rs": 25,
+      "crates/tsr-ast/src/publication.rs": 7,
+      "crates/tsr-binder/examples/node_lookup.rs": 17,
+      "crates/tsr-binder/src/binder.rs": 193,
+      "crates/tsr-binder/src/container.rs": 3,
+      "crates/tsr-binder/src/flow.rs": 66,
+      "crates/tsr-binder/src/lib.rs": 101,
+      "crates/tsr-binder/src/names.rs": 5,
+      "crates/tsr-binder/src/narrowing.rs": 5,
+      "crates/tsr-binder/src/parallel_tests.rs": 2,
+      "crates/tsr-binder/src/symbol.rs": 24,
+      "crates/tsr-binder/tests/bind.rs": 25,
+      "crates/tsr-binder/tests/flow.rs": 13,
+      "crates/tsr-binder/tests/function_expression_self_name.rs": 7,
+      "crates/tsr-binder/tests/jsdoc_scopes.rs": 3,
+      "crates/tsr-binder/tests/nameres_export_symbol.rs": 4,
+      "crates/tsr-binder/tests/namespace_exports.rs": 1,
+      "crates/tsr-binder/tests/program.rs": 12,
+      "crates/tsr-checker-spike/src/handles.rs": 6,
+      "crates/tsr-checker-spike/src/lib.rs": 1,
+      "crates/tsr-checker-spike/src/program.rs": 11,
+      "crates/tsr-checker-spike/src/refs_cell.rs": 6,
+      "crates/tsr-checker-spike/src/refs_refcell.rs": 6,
+      "crates/tsr-checker/src/array_literals.rs": 40,
+      "crates/tsr-checker/src/assertion_overlap.rs": 4,
+      "crates/tsr-checker/src/assertions.rs": 4,
+      "crates/tsr-checker/src/assignment_declarations.rs": 25,
+      "crates/tsr-checker/src/assignreport.rs": 111,
+      "crates/tsr-checker/src/base_types.rs": 18,
+      "crates/tsr-checker/src/binding_patterns.rs": 17,
+      "crates/tsr-checker/src/call_arity.rs": 29,
+      "crates/tsr-checker/src/callable_expandos.rs": 6,
+      "crates/tsr-checker/src/calls.rs": 98,
+      "crates/tsr-checker/src/check.rs": 605,
+      "crates/tsr-checker/src/checker.rs": 156,
+      "crates/tsr-checker/src/circular_alias.rs": 10,
+      "crates/tsr-checker/src/class_function_merge.rs": 3,
+      "crates/tsr-checker/src/comparison_overlap.rs": 3,
+      "crates/tsr-checker/src/computed_name.rs": 15,
+      "crates/tsr-checker/src/const_inference.rs": 3,
+      "crates/tsr-checker/src/constraints.rs": 16,
+      "crates/tsr-checker/src/context_sensitive.rs": 3,
+      "crates/tsr-checker/src/contextual.rs": 79,
+      "crates/tsr-checker/src/declared.rs": 205,
+      "crates/tsr-checker/src/decorators.rs": 16,
+      "crates/tsr-checker/src/delete_operand.rs": 10,
+      "crates/tsr-checker/src/destructure.rs": 20,
+      "crates/tsr-checker/src/emit_helpers.rs": 15,
+      "crates/tsr-checker/src/enum_initializer.rs": 30,
+      "crates/tsr-checker/src/enum_member_name.rs": 13,
+      "crates/tsr-checker/src/expressions.rs": 85,
+      "crates/tsr-checker/src/flow.rs": 222,
+      "crates/tsr-checker/src/flow_object_facts_tests.rs": 5,
+      "crates/tsr-checker/src/flow_query_this_tests.rs": 7,
+      "crates/tsr-checker/src/function_types.rs": 10,
+      "crates/tsr-checker/src/grammar.rs": 44,
+      "crates/tsr-checker/src/heritage_conformance.rs": 29,
+      "crates/tsr-checker/src/identity.rs": 3,
+      "crates/tsr-checker/src/implicit_any.rs": 32,
+      "crates/tsr-checker/src/import_call.rs": 3,
+      "crates/tsr-checker/src/index_access_reports.rs": 34,
+      "crates/tsr-checker/src/index_constraint.rs": 22,
+      "crates/tsr-checker/src/index_signatures.rs": 16,
+      "crates/tsr-checker/src/indexed.rs": 19,
+      "crates/tsr-checker/src/inference.rs": 49,
+      "crates/tsr-checker/src/intersections.rs": 6,
+      "crates/tsr-checker/src/iteration.rs": 18,
+      "crates/tsr-checker/src/jsdoc_annotations.rs": 11,
+      "crates/tsr-checker/src/jsdoc_full_signature.rs": 5,
+      "crates/tsr-checker/src/jsdoc_links.rs": 4,
+      "crates/tsr-checker/src/jsdoc_modifiers.rs": 11,
+      "crates/tsr-checker/src/jsdoc_params.rs": 35,
+      "crates/tsr-checker/src/jsx_attributes.rs": 7,
+      "crates/tsr-checker/src/jsx_component.rs": 15,
+      "crates/tsr-checker/src/jsx_factory.rs": 11,
+      "crates/tsr-checker/src/jsx_intrinsic.rs": 43,
+      "crates/tsr-checker/src/keyword_owner_tests.rs": 2,
+      "crates/tsr-checker/src/mapped.rs": 12,
+      "crates/tsr-checker/src/meaning_mismatch.rs": 31,
+      "crates/tsr-checker/src/member_completeness.rs": 17,
+      "crates/tsr-checker/src/members.rs": 96,
+      "crates/tsr-checker/src/merge_conflicts.rs": 3,
+      "crates/tsr-checker/src/merged_export_spaces.rs": 12,
+      "crates/tsr-checker/src/node_reuse.rs": 25,
+      "crates/tsr-checker/src/nonexistent_property.rs": 23,
+      "crates/tsr-checker/src/nullable_operand.rs": 7,
+      "crates/tsr-checker/src/nullish.rs": 11,
+      "crates/tsr-checker/src/objects.rs": 59,
+      "crates/tsr-checker/src/operator_operands.rs": 15,
+      "crates/tsr-checker/src/optionality.rs": 4,
+      "crates/tsr-checker/src/parameter_self_reference.rs": 6,
+      "crates/tsr-checker/src/printing.rs": 18,
+      "crates/tsr-checker/src/private_setter_read.rs": 3,
+      "crates/tsr-checker/src/readonly_target.rs": 109,
+      "crates/tsr-checker/src/reference_target.rs": 18,
+      "crates/tsr-checker/src/relater.rs": 5,
+      "crates/tsr-checker/src/resolution.rs": 31,
+      "crates/tsr-checker/src/rest_parameter_type.rs": 7,
+      "crates/tsr-checker/src/satisfies.rs": 10,
+      "crates/tsr-checker/src/signature_positions.rs": 2,
+      "crates/tsr-checker/src/signatures.rs": 190,
+      "crates/tsr-checker/src/spread_overrides.rs": 10,
+      "crates/tsr-checker/src/spreads.rs": 12,
+      "crates/tsr-checker/src/strict_mode.rs": 30,
+      "crates/tsr-checker/src/string_mapping.rs": 7,
+      "crates/tsr-checker/src/super_expression.rs": 32,
+      "crates/tsr-checker/src/symbol_access.rs": 10,
+      "crates/tsr-checker/src/symbols.rs": 182,
+      "crates/tsr-checker/src/templates.rs": 2,
+      "crates/tsr-checker/src/this_expression.rs": 17,
+      "crates/tsr-checker/src/truthiness.rs": 45,
+      "crates/tsr-checker/src/tuples.rs": 10,
+      "crates/tsr-checker/src/type_argument_arity.rs": 20,
+      "crates/tsr-checker/src/types.rs": 9,
+      "crates/tsr-checker/src/unions.rs": 10,
+      "crates/tsr-checker/src/unions/tests.rs": 2,
+      "crates/tsr-checker/src/unused.rs": 136,
+      "crates/tsr-checker/src/using_declaration.rs": 4,
+      "crates/tsr-checker/src/variances.rs": 6,
+      "crates/tsr-checker/src/widening.rs": 2,
+      "crates/tsr-checker/src/work_trace.rs": 6,
+      "crates/tsr-checker/tests/accessors.rs": 2,
+      "crates/tsr-checker/tests/aliases.rs": 1,
+      "crates/tsr-checker/tests/array_literals.rs": 1,
+      "crates/tsr-checker/tests/await_in_parameter_initializer.rs": 2,
+      "crates/tsr-checker/tests/binding_default_initializer.rs": 4,
+      "crates/tsr-checker/tests/class_this.rs": 2,
+      "crates/tsr-checker/tests/conditional_alias_members.rs": 1,
+      "crates/tsr-checker/tests/contextual.rs": 3,
+      "crates/tsr-checker/tests/cross_file_aliases.rs": 12,
+      "crates/tsr-checker/tests/destructure.rs": 2,
+      "crates/tsr-checker/tests/export_assignment_reference.rs": 2,
+      "crates/tsr-checker/tests/export_specifiers.rs": 1,
+      "crates/tsr-checker/tests/function_types.rs": 1,
+      "crates/tsr-checker/tests/globals.rs": 1,
+      "crates/tsr-checker/tests/heritage_base_type.rs": 1,
+      "crates/tsr-checker/tests/iife_spread_argument.rs": 1,
+      "crates/tsr-checker/tests/import_call_promise.rs": 6,
+      "crates/tsr-checker/tests/inference_readonly_array.rs": 1,
+      "crates/tsr-checker/tests/intersections.rs": 1,
+      "crates/tsr-checker/tests/jsx_namespace.rs": 6,
+      "crates/tsr-checker/tests/lazy_recursive_returns.rs": 7,
+      "crates/tsr-checker/tests/mapped_strip_optionality.rs": 1,
+      "crates/tsr-checker/tests/members.rs": 5,
+      "crates/tsr-checker/tests/members_apparent_type.rs": 1,
+      "crates/tsr-checker/tests/members_cross_file_merge.rs": 2,
+      "crates/tsr-checker/tests/members_object_spread.rs": 1,
+      "crates/tsr-checker/tests/nameres_evolving_array_declaration.rs": 3,
+      "crates/tsr-checker/tests/nameres_module_object_naming.rs": 9,
+      "crates/tsr-checker/tests/narrowing.rs": 1,
+      "crates/tsr-checker/tests/new_generic.rs": 1,
+      "crates/tsr-checker/tests/objects.rs": 2,
+      "crates/tsr-checker/tests/optionality.rs": 2,
+      "crates/tsr-checker/tests/overload_first_applicable.rs": 1,
+      "crates/tsr-checker/tests/pattern_context.rs": 1,
+      "crates/tsr-checker/tests/private_names.rs": 1,
+      "crates/tsr-checker/tests/qualified_type_reference.rs": 4,
+      "crates/tsr-checker/tests/real_repo_regressions.rs": 7,
+      "crates/tsr-checker/tests/return_inference.rs": 3,
+      "crates/tsr-checker/tests/structural_commonjs_rendering.rs": 6,
+      "crates/tsr-checker/tests/structural_object_publication.rs": 7,
+      "crates/tsr-checker/tests/structural_recursive_rendering.rs": 4,
+      "crates/tsr-checker/tests/structural_site_rendering.rs": 4,
+      "crates/tsr-checker/tests/symbol_chain.rs": 23,
+      "crates/tsr-checker/tests/symbol_domain_contract.rs": 4,
+      "crates/tsr-checker/tests/tuples.rs": 1,
+      "crates/tsr-checker/tests/type_predicates.rs": 1,
+      "crates/tsr-checker/tests/type_query.rs": 4,
+      "crates/tsr-checker/tests/types.rs": 18,
+      "crates/tsr-checker/tests/union_key_element_access.rs": 2,
+      "crates/tsr-checker/tests/unions.rs": 6,
+      "crates/tsr-checker/tests/unresolved_identifier_in_js.rs": 1,
+      "crates/tsr-compiler/examples/loader_reads/controls.rs": 4,
+      "crates/tsr-compiler/src/file.rs": 3,
+      "crates/tsr-compiler/src/lib.rs": 59,
+      "crates/tsr-compiler/src/loader.rs": 4,
+      "crates/tsr-compiler/tests/module_host.rs": 7,
+      "crates/tsr-compiler/tests/parallel_front_end.rs": 3,
+      "crates/tsr-conformance/examples/any_audit.rs": 18,
+      "crates/tsr-conformance/examples/apparent.rs": 1,
+      "crates/tsr-conformance/examples/armsplit.rs": 1,
+      "crates/tsr-conformance/examples/assignability_shape.rs": 2,
+      "crates/tsr-conformance/examples/bindgap.rs": 2,
+      "crates/tsr-conformance/examples/calleegap.rs": 12,
+      "crates/tsr-conformance/examples/callgate.rs": 5,
+      "crates/tsr-conformance/examples/callres.rs": 12,
+      "crates/tsr-conformance/examples/closuregap.rs": 2,
+      "crates/tsr-conformance/examples/countgap.rs": 1,
+      "crates/tsr-conformance/examples/ctorgen.rs": 7,
+      "crates/tsr-conformance/examples/cyclegap.rs": 9,
+      "crates/tsr-conformance/examples/depend.rs": 38,
+      "crates/tsr-conformance/examples/evolvearray.rs": 14,
+      "crates/tsr-conformance/examples/fnexpr.rs": 18,
+      "crates/tsr-conformance/examples/fnsiggap.rs": 13,
+      "crates/tsr-conformance/examples/gaproot.rs": 32,
+      "crates/tsr-conformance/examples/idtypeof.rs": 16,
+      "crates/tsr-conformance/examples/infergen.rs": 3,
+      "crates/tsr-conformance/examples/member_shapes.rs": 4,
+      "crates/tsr-conformance/examples/module_blocked.rs": 15,
+      "crates/tsr-conformance/examples/module_object.rs": 24,
+      "crates/tsr-conformance/examples/namedcallee.rs": 8,
+      "crates/tsr-conformance/examples/nameres.rs": 35,
+      "crates/tsr-conformance/examples/newgen.rs": 1,
+      "crates/tsr-conformance/examples/nnaccess.rs": 2,
+      "crates/tsr-conformance/examples/patctx.rs": 1,
+      "crates/tsr-conformance/examples/predgap.rs": 10,
+      "crates/tsr-conformance/examples/qualified_name_left.rs": 5,
+      "crates/tsr-conformance/examples/qualname.rs": 23,
+      "crates/tsr-conformance/examples/qualnamep.rs": 29,
+      "crates/tsr-conformance/examples/receiver_gap.rs": 5,
+      "crates/tsr-conformance/examples/reconcile.rs": 1,
+      "crates/tsr-conformance/examples/refmatch.rs": 19,
+      "crates/tsr-conformance/examples/retgap.rs": 4,
+      "crates/tsr-conformance/examples/reuse.rs": 4,
+      "crates/tsr-conformance/examples/selectable.rs": 1,
+      "crates/tsr-conformance/examples/sigprint.rs": 3,
+      "crates/tsr-conformance/examples/symbol_dispatch_split.rs": 7,
+      "crates/tsr-conformance/examples/ternary.rs": 7,
+      "crates/tsr-conformance/examples/thisparam.rs": 3,
+      "crates/tsr-conformance/examples/tmplsuper.rs": 3,
+      "crates/tsr-conformance/examples/tquery.rs": 6,
+      "crates/tsr-conformance/examples/typerefgap.rs": 12,
+      "crates/tsr-conformance/examples/undecidable_split.rs": 5,
+      "crates/tsr-conformance/examples/valgap.rs": 14,
+      "crates/tsr-conformance/examples/whichcase.rs": 2,
+      "crates/tsr-conformance/examples/writer_guards.rs": 24,
+      "crates/tsr-conformance/examples/writetarget.rs": 5,
+      "crates/tsr-conformance/examples/wrong_attribution.rs": 8,
+      "crates/tsr-conformance/examples/wrongflip.rs": 6,
+      "crates/tsr-conformance/src/binder_suite.rs": 39,
+      "crates/tsr-conformance/src/diagnostics_suite.rs": 8,
+      "crates/tsr-conformance/src/dts_emit_suite.rs": 1,
+      "crates/tsr-conformance/src/printer_suite.rs": 4,
+      "crates/tsr-conformance/src/types_producer.rs": 57,
+      "crates/tsr-conformance/tests/assignment_declarations.rs": 2,
+      "crates/tsr-conformance/tests/function_initializer.rs": 2,
+      "crates/tsr-conformance/tests/instantiated_anonymous_context.rs": 3,
+      "crates/tsr-conformance/tests/jsdoc_optional_parameters.rs": 1,
+      "crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs": 4,
+      "crates/tsr-conformance/tests/jsdoc_variable_selector.rs": 1,
+      "crates/tsr-conformance/tests/jsx_context_inference.rs": 5,
+      "crates/tsr-conformance/tests/mapped_property_relations.rs": 1,
+      "crates/tsr-conformance/tests/module_alias_accessibility.rs": 4,
+      "crates/tsr-conformance/tests/module_augmentation_absence.rs": 1,
+      "crates/tsr-conformance/tests/module_default_file_owner.rs": 12,
+      "crates/tsr-conformance/tests/shadowed_names.rs": 1,
+      "crates/tsr-conformance/tests/signature_position_optionality.rs": 2,
+      "crates/tsr-conformance/tests/source_variable_initializer.rs": 3,
+      "crates/tsr-conformance/tests/undefined_widening_modes.rs": 1,
+      "crates/tsr-core/src/index.rs": 2,
+      "crates/tsr-core/src/side_table.rs": 3,
+      "crates/tsr-declarations/src/factory.rs": 5,
+      "crates/tsr-declarations/src/lib.rs": 1,
+      "crates/tsr-declarations/src/resolver.rs": 5,
+      "crates/tsr-declarations/src/transform.rs": 144,
+      "crates/tsr-declarations/src/type_builder.rs": 17,
+      "crates/tsr-declarations/tests/transform.rs": 2,
+      "crates/tsr-dts/src/lib.rs": 1,
+      "crates/tsr-dts/src/rules.rs": 36,
+      "crates/tsr-dts/src/visibility.rs": 12,
+      "crates/tsr-execute/examples/checker_workers.rs": 4,
+      "crates/tsr-execute/src/checker_pool.rs": 4,
+      "crates/tsr-execute/src/compile.rs": 1,
+      "crates/tsr-execute/src/work_trace.rs": 3,
+      "crates/tsr-execute/tests/checker_ownership.rs": 5,
+      "crates/tsr-parser/examples/jsdoc_probe.rs": 1,
+      "crates/tsr-parser/src/declaration.rs": 1,
+      "crates/tsr-parser/src/expression.rs": 13,
+      "crates/tsr-parser/src/jsdoc.rs": 18,
+      "crates/tsr-parser/src/json.rs": 7,
+      "crates/tsr-parser/src/jsx.rs": 5,
+      "crates/tsr-parser/src/lib.rs": 8,
+      "crates/tsr-parser/src/module.rs": 2,
+      "crates/tsr-parser/src/parsed_file.rs": 1,
+      "crates/tsr-parser/src/parser.rs": 12,
+      "crates/tsr-parser/src/references.rs": 2,
+      "crates/tsr-parser/src/statement.rs": 2,
+      "crates/tsr-parser/src/types.rs": 1,
+      "crates/tsr-parser/tests/direct_variable_jsdoc.rs": 11,
+      "crates/tsr-parser/tests/jsdoc.rs": 2,
+      "crates/tsr-parser/tests/new_element_access_diagnostic_span.rs": 2,
+      "crates/tsr-parser/tests/new_member_chain.rs": 4,
+      "crates/tsr-parser/tests/parse.rs": 26,
+      "crates/tsr-parser/tests/publication.rs": 5,
+      "crates/tsr-parser/tests/super_instantiation.rs": 7,
+      "crates/tsr-printer/src/expressions.rs": 1,
+      "crates/tsr-printer/src/jsx.rs": 2,
+      "crates/tsr-printer/src/lib.rs": 6,
+      "crates/tsr-printer/src/statements.rs": 7,
+      "crates/tsr-printer/src/types.rs": 4,
+      "crates/tsr-tsoptions/src/value.rs": 3,
+      "xtask/src/gen_nodes.rs": 25
+    }
+  },
+  "quality_gates": {
+    "targeted_tests_passed": 114,
+    "clippy_changed_crates_and_xtask": "pass, -D warnings",
+    "clippy_probe": "pass, -D warnings",
+    "restored_merge_control": "pass"
+  },
+  "limits": [
+    "Complete resolver queries and transient edits are not captured.",
+    "Bundled libraries are pinned by binary hash; source query union is partial.",
+    "The declaration fixture checks zero declaration files under skipLibCheck and is a frontend workload.",
+    "Other agents may use this host; no builds or corpus processes were launched in this session during timing.",
+    "This compares serial TSR with candidate TSR; it does not establish the native release target."
+  ],
+  "release_target_verified": false,
+  "decision": "Retain integrated bounded frontend concurrency: whole-CLI frontend fixture improves; real API wall gain remains uncertain. Checker speed target and broader native loader gates remain open."
+}
