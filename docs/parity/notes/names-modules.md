@@ -196,3 +196,178 @@ Before the patch, the line matched only because the alias did not resolve.
 **To land:** extend the producer's type-only arm to an `ImportClause` whose
 `phase_modifier` is `type`. Then apply the diff and re-measure. Perf was not
 measured; the arm runs once per default import.
+
+### Round 2: the producer arm landed; the diff is still held back
+
+**Landed:** the producer arm, in `type_id_at_location_tracking`
+(`crates/tsr-conformance/src/types_producer.rs`). A type-only import
+clause's own name answers `getDeclaredTypeOfSymbol(resolveAlias(alias))`,
+including the error type, unlike the specifier arm, which falls through on
+error. Measured on its own against the box baseline re-frozen at `c95b9c4`
+(after §4 and a `main` merge): `checker_types` **+4 aligned RIGHT lines**
+(`exportDefault:6:0`, `filterNamespace_import:1:0`, `importClause_default:1:0`,
+`verbatimModuleSyntaxNoElisionESM:6:0`), 0 lost; diagnostics unchanged.
+
+**Held back again: the diff.** Applied on top of the producer arm it measured
+diagnostics **+2 cases** (`importEquals1`, `exportEqualsDefaultProperty`),
+`checker_types` **+74 RIGHT lines**, 0 lost, and 3 GAP→WRONG. The 3 are the
+`extends React.Component<…>` base expressions in
+`tsxReactPropsInferenceSucceedsOnIntersections` and
+`tsxSpreadDoesNotReportExcessProps`, now resolved and printed `typeof
+React.Component` by the producer's base-class workaround. It is not merged
+because the tree changed under it. Since round 1, `main` added a guarded
+file-module synthetic default (`module_default_target`'s `synthetic` walk in
+`symbols.rs`), and its refusals are pinned by unit tests in another stream's
+file:
+
+- `tests/module_default_file_owner.rs`: `only_complete_chains_within_the_naming_bound_are_admitted`
+  and `unsupported_alias_shapes_and_cycles_decline_before_following_them`
+  assert `resolve_alias == None` for 13 `export =` wrapper shapes. With the
+  diff, the import **clause** resolves every shape to the wrapper's `export=`.
+  The specifier forms (`{ default as x }`, `export { default as y }`) keep the
+  declines, so the two forms disagree. Upstream resolves both
+  (`getExternalModuleMember`'s `default` arm).
+- `symbols.rs`'s own `semantic_type_naming_targets_preserve_identity_and_decline_incomplete_routes`
+  asserts the same `None` for an ambient `export =` namespace as its
+  precondition.
+
+The faithful fix updates those guards to upstream's answers and gives the
+specifier path the same synthetic arm. That is the owner's call, routed in
+the round-2 report.
+
+Two variants were measured and refused:
+
+- **Ambient modules only** (file modules left to the guarded walk):
+  +22 lines and **2 diagnostics lost** (`esModuleInteropDefaultMemberMustBeSyntacticallyDefaultExport`,
+  `nodeNextEsmImportsOfPackagesWithExtensionlessMains`).
+- **`resolveExportByName` in `can_have_synthetic_default`'s declaration-file
+  arm** (look through `export =` for `default` / `__esModule`, with
+  `isSyntacticDefault`). It is needed for the jsx naming test's `marked`
+  module (`const __esModule: true` inside an `export =` namespace), but alone
+  it **lost `nodeNextEsmImportsOfPackagesWithExtensionlessMains`**: upstream
+  returns `true` from the `node16` usage block (ESM importing CommonJS) before
+  the declaration-file arm. That is the `true` branch the diff declines (see
+  above). The two must land together.
+
+## §4. Non-global module augmentations merge (`mergeModuleAugmentation`, cluster `tsr-2zk.38` / `tsr-2zk.16.15`)
+
+### The forcing constraint
+
+`declare module "./observable" { interface Observable<T> { map… } }` in a
+module file never reached the module it augments. The binder merged only
+`declare global` blocks (`merge_globals`); `merge_symbol`'s doc listed module
+augmentation as not merged because it "needs module resolution". Every member
+an augmentation adds was therefore missing: false TS2339 on augmented members
+(`moduleAugmentationImportsAndExports*`, `umd-augmentation-1`–`4`,
+`augmentExportEquals3`/`4`/`6`), false TS2305 on augmented exports
+(`declarationEmitRedundantTripleSlashModuleAugmentation`,
+`selfNameModuleAugmentation`), and missing merge diagnostics
+(`duplicateIdentifierRelatedSpans_moduleAugmentation` TS2451,
+`augmentExportEquals7` TS2649).
+
+Upstream does it in `initializeChecker`'s last loop (`checker.go:1384-1391`),
+after every file is bound and the globals exist, through
+`mergeModuleAugmentation` (`:1405-1448`).
+
+### What was built
+
+- **The binder records the augmentations** (`Binder::external_module_augmentation_name`,
+  `crates/tsr-binder/src/binder.rs`): a string-named module declaration in an
+  ambient context placed where `IsModuleAugmentationExternal` holds — the same
+  two shapes `collectModuleReferences` collects. One record per augmentation
+  *symbol*, which is upstream's `Declarations[0] != moduleNode` gate. A nested
+  relative name is excluded later, by the resolver callback, because the binder
+  has no `tspath` (adding the dependency would change `Cargo.lock`).
+- **`BindResult::merge_module_augmentations`** (`crates/tsr-binder/src/lib.rs`)
+  runs once all files are bound, from `Program::bind_source_files`
+  (`crates/tsr-compiler/src/lib.rs`). The program supplies resolution:
+  `tryFindAmbientModule` then the loader's resolved module in the usage's mode —
+  the same two steps the checker's `resolve_external_module_name` takes. Per
+  augmentation it follows `export =`, requires `Namespace` meaning, runs the
+  `export *` arm (an augmentation export naming a re-exported symbol merges into
+  that symbol), and then `mergeSymbol(target, augmentation)` through the
+  binder's existing in-place `merge_symbol`.
+- **A refused top-level merge leaves no redirect** (`Binder::merge_pairs`).
+  `merge_symbol` records `source → target` *before* its excludes test, which
+  the globals pass relies on; upstream's `recordMergedSymbol` runs only on the
+  union path. Without taking the redirect back, `augmentExportEquals7`'s
+  augmentation (refused with TS2649) resolved to the `var lib` it failed to
+  merge into and its name printed `typeof lib` instead of `typeof import("lib")`.
+
+Alternative rejected: running the merge inside the checker. That is
+upstream's location, but the checker holds `&BindResult`, many checkers share
+one bind (`tsr-execute`'s pool), and the binder already does the global half
+in place. The binder is the only owner that can mutate symbols; the compiler
+is the only owner of resolution; the callback joins them.
+
+### Consequences that had to be ported with it
+
+Merging adds declarations from another file to a module symbol, and three
+readers assumed that could not happen:
+
+1. **Printing a module's specifier** (`Checker::module_specifier_for_symbol`,
+   extracted from `type_to_string_at_worker`). It required exactly one
+   declaration. It now mirrors `getSpecifierForModuleSymbol`:
+   `tryGetModuleNameFromAmbientModule` first (a string-named declaration that is
+   not a relative external augmentation), then the source-file declaration,
+   spelled relative to the reference's file with `index` stripped. A
+   `node_modules` file and the `.mts`/`.cts` forms decline (gap).
+2. **`Checker::is_ambient_module`** asked whether *any* declaration was a
+   string-named module. An augmentation of `export = moment` (a
+   function-and-namespace) adds a `declare module "moment"` declaration to the
+   function, which then printed as `typeof import("moment")` (5 lines lost in
+   `moduleAugmentationDuringSyntheticDefaultCheck`). It now asks upstream's
+   `IsAmbientModuleSymbolName(symbol.Name)`: the binder's quoted name.
+3. **TS2395** (`merged_export_spaces.rs`) read only the `export` keyword. An
+   augmentation's `interface Observable<T>` is exported by its ambient export
+   context, which is `getEffectiveDeclarationFlags`' ambient arm
+   (`checker.go:3701`); without it the pair read as exported plus local
+   (false TS2395 in `moduleAugmentationExtendFileModule1`/`2`). The arm applies
+   only in a *module* container: a script declares into `Locals`, has no
+   `ExportSymbol`, and upstream's check returns early (measured: applying it to
+   script `.d.ts` files lost `classAndInterfaceMerge.d` and
+   `declarationFilesWithTypeReferences1`/`4`).
+4. **TS2391** (`check_function_or_constructor_symbol`, `check.rs`) declines a
+   symbol whose declarations span files. `missingFunctionImplementation2`'s
+   augmentation adds an ambient `declare function f` to the other file's `f`.
+   An ambient declaration only resets the adjacency chain in that loop, so when
+   declarations span files the ambient ones are dropped and the rest are
+   checked in their own file.
+
+### Measured (unfiltered, against the box baseline at `15f1743`)
+
+Diagnostics **+23 cases**: `augmentExportEquals3`/`4`/`6`/`7`,
+`declarationEmitForModuleImportingModuleAugmentationRetainsImport`,
+`declarationEmitRedundantTripleSlashModuleAugmentation`,
+`duplicateIdentifierRelatedSpans_moduleAugmentation`, `mixedExports`,
+`moduleAugmentationDoesNamespaceEnumMergeOfReexport`,
+`moduleAugmentationEnumClassMergeOfReexportIsError`,
+`moduleAugmentationImportsAndExports1`/`4`/`5`/`6`, `moduleAugmentationNoNewNames`,
+`module_augmentUninstantiatedModule2`, `stackDepthLimitCastingType`,
+`typeReferenceDirectives9`, `selfNameModuleAugmentation`,
+`umd-augmentation-1`–`4`. `checker_types` **+209 aligned RIGHT lines**
+(190 WRONG→RIGHT, 19 GAP→RIGHT), **0 RIGHT lines lost**.
+
+**Two diagnostics verdicts move from EMPTY_RIGHT to EMPTY_WRONG, and they are
+oracle artifacts, not losses**: `duplicateIdentifierRelatedSpans6`/`7` are
+`@pretty: true` tests. Their `.errors.txt` is ANSI-coloured, and
+`crates/tsr-conformance/src/errors_baseline.rs` parses it as *no*
+diagnostics. The baseline itself records TS2300 on all six members — exactly
+what this port now reports, because the two `declare module "someMod"`
+blocks now merge. They were EMPTY_RIGHT only because nothing merged. Fix
+belongs in the baseline parser (not this lane's file).
+
+### Declined, each a gap rather than a wrong merge
+
+- **Pattern ambient targets** (`declare module "*.foo"`): upstream merges the
+  pattern *into* the augmentation unidirectionally and keeps the result in
+  `patternAmbientModuleAugmentations`. This port has no such table.
+- **`export =` through anything but a local name**: the binder cannot resolve
+  `export = require(…)` or a qualified name; such an augmentation is skipped.
+- **Re-exported aliases**: `mergeSymbol` resolves an alias target
+  (`resolveSymbol`) and merges into what it names
+  (`moduleAugmentationDoes{Interface,Namespace}MergeOfReexport`). The binder's
+  `merge_symbol` still declines an alias on either side (`bd tsr-y4u.12`).
+- **TS2649 for a non-namespace target** (`Cannot augment module '{0}' because
+  it resolves to a non-module entity`, `checker.go:1445`) is not reported; the
+  augmentation is just not merged.
