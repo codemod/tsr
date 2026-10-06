@@ -398,10 +398,33 @@ impl<'a> Parser<'a> {
         permit_const_as_modifier: bool,
         stop_on_start_of_class_static_block: bool,
     ) -> Vec<ModifierLike<'a>> {
+        self.parse_modifiers_worker(
+            true,
+            permit_const_as_modifier,
+            stop_on_start_of_class_static_block,
+        )
+    }
+
+    /// A type parameter's modifiers — `parseTypeParameter`'s
+    /// `parseModifiersEx(allowDecorators: false, permitConstAsModifier: true,
+    /// stopOnStartOfClassStaticBlock: false)` (`parser.go:3230`). Any modifier
+    /// is taken (`<public T>` is the checker's TS1273), and `in`/`out`/`const`
+    /// are a modifier only when a name can follow on the same line, so
+    /// `<in in>` names its parameter `in`.
+    pub(crate) fn parse_type_parameter_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
+        self.parse_modifiers_worker(false, true, false)
+    }
+
+    fn parse_modifiers_worker(
+        &mut self,
+        allow_decorators: bool,
+        permit_const_as_modifier: bool,
+        stop_on_start_of_class_static_block: bool,
+    ) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
         let mut seen_static = false;
         loop {
-            if self.at(SyntaxKind::AtToken) {
+            if allow_decorators && self.at(SyntaxKind::AtToken) {
                 modifiers.push(ModifierLike::Decorator(self.parse_decorator()));
                 continue;
             }

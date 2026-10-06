@@ -747,6 +747,18 @@ impl Checker<'_, '_> {
     pub(crate) fn check_grammar_object_literal_postfix_tokens(&mut self, typed: Node<'_>) {
         let Node::ObjectLiteralExpression(literal) = typed else { return };
         for property in literal.properties {
+            // `checkGrammarComputedPropertyName` on each member's name; its
+            // result is ignored, so the member's other arms still run.
+            let name = match property {
+                ObjectLiteralElementLike::PropertyAssignment(n) => Some(n.name),
+                ObjectLiteralElementLike::MethodDeclaration(n) => Some(n.name),
+                ObjectLiteralElementLike::GetAccessorDeclaration(n) => Some(n.name),
+                ObjectLiteralElementLike::SetAccessorDeclaration(n) => Some(n.name),
+                _ => None,
+            };
+            if let Some(name) = name {
+                self.check_grammar_computed_property_name(name);
+            }
             let postfix = match property {
                 ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     assignment.postfix_token
@@ -792,6 +804,25 @@ impl Checker<'_, '_> {
             };
             self.grammar_error_on_node(id, message);
         }
+    }
+
+    /// `Checker.checkGrammarComputedPropertyName` (`grammarchecks.go:979`):
+    /// a comma expression as a computed name is TS1171, on the expression.
+    /// The parser keeps the whole expression (`parseComputedPropertyName`
+    /// parses a comma expression for exactly this report).
+    fn check_grammar_computed_property_name(&mut self, name: tsr_ast::PropertyName<'_>) -> bool {
+        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name
+            && let Some(Expression::BinaryExpression(binary)) = computed.expression
+            && binary.operator_token.is_some_and(|op| op.kind == SyntaxKind::CommaToken)
+            && let Some(id) = binary.node_id
+        {
+            self.grammar_error_on_node(
+                id,
+                &messages::A_COMMA_EXPRESSION_IS_NOT_ALLOWED_IN_A_COMPUTED_PROPERTY_NAME,
+            );
+            return true;
+        }
+        false
     }
 
     /// `grammarErrorOnNode(mod, X_0_modifier_cannot_be_used_here, …)`.

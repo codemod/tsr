@@ -240,3 +240,139 @@ decision replaces an equivalent `peek_kind`).
   reads the source text of the `=>` token's full span; the checker has no
   source text and the token records no preceding-line-break flag
   (`arrowFunctionErrorSpan`).
+
+## Round 2: the lists that bypassed `ParsingContext`
+
+Round 2 (lane brief, 2026-10-06) started from the recovery divergence. The
+list machinery (`crates/tsr-parser/src/list.rs`) only knew the contexts whose
+loops had been ported onto it; type parameters, type arguments, tuple element
+types, heritage clauses and their elements were hand loops that stopped at the
+first token that was not a `,`. Two things follow from upstream's
+`isInSomeParsingContext` that a hand loop cannot reproduce: a stray token inside
+`<…>` is reported once with the list's own message and skipped, and an *inner*
+list nested in one of these (a type literal inside type arguments, say) aborts
+on a token the outer list would take. Both need the context bit to be set.
+
+Ported (`parser.go` @ `5b1047d`): `PCHeritageClauseElement`,
+`PCObjectLiteralMembers`, `PCTypeParameters`,
+`PCTypeArguments`, `PCTupleElementTypes` and `PCHeritageClauses`, each with its
+`isListElement`, `isListTerminator` and `parsingContextErrors` arm, and the
+loops of `parseTypeParameters`, `parseTypeArguments` (type references and
+heritage types), `parseTupleType`, `parseHeritageClauses` /
+`parseHeritageClause` / `parseExpressionWithTypeArguments` moved onto
+`parse_list` / `parse_delimited_list`.
+
+Judgment calls:
+
+- **`>` is split before the `PCTypeParameters` terminator test.** Upstream's
+  scanner only ever produces a lone `>`; this one packs `>=`, `>>` eagerly. The
+  arm calls `rescan_greater_than` first, as the `PCJsxAttributes` arm already
+  did. `PCTypeArguments`' terminator is "anything but `,`", so it needs no split.
+- **A heritage element is `parseLeftHandSideExpressionOrHigher`.** The
+  bespoke `parse_left_hand_side_for_heritage` (identifier, class expression or
+  parenthesised expression, then a member/call chain) could not parse
+  `"".bogus` or `{ foo: string; }` and reported TS1003 where upstream parses an
+  expression and the checker reports TS2507/TS2339. It is replaced by the
+  general call/member parser; an instantiation expression it returns (`A<T>,`)
+  is the element itself, as in upstream.
+- **Type parameter modifiers are `parseModifiersEx(false, true, false)`.** The
+  old loop took only `in`/`out`/`const`. `parse_modifiers_ex` gained a private
+  worker with `allowDecorators`; `<public T>` now parses `public` as a modifier
+  (the checker's TS1273) and `<in in>` names its parameter `in` (TS1359).
+- **Tuple named-member rest types: tried and reverted.** Upstream parses the
+  type after `name:` with `parseTupleElementType`, which accepts `...T`
+  (`[rest: ...string[]]`, the checker's TS5087). Porting it removed the extra
+  TS1110 in `namedTupleMembersErrors` but turned two RIGHT type rows
+  (`Opt : Opt`, `Trailing : Trailing`) into `any`: the checker cannot type a
+  `NamedTupleMember` whose type is an `OptionalType` or `RestType`. Reported to
+  the integrator; with that checker fix the parser change is the one-line call
+  in `parse_tuple_element`.
+
+One type row changed verdict and is recorded rather than reverted:
+`varianceAnnotationsWithCircularlyReferencesError:0:0` (`type T1<in in> = T1`).
+The delimited list now yields two type parameters (`in`-modified with a
+missing name, then a missing name), which is upstream's parse — its baseline
+has TS2637 at both columns 9 and 11 and TS2300 for the duplicate empty name.
+The old row printed `T1 : any` only because the old loop stopped after one
+parameter. Upstream's `any` comes from TS2456 (the alias circularly references
+itself through `T1` written without type arguments); this checker does not
+detect that circularity and prints `T1<, >`. The fix belongs in the checker's
+alias resolution (another lane).
+
+Measured at the commit: diagnostics 3846 → 3851 RIGHT (+1 EMPTY_RIGHT), no
+diagnostics losses; checker_types 7602 → 7618; `parser_reachable_target`
+unchanged at 5031/10570; median CPU self-ratio 0.972 (domain-model) and 0.994
+(generic-imports) at 21 samples.
+
+### Object literals and computed names
+
+`parse_object_literal` is now `parseDelimitedList(PCObjectLiteralMembers, …)`
+(`parser.go:5615`). The hand loop already reported the missing `,` and skipped
+a `;` separator (§218), but it *left the list* at any token that could not
+start a member, where upstream asks `isInSomeParsingContext`: a token no
+enclosing list wants is reported ("Property assignment expected") and skipped,
+and the literal goes on to its `}`. ``{ `a`: 321 }`` (a template literal as a
+name) therefore reports TS1136 at the template and closes cleanly instead of
+TS1003 plus a statement-level cascade; the same shape converts the parse side
+of `parserSymbolIndexer5`, `privateIndexer2` and
+`objectTypesWithOptionalProperties2` (their remaining rows are checker ones).
+The old loop's guard (§198 measured −64 files when continuing without it) is
+subsumed: continuing is safe once the enclosing contexts are consulted.
+
+`parseComputedPropertyName` parses a full expression with `in` allowed
+(`parseExpressionAllowIn`, `parser.go:3476`); this port parsed an assignment
+expression, so `[0, 1]` stopped at the comma. With the comma expression kept,
+`checkGrammarComputedPropertyName`'s TS1171 is ported into
+`check_grammar_object_literal_postfix_tokens` (`grammar.rs`), the port of
+`checkGrammarObjectLiteralExpression`'s per-member arms, where upstream calls
+it and ignores the result. The class-member call sites (behind
+`checkGrammarProperty`, `checkGrammarMethod` and
+`checkGrammarFunctionLikeDeclaration`/`checkGrammarAccessor`) are not ported:
+`check_grammar_property` does not yet answer whether it reported, which their
+short-circuit needs.
+
+Measured at the commit: diagnostics 3852 RIGHT (+1), checker_types 7627,
+`parser_reachable_target` 5031; CPU self-ratio 1.004 / 0.983.
+
+### `allowReturnTypeInArrowFunction`
+
+This parser had no counterpart of the flag upstream threads through
+`parseAssignmentExpressionOrHigherWorker` (`parser.go:4081`). The true
+branch of a conditional parses with it off (`parseConditionalExpressionRest`,
+`:4562`), so in `b ? (c) : d => e` the ambiguous `(c) : d => e` — a valid
+arrow signature with return type `d` — is refused once its body is parsed
+unless another `:` follows it (`:4422`), and the group reparses as the
+parenthesised true branch. Ported as `parse_assignment_expression_worker`
+with the flag passed to the simple-arrow body, the assignment right operand,
+the conditional's false branch and `parse_arrow_body`, as upstream passes it.
+A definite arrow (`isParenthesizedArrowFunctionExpression` answering true)
+always allows the return type, as `tryParseParenthesizedArrowFunctionExpression`
+does.
+
+The refusal comes after the body, so the ambiguous parse with the flag off
+runs inside one `try_parse` (upstream's rewind). One deviation: when an
+`async` was already consumed before the decision, this port cannot rewind it,
+so an `async` arrow keeps its return type there. No corpus case reaches it.
+
+Cases converted: `parserArrowFunctionExpression8`, `9`, `11`, `12`; `10`'s
+parse now matches and its remaining row is a checker TS2304 on the arrow's
+return type in the `.ts` file.
+
+### `checkGrammarAccessor`'s body arms
+
+`check_grammar_accessor` (`check.rs`) had only the parameter arms. The first
+two arms are ported (`grammarchecks.go:1309`, `:1315`): a body-less accessor
+outside an ambient context, a type literal or an interface that is not
+`abstract` is "'{' expected" on its last character, and an `abstract`
+accessor with a body is TS1318. They wait on `modifier_chain_reported`
+because upstream reaches `checkGrammarAccessor` only after
+`checkGrammarFunctionLikeDeclaration` (whose first test is
+`checkGrammarModifiers`) reports nothing, and a report returns before the
+parameter arms. Ambient is `file_is_ambient` or
+`declaration_is_in_an_ambient_context`, since the parser never sets
+`NodeFlagsAmbient` (see above). The TS1183 arm (a body in an interface or type
+literal) is not added: `check_grammar_statement_in_ambient_context` already
+reports TS1183 on such a body, and a second reporter would double it.
+
+`compiler/giant`'s 36 missing TS1005 are all this; its remaining rows are the
+checker's TS2386.

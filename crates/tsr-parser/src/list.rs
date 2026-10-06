@@ -42,6 +42,8 @@ pub(crate) enum ParsingContext {
     ClassMembers = 5,
     /// `PCEnumMembers`: members of an enum body.
     EnumMembers = 6,
+    /// `PCHeritageClauseElement`: the types of one `extends`/`implements`.
+    HeritageClauseElement = 7,
     /// `PCVariableDeclarations`: declarations of a variable statement.
     VariableDeclarations = 8,
     /// `PCObjectBindingElements`: elements of an object binding pattern.
@@ -50,6 +52,8 @@ pub(crate) enum ParsingContext {
     ArrayBindingElements = 10,
     /// `PCArgumentExpressions`: arguments of a call or `new`.
     ArgumentExpressions = 11,
+    /// `PCObjectLiteralMembers`: members of an object literal.
+    ObjectLiteralMembers = 12,
     /// `PCArrayLiteralMembers`: elements of an array literal.
     ArrayLiteralMembers = 15,
     /// `PCJsxAttributes`: attributes of a JSX opening or self-closing tag.
@@ -60,6 +64,15 @@ pub(crate) enum ParsingContext {
     JsxChildren = 14,
     /// `PCParameters`: parameters of a signature or index signature.
     Parameters = 16,
+    /// `PCTypeParameters`: a declaration's `<…>` type parameters.
+    TypeParameters = 19,
+    /// `PCTypeArguments`: the `<…>` type arguments of a type reference,
+    /// heritage type or expression.
+    TypeArguments = 20,
+    /// `PCTupleElementTypes`: the element types of a tuple type.
+    TupleElementTypes = 21,
+    /// `PCHeritageClauses`: a class or interface's heritage clauses.
+    HeritageClauses = 22,
     /// `PCImportOrExportSpecifiers`: a named import or export clause.
     ImportOrExportSpecifiers = 23,
     /// `PCImportAttributes`: the entries of a `with { … }` clause.
@@ -69,7 +82,7 @@ pub(crate) enum ParsingContext {
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 23] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -77,14 +90,20 @@ impl ParsingContext {
         Self::TypeMembers,
         Self::ClassMembers,
         Self::EnumMembers,
+        Self::HeritageClauseElement,
         Self::VariableDeclarations,
         Self::ObjectBindingElements,
         Self::ArrayBindingElements,
         Self::ArgumentExpressions,
+        Self::ObjectLiteralMembers,
         Self::JsxAttributes,
         Self::JsxChildren,
         Self::ArrayLiteralMembers,
         Self::Parameters,
+        Self::TypeParameters,
+        Self::TypeArguments,
+        Self::TupleElementTypes,
+        Self::HeritageClauses,
         Self::ImportOrExportSpecifiers,
         Self::ImportAttributes,
     ];
@@ -162,8 +181,10 @@ impl Parser<'_> {
                 }
                 // A `;` the caller allows as a separator is skipped, so a
                 // semicolon-delimited list gets back on track.
-                if kind == ParsingContext::ImportAttributes
-                    && self.at(SyntaxKind::SemicolonToken)
+                if matches!(
+                    kind,
+                    ParsingContext::ObjectLiteralMembers | ParsingContext::ImportAttributes
+                ) && self.at(SyntaxKind::SemicolonToken)
                     && !self.token.has_preceding_line_break()
                 {
                     self.next_token();
@@ -218,8 +239,45 @@ impl Parser<'_> {
             ParsingContext::EnumMembers => {
                 self.at(SyntaxKind::OpenBracketToken) || self.is_literal_property_name()
             }
+            // `[`, `*`, `...` and `.` are not all members, but none of them
+            // should close the object.
+            ParsingContext::ObjectLiteralMembers => {
+                matches!(
+                    self.token.kind,
+                    SyntaxKind::OpenBracketToken
+                        | SyntaxKind::AsteriskToken
+                        | SyntaxKind::DotDotDotToken
+                        | SyntaxKind::DotToken
+                ) || self.is_literal_property_name()
+            }
+            // A `{` is an element only if what follows makes it an object
+            // literal rather than the class body. In error recovery only an
+            // identifier is, so `this` is not taken for a heritage type.
+            ParsingContext::HeritageClauseElement => {
+                if self.at(SyntaxKind::OpenBraceToken) {
+                    self.is_valid_heritage_clause_object_literal()
+                } else if !in_error_recovery {
+                    self.is_start_of_left_hand_side_expression()
+                        && !self.is_heritage_clause_extends_or_implements_keyword()
+                } else {
+                    self.is_identifier() && !self.is_heritage_clause_extends_or_implements_keyword()
+                }
+            }
             ParsingContext::VariableDeclarations => {
                 self.is_binding_identifier_or_private_identifier_or_pattern()
+            }
+            ParsingContext::TypeParameters => {
+                matches!(self.token.kind, SyntaxKind::InKeyword | SyntaxKind::ConstKeyword)
+                    || self.is_identifier()
+            }
+            ParsingContext::TypeArguments | ParsingContext::TupleElementTypes => {
+                self.at(SyntaxKind::CommaToken) || self.is_start_of_type(false)
+            }
+            ParsingContext::HeritageClauses => {
+                matches!(
+                    self.token.kind,
+                    SyntaxKind::ExtendsKeyword | SyntaxKind::ImplementsKeyword
+                )
             }
             ParsingContext::ObjectBindingElements => {
                 matches!(self.token.kind, SyntaxKind::OpenBracketToken | SyntaxKind::DotDotDotToken)
@@ -387,6 +445,7 @@ impl Parser<'_> {
             | ParsingContext::TypeMembers
             | ParsingContext::ClassMembers
             | ParsingContext::EnumMembers
+            | ParsingContext::ObjectLiteralMembers
             | ParsingContext::ObjectBindingElements
             | ParsingContext::ImportOrExportSpecifiers
             | ParsingContext::ImportAttributes => self.at(SyntaxKind::CloseBraceToken),
@@ -406,8 +465,33 @@ impl Parser<'_> {
             ParsingContext::ArgumentExpressions => {
                 matches!(self.token.kind, SyntaxKind::CloseParenToken | SyntaxKind::SemicolonToken)
             }
-            ParsingContext::ArrayLiteralMembers | ParsingContext::ArrayBindingElements => {
-                self.at(SyntaxKind::CloseBracketToken)
+            ParsingContext::HeritageClauseElement => matches!(
+                self.token.kind,
+                SyntaxKind::OpenBraceToken
+                    | SyntaxKind::ExtendsKeyword
+                    | SyntaxKind::ImplementsKeyword
+            ),
+            ParsingContext::ArrayLiteralMembers
+            | ParsingContext::TupleElementTypes
+            | ParsingContext::ArrayBindingElements => self.at(SyntaxKind::CloseBracketToken),
+            // Tokens other than `>` are here for better error recovery.
+            // Upstream's scanner only ever produces a lone `>`, so split a
+            // compound one before asking.
+            ParsingContext::TypeParameters => {
+                self.rescan_greater_than();
+                matches!(
+                    self.token.kind,
+                    SyntaxKind::GreaterThanToken
+                        | SyntaxKind::OpenParenToken
+                        | SyntaxKind::OpenBraceToken
+                        | SyntaxKind::ExtendsKeyword
+                        | SyntaxKind::ImplementsKeyword
+                )
+            }
+            // Every token but `,` ends a type-argument list.
+            ParsingContext::TypeArguments => !self.at(SyntaxKind::CommaToken),
+            ParsingContext::HeritageClauses => {
+                matches!(self.token.kind, SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken)
             }
             // Tokens other than ')' and ']' (the latter for index signatures)
             // are here for better error recovery.
@@ -491,6 +575,22 @@ impl Parser<'_> {
                 );
             }
             ParsingContext::EnumMembers => self.error_at_current(&messages::ENUM_MEMBER_EXPECTED),
+            ParsingContext::HeritageClauseElement => {
+                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+            }
+            ParsingContext::ObjectLiteralMembers => {
+                self.error_at_current(&messages::PROPERTY_ASSIGNMENT_EXPECTED);
+            }
+            ParsingContext::TypeParameters => {
+                self.error_at_current(&messages::TYPE_PARAMETER_DECLARATION_EXPECTED);
+            }
+            ParsingContext::TypeArguments => {
+                self.error_at_current(&messages::TYPE_ARGUMENT_EXPECTED);
+            }
+            ParsingContext::TupleElementTypes => self.error_at_current(&messages::TYPE_EXPECTED),
+            ParsingContext::HeritageClauses => {
+                self.error_at_current(&messages::UNEXPECTED_TOKEN_EXPECTED);
+            }
             ParsingContext::VariableDeclarations if self.token.kind.is_keyword() => {
                 let text = self.token_text();
                 self.error_at_current_with(
