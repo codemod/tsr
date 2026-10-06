@@ -966,6 +966,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
+    /// `resolvedBaseConstructorType`/`resolvedBaseTypes` per class or
+    /// interface symbol; owner and publication rules in [`crate::base_types`].
+    pub(crate) base_type_links: crate::base_types::BaseTypeLinks,
     pub(crate) type_parameter_default_cache: FxHashMap<
         crate::declared::TypeParameterDefaultKey,
         crate::declared::TypeParameterDefaultState,
@@ -1485,6 +1488,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             string_mapping_cache: FxHashMap::default(),
             template_literal_cache: FxHashMap::default(),
             mapped_apparent_types: FxHashMap::default(),
+            base_type_links: crate::base_types::BaseTypeLinks::default(),
             type_parameter_default_cache: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
