@@ -197,6 +197,58 @@ Before the patch, the line matched only because the alias did not resolve.
 `phase_modifier` is `type`. Then apply the diff and re-measure. Perf was not
 measured; the arm runs once per default import.
 
+### Round 2: the producer arm landed; the diff is still held back
+
+**Landed:** the producer arm, in `type_id_at_location_tracking`
+(`crates/tsr-conformance/src/types_producer.rs`). A type-only import
+clause's own name answers `getDeclaredTypeOfSymbol(resolveAlias(alias))`,
+including the error type, unlike the specifier arm, which falls through on
+error. Measured on its own against the box baseline re-frozen at `c95b9c4`
+(after §4 and a `main` merge): `checker_types` **+4 aligned RIGHT lines**
+(`exportDefault:6:0`, `filterNamespace_import:1:0`, `importClause_default:1:0`,
+`verbatimModuleSyntaxNoElisionESM:6:0`), 0 lost; diagnostics unchanged.
+
+**Held back again: the diff.** Applied on top of the producer arm it measured
+diagnostics **+2 cases** (`importEquals1`, `exportEqualsDefaultProperty`),
+`checker_types` **+74 RIGHT lines**, 0 lost, and 3 GAP→WRONG. The 3 are the
+`extends React.Component<…>` base expressions in
+`tsxReactPropsInferenceSucceedsOnIntersections` and
+`tsxSpreadDoesNotReportExcessProps`, now resolved and printed `typeof
+React.Component` by the producer's base-class workaround. It is not merged
+because the tree changed under it. Since round 1, `main` added a guarded
+file-module synthetic default (`module_default_target`'s `synthetic` walk in
+`symbols.rs`), and its refusals are pinned by unit tests in another stream's
+file:
+
+- `tests/module_default_file_owner.rs`: `only_complete_chains_within_the_naming_bound_are_admitted`
+  and `unsupported_alias_shapes_and_cycles_decline_before_following_them`
+  assert `resolve_alias == None` for 13 `export =` wrapper shapes. With the
+  diff, the import **clause** resolves every shape to the wrapper's `export=`.
+  The specifier forms (`{ default as x }`, `export { default as y }`) keep the
+  declines, so the two forms disagree. Upstream resolves both
+  (`getExternalModuleMember`'s `default` arm).
+- `symbols.rs`'s own `semantic_type_naming_targets_preserve_identity_and_decline_incomplete_routes`
+  asserts the same `None` for an ambient `export =` namespace as its
+  precondition.
+
+The faithful fix updates those guards to upstream's answers and gives the
+specifier path the same synthetic arm. That is the owner's call, routed in
+the round-2 report.
+
+Two variants were measured and refused:
+
+- **Ambient modules only** (file modules left to the guarded walk):
+  +22 lines and **2 diagnostics lost** (`esModuleInteropDefaultMemberMustBeSyntacticallyDefaultExport`,
+  `nodeNextEsmImportsOfPackagesWithExtensionlessMains`).
+- **`resolveExportByName` in `can_have_synthetic_default`'s declaration-file
+  arm** (look through `export =` for `default` / `__esModule`, with
+  `isSyntacticDefault`). It is needed for the jsx naming test's `marked`
+  module (`const __esModule: true` inside an `export =` namespace), but alone
+  it **lost `nodeNextEsmImportsOfPackagesWithExtensionlessMains`**: upstream
+  returns `true` from the `node16` usage block (ESM importing CommonJS) before
+  the declaration-file arm. That is the `true` branch the diff declines (see
+  above). The two must land together.
+
 ## §4. Non-global module augmentations merge (`mergeModuleAugmentation`, cluster `tsr-2zk.38` / `tsr-2zk.16.15`)
 
 ### The forcing constraint
