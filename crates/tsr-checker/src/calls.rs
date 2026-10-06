@@ -3771,9 +3771,14 @@ impl Checker<'_, '_> {
                 // generic does. `docs/parity/notes/calls-inference.md` §3.
                 if candidates.len() > 1 && survivor.type_parameters.is_empty() {
                     let mut verdict = Ternary::Related;
+                    let call = self.call_for_overload_arguments(arguments);
                     for (index, &argument) in arguments.iter().enumerate() {
                         let Some(parameter) = survivor.parameters.get(index) else { break };
-                        let argument_type = self.check_expression(argument);
+                        let argument_type = self.check_argument_in_candidate_context(
+                            call,
+                            Some(&survivor),
+                            argument,
+                        );
                         if !self.strict_null_checks
                             && self
                                 .type_of(argument_type)
@@ -4373,12 +4378,17 @@ impl Checker<'_, '_> {
         // specialized candidate is gone (`docs/parity/notes/calls-inference.md`
         // §3).
         let prefix = &candidates[..clean_len];
+        // `isSignatureApplicable` checks each argument under the candidate's
+        // parameter type; the first arity-matching candidate's check is the
+        // argument's first, so it is made under that context.
+        let first = candidates.iter().find(|c| has_correct_arity(c, arguments.len()));
+        let call = self.call_for_overload_arguments(arguments);
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
                 return SubtypePassOutcome::Undecidable;
             }
-            argument_types.push(self.check_expression(argument));
+            argument_types.push(self.check_argument_in_candidate_context(call, first, argument));
         }
         let all_decidable = clean_len == candidates.len();
         for candidate in prefix {
@@ -4410,6 +4420,43 @@ impl Checker<'_, '_> {
         } else {
             SubtypePassOutcome::Undecidable
         }
+    }
+
+    /// `checkExpressionWithContextualType(arg, paramType, nil, checkMode)`
+    /// as `isSignatureApplicable` (`checker.go:9256`) calls it for a
+    /// non-generic candidate, when that call is the argument's first check.
+    ///
+    /// Upstream checks every argument under each candidate's parameter type;
+    /// what an argument resolves inside that check (its own call's
+    /// `resolvedSignature`, a variance measured by contextual return
+    /// inference) is cached by the first candidate's check and reused by every
+    /// later one. This port caches the argument's type in `node_types`, so
+    /// only the first check is made under a context: it publishes `candidate`
+    /// as the call's memo ([`Checker::call_inference_signatures`], read by
+    /// `contextual_type_for_argument`) for the duration of one
+    /// `check_expression`. An already-checked argument, a context-sensitive
+    /// one (the walk's retention owns those), a generic candidate (its
+    /// context is inference's), a synthesized argument list, and a call
+    /// whose memo is already set keep the context-free `check_expression`.
+    fn check_argument_in_candidate_context(
+        &mut self,
+        call: Option<tsr_ast::NodeId>,
+        candidate: Option<&Signature>,
+        argument: Expression<'_>,
+    ) -> TypeId {
+        if let Some(candidate) = candidate
+            && candidate.type_parameters.is_empty()
+            && argument.node_id().is_some_and(|id| !self.node_types.contains_key(&id))
+            && !self.is_context_sensitive_argument(&argument)
+            && let Some(call) = call
+            && !self.call_inference_signatures.contains_key(&call)
+        {
+            self.call_inference_signatures.insert(call, candidate.clone());
+            let checked = self.check_expression(argument);
+            self.call_inference_signatures.remove(&call);
+            return checked;
+        }
+        self.check_expression(argument)
     }
 
     /// §273's admission test, shared with the `new`-expression road: the
