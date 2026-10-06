@@ -136,3 +136,164 @@ root-identifier rule, `types_producer.rs`, not owned);
 §1.2 for alias bodies that carry the alias, i.e. NB-SYMBOL-CHAIN);
 TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL and IMPORT-EQUALS-ALIAS-TYPEREF-TARGET
 (the identifier arm's §157/§491 roads) not started.
+
+## 2. Round 2 (baseline frozen at `15f1743`: types 467,200 RIGHT / 1,213 GAP / 9,239 WRONG; diagnostics 3,846 RIGHT / 4,941 EMPTY_RIGHT)
+
+### 2.1 Type-literal index infos are deduplicated by key (`tsr-2zk.16.40`)
+
+`getIndexInfosOfIndexSymbol` (`checker.go:19634`) appends an info for a key
+type only when `findIndexInfo` finds none (`:19655`), so two `[x: number]`
+signatures in one literal yield ONE info and print one row.
+`build_type_literal` (`declared.rs`) now skips a later index declaration whose
+key type it already holds. `index_signature_member` declines union keys before
+this point, so the key is a single type and identity is the right test.
+Measured: +6 lines, 4 cases (`duplicateNumericIndexers`,
+`duplicateStringIndexers`, `multipleNumericIndexers`, `multipleStringIndexers`),
+0 losses in either dump. No new cache or side table.
+
+### 2.2 First ADR-0045 slice: alias-free generic bodies declare their body
+
+ADR-0045 rule 4 (the declared type is the body as built, the alias lands only
+through an alias-accepting constructor) applied to the three body kinds whose
+upstream constructors never receive `getAliasForTypeNode`: a template literal
+(`getTypeFromTemplateTypeNode`), `keyof X` (`getTypeFromTypeOperatorNode`) and
+a type query. `get_declared_type_of_type_alias` answers the resolved body for
+those instead of the `Name<Params>` mint; a body this port cannot resolve
+(`typeof g<V>`, an instantiation expression) keeps the mint. Measured: +27
+lines, 1 case (`templateLiteralTypes8`), 0 losses. References are unchanged:
+`instantiate_template_alias` already evaluated template bodies, and `keyof`
+references keep their `create_type_reference` road (`K<{ a: 1 }>` still
+prints the reference where upstream prints `"a"` — the instantiation half,
+rule 3, is not built).
+
+No new table: this changes the value stored in the existing `declared_types`
+owner, under the existing `resolutions` frame.
+
+### 2.3 Held patch A, measured, blocked on two annotation-reuse sites outside this lane
+
+Patch: `type-refs-held/A-dup-members-and-type-parameter-body.patch` (applies to
+this branch's head; NOT built into the tree — it touches `signatures.rs` and
+`objects.rs`, which this box does not own).
+
+Two more slices are built and measured but NOT committed, because each moves a
+signature print that upstream produces by reusing the written annotation
+(`serializeTypeForDeclaration`), at a site this box does not own:
+
+- **Duplicate property signatures merge** (`tsr-2zk.16.54`): `declareSymbolEx`
+  merges same-named property signatures, so `{ a: string; a: string; }`
+  prints `{ a: string; }` everywhere except a reused annotation.
+  `checkTypePredicateForRedundantProperties` (a passing case) wants the
+  written `x is { a: string; a: string; }`. Needs `signatures.rs`
+  `type_predicate_from_node` to read `qualified_written_text` for ANY
+  annotation node, not only `TypeReferenceNode`.
+- **Type-parameter body instantiation** (`instantiateTypeWithAlias` over a
+  type parameter returns the image): `type Id<T> = T; type X = Id<string>`
+  is `string`. `divergentAccessorsTypes6` (passing) wants
+  `set x(value: Fail<string>)`. Needs `objects.rs`'s divergent-setter print
+  to use `written_annotation_text(annotation)` before `type_to_string`.
+
+With both one-line changes applied (measured together with 2.1/2.2's
+predecessor): 18 cases, +43 lines, 0 losses — the held slices add
+`conditionalTypeAnyUnion`, `divergentAccessorsTypes6`, `propertySignatures`,
+`duplicatePropertiesInTypeAssertions01/02`, `duplicatePropertyNames`,
+`numericNamedPropertyDuplicates`, `stringNamedPropertyDuplicates`,
+`objectTypeWithDuplicateNumericProperty`, `unknownType2`,
+`intersectionApparentTypeCaching`, `inferTypeParameterConstraints`,
+`relatedViaDiscriminatedTypeNoError2`, `importClause_namespaceImport`.
+
+### 2.4 Held patch B: deferred type references carry their alias (ADR-0045's first table)
+
+Patch: `type-refs-held/B-deferred-type-reference-alias.patch` — NOT built into
+the tree. It is the first writer and reader of ADR-0045's side table:
+
+- `Checker::alias_of: TypeId -> (alias SymbolId, alias arguments)` and the
+  intern table `deferred_alias_references: (alias, reference) -> TypeId`
+  (checker.rs fields; ADR-0045 rule 1's representation).
+- Writer: `deferred_alias_reference` (declared.rs) — `createDeferredTypeReference`
+  through `isDeferredTypeReferenceNode`'s alias arm (`checker.go:23236`), for an
+  array node (`getTypeFromArrayOrTupleTypeNode :24115`) or a generic
+  class/interface reference (`getTypeFromClassOrInterfaceReference :23200`) that
+  is directly the body of a NON-generic alias. The copy keeps flags, member
+  owner and `type_reference_targets`, so every semantic consumer sees the same
+  `(target, arguments)`; only the printer reads `alias_of`.
+- Reader: `type_to_string_at` prints `alias_of` first through
+  `reference_text_at` (ADR-0045 rule 5, the node builder's alias arm `:3362`).
+- `without_alias` recovers the canonical reference for consumers that build a
+  NEW type from the structure: the variadic-tuple rest print
+  (`createNormalizedTupleType` stores a rest's element type; `[...Numbers, boolean]`
+  prints `[...number[], boolean]` — measured 3 R→W without it).
+
+Checker port convention: native operation `createDeferredTypeReference` /
+`isDeferredTypeReferenceNode` @ `5b1047d`; key `(alias SymbolId, canonical
+reference TypeId)`, owner the Checker; published once at creation, never
+mutated, absent = no alias (complete); consumer context printing only; work
+boundary one hash lookup per alias-body array/class reference, which runs once
+per alias because the declared type is memoised.
+
+Measured (on top of 2.1/2.2): +158 type lines, 11 cases
+(`constraintOfRecursivelyMappedTypeWithConditionalIsResolvable`,
+`genericDefaultsErrors`, `instanceofTypeAliasToGenericClass`,
+`selfReferencingTypeReferenceInference`,
+`typeVariableConstraintedToAliasNotAssignableToUnion`,
+`destructuringParameterDeclaration3ES5/ES6`, `destructuringParameterDeclaration4`,
+`directDependenceBetweenTypeAliases`,
+`objectTypeWithStringAndNumberIndexSignatureToAny`, `readonlyArraysAndTuples2`).
+Losses, which is why it is held:
+
+1. `recursiveTypeReferences1` (2 lines, `children.length` → `any`):
+   `members.rs` `completed_array_placeholder_length_body` requires
+   `instantiations[key] == declared_types[owner]`, which the alias copy is not.
+   The patch includes the one-line fix (`self.without_alias(...)` on the
+   declared body), measured to remove both losses — but `members.rs` is the
+   property lane's file.
+2. `spreadBooleanRespectsFreshness` (1 line): `c ? fa : [fb]` with
+   `fa: FooArray` now prints `FooArray`; upstream prints `FooBase[]`. With two
+   distinct but structurally identical constituents `removeSubtypes`
+   (`checker.go:25934`) removes whichever sorts LAST, so upstream's answer says
+   either the fresh array-literal reference is not a strict subtype of the
+   deferred alias reference, or it sorts earlier. Not diagnosed: the decision
+   is in the relater (strict-subtype over a fresh array literal) or in type-id
+   creation order, neither of which this box owns. Falsifier for any fix: the
+   case's line 10 turns RIGHT and no other line moves.
+
+### 2.5 Generic aliases run the declared-type push/pop frame (TS2456)
+
+Requested by the integrator ahead of the parser box's type-parameter-list
+recovery, which turns `type T1<in in> = T1` into a GENERIC alias
+(`varianceAnnotationsWithCircularlyReferencesError`: upstream `>T1 : any` plus
+TS2456). Two upstream orderings were missing:
+
+- `getDeclaredTypeOfTypeAlias` (`checker.go:23837`) resolves the body under
+  `pushTypeResolution` for every alias, generic or not. The generic arm of
+  `get_declared_type_of_type_alias` now does the same before its `Name<Params>`
+  mint: a failed pop reports TS2456 and declares `errorType`; a mention from a
+  lazily resolved construct (`deferred_since`) answers the mint, the §29 seam.
+  The resolved body is discarded (the declared type is still the mint — ADR-0045
+  rule 4 is not built for these bodies).
+- `getTypeFromTypeAliasReference` (`:23580`) reads the declared type BEFORE the
+  arity window, and a circular alias publishes no type parameters, so the
+  self-reference is `errorType`, not a TS2314. `get_type_reference_type` now
+  asks for a generic alias's declared type first and answers `error` on error.
+- `check_type_alias_circularity` (check.rs, the type-alias check) no longer
+  skips generic aliases, so the check pass reaches the getter.
+
+Measured on this branch (no parser change): zero moved lines in either dump
+against §2.2's state — no existing generic alias is newly found circular. On a
+scratch merge with the parser branch (`0238e8f`), the case's types turn
+2/2 RIGHT and its two TS2456 diagnostics appear (the remaining misses are
+TS2637 and TS1359, not this item).
+- Conditional-type BRANCHES are now deferred boundaries in
+  `native_resolves_lazily`. The first build of this commit failed
+  `awaited_types.rs`: lib `Awaited<T>` recurses through `Awaited<V>` in a
+  branch, which upstream never resolves while the declared type resolves
+  (`getConditionalType`, `:24300`, reads the branches only once the
+  conditional is not deferred) but which this port resolved eagerly — a false
+  circularity, `x: Awaited<T>` printing `error`. The port cannot yet tell at
+  that point whether a conditional defers, so every branch is a boundary;
+  for a fully concrete conditional that is lazier than upstream, and the cost
+  is a missed TS2456, never a false one. Falsifier: a concrete conditional
+  alias whose branch names itself, where upstream reports TS2456 and this port
+  does not.
+
+Re-measured with the branch boundary: zero moved lines in either dump,
+workspace tests pass, and the scratch-merge result above still holds.
