@@ -806,6 +806,74 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
+    /// `checkYieldExpression` (`checker.go:10952`), the assignability half:
+    /// in a generator with a written return annotation (a union filtered by
+    /// `checkGeneratorInstantiationAssignabilityToReturnType`), the yielded
+    /// type (`getYieldedTypeOfYieldExpression`: the operand's type, or
+    /// `undefinedWideningType` for a bare `yield`) is checked with
+    /// `checkTypeAssignableToAndOptionallyElaborate` against the annotation's
+    /// yield iteration type (`getIterationTypesOfGeneratorFunctionReturnType`,
+    /// orElse `anyType`), at the operand or else the `yield` itself.
+    ///
+    /// Declined: `yield*` (its yielded type is the delegated iterable's
+    /// iterated type, `checkIteratedTypeOrElementType`) and async generators
+    /// (the yielded type is awaited first, `getAwaitedType`).
+    pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::YieldExpression(expression)) = self.node_map.get(node) else { return };
+        if expression.asterisk_token.is_some() {
+            return;
+        }
+        let Some(container) = self.containing_function(node) else { return };
+        let (asterisk, annotation, modifiers) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.r#type, f.modifiers),
+            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.r#type, f.modifiers),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.r#type, f.modifiers),
+            _ => return,
+        };
+        if asterisk.is_none() || has_async(modifiers) {
+            return;
+        }
+        let Some(annotation) = annotation else { return };
+        let mut return_type = self.get_type_from_type_node(annotation);
+        if self.type_of(return_type).flags.contains(TypeFlags::UNION) {
+            let mut undecided = false;
+            return_type = self.filter_type(return_type, |checker, constituent| {
+                checker
+                    .generator_instantiation_assignable_to_return_type(constituent, false)
+                    .unwrap_or_else(|()| {
+                        undecided = true;
+                        false
+                    })
+            });
+            if undecided {
+                return;
+            }
+        }
+        let Ok(yield_type) = self.get_iteration_type_of_generator_function_return_type(
+            crate::iteration::IterationTypeKind::Yield,
+            return_type,
+            false,
+        ) else {
+            return;
+        };
+        let target = yield_type.unwrap_or(self.intrinsics.any);
+        if let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) {
+            let source = self.check_expression_at_node(operand);
+            let before = self.diagnostics.len();
+            self.check_excess_properties(target, operand);
+            if self.diagnostics.len() != before {
+                return;
+            }
+            self.report_assignability_failure(operand, operand, source, target);
+        } else {
+            let undefined = self.intrinsics.undefined;
+            self.report_assignability_failure_with(node, None, undefined, target);
+        }
+    }
+
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
     /// against the function's **written** return annotation.
     ///

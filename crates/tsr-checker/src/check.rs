@@ -781,7 +781,10 @@ impl Checker<'_, '_> {
         // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
         // is the statement-level shape and is declined, §103.
         match typed {
-            Node::YieldExpression(_) => self.check_yield_grammar(node),
+            Node::YieldExpression(_) => {
+                self.check_yield_grammar(node);
+                self.check_yield_expression_assignability(node);
+            }
             Node::AwaitExpression(_) => {
                 self.check_await_in_parameter_initializer(node);
                 self.check_await_in_non_async_function(node);
