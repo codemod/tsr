@@ -367,6 +367,29 @@ impl Checker<'_, '_> {
         self.array_literal_tuple_context_kind(node) != TupleContext::No
     }
 
+    /// `contextualType != nil && someType(contextualType,
+    /// isMutableArrayLikeType)` for a const-context literal (checkArrayLiteral,
+    /// checker.go:8087). `getContextualType` passes a const assertion through
+    /// to its own context (checker.go:29368), which `get_contextual_type`
+    /// does not, so that arm is walked here; the remaining parents are
+    /// `get_contextual_type`'s.
+    pub(crate) fn array_literal_contextual_is_mutable(&mut self, id: tsr_ast::NodeId) -> bool {
+        let mut current = id;
+        while let Some(parent) = self.nodes.parent(current) {
+            let annotation = match self.node_map.get(parent) {
+                Some(tsr_ast::Node::AsExpression(assertion)) => assertion.r#type,
+                Some(tsr_ast::Node::TypeAssertion(assertion)) => assertion.r#type,
+                _ => None,
+            };
+            if !annotation.is_some_and(crate::assertions::is_const_type_reference) {
+                break;
+            }
+            current = parent;
+        }
+        self.get_contextual_type(current)
+            .is_some_and(|contextual| self.const_context_is_mutable_array_like(contextual))
+    }
+
     /// `isSpreadIntoCallOrNew` (`checker.go:8117`). A parenthesis does NOT break
     /// this one — upstream walks up through them explicitly, unlike the optional
     /// chain's flag, which a parenthesis stops.
@@ -899,8 +922,15 @@ impl Checker<'_, '_> {
                 // from the const type variable, not from `checkArrayLiteral`.
                 //
                 // An `as const` assertion is the other way round and keeps the
-                // readonly here, which is what `is_const_context` answers.
-                return self.create_tuple_type(elements, !const_argument);
+                // readonly here, which is what `is_const_context` answers —
+                // unless the contextual type has a mutable array-like
+                // constituent: `inConstContext && !(contextualType != nil &&
+                // someType(contextualType, isMutableArrayLikeType))`
+                // (checkArrayLiteral, checker.go:8087), so `[1] as const
+                // satisfies unknown[]` is the mutable `[1]`.
+                let readonly = !const_argument
+                    && !node.node_id.is_some_and(|id| self.array_literal_contextual_is_mutable(id));
+                return self.create_tuple_type(elements, readonly);
             }
             return error;
         }
