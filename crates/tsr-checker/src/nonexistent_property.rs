@@ -800,6 +800,62 @@ impl Checker<'_, '_> {
         self.apparent_type_lacks_at(apparent, name, 0)
     }
 
+    /// The miss certificate for the static side (`typeof C`) of `class`, a
+    /// class with a base, which the completeness walk declines.
+    ///
+    /// `resolveAnonymousTypeMembers`' class arm (`checker.go:20685`) makes the
+    /// static members the class symbol's exports plus, by `addInheritedMembers`,
+    /// `getPropertiesOfType(getBaseConstructorTypeOfClass(classType))` when
+    /// that type is an object, intersection or type variable; an `any` base
+    /// adds `anyBaseTypeIndexInfo` instead, and any other base adds nothing.
+    /// The index infos are the class's own `static [k: …]` signatures (a base's
+    /// are not inherited). So the name is absent when the own exports miss it
+    /// (the caller's `getPropertyOfType` miss, which already read both), no
+    /// own index signature admits it, and the base constructor type certainly
+    /// lacks it. Declarations other than class and namespace bodies decline,
+    /// as does an error base. No cache: one lookup per base after the miss.
+    fn class_static_side_lacks(
+        &mut self,
+        apparent: TypeId,
+        class: SymbolIdAlias,
+        name: &str,
+        depth: u32,
+    ) -> Option<bool> {
+        let declarations = self.binder.symbols().get(class).declarations.to_vec();
+        let readable = declarations.iter().all(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::ClassDeclaration(_) | Node::ModuleDeclaration(_))
+            )
+        });
+        if !readable || depth >= MAX_COMPOSITION_DEPTH {
+            return None;
+        }
+        if self.no_index_signature_admits(apparent, name) != Some(true) {
+            return None;
+        }
+        let base = self.get_base_constructor_type_of_class(class);
+        if base == self.intrinsics.any {
+            return Some(false);
+        }
+        if self.is_error(base) {
+            return None;
+        }
+        // `TypeFlagsTypeVariable` is `TypeParameter | IndexedAccess`.
+        if !self.store.get(base).flags.intersects(
+            crate::flags::TypeFlags::OBJECT
+                | crate::flags::TypeFlags::INTERSECTION
+                | crate::flags::TypeFlags::TYPE_PARAMETER
+                | crate::flags::TypeFlags::INDEXED_ACCESS,
+        ) {
+            return Some(true);
+        }
+        // A base holding the name the inherited lookup missed is this port's
+        // gap, not upstream's absence: decline rather than answer present.
+        let base = self.apparent_type(base);
+        (self.apparent_type_lacks_at(base, name, depth + 1) == Some(true)).then_some(true)
+    }
+
     fn apparent_type_lacks_at(&mut self, apparent: TypeId, name: &str, depth: u32) -> Option<bool> {
         // A found property needs no certificate; the completeness walks are
         // the expensive half and only a miss pays for them.
@@ -813,6 +869,9 @@ impl Checker<'_, '_> {
             // A class's static side is certified without reading its
             // `static [k: string]` signatures; ask them per name too.
             return self.no_index_signature_admits(apparent, name);
+        }
+        if let Some(class) = self.class_static_symbol(apparent) {
+            return self.class_static_side_lacks(apparent, class, name, depth);
         }
         // A captured member image is `getPropertiesOfType`'s complete list
         // (`resolveStructuredTypeMembers` already ran when it was published),
