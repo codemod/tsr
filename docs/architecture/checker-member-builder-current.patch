@@ -1,0 +1,1859 @@
+diff --git a/crates/tsr-checker/src/base_types.rs b/crates/tsr-checker/src/base_types.rs
+--- a/crates/tsr-checker/src/base_types.rs
++++ b/crates/tsr-checker/src/base_types.rs
+@@ -59,6 +59,7 @@
+ struct BaseTypes {
+     types: Vec<TypeId>,
+     resolved: bool,
++    circular: bool,
+ }
+
+ impl<'a> Checker<'a, '_> {
+@@ -223,6 +224,11 @@
+         }
+         if !self.resolutions.push(ResolutionTarget::Symbol(symbol), PropertyName::ResolvedBaseTypes)
+         {
++            #[cfg(test)]
++            {
++                let entry=self.base_type_links.base_types.get(&symbol);
++                self.member_publication.base_reentries.push((symbol,entry.map(|e| e.types.clone()).unwrap_or_default(),entry.is_some_and(|e| e.resolved)));
++            }
+             return self
+                 .base_type_links
+                 .base_types
+@@ -240,10 +246,20 @@
+         if flags.contains(SymbolFlags::INTERFACE) {
+             self.resolve_base_types_of_interface(symbol);
+         }
+-        let _ = self.resolutions.pop();
++        let circular = !self.resolutions.pop();
++        self.base_type_links.base_types.entry(symbol).or_default().circular |= circular;
++        self.publication_reset_target(symbol);
+         let entry = self.base_type_links.base_types.entry(symbol).or_default();
+         entry.resolved = true;
+         entry.types.clone()
++    }
++
++    pub(crate) fn publication_bases_complete(&self, symbol: SymbolId) -> bool {
++        self.base_type_links.base_types.get(&self.binder.merged_symbol(symbol)).is_some_and(|entry| entry.resolved)
++    }
++
++    pub(crate) fn publication_base_resolution_was_circular(&self,symbol:SymbolId) -> bool {
++        self.base_type_links.base_types.get(&symbol).is_some_and(|entry|entry.circular)
+     }
+
+     /// `resolveBaseTypesOfClass` (`checker.go:19220`): the class's single base
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -11323,6 +11323,25 @@
+         }
+         let mut seen = vec![symbol];
+         let mut frontier = self.base_type_symbols(symbol);
++        // getBaseTypes' resolution result can be circular even though the
++        // written heritage graph is acyclic: filling a base's default may
++        // read a member of this still-resolving class. Keep this diagnostic
++        // at the existing check-pass owner, using the actual resolution result.
++        let _=self.get_base_types(symbol);
++        if self.publication_base_resolution_was_circular(symbol) {
++            let name=match typed {
++                Node::InterfaceDeclaration(n)=>n.name.and_then(|name|name.node_id),
++                Node::ClassDeclaration(n)=>n.name.and_then(|name|name.node_id),
++                _=>None,
++            };
++            let at=name.unwrap_or(node);
++            if let Some(file)=self.source_file_of_for_diagnostics(at) {
++                let ty=self.get_declared_type_of_symbol(symbol);
++                let text=self.type_to_string(ty);
++                self.report(file,Diagnostic::with_args(&messages::TYPE_0_RECURSIVELY_REFERENCES_ITSELF_AS_A_BASE_TYPE,self.nodes.span(at),[text]));
++            }
++            return;
++        }
+         while let Some(next) = frontier.pop() {
+             if next == symbol {
+                 let name = match typed {
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -52,6 +52,7 @@
+ )]
+ pub struct Checker<'a, 'n> {
+     pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
++    pub(crate) member_publication: crate::member_publication::MemberPublication,
+     pub(crate) store: TypeStore,
+     pub(crate) intrinsics: Intrinsics,
+     pub(crate) nodes: &'n NodeTable,
+@@ -1527,6 +1528,7 @@
+             template_literal_cache: FxHashMap::default(),
+             mapped_apparent_types: FxHashMap::default(),
+             base_type_links: crate::base_types::BaseTypeLinks::default(),
++            member_publication: crate::member_publication::MemberPublication::default(),
+             type_parameter_default_cache: FxHashMap::default(),
+             type_parameter_constraint_cache: FxHashMap::default(),
+             reverse_mapped_cache: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2421,18 +2421,13 @@
+             self.contextual_property_type(contextual, &name)?
+         } else {
+             match self.get_property_of_type(contextual, &name) {
+-                Some(_)
+-                    if !self.type_reference_targets.contains_key(&contextual)
+-                        && self
+-                            .anonymous_properties
+-                            .get(&contextual)
+-                            .is_some_and(|(_, instantiated)| *instantiated) =>
+-                {
+-                    // Instantiated anonymous properties retain their declaration
+-                    // origins, but their semantic values are already substituted.
+-                    self.get_type_of_property_of_type(contextual, &name)?
+-                }
+-                Some(property) => self.get_type_of_symbol(property),
++                Some(_) => {
++                    // Native getTypeOfConcretePropertyOfContextualType
++                    // (5b1047d checker.go:30638) reads the concrete symbol.
++                    // The typed reader owns both instantiated members and
++                    // mapped wrappers; Named.members alone is not that owner.
++                    self.concrete_contextual_property_type(contextual, &name)?
++                }
+                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+             }
+         };
+@@ -3034,6 +3029,64 @@
+             .expect("a field initializer");
+         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+         checker.get_contextual_type(initializer).map(|ty| checker.type_to_string(ty))
++    }
++
++    #[test]
++    fn mapped_inherited_callback_keeps_the_inferred_option_and_negative_diagnostic() {
++        for body in ["addOptions(){return {value:1}}", "addOptions:()=>({value:1})"] {
++            for checked_first in [false, true] {
++                for annotation in ["number", "string"] {
++                    let source = format!(
++                        "type LocalPartial<T>={{[P in keyof T]?:T[P]}}; interface Base<T>{{addOptions?:()=>T;run?:(this:{{options:T}})=>number}} interface Child<U> extends Base<U>{{}} declare function make<U=any>(config:LocalPartial<Child<U>>):U; const result=make({{{body},run(){{return this.options.value;}}}}); const checked:{annotation}=result.value;"
++                    );
++                    let arena = tsr_core::Arena::new();
++                    let parsed = tsr_parser::parse(&arena, &source);
++                    assert!(parsed.diagnostics.is_empty());
++                    let bound = tsr_binder::bind(
++                        &arena,
++                        parsed.source_file,
++                        &parsed.nodes,
++                        tsr_binder::FileInfo { name: "t.ts", text: &source },
++                    );
++                    let root = parsed.source_file.node_id.unwrap();
++                    let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++                    checker.no_implicit_this = true;
++                    if checked_first {
++                        checker.check_source_file(
++                            root,
++                            crate::check::FileContext { ambient: false, has_parse_errors: false },
++                        );
++                    }
++                    let result = bound.lookup_local(root, "result").unwrap();
++                    for _ in 0..3 {
++                        let result_type = checker.get_type_of_symbol(result);
++                        assert_eq!(
++                            checker.get_type_of_property_of_type(result_type, "value"),
++                            Some(checker.intrinsics.number),
++                            "mapped source must retain inferred numeric option: {body}, checked_first={checked_first}"
++                        );
++                    }
++                    if !checked_first {
++                        checker.check_source_file(
++                            root,
++                            crate::check::FileContext { ambient: false, has_parse_errors: false },
++                        );
++                    }
++                    assert_eq!(
++                        checker
++                            .diagnostics()
++                            .iter()
++                            .any(|(_, diagnostic)| diagnostic.message.code() == 2322),
++                        annotation == "string",
++                        "native keeps required negative diagnostic: {:?}",
++                        checker.diagnostics()
++                    );
++                    if annotation == "number" {
++                        assert!(checker.diagnostics().is_empty(), "{:?}", checker.diagnostics());
++                    }
++                }
++            }
++        }
+     }
+
+     #[test]
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5404,6 +5404,20 @@
+         if let Some(&(_, image)) = map.iter().find(|&&(from, _)| from == id) {
+             return image;
+         }
++        // Native getObjectTypeInstantiation retains an uncomputed callable
++        // with no outer parameters before demanding members/signatures/return.
++        // This declaration proof writes no completion or mapper image.
++        if self.uncomputed_callable_instantiation_is_identity(id) {
++            // Native nil mapper admission precedes the budget. A nonempty
++            // mapper still enters its object worker, even for an identity.
++            if !map.is_empty() {
++                if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
++                    return self.intrinsics.error;
++                }
++                self.instantiation_count += 1;
++            }
++            return id;
++        }
+         // A return mapper may inspect the original signature only after its
+         // declaration-owned lazy return completes. Active/unsupported originals
+         // decline before a no-type-parameter decision or mapper image is stored.
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -104,6 +104,7 @@
+ mod assignment_declarations;
+ pub mod assignreport;
+ mod base_types;
++mod member_publication;
+ pub mod binary;
+ mod binding_patterns;
+ pub mod call_arity;
+diff --git a/crates/tsr-checker/src/member_publication.rs b/crates/tsr-checker/src/member_publication.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/src/member_publication.rs
+@@ -0,0 +1,726 @@
++//! Isolated structured-member experiment. Broader native metadata and fidelity
++//! remain unqualified; natural field publication is tested separately.
++use crate::{Checker, TypeId};
++use crate::flags::TypeFlags;
++use crate::types::TypeData;
++use crate::symbol_access::{CheckFlags, SymbolRef};
++use rustc_hash::FxHashMap;
++use tsr_binder::{SymbolFlags, SymbolId};
++use crate::signatures::Signature;
++use crate::index_signatures::IndexInfo;
++use tsr_ast::{Node, TypeElement};
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) enum MemberQuery {
++    Published { symbol:SymbolRef, revision:u64, active:bool },
++    Absent { revision:u64, active:bool },
++    Unsupported,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++struct ImageKey { ty:TypeId, receiver:TypeId }
++
++#[derive(Clone, Default)]
++struct StructuredFields {
++    members:FxHashMap<String,SymbolRef>,
++    calls:Vec<Signature>,
++    constructs:Vec<Signature>,
++    indexes:Vec<IndexInfo>,
++}
++
++#[derive(Default)]
++struct PropertyImage {
++    members:FxHashMap<String,SymbolRef>,
++    calls:Vec<Signature>,
++    constructs:Vec<Signature>,
++    indexes:Vec<IndexInfo>,
++    published:bool,
++    inheritance_active:bool,
++    frames:Vec<u64>,
++    revision:u64,
++    done:bool,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct MapperId(pub(crate) usize);
++
++#[derive(Clone)]
++struct MapperOperation {
++    owner:TypeId,
++    receiver:TypeId,
++    prior:Option<MapperId>,
++}
++
++#[derive(Clone, Default)]
++pub(crate) struct MemberLinks {
++    pub(crate) target:Option<SymbolRef>,
++    pub(crate) mapper:Option<MapperId>,
++    pub(crate) read:Option<TypeId>,
++    pub(crate) write:Option<TypeId>,
++    pub(crate) containing:Option<TypeId>,
++}
++
++#[derive(Default)]
++pub(crate) struct MemberPublication {
++    images:FxHashMap<ImageKey,PropertyImage>,
++    declared:FxHashMap<SymbolId,Option<StructuredFields>>,
++    pub(crate) links:FxHashMap<SymbolRef,MemberLinks>,
++    mappers:Vec<MapperOperation>,
++    composites:FxHashMap<(TypeId,TypeId,String),SymbolRef>,
++    apparent:FxHashMap<TypeId,TypeId>,
++    references:FxHashMap<(SymbolId,Vec<TypeId>),TypeId>,
++    reduced:FxHashMap<TypeId,bool>,
++    #[cfg(test)]
++    pub(crate) base_reentries:Vec<(SymbolId,Vec<TypeId>,bool)>,
++    #[cfg(test)]
++    pub(crate) member_entries:Vec<(SymbolId,TypeId)>,
++    #[cfg(test)]
++    pub(crate) target_resets:Vec<(SymbolId,TypeId,usize,bool)>,
++    #[cfg(test)]
++    pub(crate) field_events:Vec<(String,SymbolId,TypeId,bool,bool,usize,Vec<String>,usize,usize,usize)>,
++}
++
++#[cfg(test)]
++mod structured_field_tests {
++    use super::ImageKey;
++    use tsr_ast::HasNodeId;
++
++
++
++    #[test]
++    fn contextual_inherited_callback_reads_published_member_type() {
++        let source="interface Base<T>{a:(x:T)=>T} interface Child<U> extends Base<U>{} const probe:Child<number>={a:x=>{const n:number=x;return x;}};";
++        for order in ["cold","typed-reader-first","checked-first"] {
++            let arena=tsr_core::Arena::new();
++            let parsed=tsr_parser::parse(&arena,source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++            let root=parsed.source_file.node_id().unwrap();
++            let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++            if order=="typed-reader-first" {
++                let probe=checker.binder.lookup_local(root,"probe").unwrap();
++                let context=checker.get_type_of_symbol(probe);
++                let member=checker.get_type_of_property_of_type(context,"a").unwrap();
++                let signatures=checker.call_signatures_of_type(member).unwrap();
++                assert_eq!(checker.parameter_type(&signatures[0].parameters[0]),checker.intrinsics.number,"the ordinary typed reader already preserves the inherited mapper");
++            }
++            checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});
++            assert!(checker.diagnostics().is_empty(),"{order}: native accepts the contextual callback: {:?}",checker.diagnostics());
++            if order=="checked-first" {
++                checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});
++                assert!(checker.diagnostics().is_empty(),"warm source check preserves the contextual read");
++            }
++        }
++    }
++
++    #[test]
++    fn this_argument_admission_preserves_thisless_interfaces() {
++        let source="interface Plain {value:number} interface DerivedPlain extends Plain {own:boolean} interface Self {self:this} interface Generic<T> {value:T} declare class Box {value:number} declare const plain:Plain; declare const derived:DerivedPlain; declare const selfValue:Self; declare const generic:Generic<number>; declare const box:Box; declare const whole:Plain & Self;";
++        for (name, changes) in [("plain",false),("derived",false),("selfValue",true),("generic",true),("box",true)] {
++            for order in ["cold","checked-first","warm"] {
++                let arena=tsr_core::Arena::new();
++                let parsed=tsr_parser::parse(&arena,source);
++                assert!(parsed.diagnostics.is_empty());
++                let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++                let root=parsed.source_file.node_id().unwrap();
++                let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++                if order=="checked-first" {checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});}
++                let symbol=checker.binder.lookup_local(root,name).unwrap();
++                let whole=checker.binder.lookup_local(root,"whole").unwrap();
++                let ty=checker.get_type_of_symbol(symbol);
++                let receiver=checker.get_type_of_symbol(whole);
++                if order=="warm" {let _=checker.publication_with_this(ty,receiver);}
++                let mapped=checker.publication_with_this(ty,receiver);
++                assert_eq!(mapped!=ty,changes,"{name}/{order}: native reference admission is required before adding a this argument");
++                assert_eq!(checker.publication_with_this(mapped,receiver),mapped,"explicit final argument is retained");
++                if changes {
++                    let (_,args)=checker.type_reference_targets.get(&mapped).unwrap();
++                    assert_eq!(args.last(),Some(&receiver));
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn declared_class_member_maps_its_implicit_this_reference() {
++        for order in ["cold", "checked-first", "warm"] {
++            let source="class Message {clone():this {return this;}} declare const receiver:Message;";
++            let arena=tsr_core::Arena::new();
++            let parsed=tsr_parser::parse(&arena,source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++            let root=parsed.source_file.node_id().unwrap();
++            let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++            if order=="checked-first" {checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});}
++            let owner=checker.binder.lookup_local(root,"Message").unwrap();
++            let ty=checker.get_declared_type_of_symbol(owner);
++            if order=="warm" {let _=checker.get_type_of_property_of_type(ty,"clone");}
++            let member=checker.get_type_of_property_of_type(ty,"clone").unwrap();
++            let signatures=checker.call_signatures_of_type(member).unwrap();
++            assert_eq!(signatures.len(),1);
++            assert_eq!(checker.get_return_type_of_signature(&signatures[0]),Some(ty),"{order}: native declared reference pads its own receiver for the formal this parameter");
++        }
++    }
++
++    #[test]
++    fn derived_interface_member_keeps_its_implicit_this_receiver() {
++        for order in ["cold", "checked-first", "warm"] {
++            let source="interface X {a:(p:this)=>this} interface Y extends X {} declare const receiver:Y;";
++            let arena=tsr_core::Arena::new();
++            let parsed=tsr_parser::parse(&arena,source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++            let root=parsed.source_file.node_id().unwrap();
++            let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++            if order=="checked-first" {checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});}
++            let owner=checker.binder.lookup_local(root,"Y").unwrap();
++            let ty=checker.get_declared_type_of_symbol(owner);
++            if order=="warm" {let _=checker.get_type_of_property_of_type(ty,"a");}
++            let member=checker.get_type_of_property_of_type(ty,"a").unwrap();
++            let signatures=checker.call_signatures_of_type(member).unwrap();
++            assert_eq!(signatures.len(),1);
++            assert_eq!(checker.parameter_type(&signatures[0].parameters[0]),ty,"{order}: inherited input receiver");
++            assert_eq!(checker.get_return_type_of_signature(&signatures[0]),Some(ty),"{order}: inherited return receiver");
++        }
++    }
++
++    #[test]
++    fn inherited_generic_fields_instantiate_calls_constructs_and_indexes() {
++        let source="interface Base<T> {base:T;(v:T):T;new(v:T):{v:T};[key:string]:T} interface Mid<U> extends Base<U> {mid:U;[key:string]:U} interface Leaf extends Mid<number> {leaf:number}";
++        let arena=tsr_core::Arena::new();
++        let parsed=tsr_parser::parse(&arena,source);
++        assert!(parsed.diagnostics.is_empty());
++        let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++        let root=parsed.source_file.node_id().unwrap();
++        let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++        let owner=checker.binder.lookup_local(root,"Leaf").unwrap();
++        let ty=checker.get_declared_type_of_symbol(owner);
++        let key=ImageKey {ty,receiver:ty};
++        assert!(checker.publication_image(key));
++        let image=&checker.member_publication.images[&key];
++        let mut names:Vec<_>=image.members.keys().cloned().collect();names.sort();
++        assert_eq!(names,["base","leaf","mid"]);
++        assert!(image.done && image.published && image.frames.is_empty());
++        let (calls,constructs,indexes)=(image.calls.clone(),image.constructs.clone(),image.indexes.clone());
++        assert_eq!((calls.len(),constructs.len(),indexes.len()),(1,1,1));
++        assert_eq!(checker.parameter_type(&calls[0].parameters[0]),checker.intrinsics.number);
++        assert_eq!(checker.get_return_type_of_signature(&calls[0]),Some(checker.intrinsics.number));
++        assert_eq!(checker.parameter_type(&constructs[0].parameters[0]),checker.intrinsics.number);
++        let result=checker.get_return_type_of_signature(&constructs[0]).unwrap();
++        assert_eq!(checker.get_type_of_property_of_type(result,"v"),Some(checker.intrinsics.number));
++        assert_eq!((indexes[0].key,indexes[0].value),(checker.intrinsics.string,checker.intrinsics.number));
++    }
++
++    #[test]
++    fn late_bound_semantic_names_are_stored_suppliers() {
++        let source="declare const key:'resolved'; interface Base<T> {[key]:T} interface Leaf extends Base<number> {}";
++        let arena=tsr_core::Arena::new();
++        let parsed=tsr_parser::parse(&arena,source);
++        assert!(parsed.diagnostics.is_empty());
++        let bound=tsr_binder::bind(&arena,parsed.source_file,&parsed.nodes,tsr_binder::FileInfo {name:"test.ts",text:source});
++        let root=parsed.source_file.node_id().unwrap();
++        let mut checker=crate::Checker::new(&bound,&parsed.nodes,&parsed.node_map);
++        let owner=checker.binder.lookup_local(root,"Leaf").unwrap();
++        let ty=checker.get_declared_type_of_symbol(owner);
++        let key=ImageKey {ty,receiver:ty};
++        assert!(checker.publication_image(key));
++        let symbol=checker.member_publication.images[&key].members.get("resolved").unwrap().clone();
++        assert_eq!(checker.publication_read(&symbol),checker.intrinsics.number);
++        let base=checker.binder.lookup_local(root,"Base").unwrap();
++        let resolved=checker.late_bound_members_of(base,false);
++        let declaration=resolved.iter().find(|(name,_)|name=="resolved").unwrap().1;
++        assert_eq!(checker.symbols.bound_id(&checker.publication_target(&symbol)).unwrap(),checker.binder.symbol_of(declaration));
++    }
++}
++
++impl Checker<'_, '_> {
++    /// getOptionalSymbolFlagForNode (binder.go:2727). Bound symbols do not
++    /// currently carry this native flag; recover the existing declaration fact
++    /// before constructing the private symbol, without forcing its type.
++    pub(crate) fn publication_optional(&self, symbol:&SymbolRef) -> bool {
++        if let Some(bound)=self.symbols.bound_id(symbol).unwrap() { self.property_is_optional(bound) }
++        else { self.symbols.view(symbol).unwrap().flags().contains(SymbolFlags::OPTIONAL) }
++    }
++
++    fn publication_new_member(&mut self, source:&SymbolRef, check:CheckFlags, optional:bool) -> SymbolRef {
++        self.symbols.new_member_from(source,check,optional).unwrap()
++    }
++
++    // Eligibility is a no-force observation. Object metadata needed by the
++    // complete native couldContainTypeVariables worker remains unsupported.
++    fn publication_invariant(&self, ty:TypeId) -> bool {
++        let value = self.store.get(ty);
++        if value.flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::OBJECT) { return false; }
++        match &value.data {
++            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types.iter().all(|&t| self.publication_invariant(t)),
++            _ => true,
++        }
++    }
++
++    fn publication_cached_read(&self, symbol:&SymbolRef) -> Option<TypeId> {
++        match self.symbols.bound_id(symbol).expect("private ownership") {
++            Some(id) => self.symbol_types.get(&id).copied(),
++            None => self.member_publication.links.get(symbol).and_then(|l| l.read),
++        }
++    }
++
++    fn publication_instantiate(&mut self, original:SymbolRef, mapper:MapperId) -> SymbolRef {
++        let flags = self.symbols.view(&original).unwrap().flags();
++        if self.publication_cached_read(&original).is_some_and(|t| self.publication_invariant(t))
++            && (!flags.contains(SymbolFlags::SET_ACCESSOR)
++                || self.member_publication.links.get(&original).and_then(|l| l.write).is_some_and(|t| self.publication_invariant(t))) {
++            return original;
++        }
++        let check = self.symbols.view(&original).unwrap().check_flags();
++        let (target, mapper) = if check.contains(CheckFlags::INSTANTIATED) {
++            let previous = self.member_publication.links[&original].clone();
++            let mut operation = self.member_publication.mappers[mapper.0].clone();
++            operation.prior = previous.mapper;
++            let composed = MapperId(self.member_publication.mappers.len());
++            self.member_publication.mappers.push(operation);
++            (previous.target.unwrap(), composed)
++        } else { (original, mapper) };
++        let flags = CheckFlags::INSTANTIATED | (check & (CheckFlags::READONLY | CheckFlags::LATE | CheckFlags::OPTIONAL_PARAMETER | CheckFlags::REST_PARAMETER));
++        let result = self.publication_new_member(&target, flags, self.publication_optional(&target));
++        self.member_publication.links.insert(result.clone(), MemberLinks { target:Some(target), mapper:Some(mapper), ..MemberLinks::default() });
++        result
++    }
++
++    fn publication_apply(&mut self, mapper:MapperId, ty:TypeId) -> TypeId {
++        let operation = self.member_publication.mappers[mapper.0].clone();
++        let ty = if let Some(prior) = operation.prior { self.publication_apply(prior,ty) } else { ty };
++        self.instantiate_for_reference_with_this(operation.owner,ty,operation.receiver)
++    }
++
++    pub(crate) fn publication_read(&mut self, symbol:&SymbolRef) -> TypeId {
++        if let Some(read) = self.publication_cached_read(symbol) { return read; }
++        if let Some(bound) = self.symbols.bound_id(symbol).unwrap() { return self.get_type_of_symbol(bound); }
++        let links = self.member_publication.links[symbol].clone();
++        let mut read = self.publication_read(&links.target.expect("lazy target"));
++        if let Some(mapper) = links.mapper { read = self.publication_apply(mapper,read); }
++        self.member_publication.links.get_mut(symbol).unwrap().read = Some(read);
++        read
++    }
++
++    pub(crate) fn publication_write(&mut self, symbol:&SymbolRef) -> TypeId {
++        if let Some(write) = self.member_publication.links.get(symbol).and_then(|l| l.write) { return write; }
++        // getWriteTypeOfSymbol (checker.go:16434): ordinary properties remove
++        // missing after reading the instantiated symbol; accessor writes stay
++        // independently mapped, and synthetic properties use published writes.
++        let flags=self.symbols.view(symbol).unwrap().flags();
++        let check=self.symbols.view(symbol).unwrap().check_flags();
++        if flags.contains(SymbolFlags::PROPERTY) && !check.contains(CheckFlags::SYNTHETIC_PROPERTY) {
++            let read=self.publication_read(symbol);
++            let write=if self.publication_optional(symbol) {self.remove_missing_type(read)} else {read};
++            self.member_publication.links.entry(symbol.clone()).or_default().write=Some(write);
++            return write;
++        }
++        let write = if let Some(bound) = self.symbols.bound_id(symbol).unwrap() {
++            self.accessor_write_parameter(bound).map(|p| self.parameter_type(&p)).unwrap_or_else(|| self.get_type_of_symbol(bound))
++        } else {
++            let links = self.member_publication.links[symbol].clone();
++            let ty = self.publication_write(&links.target.expect("lazy target"));
++            if let Some(mapper) = links.mapper { self.publication_apply(mapper,ty) } else { ty }
++        };
++        self.member_publication.links.entry(symbol.clone()).or_default().write = Some(write);
++        write
++    }
++
++    pub(crate) fn publication_target(&self, symbol:&SymbolRef) -> SymbolRef {
++        if self.symbols.view(symbol).unwrap().check_flags().contains(CheckFlags::INSTANTIATED) {
++            self.member_publication.links[symbol].target.clone().unwrap()
++        } else { symbol.clone() }
++    }
++
++    pub(crate) fn publication_reset_target(&mut self, target:SymbolId) {
++        // Reset the declaration's target image only; escaped symbols and positive
++        // composite histories remain valid. Clear the stored member publication
++        // separately from worker frames and complete-image eligibility.
++        let Some(ty) = self.declared_types.get(&target).copied() else { return };
++        let keys:Vec<_>=self.member_publication.images.keys().filter(|key|key.ty==ty && key.receiver==ty).copied().collect();
++        for key in keys {
++                #[cfg(test)]
++                self.publication_observe_fields("reset-before",target,key);
++                let image=self.member_publication.images.get_mut(&key).unwrap();
++                #[cfg(test)]
++                self.member_publication.target_resets.push((target,ty,image.frames.len(),image.published));
++                image.revision+=1;
++                image.done=false;
++                image.published=false;
++                for frame in &mut image.frames { *frame=image.revision; }
++                #[cfg(test)]
++                self.publication_observe_fields("reset-after",target,key);
++        }
++    }
++
++    fn publication_image(&mut self, key:ImageKey) -> bool {
++        if let Some(image) = self.member_publication.images.get(&key)
++            && image.published { return true; }
++        let Some(owner) = (match self.store.get(key.ty).data {
++            TypeData::Named { members:Some(owner), .. } => Some(owner),
++            _ => None,
++        }) else { return false; };
++        if !self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) { return false; }
++        let _ = self.get_declared_type_of_symbol(owner);
++        let formal_this=self.publication_formal_this(owner);
++        #[cfg(test)]
++        self.member_publication.member_entries.push((owner,key.ty));
++        let image = self.member_publication.images.entry(key).or_default();
++        image.frames.push(image.revision);
++        let Some(mut fields)=self.publication_declared_fields(owner) else {
++            self.member_publication.images.get_mut(&key).unwrap().frames.pop();
++            return false;
++        };
++        let mapper = MapperId(self.member_publication.mappers.len());
++        self.member_publication.mappers.push(MapperOperation { owner:key.ty, receiver:key.receiver, prior:None });
++        // Reference identity comes from the writer's registry. Two entry
++        // points can currently mint raw declaration TypeIds for the same
++        // owner; comparing one with a freshly obtained declaration ID must
++        // not turn the other into an instantiated reference.
++        // resolveTypeReferenceMembers (checker.go:19095) pads even a
++        // declared target reference with its own receiver. Raw declaration
++        // ID equality does not remove that formal-this mapper.
++        let instantiated=self.type_reference_targets.contains_key(&key.ty) || key.receiver!=key.ty
++            || formal_this.is_some_and(|formal|formal!=key.receiver);
++        if instantiated {
++            fields.members=fields.members.into_iter().map(|(name,original)| (name,self.publication_instantiate(original,mapper))).collect();
++            let calls=fields.calls.into_iter().map(|signature|self.publication_signature(key,signature)).collect::<Option<Vec<_>>>();
++            let constructs=fields.constructs.into_iter().map(|signature|self.publication_signature(key,signature)).collect::<Option<Vec<_>>>();
++            let (Some(calls),Some(constructs))=(calls,constructs) else {
++                self.member_publication.images.get_mut(&key).unwrap().frames.pop();
++                return false;
++            };
++            fields.calls=calls;
++            fields.constructs=constructs;
++            for index in &mut fields.indexes {
++                index.value=self.publication_apply(mapper,index.value);
++            }
++        }
++        // Native resolveObjectTypeMembers does not publish merely because a
++        // worker is active. A default argument can re-enter before this read
++        // returns; the inner worker must reach the real base-resolution frame.
++        let bases = self.get_base_types(owner);
++        let bases_done = self.publication_bases_complete(owner);
++        let mut inherited_done = bases_done;
++        self.publication_set_fields(key,fields.clone());
++        self.member_publication.images.get_mut(&key).unwrap().inheritance_active=!bases.is_empty();
++        #[cfg(test)]
++        self.publication_observe_fields("publish-before-inherit",owner,key);
++        for base in bases {
++            let base = if instantiated {
++                let mapped=self.instantiate_for_reference_with_this(key.ty,base,key.receiver);
++                self.publication_with_this(mapped,key.receiver)
++            } else { base };
++            let receiver=if instantiated {key.receiver} else {self.publication_reference_this(base)};
++            let inherited = ImageKey { ty:base, receiver };
++            if !self.publication_image(inherited) { inherited_done=false; continue; }
++            let base_image = &self.member_publication.images[&inherited];
++            inherited_done &= base_image.done;
++            let inherited=StructuredFields {members:base_image.members.clone(),calls:base_image.calls.clone(),constructs:base_image.constructs.clone(),indexes:base_image.indexes.clone()};
++            for (name,symbol) in inherited.members {
++                fields.members.entry(name.clone()).or_insert(symbol.clone());
++                self.member_publication.images.get_mut(&key).unwrap().members.entry(name).or_insert(symbol);
++            }
++            fields.calls.extend(inherited.calls);
++            fields.constructs.extend(inherited.constructs);
++            for index in inherited.indexes {
++                if !fields.indexes.iter().any(|own|own.key==index.key) {fields.indexes.push(index);}
++            }
++        }
++        self.publication_set_fields(key,fields);
++        let image = self.member_publication.images.get_mut(&key).unwrap();
++        image.inheritance_active=false;
++        image.frames.pop();
++        image.done = inherited_done && image.frames.is_empty();
++        #[cfg(test)]
++        self.publication_observe_fields("worker-exit",owner,key);
++        true
++    }
++
++    fn publication_set_fields(&mut self,key:ImageKey,fields:StructuredFields) {
++        let image=self.member_publication.images.get_mut(&key).unwrap();
++        image.members=fields.members;
++        image.calls=fields.calls;
++        image.constructs=fields.constructs;
++        image.indexes=fields.indexes;
++        image.published=true;
++    }
++
++    /// getDeclaredTypeOfClassOrInterface / isThislessInterface (5b1047d,
++    /// checker.go:17319/17356). A declared target may itself be a reference.
++    /// Reuse the existing class-symbol/interface-declaration this identities;
++    /// establish them before fields, including when a base requires this.
++    fn publication_formal_this(&mut self,owner:SymbolId) -> Option<TypeId> {
++        let declarations=self.binder.symbols().get(owner).declarations.to_vec();
++        let class=self.binder.symbols().get(owner).flags.contains(SymbolFlags::CLASS);
++        let existing=self.this_types.get(&owner).copied().or_else(|| {
++            declarations.iter().find_map(|node|self.this_type_nodes.get(node).copied())
++        });
++        if existing.is_none() && !class && self.local_type_parameters_of(owner).is_empty()
++            && self.publication_thisless_interface(owner,&mut Vec::new()) {return None;}
++        let formal=existing.unwrap_or_else(||self.store.new_named(TypeFlags::TYPE_PARAMETER,"this".into(),Some(owner)));
++        if class {self.this_types.insert(owner,formal);}
++        else {
++            for node in declarations {
++                if self.nodes.kind(node)==tsr_ast::SyntaxKind::InterfaceDeclaration {
++                    self.this_type_nodes.insert(node,formal);
++                }
++            }
++        }
++        Some(formal)
++    }
++
++    fn publication_thisless_interface(&mut self,owner:SymbolId,active:&mut Vec<SymbolId>) -> bool {
++        // The native declaration's this slot remains nil while its admission
++        // is active. This guard is not a completed member-image publication.
++        if active.contains(&owner) {return true;}
++        active.push(owner);
++        let declarations=self.binder.symbols().get(owner).declarations.to_vec();
++        let result=declarations.into_iter().all(|node| {
++            let Some(Node::InterfaceDeclaration(interface))=self.node_map.get(node) else {return true};
++            if self.binder.facts(node).contains(tsr_binder::NodeFacts::CONTAINS_THIS) {return false;}
++            for clause in interface.heritage_clauses {
++                if clause.token.kind!=tsr_ast::SyntaxKind::ExtendsKeyword {continue;}
++                for entry in clause.types {
++                    if !matches!(entry.expression,Some(tsr_ast::Expression::Identifier(_)|tsr_ast::Expression::PropertyAccessExpression(_))) {continue;}
++                    let Some(base)=self.base_symbol_of_heritage_entry(entry,false) else {return false};
++                    let base=self.binder.merged_symbol(base);
++                    if !self.binder.symbols().get(base).flags.contains(SymbolFlags::INTERFACE)
++                        || !self.local_type_parameters_of(base).is_empty()
++                        || self.this_types.contains_key(&base)
++                        || self.binder.symbols().get(base).declarations.iter().any(|node|self.this_type_nodes.contains_key(node))
++                        || !self.publication_thisless_interface(base,active) {return false;}
++                }
++            }
++            true
++        });
++        active.pop();
++        result
++    }
++
++    // Native resolveDeclaredMembers publishes the declaration table before
++    // preparing signature/index fields. The Rust binder lacks __call/__new
++    // symbols, so their existing declaration signature owner supplies them.
++    fn publication_declared_fields(&mut self,owner:SymbolId) -> Option<StructuredFields> {
++        if let Some(fields)=self.member_publication.declared.get(&owner) {return fields.clone();}
++        let own:Vec<_>=self.binder.symbols().get(owner).members.as_ref().map(|members|members.iter().map(|(name,&symbol)|(name.to_string(),symbol)).collect()).unwrap_or_default();
++        let mut fields=StructuredFields::default();
++        for (name,symbol) in own {
++            if self.symbol_is_value(symbol) {fields.members.insert(name,self.symbols.bound(symbol).unwrap());}
++        }
++        self.member_publication.declared.insert(owner,Some(fields.clone()));
++        let finished=(|| {
++        // getMembersOfSymbol includes the existing late-bound semantic table.
++        // Use its canonical resolver and declaration symbol, so computed names
++        // stay actual suppliers rather than being reconstructed by a getter.
++        for (name,declaration) in self.late_bound_members_of(owner,false) {
++            if let Some(symbol)=self.binder.symbol_of(declaration) {
++                fields.members.entry(name).or_insert(self.symbols.bound(symbol).unwrap());
++            }
++        }
++        let declarations=self.binder.symbols().get(owner).declarations.to_vec();
++        for declaration in declarations {
++            match self.node_map.get(declaration) {
++                Some(Node::InterfaceDeclaration(node)) => {
++                    for member in node.members {
++                        match member {
++                            TypeElement::CallSignatureDeclaration(node) => fields.calls.push(self.get_signature_from_declaration(node.node_id?)?),
++                            TypeElement::ConstructSignatureDeclaration(node) => fields.constructs.push(self.get_signature_from_declaration(node.node_id?)?),
++                            TypeElement::IndexSignatureDeclaration(node) => fields.indexes.extend(self.index_infos_of_declaration(node)),
++                            _=>{},
++                        }
++                    }
++                }
++                Some(Node::ClassDeclaration(node)) => {
++                    for member in node.members {
++                        if let tsr_ast::ClassElement::IndexSignatureDeclaration(node)=member
++                            && !tsr_ast::has_syntactic_modifier(node.modifiers,tsr_ast::SyntaxKind::StaticKeyword) {
++                            fields.indexes.extend(self.index_infos_of_declaration(node));
++                        }
++                    }
++                }
++                Some(Node::ClassExpression(node)) => {
++                    for member in node.members {
++                        if let tsr_ast::ClassElement::IndexSignatureDeclaration(node)=member
++                            && !tsr_ast::has_syntactic_modifier(node.modifiers,tsr_ast::SyntaxKind::StaticKeyword) {
++                            fields.indexes.extend(self.index_infos_of_declaration(node));
++                        }
++                    }
++                }
++                _=>{},
++            }
++        }
++        Some(fields)
++        })();
++        self.member_publication.declared.insert(owner,finished.clone());
++        finished
++    }
++
++    fn publication_signature(&mut self,key:ImageKey,signature:Signature) -> Option<Signature> {
++        let TypeData::Named {members:Some(owner),..}=self.store.get(key.ty).data else {return None};
++        let parameters=self.local_type_parameter_types_of(owner)?;
++        let arguments=self.type_reference_targets.get(&key.ty).map(|(_,args)|args.clone()).unwrap_or_else(||parameters.iter().map(|(ty,_)|*ty).collect());
++        if arguments.len()!=parameters.len() && arguments.len()!=parameters.len()+1 {return None;}
++        let mut ids:Vec<_>=parameters.iter().map(|(ty,_)|*ty).collect();
++        let names:Vec<_>=parameters.iter().map(|(_,name)|name.as_str()).collect();
++        let mut map:Vec<_>=ids.iter().copied().zip(arguments.iter().copied()).collect();
++        if let Some(&this)=self.this_types.get(&owner) {
++            ids.push(this);
++            map.push((this,key.receiver));
++        }
++        self.instantiate_signature_with_fresh_parameters(signature,&map,&ids,&names)
++    }
++
++    #[cfg(test)]
++    fn publication_observe_fields(&mut self,event:&str,owner:SymbolId,key:ImageKey) {
++        let image=&self.member_publication.images[&key];
++        let mut names:Vec<_>=image.members.keys().cloned().collect();names.sort();
++        self.member_publication.field_events.push((event.to_owned(),owner,key.ty,image.published,image.inheritance_active,image.frames.len(),names,image.calls.len(),image.constructs.len(),image.indexes.len()));
++    }
++
++    /// getTypeWithThisArgument (checker.go:19573). The final this argument
++    /// belongs to the concrete reference, not a reconstructed getter key.
++    pub(crate) fn publication_with_this(&mut self, ty:TypeId, receiver:TypeId) -> TypeId {
++        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
++            let mapped:Vec<_> = types.iter().map(|&part| self.publication_with_this(part,receiver)).collect();
++            return if mapped==types { ty } else { self.get_intersection_type(&mapped,None) };
++        }
++        let Some(owner) = (match self.store.get(ty).data {
++            TypeData::Named { members:Some(owner), .. } => Some(owner),
++            _ => None,
++        }) else { return ty };
++        if !self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS|SymbolFlags::INTERFACE) { return ty; }
++        // getTypeWithThisArgument only appends for ObjectFlagsReference.
++        // A thisless, non-generic interface is not a reference; preserve its
++        // existing type identity and do not manufacture a final-this entry.
++        if self.publication_formal_this(owner).is_none() { return ty; }
++        let Some(parameters) = self.local_type_parameter_types_of(owner) else { return ty };
++        let arguments = self.type_reference_targets.get(&ty).map(|(_,args)| args.clone())
++            .unwrap_or_else(|| parameters.iter().map(|(t,_)| *t).collect());
++        // An explicit final this argument is already prepared and is retained.
++        if arguments.len()!=parameters.len() { return ty; }
++        let mut full=arguments;
++        full.push(receiver);
++        let key=(owner,full.clone());
++        if let Some(&cached)=self.member_publication.references.get(&key) { return cached; }
++        let text=self.type_to_string(ty);
++        let result=self.store.new_named(TypeFlags::OBJECT,text,Some(owner));
++        self.type_reference_targets.insert(result,(owner,full));
++        self.reference_display_arity.insert(result,parameters.len());
++        self.member_publication.references.insert(key,result);
++        result
++    }
++
++    /// getApparentTypeOfIntersectionType (checker.go:21796), with the original
++    /// intersection retained as the final this argument of each reference.
++    pub(crate) fn publication_apparent(&mut self, ty:TypeId) -> TypeId {
++        if !self.store.get(ty).flags.contains(TypeFlags::INTERSECTION) { return ty; }
++        if let Some(&cached)=self.member_publication.apparent.get(&ty) { return cached; }
++        let result=self.publication_with_this(ty,ty);
++        self.member_publication.apparent.insert(ty,result);
++        result
++    }
++
++    /// getReducedType (checker.go:21819) publishes its in-progress reduction
++    /// before enumerating composite properties. No scalar links are preforced.
++    fn publication_reduce(&mut self, ty:TypeId) -> TypeId {
++        let TypeData::Intersection { types, .. }=self.store.get(ty).data.clone() else { return ty };
++        if let Some(&never)=self.member_publication.reduced.get(&ty) { return if never { self.intrinsics.never } else { ty }; }
++        self.member_publication.reduced.insert(ty,false);
++        let mut names=Vec::new();
++        for part in types {
++            let receiver=self.publication_reference_this(part);
++            let key=ImageKey {ty:part,receiver};
++            if !self.publication_image(key) { continue; }
++            for name in self.member_publication.images[&key].members.keys() {
++                if !names.contains(name) { names.push(name.clone()); }
++            }
++        }
++        names.sort();
++        for name in names { let _=self.publication_property_image(ty,ty,&name); }
++        // Existing discriminant/private admission is retained while complete
++        // native synthetic metadata remains outside this property-only port.
++        let never=self.intersection_has_never_discriminant(ty);
++        self.member_publication.reduced.insert(ty,never);
++        if never { self.intrinsics.never } else { ty }
++    }
++
++    fn publication_reference_this(&mut self, ty:TypeId) -> TypeId {
++        let Some((owner,args))=self.type_reference_targets.get(&ty).cloned() else { return ty };
++        let Some(params)=self.local_type_parameter_types_of(owner) else { return ty };
++        if args.len()==params.len()+1 { *args.last().unwrap() } else { ty }
++    }
++
++    /// getReducedApparentType (checker.go:21865) and getPropertyOfTypeEx.
++    pub(crate) fn publication_property(&mut self, ty:TypeId, _receiver:TypeId, name:&str) -> MemberQuery {
++        let reduced=self.publication_reduce(ty);
++        let apparent=self.publication_apparent(reduced);
++        let prepared=self.publication_reduce(apparent);
++        let receiver=self.publication_reference_this(prepared);
++        self.publication_property_image(prepared,receiver,name)
++    }
++
++    fn publication_property_image(&mut self, ty:TypeId, receiver:TypeId, name:&str) -> MemberQuery {
++        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
++            let cache_key = (ty,receiver,name.to_owned());
++            if let Some(symbol) = self.member_publication.composites.get(&cache_key) { return MemberQuery::Published { symbol:symbol.clone(), revision:0, active:false }; }
++            // Deferred >2, union/index/augmentation need separate native owners.
++            if types.len()>2 { return MemberQuery::Unsupported; }
++            let mut suppliers = Vec::new();
++            for part in types {
++                match self.publication_property(part,part,name) {
++                    MemberQuery::Published { symbol,active:false,.. } => suppliers.push(symbol),
++                    MemberQuery::Absent { active:false,.. } => {},
++                    _ => return MemberQuery::Unsupported,
++                }
++            }
++            let Some(first) = suppliers.first().cloned() else { return MemberQuery::Absent { revision:0,active:false }; };
++            let mut different = false;
++            let mut merged = false;
++            for supplier in suppliers.iter().skip(1) {
++                if *supplier==first { continue; }
++                let left = self.publication_target(&first);
++                let right = self.publication_target(supplier);
++                let bound_left = self.symbols.bound_id(&left).unwrap();
++                let bound_right = self.symbols.bound_id(&right).unwrap();
++                let metadata = bound_left.zip(bound_right).is_some_and(|(l,r)| {
++                    self.property_is_optional(l)==self.property_is_optional(r)
++                        && self.is_readonly_property(l)==self.is_readonly_property(r)
++                        && self.is_non_public_member(l)==self.is_non_public_member(r)
++                });
++                let same = left==right && metadata && self.publication_read(&first)==self.publication_read(supplier);
++                if same {
++                    let parent = self.symbols.view(&first).unwrap().parent();
++                    merged |= parent.and_then(|p| self.symbols.bound_id(&p).unwrap()).is_some_and(|p| !self.local_type_parameters_of(p).is_empty());
++                } else { different=true; }
++            }
++            let result = if different {
++                let mut reads=Vec::new(); let mut writes=Vec::new();
++                for symbol in &suppliers { reads.push(self.publication_read(symbol)); writes.push(self.publication_write(symbol)); }
++                let read = self.get_intersection_type(&reads,None);
++                let write = self.get_intersection_type(&writes,None);
++                let result = self.publication_new_member(&first,CheckFlags::SYNTHETIC_PROPERTY,suppliers.iter().all(|symbol|self.publication_optional(symbol)));
++                self.member_publication.links.insert(result.clone(),MemberLinks { read:Some(read),write:Some(write),containing:Some(ty),..MemberLinks::default() });
++                result
++            } else if merged {
++                let read = self.publication_cached_read(&first);
++                let write = self.publication_write(&first);
++                let check = self.symbols.view(&first).unwrap().check_flags() & CheckFlags::READONLY;
++                let result = self.publication_new_member(&first,check,self.publication_optional(&first));
++                let mapper = self.member_publication.links.get(&first).and_then(|l| l.mapper);
++                self.member_publication.links.insert(result.clone(),MemberLinks { target:Some(first),mapper,read,write:Some(write),containing:Some(ty) });
++                result
++            } else { first };
++            self.member_publication.composites.insert(cache_key,result.clone());
++            return MemberQuery::Published { symbol:result,revision:0,active:false };
++        }
++        let key = ImageKey { ty,receiver };
++        if !self.publication_image(key) { return MemberQuery::Unsupported; }
++        let image = &self.member_publication.images[&key];
++        let active = !image.done;
++        match image.members.get(name) {
++            Some(symbol) => MemberQuery::Published { symbol:symbol.clone(),revision:image.revision,active },
++            None => MemberQuery::Absent { revision:image.revision,active },
++        }
++    }
++}
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1177,6 +1177,7 @@
+         // Recursive base constraints also expose indexed and template types;
+         // polymorphic this reads through its declaring class/interface.
+         let id = self.base_constraint_of_type(id).unwrap_or(id);
++        let id = self.publication_apparent(id);
+         let flags = self.store.get(id).flags;
+         let global = if flags.intersects(TypeFlags::STRING_LIKE) {
+             "String"
+@@ -1560,6 +1561,12 @@
+         // (`get_property_of_union_or_intersection_type`).
+         if matches!(self.store.get(id).data, TypeData::Intersection { .. }) {
+             return self.property_type_via_shape(id, name, skip_object_function_augment);
++        }
++        if matches!(self.store.get(id).data,TypeData::Named {members:Some(owner),..} if self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS|SymbolFlags::INTERFACE)) {
++            let prepared=if this_argument==id { id } else { self.publication_with_this(id,this_argument) };
++            if let crate::member_publication::MemberQuery::Published {symbol,..}=self.publication_property(prepared,this_argument,name) {
++                return Some(self.publication_read(&symbol));
++            }
+         }
+         if let Some(property) = self.get_property_of_type_ex(id, name, skip_object_function_augment)
+         {
+@@ -1846,6 +1853,9 @@
+         // substituted for polymorphic this before intersecting the types.
+         if let TypeData::Intersection { types, .. } = &self.store.get(id).data {
+             let constituents = types.clone();
++            if let crate::member_publication::MemberQuery::Published { symbol, active:false, .. } = self.publication_property(id, id, name) {
++                return Some(self.publication_read(&symbol));
++            }
+             if self.intersection_has_never_discriminant(id) {
+                 return None;
+             }
+@@ -1941,7 +1951,7 @@
+         self.instantiate_for_reference_with_this(receiver, declared, receiver)
+     }
+
+-    fn instantiate_for_reference_with_this(
++    pub(crate) fn instantiate_for_reference_with_this(
+         &mut self,
+         receiver: TypeId,
+         declared: TypeId,
+@@ -1972,9 +1982,10 @@
+         };
+         let arguments = arguments
+             .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
+-        if parameters.len() != arguments.len() {
++        if arguments.len()!=parameters.len() && arguments.len()!=parameters.len()+1 {
+             return error;
+         }
++        let this_argument=if arguments.len()==parameters.len()+1 { *arguments.last().unwrap() } else { this_argument };
+         // instantiateSymbol (checker.go:20753) retains the complete receiver
+         // mapper. A member's own same-named parameter has a distinct TypeId,
+         // so it survives while an outer parameter in the same return is mapped.
+@@ -2333,7 +2344,16 @@
+             match owner {
+                 Owner::Declared(owner) => {
+                     let mut visiting = Vec::new();
+-                    let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
++                    let found = if self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS|SymbolFlags::INTERFACE) {
++                        match self.publication_property(id,id,name) {
++                            crate::member_publication::MemberQuery::Published {symbol,..} => {
++                                let target=self.publication_target(&symbol);
++                                self.symbols.bound_id(&target).unwrap()
++                            }
++                            crate::member_publication::MemberQuery::Absent {..} => None,
++                            crate::member_publication::MemberQuery::Unsupported => self.get_property_of_declared_symbol(owner,name,&mut visiting),
++                        }
++                    } else {self.get_property_of_declared_symbol(owner, name, &mut visiting)};
+                     // `bindThisPropertyAssignment` (`binder.go:1115`) declares a
+                     // JS `this.x = …` inside an object-literal method on the
+                     // literal's symbol, but `checkObjectLiteral` builds the
+@@ -3709,6 +3729,283 @@
+
+ #[cfg(test)]
+ mod property_name_tests {
++
++    #[test]
++    fn published_member_natural_partial_prefix_continues() {
++        with_checker("interface Root {root:number} interface Later {later:boolean} interface A<T> extends Root,B<T>,Later {a:T} interface B<T> extends A<T> {b:T} declare const receiver:A<number>; const probe=receiver.root;",|checker,root| {
++            checker.apply_compiler_options(&tsr_core::CompilerOptions {strict:tsr_core::Tristate::False,target:tsr_core::ScriptTarget::ES2020,..tsr_core::CompilerOptions::default()});
++            let a=checker.binder.lookup_local(root,"A").unwrap();
++            let ty=checker.get_declared_type_of_symbol(a);
++            let _=publication(checker,ty,"a");
++            let observations=checker.member_publication.base_reentries.clone();
++            let active_a:Vec<_>=observations.iter().filter(|(owner,_,_)| *owner==a).collect();
++            let names:Vec<_>=active_a.iter().map(|(_,types,done)| (types.iter().map(|&t|checker.type_to_string(t)).collect::<Vec<_>>(),*done)).collect();
++            println!("NATURAL_PARTIAL observations={names:?}");
++            assert!(names.iter().any(|(names,done)| names==&["Root".to_owned()] && !done),"native natural active A prefix Root");
++            let bases=checker.get_base_types(a);
++            let complete:Vec<_>=bases.iter().map(|&t|checker.type_to_string(t)).collect();
++            println!("NATURAL_PARTIAL completed={complete:?}");
++            assert_eq!(complete,["Root","Later"]);
++            assert!(checker.publication_bases_complete(a));
++        });
++    }
++
++    #[test]
++    fn published_member_natural_default_reset_requires_native_continuation() {
++        let source="class BaseType<T> { bar:T } class NextType<C extends {someProp:any},T=C['someProp']> extends BaseType<T> { baz:string } class Foo extends NextType<Foo> { someProp:{test:true} } const foo=new Foo(); const probe=foo.bar.test;";
++        let mut missing=Vec::new();
++        for order in 0..3 {
++            with_checker(source,|checker,root| {
++                checker.apply_compiler_options(&tsr_core::CompilerOptions {strict:tsr_core::Tristate::False,target:tsr_core::ScriptTarget::ES2020,..tsr_core::CompilerOptions::default()});
++                let foo=checker.binder.lookup_local(root,"Foo").unwrap();
++                if order==0 {
++                    for name in ["BaseType","NextType","Foo"] {
++                        let owner=checker.binder.lookup_local(root,name).unwrap();
++                        checker.get_base_types(owner);
++                    }
++                }
++                if order==1 { let probe=checker.binder.lookup_local(root,"probe").unwrap();checker.get_type_of_symbol(probe); }
++                if order==2 { checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false}); }
++                let ty=checker.get_declared_type_of_symbol(foo);
++                let _=publication(checker,ty,"someProp");
++                let entries:Vec<_>=checker.member_publication.member_entries.iter().filter(|(owner,_)| *owner==foo).cloned().collect();
++                let resets:Vec<_>=checker.member_publication.target_resets.iter().filter(|(owner,_,_,_)| *owner==foo).cloned().collect();
++                if order!=2 {checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});}
++                let codes:Vec<_>=checker.diagnostics.iter().map(|(_,d)| d.message.code()).collect();
++                println!("NATURAL_DEFAULT order={order} entries={entries:?} resets={resets:?} diagnostic_codes={codes:?}");
++                let events:Vec<_>=checker.member_publication.field_events.iter().filter(|event|event.1==foo).cloned().collect();
++                println!("NATURAL_FIELDS order={order} events={events:?}");
++                // Existing native .30 producer observes actual partial publication,
++                // reset, then either a fresh worker or continuing outer completion.
++                // Assert actual fields and publication transitions separately
++                // from the eligibility bit and the worker-frame lifetime.
++                if codes!=[2310] { missing.push(order); }
++                assert!(events.iter().any(|event|event.0=="reset-before" && event.3 && event.6==["someProp"] && (event.7,event.8,event.9)==(0,0,0)),"natural own-field publication before base reset");
++                assert!(events.iter().any(|event|event.0=="reset-after" && !event.3),"base completion clears the actual publication state");
++                assert!(events.iter().any(|event|event.0=="worker-exit" && event.3 && event.6==["bar","baz","someProp"] && (event.7,event.8,event.9)==(0,0,0)),"fresh or outer worker publishes all inherited fields");
++            });
++        }
++        assert!(missing.is_empty(),"native circular/default TS2310 missing in orders {missing:?}; natural full-member continuation remains unqualified");
++    }
++
++    #[test]
++    fn inherited_polymorphic_this_does_not_report_false_heritage_errors() {
++        with_checker("interface Base {self:this} interface Left extends Base {left:number} interface Right extends Base {right:string} type Both=Left&Right; declare const receiver:Both; const probe=receiver.self;",|checker,root| {
++            checker.apply_compiler_options(&tsr_core::CompilerOptions {strict:tsr_core::Tristate::True,target:tsr_core::ScriptTarget::ES2020,..tsr_core::CompilerOptions::default()});
++            checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false});
++            let codes:Vec<_>=checker.diagnostics.iter().map(|(_,d)|d.message.code()).collect();
++            assert!(codes.is_empty(),"native reports no false heritage errors: {codes:?}");
++        });
++    }
++
++
++    #[test]
++    fn published_member_read_invariance_does_not_certify_setter_write() {
++        for (body,want_write) in [("Left<string>&Right<number>","string"),("Right<number>&Left<string>","number")] {
++            let source=format!("class Base<T> {{ get value():number {{ return 0; }} set value(v:T) {{}} }} class Left<U> extends Base<U> {{}} class Right<V> extends Base<V> {{}} type Both={body}; declare const receiver:Both;");
++            with_checker(&source, |checker,root| {
++                let base=checker.binder.lookup_local(root,"Base").unwrap();
++                let property=checker.binder.symbols().get(base).members.as_ref().unwrap()["value"];
++                let read=checker.get_type_of_symbol(property);
++                assert_eq!(checker.type_to_string(read),"number");
++                let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++                let receiver=checker.get_type_of_symbol(receiver_symbol);
++                let clone=publication(checker,receiver,"value");
++                assert!(checker.symbols.view(&clone).unwrap().flags().contains(tsr_binder::SymbolFlags::TRANSIENT));
++                assert_eq!(checker.publication_target(&clone),clone);
++                let write=checker.publication_write(&clone);
++                assert_eq!(checker.type_to_string(write),want_write);
++                for _ in 0..3 { assert_eq!(publication(checker,receiver,"value"),clone); }
++            });
++        }
++    }
++
++
++    #[test]
++    fn published_member_native_fixture_matrix() {
++        use crate::symbol_access::CheckFlags;
++        let generic = "interface Base<T> { value:T } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V }";
++        let accessor = "class Base<T> { get value():number { return 0; } set value(v:T) {} } class Left<U> extends Base<U> { declare left:U } class Right<V> extends Base<V> { declare right:V }";
++        let rows = [
++            ("shared-self", "interface Base { self:this } interface Left extends Base { left:number } interface Right extends Base { right:string } type Both=Left&Right;".to_owned(), "self", "single", "Both", "Both"),
++            ("distinct-self", "interface Left { self:this;left:number } interface Right { self:this;right:string } type Both=Left&Right;".to_owned(), "self", "synthesized", "Left & Right", "Left & Right"),
++            ("equal-generic", format!("{generic} type Both=Left<string>&Right<string>;"), "value", "single", "string", "string"),
++            ("optional-generic", "interface Base<T> { value?:T } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V } type Both=Left<string>&Right<string>;".to_owned(), "value", "single", "string", "string"),
++            ("readonly-generic", "interface Base<T> { readonly value:T } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V } type Both=Left<string>&Right<string>;".to_owned(), "value", "single", "string", "string"),
++            ("private-common", "class Base<T> { private value!:T } class Left<U> extends Base<U> { declare left:U } class Right<V> extends Base<V> { declare right:V } type Both=Left<string>&Right<string>;".to_owned(), "value", "single", "string", "string"),
++            ("unequal-generic", format!("{generic} type Both=Left<string>&Right<number>;"), "value", "synthesized", "never", "never"),
++            ("distinct-value", "interface Left { value:string;left:number } interface Right { value:string;right:number } type Both=Left&Right;".to_owned(), "value", "synthesized", "string", "string"),
++            ("accessor", format!("{accessor} type Both=Left<string>&Right<number>;"), "value", "merged", "number", "string"),
++            ("accessor-reverse", format!("{accessor} type Both=Right<number>&Left<string>;"), "value", "merged", "number", "number"),
++        ];
++        let mut failures=Vec::new();
++        for (case,body,property,want_kind,want_read,want_write) in rows {
++            let source=format!("{body} declare const receiver:Both; const probe=receiver.{property};");
++            for order in 0..3 {
++                with_checker(&source, |checker, root| {
++                    checker.apply_compiler_options(&tsr_core::CompilerOptions {
++                        strict:tsr_core::Tristate::True,
++                        exact_optional_property_types:tsr_core::Tristate::True,
++                        target:tsr_core::ScriptTarget::ES2020,
++                        ..tsr_core::CompilerOptions::default()
++                    });
++                    if order==2 { checker.check_source_file(root, crate::check::FileContext {ambient:false,has_parse_errors:false}); }
++                    let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++                    let receiver=checker.get_type_of_symbol(receiver_symbol);
++                    if order==1 { let probe=checker.binder.lookup_local(root,"probe").unwrap(); checker.get_type_of_symbol(probe); }
++                    let first=publication(checker,receiver,property);
++                    let check=checker.symbols.view(&first).unwrap().check_flags();
++                    let kind=if check.contains(CheckFlags::SYNTHETIC_PROPERTY) {"synthesized"}
++                        else if checker.member_publication.links.get(&first).is_some_and(|l| l.containing.is_some()) {"merged"}
++                        else {"single"};
++                    let read=checker.publication_read(&first);
++                    let write=checker.publication_write(&first);
++                    // Native adapter asks getNonMissingTypeOfSymbol. Keep
++                    // the raw read link unchanged and project missing here.
++                    let optional=checker.publication_optional(&first);
++                    let projected_read=if optional {checker.remove_missing_type(read)} else {read};
++                    let read_text=checker.type_to_string(projected_read);
++                    let write_text=checker.type_to_string(write);
++                    let probe=checker.binder.lookup_local(root,"probe").unwrap();
++                    let expression=checker.get_type_of_symbol(probe);
++                    let expression_text=checker.type_to_string(expression);
++                    println!("PUBLISHED_MATRIX case={case} order={order} kind={kind} read={read_text:?} write={write_text:?} expression={expression_text:?}");
++                    if (kind,read_text.as_str(),write_text.as_str())!=(want_kind,want_read,want_write) {
++                        failures.push(format!("{case}/{order}: {kind} {read_text} {write_text}"));
++                    }
++                    // Native's supplier reads retain the original alias; the
++                    // synthesized result flattens both equal intersection reads.
++                    if case=="distinct-self" {
++                        let prepared=checker.publication_apparent(receiver);
++                        let crate::TypeData::Intersection {types,..}=checker.store.get(prepared).data.clone() else { panic!("apparent intersection") };
++                        assert_ne!(prepared,receiver);
++                        for part in types {
++                            let supplier=publication(checker,part,property);
++                            assert_eq!(checker.publication_read(&supplier),receiver,"native supplier original-this identity");
++                            assert_eq!(checker.publication_write(&supplier),receiver);
++                        }
++                        assert_ne!(read,receiver,"native result flattens the aliased intersection");
++                        assert_eq!(expression,read);
++                        assert_eq!(checker.member_publication.links[&first].containing,Some(prepared));
++                    }
++                    for _ in 0..3 { assert_eq!(publication(checker,receiver,property),first); }
++                });
++            }
++        }
++        assert!(failures.is_empty(), "native mismatches: {failures:?}");
++    }
++
++    #[test]
++    fn published_member_clone_retains_links_without_merge_redirect() {
++        use crate::symbol_access::CheckFlags;
++        with_checker("interface Base<T> { value:number } interface Left<U> extends Base<U> {} interface Right<V> extends Base<V> {} type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;", |checker,root| {
++            let probe=checker.binder.lookup_local(root,"probe").unwrap();
++            checker.get_type_of_symbol(probe);
++            let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++            let receiver=checker.get_type_of_symbol(receiver_symbol);
++            let clone=publication(checker,receiver,"value");
++            assert_eq!(checker.publication_target(&clone),clone);
++            assert!(!checker.symbols.view(&clone).unwrap().check_flags().contains(CheckFlags::INSTANTIATED));
++            let links=checker.member_publication.links[&clone].clone();
++            let first=links.target.unwrap();
++            assert_ne!(clone,first);
++            assert!(checker.symbols.view(&first).unwrap().check_flags().contains(CheckFlags::INSTANTIATED));
++            assert_eq!(links.mapper,checker.member_publication.links[&first].mapper);
++            assert_eq!(links.containing,Some(checker.publication_apparent(receiver)));
++            let write=checker.publication_write(&first);
++            assert_eq!(links.write,Some(write));
++            let root_symbol=checker.publication_target(&first);
++            assert_eq!(checker.symbols.merged_symbol(&root_symbol).unwrap(),root_symbol);
++            let parent=checker.symbols.view(&clone).unwrap().parent().unwrap();
++            assert_eq!(checker.symbols.view(&parent).unwrap().name(),"Base");
++            assert_eq!(checker.symbols.view(&clone).unwrap().declarations(),checker.symbols.view(&root_symbol).unwrap().declarations());
++            let base=checker.binder.lookup_local(root,"Base").unwrap();
++            // Deliberate reset notification, distinct from natural TS2310.
++            checker.publication_reset_target(base);
++            assert_eq!(publication(checker,receiver,"value"),clone);
++        });
++    }
++
++    #[test]
++    fn published_member_active_prefix_is_not_complete() {
++        use crate::resolution::{PropertyName,ResolutionTarget};
++        with_checker("interface Root { root:number } interface A extends Root { own:string }", |checker,root| {
++            let a=checker.binder.lookup_local(root,"A").unwrap();
++            let ty=checker.get_declared_type_of_symbol(a);
++            assert!(checker.resolutions.push(ResolutionTarget::Symbol(a),PropertyName::ResolvedBaseTypes));
++            let view=checker.publication_property(ty,ty,"own");
++            assert!(matches!(view,crate::member_publication::MemberQuery::Published {active:true,..}), "active observation is not a completed negative/member image: {view:?}");
++            checker.resolutions.pop();
++        });
++    }
++
++
++    // Red adapter: the current production getter only publishes bound IDs.
++    fn publication(checker: &mut Checker<'_, '_>, receiver: crate::TypeId, name: &str) -> crate::symbol_access::SymbolRef {
++        match checker.publication_property(receiver, receiver, name) {
++            crate::member_publication::MemberQuery::Published { symbol, .. } => symbol,
++            other => panic!("publication unavailable: {other:?}"),
++        }
++    }
++
++    #[test]
++    fn published_member_scalar_history_uses_actual_handles() {
++        let source = "interface Base<T> { value:number } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V } type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;";
++        let mut observed = Vec::new();
++        for order in 0..3 {
++            with_checker(source, |checker, root| {
++                if order == 2 {
++                    checker.check_source_file(root, crate::check::FileContext { ambient:false, has_parse_errors:false });
++                }
++                let receiver_symbol = checker.binder.lookup_local(root, "receiver").unwrap();
++                let receiver = checker.get_type_of_symbol(receiver_symbol);
++                if order == 1 {
++                    let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                    checker.get_type_of_symbol(probe);
++                }
++                let first = publication(checker, receiver, "value");
++                let view = checker.symbols.view(&first).unwrap();
++                let private = view.flags().contains(tsr_binder::SymbolFlags::TRANSIENT);
++                assert!(!view.check_flags().contains(crate::symbol_access::CheckFlags::INSTANTIATED), "composite clone is not an instantiation");
++                println!("PUBLISHED_SCALAR order={order} private={private} symbol={first:?}");
++                observed.push(private);
++                for _ in 0..3 {
++                    assert_eq!(publication(checker, receiver, "value"), first, "warm lookup must retain actual published handle");
++                }
++            });
++        }
++        assert_eq!(observed, [false,true,false], "native Single/Merged/Single history");
++    }
++    #[test]
++    fn published_member_scalar_modifiers_preserve_query_history() {
++        use crate::symbol_access::CheckFlags;
++        for (modifier,classes) in [("readonly ",false),("private ",true)] {
++            let source=if classes {
++                format!("class Base<T> {{ {modifier}value!:number }} class Left<U> extends Base<U> {{ declare left:U }} class Right<V> extends Base<V> {{ declare right:V }} type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;")
++            } else {
++                format!("interface Base<T> {{ {modifier}value:number }} interface Left<U> extends Base<U> {{ left:U }} interface Right<V> extends Base<V> {{ right:V }} type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;")
++            };
++            let mut private=Vec::new();
++            for order in 0..3 {
++                with_checker(&source,|checker,root| {
++                    if order==2 { checker.check_source_file(root,crate::check::FileContext {ambient:false,has_parse_errors:false}); }
++                    let bound=checker.binder.lookup_local(root,"receiver").unwrap();
++                    let receiver=checker.get_type_of_symbol(bound);
++                    if order==1 { let probe=checker.binder.lookup_local(root,"probe").unwrap();checker.get_type_of_symbol(probe); }
++                    let symbol=publication(checker,receiver,"value");
++                    let is_private=checker.symbols.view(&symbol).unwrap().flags().contains(tsr_binder::SymbolFlags::TRANSIENT);
++                    private.push(is_private);
++                    assert!(!checker.symbols.view(&symbol).unwrap().check_flags().contains(CheckFlags::INSTANTIATED));
++                    assert_eq!(checker.publication_read(&symbol),checker.intrinsics.number);
++                    for _ in 0..3 { assert_eq!(publication(checker,receiver,"value"),symbol); }
++                    println!("PUBLISHED_SCALAR_MODIFIER modifier={modifier:?} order={order} private={is_private}");
++                });
++            }
++            assert_eq!(private,[false,true,false],"native modifier history {modifier}");
++        }
++    }
++
++
+     use tsr_ast::{HasNodeId, NodeId};
+     use tsr_core::Arena;
+
+@@ -4183,15 +4480,15 @@
+                 assert_eq!(receiver_names, ["left", "right", "self"]);
+             },
+         );
+-        // The existing supplier maps direct owners, but not a base owner's
+-        // minted this through a derived non-generic receiver. Do not certify
+-        // the previously observed wrong Base result as a completed property.
++        // The concrete prepared reference carries the original intersection
++        // receiver through the inherited Base mapper. The native shared-self
++        // producer enumerates all three names on both container and self.
+         assert_eq!(
+             names(
+                 "interface Base { self: this } interface Left extends Base { left: number } interface Right extends Base { right: string } type Both = Left & Right;",
+                 "Both",
+-            ),
+-            None
++            ).map(|mut names| { names.sort(); names }),
++            Some(vec!["left".to_owned(), "right".to_owned(), "self".to_owned()])
+         );
+     }
+
+diff --git a/crates/tsr-checker/src/readonly_target.rs b/crates/tsr-checker/src/readonly_target.rs
+--- a/crates/tsr-checker/src/readonly_target.rs
++++ b/crates/tsr-checker/src/readonly_target.rs
+@@ -1564,7 +1564,7 @@
+     /// Does `class` reach `base` through its `extends` chain, or **is** it
+     /// `base`? A link this port cannot follow answers `false`, which is the
+     /// reporting direction — see §68's falsifier.
+-    fn class_derives_from(&self, class: NodeId, base: NodeId) -> bool {
++    fn class_derives_from(&mut self, class: NodeId, base: NodeId) -> bool {
+         let mut current = class;
+         for _ in 0..16 {
+             if current == base {
+@@ -1577,8 +1577,8 @@
+     }
+
+     /// The class declaration a class `extends`, when the heritage names one
+-    /// non-generic class this port can resolve — §56's shape.
+-    fn extends_class_declaration(&self, class: NodeId) -> Option<NodeId> {
++    /// class this port can resolve — §56's identifier shape, including imports.
++    fn extends_class_declaration(&mut self, class: NodeId) -> Option<NodeId> {
+         let heritage = match self.node_map.get(class)? {
+             Node::ClassDeclaration(declaration) => declaration.heritage_clauses,
+             Node::ClassExpression(declaration) => declaration.heritage_clauses,
+@@ -1596,6 +1596,10 @@
+             written.text,
+             tsr_binder::SymbolFlags::VALUE,
+         )?;
++        let symbol = self.binder.merged_symbol(symbol);
++        // Imported bases bind alias symbols. Resolve the same target that
++        // heritage type lookup uses before requiring a class declaration.
++        let symbol = self.resolve_alias_fully(symbol);
+         let symbol = self.binder.merged_symbol(symbol);
+         let entry = self.binder.symbols().get(symbol);
+         if !entry.flags.intersects(tsr_binder::SymbolFlags::CLASS) || entry.declarations.len() != 1
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -1993,6 +1993,86 @@
+         }
+         signature.r#type = self.get_return_type_of_signature(&signature)?;
+         Some(signature)
++    }
++
++    /// Native 5b1047d getObjectTypeInstantiation/getOuterTypeParameters
++    /// (checker.go:22304/23756) can retain an anonymous function before its
++    /// signature vector exists. Its own generic parameters do not belong to
++    /// that outer window. Prove this from the original declaration and owner;
++    /// empty metadata and printed names are not an identity proof.
++    ///
++    /// This bounded admission leaves pending/active/foreign-key originals to
++    /// the existing return guard. It adds no completion, cache or mapper image.
++    pub(crate) fn uncomputed_callable_instantiation_is_identity(&self, ty: TypeId) -> bool {
++        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(ty).data else {
++            return false;
++        };
++        let owner = self.binder.symbols().get(self.binder.merged_symbol(symbol));
++        if !owner.flags.contains(SymbolFlags::FUNCTION)
++            || owner.flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM)
++        {
++            return false;
++        }
++        if self.signature_types.contains_key(&ty)
++            || !self.alias_evaluation_bindings.is_empty()
++            || self.mapped_template_depth != 0
++            || self.unresolved_types.contains(&ty)
++            || self.symbol_types.get(&symbol) != Some(&ty)
++        {
++            return false;
++        }
++        let mut found_function = false;
++        for &declaration in &owner.declarations {
++            if !matches!(self.node_map.get(declaration), Some(Node::FunctionDeclaration(_))) {
++                continue;
++            }
++            found_function = true;
++            if self.pending_signature_returns.keys().any(|key| key.node == declaration)
++                || self.resolutions.active_signature_keys(declaration).next().is_some()
++            {
++                return false;
++            }
++            let mut current = self.nodes.parent(declaration);
++            while let Some(node) = current {
++                let has_outer_parameters = match self.node_map.get(node) {
++                    // includeThisTypes is true in native, even for a nongeneric
++                    // enclosing class/interface. Keep that receiver distinct.
++                    Some(
++                        Node::ClassDeclaration(_)
++                        | Node::ClassExpression(_)
++                        | Node::InterfaceDeclaration(_)
++                        | Node::MappedTypeNode(_)
++                        | Node::ConditionalTypeNode(_),
++                    ) => true,
++                    Some(Node::FunctionDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::FunctionExpression(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::ArrowFunction(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::MethodDeclaration(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::CallSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::ConstructSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::MethodSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::FunctionTypeNode(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::ConstructorTypeNode(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::TypeAliasDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(_) => false,
++                    None => return false,
++                };
++                if has_outer_parameters {
++                    return false;
++                }
++                current = self.nodes.parent(node);
++            }
++        }
++        found_function
+     }
+
+     /// A mapper must not copy an unresolved return or infer "no parameter"
+@@ -8398,6 +8478,276 @@
+     }
+
+     #[test]
++    fn callable_without_outer_parameters_maps_by_identity_without_forcing_metadata() {
++        for function in [
++            "function f(){return 1} namespace f {export const bar=1}",
++            "function f():number{return 1} namespace f {export const bar=1}",
++            "declare function f():number; namespace f {export const bar=1}",
++            "function f<U>(u:U){return u} namespace f {export const bar=1}",
++            "function f(){return 1}",
++        ] {
++            for checked_first in [false, true] {
++                let source = format!("{function} interface Owner<T> {{self:this}}");
++                let arena = tsr_core::Arena::new();
++                let parsed = tsr_parser::parse(&arena, &source);
++                assert!(parsed.diagnostics.is_empty());
++                let bound = tsr_binder::bind(
++                    &arena,
++                    parsed.source_file,
++                    &parsed.nodes,
++                    tsr_binder::FileInfo { name: "admission.ts", text: &source },
++                );
++                let root = parsed.source_file.node_id.unwrap();
++                let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++                if checked_first {
++                    checker.check_source_file(
++                        root,
++                        crate::check::FileContext { ambient: false, has_parse_errors: false },
++                    );
++                }
++                let callable_symbol = bound.lookup_local(root, "f").unwrap();
++                let callable = checker.get_type_of_symbol(callable_symbol);
++                let owner_symbol = bound.lookup_local(root, "Owner").unwrap();
++                let owner = checker.get_declared_type_of_symbol(owner_symbol);
++                let this_node = (0..u32::try_from(parsed.nodes.len()).unwrap())
++                    .find_map(|index| match parsed.node_map.get(tsr_ast::NodeId::new(index)) {
++                        Some(tsr_ast::Node::ThisTypeNode(node)) => {
++                            Some(tsr_ast::TypeNode::ThisTypeNode(node))
++                        }
++                        _ => None,
++                    })
++                    .unwrap();
++                let formal_this = checker.get_type_from_type_node(this_node);
++                assert!(
++                    checker
++                        .store
++                        .get(formal_this)
++                        .flags
++                        .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
++                );
++                let absent = !checker.signature_types.contains_key(&callable);
++                if !checked_first && function.contains("namespace") {
++                    assert!(absent, "the merged control must reach actual absent metadata");
++                }
++                for mapper in [vec![(formal_this, owner)], vec![(formal_this, formal_this)], vec![]]
++                {
++                    let snapshot = source_view_snapshot(&checker);
++                    for _ in 0..3 {
++                        assert_eq!(
++                            checker.instantiate_type(callable, &mapper, &[formal_this], &["this"]),
++                            callable,
++                            "native retains {function}, checked_first={checked_first}, absent={absent}"
++                        );
++                        assert_eq!(
++                            source_view_snapshot(&checker),
++                            snapshot,
++                            "identity mapping must leave signatures and return deferred"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn absent_callable_identity_keeps_pending_active_and_alias_contexts_ineligible() {
++        let source = "type Frame<T>=T; function f(){return 1} namespace f {export const bar=1}";
++        for state in ["pending", "active", "resolution", "alias"] {
++            let arena = tsr_core::Arena::new();
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "states.ts", text: source },
++            );
++            let root = parsed.source_file.node_id.unwrap();
++            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let owner = bound.lookup_local(root, "f").unwrap();
++            let ty = checker.get_type_of_symbol(owner);
++            assert!(!checker.signature_types.contains_key(&ty));
++            let declaration = bound
++                .symbols()
++                .get(owner)
++                .declarations
++                .iter()
++                .copied()
++                .find(|id| {
++                    matches!(parsed.node_map.get(*id), Some(tsr_ast::Node::FunctionDeclaration(_)))
++                })
++                .unwrap();
++            let key = checker.type_literal_key(declaration);
++            // Explicit admission fault controls use the real parsed owner/type;
++            // these state injections are not natural return-resolution traces.
++            match state {
++                "pending" => {
++                    checker
++                        .pending_signature_returns
++                        .insert(key.clone(), super::LazyReturnState::Pending);
++                }
++                "active" => {
++                    checker
++                        .pending_signature_returns
++                        .insert(key.clone(), super::LazyReturnState::Active);
++                }
++                "resolution" => {
++                    assert!(checker.resolutions.push(
++                        crate::resolution::ResolutionTarget::Signature(key.clone()),
++                        crate::resolution::PropertyName::ResolvedReturnType
++                    ));
++                }
++                "alias" => {
++                    let tsr_ast::Statement::TypeAliasDeclaration(alias) =
++                        parsed.source_file.statements[0]
++                    else {
++                        panic!("alias")
++                    };
++                    let parameter =
++                        bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
++                    checker
++                        .alias_evaluation_bindings
++                        .push([(parameter, checker.intrinsics.number)].into_iter().collect());
++                }
++                _ => unreachable!(),
++            }
++            let image = checker.intrinsics.string;
++            let before = source_view_snapshot(&checker);
++            for _ in 0..3 {
++                assert_eq!(
++                    checker.instantiate_type(ty, &[(ty, image)], &[], &[]),
++                    image,
++                    "direct hit {state}"
++                );
++                assert_eq!(
++                    checker.instantiate_type(ty, &[], &[], &[]),
++                    checker.intrinsics.error,
++                    "unsupported admission {state}"
++                );
++                assert_eq!(
++                    source_view_snapshot(&checker),
++                    before,
++                    "refusal must not publish {state}"
++                );
++            }
++            if state == "resolution" {
++                assert!(checker.resolutions.pop());
++            }
++            if state == "alias" {
++                checker.alias_evaluation_bindings.pop();
++            }
++            checker.pending_signature_returns.remove(&key);
++            assert_eq!(
++                checker.instantiate_type(ty, &[], &[], &[]),
++                ty,
++                "actual cold identity after fault state is removed"
++            );
++            assert!(!checker.signature_types.contains_key(&ty));
++        }
++    }
++
++    #[test]
++    fn callable_mapping_keeps_outer_and_own_generic_parameters_distinct() {
++        for (body, own) in
++            [("function f(){return x}", false), ("function f<U>(u:U){return u}", true)]
++        {
++            let source = format!("function outer<T>(x:T){{{body} return f}}");
++            for return_first in [false, true] {
++                let arena = tsr_core::Arena::new();
++                let parsed = tsr_parser::parse(&arena, &source);
++                assert!(parsed.diagnostics.is_empty());
++                let bound = tsr_binder::bind(
++                    &arena,
++                    parsed.source_file,
++                    &parsed.nodes,
++                    tsr_binder::FileInfo { name: "outer.ts", text: &source },
++                );
++                let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++                let tsr_ast::Statement::FunctionDeclaration(outer) =
++                    parsed.source_file.statements[0]
++                else {
++                    panic!("outer")
++                };
++                let outer_signature =
++                    checker.get_signature_from_declaration(outer.node_id.unwrap()).unwrap();
++                let parameters = checker.type_parameter_types(&outer_signature).unwrap();
++                let function=(0..u32::try_from(parsed.nodes.len()).unwrap()).find_map(|index| {
++                    let id=tsr_ast::NodeId::new(index);
++                    matches!(parsed.node_map.get(id),Some(tsr_ast::Node::FunctionDeclaration(n)) if n.name.is_some_and(|name|name.text=="f")).then_some(id)
++                }).unwrap();
++                let original = checker.get_type_of_symbol(bound.symbol_of(function).unwrap());
++                if return_first {
++                    let sig = checker.resolve_call_signature(original, None).unwrap();
++                    checker.get_return_type_of_signature(&sig).unwrap();
++                }
++                for _ in 0..3 {
++                    let number = checker.intrinsics.number;
++                    let mapped = checker.instantiate_type(
++                        original,
++                        &[(parameters[0], number)],
++                        &parameters,
++                        &["T"],
++                    );
++                    assert_ne!(
++                        mapped, checker.intrinsics.error,
++                        "outer mapping must remain supported"
++                    );
++                    let signature = checker.resolve_call_signature(mapped, None).unwrap();
++                    let returned = checker.get_return_type_of_signature(&signature).unwrap();
++                    if own {
++                        assert_eq!(signature.type_parameters.len(), 1);
++                        assert_eq!(returned, checker.parameter_type(&signature.parameters[0]));
++                        assert_ne!(returned, number, "own U cannot become outer T's image");
++                    } else {
++                        assert_eq!(returned, number, "outer T must become number");
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn uncomputed_callable_identity_obeys_nonempty_mapper_instantiation_budget() {
++        let source = "function f(){} namespace f {export const bar=1}";
++        for (depth, count, refuse) in [(100, 0, true), (0, 5_000_000, true), (0, 0, false)] {
++            let arena = tsr_core::Arena::new();
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "budget.ts", text: source },
++            );
++            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let root = parsed.source_file.node_id.unwrap();
++            let symbol = bound.lookup_local(root, "f").unwrap();
++            let callable = checker.get_type_of_symbol(symbol);
++            assert!(!checker.signature_types.contains_key(&callable));
++            checker.instantiation_depth = depth;
++            checker.instantiation_count = count;
++            let number = checker.intrinsics.number;
++            let string = checker.intrinsics.string;
++            let mapped = checker.instantiate_type(callable, &[(number, string)], &[], &[]);
++            assert_eq!(
++                mapped,
++                if refuse { checker.intrinsics.error } else { callable },
++                "native nonempty mapper budget depth={depth}, count={count}"
++            );
++            assert_eq!(checker.instantiation_depth, depth);
++            assert_eq!(checker.instantiation_count, count + u32::from(!refuse));
++            assert!(!checker.signature_types.contains_key(&callable));
++            assert!(checker.instantiated_objects.is_empty());
++            assert_eq!(
++                checker.instantiate_type(callable, &[], &[], &[]),
++                callable,
++                "native nil mapper precedes budget"
++            );
++            assert_eq!(checker.instantiation_count, count + u32::from(!refuse));
++        }
++    }
++
++    #[test]
+     fn pending_callable_mapping_preserves_direct_hits_and_declines_active_or_unsupported() {
+         for (initializer, supported) in [("() => 23", true), ("function*() { yield* []; }", false)]
+         {
+diff --git a/crates/tsr-checker/src/symbol_access.rs b/crates/tsr-checker/src/symbol_access.rs
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -334,6 +334,28 @@
+         Ok(SymbolRef(Identity::Bound(self.program.identity().clone(), id)))
+     }
+
++
++    /// A validated bound adapter; a private handle is never a binder index.
++    pub(crate) fn bound_id(&self, symbol: &SymbolRef) -> Result<Option<SymbolId>, SymbolAccessError> {
++        self.view(symbol)?;
++        Ok(match symbol.0 { Identity::Bound(_, id) => Some(id), Identity::Private(_, _) => None })
++    }
++
++    /// Member construction copies declaration metadata without a merge redirect.
++    pub(crate) fn new_member_from(&mut self, source: &SymbolRef, check_flags: CheckFlags, optional:bool) -> Result<SymbolRef, SymbolAccessError> {
++        let view = self.view(source)?;
++        let flags = view.flags();
++        let name = Cow::Owned(view.name().to_owned());
++        let declarations = view.declarations().to_vec();
++        let value_declaration = view.value_declaration();
++        let parent = view.parent();
++        Ok(self.add(PrivateSymbol {
++            flags: (flags & !SymbolFlags::OPTIONAL) | SymbolFlags::TRANSIENT | if optional {SymbolFlags::OPTIONAL} else {SymbolFlags::empty()}, check_flags, name, declarations,
++            value_declaration, parent, export_symbol:None, members:None, exports:None,
++            origin:Some(source.clone()), declared_type:None,
++        }))
++    }
++
+     /// Validate the domain before indexing either store.
+     pub fn view(&self, symbol: &SymbolRef) -> Result<SymbolView<'_, 'a>, SymbolAccessError> {
+         match &symbol.0 {
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -4213,7 +4213,11 @@
+
+     /// `getTypeOfConcretePropertyOfContextualType`: exact optional context drops
+     /// only missing. Optionality follows the same suppliers as the ordinary read.
+-    fn concrete_contextual_property_type(&mut self, t: TypeId, name: &str) -> Option<TypeId> {
++    pub(crate) fn concrete_contextual_property_type(
++        &mut self,
++        t: TypeId,
++        name: &str,
++    ) -> Option<TypeId> {
+         let member = self.get_type_of_property_of_type(t, name)?;
+         if !self.exact_optional_property_types {
+             return Some(member);
+diff --git a/crates/tsr-checker/tests/members.rs b/crates/tsr-checker/tests/members.rs
+--- a/crates/tsr-checker/tests/members.rs
++++ b/crates/tsr-checker/tests/members.rs
+@@ -156,13 +156,16 @@
+     // at all, and the value it returns is a miss.
+     let source = "class A extends B { }\nclass B extends A { }";
+     assert_eq!(property_of(source, "A", "p"), None);
+-    // A member that genuinely exists on the cycle is still found — the guard
+-    // stops the walk revisiting a symbol, not the walk itself.
++    // Native getBaseTypes / resolveBaseTypesOfClass (5b1047d checker.go:19167,
++    // :19220) reject a circular class base rather than walk its declarations.
++    // The old assertion expected the shortcut walker to return B.b; the fresh
++    // native public one-hop control reports TS2339 for A.b. Own A.a remains.
+     let source = "class A extends B { a: number; }\nclass B extends A { b: string; }";
+-    assert!(
+-        property_of(source, "A", "b").is_some(),
+-        "`b` is one hop away, before the cycle closes"
+-    );
++    assert_eq!(property_of(source, "A", "b"), None);
++    assert!(property_of(source, "A", "a").is_some());
++    // Refusing a cyclic base is distinct from refusing all inheritance.
++    let acyclic = "class B { b: string; }\nclass A extends B { a: number; }";
++    assert_eq!(declaring_line(acyclic, "A", "b"), "class B { b: string; }");
+ }
+
+ #[test]
+@@ -192,28 +195,32 @@
+ }
+
+ #[test]
+-fn a_base_with_type_arguments_is_a_gap_rather_than_an_uninstantiated_answer() {
+-    // `class C extends B<number>` should give `p` the type `number`. Nothing
+-    // instantiates yet (`bd tsr-4sc.7`), so answering with `B`'s own `p` would
+-    // report `T`. A miss is the honest answer.
++fn a_generic_base_keeps_its_declaration_origin_and_instantiated_property_type() {
++    // This formerly pinned an honest unported gap. Native class reference
++    // admission (5b1047d checker.go:19220) applies B<number>; the new publication
++    // path now owns both the origin and the concrete member read. Testing only
++    // the returned name would hide a raw T in place of number.
+     let source = "class B<T> { p: T; }\nclass C extends B<number> { }";
+-    assert_eq!(property_of(source, "C", "p"), None);
+-    // The same base without arguments *is* followed, so the fixture is testing
+-    // the arguments and not the shape.
+-    let source = "class B { p: number; }\nclass C extends B { }";
+     assert!(property_of(source, "C", "p").is_some());
+-}
+-
+-#[test]
+-fn a_base_that_cannot_be_followed_does_not_let_a_later_base_answer_in_its_place() {
+-    // `interface I extends A, B<number>`: upstream would take `p` from whichever
+-    // of the two declares it. Skipping the base this port cannot follow and
+-    // answering from the other would be the wrong symbol whenever both declare
+-    // the name — so an unfollowable base makes the whole lookup a miss.
+-    let source = "interface A { p: number }\n\
+-                  interface B<T> { p: T }\n\
+-                  interface I extends A, B<number> {}";
+-    assert_eq!(property_of(source, "I", "p"), None);
++    assert_eq!(declaring_line(source, "C", "p"), "class B<T> { p: T; }");
++    assert_eq!(type_of(&format!("{source}\ndeclare const c: C; const x = c.p;"), "x"), "number");
++    let plain = "class B { p: number; }\nclass C extends B { }";
++    assert!(property_of(plain, "C", "p").is_some());
++}
++
++#[test]
++fn generic_bases_keep_the_first_supplier_and_its_concrete_type() {
++    // The old gap prevented accidentally skipping an unsupported B<T>. Now
++    // both suppliers are supported: preserve the first origin even when the
++    // later base conflicts, and observe concrete substitution when B is first.
++    for argument in ["number", "string"] {
++        let source = format!("interface A {{ p: number }}\ninterface B<T> {{ p: T }}\ninterface I extends A, B<{argument}> {{}}");
++        assert_eq!(declaring_line(&source, "I", "p"), "interface A { p: number }");
++        assert_eq!(type_of(&format!("{source}\ndeclare const i: I; const x = i.p;"), "x"), "number");
++    }
++    let reversed = "interface A { p: string }\ninterface B<T> { p: T }\ninterface I extends B<number>, A {}";
++    assert_eq!(declaring_line(reversed, "I", "p"), "interface B<T> { p: T }");
++    assert_eq!(type_of(&format!("{reversed}\ndeclare const i: I; const x = i.p;"), "x"), "number");
+ }
+
+ // ---------------------------------------------------------------------------

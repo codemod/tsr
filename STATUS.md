@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Current CLI diagnosis / member selection, frozen `bb982558`: fresh copies
+reproduce 6.66–15.55s before `main`, including outside the agent; repeats enter
+in ~3ms. Scoped XProtect results finish near entry, and version-only native
+also delays. Exact PR #5/user-invocation causality remains unproven. Current
+member replay initially adds 799 false TS2445; private imported-base alias
+repair matches five native controls in both modes. Warm public retention is
+rejected: default 1.196 ->1.384s, single 3.015 ->3.289s, higher CPU/RSS; two
+measured pairs per mode, uncontrolled host. No canonical runtime or speed win.
+`.34`, `.33.1`, `.4.2.1` and complete-work 2x target stay unfinished.
+[Source-bound diagnosis and rejected replay](docs/architecture/checker-member-builder-current.md).
+
 Current construction-cost selection (`tsr-1yb.4.2.1`), frozen `3cf33564`:
 the existing class/interface reference cache serves 3,566,827 of 3,666,301
 requests; 99,474 actual final mints have distinct private ordered keys and zero
@@ -3402,6 +3413,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+At frozen `bb982558`, do not retain the current completed-member replay as a
+speed optimization: warm default and single walls/CPU/RSS are worse in the
+bounded public comparison. Next `.4.2.1` choice needs actual field/consumer and
+retained-storage attribution before another implementation. `.33.1` owns the
+broader correctness/current integration gates; private imported-base alias
+repair only qualifies five native controls. `.34` has a reproduced OS launch
+delay, while exact user invocation and PR-specific source cause remain open.
+[Current decision and local startup check](docs/architecture/checker-member-builder-current.md).
 
 Construction-cost follow-through (`tsr-1yb.4.2.1`): frozen `3cf33564` excludes
 a second class/interface reference cache (97.29% existing hits, zero repeated
@@ -6958,6 +6978,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `bb982558`: current member builder first fails public fidelity on799
+extra protected-access errors. A narrow imported-base alias repair passes30
+native/main/replay control children, retaining required TS2445/TS2446; original
+failure preserved. Repaired warm public wall is1.384s versus1.196s baseline
+default,3.289s versus3.015s single; CPU/RSS also increase. No performance
+retention or current full-corpus claim. Initial cold-mixed baseline is excluded
+from checker comparisons, and fresh startup is diagnosed separately.
+[Rejected current-source replay](docs/architecture/checker-member-builder-current.md).
 
 Frozen `3cf33564`: no added class/interface reference memo under
 `tsr-1yb.4.2.1`. Actual 99,474 minted keys are unique; the existing owner already
@@ -13716,6 +13745,19 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-06, frozen `bb982558`: current-source launch/member investigation.
+Fresh ordinary copies and private first-statement probes reproduce pre-main
+delays; outside-agent and version-only native controls confirm startup scope,
+and two own-path XProtect log events qualify the OS-scan inference. Original
+cold-mixed baseline and setup failures retained. Current 12-source replay
+builds but adds799 false TS2445; private13-source alias repair passes30 fixed
+control children after12 red children. Twelve warm public comparison children
+preserve output/partial observed inputs yet fail performance selection in both
+modes, with higher CPU/RSS. No canonical runtime, security-setting change,
+current full corpus or speed gain. `.34`/`.33.1`/`.4.2.1` remain unfinished;
+complete equivalent-work TSR/native<=0.50 remains unmet.
+[Receipt and remaining boundaries](docs/architecture/checker-member-builder-current.md).
 
 2026-10-06, frozen `3cf33564`: concrete-reference cost locator under
 `tsr-1yb.4.2.1`. Four normal full checks, four failed sandbox attach children,
