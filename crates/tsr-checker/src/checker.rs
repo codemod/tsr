@@ -954,6 +954,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
+    pub(crate) type_parameter_default_cache: FxHashMap<
+        crate::declared::TypeParameterDefaultKey,
+        crate::declared::TypeParameterDefaultState,
+    >,
     pub(crate) type_parameter_constraint_cache:
         FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
     pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId, TypeId), Option<TypeId>>,
@@ -1467,6 +1471,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             string_mapping_cache: FxHashMap::default(),
             template_literal_cache: FxHashMap::default(),
             mapped_apparent_types: FxHashMap::default(),
+            type_parameter_default_cache: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
             reverse_mapped_member_cache: FxHashMap::default(),
