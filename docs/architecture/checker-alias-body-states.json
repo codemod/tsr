@@ -15,7 +15,7 @@
     "checker-reference-state-probe.rs": "4d1c61c85df01852b1de03b71c3d91856042791ca9e27d7f7c0784a4bc9083c0",
     "checker-reference-state-controls.py": "342d5744ccedad3da235932475f4423874cd423a01cce1fbd40da29fa5e38a8b",
     "checker-mapper-pool-probe.rs": "f48950f513acb90ca9c55d8bdd8b4826748f5c37ebe44d801b4e195a8b94384b",
-    "checker-alias-body-states.md": "e56bec63c1e4e58f2e31b53bfe07163e5fc0405964e29768ee5a9c8d2a61686f"
+    "checker-alias-body-states.md": "d3c1327079db486ba3e796bbd4887de99d6868eb308af7745b4b5ab249d9ee75"
   },
   "bindings": {
     "normal": {
@@ -52,7 +52,7 @@
       "compiler_children": 6,
       "worker_count": 4,
       "actual_checks": 1397,
-      "diagnostic_count": 3,
+      "diagnostic_count": 46,
       "loaded_count": 14051,
       "actual_checked_fingerprint": "da75500cef5a7aa7b614d8c89ea47a19f66edf4921aeb84c2267335fac3ad7ad",
       "checked_input_fingerprint": "f70eacad9566711f9573d0684a9ab2a0e548f1813c91abc9417cc3a8bfd7ad5d",
@@ -1773,7 +1773,7 @@
       "compiler_children": 6,
       "worker_count": 1,
       "actual_checks": 1397,
-      "diagnostic_count": 3,
+      "diagnostic_count": 46,
       "loaded_count": 14051,
       "actual_checked_fingerprint": "9c2adebc221da220c20c897031fc5596c4eaf05e49c2f0789087a3848f89782c",
       "checked_input_fingerprint": "f70eacad9566711f9573d0684a9ab2a0e548f1813c91abc9417cc3a8bfd7ad5d",
@@ -3388,5 +3388,28 @@
     "native_and_fixtures_clean": true,
     "replay_clean": true
   },
-  "qualified": true
+  "qualified": true,
+  "diagnostic_count_correction": {
+    "issue": "tsr-1yb.8.2.1",
+    "previous_count": 3,
+    "reason": "Previous packaging counted the count/fingerprint/entries fields of the diagnostic object. Counts now come from verified complete entries in each source-qualified raw receipt. Raw reports and their fingerprints are unchanged.",
+    "validation": {
+      "raw_report_sha256": "a25daf14073acdf13d115925dc474c07df7b48265de4dd114de2ce5711ff0c5f",
+      "application": [
+        {
+          "mode": "default",
+          "diagnostic_count": 46,
+          "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec"
+        },
+        {
+          "mode": "single",
+          "diagnostic_count": 46,
+          "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec"
+        }
+      ],
+      "qualification": "diagnostic counts only; no performed-work or speed qualification"
+    },
+    "validator_sha256": "0e06fb5ecd0b41a0e7b912ab2c9e2ed0a351450c42f775dde6758b799af42641",
+    "reader_tests_sha256": "0aff63bd9f8b22007b688d847282c012b789b261a9417286e0f1af7c1934ee76"
+  }
 }

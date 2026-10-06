@@ -82,10 +82,19 @@ producers, with zero previous RIGHT losses. Types retain 465,777 RIGHT, 9,563
 WRONG and 1,447 GAP; diagnostics retain 3,569 RIGHT, 4,917 EMPTY_RIGHT, 1,919
 WRONG and 165 EMPTY_WRONG. Changes from older snapshots belong to upstream
 fidelity ports. The app preserves 1,397 direct checks, 14,051 loaded files and
-three complete diagnostics in all 12 children. Public controls preserve Rust
+46 complete diagnostics in all 12 children. Public controls preserve Rust
 outputs in 140 children; native diagnostics match 24 of 28 cases, retaining
 both known failing families in both modes. Pool controls retain 30 children
 and two deliberately rejected abort receipts.
+
+The diagnostic-count correction (`tsr-1yb.8.2.1`) replaces the previously reported
+three with 46. Packaging had counted the three fields of the diagnostic object.
+The original receipt bytes and diagnostic fingerprints are unchanged. The
+report's correction record binds the reader and raw receipt hashes; validate it
+with `python3 scripts/archive_diagnostic_counts.py --report
+docs/architecture/checker-alias-body-states.json --raw
+/path/to/original/application/results.json`. This validates counts and complete
+diagnostic output across children; it does not qualify performed work or speed.
 
 All ten private hook files and three prior private target binaries are restored
 with exact byte guards; isolated Rust, native, fixture and replay checkouts are

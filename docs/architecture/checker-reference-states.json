@@ -12,7 +12,8 @@
     "replay_checker_reference_states.py": "18c0aa83a7476afc4454103cfe95a6e13348725477507528183c3678490fb3d5",
     "checker-mapper-pool-probe.rs": "f48950f513acb90ca9c55d8bdd8b4826748f5c37ebe44d801b4e195a8b94384b",
     "checker-mapper-pool-controls.py": "85ef629e5c5f8716c4e33f63cf4383bc61143a6818a045bdfb27dfe332bdce68",
-    "checker-mapper-key-controls.py": "552edd190dcfcfcab24d5e2791d3dbb535ef85764b01e75f1d4ceed9c66bb575"
+    "checker-mapper-key-controls.py": "552edd190dcfcfcab24d5e2791d3dbb535ef85764b01e75f1d4ceed9c66bb575",
+    "checker-reference-states.md": "71fb8fbc4b0860bb4a86d94b138958cc41b1ff702b9bb3e3a4801b574dfb8ab6"
   },
   "bindings": {
     "normal": {
@@ -182,7 +183,7 @@
       "compiler_children": 6,
       "worker_count": 4,
       "actual_checks": 1397,
-      "diagnostic_count": 3,
+      "diagnostic_count": 46,
       "loaded_count": 14051,
       "reported": {
         "Files": 14051,
@@ -1533,7 +1534,7 @@
       "compiler_children": 6,
       "worker_count": 1,
       "actual_checks": 1397,
-      "diagnostic_count": 3,
+      "diagnostic_count": 46,
       "loaded_count": 14051,
       "reported": {
         "Files": 14051,
@@ -3085,5 +3086,28 @@
     },
     "replay_clean": true,
     "zero_context_replay_clean": true
+  },
+  "diagnostic_count_correction": {
+    "issue": "tsr-1yb.8.2.1",
+    "previous_count": 3,
+    "reason": "Previous packaging counted the count/fingerprint/entries fields of the diagnostic object. Counts now come from verified complete entries in each source-qualified raw receipt. Raw reports and their fingerprints are unchanged.",
+    "validation": {
+      "raw_report_sha256": "29a04f7e24f6d9df180317d4f2be629d5fcb334210c10e71d12cd8fab64a9621",
+      "application": [
+        {
+          "mode": "default",
+          "diagnostic_count": 46,
+          "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec"
+        },
+        {
+          "mode": "single",
+          "diagnostic_count": 46,
+          "diagnostic_fingerprint": "a39b0cfead1232d06fc2ec8d43fe8f864964f75a6e59e462265d0d5cb6b2beec"
+        }
+      ],
+      "qualification": "diagnostic counts only; no performed-work or speed qualification"
+    },
+    "validator_sha256": "0e06fb5ecd0b41a0e7b912ab2c9e2ed0a351450c42f775dde6758b799af42641",
+    "reader_tests_sha256": "0aff63bd9f8b22007b688d847282c012b789b261a9417286e0f1af7c1934ee76"
   }
 }
