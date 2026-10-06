@@ -270,6 +270,11 @@ pub(crate) struct Binder<'a, 'n> {
     merged: rustc_hash::FxHashMap<SymbolId, SymbolId>,
     /// Merges the excludes masks forbade; see [`BindResult::merge_conflicts`].
     merge_conflicts: Vec<(SymbolId, SymbolId)>,
+    /// The declaration [`Self::declare`] is binding, when it is a default
+    /// export in `declareSymbolEx`'s sense — `isDefaultExport`, or an
+    /// `export default` assignment — which is what selects TS2528 over TS2300
+    /// on a conflict (`binder.go:224-244`). `docs/parity/notes/decls.md` §14.
+    default_export_declaration: Option<NodeId>,
     globals: SymbolTable<'a>,
     /// The synthesised `undefined` symbol, if this bind created one.
     undefined_symbol: Option<SymbolId>,
@@ -443,6 +448,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals,
             merged,
             merge_conflicts,
+            default_export_declaration: None,
             flow,
             node_flow,
             current_flow: unreachable,
@@ -3788,6 +3794,9 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        self.default_export_declaration = (Self::is_default_export(node)
+            || matches!(node, Node::ExportAssignment(assignment) if !assignment.is_export_equals))
+        .then_some(id);
         // **Here, not at the one `declare_into` call that used to record it.**
         // `GetNameOfDeclaration` (`binder.go:245`) is what every redeclaration
         // diagnostic is positioned at, and `declare` reaches `declare_into`
@@ -4248,20 +4257,23 @@ impl<'a, 'n> Binder<'a, 'n> {
                 // and separately an `ExportAssignment` that is not `export =` (so
                 // that `export default { }` after `export default class` is caught,
                 // since that form carries no `default` *modifier* to test). Both are
-                // detected here as `name == INTERNAL_DEFAULT`, which is equivalent
-                // rather than a shortcut: `getDeclarationName` maps a non-`export =`
-                // export assignment to `InternalSymbolNameDefault` (`binder.go:302`)
-                // and `declareSymbolEx` names the export half of any default export
-                // `default` (`binder.go:158`). Nothing else in the language can be
-                // filed under that name — it is not a spellable binding — so the two
-                // upstream branches and this one test cover the same set.
+                // properties of the *declaration*, recorded by `declare` in
+                // `default_export_declaration`. This used to test
+                // `name == INTERNAL_DEFAULT` on the claim that nothing else is
+                // filed under that name; parser recovery spells it —
+                // `import { default } from "m"` binds a local named `default`,
+                // and upstream reports TS2300 there, not TS2528
+                // (`es6ImportNamedImportIdentifiersParsing`,
+                // `docs/parity/notes/decls.md` §14).
                 //
                 // The related-info chain upstream attaches (`binder.go:265-275`:
                 // `Another_export_default_is_here`, `and_here`,
                 // `The_first_export_default_is_here`) is **not** ported: `Diagnostic`
                 // carries no related information yet, and the `diagnostics` suite
                 // compares codes and positions only. Tracked in bd tsr-y4u.23.
-                if name == INTERNAL_DEFAULT && !self.symbols.get(existing).declarations.is_empty() {
+                if self.default_export_declaration == Some(declaration)
+                    && !self.symbols.get(existing).declarations.is_empty()
+                {
                     message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
                     message_needs_name = false;
                 }

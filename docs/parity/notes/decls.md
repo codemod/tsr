@@ -339,3 +339,18 @@ node.
 Measured: +4 (`propertiesAndIndexers`, `stringIndexerConstrainsPropertyDeclarations2`,
 `genericCallWithObjectTypeArgsAndIndexersErrors`, `recursiveTypesWithTypeof`),
 no loss, no new extra TS2411.
+
+## §14 Binder: TS2528 is chosen by the declaration, not by the name `default`
+
+`declareSymbolEx` (`binder.go:224-244`) picks
+`A_module_cannot_have_multiple_default_exports` when the conflicting
+declaration `isDefaultExport` (a `default` modifier, or an export specifier
+named `default`) or is a non-`export =` export assignment. The port tested
+`name == "default"` instead, arguing nothing else could be filed under that
+name. Parser recovery can: `import { default } from "m"` and
+`import { yield as default }` bind locals named `default`, which collide with
+each other and upstream reports TS2300 on them. `declare` now records whether
+the declaration it binds is a default export in upstream's sense, and the
+conflict branch reads that.
+
+Measured: +1 (`es6ImportNamedImportIdentifiersParsing`), no loss.
