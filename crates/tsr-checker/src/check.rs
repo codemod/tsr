@@ -506,6 +506,7 @@ impl Checker<'_, '_> {
                 if operands_ok
                     && binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
                 {
+                    self.check_assignment_operator(node, binary, ambient);
                     self.check_reference_expression(node);
                 }
                 if operands_ok {
@@ -525,15 +526,14 @@ impl Checker<'_, '_> {
             // **The dispatch is the guard.** §542 widened the rule to every
             // assignment operator and measured +0, because this arm still
             // admitted `=` alone — §380's "dispatch never called", for the
-            // fourth time. `check_assignment_operator` stays on `=`;
-            // `check_reference_expression` takes them all, as upstream's
-            // `checkBinaryLikeExpression` does. §543.
+            // fourth time. `=`, `+=`, `&&=`, `||=` and `??=` reach
+            // `checkAssignmentOperator` here (`checker.go:12458`, `:12506`,
+            // `:12515`, `:12527`, `:12531`); the arithmetic compound forms
+            // reach it from the arm above, behind `leftOk && rightOk`. §543.
             Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
-                    self.check_assignment_operator(binary, ambient);
-                }
+                self.check_assignment_operator(node, binary, ambient);
                 self.check_private_accessor_is_writable(node);
                 self.check_reference_expression(node);
                 ambient
@@ -679,6 +679,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
+                self.check_circular_type_parameter_default(node);
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }
@@ -2108,6 +2109,39 @@ impl Checker<'_, '_> {
                 _ => {}
             }
         }
+    }
+
+    /// Ported from typescript-go's `checkTypeParameter`
+    /// (`internal/checker/checker.go:2603`), the TS2716 default-state check.
+    /// Check the written default first: its nested parameter resolutions decide
+    /// which participant native marks circular, including mutual defaults.
+    fn check_circular_type_parameter_default(&mut self, node: NodeId) {
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(default) = parameter.default_type else { return };
+        let (Some(at), Some(symbol)) = (default.node_id(), self.binder.symbol_of(node)) else {
+            return;
+        };
+        self.get_type_from_type_node(default);
+        let ty = self.get_declared_type_of_symbol(symbol);
+        if self.get_resolved_type_parameter_default(ty)
+            != crate::declared::TypeParameterDefaultState::Circular
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        if !self.circularity_reported.insert(at) {
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_DEFAULT,
+                self.error_span(at),
+                [self.binder.symbols().get(symbol).name.to_string()],
+            ),
+        );
     }
 
     /// TS2637 — `Variance annotations are only supported in type aliases for
@@ -10272,7 +10306,7 @@ impl Checker<'_, '_> {
 
     /// `SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`, or
     /// `SkipParentheses` when `assertions` is false.
-    fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
+    pub(crate) fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {
                 Some(Node::ParenthesizedExpression(inner)) => inner.expression,
@@ -10292,7 +10326,7 @@ impl Checker<'_, '_> {
     /// `NodeFlags::OPTIONAL_CHAIN` was never set; the flag exists since
     /// §748 and this walk is retained unchanged until the TS2779 arm is
     /// ported over it (through parentheses this walk and the flag differ).
-    fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
+    pub(crate) fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {
                 Some(Node::PropertyAccessExpression(access)) => {

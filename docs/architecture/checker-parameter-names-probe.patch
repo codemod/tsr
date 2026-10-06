@@ -1,0 +1,62 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index a78cca57..e028e9ee 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8532,10 +8532,13 @@ impl<'a> Checker<'a, '_> {
+         &mut self,
+         symbol: SymbolId,
+     ) -> Option<Vec<(TypeId, String)>> {
++        parameter_name_probe(0, 0);
+         let declarations = self.local_type_parameters_of(symbol);
+         let mut parameters = Vec::with_capacity(declarations.len());
+         for declaration in declarations {
+-            let name = declaration.name?.text.to_string();
++            let text = declaration.name?.text;
++            parameter_name_probe(1, text.len());
++            let name = text.to_string();
+             let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+             let declared = self.get_declared_type_of_symbol(parameter);
+             if declared == self.intrinsics.error {
+@@ -8543,6 +8546,7 @@ impl<'a> Checker<'a, '_> {
+             }
+             parameters.push((declared, name));
+         }
++        parameter_name_probe(2, 0);
+         Some(parameters)
+     }
+ }
+@@ -9377,3 +9381,34 @@ mod generic_keyword_alias_tests {
+ #[cfg(test)]
+ #[path = "keyword_owner_tests.rs"]
+ mod keyword_owner_tests;
++
++// Private locating observer: per-thread counters, not semantic state.
++struct ParameterNameProbe(std::cell::Cell<[u64; 4]>);
++impl Drop for ParameterNameProbe {
++    fn drop(&mut self) {
++        let [calls, names, bytes, complete] = self.0.get();
++        eprintln!("PARAM_NAMES {calls} {names} {bytes} {complete}");
++    }
++}
++thread_local! {
++    static PARAMETER_NAME_PROBE: ParameterNameProbe = const { ParameterNameProbe(std::cell::Cell::new([0; 4])) };
++}
++fn parameter_name_probe(kind: u8, bytes: usize) {
++    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
++    if !*ENABLED.get_or_init(|| std::env::var("TSR_PARAM_NAME_PROBE").is_ok()) {
++        return;
++    }
++    PARAMETER_NAME_PROBE.with(|probe| {
++        let mut counts = probe.0.get();
++        match kind {
++            0 => counts[0] += 1,
++            1 => {
++                counts[1] += 1;
++                counts[2] += bytes as u64;
++            }
++            2 => counts[3] += 1,
++            _ => unreachable!(),
++        }
++        probe.0.set(counts);
++    });
++}

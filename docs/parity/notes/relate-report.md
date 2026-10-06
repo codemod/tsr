@@ -436,3 +436,10 @@ the member (`es2020IntlAPIs` 32/33, `contextualTypeBasedOnIntersectionWithAnyInT
 43): the argument type reaching the reporter is widened (`{ type: string }`
 for `{ type: 'region' }`) — the argument's contextual literal type is the
 calls lane's (`checkExpressionWithContextualType`).
+
+**Merge note (same session).** `main` landed the same argument elaboration
+independently (`45236ee`, relate-4: `report_argument_failure` →
+`elaborate_error(…, Some(TS2345 head))`). The merge keeps `main`'s
+`assignreport.rs`, which carries the head as a message rather than this
+section's boolean; the variadic-tuple and `NoInfer` pieces, which `main` does
+not have, are re-applied on top of it in §18.

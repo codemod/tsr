@@ -13,6 +13,26 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
 
+/// Native resolvedDefaultType belongs to a private type-parameter identity.
+/// This port also evaluates AST nodes under outer alias frames and mapped
+/// templates, so those contexts cannot share a completed default.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TypeParameterDefaultKey {
+    parameter: TypeId,
+    bindings: Vec<(SymbolId, TypeId)>,
+    mapped_template: bool,
+}
+
+/// Absent storage is uncomputed; active recursion marks only the re-entered
+/// parameter circular. A gap is unsupported and is never retained as completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypeParameterDefaultState {
+    Resolving,
+    Circular,
+    Resolved(Option<TypeId>),
+    Unsupported(TypeId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TypeLiteralKey {
     pub(crate) node: tsr_ast::NodeId,
@@ -33,6 +53,115 @@ pub(crate) struct ConditionalInferenceNode {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// Ported from typescript-go's `getResolvedTypeParameterDefault`
+    /// (`internal/checker/checker.go:22007`), pinned at 5b1047d10d32e7d5b446be4de56b126ff42f82bb.
+    /// The private Checker owns the key, result and captured mapper identities
+    /// for its Program lifetime. Publish Resolving before evaluating the AST;
+    /// a recursive read changes that exact slot to Circular, and the outer
+    /// computation must not overwrite it. Completed absence differs from an
+    /// unsupported Rust evaluation, whose exact unresolved identity still flows
+    /// to the caller without completed reuse. Receiver/alias substitutions remain
+    /// in the outer bindings or the instantiated parameter's existing target mapper.
+    /// The worker is default-node evaluation (or target-default instantiation);
+    /// this correctness state is not a measured member-reuse optimization.
+    pub(crate) fn get_resolved_type_parameter_default(
+        &mut self,
+        parameter: TypeId,
+    ) -> TypeParameterDefaultState {
+        if !self.store.get(parameter).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return TypeParameterDefaultState::Resolved(None);
+        }
+        let bindings: rustc_hash::FxHashMap<_, _> = self
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let mut bindings: Vec<_> = bindings.into_iter().collect();
+        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        let key = TypeParameterDefaultKey {
+            parameter,
+            bindings,
+            mapped_template: self.mapped_template_depth > 0,
+        };
+        if let Some(state) = self.type_parameter_default_cache.get(&key).copied() {
+            if state == TypeParameterDefaultState::Resolving {
+                self.type_parameter_default_cache.insert(key, TypeParameterDefaultState::Circular);
+                return TypeParameterDefaultState::Circular;
+            }
+            return state;
+        }
+        self.type_parameter_default_cache.insert(key.clone(), TypeParameterDefaultState::Resolving);
+        let computed = if let Some(instance) =
+            self.instantiated_type_parameters.get(&parameter).cloned()
+        {
+            // The target owns its declaration default. Resolve it before
+            // applying the captured mapper, without an unrelated caller frame.
+            let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+            let target_default = self.get_resolved_type_parameter_default(instance.target);
+            self.alias_evaluation_bindings = frames;
+            match target_default {
+                TypeParameterDefaultState::Resolved(Some(default))
+                | TypeParameterDefaultState::Unsupported(default) => {
+                    let names: Vec<_> = instance.names.iter().map(String::as_str).collect();
+                    let image =
+                        self.instantiate_type(default, &instance.map, &instance.parameters, &names);
+                    if matches!(target_default, TypeParameterDefaultState::Unsupported(_))
+                        || self.is_error(image)
+                    {
+                        TypeParameterDefaultState::Unsupported(image)
+                    } else {
+                        TypeParameterDefaultState::Resolved(Some(image))
+                    }
+                }
+                state => state,
+            }
+        } else {
+            let node = self.type_parameter_symbols.get(&parameter).and_then(|&symbol| {
+                self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+                    match self.node_map.get(declaration) {
+                        Some(Node::TypeParameterDeclaration(declaration)) => {
+                            declaration.default_type
+                        }
+                        _ => None,
+                    }
+                })
+            });
+            match node {
+                Some(node) => {
+                    let default = self.get_type_from_type_node(node);
+                    if self.is_error(default) {
+                        TypeParameterDefaultState::Unsupported(default)
+                    } else {
+                        TypeParameterDefaultState::Resolved(Some(default))
+                    }
+                }
+                None => TypeParameterDefaultState::Resolved(None),
+            }
+        };
+        if self.type_parameter_default_cache.get(&key) == Some(&TypeParameterDefaultState::Circular)
+        {
+            return TypeParameterDefaultState::Circular;
+        }
+        if matches!(computed, TypeParameterDefaultState::Unsupported(_)) {
+            self.type_parameter_default_cache.remove(&key);
+        } else {
+            self.type_parameter_default_cache.insert(key, computed);
+        }
+        computed
+    }
+
+    /// Ported from typescript-go's `getDefaultFromTypeParameter`
+    /// (`internal/checker/checker.go:21996`). Circular and absent defaults use
+    /// the caller's ordinary fallback; a Rust gap retains its unresolved identity
+    /// without being retained as a completed default.
+    pub(crate) fn get_default_from_type_parameter(&mut self, parameter: TypeId) -> Option<TypeId> {
+        match self.get_resolved_type_parameter_default(parameter) {
+            TypeParameterDefaultState::Resolved(default) => default,
+            TypeParameterDefaultState::Unsupported(default) => Some(default),
+            TypeParameterDefaultState::Circular | TypeParameterDefaultState::Resolving => None,
+        }
+    }
+
     /// getTypeFromClassOrInterfaceReference / fillMissingTypeArguments for a
     /// heritage member lookup. Defaults see the arguments already supplied.
     pub(crate) fn instantiated_heritage_base(
@@ -64,9 +193,9 @@ impl<'a> Checker<'a, '_> {
         // Native fills unresolved slots before instantiating any default so
         // an invalid forward reference cannot escape as a free parameter.
         arguments.resize(declarations.len(), self.intrinsics.error);
-        for (index, declaration) in declarations.iter().enumerate().skip(written_count) {
-            let mut default = match declaration.default_type {
-                Some(node) => self.get_type_from_type_node(node),
+        for index in written_count..declarations.len() {
+            let mut default = match self.get_default_from_type_parameter(ids[index]) {
+                Some(default) => default,
                 None => {
                     if is_js {
                         self.intrinsics.any
@@ -4308,7 +4437,6 @@ impl<'a> Checker<'a, '_> {
             };
             let types: Vec<TypeId> = parameter_types.iter().map(|&(t, _)| t).collect();
             let names: Vec<String> = parameter_types.iter().map(|(_, n)| n.clone()).collect();
-            let declarations = self.local_type_parameters_of(symbol);
             // fillMissingTypeArguments (checker.go:21954) first maps every
             // unfilled position to errorType, so a default naming a later (or
             // its own) parameter is an invalid forward reference that becomes
@@ -4325,12 +4453,11 @@ impl<'a> Checker<'a, '_> {
             // recursive defaulted aliases (`Conv<T, U = T>` in
             // infiniteConstraints), which upstream defers instead.
             let written = arguments.len();
-            for (index, declaration) in
-                declarations.iter().enumerate().take(parameters).skip(written)
-            {
-                let Some(default) = declaration.default_type else { return error };
+            for index in written..parameters {
                 let frames = std::mem::take(&mut self.alias_evaluation_bindings);
-                let declared = self.get_type_from_type_node(default);
+                let declared = self
+                    .get_default_from_type_parameter(types[index])
+                    .unwrap_or(self.intrinsics.unknown);
                 self.alias_evaluation_bindings = frames;
                 if declared == error {
                     return error;
@@ -4341,7 +4468,9 @@ impl<'a> Checker<'a, '_> {
                     filled.resize(parameters, self.intrinsics.any);
                     (declared, types.iter().copied().zip(filled).collect::<Vec<_>>())
                 } else {
-                    let resolved = self.get_type_from_type_node(default);
+                    let resolved = self
+                        .get_default_from_type_parameter(types[index])
+                        .unwrap_or(self.intrinsics.unknown);
                     if resolved == error {
                         return error;
                     }
@@ -9377,3 +9506,120 @@ mod generic_keyword_alias_tests {
 #[cfg(test)]
 #[path = "keyword_owner_tests.rs"]
 mod keyword_owner_tests;
+
+#[cfg(test)]
+mod parameter_default_state_tests {
+    use super::*;
+
+    fn inspect_defaults(test: impl FnOnce(&mut Checker<'_, '_>, TypeId, TypeId, SymbolId)) {
+        inspect_defaults_source("interface Box<T, U=T> { value:U }", test);
+    }
+
+    fn inspect_defaults_source(
+        source: &str,
+        test: impl FnOnce(&mut Checker<'_, '_>, TypeId, TypeId, SymbolId),
+    ) {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+        let owner = bound.lookup_local(root, "Box").unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let parameters = checker.local_type_parameter_types_of(owner).unwrap();
+        let (t, u) = (parameters[0].0, parameters[1].0);
+        let symbol = checker.type_parameter_symbols[&t];
+        test(&mut checker, t, u, symbol);
+    }
+
+    #[test]
+    fn completed_defaults_preserve_distinct_outer_bindings() {
+        inspect_defaults(|checker, t, u, symbol| {
+            assert_eq!(checker.get_default_from_type_parameter(u), Some(t));
+            for argument in [checker.intrinsics.number, checker.intrinsics.string] {
+                checker.alias_evaluation_bindings.push([(symbol, argument)].into_iter().collect());
+                assert_eq!(checker.get_default_from_type_parameter(u), Some(argument));
+                assert_eq!(checker.get_default_from_type_parameter(u), Some(argument));
+                checker.alias_evaluation_bindings.pop();
+            }
+            assert_eq!(checker.get_default_from_type_parameter(u), Some(t));
+        });
+    }
+
+    #[test]
+    fn an_instantiated_parameters_default_uses_its_captured_target_mapper() {
+        inspect_defaults(|checker, t, u, _| {
+            for argument in [checker.intrinsics.number, checker.intrinsics.string] {
+                let fresh = checker.store.new_named(TypeFlags::TYPE_PARAMETER, "U".into(), None);
+                checker.instantiated_type_parameters.insert(
+                    fresh,
+                    crate::inference::InstantiatedTypeParameter {
+                        target: u,
+                        map: vec![(t, argument)],
+                        parameters: vec![t],
+                        names: vec!["T".into()],
+                    },
+                );
+                assert_eq!(checker.get_default_from_type_parameter(fresh), Some(argument));
+                assert_eq!(checker.get_default_from_type_parameter(u), Some(t));
+            }
+        });
+    }
+
+    #[test]
+    fn an_instantiated_default_ignores_unrelated_ambient_alias_frames() {
+        inspect_defaults(|checker, t, u, symbol| {
+            let captured = checker.intrinsics.number;
+            let ambient = checker.intrinsics.string;
+            let fresh = checker.store.new_named(TypeFlags::TYPE_PARAMETER, "U".into(), None);
+            checker.instantiated_type_parameters.insert(
+                fresh,
+                crate::inference::InstantiatedTypeParameter {
+                    target: u,
+                    map: vec![(t, captured)],
+                    parameters: vec![t],
+                    names: vec!["T".into()],
+                },
+            );
+            checker.alias_evaluation_bindings.push([(symbol, ambient)].into_iter().collect());
+            assert_eq!(checker.get_default_from_type_parameter(fresh), Some(captured));
+            assert_eq!(checker.get_default_from_type_parameter(fresh), Some(captured));
+            assert_eq!(checker.get_default_from_type_parameter(u), Some(ambient));
+            checker.alias_evaluation_bindings.pop();
+            assert_eq!(checker.get_default_from_type_parameter(u), Some(t));
+        });
+    }
+
+    #[test]
+    fn an_unresolved_default_preserves_its_named_identity_without_completed_reuse() {
+        inspect_defaults_source(
+            "interface Box<T, U=Missing<T>> { value:U }",
+            |checker, _, u, _| {
+                let symbol = checker.type_parameter_symbols[&u];
+                let declaration = checker.binder.symbols().get(symbol).declarations[0];
+                let Some(Node::TypeParameterDeclaration(node)) = checker.node_map.get(declaration)
+                else {
+                    panic!("expected U declaration");
+                };
+                let written = checker.get_type_from_type_node(node.default_type.unwrap());
+                assert!(checker.is_error(written));
+                assert_ne!(written, checker.intrinsics.error);
+                for _ in 0..2 {
+                    let returned = checker.get_default_from_type_parameter(u).unwrap();
+                    assert!(checker.is_error(returned));
+                    assert_ne!(returned, checker.intrinsics.error);
+                    // Unresolved references currently mint a fresh identity on an
+                    // uncached AST evaluation. Preserve its named payload, without
+                    // converting it to the intrinsic gap or claiming completion.
+                    assert_eq!(checker.store.get(returned).data, checker.store.get(written).data);
+                    assert!(checker.type_parameter_default_cache.is_empty());
+                }
+            },
+        );
+    }
+}
