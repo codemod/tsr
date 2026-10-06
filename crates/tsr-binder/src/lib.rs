@@ -1035,7 +1035,17 @@ impl<'a> BindResult<'a> {
             // `GetContainerFlags`), so no node ever owns both tables and swapping
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
-            if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
+            // `!ast.IsGlobalSourceFile(location)` (`binder/nameresolver.go:50`):
+            // a script file's locals are never consulted — every one of them
+            // was merged into `globals` (`merge_globals`), and a name whose
+            // merge was refused resolves to the global that refused it, as
+            // upstream's walk reaches `c.globals` instead. A script source
+            // file is the one without a file symbol
+            // (`bindSourceFileIfExternalModule`).
+            let global_source_file =
+                nodes.kind(node) == SyntaxKind::SourceFile && self.symbol_of(node).is_none();
+            if !global_source_file
+                && let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
                 // `getSymbol`'s alias arm (`checker.go:2183`) on the locals
                 // table: an alias whose own flags lack `meaning` is a hit only
                 // when its target's flags carry it. Asked of the checker

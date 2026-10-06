@@ -851,13 +851,6 @@ impl<'a, 'n> Binder<'a, 'n> {
         if target == source || depth > MAX_MERGE_DEPTH {
             return;
         }
-        // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
-        // which upstream calls from `mergeSymbol` for exactly this reason: after
-        // the union, `source` is a symbol nothing should ever be answered from
-        // again, and every read of it has to be redirected. Recorded **before**
-        // the early-outs below have any chance to skip it and before the
-        // recursion, so the map covers every level the union touches.
-        self.merged.insert(source, target);
         let (source_flags, target_flags) =
             (self.symbols.get(source).flags, self.symbols.get(target).flags);
         if (source_flags | target_flags).intersects(SymbolFlags::ALIAS) {
@@ -890,6 +883,16 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.merge_conflicts.push((target, source));
             return;
         }
+        // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
+        // which upstream calls from `mergeSymbol`'s union branch only
+        // (`checker.go:14185`): after the union, `source` is a symbol nothing
+        // should ever be answered from again, and every read of it has to be
+        // redirected. A declined merge (the alias decline and the excludes
+        // conflict above) records nothing, so each side keeps answering for
+        // its own declarations, as upstream's `return source` /
+        // `reportMergeSymbolError` arms leave them. Recorded before the
+        // recursion, which upstream does after it; the map is order-blind.
+        self.merged.insert(source, target);
 
         // Read everything needed from `source` before touching `target`: the two
         // are entries in one store, so the borrows cannot overlap.
@@ -946,14 +949,6 @@ impl<'a, 'n> Binder<'a, 'n> {
     pub(crate) fn merge_pairs(mut self, merges: &[(SymbolId, SymbolId)]) -> BindResult<'a> {
         for &(target, source) in merges {
             self.merge_symbol(target, source, 0);
-            // A refused top-level merge records no redirect upstream:
-            // `recordMergedSymbol` runs only on the union path, and the
-            // refusal reports TS2649 or the duplicate (`checker.go`
-            // `mergeSymbol`). [`Binder::merge_symbol`] records first for the
-            // globals' sake, so the augmentation's redirect is taken back.
-            if self.merge_conflicts.last() == Some(&(target, source)) {
-                self.merged.remove(&source);
-            }
         }
         self.into_result()
     }
