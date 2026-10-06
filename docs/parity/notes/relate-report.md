@@ -443,3 +443,22 @@ independently (`45236ee`, relate-4: `report_argument_failure` →
 `assignreport.rs`, which carries the head as a message rather than this
 section's boolean; the variadic-tuple and `NoInfer` pieces, which `main` does
 not have, are re-applied on top of it in §18.
+
+## 18. Round 2: variadic tuple targets in `elaborateArrayLiteral`, and `NoInfer` in the missing-property messages
+
+Re-applied on `main`'s `assignreport.rs` after the §17 merge (the two pieces
+`main`'s relate-4 port does not have):
+
+- `generateLimitedTupleElements` skips an index the tuple-like target has no
+  property for; a variadic tuple's properties are its leading fixed elements.
+  `elaborate_array_literal` declined every variadic target, so
+  `a10([1, 2, 3, false, true])` against `[any, any, [[any]], ...any[]]`
+  reported TS2345 at the argument instead of TS2322 at `3`.
+- `getNormalizedType` (`relater.go:2619`) unwraps `NoInfer<T>` before the
+  relation reports; the missing-property helpers now read the unwrapped
+  target in both the TS2322 and the TS2345 reporter (`noInfer`: TS2741 naming
+  `Dog` for `() => new Animal()` against `() => NoInfer<Dog>`).
+
+Converted at `2114e6a`: `conformance/destructuringParameterDeclaration3ES5`,
+`conformance/destructuringParameterDeclaration3ES6`; TS2741 matched
+149 → 150. Zero-loss checks empty.
