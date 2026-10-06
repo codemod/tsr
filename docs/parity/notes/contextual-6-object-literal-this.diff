@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
-index 4e4cb4b..56df203 100644
+index 4e4cb4b..55c55df 100644
 --- a/crates/tsr-checker/src/contextual.rs
 +++ b/crates/tsr-checker/src/contextual.rs
 @@ -628,7 +628,23 @@ impl<'a> Checker<'a, '_> {
@@ -27,7 +27,7 @@ index 4e4cb4b..56df203 100644
          let contextual = self.instantiate_contextual_inference_type(contextual, literal);
          let contextual = self.apparent_contextual_type(contextual);
          // getThisTypeOfObjectLiteralFromContextualType also checks directly
-@@ -676,6 +692,35 @@ impl<'a> Checker<'a, '_> {
+@@ -676,6 +692,44 @@ impl<'a> Checker<'a, '_> {
          Some(self.widen_object_literal_freshness(contextual))
      }
  
@@ -56,6 +56,15 @@ index 4e4cb4b..56df203 100644
 +            };
 +            member.is_some_and(|member| {
 +                self.resolutions.active_signature_keys(member).next().is_some()
++                    // A getter's return resolves inside its symbol's `Type`
++                    // frame (`getTypeOfAccessors`), not a signature frame.
++                    || (matches!(
++                        property,
++                        ObjectLiteralElementLike::GetAccessorDeclaration(_)
++                            | ObjectLiteralElementLike::SetAccessorDeclaration(_)
++                    ) && self.binder.symbol_of(member).is_some_and(|symbol| {
++                        self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
++                    }))
 +            })
 +        })
 +    }
@@ -63,3 +72,73 @@ index 4e4cb4b..56df203 100644
      /// getContextualThisParameterType's assignment arm (checker.go).
      /// The receiver of `obj.member = function () {}` supplies the contextual
      /// this type when no signature or containing literal supplied one.
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 5009264..48b45f9 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -339,6 +339,14 @@ impl Checker<'_, '_> {
+             return self.get_flow_type_of_property_symbol(access, None, property);
+         }
+         let result = self.access_member_lookup(stripped, name, node.node_id);
++        // checkPropertyAccessExpressionOrQualifiedName (`checker.go:11334`): a
++        // miss on a JS literal receiver (`isJSLiteralType`) answers `anyType`.
++        if result == error
++            && self.get_property_of_type(stripped, name).is_none()
++            && self.is_js_literal_type(receiver_type)
++        {
++            return self.intrinsics.any;
++        }
+         if result == error {
+             return error;
+         }
+@@ -2071,7 +2079,26 @@ impl Checker<'_, '_> {
+             match owner {
+                 Owner::Declared(owner) => {
+                     let mut visiting = Vec::new();
+-                    self.get_property_of_declared_symbol(owner, name, &mut visiting)
++                    let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
++                    // `bindThisPropertyAssignment` (`binder.go:1115`) declares a
++                    // JS `this.x = …` inside an object-literal method on the
++                    // literal's symbol, but `checkObjectLiteral` builds the
++                    // literal's type from its elements only
++                    // (`checker.go:13173`), so such a member is not a property
++                    // of the type.
++                    if self.binder.symbols().get(owner).flags.contains(SymbolFlags::OBJECT_LITERAL)
++                        && let Some(member) = found
++                        && self.binder.symbols().get(member).declarations.iter().all(
++                            |&declaration| {
++                                self.nodes.kind(declaration)
++                                    == tsr_ast::SyntaxKind::BinaryExpression
++                            },
++                        )
++                    {
++                        None
++                    } else {
++                        found
++                    }
+                 }
+                 Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
+             }
+diff --git a/crates/tsr-checker/src/readonly_target.rs b/crates/tsr-checker/src/readonly_target.rs
+index 3b88a1f..7c54e02 100644
+--- a/crates/tsr-checker/src/readonly_target.rs
++++ b/crates/tsr-checker/src/readonly_target.rs
+@@ -520,7 +520,17 @@ impl Checker<'_, '_> {
+             }
+         }
+         let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
+-        if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
++        // `checkObjectLiteral` (`checker.go:13175`) gives every member of a
++        // const-context literal `CheckFlagsReadonly`; this port records it on
++        // the literal's captured member image, not the binder symbol.
++        let literal_member_readonly =
++            self.anonymous_properties.get(&receiver_type).is_some_and(|(properties, _)| {
++                properties.iter().any(|member| member.name == name && member.readonly)
++            });
++        if !literal_member_readonly
++            && !self.is_readonly_symbol(property)
++            && !self.property_signature_is_readonly(property)
++        {
+             return false;
+         }
+         // The constructor permission is upstream's own

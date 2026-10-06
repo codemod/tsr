@@ -62,6 +62,14 @@ pub struct Intrinsics {
     pub missing: TypeId,
     /// `nullType` — `checker.go:989`.
     pub null: TypeId,
+    /// `nullWideningType` — `checker.go:990`, `createWideningType(nullType)`
+    /// (`checker.go:25027`): what a `null` *expression* answers. Aliases
+    /// ordinary null in strict mode; with `strictNullChecks` off it is a
+    /// distinct identity that prints `null` and widens to `any`
+    /// ([`Intrinsics::is_widening_nullable`]).
+    pub null_widening: TypeId,
+    /// Retained loose-mode identity, selected without allocating new types.
+    loose_null_widening: TypeId,
     /// `stringType` — `checker.go:991`.
     pub string: TypeId,
     /// `numberType` — `checker.go:992`.
@@ -136,6 +144,7 @@ impl Intrinsics {
         // `undefined`, removed at write positions.
         let missing = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
         let null = store.new_intrinsic(TypeFlags::NULL, "null");
+        let loose_null_widening = store.new_intrinsic(TypeFlags::NULL, "null");
         let string = store.new_intrinsic(TypeFlags::STRING, "string");
         let number = store.new_intrinsic(TypeFlags::NUMBER, "number");
         let bigint = store.new_intrinsic(TypeFlags::BIG_INT, "bigint");
@@ -166,6 +175,8 @@ impl Intrinsics {
             loose_undefined_widening,
             missing,
             null,
+            null_widening: null,
+            loose_null_widening,
             string,
             number,
             bigint,
@@ -186,5 +197,16 @@ impl Intrinsics {
     /// Select the active identity before semantic queries (`checker.go:25027`).
     pub(crate) fn select_strict_null_checks(&mut self, on: bool) {
         self.undefined_widening = if on { self.undefined } else { self.loose_undefined_widening };
+        self.null_widening = if on { self.null } else { self.loose_null_widening };
+    }
+
+    /// Whether `id` is one of `createWideningType`'s products
+    /// (`checker.go:25027`), i.e. a nullable intrinsic carrying
+    /// `ObjectFlagsContainsWideningType`. Only true with `strictNullChecks`
+    /// off: in strict mode the widening twins *are* the plain types, which
+    /// carry no widening flag.
+    pub(crate) fn is_widening_nullable(&self, id: TypeId) -> bool {
+        (id == self.undefined_widening && id != self.undefined)
+            || (id == self.null_widening && id != self.null)
     }
 }

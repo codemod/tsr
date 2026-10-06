@@ -166,10 +166,129 @@ That covers methods; it does not yet cover a getter, whose cycle runs through
 the accessor symbol's `Type` frame (`accessorInferredReturnTypeErrorInReturnStatement`
 still lost five lines with the draft) — the draft needs that frame added too.
 
-The draft is not committed (a loss is fixed, never accepted). It is kept as
-[`contextual-6-object-literal-this.diff`](contextual-6-object-literal-this.diff)
-against `contextual.rs`, and waits on the three property-access fixes above,
-which are reported to the integrator. The measured draft also flipped three
-diagnostics cases EMPTY_RIGHT→EMPTY_WRONG (`vueLikeDataAndPropsInference`,
-`vueLikeDataAndPropsInference2`, `thisTypeInObjectLiterals2`), not yet
-analysed.
+### Round 3: the losses are fixed; the patch waits on two other lanes' files
+
+Re-measured on the round-3 integration head (`ebf1951`), the draft's three
+diagnostics flips (`vueLikeDataAndPropsInference{,2}`,
+`thisTypeInObjectLiterals2`) no longer reproduce — the cases print nothing
+with the draft applied — so whatever drove them was fixed upstream of this
+lane in round 2. The type losses each have a faithful fix, now in the patch
+[`contextual-6-object-literal-this.diff`](contextual-6-object-literal-this.diff):
+
+- **Getter cycle** (`accessorInferredReturnTypeErrorInReturnStatement`, own
+  file): the decline also checks the accessor symbol's `Type` frame
+  (`getTypeOfAccessors` resolves a getter's return there).
+- **`constAssertions` `this.x = 20`** (`readonly_target.rs`):
+  `checkObjectLiteral` gives every member of a const-context literal
+  `CheckFlagsReadonly` (`checker.go:13175`); the port records it on the
+  literal's captured member image (`AnonymousProperty::readonly`), which
+  `is_assignment_to_readonly_property` now reads. `o9.x = 20` on an
+  `as const` literal was `10`, upstream `any`, independently of `this`.
+- **`contextualThisTypeInJavascript` `this.unknown`** (`members.rs`):
+  `checkPropertyAccessExpressionOrQualifiedName`'s miss arm answers `anyType`
+  for an `isJSLiteralType` receiver (`checker.go:11334`) — TSR only skipped
+  the report.
+- **`constructorTagOnObjectLiteralMethod` `this.bar`** (`members.rs`):
+  `bindThisPropertyAssignment` (`binder.go:1115`) declares a JS
+  `this.bar = …` inside an object-literal method on the *literal's* symbol, but
+  `checkObjectLiteral` builds the literal's type from its elements only, so
+  that member is not a property of the type. TSR's declared-owner lookup read
+  the binder table and found it (`obj.bar : string | undefined`).
+
+Measured with the whole patch against `ebf1951`: +37 types lines, both loss
+checks empty, diagnostics `checkingObjectWithThisInNamePositionNoCrash`,
+`jsPropertyAssignedAfterMethodDeclaration`, `thisInObjectLiterals`
+WRONG→RIGHT, perf CPU self-ratio 0.999 / 0.991. The `contextual.rs` hunk alone
+still loses the lines above, so it is not committed on its own.
+
+## 7. The widening nullables exist (`tsr-2zk.16.7`)
+
+`createWideningType` (`checker.go:25027`) gives non-strict mode two more
+intrinsics, `undefinedWideningType` and `nullWideningType`: same flags and
+name as `undefinedType`/`nullType`, plus `ObjectFlagsContainsWideningType`.
+Under `strictNullChecks` they *are* the plain types. The port had only the
+undefined twin, never handed out by the `undefined` symbol, so it could not
+tell `{ foo: null }` (widens to `{ foo: any }`) from `{ foo: n }` with
+`n: null` (stays `{ foo: null }`), and `objects.rs` refused every nullable
+member under non-strict to avoid printing one of them wrong.
+
+What landed, each mirroring one upstream site:
+
+| upstream | port |
+|---|---|
+| `nullWideningType` (`checker.go:990`) | `Intrinsics::null_widening`, selected by `select_strict_null_checks` like the undefined twin |
+| `ContainsWideningType` on those two | `Intrinsics::is_widening_nullable` (identity, not a flag: only the two intrinsics carry it at creation) |
+| `addTypeToUnion`'s `IncludesNonWideningType` (`:25784`) and `getUnionTypeWorker`'s empty-set arm (`:25692`: null beats undefined, widening unless a plain constituent was seen) | `Includes::non_widening`, `union_type_worker` (was `errorType`) |
+
+Committed in the lane's files: the two rows above. Alone they convert
+`conditionalExpressions2` (`false ? null : undefined` is `null`, was
+`errorType`) and three lines elsewhere (+5, no losses): with no producer yet
+answering a twin, every dropped nullable is non-widening, so the arm answers
+the plain types. Everything else is one
+patch for the integrator,
+[`contextual-7-null-widening.diff`](contextual-7-null-widening.diff), because
+it only lands without losses as a whole. It holds the lane's own
+`check_object_literal_members` hunk — `checkObjectLiteral` keeps member types
+as checked, so the non-strict nullable refusal goes — and, outside the lane's
+files, each again one upstream site:
+
+- `checkExpression`'s `KindNullKeyword` arm (`checker.go:7742`) answers
+  `nullWideningType` (`expressions.rs`);
+- `getTypeFromLiteralTypeNode` answers `nullType` for a `null` literal type
+  rather than checking the keyword as an expression (`declared.rs`);
+- `valueSymbolLinks.Get(c.undefinedSymbol).resolvedType =
+  undefinedWideningType` (`checker.go:1345`), re-seeded when the case's
+  `strictNullChecks` is applied (`checker.rs`);
+- `getWidenedTypeWithContext`'s first arm (`checker.go:18368`): a widening
+  nullable becomes `any` (`widening.rs`);
+- the identity checks that stood for "a widening null" accept the twin:
+  `symbols.rs`' declaration widening and `signatures.rs`' `extends null`
+  (upstream compares against `nullWideningType`, `checker.go:12284`);
+- `getReturnTypeOfFullSignature` (`checker.go:20089`), the JS `@type`
+  full-signature arm of `getReturnTypeFromAnnotation`
+  (`jsdoc_full_signature.rs`, read from `signatures.rs`). Without it
+  `typeFromJSInitializer3` lost six RIGHT lines: `/** @type {() => null} */
+  function f2() { return null; }` printed `() => null` only because the body's
+  `null` used to be the plain type; once it widens, the tag has to supply
+  the return as upstream's does.
+
+Measured: removing the refusal *without* the rest of the patch converts 59
+lines and loses five RIGHT ones (`{inc,dec}rementOperatorWithAnyOtherType`
+`:44`/`:69`, `propertyNameWithoutTypeAnnotation:26`) — a literal's `null`
+member then never widens. The whole patch: +149 types lines, both loss checks
+empty, no diagnostics verdict moved. Cases fully converted (21):
+`conditionalExpressions2`, `declFileRegressionTests`, `null`,
+`overloadResolutionOverNonCTObjectLit`, `typeParameterFixingWithConstraints`,
+`arrayLiterals2ES5`, `computedPropertyNames5_ES6`,
+`{de,in}crementOperatorWithAnyOtherType`, `objectLiteralWidened`,
+`propertyNameWithoutTypeAnnotation`, `symbolProperty19`, `widenedTypes1`,
+`noImplicitAnyUnionNormalizedObjectLiteral1`, `typeMatch2`,
+`arrayLiteralWidened`, `callSignatureWithoutReturnTypeAnnotationInference`,
+`functionImplementations`, `typeArgumentInferenceConstructSignatures`,
+`wideningTuples2`, `wideningTuples7`; lines in 16 more.
+
+Two patch files, both for the integrator:
+
+- [`contextual-7-intrinsic-count.diff`](contextual-7-intrinsic-count.diff) —
+  goes with this commit alone. The new loose twin is one more intrinsic
+  allocation, and `tsr-conformance/tests/undefined_widening_modes.rs` pins
+  the store's size (25 → 26); this lane may not edit that crate.
+- [`contextual-7-null-widening.diff`](contextual-7-null-widening.diff) —
+  self-contained on top of this commit (it includes the count change). Besides
+  the code above it updates the tests that pinned the old answers: the
+  `undefined` global's identity (`globals.rs`, `undefined_widening_modes.rs`,
+  and the IIFE raw-context test in `contextual.rs`), and
+  `a_null_candidate_is_refused_only_where_upstream_would_widen_it`
+  (`inference.rs`), whose non-strict `f(null)` now answers upstream's `any`
+  instead of the gap the test recorded.
+
+**Rejected:** keeping `null` expressions on the plain type and widening every
+non-strict `null` (the identity rule `symbols.rs` used for declarations). It
+makes `{ foo: n }` with `n: null` print `{ foo: any }` — confidently wrong
+where upstream keeps the declared `null`, and the reason the objects.rs
+refusal existed.
+
+**Falsifier.** A non-strict nullable reaching an object literal or a widening
+site through a producer that still answers the plain type where upstream
+answers the twin (or the reverse) would show up as `{ p: null }` vs
+`{ p: any }` disagreement on a declaration line; the fix is that producer.
