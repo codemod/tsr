@@ -1260,19 +1260,6 @@ impl Relater<'_, '_, '_> {
         Some(self.is_related_to(indexed, template))
     }
 
-    /// The modifier gate of `mappedTypeRelatedTo` (`relater.go:3972`), reached
-    /// from `structuredTypeRelatedToWorker`'s default branch (`relater.go:3805`)
-    /// once the generic-mapped-target arm has failed: for two generic mapped
-    /// types, `getCombinedMappedTypeOptionality(source) >
-    /// getCombinedMappedTypeOptionality(target)` makes the pair unrelated
-    /// (`Partial<T> -> Readonly<T>`). The rest of `mappedTypeRelatedTo`
-    /// (constraint and template comparison under a parameter mapper) is not
-    /// ported, so only this definite negative is taken.
-    ///
-    /// Narrowed to mapped types this port is sure are generic — a type-variable
-    /// constraint and no `as` clause on both sides — because
-    /// `is_generic_mapped_target` over-approximates, and a non-generic mapped
-    /// type is resolved structurally upstream instead.
     /// The comparable carve-out of the type-parameter target arm
     /// (relater.go:3434): `None` outside it.
     fn comparable_type_parameter_pair(
@@ -1312,6 +1299,19 @@ impl Relater<'_, '_, '_> {
         Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE))
     }
 
+    /// The modifier gate of `mappedTypeRelatedTo` (`relater.go:3972`), reached
+    /// from `structuredTypeRelatedToWorker`'s default branch (`relater.go:3805`)
+    /// once the generic-mapped-target arm has failed: for two generic mapped
+    /// types, `getCombinedMappedTypeOptionality(source) >
+    /// getCombinedMappedTypeOptionality(target)` makes the pair unrelated
+    /// (`Partial<T> -> Readonly<T>`). The rest of `mappedTypeRelatedTo`
+    /// (constraint and template comparison under a parameter mapper) is not
+    /// ported, so only this definite negative is taken.
+    ///
+    /// Narrowed to mapped types this port is sure are generic — a type-variable
+    /// constraint and no `as` clause on both sides — because
+    /// `is_generic_mapped_target` over-approximates, and a non-generic mapped
+    /// type is resolved structurally upstream instead.
     fn mapped_modifiers_reject(&mut self, source: TypeId, target: TypeId) -> bool {
         if matches!(self.relation, Relation::Comparable) {
             return false;
