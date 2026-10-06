@@ -280,3 +280,29 @@ error type, which `IsTypeAny` also accepts) made the attributes type `any`.
 Same §2 split as §4: `check_jsx_children_specified_twice`, on the
 `JsxAttributes` arm of the walk. A `children` that arrives through a spread
 is not explicit and does not report, as upstream.
+
+## 8. TS2339 from `getIntrinsicTagSymbol`
+
+The arm after TS7026's in `getIntrinsicTagSymbol` (`jsx.go:1228-1250`): with
+`JSX.IntrinsicElements` resolved, an intrinsic tag (opening, self-closing or
+closing — §255's node set) that is neither a property nor covered by an
+applicable index signature reports `Property 'x' does not exist on type
+'JSX.IntrinsicElements'` on the element. It is not inside `noImplicitAny`.
+`check_jsx_intrinsic_tag_exists` requires the table to be completely
+enumerable (`get_property_names_of_type` answering `Some`); a name missing from
+an unresolved table is not evidence and declines.
+
+### Round 1's TS2604 stays unlanded, and why
+
+Round 1's `resolveJsxOpeningLikeElement` no-signature arm (1da6e97, reverted
+as 6eb0a11) still reports a false TS2604 on
+`compiler/reactSFCAndFunctionResolvable` after the round-2 calls merge. The
+cause is not `getUnionSignatures`: the conditional `cond ? Radio : Checkbox`
+reduces to `React.SFC` (subtype reduction), and `signatures_of_type_kind`
+answers a *complete, empty* call list for that type — `React.SFC` is
+`type SFC<P = {}> = StatelessComponent<P>`, an interface with a call
+signature, reached through `import * as React` from `react16.d.ts`. A small
+local repro of the alias-with-defaults shape resolves its signature, so the
+gap is in how that declaration file's reference is resolved. Until the
+producer answers the signature (or `None`), the arm cannot trust an empty
+list.

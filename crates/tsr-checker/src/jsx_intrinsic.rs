@@ -927,6 +927,70 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS2339 — `Property '{0}' does not exist on type
+    /// 'JSX.IntrinsicElements'.`
+    ///
+    /// `getIntrinsicTagSymbol`'s "wasn't found" arm (`jsx.go:1228-1250`):
+    /// with a `JSX.IntrinsicElements` type in hand, an intrinsic tag that is
+    /// neither a property of it nor covered by an applicable index signature
+    /// reports on the element, opening and closing tag alike (§255's node
+    /// set). Unlike TS7026 this arm is not inside `noImplicitAny`.
+    ///
+    /// The table must be completely enumerable
+    /// ([`Checker::get_property_names_of_type`] answering `Some`): a name
+    /// missing from an unresolved table is not evidence, so that declines.
+    pub(crate) fn check_jsx_intrinsic_tag_exists(&mut self, node: NodeId, typed: Node<'_>) {
+        let tag = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name,
+            Node::JsxSelfClosingElement(element) => element.tag_name,
+            Node::JsxClosingElement(element) => element.tag_name,
+            _ => return,
+        };
+        let Some(tag_id) = tag.and_then(|tag| tag.node_id()) else { return };
+        let name = match self.node_map.get(tag_id) {
+            Some(Node::Identifier(identifier)) if is_intrinsic_jsx_name(identifier.text) => {
+                identifier.text.to_string()
+            }
+            Some(Node::JsxNamespacedName(namespaced)) => {
+                match (namespaced.namespace, namespaced.name) {
+                    (Some(namespace), Some(name)) => format!("{}:{}", namespace.text, name.text),
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let Some(symbol) = self.jsx_type_symbol(node, INTRINSIC_ELEMENTS) else { return };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return;
+        }
+        let table = self.get_declared_type_of_symbol(symbol);
+        if self.is_error(table) {
+            return;
+        }
+        let Some(names) = self.get_property_names_of_type(table) else { return };
+        if names.contains(&name) {
+            return;
+        }
+        let key = self.store.intern_literal(
+            crate::flags::TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(name.clone()),
+            false,
+        );
+        if self.get_applicable_index_info(table, key).is_some() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                span,
+                [name, format!("{JSX}.{INTRINSIC_ELEMENTS}")],
+            ),
+        );
+    }
+
     /// `getJsxType(JsxNames.IntrinsicElements, location)` reduced to the
     /// question its failure arm asks: does the name resolve at all?
     ///
