@@ -168,6 +168,16 @@ enum NarrowedConstituent {
     Undecidable,
 }
 
+/// What `getSignatureFromDeclaration(container).thisParameter` answers for
+/// `getExplicitThisType` (`flow.go:2215`).
+enum ThisParameterOfContainer {
+    /// No `this` parameter: the class arm decides.
+    Absent,
+    /// A `this` parameter, with its explicit type when it has one
+    /// (`getExplicitTypeOfSymbol`, `flow.go:2155`).
+    Present(Option<TypeId>),
+}
+
 bitflags::bitflags! {
     /// What is knowable about a type without narrowing it
     /// (upstream's `TypeFacts`, `checker.go`).
@@ -2793,11 +2803,9 @@ impl Checker<'_, '_> {
     /// `getTypeOfDottedName` (`flow.go:2122`): the type of a dotted name
     /// WITHOUT flow analysis — identifiers and property chains through
     /// their EXPLICIT types only, so that resolving an assertion's callee
-    /// inside the walk cannot re-enter the walk. `this` goes through
-    /// `check_this_expression` (an approximation of `getExplicitThisType`:
-    /// a class `this` is explicit by construction; a `this`-parameter
-    /// without an annotation is not, and is the recorded gap). Private
-    /// names and `with` statements decline.
+    /// inside the walk cannot re-enter the walk. `this` answers
+    /// [`Checker::get_explicit_this_type`]. Private names and `with`
+    /// statements decline.
     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
         match self.node_map.get(node) {
             Some(Node::Identifier(identifier)) => {
@@ -2813,7 +2821,7 @@ impl Checker<'_, '_> {
                 self.get_explicit_type_of_symbol(symbol)
             }
             Some(Node::KeywordExpression(keyword)) => match keyword.kind {
-                SyntaxKind::ThisKeyword => Some(self.check_this_expression(node)),
+                SyntaxKind::ThisKeyword => self.get_explicit_this_type(node),
                 SyntaxKind::SuperKeyword => Some(self.check_super_expression(node)),
                 _ => None,
             },
@@ -2829,6 +2837,99 @@ impl Checker<'_, '_> {
                 self.get_type_of_dotted_name(inner)
             }
             _ => None,
+        }
+    }
+
+    /// `getExplicitThisType` (`flow.go:2215`): the explicit type of the `this`
+    /// container's `this` parameter, else the class's `this` (static side for
+    /// a static member or static block), else nothing — an object-literal
+    /// method's `this` is contextual, not explicit, so a call through it has
+    /// no effects signature and cannot re-enter the method's own return type.
+    ///
+    /// The instance `this` shares `Checker::this_types` (keyed by class
+    /// symbol, minted once) with `check_this_expression`, so both roads see
+    /// one identity.
+    fn get_explicit_this_type(&mut self, node: NodeId) -> Option<TypeId> {
+        let container = self.get_this_container(node, false)?;
+        if let ThisParameterOfContainer::Present(explicit) =
+            self.this_parameter_of_container(container)
+        {
+            return explicit;
+        }
+        let class = self.nodes.parent(container)?;
+        if !matches!(
+            self.nodes.kind(class),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) {
+            return None;
+        }
+        let symbol = self.binder.symbol_of(class)?;
+        let is_static = self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration
+            || self.node_map.get(container).and_then(crate::check::modifiers_of).is_some_and(
+                |modifiers| tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword),
+            );
+        if is_static {
+            return Some(self.get_type_of_symbol(symbol));
+        }
+        if let Some(&cached) = self.this_types.get(&symbol) {
+            return Some(cached);
+        }
+        let this_type =
+            self.store.new_named(TypeFlags::TYPE_PARAMETER, "this".to_string(), Some(symbol));
+        self.this_types.insert(symbol, this_type);
+        Some(this_type)
+    }
+
+    /// `getSignatureFromDeclaration(container).thisParameter` read through
+    /// `getExplicitTypeOfSymbol` (`getExplicitThisType`, `flow.go:2217`),
+    /// without materializing the signature: this port's signatures resolve
+    /// their return type eagerly, and the container's return type may be the
+    /// very inference whose reachability walk is asking (`getEffectsSignature`
+    /// under `getReturnTypeFromBody`), which would close a cycle into `any`.
+    ///
+    /// [`ThisParameterOfContainer::Present`] when the signature has a `this`
+    /// parameter, which ends the lookup even without an explicit type:
+    /// - a written first parameter named `this` is explicit only when
+    ///   annotated (`isDeclarationWithExplicitTypeAnnotation`, `flow.go:2197`);
+    /// - a JSDoc `@this`, which `reparseHosted` inserts as an annotated
+    ///   parameter;
+    /// - the contextual signature's `this` parameter that
+    ///   `assignContextualParameterTypes` (`checker.go:10349`) copies onto a
+    ///   context-sensitive function expression or method; the copy's value
+    ///   declaration is the context's annotated parameter.
+    fn this_parameter_of_container(&mut self, container: NodeId) -> ThisParameterOfContainer {
+        let map = self.node_map;
+        let Some(node) = map.get(container) else { return ThisParameterOfContainer::Absent };
+        let parameters = match node {
+            Node::FunctionDeclaration(node) => node.parameters,
+            Node::FunctionExpression(node) => node.parameters,
+            Node::MethodDeclaration(node) => node.parameters,
+            Node::MethodSignatureDeclaration(node) => node.parameters,
+            Node::CallSignatureDeclaration(node) => node.parameters,
+            Node::ConstructSignatureDeclaration(node) => node.parameters,
+            Node::IndexSignatureDeclaration(node) => node.parameters,
+            Node::GetAccessorDeclaration(node) => node.parameters,
+            Node::SetAccessorDeclaration(node) => node.parameters,
+            Node::ConstructorDeclaration(node) => node.parameters,
+            _ => return ThisParameterOfContainer::Absent,
+        };
+        if let Some(first) = parameters.first().filter(|first| {
+            matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        }) {
+            if first.r#type.is_none() {
+                return ThisParameterOfContainer::Present(None);
+            }
+            let symbol = first.node_id.and_then(|id| self.binder.symbol_of(id));
+            return ThisParameterOfContainer::Present(
+                symbol.map(|symbol| self.get_type_of_symbol(symbol)),
+            );
+        }
+        match self.jsdoc_this_parameter_type(container) {
+            Some(this_type) => ThisParameterOfContainer::Present(Some(this_type)),
+            None => match self.contextual_this_parameter_type(container) {
+                Some(this_type) => ThisParameterOfContainer::Present(Some(this_type)),
+                None => ThisParameterOfContainer::Absent,
+            },
         }
     }
 
@@ -8295,21 +8396,27 @@ fn is_left_hand_side_expression(expression: tsr_ast::Expression<'_>) -> bool {
 }
 
 impl Checker<'_, '_> {
-    /// TS2355 / TS2366 / TS2534 — `checkAllCodePathsInNonVoidFunctionReturnOrThrow`
-    /// (`checker.go:3728`), for the function-likes whose check calls it:
-    /// function and method declarations (`checker.go:3440`), get accessors
-    /// (`checker.go:2976`), and function expressions, arrows and object-literal
-    /// methods (`checker.go:10209`).
+    /// TS2534 / TS2355 / TS2366 / TS7030 —
+    /// `checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3728`),
+    /// for the function-likes whose check calls it: function and method
+    /// declarations (`checker.go:3440`), get accessors (`checker.go:2976`),
+    /// and function expressions, arrows and object-literal methods
+    /// (`checker.go:10209`), when the body's end is reachable
+    /// (`functionHasImplicitReturn`, `checker.go:20307`).
     ///
-    /// The `noImplicitReturns` arm (TS7030) is **not** ported: the checker
-    /// does not carry that option yet (`docs/parity/notes/flow.md` §6).
+    /// The return type is what each native caller passes: the written
+    /// annotation (`getReturnTypeFromAnnotation`) for functions, methods,
+    /// function expressions and arrows, and `getTypeOfAccessors` for a get
+    /// accessor (`checker.go:2976`). The error node is the annotation, else
+    /// the function.
     ///
-    /// Declines, all toward silence: JavaScript (whose return annotation is
-    /// TS8010 and whose JSDoc types are another lane's), generators (their
-    /// return type needs `getIterationTypeOfGeneratorFunctionReturnType`),
-    /// an unannotated get accessor (`getTypeOfAccessors` would infer from the
-    /// body), and an error type anywhere in the return type.
+    /// The relations here are three-valued: an undecidable
+    /// `isTypeAssignableTo(undefined, t)` or an inferred return type this
+    /// port cannot compute stops the check, since every arm after it is a
+    /// report. JavaScript declines: its return annotation is TS8010 and its
+    /// JSDoc types are another lane's.
     pub(crate) fn check_all_code_paths_return_or_throw(&mut self, function: NodeId) {
+        use crate::relater::{Relation, Ternary};
         if self.file_has_parse_errors || self.in_js_file(function) {
             return;
         }
@@ -8336,52 +8443,27 @@ impl Checker<'_, '_> {
                 (a.r#type, a.body.and_then(|b| b.node_id()), a.modifiers, false)
             }
             Some(Node::GetAccessorDeclaration(g)) => {
-                if g.r#type.is_none() {
-                    return;
-                }
                 (g.r#type, g.body.and_then(|b| b.node_id()), g.modifiers, false)
             }
             _ => return,
         };
-        if generator {
-            return;
-        }
         let is_async = crate::check::has_modifier(modifiers, SyntaxKind::AsyncKeyword);
-        // `getReturnTypeFromAnnotation` then `unwrapReturnType`.
-        let return_type = match annotation {
-            Some(annotation) => {
-                let declared = self.get_type_from_type_node_unprinted(annotation);
-                let unwrapped = if is_async {
-                    match self.awaited_type_no_alias(declared) {
-                        Some(awaited) => awaited,
-                        None => return,
-                    }
-                } else {
-                    declared
-                };
-                if self.is_error(declared) || self.is_error(unwrapped) {
-                    return;
-                }
-                Some(unwrapped)
-            }
-            None => None,
+        let return_type = if self.nodes.kind(function) == SyntaxKind::GetAccessor {
+            let Some(symbol) = self.binder.symbol_of(function) else { return };
+            let symbol = self.binder.merged_symbol(symbol);
+            Some(self.get_type_of_symbol(symbol))
+        } else {
+            annotation.map(|annotation| self.get_type_from_type_node_unprinted(annotation))
         };
-        // An annotated return type including `void`, or exactly `any` or
-        // `undefined`, needs no return statement.
-        if let Some(t) = return_type
-            && (self.maybe_type_of_kind(t, TypeFlags::VOID)
-                || self.type_of(t).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED))
+        let unwrapped =
+            return_type.map(|t| self.unwrap_return_type_for_code_paths(t, generator, is_async));
+        if let Some(t) = unwrapped
+            && self.is_unwrapped_return_type_undefined_void_or_any(t)
         {
             return;
         }
         // A signature, or an arrow with an expression body, has nothing to
-        // check; nor does a body whose end the flow graph cannot reach.
-        // Only the unported `noImplicitReturns` arm speaks without an
-        // annotation, so an unannotated function stops here — **before** the
-        // reachability query, which types `never`-returning calls in the body
-        // and can re-enter the function's own inferred return type
-        // (`thisTypeInObjectLiterals2`'s TS7023 was the measured cost).
-        let Some(t) = return_type else { return };
+        // check; nor does a body whose every path ends in return or throw.
         let Some(body) = body else { return };
         if self.nodes.kind(body) != SyntaxKind::Block
             || !self.function_has_implicit_return(function)
@@ -8390,26 +8472,89 @@ impl Checker<'_, '_> {
         }
         let has_explicit_return =
             self.binder.facts(function).contains(tsr_binder::NodeFacts::HAS_EXPLICIT_RETURN);
-        let message = if self.type_of(t).flags.intersects(TypeFlags::NEVER) {
-            &messages_flow::A_FUNCTION_RETURNING_NEVER_CANNOT_HAVE_A_REACHABLE_END_POINT
-        } else if !has_explicit_return {
-            &messages_flow::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE
-        } else if self.strict_null_checks
-            && self.relate_ternary(
-                self.intrinsics.undefined,
-                t,
-                crate::relater::Relation::Assignable,
-            ) == crate::relater::Ternary::NotRelated
-        {
-            &messages_flow::FUNCTION_LACKS_ENDING_RETURN_STATEMENT_AND_RETURN_TYPE_DOES_NOT_INCLUDE_UNDEFINED
-        } else {
-            return;
+        let message = match unwrapped {
+            Some(t) if self.type_of(t).flags.contains(TypeFlags::NEVER) => {
+                &messages_flow::A_FUNCTION_RETURNING_NEVER_CANNOT_HAVE_A_REACHABLE_END_POINT
+            }
+            Some(_) if !has_explicit_return => {
+                &messages_flow::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE
+            }
+            Some(t) if self.strict_null_checks => {
+                let undefined = self.intrinsics.undefined;
+                match self.relate_ternary(undefined, t, Relation::Assignable) {
+                    Ternary::NotRelated => {
+                        &messages_flow::FUNCTION_LACKS_ENDING_RETURN_STATEMENT_AND_RETURN_TYPE_DOES_NOT_INCLUDE_UNDEFINED
+                    }
+                    Ternary::Related if self.no_implicit_returns => {
+                        &messages_flow::NOT_ALL_CODE_PATHS_RETURN_A_VALUE
+                    }
+                    Ternary::Unknown | Ternary::Related => return,
+                }
+            }
+            Some(_) if self.no_implicit_returns => &messages_flow::NOT_ALL_CODE_PATHS_RETURN_A_VALUE,
+            None if self.no_implicit_returns => {
+                // An unannotated function without `return` infers `void`.
+                if !has_explicit_return {
+                    return;
+                }
+                let Some(signature) = self.get_signature_from_declaration(function) else {
+                    return;
+                };
+                let Some(inferred) = self.get_return_type_of_signature(&signature) else {
+                    return;
+                };
+                let inferred = self.unwrap_return_type_for_code_paths(inferred, generator, is_async);
+                if self.is_unwrapped_return_type_undefined_void_or_any(inferred) {
+                    return;
+                }
+                &messages_flow::NOT_ALL_CODE_PATHS_RETURN_A_VALUE
+            }
+            _ => return,
         };
-        // The error node is the return annotation.
-        let Some(at) = annotation.and_then(|annotation| annotation.node_id()) else { return };
+        let error_node = annotation.and_then(|annotation| annotation.node_id());
+        let at = error_node.unwrap_or(function);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        let span = match error_node {
+            Some(annotation) => self.nodes.span(annotation),
+            None => self.error_span(function),
+        };
         self.report(file, tsr_diagnostics::Diagnostic::new(message, span));
+    }
+
+    /// `isUnwrappedReturnTypeUndefinedVoidOrAny`'s test (`checker.go:3780`)
+    /// on an already unwrapped type. An unresolved annotation is this port's
+    /// error type, which upstream's `errorType` answers through its `Any` flag.
+    pub(crate) fn is_unwrapped_return_type_undefined_void_or_any(&mut self, t: TypeId) -> bool {
+        self.is_error(t)
+            || self.maybe_type_of_kind(t, TypeFlags::VOID)
+            || self.type_of(t).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED)
+    }
+
+    /// `unwrapReturnType` (`checker.go:20388`). A generator's return type is
+    /// the `TReturn` argument of its annotated iterator type
+    /// (`getIterationTypeOfGeneratorFunctionReturnType`); where that cannot be
+    /// read, upstream's `nil` answer is `errorType`, which ends the check.
+    pub(crate) fn unwrap_return_type_for_code_paths(
+        &mut self,
+        return_type: TypeId,
+        generator: bool,
+        is_async: bool,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if generator {
+            let Some(returned) = self.contextual_generator_iteration_type(return_type, 1) else {
+                return error;
+            };
+            if !is_async {
+                return returned;
+            }
+            let unwrapped = self.unwrap_awaited_type(returned);
+            return self.awaited_type_no_alias(unwrapped).unwrap_or(error);
+        }
+        if is_async {
+            return self.awaited_type_no_alias(return_type).unwrap_or(error);
+        }
+        return_type
     }
 }
 

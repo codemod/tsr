@@ -371,6 +371,15 @@ pub struct Checker<'a, 'n> {
     /// sensitive arguments. Later contextual reads use the selected signature.
     pub(crate) resolved_call_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// `CallState.candidatesForArgumentError` (`checker.go:8838`) as the
+    /// final (assignable) pass of the §487 overload walk left it when both
+    /// passes rejected every candidate, keyed by the CALL node. Owner:
+    /// `calls.rs` (`transcribed_generic_set_walk`, the only writer, which
+    /// removes the entry when it picks or declines);
+    /// `reportCallResolutionErrors` (`checker.go:9649`) on the diagnostics
+    /// road is the reader. See [`crate::calls::OverloadArgumentFailure`].
+    pub(crate) overload_argument_failures:
+        rustc_hash::FxHashMap<tsr_ast::NodeId, crate::calls::OverloadArgumentFailure>,
     /// Calls currently serving contextual signatures containing type parameters
     /// propagated from a generic argument (`instantiateTypeWithSingleGenericCallSignature`,
     /// internal/checker/checker.go).
@@ -597,6 +606,9 @@ pub struct Checker<'a, 'n> {
     /// `compilerOptions.NoImplicitOverride.IsTrue()`, read by
     /// `checkMemberForOverrideModifier` (`checker.go:4729`).
     pub(crate) no_implicit_override: bool,
+    /// `compilerOptions.NoImplicitReturns == TSTrue`, read by
+    /// `checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3728`).
+    pub(crate) no_implicit_returns: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
     /// Set by [`Checker::check_source_file`] and read by the rules that cannot
@@ -954,6 +966,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
+    pub(crate) type_parameter_default_cache: FxHashMap<
+        crate::declared::TypeParameterDefaultKey,
+        crate::declared::TypeParameterDefaultState,
+    >,
     pub(crate) type_parameter_constraint_cache:
         FxHashMap<crate::members::TypeParameterConstraintKey, Option<TypeId>>,
     pub(crate) reverse_mapped_cache: FxHashMap<(TypeId, TypeId, TypeId), Option<TypeId>>,
@@ -1331,6 +1347,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+            overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
@@ -1384,6 +1401,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
             no_implicit_override: false,
+            no_implicit_returns: false,
             file_has_parse_errors: false,
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
@@ -1467,6 +1485,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             string_mapping_cache: FxHashMap::default(),
             template_literal_cache: FxHashMap::default(),
             mapped_apparent_types: FxHashMap::default(),
+            type_parameter_default_cache: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
             reverse_mapped_member_cache: FxHashMap::default(),
@@ -1603,6 +1622,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
         self.no_implicit_override = options.no_implicit_override.is_true();
+        self.no_implicit_returns = options.no_implicit_returns.is_true();
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);

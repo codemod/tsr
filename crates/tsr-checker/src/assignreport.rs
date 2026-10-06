@@ -57,35 +57,81 @@ fn assign_probe_enabled() -> bool {
 }
 
 impl<'a> Checker<'a, '_> {
-    /// `checkAssignmentOperator` (`checker.go:12757`), the `=` arm.
+    /// `checkAssignmentOperator` (`checker.go:12757`), reached from
+    /// `checkBinaryLikeExpressionWorker` for `=`, `+=`, `&&=`, `||=`, `??=`
+    /// and (behind `leftOk && rightOk`) the arithmetic compound forms.
     ///
     /// The error node is the **left operand**, not the whole expression:
-    /// `aliasAssignments_1.ts(3,1)` for `x = 1` puts the caret on `x`.
+    /// `aliasAssignments_1.ts(3,1)` for `x = 1` puts the caret on `x`. The
+    /// source is the right operand's type for `=` and the logical forms, and
+    /// the operation's result type (`resultType`) for `+=` and the arithmetic
+    /// forms — `x += ''` relates `string` to `x`.
     pub(crate) fn check_assignment_operator(
         &mut self,
+        node: NodeId,
         binary: &BinaryExpression<'_>,
         ambient: bool,
     ) {
         if ambient || self.file_has_parse_errors {
             return;
         }
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        let (Some(left), Some(right), Some(operator)) =
+            (binary.left, binary.right, binary.operator_token)
+        else {
+            return;
+        };
         let Some(left_id) = left.node_id() else { return };
-
-        // `checkReferenceExpression` (`checker.go:12769`): upstream checks
-        // assignability **only** when the left-hand side is a reference, and
-        // reports a different code when it is not. A destructuring target is a
-        // reference too, but its assignability check is
-        // `checkDestructuringAssignment`'s per-element one and not this
-        // position, so it is declined here rather than approximated.
-        //
-        // A **property or element access** target is declined whole, and the
-        // reason is `divergentAccessorsTypes2`: a `set` accessor whose parameter
-        // type differs from its `get` return type makes the *write* type the
-        // setter's, which needs `getWriteTypeOfSymbol`. Reporting from the read
-        // type there is a wrong diagnostic on correct code.
-        let Some(target) = self.assignment_target_type(left_id) else { return };
-        let source = self.check_expression(right);
+        // `checkBinaryLikeExpression` (`checker.go:12338`) short-circuits a
+        // destructuring `=` to `checkDestructuringAssignment`, which relates
+        // per element and never reaches this site.
+        if operator.kind == SyntaxKind::EqualsToken
+            && matches!(
+                self.nodes.kind(left_id),
+                SyntaxKind::ObjectLiteralExpression | SyntaxKind::ArrayLiteralExpression
+            )
+        {
+            return;
+        }
+        // `checkReferenceExpression` (`checker.go:13130`): assignability is
+        // checked only when the left-hand side is a reference.
+        if !self.is_assignable_reference(left_id) {
+            return;
+        }
+        let Some(mut target) = self.assignment_target_type(left_id) else { return };
+        // "getters can be a subtype of setters, so to check for assignability
+        // we use the setter's type instead" (`checker.go:12765`): a compound
+        // write through a property access reads `checkPropertyAccessExpression`
+        // with `writeOnly`, whose divergent-accessor answer is the setter's
+        // parameter type (`getWriteTypeOfAccessors`).
+        if operator.kind != SyntaxKind::EqualsToken
+            && let tsr_ast::Expression::PropertyAccessExpression(access) = left
+            && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
+            && let Some(receiver) = access.expression
+        {
+            let receiver = self.check_expression(receiver);
+            let receiver = self.check_non_null_type(receiver);
+            if let Some(property) = self.get_property_of_type(receiver, name.text)
+                && let Some(written) = self.write_type_of_accessors(property)
+            {
+                target = written;
+            }
+        }
+        let source = match operator.kind {
+            SyntaxKind::EqualsToken
+            | SyntaxKind::AmpersandAmpersandEqualsToken
+            | SyntaxKind::BarBarEqualsToken
+            | SyntaxKind::QuestionQuestionEqualsToken => self.check_expression(right),
+            // `resultType`: `checkBinaryLikeExpressionWorker`'s `+` and
+            // arithmetic arms (`checker.go:12401`, `:12458`). An operator
+            // error (`errorType`) returns before the call upstream.
+            _ => {
+                let result = self.check_expression_at_node(node);
+                if result == self.intrinsics().error {
+                    return;
+                }
+                result
+            }
+        };
         // checkAssignmentOperator (native 5b1047d1 checker.go:12760) ignores
         // undefined writes to named CommonJS exports with multiple declarations.
         // Unlike inference's first-initializer rule, this applies to later
@@ -220,6 +266,10 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::ArrayLiteralExpression
                 | SyntaxKind::ObjectLiteralExpression
         ) {
+            return;
+        }
+        // `checkReferenceAssignment`'s `checkReferenceExpression` gate.
+        if !self.is_assignable_reference(left_id) {
             return;
         }
         let Some(target) = self.assignment_target_type(left_id) else { return };
@@ -971,6 +1021,19 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `checkReferenceExpression`'s verdict (`checker.go:13130`) without its
+    /// reports (those are `check_reference_expression`'s): an identifier or
+    /// access under assertions and parentheses, not an optional chain.
+    fn is_assignable_reference(&self, node: NodeId) -> bool {
+        let spine = self.skip_reference_spine(node, true);
+        matches!(
+            self.nodes.kind(spine),
+            SyntaxKind::Identifier
+                | SyntaxKind::PropertyAccessExpression
+                | SyntaxKind::ElementAccessExpression
+        ) && !self.spine_has_optional_chain(spine)
+    }
+
     /// The type an assignment writes *into*, or `None` where this port declines.
     ///
     /// # Why this is `getTypeOfSymbol` and not `checkExpression`
@@ -986,6 +1049,10 @@ impl<'a> Checker<'a, '_> {
     /// mechanism `docs/architecture/checker-notes-narrow.md` §9 measures from the
     /// `.types` side.
     fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
+        // `checkParenthesizedExpression` answers its operand's type, and
+        // `getAssignmentTargetKind` looks through parentheses, so `(x) = ''`
+        // writes into `x`'s declared type exactly as `x = ''` does.
+        let node = self.skip_outer_parentheses(node);
         // **A property-access target is admitted**, and §16's third decline —
         // which refused it because a `set` accessor's write type differs from
         // its getter's — is retired by measurement: +16 cases. The divergent-
@@ -1005,8 +1072,39 @@ impl<'a> Checker<'a, '_> {
             let ty = self.check_expression_at_node(node);
             return (ty != self.intrinsics().error).then_some(ty);
         }
+        // `leftType := c.checkExpressionEx(left, checkMode)`
+        // (`checker.go:12341`): an element access in a definite
+        // assignment-target position answers the write type
+        // (`checkElementAccessExpression`), and an asserted reference answers
+        // the assertion's type.
+        //
+        // **Declined: a `unique symbol` key.** The write type is
+        // `getIndexedAccessType(…, AccessFlagsWriting)`, which reaches the
+        // setter of a late-bound accessor pair (`getWriteTypeOfSymbol`);
+        // `check_element_access_expression`'s write arm resolves literal keys
+        // only and answers the getter's type here
+        // (`computedPropertiesWithSetterAssignment`).
+        //
+        // **Declined: an element access in a JS file.** The right operand's
+        // contextual type there is `getContextualTypeForAssignmentDeclaration`'s
+        // JS arm, which this port does not answer for element-access
+        // assignments, so `handlers[++id] = [resolve, reject]` types the
+        // literal as an array instead of the target's tuple
+        // (`jsDeclarationsTypedefFunction`).
+        if let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node)
+            && let Some(index) = access.argument_expression
+        {
+            if self.in_js_file(node) {
+                return None;
+            }
+            let index = self.check_expression(index);
+            if self.type_of(index).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL) {
+                return None;
+            }
+        }
         if self.nodes.kind(node) != SyntaxKind::Identifier {
-            return None;
+            let ty = self.check_expression_at_node(node);
+            return (ty != self.intrinsics().error).then_some(ty);
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return None };
         let text = identifier.text;
@@ -1030,15 +1128,16 @@ impl<'a> Checker<'a, '_> {
         ) {
             return None;
         }
-        // Two declarations of one name merge their types
-        // (`duplicateLocalVariable1`), and this port's merge is not upstream's;
-        // and a `const` target is TS2588, reported *instead of* the relation.
+        // A `const` target is TS2588, reported *instead of* the relation. Two
+        // `var` declarations of one name share the first declaration's type
+        // (`getTypeOfVariableOrParameterOrProperty`); a later conflicting one
+        // is TS2403's, not this site's.
         let declarations: Vec<NodeId> = entry.declarations.to_vec();
-        if declarations.len() != 1 {
-            return None;
-        }
-        if self.declaration_is_constant(declarations[0])
-            || self.declaration_is_auto_typed(declarations[0])
+        if declarations.is_empty()
+            || declarations.iter().any(|&declaration| {
+                self.declaration_is_constant(declaration)
+                    || self.declaration_is_auto_typed(declaration)
+            })
         {
             return None;
         }
@@ -1390,6 +1489,12 @@ impl<'a> Checker<'a, '_> {
     /// Answers **whether it reported**, so the caller can stop:
     /// `getSignatureApplicabilityError` returns on the first failing argument
     /// (`checker-notes-diag2.md` §59).
+    ///
+    /// The argument is checked through `checkTypeRelatedToAndOptionallyElaborate`
+    /// (`getSignatureApplicabilityError`, `checker.go:9302`) with the argument
+    /// as both error node and expression, so a failed relation first runs
+    /// `elaborateError` (`relater.go:440`) and reports the offending member
+    /// (TS2322 at a property, element or arrow return) instead of TS2345.
     pub(crate) fn report_argument_failure(
         &mut self,
         at: NodeId,
@@ -1406,6 +1511,16 @@ impl<'a> Checker<'a, '_> {
         }
         let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             == crate::relater::Ternary::NotRelated;
+        if not_related
+            && self.elaborate_error(
+                at,
+                source,
+                target,
+                Some(&messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1),
+            )
+        {
+            return true;
+        }
         if !not_related && !self.object_against_primitive(source, target) {
             return false;
         }
@@ -1501,28 +1616,47 @@ impl<'a> Checker<'a, '_> {
                 }
             };
         }
-        if let Some(node) = source_node
-            && self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression
-            && self.type_of(target).flags.contains(TypeFlags::UNION)
-        {
-            // elaborateObjectLiteral against a union reads each member through
-            // getBestMatchingType; where that choice is certain, elaborate.
-            if let Some(best) = self.best_matching_object_constituent(source, target)
-                && self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-                    == crate::relater::Ternary::NotRelated
-                && self.elaborate_object_literal(node, source, best)
+        // An object literal against a **union** target. `elaborateObjectLiteral`
+        // (`relater.go:498`) reads each member through
+        // `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`): the
+        // union's own indexed access first, then `getBestMatchingType`'s
+        // constituent. When no member elaborates, `checkTypeRelatedToEx`
+        // reports at the error node — TS2322 with the union as target, since
+        // `reportRelationError`'s missing-property suppression matches chain
+        // arguments against the union and never fires — unless
+        // `hasExcessProperties` (`relater.go:2714`) moves the error to an
+        // excess member (TS2353). Where this port cannot decide a member's
+        // target type or the excess question, it declines.
+        let union_literal = source_node.filter(|&node| {
+            self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression
+                && self.type_of(target).flags.contains(TypeFlags::UNION)
+        });
+        if let Some(node) = union_literal {
+            if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
             {
-                probe!(PROBE_REPORTED);
-                return true;
+                probe!(PROBE_OBJECT_LITERAL_UNION);
+                return false;
             }
-            probe!(PROBE_OBJECT_LITERAL_UNION);
-            return false;
+            match self.elaborate_object_literal_members(node, source, target) {
+                Some(true) => {
+                    probe!(PROBE_REPORTED);
+                    return true;
+                }
+                Some(false) if self.union_literal_has_no_excess_property(node, target) => {}
+                _ => {
+                    probe!(PROBE_OBJECT_LITERAL_UNION);
+                    return false;
+                }
+            }
         }
         // `elaborateError` (`relater.go:440`) runs **before** the whole-expression
         // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
         // hand-off is exclusive by construction here because both live in this
         // one function: elaborating returns, it does not fall through. §176.
-        if source_node.is_some_and(|node| self.elaborate_error(node, source, target)) {
+        if union_literal.is_none()
+            && source_node.is_some_and(|node| self.elaborate_error(node, source, target, head))
+        {
             probe!(PROBE_REPORTED);
             return true;
         }
@@ -1532,6 +1666,7 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         if REPORT_MISSING_REQUIRED_PROPERTY
+            && union_literal.is_none()
             && let Some(properties) = self.missing_required_property(source, target)
         {
             probe!(PROBE_REPORTED);
@@ -1552,7 +1687,10 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
-        if not_related && let Some(properties) = self.unmatched_property_report(source, target) {
+        if not_related
+            && union_literal.is_none()
+            && let Some(properties) = self.unmatched_property_report(source, target)
+        {
             self.report_missing_properties(file, span, source, target, &properties);
             return true;
         }
@@ -1798,9 +1936,16 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateError` (`relater.go:440`): descend into the source expression
     /// to report on the innermost node that explains the failure. Answers
     /// whether it reported; the caller then stays silent. A generic conditional
-    /// target is not elaborated. `elaborateDidYouMeanToCallOrConstruct` is not
-    /// ported here, so those failures keep the caller's outer report.
-    fn elaborate_error(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+    /// target is not elaborated. `head` is the caller's head message, which
+    /// only `elaborateDidYouMeanToCallOrConstruct` reports with (TS2345 at an
+    /// argument); the member arms report their own TS2322.
+    fn elaborate_error(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> bool {
         if self.is_or_has_generic_conditional(target) {
             return false;
         }
@@ -1809,11 +1954,13 @@ impl<'a> Checker<'a, '_> {
             source,
             target,
             crate::signatures::SignatureKind::Construct,
+            head,
         ) || self.elaborate_did_you_mean_to_call_or_construct(
             node,
             source,
             target,
             crate::signatures::SignatureKind::Call,
+            head,
         ) {
             return true;
         }
@@ -1851,7 +1998,7 @@ impl<'a> Checker<'a, '_> {
         };
         inner
             .and_then(|inner| inner.node_id())
-            .is_some_and(|inner| self.elaborate_error(inner, source, target))
+            .is_some_and(|inner| self.elaborate_error(inner, source, target, head))
     }
 
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
@@ -1866,6 +2013,7 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
         kind: crate::signatures::SignatureKind,
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> bool {
         let Some(signatures) = self.signatures_of_type_kind(source, kind) else { return false };
         let mut callable = false;
@@ -1883,47 +2031,116 @@ impl<'a> Checker<'a, '_> {
                 break;
             }
         }
-        callable && self.report_assignability_failure_with(node, None, source, target)
+        if !callable {
+            return false;
+        }
+        let span = self.error_span(node);
+        self.report_relation_failure(node, span, None, source, target, head)
     }
 
-    /// `getBestMatchingType` (`relater.go`) for an object-literal source, in
-    /// the one domain where its answer is certain without the discriminant
-    /// machinery: the union has exactly one constituent that is not primitive,
-    /// it is a plain object type and not array-like, and it shares a property
-    /// name with the source. There `findMatchingDiscriminantType` can only
-    /// pick that constituent or nothing, `findMatchingTypeReferenceOrTypeAliasReference`
-    /// and `findBestTypeForInvokable` do not apply to a signature-less literal,
-    /// `findBestTypeForObjectLiteral` needs an array-like constituent, and
-    /// `findMostOverlappyType` picks it on any key overlap. Every other union
-    /// answers `None` (the caller keeps its decline).
-    fn best_matching_object_constituent(
+    /// `getBestMatchingType` (`relater.go:879`) for an object-literal source
+    /// against a union. `Ok(None)` is upstream's nil; `Err` is a choice this
+    /// port cannot make faithfully.
+    ///
+    /// - `findMatchingDiscriminantType`: `getMatchingUnionConstituentForType`
+    ///   needs `getKeyPropertyName` (unions of ten or more constituents) and
+    ///   `discriminateTypeByDiscriminableItems` needs discriminant members (a
+    ///   member whose types are non-uniform with a unit among them). Neither
+    ///   is ported, so either shape declines.
+    /// - `findMatchingTypeReferenceOrTypeAliasReference` and
+    ///   `findBestTypeForInvokable` never match a signature-less, alias-less
+    ///   literal.
+    /// - `findBestTypeForObjectLiteral`: with an array-like constituent, the
+    ///   first constituent that is not array-like.
+    /// - `findMostOverlappyType`: the last non-primitive constituent sharing
+    ///   the most property names with the source (ties go to the later one,
+    ///   `length >= matchingCount`); one sharing none is skipped.
+    fn best_matching_type_for_object_literal(
         &mut self,
         source: TypeId,
         target: TypeId,
-    ) -> Option<TypeId> {
-        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else { return None };
-        let mut objects = types.iter().copied().filter(|&part| {
-            !self.type_of(part).flags.intersects(
-                TypeFlags::PRIMITIVE | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
-            )
-        });
-        let best = objects.next()?;
-        if objects.next().is_some() {
-            return None;
+    ) -> Result<Option<TypeId>, ()> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Ok(None);
+        };
+        if types.len() >= 10 {
+            return Err(());
         }
-        let flags = self.type_of(best).flags;
-        if !flags.contains(TypeFlags::OBJECT)
-            || flags
-                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
-            || self.tuple_element_lists.contains_key(&best)
-            || self.variadic_tuple_elements.contains_key(&best)
-            || self.tuple_spread_array_element(best).is_some()
-        {
-            return None;
+        let source_names = self.get_property_names_of_type(source).ok_or(())?;
+        for name in &source_names {
+            let mut members = Vec::with_capacity(types.len());
+            for &part in &types {
+                if let Some(member) = self.get_type_of_property_of_type(part, name) {
+                    members.push(member);
+                }
+            }
+            // `CheckFlagsHasLiteralType`: some constituent's member type is
+            // `isLiteralType` — a unit, `boolean`, or a union of units.
+            let has_unit =
+                members.iter().any(|&member| self.is_literal_type_for_discriminant(member));
+            let non_uniform =
+                members.len() != types.len() || members.windows(2).any(|pair| pair[0] != pair[1]);
+            if has_unit && non_uniform {
+                return Err(());
+            }
         }
-        let source_names = self.get_property_names_of_type(source)?;
-        let target_names = self.get_property_names_of_type(best)?;
-        source_names.iter().any(|name| target_names.contains(name)).then_some(best)
+        // `isArrayLikeType`: assignable to `readonly any[]`. A primitive is
+        // not, and neither is an object type with no `length` member — the
+        // target requires one — so the relation is asked only otherwise.
+        let mut array_like = Vec::with_capacity(types.len());
+        for &part in &types {
+            let flags = self.type_of(part).flags;
+            let is = if flags.intersects(TypeFlags::PRIMITIVE)
+                || (flags.contains(TypeFlags::OBJECT)
+                    && self.get_type_of_property_of_type(part, "length").is_none())
+            {
+                false
+            } else {
+                self.binding_parent_is_array_like(part).ok_or(())?
+            };
+            array_like.push(is);
+        }
+        if array_like.iter().any(|&is| is) {
+            return Ok(types.iter().zip(&array_like).find(|(_, is)| !**is).map(|(&part, _)| part));
+        }
+        let mut best = None;
+        let mut matching_count = 0usize;
+        for &part in &types {
+            let flags = self.type_of(part).flags;
+            if flags.intersects(TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            if flags.intersects(TypeFlags::INSTANTIABLE)
+                || !self.relation_members_are_complete(part)
+            {
+                return Err(());
+            }
+            let table = self.relation_property_table(part).ok_or(())?;
+            let overlap = source_names
+                .iter()
+                .filter(|name| table.iter().any(|(seen, _)| seen == *name))
+                .count();
+            if overlap > 0 && overlap >= matching_count {
+                best = Some(part);
+                matching_count = overlap;
+            }
+        }
+        Ok(best)
+    }
+
+    /// `isLiteralType` (`utilities.go`): `boolean`, a unit type, or a union
+    /// whose every constituent is a unit type.
+    fn is_literal_type_for_discriminant(&self, t: TypeId) -> bool {
+        let ty = self.type_of(t);
+        if ty.flags.intersects(TypeFlags::BOOLEAN) {
+            return true;
+        }
+        match &ty.data {
+            TypeData::Union { types, .. } => {
+                types.iter().all(|&part| self.type_of(part).flags.intersects(TypeFlags::UNIT))
+            }
+            _ => ty.flags.intersects(TypeFlags::UNIT),
+        }
     }
 
     /// `isOrHasGenericConditional` (`relater.go:474`).
@@ -1974,29 +2191,39 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        self.elaborate_object_literal_members(source_node, source, target).unwrap_or(false)
+    }
+
+    /// [`Checker::elaborate_object_literal`], answering `None` where this port
+    /// cannot decide what upstream would elaborate: a spread member, or a
+    /// union member whose `getBestMatchIndexedAccessTypeOrUndefined` needs a
+    /// `getBestMatchingType` choice this port cannot make. Every member's
+    /// target type is settled before anything is reported, so a `None` never
+    /// follows a partial report.
+    fn elaborate_object_literal_members(
+        &mut self,
+        source_node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<bool> {
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(source_node) else {
-            return false;
+            return Some(false);
         };
         // `target.flags&(TypeFlagsPrimitive|TypeFlagsNever) != 0` — a primitive
         // or `never` target has no properties to elaborate against, and
         // upstream returns before the loop.
         if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
-            return false;
-        }
-        // `getBestMatchIndexedAccessTypeOrUndefined` picks a union constituent
-        // (`getBestMatchingType`), which this port does not have; the caller's
-        // own object-literal arm declines a union target for the same reason.
-        if self.type_of(target).flags.contains(TypeFlags::UNION) {
-            return false;
+            return Some(false);
         }
         // A spread contributes properties this port cannot enumerate — the same
         // decline `check_excess_properties` makes, for the same reason.
         if literal.properties.iter().any(|property| {
             matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
         }) {
-            return false;
+            return None;
         }
-        let mut reported = false;
+        let is_union = self.type_of(target).flags.contains(TypeFlags::UNION);
+        let mut members = Vec::with_capacity(literal.properties.len());
         for property in literal.properties {
             let (name, next) = match property {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
@@ -2030,12 +2257,17 @@ impl<'a> Checker<'a, '_> {
             // `getIndexedAccessTypeOrUndefined` falls back to the target's
             // applicable index signature; absent from both means excess,
             // TS2353's row.
-            let Some(target_property_type) = self
-                .get_type_of_property_of_type(target, &name)
-                .or_else(|| self.elaboration_index_value(target, name_id, &name))
-            else {
-                continue;
+            let target_property_type = if is_union {
+                self.union_member_target_type(source, target, name_id, &name).ok()?
+            } else {
+                self.get_type_of_property_of_type(target, &name)
+                    .or_else(|| self.elaboration_index_value(target, name_id, &name))
             };
+            let Some(target_property_type) = target_property_type else { continue };
+            members.push((name_id, next, name, target_property_type));
+        }
+        let mut reported = false;
+        for (name_id, next, name, target_property_type) in members {
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
             let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
@@ -2045,7 +2277,116 @@ impl<'a> Checker<'a, '_> {
             reported |=
                 self.elaborate_element(name_id, next, source_property_type, target_property_type);
         }
-        reported
+        Some(reported)
+    }
+
+    /// `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`) for a
+    /// union target: the union's own indexed access when every constituent
+    /// has the member (`getPropertyOfType` on a union, or each constituent's
+    /// applicable index signature), else the member of `getBestMatchingType`'s
+    /// constituent. `Ok(None)` is upstream's nil (no elaboration for this
+    /// member); `Err` is a best match this port cannot choose.
+    fn union_member_target_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        name_id: NodeId,
+        name: &str,
+    ) -> Result<Option<TypeId>, ()> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Ok(None);
+        };
+        let mut found = Vec::with_capacity(types.len());
+        for &part in &types {
+            if let Some(member) = self
+                .get_type_of_property_of_type(part, name)
+                .or_else(|| self.elaboration_index_value(part, name_id, name))
+            {
+                found.push(member);
+            }
+        }
+        if found.len() == types.len() {
+            return Ok(Some(self.get_union_type(&found)));
+        }
+        if found.is_empty() {
+            // No constituent has the member: whichever constituent upstream's
+            // best match picks, its indexed access is nil.
+            return Ok(None);
+        }
+        let best = self.best_matching_type_for_object_literal(source, target)?;
+        Ok(best.and_then(|best| {
+            self.get_type_of_property_of_type(best, name)
+                .or_else(|| self.elaboration_index_value(best, name_id, name))
+        }))
+    }
+
+    /// `hasExcessProperties` (`relater.go:2714`) is silent for this literal
+    /// against a union: every written member is known (`isKnownProperty`) in
+    /// the target. Upstream narrows the target to a discriminated constituent
+    /// first (`findMatchingDiscriminantType`); this port does not, so a
+    /// literal writing a member that is a unit type in some constituent must
+    /// find every member in **every** constituent, and otherwise in some.
+    /// Constituents whose member tables are incomplete decline.
+    fn union_literal_has_no_excess_property(&mut self, node: NodeId, target: TypeId) -> bool {
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
+            return false;
+        };
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return false;
+        };
+        let mut names = Vec::with_capacity(literal.properties.len());
+        for property in literal.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(p) => p.name.node_id(),
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(p) => {
+                    p.name.node_id()
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(p) => p.name.node_id(),
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(p) => p.name.node_id(),
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(p) => p.name.node_id(),
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return false,
+            };
+            let Some(name) = name.and_then(|id| self.identifier_text(id)).map(str::to_string)
+            else {
+                return false;
+            };
+            names.push(name);
+        }
+        // `filterPrimitivesIfContainsNonPrimitive`: primitive constituents
+        // know no object-literal member.
+        let mut tables = Vec::with_capacity(types.len());
+        for &part in &types {
+            if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            if !self.relation_members_are_complete(part) {
+                return false;
+            }
+            let Some(table) = self.relation_property_table(part) else { return false };
+            tables.push((part, table));
+        }
+        if tables.is_empty() {
+            return false;
+        }
+        let mut discriminable = false;
+        for name in &names {
+            for &(part, _) in &tables {
+                if self
+                    .get_type_of_property_of_type(part, name)
+                    .is_some_and(|member| self.is_literal_type_for_discriminant(member))
+                {
+                    discriminable = true;
+                }
+            }
+        }
+        names.iter().all(|name| {
+            let known = |table: &Vec<(String, bool)>| table.iter().any(|(seen, _)| seen == name);
+            if discriminable {
+                tables.iter().all(|(_, table)| known(table))
+            } else {
+                tables.iter().any(|(_, table)| known(table))
+            }
+        })
     }
 
     /// `getIndexedAccessTypeOrUndefined(target, nameType)`'s index-signature
