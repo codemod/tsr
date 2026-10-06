@@ -340,3 +340,46 @@ tree at `d109b0c` already prints `number`, which is upstream's answer
 (`instantiateTypeWithAlias`, `checker.go:22104`, returns a bare type
 parameter's image), so the test failed at the baseline and its expectation
 is flipped.
+
+### 3.3 `trySymbolTable`'s ExportSymbol candidate replaces the import-equals exclusion (`tsr-2zk.39`, `tsr-2zk.16.20`)
+
+`best_name` (checker.rs) is this port's whole-name and segment-name walk
+over `getAccessibleSymbolChain`'s scope tables. Two deviations from
+`trySymbolTable` (`symbolaccessibility.go:535`) compensated for each other:
+
+- A table entry whose **ExportSymbol** is the target answered the symbol's
+  own name immediately. Upstream (`:551`) only appends `[symbol]` to the
+  candidate chains, which then sort with the alias candidates by
+  `compareSymbolChains` (length, then `compareSymbols`: first declaration's
+  file and position).
+- Because the export hit never competed, admitting a same-file
+  `import a = B` alias let it win in tables where upstream's exported
+  declaration wins, so the alias was excluded from whole-name prints (`admit_local_import_equals = false`) after admitting it lost 130
+  `privacy*` lines (`checker-notes-modobj.md` §10.16–17).
+
+Ported: the ExportSymbol hit seeds the alias competition as candidate
+`(own name, symbol)`; the exclusion and the parameter are deleted, so every
+caller runs the same walk. In the `privacy*` shape the exported namespace is
+declared before the alias, so its own name still wins; in
+`namespace B { import O = Outer; … }` (`constEnumOnlyModuleMerging`) the
+table holds the alias and no local of `Outer`, so `O` is printed, as
+upstream does.
+
+Measured against `d109b0c` (without patch B): **+94 type lines, 11 cases
+fully RIGHT** (`circularReferenceInImport`, `constEnumOnlyModuleMerging`,
+`importInTypePosition`, `importedModuleAddToGlobal`, `innerAliases2`,
+`moduleAliasInterface`, `moduleCrashBug1`, `moduleVisibilityTest3`,
+`unusedImports10`, `importStatements`, `tsxElementResolution7`), **0 R→W in
+either dump**.
+
+Checker port convention: no cache, side table or traversal is added; the
+same per-print scope walk runs with one more candidate per table. Work
+boundary unchanged (one `compare_symbols` per ExportSymbol hit).
+
+Not ported here (remaining `tsr-2zk.39`): `isAccessible`'s
+`canQualifySymbol` test on the direct and ExportSymbol arms (the walk
+assumes every hit is qualifiable), `getCandidateListForSymbol` recursion
+deeper than one export level, and `getWithAlternativeContainers`
+(`SYMBOL-CHAIN-EXPORT-EQUALS-CONTAINER`). `own_name_alias_at` still
+requires `flags == ALIAS` exactly (`shadowedInternalModule`'s merged
+alias+var), which belongs to the same walk.

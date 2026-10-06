@@ -1976,7 +1976,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                             && self.binder.symbols().get(symbol).flags
                                 .intersects(SymbolFlags::CLASS | SymbolFlags::VALUE_MODULE))
             });
-            if has_clone && self.best_name(original, reference, false).is_none() {
+            if has_clone && self.best_name(original, reference).is_none() {
                 return None;
             }
         }
@@ -2386,7 +2386,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
     fn value_symbol_name_at(&mut self, symbol: SymbolId, reference: NodeId) -> String {
         let own = self.binder.symbols().get(symbol).name;
-        if let Some(name) = self.best_name(symbol, reference, false)
+        if let Some(name) = self.best_name(symbol, reference)
             && name != own
         {
             return name;
@@ -2521,7 +2521,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .map(|&symbol| self.binder.symbols().get(symbol).name)
                 .collect::<Vec<_>>()
                 .join(".")
-        } else if let Some(better) = self.best_name(target, reference, false)
+        } else if let Some(better) = self.best_name(target, reference)
             && better != target_name
         {
             better
@@ -2622,7 +2622,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 };
                 if let Some(start) = name_start {
                     let named = self
-                        .best_name(owner, reference, false)
+                        .best_name(owner, reference)
                         .filter(|name| name != owner_name)
                         .unwrap_or_else(|| {
                             match self.symbol_chain(owner, reference, SymbolFlags::TYPE, 0) {
@@ -2640,7 +2640,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     && printed.starts_with(owner_name)
                     && printed.as_bytes()[owner_name.len()] == b'.'
                 {
-                    if let Some(better) = self.best_name(owner, reference, false) {
+                    if let Some(better) = self.best_name(owner, reference) {
                         if better != owner_name {
                             let mut out = String::with_capacity(printed.len() + better.len());
                             out.push_str(&better);
@@ -2685,7 +2685,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // first table that reaches the symbol. Measured over every printed
         // line in the corpus before building: it changes zero of them — its
         // whole population is lines that gap today.
-        if let Some(better) = self.best_name(symbol, reference, false) {
+        if let Some(better) = self.best_name(symbol, reference) {
             if better != name {
                 let mut out = String::with_capacity(printed.len() + better.len());
                 out.push_str(&printed[..suffix_at - name.len()]);
@@ -2713,7 +2713,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             if prefix.len() == parent_name.len() + 1
                 && prefix.starts_with(parent_name)
                 && prefix.ends_with('.')
-                && let Some(better) = self.best_name(parent, reference, false)
+                && let Some(better) = self.best_name(parent, reference)
                 && better != parent_name
             {
                 let mut out = String::with_capacity(printed.len() + better.len());
@@ -3005,7 +3005,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `__React.Component`. Same walk, same `useOnlyExternalAliasing`
         // filter, falling back to the segment's own name.
         let parent_name = self
-            .best_name(parent, reference, true)
+            .best_name(parent, reference)
             .unwrap_or_else(|| self.binder.symbols().get(parent).name.to_string());
         // A multi-segment accessible alias route is already rooted in scope.
         // Recursing on the declared parent would qualify it a second time.
@@ -3939,20 +3939,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// the symbol. All direct aliases have one-element chains, so native
     /// `trySymbolTable`'s shortest-chain ordering ties on length here.
     /// `None` when no table reaches it.
-    /// `admit_local_import_equals` — whether a **same-file** `import a = b`
-    /// may supply the name. The corpus splits on print position
-    /// (`checker-notes-modobj.md` §10.16): a chain **segment** takes it
-    /// (`typeof m1_im1_private.c1`, the §10.9 residue's own baselines), while
-    /// the **whole printed name** does not (`m1_im1_private :` itself records
-    /// `typeof m1_M1_public`, and admitting the local alias there lost 130
-    /// lines in exactly the four `privacy*` cases — the §10.16 bar's named
-    /// falsifier, fired and honoured).
-    pub(crate) fn best_name(
-        &mut self,
-        symbol: SymbolId,
-        reference: NodeId,
-        admit_local_import_equals: bool,
-    ) -> Option<String> {
+    ///
+    /// A same-file `import a = b` alias competes like any other alias
+    /// (`useOnlyExternalAliasing` is false on the baseline path). Until type-refs
+    /// round 3 it was excluded from the whole printed name, because admitting
+    /// it lost 130 `privacy*` lines (`checker-notes-modobj.md` §10.16). The
+    /// exclusion stood in for the `ExportSymbol` arm of `trySymbolTable`
+    /// (`symbolaccessibility.go:551`), which is ported below: an exported
+    /// declaration's local makes the symbol a CANDIDATE sorted with the
+    /// aliases, not an immediate answer, and the earlier declaration wins
+    /// (`docs/parity/notes/type-refs.md` §3.3).
+    pub(crate) fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<String> {
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
         let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
@@ -3990,18 +3987,27 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
         for table in tables {
-            if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
-                && (self.binder.merged_symbol(hit) == target
-                    || self
-                        .binder
+            let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
+            if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
+                return Some(own.to_string());
+            }
+            // `trySymbolTable` (`symbolaccessibility.go:551`): a local whose
+            // ExportSymbol is the target is NOT a direct hit — it becomes a
+            // one-element candidate chain `[symbol]` that competes with the
+            // table's aliases under `compareSymbolChains`, i.e. by
+            // `compareSymbols` (first declaration's position). This is what
+            // keeps `typeof m1_M1_public` in the `privacy*` baselines: the
+            // exported namespace is declared before the `import x = …` alias
+            // naming it, so the symbol's own name sorts first.
+            let mut found: Option<(&str, SymbolId)> = direct
+                .filter(|&hit| {
+                    self.binder
                         .symbols()
                         .get(hit)
                         .export_symbol
-                        .is_some_and(|exported| self.binder.merged_symbol(exported) == target))
-            {
-                return Some(own.to_string());
-            }
-            let mut found: Option<(&str, SymbolId)> = None;
+                        .is_some_and(|exported| self.binder.merged_symbol(exported) == target)
+                })
+                .map(|_| (own, symbol));
             let mut qualified = Vec::new();
             for (name, candidate) in table {
                 if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
@@ -4029,17 +4035,6 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // (`symbolaccessibility.go:574`, mirroring `resolveName`), and
                 // a namespace re-export (`export * as ns from "m"`) is omitted
                 // on a local-name lookup (`:571`), which every call here is.
-                let excluded = declarations.iter().any(|&declaration| {
-                    !admit_local_import_equals
-                        && matches!(
-                            self.node_map.get(declaration),
-                            Some(Node::ImportEqualsDeclaration(node))
-                                if matches!(
-                                    node.module_reference,
-                                    Some(tsr_ast::ModuleReference::Identifier(_))
-                                )
-                        )
-                });
                 if declarations.iter().any(|&declaration| {
                     matches!(
                         self.node_map.get(declaration),
@@ -4067,7 +4062,6 @@ impl<'a, 'n> Checker<'a, 'n> {
                     }))
                     && !self.alias_targets_module_clone(candidate);
                 if reaches
-                    && !excluded
                     && found.is_none_or(|(_, best)| self.compare_symbols(candidate, best).is_lt())
                 {
                     found = Some((name, candidate));
