@@ -108,7 +108,7 @@ pub(crate) struct InstantiatedTypeParameter {
     pub(crate) names: Vec<String>,
 }
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The signature-less inference context used by getConditionalType.
     /// getTypeFromInference preserves candidates rather than applying the
     /// signature's argument widening or common-supertype selection.
@@ -200,11 +200,23 @@ impl Checker<'_, '_> {
     /// call uses void; a property or indexed call retains its receiver through
     /// transparent wrappers and optional-chain marker removal.
     pub(crate) fn this_argument_type_of_call(&mut self, call: Option<NodeId>) -> TypeId {
-        let Some(node) = call.and_then(|call| self.node_map.get(call)) else {
-            return self.intrinsics.void;
-        };
+        match call.and_then(|call| self.this_argument_of_call(call)) {
+            Some((receiver, optional)) => {
+                let raw = self.check_expression(receiver);
+                self.get_optional_expression_type(raw, receiver.node_id(), optional)
+            }
+            None => self.intrinsics.void,
+        }
+    }
+
+    /// getThisArgumentOfCall (checker.go:9345): the receiver of an `x.f`/`x[f]`
+    /// callee (through outer expressions), the right operand of a binary
+    /// (`instanceof`) call node, else none. The flag says whether the access
+    /// is the optional-chain root (`x?.f`).
+    pub(crate) fn this_argument_of_call(&self, call: NodeId) -> Option<(Expression<'a>, bool)> {
+        let node = self.node_map.get(call)?;
         if let Node::BinaryExpression(binary) = node {
-            return binary.right.map_or(self.intrinsics.void, |right| self.check_expression(right));
+            return binary.right.map(|right| (right, false));
         }
         let expression = match node {
             Node::CallExpression(call) => call.expression,
@@ -214,10 +226,7 @@ impl Checker<'_, '_> {
             }
             _ => None,
         };
-        let Some(callee) = expression.and_then(|expression| expression.node_id()) else {
-            return self.intrinsics.void;
-        };
-        let callee = self.skip_outer_expressions(callee);
+        let callee = self.skip_outer_expressions(expression?.node_id()?);
         let (receiver, optional) = match self.node_map.get(callee) {
             Some(Node::PropertyAccessExpression(access)) => {
                 (access.expression, access.question_dot_token.is_some())
@@ -225,11 +234,9 @@ impl Checker<'_, '_> {
             Some(Node::ElementAccessExpression(access)) => {
                 (access.expression, access.question_dot_token.is_some())
             }
-            _ => return self.intrinsics.void,
+            _ => return None,
         };
-        let Some(receiver) = receiver else { return self.intrinsics.void };
-        let raw = self.check_expression(receiver);
-        self.get_optional_expression_type(raw, receiver.node_id(), optional)
+        Some((receiver?, optional))
     }
 
     /// The type of a call whose resolved signature is generic.

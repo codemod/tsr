@@ -646,35 +646,23 @@ fn a_missing_member_of_a_module_object_still_reports() {
 }
 
 #[test]
-fn a_block_scoped_globalthis_member_records_a_known_divergence() {
-    // **This is the true positive for §173's `globalThis` arm, and it does not
-    // pass.** Recorded rather than dropped, because a suppression whose paired
-    // positive cannot be written is exactly the thing worth writing down.
+fn a_block_scoped_globalthis_member_still_reports() {
+    // The true positive for §173's `globalThis` arm. Upstream silences TS2339
+    // for a *missing* member of `globalThis` and reports it for one that
+    // **is** a global and is block-scoped — `let`, `const`, `class`, `enum`
+    // live in the global *scope* without being properties of the global
+    // *object* (`checker.go:11337-11340`, `SymbolFlagsBlockScoped`).
     //
-    // Upstream silences TS2339 for a *missing* member of `globalThis` and
-    // reports it for one that **is** a global and is block-scoped — `let`,
-    // `const`, `class`, `enum` live in the global *scope* without being
-    // properties of the global *object* (`checker.go:11337-11340`,
-    // `SymbolFlagsBlockScoped`). So upstream answers `TS2339` here.
-    //
-    // **The guard added in §173 is not what silences it**, measured by deleting
-    // the guard and re-running this fixture: still nothing. `typeof globalThis`
-    // is minted by §33 of `checker-notes-narrow.md` when the *name* fails to
-    // resolve, and a minted type carries no members table — so
-    // `declared_members_are_complete` declines before the arm is reached. The
-    // case was never reported, before §173 or after.
-    //
-    // The consequence is that the block-scoped branch of
-    // `global_this_member_is_not_reported` is **unreachable today**. It is kept
-    // because it is upstream's rule and because it becomes live the moment §33
-    // grows a members table — which is the falsifier for this test: when that
-    // lands, this assertion flips to `["TS2339"]` and the divergence closes.
+    // This was recorded as a known divergence while the minted `typeof
+    // globalThis` (§33 of `checker-notes-narrow.md`) could not be certified
+    // by `declared_members_are_complete`; `check_nonexistent_property` now
+    // reports upstream's arm directly, without asking the members table.
     assert_eq!(
         codes(&[
             ("/g.ts", "let blockScoped = 1;\n"),
             ("/a.ts", "export {};\nexport const q = globalThis.blockScoped;\n"),
         ]),
-        Vec::<String>::new()
+        vec!["TS2339".to_string()]
     );
 }
 

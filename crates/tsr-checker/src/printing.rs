@@ -103,9 +103,33 @@ impl Checker<'_, '_> {
         {
             return None;
         }
+        // `getContainersOfSymbol` (`symbolaccessibility.go:280`) offers the
+        // file as a container for a declaration that is a direct child of it
+        // (`hasNonGlobalAugmentationExternalModuleSymbol(d.Parent)`) or for a
+        // class expression assigned to `module.exports` / `exports.x`. The
+        // class expression of `export = class B {}` has the export
+        // assignment as its parent and keeps its own name.
         let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
         let module = declarations.into_iter().find_map(|declaration| {
             let file = self.source_file_of_for_diagnostics(declaration)?;
+            let parent = self.nodes.parent(declaration)?;
+            let commonjs_class = matches!(
+                (self.node_map.get(declaration), self.node_map.get(parent)),
+                (Some(tsr_ast::Node::ClassExpression(_)), Some(tsr_ast::Node::BinaryExpression(binary)))
+                    if binary.operator_token.is_some_and(|token| token.kind == tsr_ast::SyntaxKind::EqualsToken)
+                        && binary.left.is_some_and(|left| {
+                            crate::assignment_declarations::is_module_exports_access(left)
+                                || matches!(left,
+                                    tsr_ast::Expression::PropertyAccessExpression(tsr_ast::PropertyAccessExpression {
+                                        expression: Some(tsr_ast::Expression::Identifier(receiver)), ..
+                                    }) | tsr_ast::Expression::ElementAccessExpression(tsr_ast::ElementAccessExpression {
+                                        expression: Some(tsr_ast::Expression::Identifier(receiver)), ..
+                                    }) if receiver.text == "exports")
+                        })
+            );
+            if parent != file && !commonjs_class {
+                return None;
+            }
             let module = self.binder.symbol_of(file)?;
             let exported = self.resolve_external_module_symbol(module);
             (exported != module

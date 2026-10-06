@@ -675,13 +675,16 @@ impl Checker<'_, '_> {
                 self.check_delete_operand_symbol(node);
                 ambient
             }
-            Node::CallExpression(_) => {
+            Node::CallExpression(call) => {
+                self.resolve_call_before_callback_bodies(node, call.arguments);
                 self.check_call_expression_diagnostics(node);
                 self.check_import_call_specifier(node);
                 ambient
             }
-            Node::NewExpression(_) => {
+            Node::NewExpression(new) => {
+                self.resolve_call_before_callback_bodies(node, new.arguments);
                 self.check_new_expression_diagnostics(node);
+                self.check_implicit_any_new_expression(node);
                 ambient
             }
             Node::TaggedTemplateExpression(_) => {
@@ -991,10 +994,10 @@ impl Checker<'_, '_> {
             Node::BindingPattern(_) => self.check_array_binding_pattern_iteration(node),
             Node::BindingElement(_) => {
                 self.check_binding_element_tuple_bounds(node);
-                self.check_binding_element_computed_index(node);
+                self.check_binding_element_index_access(node);
                 self.check_object_rest_of_non_object_type(node);
             }
-            Node::ObjectLiteralExpression(_) => self.check_object_assignment_computed_index(node),
+            Node::ObjectLiteralExpression(_) => self.check_object_assignment_index_access(node),
             Node::ElementAccessExpression(_) => {
                 self.check_element_access_tuple_bounds(node);
                 self.check_element_access_index_type(node);
@@ -12151,7 +12154,10 @@ impl Checker<'_, '_> {
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
     fn is_instantiated_module(&self, node: NodeId) -> bool {
         let Some(typed) = self.node_map.get(node) else { return true };
-        match tsr_ast::module_instance_state(typed) {
+        let mut parents: Vec<_> =
+            self.nodes.ancestors(node).filter_map(|ancestor| self.node_map.get(ancestor)).collect();
+        parents.reverse();
+        match tsr_ast::module_instance_state(typed, &parents) {
             tsr_ast::ModuleInstanceState::Instantiated => true,
             tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
             tsr_ast::ModuleInstanceState::NonInstantiated => false,

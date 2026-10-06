@@ -291,90 +291,227 @@ mod tests {
     }
 }
 
-/// `ModuleInstanceState` (`ast/utilities.go`), minus the `Unknown` state, which
-/// exists only for `getModuleInstanceStateCached`'s cycle guard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `ModuleInstanceState` (`ast/utilities.go:2313`), minus the `Unknown` state,
+/// which exists only for `getModuleInstanceStateCached`'s cycle guard (spelled
+/// `None` in the `visited` map here).
+///
+/// The declaration order is upstream's numeric order and the derived `Ord`
+/// relies on it: `getModuleInstanceStateForAliasTarget` keeps the *greater*
+/// state with `>`, and upstream numbers `ConstEnumOnly` above `Instantiated`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModuleInstanceState {
     /// The declaration emits nothing — it contains only types.
     NonInstantiated,
+    /// It emits JavaScript.
+    Instantiated,
     /// It emits only `const enum`s, so whether it is code depends on
     /// `preserveConstEnums`.
     ConstEnumOnly,
-    /// It emits JavaScript.
-    Instantiated,
 }
 
-/// `getModuleInstanceStateWorker` (`ast/utilities.go:2352`).
+/// `GetModuleInstanceState` (`ast/utilities.go:2322`) for the module
+/// declaration `node`.
 ///
-/// Answers whether a module declaration — or any statement that could appear in
-/// one — contributes anything to the emitted JavaScript. Two subsystems need
-/// it and neither can own it: the **checker** asks whether an unreachable
-/// namespace is unreachable *code* (`isSourceElementUnreachable`,
-/// `checker.go:2461`), and the **binder** asks whether a namespace declares a
-/// value, which is what picks `ValueModule` over `NamespaceModule` and
-/// therefore which excludes mask it gets. It lives here, beside the other
-/// `ast/utilities.go` ports, for the same reason it lives there upstream.
+/// Answers whether a module declaration contributes anything to the emitted
+/// JavaScript. Three subsystems need it and none can own it: the **checker**
+/// asks whether an unreachable namespace is unreachable *code*
+/// (`isSourceElementUnreachable`, `checker.go:2461`), the **binder** asks
+/// whether a namespace declares a value, which picks `ValueModule` over
+/// `NamespaceModule` (`declareModuleSymbol`, `binder.go:813`), and the `.types`
+/// writer asks it through `GetMeaningFromDeclaration`. It lives here, beside the
+/// other `ast/utilities.go` ports, for the same reason it lives there upstream.
 ///
-/// Written against the **typed** tree via [`push_children`] rather than against
-/// node ids, so it needs no side tables and no `&Checker` — that is what makes
-/// it shareable. `getModuleInstanceStateCached`'s `visited` map is not ported:
-/// the only cycle it guards is `getModuleInstanceStateForAliasTarget`'s walk
-/// back out through enclosing statement lists, and that arm is declined to
-/// `Instantiated` — upstream's own "couldn't locate, assume could refer to a
-/// value" fallback (`utilities.go:2436`). The depth cap stands in for it.
+/// `parents` is `node`'s ancestor chain, outermost first and ending with its
+/// parent. Upstream reads `node.Parent` once the explicit `ancestors` stack is
+/// exhausted (`popAncestor`); the typed tree has no parent links, so callers
+/// supply that chain and the walk pushes onto a copy of it.
+/// `getModuleInstanceStateForAliasTarget` climbs it to find the statement an
+/// `export { x }` names.
 ///
+/// The `visited` map is `getModuleInstanceStateCached`'s: keyed by node id,
+/// owned by this one call, `None` while a node is in progress (a cycle answers
+/// `NonInstantiated`, as upstream's `Unknown` does) and the final state after.
 /// See `docs/architecture/checker-notes-diag2.md` §89 and §95.
 #[must_use]
-pub fn module_instance_state(node: Node<'_>) -> ModuleInstanceState {
-    module_instance_state_at(node, 0)
+pub fn module_instance_state<'a>(node: Node<'a>, parents: &[Node<'a>]) -> ModuleInstanceState {
+    let mut walk = InstanceStateWalk { visited: std::collections::HashMap::new() };
+    let mut ancestors = parents.to_vec();
+    walk.module(node, &mut ancestors)
 }
 
-fn module_instance_state_at(node: Node<'_>, depth: u32) -> ModuleInstanceState {
-    if depth > 64 {
-        return ModuleInstanceState::Instantiated;
+/// One `GetModuleInstanceState` call's `visited` map.
+struct InstanceStateWalk {
+    visited: std::collections::HashMap<NodeId, Option<ModuleInstanceState>>,
+}
+
+impl InstanceStateWalk {
+    /// `getModuleInstanceState` (`ast/utilities.go:2326`).
+    fn module<'a>(&mut self, node: Node<'a>, ancestors: &mut Vec<Node<'a>>) -> ModuleInstanceState {
+        let Node::ModuleDeclaration(module) = node else {
+            return ModuleInstanceState::Instantiated;
+        };
+        // `declare module "x";` with no body is instantiated upstream.
+        let Some(body) = module.body else { return ModuleInstanceState::Instantiated };
+        ancestors.push(node);
+        let state = self.cached(Node::from(body), ancestors);
+        ancestors.pop();
+        state
     }
-    match node {
-        Node::InterfaceDeclaration(_) | Node::TypeAliasDeclaration(_) => {
-            ModuleInstanceState::NonInstantiated
+
+    /// `getModuleInstanceStateCached` (`ast/utilities.go:2335`).
+    fn cached<'a>(&mut self, node: Node<'a>, ancestors: &mut Vec<Node<'a>>) -> ModuleInstanceState {
+        let Some(id) = node.node_id() else { return self.worker(node, ancestors) };
+        if let Some(cached) = self.visited.get(&id) {
+            return cached.unwrap_or(ModuleInstanceState::NonInstantiated);
         }
-        Node::EnumDeclaration(declaration)
-            if has_syntactic_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) =>
-        {
-            ModuleInstanceState::ConstEnumOnly
-        }
-        // A non-exported import declares nothing in the emitted module.
-        Node::ImportDeclaration(declaration)
-            if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
-        {
-            ModuleInstanceState::NonInstantiated
-        }
-        Node::ImportEqualsDeclaration(declaration)
-            if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
-        {
-            ModuleInstanceState::NonInstantiated
-        }
-        Node::ModuleDeclaration(declaration) => match declaration.body {
-            Some(body) => module_instance_state_at(Node::from(body), depth + 1),
-            // `declare module "x";` with no body is instantiated upstream.
-            None => ModuleInstanceState::Instantiated,
-        },
-        Node::ModuleBlock(_) => {
-            let mut children = Vec::new();
-            push_children(node, &mut children);
-            let mut state = ModuleInstanceState::NonInstantiated;
-            for child in children {
-                match module_instance_state_at(child, depth + 1) {
-                    ModuleInstanceState::Instantiated => return ModuleInstanceState::Instantiated,
-                    ModuleInstanceState::ConstEnumOnly => {
-                        state = ModuleInstanceState::ConstEnumOnly;
+        self.visited.insert(id, None);
+        let result = self.worker(node, ancestors);
+        self.visited.insert(id, Some(result));
+        result
+    }
+
+    /// `getModuleInstanceStateWorker` (`ast/utilities.go:2352`).
+    fn worker<'a>(&mut self, node: Node<'a>, ancestors: &mut Vec<Node<'a>>) -> ModuleInstanceState {
+        match node {
+            Node::InterfaceDeclaration(_) | Node::TypeAliasDeclaration(_) => {
+                ModuleInstanceState::NonInstantiated
+            }
+            Node::EnumDeclaration(declaration)
+                if has_syntactic_modifier(declaration.modifiers, SyntaxKind::ConstKeyword) =>
+            {
+                ModuleInstanceState::ConstEnumOnly
+            }
+            // A non-exported import declares nothing in the emitted module.
+            Node::ImportDeclaration(declaration)
+                if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+            {
+                ModuleInstanceState::NonInstantiated
+            }
+            Node::ImportEqualsDeclaration(declaration)
+                if !has_syntactic_modifier(declaration.modifiers, SyntaxKind::ExportKeyword) =>
+            {
+                ModuleInstanceState::NonInstantiated
+            }
+            Node::ExportDeclaration(declaration) if declaration.module_specifier.is_none() => {
+                let Some(NamedExportBindings::NamedExports(clause)) = declaration.export_clause
+                else {
+                    return ModuleInstanceState::Instantiated;
+                };
+                let depth = ancestors.len();
+                ancestors.push(node);
+                ancestors.push(Node::from(declaration.export_clause.expect("matched above")));
+                let mut state = ModuleInstanceState::NonInstantiated;
+                for specifier in clause.elements {
+                    let specifier_state = self.alias_target(specifier, ancestors);
+                    if specifier_state > state {
+                        state = specifier_state;
                     }
-                    ModuleInstanceState::NonInstantiated => {}
+                    if state == ModuleInstanceState::Instantiated {
+                        break;
+                    }
+                }
+                ancestors.truncate(depth);
+                state
+            }
+            Node::ModuleBlock(_) => {
+                let mut children = Vec::new();
+                push_children(node, &mut children);
+                ancestors.push(node);
+                let mut state = ModuleInstanceState::NonInstantiated;
+                for child in children {
+                    match self.cached(child, ancestors) {
+                        ModuleInstanceState::Instantiated => {
+                            state = ModuleInstanceState::Instantiated;
+                            break;
+                        }
+                        ModuleInstanceState::ConstEnumOnly => {
+                            state = ModuleInstanceState::ConstEnumOnly;
+                        }
+                        ModuleInstanceState::NonInstantiated => {}
+                    }
+                }
+                ancestors.pop();
+                state
+            }
+            Node::ModuleDeclaration(_) => self.module(node, ancestors),
+            _ => ModuleInstanceState::Instantiated,
+        }
+    }
+
+    /// `getModuleInstanceStateForAliasTarget` (`ast/utilities.go:2406`).
+    ///
+    /// `ancestors` ends with the specifier's parent (the `NamedExports`); the
+    /// climb walks it from the top without mutating it, and each statement list
+    /// it searches is evaluated with the chain cut back to that list's owner.
+    fn alias_target<'a>(
+        &mut self,
+        specifier: &'a ExportSpecifier<'a>,
+        ancestors: &[Node<'a>],
+    ) -> ModuleInstanceState {
+        let Some(ModuleExportName::Identifier(name)) = specifier.property_name.or(specifier.name)
+        else {
+            // Skip for invalid syntax like this: export { "x" }
+            return ModuleInstanceState::Instantiated;
+        };
+        for index in (0..ancestors.len()).rev() {
+            let statements = match ancestors[index] {
+                Node::Block(block) => block.statements,
+                Node::ModuleBlock(block) => block.statements,
+                Node::SourceFile(file) => file.statements,
+                _ => continue,
+            };
+            let mut statements_ancestors = ancestors[..=index].to_vec();
+            let mut found = None;
+            for statement in statements {
+                let statement = Node::from(*statement);
+                if !node_has_name(statement, name.text) {
+                    continue;
+                }
+                let state = self.cached(statement, &mut statements_ancestors);
+                if found.is_none_or(|found| state > found) {
+                    found = Some(state);
+                }
+                if found == Some(ModuleInstanceState::Instantiated) {
+                    return ModuleInstanceState::Instantiated;
+                }
+                if matches!(statement, Node::ImportEqualsDeclaration(_)) {
+                    // Treat re-exports of import aliases as instantiated since
+                    // they're ambiguous, consistent with `export import x = mod.x`.
+                    found = Some(ModuleInstanceState::Instantiated);
                 }
             }
-            state
+            if let Some(found) = found {
+                return found;
+            }
         }
-        _ => ModuleInstanceState::Instantiated,
+        // Couldn't locate, assume could refer to a value.
+        ModuleInstanceState::Instantiated
     }
+}
+
+/// `NodeHasName` (`ast/utilities.go:2449`).
+fn node_has_name(statement: Node<'_>, text: &str) -> bool {
+    let identifier = match statement {
+        Node::FunctionDeclaration(n) => n.name,
+        Node::ClassDeclaration(n) => n.name,
+        Node::InterfaceDeclaration(n) => n.name,
+        Node::TypeAliasDeclaration(n) => n.name,
+        Node::EnumDeclaration(n) => n.name,
+        Node::ImportEqualsDeclaration(n) => n.name,
+        Node::ModuleDeclaration(n) => match n.name {
+            Some(ModuleName::Identifier(identifier)) => Some(identifier),
+            _ => None,
+        },
+        Node::VariableStatement(n) => {
+            return n.declaration_list.is_some_and(|list| {
+                list.declarations.iter().any(|declaration| {
+                    matches!(declaration.name, Some(BindingName::Identifier(identifier)) if identifier.text == text)
+                })
+            });
+        }
+        _ => None,
+    };
+    identifier.is_some_and(|identifier| identifier.text == text)
 }
 
 /// `HasSyntacticModifier` for a modifier list — the shared spelling of the test

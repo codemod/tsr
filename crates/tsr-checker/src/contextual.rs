@@ -2695,6 +2695,45 @@ impl<'a> Checker<'a, '_> {
         contextual
     }
 
+    /// Resolve a call (or `new`) with a context-sensitive argument before the
+    /// diagnostic walk descends into its arguments.
+    ///
+    /// Upstream checks the statement around a call first —
+    /// `checkExpressionStatement` (`checker.go:7329`), the initializer of
+    /// `checkVariableLikeDeclaration` — and that `checkExpression` resolves
+    /// the call, during which `contextuallyCheckFunctionExpressionOrObjectLiteralMethod`
+    /// (`checker.go:10152`) runs `assignContextualParameterTypes`
+    /// (`checker.go:10349`) on each callback under the inferred signature.
+    /// The callback's body is checked later, by `checkNodeDeferred`
+    /// (`checker.go:2484`), so every read inside it sees parameters typed by
+    /// the resolved signature. This port's walk runs its rules pre-order and
+    /// reaches a callback's body (`{ ..._ }` in `map(m, (_) => ({ ..._ }))`)
+    /// with the call unresolved; the parameter's type then came from
+    /// [`Checker::contextual_type_for_argument`]'s stateless road, whose
+    /// fixing mapper answers `unknown`, and TS2698 fired.
+    ///
+    /// Only calls with a context-sensitive argument are resolved here: those
+    /// are the calls whose resolution publishes callback parameter types
+    /// (`resolved_call_signatures`, `node_types` of the callback) that later
+    /// walk reads consume. Resolving every call also exposes an unrelated
+    /// argument-type defect (`intersectionSatisfiesConstraint`: a reference
+    /// typed `T & {…}` where upstream's `getNarrowableTypeForReference`
+    /// substitutes the constraint), so the wider form waits on that fix. The
+    /// work is the call's own `check_expression`, memoized in `node_types`;
+    /// no cache is added.
+    pub(crate) fn resolve_call_before_callback_bodies(
+        &mut self,
+        node: NodeId,
+        arguments: &[Expression<'_>],
+    ) {
+        if self.file_has_parse_errors
+            || !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+        {
+            return;
+        }
+        self.check_expression_at_node(node);
+    }
+
     /// The resolving section of [`Checker::contextual_type_for_argument`] —
     /// everything that computes the callee's type, split out so the §469
     /// sentinel can park around it with one insert/remove pair rather than

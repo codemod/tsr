@@ -436,15 +436,29 @@ struct Relater<'c, 'a, 'n> {
     checker: &'c mut Checker<'a, 'n>,
     relation: Relation,
     /// Completed results only, scoped to this checker-local relation walk.
-    results: FxHashMap<(TypeId, TypeId), RelationResult>,
+    results: FxHashMap<RelationKey, RelationResult>,
     /// Native maybeKeys/maybeKeysSet: active and assumption-dependent proofs.
-    maybe_keys: Vec<(TypeId, TypeId)>,
-    maybe_keys_set: FxHashSet<(TypeId, TypeId)>,
+    maybe_keys: Vec<RelationKey>,
+    maybe_keys_set: FxHashSet<RelationKey>,
     depth: usize,
     source_stack: Vec<TypeId>,
     target_stack: Vec<TypeId>,
     expanding: (bool, bool),
+    /// Native `IntersectionStateTarget` (`relater.go:2879`): set while the
+    /// walk relates a source to each constituent of a target intersection
+    /// (`typeRelatedToEachType`), and inherited by every nested relation the
+    /// way native threads `intersectionState` through `isRelatedToEx`. It
+    /// disables the excess-property and common-property arms
+    /// (`relater.go:2666`/`:2676`) and the intersection property-check pass
+    /// (`relater.go:3232`), so it is part of [`RelationKey`] as in native
+    /// `getRelationKey`. `IntersectionStateSource` is not represented.
+    intersection_target: bool,
 }
+
+/// A walk-local relation result key: the ordered pair and whether it was
+/// related under `IntersectionStateTarget` (native `getRelationKey`'s
+/// intersection-state suffix).
+type RelationKey = (TypeId, TypeId, bool);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RecursionIdentity {
@@ -632,6 +646,7 @@ impl Checker<'_, '_> {
             source_stack: Vec::new(),
             target_stack: Vec::new(),
             expanding: (false, false),
+            intersection_target: false,
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
@@ -752,6 +767,7 @@ impl Checker<'_, '_> {
             source_stack: Vec::new(),
             target_stack: Vec::new(),
             expanding: (false, false),
+            intersection_target: false,
         };
         let mut missing = Vec::new();
         for name in names {
@@ -786,21 +802,58 @@ impl Checker<'_, '_> {
         if missing.len() == 1 {
             return Some(missing);
         }
-        // tryElaborateArrayLikeErrors with reportErrors false.
+        let (elaborates, _) = self.try_elaborate_array_like_errors(source, target);
+        elaborates.then_some(missing)
+    }
+
+    /// `tryElaborateArrayLikeErrors` (`relater.go:4379`): its answer, and
+    /// whether with `reportErrors` it reports TS4104 (`The type '{0}' is
+    /// 'readonly' and cannot be assigned to the mutable type '{1}'`) — a
+    /// readonly tuple or `ReadonlyArray` source against a mutable array or
+    /// tuple target. Pure reads of the tuple/array reference tables.
+    pub(crate) fn try_elaborate_array_like_errors(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> (bool, bool) {
+        let is_tuple = |id: TypeId| {
+            self.tuple_element_lists.contains_key(&id)
+                || self.variadic_tuple_elements.contains_key(&id)
+        };
         let target_array = self.array_reference_readonly(target);
+        let target_tuple = is_tuple(target);
+        // isMutableArrayOrTuple (checker.go)
         let target_mutable_array_or_tuple =
             target_array == Some(false) || (target_tuple && !self.tuple_is_readonly(target));
-        let elaborates = if source_tuple {
-            !(self.tuple_is_readonly(source) && target_mutable_array_or_tuple)
-                && (target_tuple || target_array.is_some())
-        } else if source_array == Some(true) && target_mutable_array_or_tuple {
-            false
-        } else if target_tuple {
-            source_array.is_some()
-        } else {
-            true
+        if is_tuple(source) {
+            if self.tuple_is_readonly(source) && target_mutable_array_or_tuple {
+                return (false, true);
+            }
+            return (target_tuple || target_array.is_some(), false);
+        }
+        let source_array = self.array_reference_readonly(source);
+        if source_array == Some(true) && target_mutable_array_or_tuple {
+            return (false, true);
+        }
+        if target_tuple {
+            return (source_array.is_some(), false);
+        }
+        (true, false)
+    }
+
+    /// `reportErrorResults`' (`relater.go:4705`) array-like arm: for two
+    /// object types it calls `tryElaborateArrayLikeErrors` with
+    /// `reportErrors`, and `reportRelationError` (`relater.go:4751`) then
+    /// suppresses the head because the chain's TS4104 names the same pair.
+    /// The caller must already hold a `NotRelated` verdict for the pair.
+    pub(crate) fn readonly_to_mutable_array_like(&self, source: TypeId, target: TypeId) -> bool {
+        let object_only = |flags: TypeFlags| {
+            flags.contains(TypeFlags::OBJECT)
+                && !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
         };
-        elaborates.then_some(missing)
+        object_only(self.type_of(source).flags)
+            && object_only(self.type_of(target).flags)
+            && self.try_elaborate_array_like_errors(source, target).1
     }
 
     /// `getPropertiesOfType` of a tuple target, as `(name, optional)` in
@@ -890,6 +943,7 @@ impl Checker<'_, '_> {
             source_stack: Vec::new(),
             target_stack: Vec::new(),
             expanding: (false, false),
+            intersection_target: false,
         };
         relater
             .one_signature_related_to(source, target, false, false)
@@ -911,16 +965,9 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         flags: RecursionFlags,
     ) -> RelationResult {
-        self.is_related_to_with_excess(source, target, true, flags)
-    }
-
-    fn is_related_to_with_excess(
-        &mut self,
-        source: TypeId,
-        target: TypeId,
-        check_excess: bool,
-        flags: RecursionFlags,
-    ) -> RelationResult {
+        // isPerformingExcessPropertyChecks / isPerformingCommonPropertyChecks
+        // both require intersectionState&IntersectionStateTarget == 0.
+        let check_excess = !self.intersection_target;
         // Upstream reduces a fresh literal to its regular form on both sides
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
         // one type here even though they are two interned types.
@@ -989,6 +1036,17 @@ impl Relater<'_, '_, '_> {
             && !(matches!(self.relation, Relation::Assignable | Relation::Comparable)
                 && self.target_exempts_excess_properties(target))
             && self.checker.fresh_literal_has_excess_property(source, target)
+        {
+            return RelationResult::NotRelated;
+        }
+        // isPerformingCommonPropertyChecks && !hasCommonProperties
+        // (isRelatedToEx, relater.go:2676): a weak target that knows none of
+        // the source's properties. Not under IntersectionStateTarget, and
+        // under the comparable relation only for a unit source.
+        if check_excess
+            && (!matches!(self.relation, Relation::Comparable)
+                || self.checker.type_of(source).flags.intersects(TypeFlags::UNIT))
+            && self.checker.fails_common_property_check(source, target)
         {
             return RelationResult::NotRelated;
         }
@@ -2375,7 +2433,7 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         flags: RecursionFlags,
     ) -> RelationResult {
-        let key = (source, target);
+        let key = (source, target, self.intersection_target);
         if let Some(&cached) = self.results.get(&key) {
             return cached;
         }
@@ -2465,7 +2523,7 @@ impl Relater<'_, '_, '_> {
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
     fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
-        let result = self.structured_type_related_to_worker(source, target);
+        let mut result = self.structured_type_related_to_worker(source, target);
         let target_is_union = self.checker.type_of(target).flags.contains(TypeFlags::UNION);
         if !result.is_success()
             && (self.checker.type_of(source).flags.contains(TypeFlags::INTERSECTION)
@@ -2487,7 +2545,53 @@ impl Relater<'_, '_, '_> {
                 ]);
             }
         }
+        // The intersection property-check pass (relater.go:3232): a target
+        // intersection's combined property types meet the source's members
+        // with IntersectionStateNone, detecting nested excess properties and
+        // nested weak types the per-constituent walk (under
+        // IntersectionStateTarget) does not check.
+        //
+        // Stated divergence: where this port cannot decide the pass (a
+        // constituent whose member table it cannot enumerate, such as a
+        // mapped type or a primitive's apparent members), the constituent
+        // walk's verdict stands. Relating the source to every constituent
+        // already relates each member to every contributing property type,
+        // so an undecided pass can only be missing a nested excess or
+        // weak-type failure, never a member the walk accepted wrongly.
+        if result.is_success()
+            && !self.intersection_target
+            && let Some(constituents) = self.intersection_constituents(target)
+            && self
+                .checker
+                .type_of(source)
+                .flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+            && !self.intersection_is_generic_object(&constituents)
+        {
+            let mut pass = self.properties_related_to(source, target);
+            if pass.is_success() && self.checker.fresh_object_literal_types.contains(&source) {
+                let index = self
+                    .related_index_signatures(source, target)
+                    .unwrap_or(RelationResult::Unknown);
+                pass = RelationResult::all([pass, index]);
+            }
+            if pass != RelationResult::Unknown {
+                result = RelationResult::all([result, pass]);
+            }
+        }
         result
+    }
+
+    /// `isGenericObjectType` (`checker.go`) of a target intersection: some
+    /// constituent is a type variable or other instantiable non-primitive, or
+    /// a generic mapped type.
+    fn intersection_is_generic_object(&mut self, constituents: &[TypeId]) -> bool {
+        constituents.iter().any(|&part| {
+            self.checker.type_of(part).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) || {
+                self.checker.ensure_mapped_type_info(part);
+                self.is_generic_mapped_target(part)
+            }
+        })
     }
 
     /// structuredTypeRelatedToWorker (internal/checker/relater.go).
@@ -2529,13 +2633,18 @@ impl Relater<'_, '_, '_> {
         }
         if let Some(constituents) = self.intersection_constituents(target) {
             // Related to every constituent of a target intersection.
-            // Upstream's `typeRelatedToEachType`, with IntersectionStateTarget.
-            // The whole intersection's accepted names were checked already;
-            // nested property comparisons still check their own fresh sources.
+            // Upstream's `typeRelatedToEachType` with IntersectionStateTarget
+            // (relater.go:2879): the whole intersection's accepted names were
+            // checked already, and nested comparisons skip their excess and
+            // common-property checks; structured_type_related_to's property
+            // pass checks them against the combined property types instead.
+            let previous = std::mem::replace(&mut self.intersection_target, true);
             let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_excess(source, c, false, RecursionFlags::TARGET));
-            return RelationResult::all(parts);
+                .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
+            let result = RelationResult::all(parts);
+            self.intersection_target = previous;
+            return result;
         }
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
@@ -3576,6 +3685,23 @@ impl Relater<'_, '_, '_> {
     /// Mapped/spread symbols keep their declaration origins while overriding
     /// Optional/Readonly flags (propertyRelatedTo, internal/checker/relater.go).
     fn property_flags(&mut self, receiver: TypeId, name: &str) -> Option<(bool, bool)> {
+        // createUnionOrIntersectionProperty (checker.go): an intersection
+        // property is optional (readonly) only when every contributing
+        // constituent's property is.
+        if let Some(parts) = self.intersection_constituents(receiver) {
+            let mut combined: Option<(bool, bool)> = None;
+            for part in parts {
+                if self.checker.get_type_of_property_of_type(part, name).is_none() {
+                    continue;
+                }
+                let (optional, readonly) = self.property_flags(part, name)?;
+                combined = Some(match combined {
+                    None => (optional, readonly),
+                    Some((o, r)) => (o && optional, r && readonly),
+                });
+            }
+            return combined;
+        }
         self.checker.resolve_mapped_type_members(receiver);
         if let Some((properties, _)) = self.checker.anonymous_properties.get(&receiver)
             && let Some(property) = properties.iter().find(|property| property.name == name)
@@ -3681,6 +3807,7 @@ mod variance_recursion_tests {
                 source_stack: Vec::new(),
                 target_stack: Vec::new(),
                 expanding: (false, false),
+                intersection_target: false,
             };
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);

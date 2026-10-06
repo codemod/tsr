@@ -998,6 +998,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
+    /// `resolvedBaseConstructorType`/`resolvedBaseTypes` per class or
+    /// interface symbol; owner and publication rules in [`crate::base_types`].
+    pub(crate) base_type_links: crate::base_types::BaseTypeLinks,
     pub(crate) type_parameter_default_cache: FxHashMap<
         crate::declared::TypeParameterDefaultKey,
         crate::declared::TypeParameterDefaultState,
@@ -1511,6 +1514,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             string_mapping_cache: FxHashMap::default(),
             template_literal_cache: FxHashMap::default(),
             mapped_apparent_types: FxHashMap::default(),
+            base_type_links: crate::base_types::BaseTypeLinks::default(),
             type_parameter_default_cache: FxHashMap::default(),
             type_parameter_constraint_cache: FxHashMap::default(),
             reverse_mapped_cache: FxHashMap::default(),
@@ -4346,5 +4350,99 @@ impl<'a, 'n> Checker<'a, 'n> {
     #[must_use]
     pub fn nodes(&self) -> &NodeTable {
         self.nodes
+    }
+
+    /// `getSymbolOfPartOfRightHandSideOfImportEquals` (`checker.go:14474`):
+    /// the symbol a name inside an `import a = b.c.d` module reference
+    /// denotes. A right-hand identifier stands for its qualified name; a name
+    /// that is the whole reference's root or the left of a further qualified
+    /// name is a namespace (`import a = |b|`, `import a = |b.c|.d`), and the
+    /// whole reference takes every meaning (`import a = |b.c|`). Both resolve
+    /// with `dontResolveAlias`, so an alias answers itself.
+    ///
+    /// Over [`Checker::resolve_entity_name_ex`], which is `ignoreErrors =
+    /// true`; upstream passes `false`, and the diagnostics that would report
+    /// belong to the import-equals check, not to this query. No cache:
+    /// upstream has none either; the callers memoise the types they build.
+    pub fn get_symbol_of_part_of_right_hand_side_of_import_equals(
+        &mut self,
+        entity_name: NodeId,
+    ) -> Option<SymbolId> {
+        let mut entity_name = entity_name;
+        // `ast.IsRightSideOfQualifiedNameOrPropertyAccess`.
+        if self.nodes.kind(entity_name) == SyntaxKind::Identifier
+            && let Some(parent) = self.nodes.parent(entity_name)
+            && match self.node_map.get(parent) {
+                Some(Node::QualifiedName(qualified)) => {
+                    qualified.right.and_then(|right| right.node_id) == Some(entity_name)
+                }
+                Some(Node::PropertyAccessExpression(access)) => {
+                    access.name.and_then(|name| name.node_id()) == Some(entity_name)
+                }
+                _ => false,
+            }
+        {
+            entity_name = parent;
+        }
+        let name = match self.node_map.get(entity_name)? {
+            Node::Identifier(identifier) => tsr_ast::EntityName::Identifier(identifier),
+            Node::QualifiedName(qualified) => tsr_ast::EntityName::QualifiedName(qualified),
+            _ => return None,
+        };
+        let in_qualified_name = self
+            .nodes
+            .parent(entity_name)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::QualifiedName);
+        if matches!(name, tsr_ast::EntityName::Identifier(_)) || in_qualified_name {
+            return self.resolve_entity_name_ex(name, SymbolFlags::NAMESPACE, true);
+        }
+        self.resolve_entity_name_ex(
+            name,
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+            true,
+        )
+    }
+
+    /// The export-assignment arm of `getSymbolOfNameOrPropertyAccessExpression`
+    /// (`checker.go:31780`): the expression of `export = x` / `export default
+    /// x` resolves with every meaning including `Alias`, `ignoreErrors`, and
+    /// without `dontResolveAlias` — but since `Alias` is in the meaning,
+    /// `resolveEntityName`'s chain walk (`checker.go:15821`) never runs and an
+    /// alias answers itself. `None` is upstream's nil/`unknownSymbol` miss.
+    ///
+    /// Only the identifier spelling is answered: `export = a.b` is a property
+    /// access, an expression node, which `getTypeOfNode` types before it ever
+    /// asks for this symbol, and [`Checker::resolve_entity_name_ex`] has no
+    /// property-access arm. No cache, as for the import-equals sibling above.
+    pub fn get_symbol_of_export_assignment_expression(&mut self, name: NodeId) -> Option<SymbolId> {
+        let parent = self.nodes.parent(name)?;
+        let Some(Node::ExportAssignment(assignment)) = self.node_map.get(parent) else {
+            return None;
+        };
+        if assignment.expression.and_then(|expression| expression.node_id()) != Some(name) {
+            return None;
+        }
+        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return None };
+        self.resolve_entity_name_ex(
+            tsr_ast::EntityName::Identifier(identifier),
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+            false,
+        )
+    }
+
+    /// `getDeclaredTypeOfAlias` (`checker.go:24094`): the declared type of
+    /// the symbol an alias chain resolves to (`resolveAlias` resolves the
+    /// whole chain), `errorType` when the chain ends unresolved or at a
+    /// symbol that declares no type. `tryGetDeclaredTypeOfSymbol`
+    /// (`checker.go:23678`) tests this arm last, after the type meanings, so
+    /// callers ask [`Checker::get_declared_type_of_symbol`] first for a
+    /// symbol carrying one. Not memoised per alias (upstream's
+    /// `declaredTypeLinks`); the target's declared type is.
+    pub fn get_declared_type_of_alias(&mut self, symbol: SymbolId) -> TypeId {
+        let target = self.resolve_alias_fully(symbol);
+        if self.binder.symbols().get(target).flags.intersects(SymbolFlags::ALIAS) {
+            return self.intrinsics.error;
+        }
+        self.get_declared_type_of_symbol(target)
     }
 }

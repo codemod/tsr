@@ -2000,11 +2000,9 @@ impl Checker<'_, '_> {
     /// - **An object-literal container.** Upstream assumes `any` there
     ///   (`checker.go:7917`), and `checker-notes-rank.md` §6 forbids banking on
     ///   `any`.
-    /// - **A base this port cannot resolve.** Expression-valued heritage and
-    ///   aliases requiring expansion remain unsupported. Named generic bases
-    ///   apply explicit arguments and defaults before member lookup.
-    /// - **`extends null`**, whose answer is the null-widening type
-    ///   (`checker.go:7930`).
+    ///
+    /// The base itself comes from [`Checker::get_base_types`] and
+    /// [`Checker::get_base_constructor_type_of_class`] (`crate::base_types`).
     pub(crate) fn check_super_expression(&mut self, node: NodeId) -> TypeId {
         let error = self.intrinsics.error;
         // `isCallExpression` (`checker.go:7855`): this `super` is its own call's
@@ -2021,6 +2019,7 @@ impl Checker<'_, '_> {
         let mut current = self.nodes.parent(node);
         let mut is_static = None;
         let mut class = None;
+        let mut container = None;
         // §481: a COMPUTED PROPERTY NAME is not inside the member it names —
         // upstream's `getSuperContainer` jumps from the name to the member
         // and keeps walking, so the member is SKIPPED and the search
@@ -2084,6 +2083,7 @@ impl Checker<'_, '_> {
                             return self.intrinsics.any;
                         }
                         is_static = Some(self.has_static_modifier(id));
+                        container = Some(id);
                     }
                 }
                 // §481: a class node is never a super CONTAINER upstream
@@ -2116,87 +2116,44 @@ impl Checker<'_, '_> {
             return error;
         };
 
-        // §202. The **static** side, which is what `super(...)` and a `super`
-        // inside a static member want, differs from the instance side twice
-        // over, and both differences are `getBaseConstructorTypeOfClass`
-        // (`checker.go:17434`) reading `getEffectiveBaseTypeNode` — the
-        // heritage of **this class node** — and typing its *expression*:
-        //
-        // 1. **Type arguments are irrelevant.** `B` is `typeof B` whatever
-        //    follows it in angle brackets, so `class D extends B<any>`'s
-        //    `super()` is `typeof B`. The instance side applies those arguments
-        //    to the class or reads an instantiated constructor's return.
-        // 2. **Only the CLASS's own heritage counts.** `base_symbols_of` walks
-        //    every declaration of the symbol, which for a class merged with an
-        //    interface includes the interface's `extends`. Upstream never looks
-        //    there: `interface Foo extends Array<number> {}` beside
-        //    `class Foo { constructor() { super() } }` is an error and `any`,
-        //    not `ArrayConstructor`. That case was the single loss on §202's
-        //    first measurement and is why this arm reads the node.
+        // `checkSuperExpression`'s base arm (`checker.go:7854`), after the
+        // container checks: the class must write an `extends` element
+        // (`ast.GetExtendsHeritageClauseElement`, TS2335 otherwise); an
+        // `extends null` class answers errorType for a call and the
+        // null-widening type otherwise (`classDeclarationExtendsNull`,
+        // `checker.go:12280`); a class without base types answers errorType;
+        // a super CALL or a static member answers
+        // `getBaseConstructorTypeOfClass`, an instance member
+        // `getTypeWithThisArgument(getBaseTypes(classType)[0])`, which this
+        // port's references print as the base itself.
         let clauses = match self.node_map.get(class) {
             Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
             Some(Node::ClassExpression(node)) => node.heritage_clauses,
             _ => return error,
         };
-        let mut extends = clauses
+        if clauses
             .iter()
-            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-            .flat_map(|clause| clause.types.iter());
-        // Exactly one `extends` entry, which is the grammar for a class.
-        let (Some(entry), None) = (extends.next(), extends.next()) else { return error };
-        let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .is_none_or(|clause| clause.types.is_empty())
+        {
             return error;
-        };
-        if is_static || is_call {
-            // Type arguments are irrelevant to the static side only when they
-            // are *legal*. A wrong ARITY makes the whole base type an error
-            // upstream — `getTypeFromClassOrInterfaceReference` reports and
-            // answers `errorType` — so `class B extends A<number, string>` over
-            // a non-generic `A` records `>super : any`, not `>typeof A`. Two
-            // cases lost a line to that on §202's first measurement, which is
-            // the difference between "the arguments do not change the answer"
-            // and "the arguments cannot be there at all".
-            //
-            // **Too many only.** Upstream's window is
-            // `[minTypeArgumentCount, len(typeParameters)]` (§136), so a
-            // *short* list is legal whenever the missing positions are
-            // defaulted. Testing `!=` was measured and is wrong: it refuses
-            // those, costing four lines in `compiler/genericDefaultsJs`.
-            //
-            // Residue, named: a list shorter than the **minimum** is also an
-            // upstream error and is not detected here, because this port does
-            // not compute `minTypeArgumentCount`. It costs one line in
-            // `superCallFromClassThatDerivesFromGenericTypeButWithIncorrectNumberOfTypeArguments1`,
-            // measured, and no case.
-            if entry.type_arguments.len() > self.type_parameter_count_of(base) {
-                return error;
-            }
-            return self.get_type_of_symbol(base);
         }
-        self.instance_base_type_of_heritage_entry(base, entry)
-    }
-
-    /// How many type parameters a class or interface symbol declares.
-    ///
-    /// The **maximum** over its declarations rather than the first's: a merged
-    /// interface may repeat the list, and an ambient declaration may carry it
-    /// where the value declaration does not. Taking the maximum keeps a
-    /// legal-arity heritage entry legal; taking the first would make one
-    /// spelling of a merge refuse arguments the other admits.
-    fn type_parameter_count_of(&self, symbol: tsr_binder::SymbolId) -> usize {
-        self.binder
-            .symbols()
-            .get(symbol)
-            .declarations
-            .iter()
-            .filter_map(|&declaration| match self.node_map.get(declaration) {
-                Some(Node::ClassDeclaration(node)) => Some(node.type_parameters.len()),
-                Some(Node::ClassExpression(node)) => Some(node.type_parameters.len()),
-                Some(Node::InterfaceDeclaration(node)) => Some(node.type_parameters.len()),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0)
+        let Some(class_symbol) = self.binder.symbol_of(class) else { return error };
+        let constructor = self.get_base_constructor_type_of_class(class_symbol);
+        if constructor == self.intrinsics.null {
+            return if is_call { error } else { self.intrinsics.null };
+        }
+        let Some(&base) = self.get_base_types(class_symbol).first() else { return error };
+        if let Some(container) = container
+            && self.nodes.kind(container) == SyntaxKind::Constructor
+            && self.is_in_constructor_argument_initializer(node, container)
+        {
+            return error;
+        }
+        if is_static || is_call {
+            return constructor;
+        }
+        base
     }
 
     /// Whether a bare identifier sits in a position upstream refuses to resolve

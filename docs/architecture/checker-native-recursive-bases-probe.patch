@@ -1,0 +1,351 @@
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -785,6 +785,7 @@
+ 	zeroBigIntType                              *Type
+ 	typeofType                                  *Type
+ 	typeResolutions                             []TypeResolution
++	nativeBaseProbe                             *NativeBaseProbe
+ 	resolutionStart                             int
+ 	inVarianceComputation                       bool
+ 	apparentArgumentCount                       *int
+@@ -5007,7 +5008,9 @@
+ 		typeWithThis := c.getTypeWithThisArgument(t, nil, false)
+ 		// run subsequent checks only if first set succeeded
+ 		if c.checkInheritedPropertiesAreIdentical(t, node.Name()) {
++			c.nativeBaseObserve("heritage-admission", t, nil)
+ 			for _, baseType := range c.getBaseTypes(t) {
++				c.nativeBaseObserve("heritage-compare", t, baseType)
+ 				c.checkTypeAssignableTo(typeWithThis, c.getTypeWithThisArgument(baseType, t.AsInterfaceType().thisType, false), node.Name(), diagnostics.Interface_0_incorrectly_extends_interface_1)
+ 			}
+ 			c.checkIndexConstraints(t, symbol /*isStaticIndex*/, false)
+@@ -19104,6 +19107,7 @@
+ }
+ 
+ func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters []*Type, typeArguments []*Type) {
++	c.nativeBaseObserve("member-worker-enter", source, t)
+ 	var mapper *TypeMapper
+ 	var members ast.SymbolTable
+ 	var callSignatures []*Signature
+@@ -19153,6 +19157,7 @@
+ 		t.objectFlags &^= ObjectFlagsUnresolvedMembers
+ 	}
+ 	c.setStructuredTypeMembers(t, members, callSignatures, constructSignatures, indexInfos)
++	c.nativeBaseObserve("member-worker-exit", source, t)
+ }
+ 
+ func findIndexInfo(indexInfos []*IndexInfo, keyType *Type) *IndexInfo {
+@@ -19169,8 +19174,10 @@
+ 		return nil
+ 	}
+ 	data := t.AsInterfaceType()
++	c.nativeBaseObserve("base-entry", t, nil)
+ 	if !data.baseTypesResolved {
+ 		if !c.pushTypeResolution(t, TypeSystemPropertyNameResolvedBaseTypes) {
++			c.nativeBaseObserve("base-active-reentry", t, nil)
+ 			return data.resolvedBaseTypes
+ 		}
+ 		switch {
+@@ -19186,6 +19193,7 @@
+ 		default:
+ 			panic("Unhandled case in getBaseTypes")
+ 		}
++		c.nativeBaseObserve("base-before-pop", t, nil)
+ 		if !c.popTypeResolution() && t.symbol.Declarations != nil {
+ 			for _, declaration := range t.symbol.Declarations {
+ 				if ast.IsClassDeclaration(declaration) || ast.IsInterfaceDeclaration(declaration) {
+@@ -19197,9 +19205,12 @@
+ 		// for resolution of type parameter defaults to cause circularity errors, possibly leaving
+ 		// members partially resolved. Here we ensure any such partial resolution is reset.
+ 		// See https://github.com/microsoft/TypeScript/issues/16861 for an example.
++		c.nativeBaseObserve("base-before-reset", t, nil)
+ 		t.objectFlags &^= ObjectFlagsMembersResolved
+ 		data.baseTypesResolved = true
+-	}
++		c.nativeBaseObserve("base-published", t, nil)
++	}
++	c.nativeBaseObserve("base-return", t, nil)
+ 	return data.resolvedBaseTypes
+ }
+ 
+@@ -19505,7 +19516,9 @@
+ 					if c.isValidBaseType(baseType) {
+ 						if t != baseType && !c.hasBaseType(baseType, t) {
+ 							data.resolvedBaseTypes = append(data.resolvedBaseTypes, baseType)
++							c.nativeBaseObserve("base-appended", t, baseType)
+ 						} else {
++							c.nativeBaseObserve("base-cycle-rejected", t, baseType)
+ 							c.reportCircularBaseType(declaration, t)
+ 						}
+ 					} else {
+--- /dev/null
++++ b/internal/checker/native_base_contract.go
+@@ -0,0 +1,69 @@
++package checker
++
++import "github.com/microsoft/typescript-go/internal/ast"
++
++// Private recorder: hook snapshots read existing fields only. Exported test
++// queries below intentionally execute native operations and are not passive.
++type NativeBaseType struct {
++	ID      uint32      `json:"id"`
++	Name    string      `json:"name"`
++	Flags   TypeFlags   `json:"flags"`
++	Objects ObjectFlags `json:"objects"`
++}
++
++func nativeBaseType(t *Type) NativeBaseType {
++	v := NativeBaseType{}
++	if t != nil {
++		v.ID = uint32(t.id)
++		v.Flags = t.flags
++		v.Objects = t.objectFlags
++		if t.symbol != nil {
++			v.Name = t.symbol.Name
++		}
++	}
++	return v
++}
++
++type NativeBaseFrame struct {
++	Target NativeBaseType `json:"target"`
++	Result bool           `json:"result"`
++}
++type NativeBaseEvent struct {
++	Kind            string            `json:"kind"`
++	Type            NativeBaseType    `json:"type"`
++	Related         NativeBaseType    `json:"related"`
++	Resolved        bool              `json:"resolved"`
++	MembersResolved bool              `json:"members_resolved"`
++	Bases           []NativeBaseType  `json:"bases"`
++	Stack           []NativeBaseFrame `json:"stack"`
++}
++type NativeBaseProbe struct {
++	Events []NativeBaseEvent `json:"events"`
++}
++
++func (c *Checker) NativeBaseStart() { c.nativeBaseProbe = &NativeBaseProbe{} }
++func (c *Checker) nativeBaseObserve(kind string, t, related *Type) {
++	if c.nativeBaseProbe == nil || t == nil || t.objectFlags&(ObjectFlagsClassOrInterface|ObjectFlagsTuple) == 0 {
++		return
++	}
++	d := t.AsInterfaceType()
++	v := NativeBaseEvent{Kind: kind, Type: nativeBaseType(t), Related: nativeBaseType(related), Resolved: d.baseTypesResolved, MembersResolved: t.objectFlags&ObjectFlagsMembersResolved != 0}
++	for _, base := range d.resolvedBaseTypes {
++		v.Bases = append(v.Bases, nativeBaseType(base))
++	}
++	for _, frame := range c.typeResolutions {
++		if frame.propertyName == TypeSystemPropertyNameResolvedBaseTypes {
++			v.Stack = append(v.Stack, NativeBaseFrame{Target: nativeBaseType(frame.target.(*Type)), Result: frame.result})
++		}
++	}
++	c.nativeBaseProbe.Events = append(c.nativeBaseProbe.Events, v)
++}
++func (c *Checker) NativeBaseEvents() []NativeBaseEvent {
++	return append([]NativeBaseEvent(nil), c.nativeBaseProbe.Events...)
++}
++func (c *Checker) NativeBaseResolve(symbol *ast.Symbol) NativeBaseEvent {
++	t := c.getDeclaredTypeOfSymbol(symbol)
++	c.getBaseTypes(t)
++	c.nativeBaseObserve("test-base-result", t, nil)
++	return c.nativeBaseProbe.Events[len(c.nativeBaseProbe.Events)-1]
++}
+--- /dev/null
++++ b/internal/checker/native_base_contract_test.go
+@@ -0,0 +1,197 @@
++package checker_test
++
++import (
++	"encoding/json"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/checker"
++	"github.com/microsoft/typescript-go/internal/compiler"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++	"slices"
++	"testing"
++)
++
++type baseCase struct {
++	Name, Body     string
++	Codes          []int32
++	BasesA         []string
++	Cycle, Partial bool
++}
++
++func baseCases() []baseCase {
++	return []baseCase{
++		{"generic-mutual", "interface A<T> extends B<T> {a:T} interface B<T> extends A<T> {b:T} declare const x:A<string>; const probe=x.a;", []int32{2310, 2310}, nil, true, false},
++		{"plain-mutual", "interface A extends B {a:number} interface B extends A {b:string} declare const x:A; const probe=x.a;", []int32{2310, 2310}, nil, true, false},
++		{"generic-self", "interface A<T> extends A<T> {a:T} declare const x:A<string>; const probe=x.a;", []int32{2310}, nil, true, false},
++		{"plain-self", "interface A extends A {a:number} declare const x:A; const probe=x.a;", []int32{2310}, nil, true, false},
++		{"valid-diamond", "interface Root {root:number} interface Left extends Root {left:number} interface Right extends Root {right:string} interface A extends Left,Right {a:number} declare const x:A; const probe=x.a;", nil, []string{"Left", "Right"}, false, false},
++		{"completed-empty", "interface A {a:number} declare const x:A; const probe=x.a;", nil, nil, false, false},
++		{"invalid-base", "type Bad=number; interface A extends Bad {a:number} declare const x:A; const probe=x.a;", []int32{2312}, nil, false, false},
++		{"acyclic-override", "interface Base {value:number} interface A extends Base {value:string} declare const x:A; const probe=x.value;", []int32{2430}, []string{"Base"}, false, false},
++		{"partial-valid-bases-cycle", "interface Root {root:number} interface Later {later:number} interface A<T> extends Root,B<T>,Later {a:T} interface B<T> extends A<T> {b:T} declare const x:A<string>; const probe=x.a;", []int32{2310, 2310}, []string{"Root", "Later"}, true, true},
++		{"natural-default-member-reset", "class BaseType<T> {bar:T} class NextType<C extends {someProp:any},T=C['someProp']> extends BaseType<T> {baz:string} class Foo extends NextType<Foo> {someProp:{test:true}} const foo=new Foo(); const probe=foo.bar.test;", []int32{2310}, nil, false, false},
++	}
++}
++func baseDiagnostic(d *ast.Diagnostic) map[string]any {
++	chain := []map[string]any{}
++	for _, item := range d.MessageChain() {
++		chain = append(chain, baseDiagnostic(item))
++	}
++	related := []map[string]any{}
++	for _, item := range d.RelatedInformation() {
++		related = append(related, baseDiagnostic(item))
++	}
++	return map[string]any{"code": d.Code(), "pos": d.Pos(), "end": d.End(), "category": d.Category(), "key": string(d.MessageKey()), "args": d.MessageArgs(), "chain": chain, "related": related}
++}
++func TestNativeRecursiveBaseParsedPrograms(t *testing.T) {
++	for _, tc := range baseCases() {
++		for _, order := range []string{"cold", "member-first", "checked-first"} {
++			t.Run(tc.Name+"/"+order, func(t *testing.T) {
++				config := `{"compilerOptions":{"strict":false,"target":"es2020","types":[],"skipLibCheck":true,"noEmit":true,"incremental":false,"composite":false,"singleThreaded":true},"files":["input.ts"]}`
++				fs := bundled.WrapFS(vfstest.FromMap(map[string]string{"/input.ts": tc.Body, "/tsconfig.json": config}, false))
++				host := compiler.NewCompilerHost("/", fs, bundled.LibPath(), nil, nil)
++				parsed, errors := tsoptions.GetParsedCommandLineOfConfigFile("/tsconfig.json", &core.CompilerOptions{}, nil, host, nil)
++				if len(errors) != 0 {
++					t.Fatal(errors)
++				}
++				p := compiler.NewProgram(compiler.ProgramOptions{Config: parsed, Host: host})
++				p.BindSourceFiles()
++				file := p.GetSourceFile("/input.ts")
++				var symbols []*ast.Symbol
++				var expression *ast.Node
++				for _, statement := range file.Statements.Nodes {
++					if statement.Kind == ast.KindInterfaceDeclaration || statement.Kind == ast.KindClassDeclaration {
++						symbols = append(symbols, statement.Symbol())
++					}
++					if statement.Kind == ast.KindVariableStatement {
++						for _, d := range statement.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes {
++							if d.Name().Kind == ast.KindIdentifier && d.Name().AsIdentifier().Text == "probe" {
++								expression = d.Initializer()
++							}
++						}
++					}
++				}
++				if expression == nil {
++					t.Fatal("probe missing")
++				}
++				c, release := p.GetTypeChecker(t.Context())
++				c.NativeBaseStart()
++				if order == "checked-first" {
++					release()
++					p.GetSemanticDiagnostics(t.Context(), file)
++					c, release = p.GetTypeChecker(t.Context())
++				}
++				defer func() { release() }()
++				if order == "member-first" {
++					c.GetTypeAtLocation(expression)
++				}
++				var first []checker.NativeBaseEvent
++				for _, symbol := range symbols {
++					first = append(first, c.NativeBaseResolve(symbol))
++				}
++				c.GetTypeAtLocation(expression)
++				release()
++				diags := p.GetSemanticDiagnostics(t.Context(), file)
++				c, release = p.GetTypeChecker(t.Context())
++				var second []checker.NativeBaseEvent
++				for _, symbol := range symbols {
++					second = append(second, c.NativeBaseResolve(symbol))
++				}
++				codes := []int32{}
++				for _, d := range diags {
++					codes = append(codes, d.Code())
++				}
++				slices.Sort(codes)
++				diagnostics := []map[string]any{}
++				for _, d := range diags {
++					diagnostics = append(diagnostics, baseDiagnostic(d))
++				}
++				events := c.NativeBaseEvents()
++				row := map[string]any{"case": tc.Name, "order": order, "content": tc.Body, "config": config, "first": first, "second": second, "events": events, "diagnostic_codes": codes, "diagnostics": diagnostics}
++				encoded, _ := json.Marshal(row)
++				t.Logf("NATIVE_RECURSIVE_BASE %s", encoded)
++				if !slices.Equal(codes, tc.Codes) {
++					t.Fatalf("codes %v want %v", codes, tc.Codes)
++				}
++				for i, a := range first {
++					b := second[i]
++					if !a.Resolved || !b.Resolved || len(a.Bases) != len(b.Bases) {
++						t.Fatal("completed base state changed")
++					}
++					for j := range a.Bases {
++						if a.Bases[j].ID != b.Bases[j].ID {
++							t.Fatal("base identity changed")
++						}
++					}
++					if a.Type.Name == "A" {
++						names := []string{}
++						for _, base := range a.Bases {
++							names = append(names, base.Name)
++						}
++						if !slices.Equal(names, tc.BasesA) {
++							t.Fatalf("A bases %v want %v", names, tc.BasesA)
++						}
++					}
++				}
++				reentries, partial, reset := 0, 0, 0
++				for i, e := range events {
++					if e.Kind == "base-active-reentry" {
++						reentries++
++						if e.Resolved {
++							t.Fatal("active partial view marked completed")
++						}
++						if len(e.Bases) > 0 {
++							partial++
++						}
++					}
++					if e.Kind == "base-before-reset" && e.MembersResolved {
++						reset++
++						if i+1 >= len(events) || events[i+1].Kind != "base-published" || events[i+1].MembersResolved {
++							t.Fatal("member reset not published")
++						}
++					}
++					if e.Kind == "heritage-compare" && e.Type.Name == "A" && tc.Cycle {
++						admitted := false
++						for _, b := range tc.BasesA {
++							if b == e.Related.Name {
++								admitted = true
++							}
++						}
++						if !admitted {
++							t.Fatal("excluded cyclic base admitted to heritage comparison")
++						}
++					}
++				}
++				if tc.Cycle && tc.Name != "generic-self" && tc.Name != "plain-self" && reentries == 0 {
++					t.Fatal("mutual-cycle reentry not observed")
++				}
++				if tc.Partial && partial == 0 {
++					t.Fatal("nonempty partial base view not observed")
++				}
++				if tc.Name == "natural-default-member-reset" {
++					sawReset, rebuildExit := false, false
++					for _, e := range events {
++						if e.Type.Name != "Foo" {
++							continue
++						}
++						if e.Kind == "base-published" && e.Resolved && !e.MembersResolved {
++							sawReset = true
++						}
++
++						if sawReset && e.Kind == "member-worker-exit" && e.Related.ID == e.Type.ID && e.MembersResolved {
++							rebuildExit = true
++						}
++					}
++					if !rebuildExit {
++						t.Fatal("natural reset did not complete its own member view")
++					}
++				}
++				if tc.Name == "natural-default-member-reset" && reset == 0 {
++					t.Fatal("natural member reset not observed")
++				}
++			})
++		}
++	}
++}

@@ -29415,6 +29415,11 @@ flips from `[]` to `["TS2339"]` when it closes. **A suppression whose paired
 positive cannot be written is exactly the thing worth writing down**, and it is
 the one case in this session's eight where the pair is a gap rather than a test.
 
+**Closed (lane property-3).** `check_nonexistent_property` now reports
+upstream's block-scoped arm directly, without the members table; the test is
+renamed `a_block_scoped_globalthis_member_still_reports` and asserts
+`["TS2339"]`.
+
 ## §554 — TS1212: §161's own falsifier, cashed
 
 §143 first, and the rule is **fully ported** — future-reserved-word range,

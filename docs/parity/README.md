@@ -35,7 +35,24 @@ judged RIGHT cases only, EMPTY cases are excluded by the suite):
 | flow (local) `d9f5b9f4` | 7,513 | 3,569 | 1.14 |
 | calls-3 (local) `a13f5083` | 7,513 | 3,592 | 1.17 |
 | cloud round 1 (`#4`, other integrator) `d5b4fe56` | 7,602 | 3,846 | — |
-| relate-3 (local) `2fbd279f` | 7,603 (79.71%) | 3,854 (70.23%) | 1.17 |
+| relate-3 (local) `2fbd279f` | 7,603 | 3,854 | 1.17 |
+| calls-4 (local) `b201a70b` | 7,603 | 3,865 | 1.20 |
+| relate-3 held fix `4471f456` | 7,607 | 3,876 | 1.07 |
+| calls-5 (local) `4290b311` | 7,607 | 3,901 | 1.19 |
+| relate-4 (local) `e3ec2563` | 7,607 | 3,926 | 1.30 |
+| flow-2 (local) `36c9bb5b` | 7,607 | 3,942 | 1.18 |
+| relate-5 (local) `dad4d010` | 7,607 | 3,955 | 1.15 |
+| types-writer (local) `2feb57a3` | 7,678 | 3,955 | 1.18 |
+| calls-6 (local) `9c0cc090` | 7,679 | 3,967 | 0.99 |
+| relate-6 (local) `2396df9b` | 7,679 | 3,971 | 1.15 |
+| contextual (local) `0a5d310d` | 7,679 | 3,981 | 0.82 |
+| types-writer-2 (local) `e5f61737` | 7,720 | 3,982 | 1.17 |
+| property-3 (local) `0fbc6228` | 7,720 (80.94%) | 3,998 (72.85%) | 1.13 |
+
+From `b201a70b` on, each merge is also gated on interleaved A/B child CPU of
+the previous `main` binary against the merged one on
+`benches/projects/domain-model-large` (15 rounds, diagnostics identical); every
+merge above read between 0.992 and 1.014.
 
 From 2026-10-05 ~09:45 PDT the Box service stopped answering (`Not connected`;
 new machines did not start), so lanes continued as local workers. Smoke ratios

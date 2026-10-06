@@ -22,6 +22,27 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Allocation-origin refresh (`tsr-1yb.16.3`), frozen `2bf3601b` / native
+`5b1047d`: 40 ordinary/probe comparisons preserve complete output and 14,051
+ordered Next.js inputs with 24 diagnostics. Default records 7.81M instantiation
+requests / 3.13M worker entries; single records 4.51M / 1.38M. Selected traffic
+repeats exactly. Member-name walks request 1.70GB cumulatively in default;
+unclassified traffic remains explicit. Five allocator controls and two detected
+mutants pass qualification. Private source and ordinary binary are restored
+exactly; no production optimization, new corpus score or native speed claim.
+[Counts, limits and handoff](docs/architecture/checker-allocation-origins.md).
+
+Member-consumer prototype (`tsr-1yb.31`), frozen `f5db6e78` / native
+`5b1047d`: 27 focused/existing member tests pass and four incorrect mutations
+are detected, but scalar identity qualification rejects the proposed view.
+Native's three query orders return single/merged/single; the prototype returns
+merged/merged/merged. All 162 ordinary CLI children complete; 54 baseline/
+prototype output pairs are byte-identical. A fresh native replay passes 39
+parsed controls. All 643 private baseline Rust files are restored, and 20
+original member controls pass again. No runtime change, corpus measurement or
+speed win; existing coverage numbers keep their original source bindings.
+[Rejection and compiling replay](docs/architecture/checker-member-consumer-prototype.md).
+
 Mapper pool attribution (`tsr-1yb.16.1.2`), frozen `9b494ca7` / native
 `5b1047d`, repairs archive-only owner accounting and object/signature active
 domains. Thirty project samples preserve 124 diagnostics, 14,050 loaded files
@@ -3012,6 +3033,18 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The current allocation observer is an archived eight-file replay, not a
+production allocator or reusable member/type answer. Its counters separate
+request entry, instantiation worker entry, nested parameter walks and original
+storage ownership. Ordinary output is preserved; actual native work and reuse
+eligibility still require their existing contracts.
+
+The `f5db6e78` member-consumer experiment contributes a compiled, rejected replay
+and native-backed red controls, not a member cache or retained receiver repair.
+Its private API tests separate supplying context, original receiver, read/write
+metadata and active base prefixes. The failed scalar completion classifier
+requires consuming published symbol views before reuse expands (`tsr-1yb.4.2.1`).
+
 CJS normalization borrows the final body component after the native root
 boundary and removes exactly one trailing empty component. It avoids the owned
 component vector while preserving combine/normalize calls, owned String output
@@ -3234,6 +3267,24 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Current `2bf3601b` allocation evidence selects `tsr-1yb.16.3.5` for a measured
+borrowed-name candidate in local type-parameter queries. Preserve every
+declaration-type forcing step, ID/order, default/JSDoc ownership and refusal;
+measure the specific copy site before implementation or benefit claims.
+Member publication `.32`/`.33` and mapper contracts retain their gates. The
+refreshed operation counts supersede using the old serial profile to choose
+these origins; they add no reachability score or verified <=0.50 ratio.
+
+Member reuse must consume the actual published private symbol view, including
+completion-dependent invariant original-symbol reuse and clone target/link/flag
+context. The compiling `tsr-1yb.31` experiment is rejected by three native query
+orders; declaration origin plus supplying reference is not an accepted identity.
+The existing builder `tsr-1yb.4.2.1`, receiver repair `tsr-6.69.2` and signature
+admission `.27`/`.28` retain their production gates and owners. This architectural
+handoff assigns no new reachability score or measured performance benefit.
+New P1 contract `tsr-1yb.32` can start now; compiling consumer `tsr-1yb.33`
+depends on it, and the concrete builder depends on that consumer.
 
 Parity round 2 (`tsr-2zk`): cross-lane blockers named by round-1 boxes come
 first because each unblocks several lanes — module-augmentation merge
@@ -6708,6 +6759,23 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Allocation reporter v1 (`tsr-1yb.16.3`, frozen `2bf3601b`) is refused by its
+own live-sum assertion: 1,746 bytes in origin snapshots versus 1,810 in the
+total, because formatting adds 64 bytes during reporting. The failed binary
+and complete output remain archived. Collection stops before corrected report
+formatting. Enabled default observations take 45.449/43.633s versus an unpaired
+14.988s ordinary run; observer timings cannot establish an optimization gain.
+[Failure, correction and overhead](docs/architecture/checker-allocation-origins.md).
+
+Member-consumer identity reconstruction (`tsr-1yb.31`, frozen `f5db6e78` /
+native `5b1047d`) is refused despite 27 passing member controls and four detected
+mutations. The scalar property's native identity sequence is
+**single/merged/single**; the prototype gives **merged/merged/merged**, although
+all reads are number. Completion and retained clone history are missing from
+the proposed identity. All 54 ordinary baseline/prototype output pairs are
+byte-identical; output preservation does not qualify a future cache key.
+The private source is restored exactly. [Evidence and replay](docs/architecture/checker-member-consumer-prototype.md).
 
 Parity round 1 (`tsr-2zk`, 2026-10-05) refused two box commits on fidelity,
 not on numbers: calls `48ce04a1` (claimed +38 RIGHT lines, 0 WRONG) decided
@@ -14245,6 +14313,10 @@ holds only the numbers.
 | 2026-10-02 | `9a14a090` | — | — | **dts: `dts_shape` 892 → 897/1,006; `dts_emit` 342/375, `isolated_declarations` 14/15, `dts_reachable_target` 493/1,162 unmoved.** | JSDoc `@import` tags emit as the `import type` declarations upstream's reparser makes of them (`importTag5`, `importTag16`, `importTag18`–`20`), recovered from comment text and parsed by a new `tsr_parser::parse_standalone_statement` past the end of the source; a script keeps one only when an emitted declaration names it. No case lost (full failure-list diff). Release workspace tests, clippy, fmt pass. [Notes](docs/architecture/declaration-emit.md). |
 | 2026-10-02 | `69d64026` | **73.37%** | **6,998** | **457,226/478,855 assertions (95.48%).** +64 vs full-run baseline at 91439f0b, +4 cases; 50 W→R, 14 G→R, zero RIGHT losses; 2 G→W (numeric `keyof` key order). | **Indexed access (tsr-6.30): union-key element access and identifier-key references.** Element access distributes getPropertyTypeForIndexType over non-boolean union keys; unwidened fresh object literals answer the string/number and noImplicitAny literal-key arm (assignment/call receivers widen first — omitting that lost 6 RIGHT rows); isMatchingReference matches `obj[key]` for unassigned parameter/local keys; tryGetElementAccessExpressionName requires a constant or enum-member key. Pinned tsgo controls; release workspace 218 blocks, clippy, fmt, 3,349 anchors pass. [Evidence](docs/architecture/checker-99-union-key-access.md). |
 | 2026-10-02 | `f102831c` | **95.49%** | **6,998/9,538** | **Recursive reverse mapped inference (tsr-6.9): +40 assertions (40 W→R), zero RIGHT losses and no other transitions vs a full baseline at 68fc00ef; no complete case moves.** Self-referencing mapped aliases capture on first inference use; `?` templates add optionality for reverse inference; reverse expanding stacks with mapped recursion identities; reverse mapped objects resolve lazily (replaceIndexedAccess, nested placeholder text) so `Deep<XMLHttpRequest>` stays finite. Gains: mappedTypeRecursiveInference 25, isomorphicMappedTypeInference 8, mappedTypesArraysTuples 4. [Evidence and limits](docs/architecture/checker-95-recursive-reverse-mapped.md). |
+
+| 2026-10-06 | `f5db6e78` (prototype source) | — | — | **Rejected member-consumer prototype, tsr-1yb.31:** 27 passing member controls, four detected mutations, 39 replayed native parsed controls and 162 complete CLI children. Scalar identity returns merged/merged/merged versus native single/merged/single. All 54 baseline/prototype output pairs unchanged; 643 private Rust files restored and 20 original member controls pass. Evidence-only delivery; no new coverage or speed claim. [Replay](docs/architecture/checker-member-consumer-prototype.md). |
+
+| 2026-10-06 | `2bf3601b` (measurement source) | — | — | **Allocation-origin refresh, tsr-1yb.16.3:** 40 output-preserving ordinary/probe comparisons, five allocator controls and two detected mutants. Default3.13M versus single1.38M instantiation worker entries; member walks request1.70GB/1.36GB cumulatively. Unclassified traffic and observer overhead remain explicit; reporter v1 rejected by64-byte self-allocation. All665 baseline source/manifest/lock files and ordinary binary restored exactly. No retained runtime optimization, corpus gain or verified native ratio. [Evidence](docs/architecture/checker-allocation-origins.md). |
 
 ## 8. Updating this file
 

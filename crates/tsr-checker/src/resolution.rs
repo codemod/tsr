@@ -373,6 +373,12 @@ pub enum PropertyName {
     /// `TypeSystemPropertyNameResolvedBaseConstraint` — the base constraint of
     /// a type (`getResolvedBaseConstraint`, `checker.go:27447`).
     ResolvedBaseConstraint,
+    /// `TypeSystemPropertyNameResolvedBaseConstructorType` — a class's base
+    /// constructor type (`getBaseConstructorTypeOfClass`, `checker.go:16957`).
+    ResolvedBaseConstructorType,
+    /// `TypeSystemPropertyNameResolvedBaseTypes` — a class or interface's base
+    /// types (`getBaseTypes`, `checker.go:19167`).
+    ResolvedBaseTypes,
 }
 
 /// One frame of the resolution stack.

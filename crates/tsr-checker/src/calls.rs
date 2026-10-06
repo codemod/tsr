@@ -648,13 +648,24 @@ impl Checker<'_, '_> {
         // (`getReturnTypeOfSignature`, `checker.go:20013`); this port has no
         // subtype reduction, so a receiver typed by such a return can reach a
         // different member list than upstream's. The argument count decides
-        // nothing there.
+        // nothing there. A sole composite signature of the right arity whose
+        // `this` arm fails (`isSignatureApplicable`, `checker.go:9260`) is
+        // `candidatesForArgumentError`'s only entry, reported by
+        // [`Checker::check_this_argument`].
         if self.store.get(apparent).flags.intersects(TypeFlags::UNION) {
-            return if type_arguments.is_empty() {
-                CallArity::Undecided
-            } else {
-                self.check_type_argument_arity_only(node, type_arguments, &signatures)
-            };
+            if !type_arguments.is_empty() {
+                return self.check_type_argument_arity_only(node, type_arguments, &signatures);
+            }
+            if let [signature] = signatures.as_slice()
+                && signature.type_parameters.is_empty()
+                && signature.this_parameter.is_some()
+                && let Some(effective) = self.effective_call_arguments(arguments)
+                && self.has_correct_arity(signature, &effective, false) == Some(true)
+                && self.check_this_argument(node, signature, true) == Ternary::NotRelated
+            {
+                return CallArity::Reported;
+            }
+            return CallArity::Undecided;
         }
         // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
         // tuple type; this port's signature carries `any[]` there, so its
@@ -765,16 +776,20 @@ impl Checker<'_, '_> {
     }
 
     /// `getSignatureApplicabilityError` (`checker.go`) for a single
-    /// non-generic candidate whose arity matched: each argument against
+    /// non-generic candidate whose arity matched: the `this` argument
+    /// ([`Checker::check_this_argument`]), then each argument against
     /// `getTypeAtPosition`, stopping at the first failure (TS2345, or the
-    /// object literal's excess-property elaboration). The `this` argument
-    /// check is not ported. An unsupported parameter type stops the walk.
+    /// object literal's excess-property elaboration). An unsupported
+    /// parameter type stops the walk.
     fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
         let arguments = match self.node_map.get(node) {
             Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
             Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
             _ => return,
         };
+        if self.check_this_argument(node, signature, true) != Ternary::Related {
+            return;
+        }
         for (position, argument) in arguments.iter().enumerate() {
             let Some(argument_id) = argument.node_id() else { return };
             let Some(target) = self.signature_type_at_position(signature, position) else {
@@ -804,6 +819,75 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `isSignatureApplicable`'s `this`-argument arm (`checker.go:9260`): a
+    /// signature whose `this` type (`getThisTypeOfSignature`) is present and
+    /// not `void` applies only when the call's `this` argument
+    /// (`getThisArgumentOfCall`/`getThisArgumentType`, `checker.go:9345`;
+    /// `void` for a bare call) is related to it. A `new` call and a call of
+    /// a `super` property skip the arm. With `report`, a failure is
+    /// `checkTypeRelatedToEx` at the `this` argument node (the call node
+    /// when there is none) under
+    /// `The_this_context_of_type_0_is_not_assignable_to_method_s_this_of_type_1`
+    /// (TS2684); no elaboration. `Unknown` when the relation is undecided:
+    /// the caller declines, as for an undecided argument.
+    fn check_this_argument(
+        &mut self,
+        node: tsr_ast::NodeId,
+        signature: &Signature,
+        report: bool,
+    ) -> Ternary {
+        let Some(this_type) = signature.this_parameter.as_ref().map(|parameter| parameter.r#type)
+        else {
+            return Ternary::Related;
+        };
+        if this_type == self.intrinsics.void {
+            return Ternary::Related;
+        }
+        match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                let super_property =
+                    call.expression.and_then(|callee| callee.node_id()).is_some_and(|callee| {
+                        match self.node_map.get(callee) {
+                            Some(tsr_ast::Node::PropertyAccessExpression(access)) => {
+                                access.expression
+                            }
+                            Some(tsr_ast::Node::ElementAccessExpression(access)) => {
+                                access.expression
+                            }
+                            _ => None,
+                        }
+                        .and_then(|receiver| receiver.node_id())
+                        .is_some_and(|receiver| {
+                            self.nodes.kind(receiver) == tsr_ast::SyntaxKind::SuperKeyword
+                        })
+                    });
+                if super_property {
+                    return Ternary::Related;
+                }
+            }
+            Some(tsr_ast::Node::NewExpression(_)) => return Ternary::Related,
+            _ => {}
+        }
+        let source = self.this_argument_type_of_call(Some(node));
+        let verdict = self.relate_ternary(source, this_type, Relation::Assignable);
+        if verdict == Ternary::NotRelated && report {
+            let at = self
+                .this_argument_of_call(node)
+                .and_then(|(receiver, _)| receiver.node_id())
+                .unwrap_or(node);
+            let span = self.error_span(at);
+            self.report_relation_failure(
+                at,
+                span,
+                None,
+                source,
+                this_type,
+                Some(&messages::THE_THIS_CONTEXT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_METHOD_S_THIS_OF_TYPE_1),
+            );
+        }
+        verdict
+    }
+
     /// The candidates `chooseOverload` (`checker.go:9025`) would check when
     /// a call written without type arguments has several signatures, every
     /// one non-generic: those passing `hasCorrectArity`, in
@@ -813,8 +897,7 @@ impl Checker<'_, '_> {
     /// shares one declaration parent and none is specialized
     /// (`SignatureFlagsHasLiteralTypes`, set for a `LiteralType` parameter
     /// annotation in `getSignatureFromDeclaration`); anything else is
-    /// declined, as is a `this` parameter (the `this`-argument arm of
-    /// `getSignatureApplicabilityError` is not ported) and a spread argument.
+    /// declined, as is a spread argument.
     /// The literal test reads the parameter's type, a superset of the written
     /// node test: it can only decline more.
     fn non_generic_overload_candidates(
@@ -833,7 +916,6 @@ impl Checker<'_, '_> {
         let parent = self.nodes.parent(candidates[0].declaration);
         for candidate in candidates {
             if !candidate.type_parameters.is_empty()
-                || candidate.this_parameter.is_some()
                 || self.nodes.parent(candidate.declaration) != parent
                 || candidate.parameters.iter().any(|parameter| {
                     self.store
@@ -899,8 +981,15 @@ impl Checker<'_, '_> {
             }
         }
         for candidate in candidates {
-            let mut applicable = true;
+            let mut applicable = match self.check_this_argument(node, candidate, false) {
+                Ternary::Related => true,
+                Ternary::NotRelated => false,
+                Ternary::Unknown => return false,
+            };
             for (position, argument) in arguments.iter().enumerate() {
+                if !applicable {
+                    break;
+                }
                 let Some(target) = self.signature_type_at_position(candidate, position) else {
                     return false;
                 };
@@ -956,9 +1045,10 @@ impl Checker<'_, '_> {
     /// candidate's parameter as contextual type where it re-checked it,
     /// else its cached type; an argument whose type follows the contextual
     /// type but was not re-checked (an object, array or class literal, a
-    /// context-sensitive function) stops the walk without a report, as do a
-    /// failing receiver (the TS2684 arm is not ported) and an undecidable
-    /// pair. Answers whether the walk published a verdict to read, so the
+    /// context-sensitive function) stops the walk without a report, as does
+    /// an undecidable pair; a failing receiver is reported first
+    /// ([`Checker::check_this_argument`]). Answers whether the walk
+    /// published a verdict to read, so the
     /// caller's declaration-only fallback does not run on an overload set.
     fn report_overload_argument_failure(&mut self, node: tsr_ast::NodeId) -> bool {
         // `resolveCall` reports from the resolution itself; here the type
@@ -991,17 +1081,14 @@ impl Checker<'_, '_> {
             Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
             _ => return true,
         };
-        if let Some(parameter) = &last.this_parameter
-            && parameter.r#type != self.intrinsics.void
-        {
-            let receiver = self.this_argument_type_of_call(Some(node));
-            if self.relate_ternary(receiver, parameter.r#type, Relation::Assignable)
-                != Ternary::Related
-            {
-                return true;
-            }
-        }
         let before = self.diagnostics.len();
+        // The `this` arm precedes the arguments; when it fails it is the
+        // report and no argument is related.
+        let arguments = match self.check_this_argument(node, &last, true) {
+            Ternary::Related => arguments,
+            Ternary::NotRelated => &[],
+            Ternary::Unknown => return true,
+        };
         for (position, argument) in arguments.iter().enumerate() {
             let Some(argument_id) = argument.node_id() else { break };
             let Some(target) = self.signature_type_at_position(&last, position) else { break };
@@ -1115,14 +1202,48 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Whether `ty` mentions a literal type within `depth` member levels: a
+    /// literal itself, a union/intersection constituent, or a property or
+    /// index-signature value. The contextual types under which
+    /// `isLiteralOfContextualType` (`checker.go`) can keep an object
+    /// literal member's literal type are among these.
+    fn type_mentions_literal(&mut self, ty: TypeId, depth: u32) -> bool {
+        let flags = self.store.get(ty).flags;
+        if flags.intersects(TypeFlags::LITERAL) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(ty).data
+        {
+            let types = types.clone();
+            return types.into_iter().any(|part| self.type_mentions_literal(part, depth));
+        }
+        if depth == 0 || !flags.intersects(TypeFlags::OBJECT) {
+            return false;
+        }
+        if let Some(names) = self.get_property_names_of_type(ty) {
+            for name in &names {
+                if let Some(member) = self.get_type_of_property_of_type(ty, name)
+                    && self.type_mentions_literal(member, depth - 1)
+                {
+                    return true;
+                }
+            }
+        }
+        self.get_index_infos_of_type(ty).is_some_and(|infos| {
+            infos.iter().any(|info| self.type_mentions_literal(info.value, depth - 1))
+        })
+    }
+
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
     /// is generic: with written type arguments `checkTypeArguments`
     /// (`checker.go:9222`), else `inferTypeArguments`; then
     /// `getSignatureInstantiation` and `isSignatureApplicable`. On failure
     /// `reportCallResolutionErrors` (`checker.go:9649`) reports the
     /// constraint failure (`candidateForTypeArgumentError`, see
-    /// [`Checker::check_call_type_argument_constraints`]) or re-runs the
-    /// applicability check with `reportErrors` against that same
+    /// [`Checker::check_call_type_argument_constraints`]), the arity of an
+    /// instantiated generic rest (`candidateForArgumentArityError`), or
+    /// re-runs the applicability check with `reportErrors` against that same
     /// instantiation (`candidatesForArgumentError`'s only entry).
     ///
     /// A call with a context-sensitive argument and no written type
@@ -1181,10 +1302,37 @@ impl Checker<'_, '_> {
                 _ => return false,
             }
         };
+        // A generic rest type can instantiate to another arity
+        // (`checker.go:9068`): the instantiation is then
+        // `candidateForArgumentArityError`, reported by `getArgumentArityError`
+        // over it alone (`reportCallResolutionErrors`, `checker.go:9670`).
+        if self.signature_non_array_rest_type(candidate).is_some() {
+            let Some(effective) = self.effective_call_arguments(call.arguments) else {
+                return false;
+            };
+            match self.has_correct_arity(&instantiated, &effective, false) {
+                Some(true) => {}
+                Some(false) => {
+                    let error_node = call
+                        .expression
+                        .and_then(|callee| callee.node_id())
+                        .map_or(node, |callee| self.call_error_node(callee));
+                    self.report_argument_arity_error(node, error_node, &[instantiated], &effective);
+                    return true;
+                }
+                None => return false,
+            }
+        }
         if self.signature_non_array_rest_type(&instantiated).is_some() {
             return false;
         }
-        self.check_instantiated_candidate_arguments(call.arguments, &instantiated);
+        match self.check_this_argument(node, &instantiated, true) {
+            Ternary::Related => {
+                self.check_instantiated_candidate_arguments(call.arguments, &instantiated);
+            }
+            Ternary::NotRelated => {}
+            Ternary::Unknown => return false,
+        }
         true
     }
 
@@ -1275,11 +1423,12 @@ impl Checker<'_, '_> {
     ///
     /// An argument whose cached type relates needs nothing more, and one
     /// whose type cannot depend on its contextual type reports from the cached
-    /// type. The rest decline: an object or array literal (literal
-    /// preservation and tuple-ness follow the instantiated context), a
-    /// context-sensitive function (`assignContextualParameterTypes`, generic
-    /// contextual signatures) and a class expression (its class identity is
-    /// re-created by a re-check).
+    /// type. An object literal reports from its cached type unless the target
+    /// mentions a literal type (literal preservation follows the instantiated
+    /// context). The rest decline: an array literal (tuple-ness follows the
+    /// instantiated context), a context-sensitive function
+    /// (`assignContextualParameterTypes`, generic contextual signatures) and a
+    /// class expression (its class identity is re-created by a re-check).
     fn check_instantiated_candidate_arguments(
         &mut self,
         arguments: &[Expression<'_>],
@@ -1301,6 +1450,43 @@ impl Checker<'_, '_> {
             while let Expression::ParenthesizedExpression(parenthesized) = inner {
                 let Some(expression) = parenthesized.expression else { return };
                 inner = expression;
+            }
+            // A non-context-sensitive object literal: its cached type is
+            // reported through `checkTypeRelatedToAndOptionallyElaborate`
+            // (excess property, then `elaborateError` at the member), as the
+            // overload reporter does for a literal the walk re-checked.
+            // Upstream checks it under the instantiated parameter, whose
+            // literal members keep the literal's own literal types
+            // (`getWidenedLiteralLikeTypeForContextualType`); the cached type
+            // was widened under another context, so a target mentioning a
+            // literal type declines (a superset of the members that differ).
+            if matches!(inner, Expression::ObjectLiteralExpression(_))
+                && !self.is_context_sensitive_argument(argument)
+            {
+                if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
+                    || self.head_could_contain_type_variables(source, 3)
+                    || self.head_could_contain_type_variables(target, 3)
+                    || self.type_mentions_literal(target, 3)
+                    || self.absent_member_flags_unreadable(source, target)
+                {
+                    return;
+                }
+                let before = self.diagnostics.len();
+                self.check_excess_properties(target, argument_id);
+                if self.diagnostics.len() == before {
+                    let span = self.error_span(argument_id);
+                    self.report_relation_failure(
+                        argument_id,
+                        span,
+                        Some(argument_id),
+                        source,
+                        target,
+                        Some(
+                            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+                        ),
+                    );
+                }
+                return;
             }
             if matches!(
                 inner,
@@ -5037,18 +5223,24 @@ mod tests {
                     if name != "ordered" {
                         // Native eraseTypeParameters does not instantiate a
                         // constraint/default which belongs only to the target.
-                        // The present-only object has no 'absent' property:
-                        // instantiating that metadata answers
-                        // getIndexedAccessTypeEx's `unknownType` (no access
-                        // node, `checker.go:26930`), which the published
-                        // target above must not carry.
-                        let out = checker.instantiate_signature(
-                            original.clone(),
-                            &[(parameters[0], answer), (parameters[1], written_u)],
-                            &parameters,
-                            &["T", "U"],
-                        );
-                        assert!(out.is_some(), "metadata substitution answers unknown {name}");
+                        // The present-only object has no 'absent' property,
+                        // so substituting that metadata would rewrite it to
+                        // getIndexedAccessTypeEx's nil-node answer, `unknown`
+                        // (checker.go:26930) — a different type from the
+                        // target's preserved `T['absent']` checked above.
+                        let out = checker
+                            .instantiate_signature(
+                                original.clone(),
+                                &[(parameters[0], answer), (parameters[1], written_u)],
+                                &parameters,
+                                &["T", "U"],
+                            )
+                            .unwrap();
+                        let metadata = out.type_parameters[1]
+                            .constraint
+                            .or(out.type_parameters[1].default)
+                            .unwrap();
+                        assert_eq!(metadata, checker.intrinsics.unknown, "{name}");
                     }
                     eprintln!("{name} {stage} call={id:?} concrete={concrete:?}");
                 }

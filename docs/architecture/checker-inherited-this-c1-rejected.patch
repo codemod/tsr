@@ -1,0 +1,132 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..f53f8251 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1536,7 +1536,8 @@ impl Checker<'_, '_> {
+         // instantiation goes through §226's `base_type_of_heritage_entry`
+         // plus the reference road's own member typing instead. Cycles are
+         // guarded by the walk's visited set.
+-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
++        if let Some(member) = self.generic_heritage_member(id, name, this_argument, &mut Vec::new())
++        {
+             return Some(member);
+         }
+         // §770: a TUPLE's non-numeric members come from `Array<T>`.
+@@ -1676,6 +1677,7 @@ impl Checker<'_, '_> {
+         &mut self,
+         id: TypeId,
+         name: &str,
++        this_argument: TypeId,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<TypeId> {
+         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+@@ -1717,7 +1719,15 @@ impl Checker<'_, '_> {
+                     // mutually-generic bases.
+                     if let Some(property) = self.get_property_of_type(base_type, name) {
+                         let declared = self.get_type_of_symbol(property);
+-                        let instantiated = self.instantiate_for_reference(base_type, declared);
++                        // resolveObjectTypeMembers (checker.go:19138) gives each
++                        // instantiated base the original receiver's this argument.
++                        // Binding this to the base here would consume it before
++                        // the enclosing reference's type arguments are composed.
++                        let instantiated = self.instantiate_for_reference_with_this(
++                            base_type,
++                            declared,
++                            this_argument,
++                        );
+                         if instantiated != self.intrinsics.error {
+                             // §923: the SECOND substitution. The step above maps
+                             // the base's parameters onto the heritage entry's
+@@ -1735,17 +1745,24 @@ impl Checker<'_, '_> {
+                             // non-generic reference maps nothing and the result
+                             // is unchanged, so this cannot disturb the shapes
+                             // that already worked.
+-                            let composed = self.instantiate_for_reference(id, instantiated);
++                            let composed = self.instantiate_for_reference_with_this(
++                                id,
++                                instantiated,
++                                this_argument,
++                            );
+                             if composed != self.intrinsics.error {
+                                 return Some(composed);
+                             }
+                             return Some(instantiated);
+                         }
+                     }
+-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
++                    if let Some(member) =
++                        self.generic_heritage_member(base_type, name, this_argument, visiting)
++                    {
+                         // Resolve inherited members under every enclosing
+                         // reference mapper, including indirect generic bases.
+-                        let member = self.instantiate_for_reference(id, member);
++                        let member =
++                            self.instantiate_for_reference_with_this(id, member, this_argument);
+                         if member != self.intrinsics.error {
+                             return Some(member);
+                         }
+@@ -3608,6 +3625,28 @@ mod property_name_tests {
+         );
+     }
+ 
++    #[test]
++    fn generic_inherited_this_member_keeps_the_original_receiver() {
++        with_checker(
++            "class Base<T> { declare value: T; declare self: this; } class Middle<T> extends Base<T> { declare middle: boolean; } class Derived<T> extends Middle<T> { declare own: number; } declare const text: Derived<string>; declare const number: Derived<number>; text.self; number.self; text.self;",
++            |checker, _| {
++                let mut expected =
++                    ["Derived<string>", "Derived<number>", "Derived<string>"].into_iter();
++                for raw in 0..u32::try_from(checker.nodes.len()).unwrap() {
++                    let id = NodeId::new(raw);
++                    if checker.nodes.kind(id) != tsr_ast::SyntaxKind::PropertyAccessExpression {
++                        continue;
++                    }
++                    let expression =
++                        tsr_ast::Expression::try_from(checker.node_map.get(id).unwrap()).unwrap();
++                    let ty = checker.check_expression(expression);
++                    assert_eq!(checker.type_to_string(ty), expected.next().unwrap());
++                }
++                assert_eq!(expected.next(), None);
++            },
++        );
++    }
++
+     #[test]
+     fn anonymous_spread_names_come_from_the_semantic_overlay() {
+         with_checker(
+diff --git a/crates/tsr-execute/tests/checker_ownership.rs b/crates/tsr-execute/tests/checker_ownership.rs
+index 590a92ae..d329dbda 100644
+--- a/crates/tsr-execute/tests/checker_ownership.rs
++++ b/crates/tsr-execute/tests/checker_ownership.rs
+@@ -311,6 +311,31 @@ fn recursive_cross_file_generics_can_be_queried_after_checking() {
+     );
+ }
+ 
++#[test]
++fn inherited_generic_this_keeps_the_derived_receiver_after_checking() {
++    compare_fixture(
++        &[
++            (
++                "model.ts",
++                "export class Base<T> { declare value: T; declare self: this; } export class Middle<T> extends Base<T> { declare middle: boolean; } export class Derived<T> extends Middle<T> { declare own: number; }",
++            ),
++            (
++                "use.ts",
++                "import { Derived } from './model'; declare const d: Derived<string>; export const probe = d.self; const good: Derived<string> = probe; const bad: number = probe.value;",
++            ),
++        ],
++        &["--noLib", "--target", "es2020"],
++        |_, _, workers, diagnostics| {
++            assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
++            assert!(
++                diagnostics[0]
++                    .ends_with("error TS2322: Type 'string' is not assignable to type 'number'.")
++            );
++            assert_eq!(queries(workers), [("/project/use.ts".into(), "Derived<string>".into())]);
++        },
++    );
++}
++
+ #[test]
+ fn generic_object_literal_members_keep_concrete_types_and_literal_context() {
+     compare_fixture(

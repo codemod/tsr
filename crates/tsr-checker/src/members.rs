@@ -2308,10 +2308,13 @@ impl Checker<'_, '_> {
         let found = match found {
             Some(found) => found,
             // §122 (`checker-notes-narrow.md`): a class's STATIC side is a
-            // real inheritance chain — upstream's constructor type takes the
-            // base class's constructor type as its base
-            // (`getBaseConstructorTypeOfClass`), so `class D extends B` finds
-            // `B.x` through `typeof D`. Own exports answered above, which is
+            // real inheritance chain — `resolveAnonymousTypeMembers`
+            // (`checker.go:20650`, class arm) adds
+            // `getPropertiesOfType(getBaseConstructorTypeOfClass(classType))`
+            // when that type is an object, intersection or type variable, so
+            // `class D extends B` finds `B.x` through `typeof D`, and `class
+            // D2<T> extends C2<T>` or `extends o.A` reads the checked base
+            // expression's statics. Own exports answered above, which is
             // what makes a derived redeclaration shadow by construction.
             // A `#private` static never inherits: private names are
             // lexically scoped to the declaring class body, and upstream
@@ -2319,8 +2322,16 @@ impl Checker<'_, '_> {
             // the walk carrying it measured 4 G→W
             // (privateNameStaticAccessorssDerivedClasses wants `any`).
             None if is_class && !name.starts_with('#') => {
-                let mut visiting = vec![symbol];
-                self.static_property_of_bases(symbol, name, &mut visiting)?
+                let base = self.get_base_constructor_type_of_class(symbol);
+                if !self.store.get(base).flags.intersects(
+                    TypeFlags::OBJECT
+                        | TypeFlags::INTERSECTION
+                        | TypeFlags::TYPE_PARAMETER
+                        | TypeFlags::INDEXED_ACCESS,
+                ) {
+                    return None;
+                }
+                self.get_property_of_type(base, name)?
             }
             None => return None,
         };
@@ -2522,40 +2533,6 @@ impl Checker<'_, '_> {
             None => false,
             Some(bases) => bases.into_iter().all(|base| self.walk_completes(base, visiting)),
         }
-    }
-
-    /// §122's walk: each base's `exports`, depth-first in declaration order,
-    /// first hit wins. `base_symbols_of`'s refusals (instantiated or
-    /// non-identifier heritage) gap the whole walk rather than answer a wrong
-    /// symbol, exactly as the instance side's walk does.
-    fn static_property_of_bases(
-        &mut self,
-        owner: SymbolId,
-        name: &str,
-        visiting: &mut Vec<SymbolId>,
-    ) -> Option<SymbolId> {
-        for base in self.base_symbols_of(owner)? {
-            if visiting.contains(&base) {
-                continue;
-            }
-            visiting.push(base);
-            if let Some(&found) = self.binder.symbols().get(base).exports.get(name)
-                && self.symbol_is_value(found)
-            {
-                return Some(found);
-            }
-            if let Some(found) = self
-                .late_bound_static_members_of(base)
-                .into_iter()
-                .find_map(|(spelled, member)| (spelled == name).then_some(member))
-            {
-                return Some(found);
-            }
-            if let Some(found) = self.static_property_of_bases(base, name, visiting) {
-                return Some(found);
-            }
-        }
-        None
     }
 
     /// `lateBindMember` / `getPropertyNameFromType` (checker.go, utilities.go):
@@ -2903,9 +2880,7 @@ impl Checker<'_, '_> {
         }
         if let Some(symbol) = self.class_static_symbol(id) {
             let mut names = vec!["prototype".to_owned()];
-            return self
-                .collect_static_property_names(symbol, &mut names, &mut Vec::new())
-                .then_some(names);
+            return self.collect_static_property_names(symbol, &mut names).then_some(names);
         }
         if let TypeData::Anonymous { symbol, .. } = self.type_of(id).data
             && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
@@ -3002,24 +2977,20 @@ impl Checker<'_, '_> {
         self.literal_key_texts(*arguments.get(position)?)
     }
 
-    /// resolveAnonymousTypeMembers (checker.go): the class's static properties
-    /// include base exports. The synthetic prototype is added by the caller.
+    /// `resolveAnonymousTypeMembers` (`checker.go:20650`, class arm): the
+    /// class's static properties are its own exports plus, through
+    /// `addInheritedMembers`, the properties of
+    /// `getBaseConstructorTypeOfClass` when that is an object, intersection
+    /// or type variable. The synthetic prototype is added by the caller. A
+    /// base whose names cannot be enumerated, or an `any` base (upstream
+    /// adds an `any` index signature instead), answers `false`.
     fn collect_static_property_names(
         &mut self,
         owner: tsr_binder::SymbolId,
         names: &mut Vec<String>,
-        visiting: &mut Vec<tsr_binder::SymbolId>,
     ) -> bool {
-        if visiting.contains(&owner) {
-            return true;
-        }
-        let inherited = !visiting.is_empty();
-        visiting.push(owner);
         for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
-            if self.symbol_is_value(symbol)
-                && !(inherited && name.starts_with('#'))
-                && !names.iter().any(|existing| existing == name)
-            {
+            if self.symbol_is_value(symbol) && !names.iter().any(|existing| existing == name) {
                 names.push(name.to_owned());
             }
         }
@@ -3028,8 +2999,28 @@ impl Checker<'_, '_> {
                 names.push(name);
             }
         }
-        let Some(bases) = self.base_symbols_of_ex(owner, false) else { return false };
-        bases.into_iter().all(|base| self.collect_static_property_names(base, names, visiting))
+        let base = self.get_base_constructor_type_of_class(owner);
+        let flags = self.store.get(base).flags;
+        if flags.contains(TypeFlags::ANY) {
+            return false;
+        }
+        if !flags.intersects(
+            TypeFlags::OBJECT
+                | TypeFlags::INTERSECTION
+                | TypeFlags::TYPE_PARAMETER
+                | TypeFlags::INDEXED_ACCESS,
+        ) {
+            return true;
+        }
+        let Some(inherited) = self.get_property_names_of_type(base) else { return false };
+        for name in inherited {
+            // A `#private` static is lexically scoped to its declaring class
+            // body and never inherits (see `get_property_of_anonymous_symbol`).
+            if !name.starts_with('#') && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        true
     }
 
     /// One step of [`Checker::get_property_names_of_type`]'s walk.
