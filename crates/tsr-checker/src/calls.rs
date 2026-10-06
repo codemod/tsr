@@ -3825,6 +3825,20 @@ impl Checker<'_, '_> {
                         return Some(failure);
                     }
                 }
+                // A generic survivor of an overloaded set still runs
+                // `resolveCall`'s two passes (`checker.go:8922-8928`): with a
+                // context-sensitive argument, the subtype pass can context-check
+                // it and reject the candidate, and the assignable pass then
+                // infers from the retained check, not a fresh one.
+                if candidates.len() > 1
+                    && !survivor.type_parameters.is_empty()
+                    && !has_type_arguments
+                    && arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                    && let Some(picked) =
+                        self.transcribed_generic_set_walk(candidates, arguments, call)
+                {
+                    return Some(picked);
+                }
                 return Some(survivor);
             }
             // §463: two or more arity survivors, EVERY one generic, their
