@@ -671,6 +671,7 @@ impl Checker<'_, '_> {
             }
             Node::NewExpression(_) => {
                 self.check_new_expression_diagnostics(node);
+                self.check_implicit_any_new_expression(node);
                 ambient
             }
             Node::TaggedTemplateExpression(_) => {

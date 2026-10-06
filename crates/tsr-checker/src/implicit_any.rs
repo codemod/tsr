@@ -826,4 +826,66 @@ impl Checker<'_, '_> {
             ),
         );
     }
+
+    /// TS7009 — `'new' expression, whose target lacks a construct signature,
+    /// implicitly has an 'any' type.`
+    ///
+    /// `checkCallExpression`'s new-expression arm (`checker.go:8334`): the
+    /// signature `resolveNewExpression` (`checker.go:8575`) resolved is a
+    /// call signature — the callee's apparent type has no construct
+    /// signatures but has call signatures — so the result is `any`, reported
+    /// under `noImplicitAny`. Every signature that call-signature road can
+    /// resolve has a declaration upstream, so the declaration test reduces to
+    /// the signature lists.
+    ///
+    /// Declines what this port cannot certify: a callee needing
+    /// `checkNonNullExpression`'s narrowing (nullable, `unknown`, `void`), an
+    /// `any` or error apparent type (the untyped and error roads report
+    /// nothing here), an undecided signature list, and JavaScript, whose
+    /// constructor functions take another road.
+    pub(crate) fn check_implicit_any_new_expression(&mut self, node: NodeId) {
+        use crate::{flags::TypeFlags, signatures::SignatureKind};
+        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::NewExpression(new)) = self.node_map.get(node) else { return };
+        let Some(callee) = new.expression else { return };
+        let callee_type = self.check_expression(callee);
+        if self.is_error(callee_type)
+            || self
+                .store
+                .get(callee_type)
+                .flags
+                .intersects(TypeFlags::NULLABLE | TypeFlags::UNKNOWN | TypeFlags::VOID)
+        {
+            return;
+        }
+        let apparent = self.apparent_type(callee_type);
+        if self.is_error(apparent) || self.store.get(apparent).flags.intersects(TypeFlags::ANY) {
+            return;
+        }
+        let Some(construct) =
+            self.signature_shapes_of_type_kind(apparent, SignatureKind::Construct)
+        else {
+            return;
+        };
+        if !construct.is_empty() {
+            return;
+        }
+        let Some(call) = self.signature_shapes_of_type_kind(apparent, SignatureKind::Call) else {
+            return;
+        };
+        if call.is_empty() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::NEW_EXPRESSION_WHOSE_TARGET_LACKS_A_CONSTRUCT_SIGNATURE_IMPLICITLY_HAS_AN_ANY_TYPE,
+                span,
+            ),
+        );
+    }
 }
