@@ -305,3 +305,33 @@ this port answers differently).
 
 **Measured.** `protectedAccessThroughContextualThis` (1 false line gone) and
 `destructuringAssignment_private` (4 lines) convert; 0 losses.
+
+## 9. TS2542 on a union receiver: constituents through their apparent type
+
+**Forcing constraint.** `getUnionIndexInfos` (`checker.go:13510`) asks
+`getIndexInfosOfType` of each constituent, and that reads the constituent
+through `getReducedApparentType`, so a `string` constituent contributes
+`String`'s `readonly [index: number]: string` and the union's number index is
+readonly. `union_index_infos` (`index_signatures.rs`) asked the bare primitive
+(no infos), so the union had none; and `check_readonly_index_signature_write`
+declined every union receiver. `x[0] = ""` with `x: string | Collection`
+(the declared type, which TS2454 returns) is TS2542 upstream
+(`classDoesNotDependOnBaseTypes`).
+
+**Decision.** Primitive constituents are mapped through `apparent_type` in
+`union_index_infos` (an object constituent is its own apparent type). The
+TS2542 rule keeps its union decline for a **dotted** access only, whose
+`getPropertyOfType(union)` is `createUnionOrIntersectionProperty`; an element
+access asks `getPropertyTypeForIndexType` of the union's own index infos,
+which are now upstream's.
+
+**Measured.** 2 baseline lines, 0 false; `classDoesNotDependOnBaseTypes`
+converts; 2 checker_types lines gain; 0 losses.
+
+**Remaining TS2542** (not taken): readonly tuples have no index infos in
+`get_index_infos_of_type` (`readonlyArraysAndTuples`, 5 lines; upstream's tuple
+members come from `ReadonlyArray<union of elements>` — tuple subsystem); an
+unresolved key (`ENUM1[A]--`, 1 line) is upstream's `errorType`, which is
+any-flagged and applies the enum's reverse index, but this port's error key is
+not known to be the deliberate one (§3a); mapped receivers
+(`mappedTypeRelationships`, 4 lines) belong to the mapped-type cluster.

@@ -180,7 +180,9 @@ impl Checker<'_, '_> {
             return;
         }
         let apparent = self.apparent_type(receiver_type);
-        if self.type_of(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
+        if self.type_of(apparent).flags.intersects(TypeFlags::INTERSECTION)
+            || written_name.is_some() && self.type_of(apparent).flags.intersects(TypeFlags::UNION)
+        {
             return;
         }
         // getPropertyNameFromIndex: a usable literal key names a property,
