@@ -66,7 +66,7 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
+    pub(crate) fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
         if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
             return Some("children".to_string());
         }
@@ -1172,7 +1172,7 @@ fn is_comma_sequence(expression: tsr_ast::Expression<'_>) -> bool {
     )
 }
 
-fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
+pub(crate) fn semantic_jsx_child(child: &tsr_ast::JsxChild<'_>) -> bool {
     match child {
         tsr_ast::JsxChild::JsxText(text) => !text.contains_only_trivia_white_spaces,
         tsr_ast::JsxChild::JsxExpression(expression) => expression.expression.is_some(),

@@ -269,3 +269,14 @@ arguments fit. Declined, each because the faithful answer lives elsewhere:
 
 A false TS2786 here would mean the published signature is not upstream's
 resolved one; compare against `resolveJsxOpeningLikeElement`, not this rule.
+
+## 7. TS2710 from the attributes walk
+
+`createJsxAttributesTypeFromAttributesProperty` (`jsx.go:819-826`) reports
+`'children' are specified twice` on the attributes node when an explicit
+attribute names the children property and the element's body has semantic
+children (`GetSemanticJsxChildren`), unless a spread typed `any` (or the
+error type, which `IsTypeAny` also accepts) made the attributes type `any`.
+Same §2 split as §4: `check_jsx_children_specified_twice`, on the
+`JsxAttributes` arm of the walk. A `children` that arrives through a spread
+is not explicit and does not report, as upstream.

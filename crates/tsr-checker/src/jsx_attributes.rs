@@ -96,4 +96,64 @@ impl Checker<'_, '_> {
             );
         }
     }
+
+    /// TS2710 — `'{0}' are specified twice. The attribute named '{0}' will be
+    /// overwritten.`
+    ///
+    /// `createJsxAttributesTypeFromAttributesProperty` (`jsx.go:819-826`): an
+    /// attribute named as the children property, on an element whose body has
+    /// semantic children, reports on the attributes node — unless a spread of
+    /// type `any` made the whole attributes type `any` (`hasSpreadAnyType`;
+    /// `IsTypeAny` is true of `errorType` too). Only explicit attributes
+    /// count: a `children` arriving through a spread is not warned about.
+    pub(crate) fn check_jsx_children_specified_twice(&mut self, node: NodeId) {
+        let Some(Node::JsxAttributes(attributes)) = self.node_map.get(node) else { return };
+        let Some(opening) = self.nodes.parent(node) else { return };
+        let Some(Node::JsxOpeningElement(_)) = self.node_map.get(opening) else { return };
+        let Some(Node::JsxElement(element)) =
+            self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent))
+        else {
+            return;
+        };
+        if element.opening_element.and_then(|o| o.node_id) != Some(opening)
+            || !element.children.iter().any(crate::jsx_intrinsic::semantic_jsx_child)
+        {
+            return;
+        }
+        let Some(children) = self.jsx_children_name(opening) else { return };
+        let mut explicit = false;
+        for attribute in attributes.properties {
+            match attribute {
+                JsxAttributeLike::JsxAttribute(attribute) => {
+                    if let Some(JsxAttributeName::Identifier(name)) = attribute.name
+                        && name.text == children
+                    {
+                        explicit = true;
+                    }
+                }
+                JsxAttributeLike::JsxSpreadAttribute(spread) => {
+                    let Some(operand) = spread.expression else { continue };
+                    let ty = self.check_expression(operand);
+                    if self.is_error(ty)
+                        || self.store.get(ty).flags.intersects(crate::flags::TypeFlags::ANY)
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+        if !explicit {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_ARE_SPECIFIED_TWICE_THE_ATTRIBUTE_NAMED_0_WILL_BE_OVERWRITTEN,
+                span,
+                [children],
+            ),
+        );
+    }
 }
