@@ -117,7 +117,66 @@ impl Checker<'_, '_> {
             _ => return false,
         };
         let mut visiting = Vec::new();
+        // **A namespace merged onto a class adds nothing to the instance
+        // side.** The binder files a namespace's declarations in the symbol's
+        // `exports` — the `typeof C` table the `Anonymous` arm above reads —
+        // and never in `members`, which is what `getPropertyOfType` reads for
+        // the instance type (`getMembersOfSymbol` over `symbol.Members`). So
+        // for a clodule's instance type the module declarations are skipped
+        // and the class/interface declarations and bases are walked as for
+        // any class. Only here because the shared walk below reads a
+        // `ModuleDeclaration` as an unreadable declaration, which is right for
+        // every other caller's symbols. `docs/parity/notes/property.md` §7.
+        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        let is_module = |checker: &Self, declaration: NodeId| {
+            matches!(checker.node_map.get(declaration), Some(Node::ModuleDeclaration(_)))
+        };
+        if declarations.iter().any(|&declaration| is_module(self, declaration))
+            && self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS)
+        {
+            // A class in an external module can be augmented
+            // (`declare module "./m" { interface C { … } }`), and the binder
+            // does not run `mergeModuleAugmentation` (`checker.go:1407`), so
+            // its member table may lack what the augmentation adds
+            // (`moduleAugmentationExtendFileModule1`). Waits on tsr-2zk.38.
+            if declarations.iter().any(|&declaration| self.declared_in_external_module(declaration))
+            {
+                return false;
+            }
+            visiting.push(owner);
+            for declaration in declarations {
+                if !is_module(self, declaration)
+                    && !self.declaration_members_are_complete(declaration)
+                {
+                    return false;
+                }
+            }
+            let Some(bases) = self.base_symbols_of(owner) else { return false };
+            return bases
+                .into_iter()
+                .all(|base| self.symbol_members_are_complete(base, &mut visiting, 1));
+        }
         self.symbol_members_are_complete(owner, &mut visiting, 0)
+    }
+
+    /// Is `declaration` inside an external module — a module file, or an
+    /// ambient `declare module "name"` body? Either can be augmented.
+    fn declared_in_external_module(&self, declaration: NodeId) -> bool {
+        let in_ambient_module = self.nodes.ancestors(declaration).any(|ancestor| {
+            matches!(
+                self.node_map.get(ancestor),
+                Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+            )
+        });
+        if in_ambient_module {
+            return true;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return true };
+        match self.node_map.get(file) {
+            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
+            _ => true,
+        }
     }
 
     /// Every declared property of `id`, with whether it is optional — or `None`

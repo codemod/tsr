@@ -606,6 +606,9 @@ pub struct Checker<'a, 'n> {
     /// `compilerOptions.NoImplicitOverride.IsTrue()`, read by
     /// `checkMemberForOverrideModifier` (`checker.go:4729`).
     pub(crate) no_implicit_override: bool,
+    /// `compilerOptions.NoImplicitReturns == TSTrue`, read by
+    /// `checkAllCodePathsInNonVoidFunctionReturnOrThrow` (`checker.go:3728`).
+    pub(crate) no_implicit_returns: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
     /// Set by [`Checker::check_source_file`] and read by the rules that cannot
@@ -657,9 +660,6 @@ pub struct Checker<'a, 'n> {
     /// cached and what would have to land first.
     pub(crate) exhaustive_switches: rustc_hash::FxHashSet<NodeId>,
     pub(crate) no_implicit_any: bool,
-    /// `compilerOptions.NoImplicitReturns == TSTrue` (`checker.go:3763`):
-    /// TS7030 in `checkAllCodePathsInNonVoidFunctionReturnOrThrow`.
-    pub(crate) no_implicit_returns: bool,
     /// Object-literal types created in a JS file — upstream's
     /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
@@ -766,6 +766,9 @@ pub struct Checker<'a, 'n> {
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
+    /// `c.languageVersion` (`checker.go:948`, `GetEmitScriptTarget`), read by
+    /// the operators lane's TS2791 (`docs/parity/notes/operators.md` §8).
+    pub(crate) language_version: tsr_core::ScriptTarget,
     /// §82: depth cap for aliased-condition inlining — upstream's
     /// `inlineLevel` (`flow.go`), capped at 5.
     pub(crate) alias_inline_level: u8,
@@ -1401,6 +1404,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
             no_implicit_override: false,
+            no_implicit_returns: false,
             file_has_parse_errors: false,
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
@@ -1409,7 +1413,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
-            no_implicit_returns: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
@@ -1433,6 +1436,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             jsx_namespace: "React".to_string(),
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
+            language_version: tsr_core::ScriptTarget::ESNext,
             alias_inline_level: 0,
             non_null_refinement_bases: FxHashMap::default(),
             pre_optional_marker: FxHashMap::default(),
@@ -1622,10 +1626,10 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_property_initialization =
             options.strict_option_value(options.strict_property_initialization);
         self.no_implicit_override = options.no_implicit_override.is_true();
+        self.no_implicit_returns = options.no_implicit_returns.is_true();
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
-        self.no_implicit_returns = options.no_implicit_returns.is_true();
 
         // `getJsxNamespace`'s three-way default (`jsx.go:1372-1382`): `React`,
         // unless `jsxFactory` names an entity — in which case its **first**
@@ -1647,6 +1651,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
         self.exact_optional_property_types = options.exact_optional_property_types.is_true();
+        self.language_version = options.emit_script_target();
 
         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
         // reports nothing at all, which is what confines the unused family to the
