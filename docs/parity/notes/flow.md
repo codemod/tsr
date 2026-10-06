@@ -390,3 +390,31 @@ expression (the body runs only after the head's assignment).
 
 **Measured.** `for-of8`, `for-of22` convert; 0 losses against `210b098`.
 CPU median (41 samples): 1.001 / 1.006.
+
+## 15. TS2454: catch variables, and `isNeverInitialized`'s definite assignment
+
+Three upstream facts, one commit because each alone moved the same lines:
+
+- **Catch-clause variables** are typed `any`, `unknown` or `errorType`
+  whatever their annotation (`checker.go:16678`), all of which
+  `assumeInitialized` accepts. The rule read `catch (e: number)`'s annotation
+  as `number` and reported (`catchClauseWithTypeAnnotation`, one extra). Now
+  a catch-clause root declaration exits.
+- **The START arm's outer-variable stand-in** for `assumeInitialized` used
+  "the symbol has *any* assignment". Upstream's `isNeverInitialized` asks
+  for a *definite* one, so an outer `let i: number` touched only by `i++`
+  keeps `undefined` (`unusedLocalsInMethod4`'s `rw`/`createBinder`). The arm
+  now also requires `!is_never_initialized` (new `flow.rs` helper, the
+  `checker.go:11147` predicate).
+- **The definite-assignment record** (`mark_node_assignments`) was gated by
+  `is_parameter_or_mutable_local_variable`, which refuses every file-level
+  `let` (a known approximation the `.types` reader depends on, §42 of
+  `checker-notes-diag2.md`). With the START change that turned module-level
+  `let x2; x2 = "abc"` into "never initialised" and produced 4 false TS2454 in
+  `narrowingPastLastAssignmentInModule`. The definite flag is now gated by
+  upstream's predicate as written (`is_parameter_or_mutable_local_variable_faithful`);
+  the position record keeps the approximate gate, so the `.types` reader is
+  unchanged (0 type-line changes).
+
+**Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
+0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.

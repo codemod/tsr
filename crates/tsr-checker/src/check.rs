@@ -6716,6 +6716,12 @@ impl Checker<'_, '_> {
         // read without passing it (a `catch` after a throwing initialiser,
         // `controlFlowDestructuringVariablesInTryCatch`).
         let Some(list) = self.nodes.parent(root) else { return false };
+        // A catch-clause variable is typed `any`, `unknown` or `errorType`
+        // whatever its annotation (`getTypeForVariableLikeDeclaration`,
+        // `checker.go:16678`), each of which `assumeInitialized` accepts.
+        if !is_binding_element && self.nodes.kind(list) == SyntaxKind::CatchClause {
+            return false;
+        }
         // A `for (… of/in …)` head is assigned by the loop, not auto-typed.
         let for_head = self.nodes.parent(list).filter(|&owner| {
             matches!(
