@@ -160,9 +160,16 @@ Each loss is a property-access defect outside this lane:
 Separately, a TSR-only cycle: this port prints an object literal's method
 signatures eagerly, so `this` inside a method whose return type is resolving
 re-enters the uncached literal (`thislessFunctionsNotContextSensitive2`,
-`accessorInferredReturnTypeErrorInReturnStatement`). The draft declined to the
-old receiver while a member's return type (or an accessor's type) is on the
-resolution stack.
+`accessorInferredReturnTypeErrorInReturnStatement`). The draft declines to the
+old receiver while a member's return-type frame is on the resolution stack.
+That covers methods; it does not yet cover a getter, whose cycle runs through
+the accessor symbol's `Type` frame (`accessorInferredReturnTypeErrorInReturnStatement`
+still lost five lines with the draft) — the draft needs that frame added too.
 
-The draft is not committed (a loss is fixed, never accepted); it waits on the
-three property-access fixes above, which are reported to the integrator.
+The draft is not committed (a loss is fixed, never accepted). It is kept as
+[`contextual-6-object-literal-this.diff`](contextual-6-object-literal-this.diff)
+against `contextual.rs`, and waits on the three property-access fixes above,
+which are reported to the integrator. The measured draft also flipped three
+diagnostics cases EMPTY_RIGHT→EMPTY_WRONG (`vueLikeDataAndPropsInference`,
+`vueLikeDataAndPropsInference2`, `thisTypeInObjectLiterals2`), not yet
+analysed.
