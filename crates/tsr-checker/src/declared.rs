@@ -3285,7 +3285,63 @@ impl<'a> Checker<'a, '_> {
             .is_some_and(|parent| self.is_readonly_type_operator(parent));
         let target = if readonly { "ReadonlyArray" } else { "Array" };
         let Some(target) = self.global_type_symbol(target) else { return error };
-        self.create_type_reference(target, vec![element])
+        let reference = self.create_type_reference(target, vec![element]);
+        // getTypeFromArrayOrTupleTypeNode (checker.go:24115): an array node
+        // that IS an alias body takes the deferred arm and carries the alias
+        // (`type T10 = string[]` records `>T10 : T10`).
+        self.deferred_alias_reference(node.node_id, reference)
+    }
+
+    /// The reference an alias-carrying deferred copy was made from (the
+    /// canonical `(target, arguments)` instantiation), or `id` itself when it
+    /// carries no alias. For consumers that build a NEW type from the
+    /// reference's structure, where upstream's new type has no alias.
+    pub(crate) fn without_alias(&self, id: TypeId) -> TypeId {
+        if !self.alias_of.contains_key(&id) {
+            return id;
+        }
+        self.type_reference_targets
+            .get(&id)
+            .and_then(|key| self.instantiations.get(key))
+            .copied()
+            .unwrap_or(id)
+    }
+
+    /// `createDeferredTypeReference` (`checker.go:25121`) reached through
+    /// `isDeferredTypeReferenceNode`'s alias arm (`:23237`): when `node` is
+    /// directly the body of a non-generic type alias (through parentheses and
+    /// `readonly`), the reference carries that alias (ADR-0045). The copy keeps
+    /// every semantic channel of `reference` — flags, member owner,
+    /// `type_reference_targets` — so members, iteration and relations read the
+    /// same `(target, arguments)`; only [`Checker::alias_of`] differs, and only
+    /// the printer reads it. Anything else answers `reference` unchanged.
+    ///
+    /// A GENERIC alias host is left alone: its declared type is still the
+    /// `Name<Params>` mint (ADR-0045 rule 4 is not built for it), so no
+    /// reference to its body is ever printed through here.
+    fn deferred_alias_reference(&mut self, node: Option<NodeId>, reference: TypeId) -> TypeId {
+        let Some(node) = node else { return reference };
+        let Some(alias) = self.alias_symbol_for_type_node(node) else { return reference };
+        if !self.local_type_parameters_of(alias).is_empty()
+            || self.is_error(reference)
+            || !self.type_reference_targets.contains_key(&reference)
+        {
+            return reference;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, reference)) {
+            return cached;
+        }
+        let flags = self.store.get(reference).flags;
+        let crate::types::TypeData::Named { members, .. } = self.store.get(reference).data else {
+            return reference;
+        };
+        let name = self.binder.symbols().get(alias).name.to_string();
+        let named = self.store.new_named(flags, name, members);
+        let target = self.type_reference_targets[&reference].clone();
+        self.type_reference_targets.insert(named, target);
+        self.alias_of.insert(named, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, reference), named);
+        named
     }
 
     /// `Checker.getTypeFromArrayOrTupleTypeNode` (`checker.go:24115`), **tuple
@@ -3548,7 +3604,17 @@ impl<'a> Checker<'a, '_> {
                         spliced = None;
                     }
                 }
-                pieces.push(format!("{prefix}{}{suffix}", self.type_to_string(resolved)));
+                // createNormalizedTupleType stores a rest over an array as its
+                // ELEMENT type and the node builder prints `...E[]` from it — a
+                // fresh array, so an alias the operand carried does not survive
+                // (`[...Numbers, boolean]` prints `[...number[], boolean]`).
+                let printed = if matches!(element, TypeNode::RestTypeNode(_)) {
+                    let unaliased = self.without_alias(resolved);
+                    self.type_to_string(unaliased)
+                } else {
+                    self.type_to_string(resolved)
+                };
+                pieces.push(format!("{prefix}{printed}{suffix}"));
             }
             if let Some(flat) = spliced {
                 let readonly = node
@@ -4785,6 +4851,19 @@ impl<'a> Checker<'a, '_> {
             self.qualified_written_text.insert(id, format!("{base}<{}>", spelled.join(", ")));
         }
         let result = self.create_type_reference(symbol, arguments);
+        // getTypeFromClassOrInterfaceReference (checker.go:23200): a generic
+        // class or interface reference that IS an alias body is deferred and
+        // carries the alias (`type ImmutableTypes = IImmutableMap<any>`).
+        if self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            && !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return self.deferred_alias_reference(node.node_id, result);
+        }
         // getTypeAliasInstantiation supplies the enclosing alias to
         // mapTypeWithAlias. A distributed mapped union keeps that alias,
         // unlike a normalized array/tuple which has its structural display.

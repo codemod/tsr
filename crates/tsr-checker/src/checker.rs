@@ -255,6 +255,21 @@ pub struct Checker<'a, 'n> {
     /// it has no entry and no rebuild — see
     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// ADR-0045's alias attribute, first writer: upstream's `Type.alias`
+    /// (`symbol` + `typeArguments`) for a type built by an alias-accepting
+    /// constructor. Written once, at creation, by
+    /// [`Checker::deferred_alias_reference`](crate::Checker) — the
+    /// `createDeferredTypeReference` arm of `isDeferredTypeReferenceNode`
+    /// (`checker.go:23236`) — and read only by the printer
+    /// ([`Checker::type_to_string_at`]), mirroring the node builder's alias
+    /// arm (`nodebuilderimpl.go:3362`). Relations, members and inference never
+    /// read it. An absent entry means "no alias", a completed answer.
+    pub(crate) alias_of: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// Intern table for those alias-carrying references, keyed by
+    /// `(alias symbol, the reference the alias is put on)`: upstream caches the
+    /// deferred reference per alias-body node, and the body is resolved once
+    /// per alias, so one alias over one reference is one type.
+    pub(crate) deferred_alias_references: FxHashMap<(SymbolId, TypeId), TypeId>,
     /// §136 (printseam §6): the WRITTEN arity of a default-filled reference —
     /// prints show this many leading arguments, matching upstream's
     /// written-annotation reuse (`Iterable<number>` written short prints
@@ -1340,6 +1355,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             constrained_type_variables: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
+            alias_of: FxHashMap::default(),
+            deferred_alias_references: FxHashMap::default(),
             reference_display_arity: FxHashMap::default(),
             literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
@@ -2185,6 +2202,20 @@ impl<'a, 'n> Checker<'a, 'n> {
             // printed form IS the symbol's own name — which is every
             // zero-argument reference. Reverted per §515; recorded so the next
             // reader does not re-run it.
+            // ADR-0045 rule 5: the node builder's alias arm
+            // (`nodebuilderimpl.go:3362`) prints `Alias<Args>` from the alias
+            // symbol before any structure, named at the site like any
+            // reference (`reference_text_at`'s chain / rename / qualifier).
+            if let Some((alias, alias_arguments)) = self.alias_of.get(&id).cloned()
+                && !self.rendering_composites.contains(&id)
+            {
+                self.rendering_composites.insert(id);
+                let rebuilt = self.reference_text_at(alias, &alias_arguments, reference);
+                self.rendering_composites.remove(&id);
+                if let Some(out) = rebuilt {
+                    return Some(out);
+                }
+            }
             if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
                 && !arguments.is_empty()
                 && !self.rendering_composites.contains(&id)

@@ -1329,9 +1329,22 @@ impl Checker<'_, '_> {
         left: &crate::types::Type,
         right: &crate::types::Type,
     ) -> Ordering {
+        // `getTypeNameSymbol` (`utilities.go:607`) answers the ALIAS symbol
+        // first (ADR-0045's `alias_of`): `type FooArray = FooBase[]` sorts
+        // under "FooArray", not under its target's "Array", and two types
+        // carrying one alias compare by alias arguments (`:593`).
+        let alias_a = self.alias_of.get(&a);
+        let alias_b = self.alias_of.get(&b);
+        if let (Some((symbol_a, args_a)), Some((symbol_b, args_b))) = (alias_a, alias_b)
+            && symbol_a == symbol_b
+        {
+            return self.compare_type_lists(args_a, args_b);
+        }
         let reference_a = self.type_reference_targets.get(&a);
         let reference_b = self.type_reference_targets.get(&b);
-        if let (Some((target_a, args_a)), Some((target_b, args_b))) = (reference_a, reference_b)
+        if alias_a.is_none()
+            && alias_b.is_none()
+            && let (Some((target_a, args_a)), Some((target_b, args_b))) = (reference_a, reference_b)
             && target_a == target_b
         {
             return self.compare_type_lists(args_a, args_b);
@@ -1372,14 +1385,18 @@ impl Checker<'_, '_> {
             return Ordering::Equal;
         }
         let symbols = self.binder.symbols();
-        let left_name = if self.tuple_element_lists.contains_key(&a) {
+        let left_name = if let Some((alias, _)) = alias_a {
+            Some(symbols.get(*alias).name)
+        } else if self.tuple_element_lists.contains_key(&a) {
             None
         } else if let Some((target, _)) = reference_a {
             Some(symbols.get(*target).name)
         } else {
             named_symbol_name(&left.data, symbols)
         };
-        let right_name = if self.tuple_element_lists.contains_key(&b) {
+        let right_name = if let Some((alias, _)) = alias_b {
+            Some(symbols.get(*alias).name)
+        } else if self.tuple_element_lists.contains_key(&b) {
             None
         } else if let Some((target, _)) = reference_b {
             Some(symbols.get(*target).name)

@@ -1642,7 +1642,7 @@ impl Checker<'_, '_> {
             _ => return None,
         };
         let target = self.global_type_symbol_with_arity(array, 1)?;
-        let body = *self.declared_types.get(&owner)?;
+        let body = self.without_alias(*self.declared_types.get(&owner)?);
         if body == id || body == self.intrinsics.unresolved || self.is_error(body) {
             return None;
         }
@@ -4114,7 +4114,7 @@ const child = tree[0][1]; const readLength = readTree[0][1].length;"
                 for _ in 0..3 {
                     assert_eq!(
                         checker.completed_array_placeholder_length_body(placeholder),
-                        Some(original)
+                        Some(checker.without_alias(original))
                     );
                     assert_eq!(publication(checker), before);
                     assert_eq!(
