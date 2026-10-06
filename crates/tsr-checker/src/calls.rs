@@ -731,11 +731,12 @@ impl Checker<'_, '_> {
                 return CallArity::Applicable(Some(Box::new(candidate.clone())));
             }
             // The single generic candidate of a call: `chooseOverload`'s
-            // loop body (`checker.go:9046`) infers and instantiates it before
-            // the applicability check.
+            // loop body (`checker.go:9046`) checks its written type arguments
+            // or infers them, and instantiates it before the applicability
+            // check. Candidates failing `hasCorrectTypeArgumentArity` are
+            // already filtered out above.
             if let [candidate] = candidates.as_slice()
                 && !candidate.type_parameters.is_empty()
-                && type_arguments.is_empty()
                 && is_call
                 && !effective.iter().any(|argument| argument.spread)
                 && effective.len() == arguments.len()
@@ -1115,19 +1116,24 @@ impl Checker<'_, '_> {
     }
 
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
-    /// is generic and written without type arguments: `inferTypeArguments`
-    /// with the candidate, `getSignatureInstantiation`, then
-    /// `isSignatureApplicable` — and on failure `reportCallResolutionErrors`
-    /// (`checker.go:9649`) re-runs it with `reportErrors` against that same
+    /// is generic: with written type arguments `checkTypeArguments`
+    /// (`checker.go:9222`), else `inferTypeArguments`; then
+    /// `getSignatureInstantiation` and `isSignatureApplicable`. On failure
+    /// `reportCallResolutionErrors` (`checker.go:9649`) reports the
+    /// constraint failure (`candidateForTypeArgumentError`, see
+    /// [`Checker::check_call_type_argument_constraints`]) or re-runs the
+    /// applicability check with `reportErrors` against that same
     /// instantiation (`candidatesForArgumentError`'s only entry).
     ///
-    /// A call with a context-sensitive argument reuses the instantiation the
-    /// type road published in `resolved_call_signatures`
-    /// (`signatureLinks.resolvedSignature`): re-running inference there would
-    /// re-assign the callback's contextual parameter types after its body was
-    /// checked, which upstream never does (`assignContextualParameterTypes`
-    /// is once). Otherwise the instantiation comes from the shared inference
-    /// worker ([`Checker::check_generic_call_with`]'s out-slot); no cache is
+    /// A call with a context-sensitive argument and no written type
+    /// arguments reuses the instantiation the type road published in
+    /// `resolved_call_signatures` (`signatureLinks.resolvedSignature`):
+    /// re-running inference there would re-assign the callback's contextual
+    /// parameter types after its body was checked, which upstream never does
+    /// (`assignContextualParameterTypes` is once). Otherwise the
+    /// instantiation comes from the shared inference worker
+    /// ([`Checker::check_generic_call_with`]'s out-slot, whose written-type-
+    /// argument arm substitutes without touching the arguments); no cache is
     /// added. Answers `false` when no instantiation is decided, so the caller
     /// keeps its declaration-only rule.
     fn check_single_generic_candidate_arguments(
@@ -1138,30 +1144,116 @@ impl Checker<'_, '_> {
         let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
             return false;
         };
-        let instantiated =
-            if call.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
-                match self.resolved_call_signatures.get(&node) {
-                    Some(resolved) if resolved.type_parameters.is_empty() => resolved.clone(),
-                    _ => return false,
-                }
-            } else {
-                let mut instantiated = None;
-                let answer = self.check_generic_call_with(
-                    candidate,
-                    Some(node),
-                    call.arguments,
-                    Some(&mut instantiated),
-                );
-                match instantiated {
-                    Some(instantiated) if answer != self.intrinsics.error => instantiated,
-                    _ => return false,
-                }
-            };
+        if !call.type_arguments.is_empty() {
+            match self.check_call_type_argument_constraints(candidate, node) {
+                Some(true) => {}
+                Some(false) => return true,
+                None => return false,
+            }
+        }
+        let instantiated = if call.type_arguments.is_empty()
+            && call.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+        {
+            match self.resolved_call_signatures.get(&node) {
+                Some(resolved) if resolved.type_parameters.is_empty() => resolved.clone(),
+                _ => return false,
+            }
+        } else {
+            let mut instantiated = None;
+            let answer = self.check_generic_call_with(
+                candidate,
+                Some(node),
+                call.arguments,
+                Some(&mut instantiated),
+            );
+            match instantiated {
+                Some(instantiated) if answer != self.intrinsics.error => instantiated,
+                _ => return false,
+            }
+        };
         if self.signature_non_array_rest_type(&instantiated).is_some() {
             return false;
         }
         self.check_instantiated_candidate_arguments(call.arguments, &instantiated);
         true
+    }
+
+    /// `checkTypeArguments` (`checker.go:9222`) with `reportErrors`, as
+    /// `reportCallResolutionErrors`' `candidateForTypeArgumentError` arm
+    /// runs it: the written type arguments, `fillMissingTypeArguments`
+    /// (defaults instantiated over the prefix, else `unknown`), then each
+    /// written argument against its parameter's constraint instantiated by
+    /// that mapper; the first failure is reported at the type-argument node
+    /// under `Type_0_does_not_satisfy_the_constraint_1` and ends the check.
+    ///
+    /// `Some(true)`: every constraint holds. `Some(false)`: a failure was
+    /// found (and reported where the relation reporter speaks). `None`: a
+    /// side this port cannot decide — an unresolved argument, a constraint
+    /// or argument mentioning type variables (the refusal
+    /// `constraints.rs`' type-reference check makes), an unknown relation.
+    /// `getTypeWithThisArgument` is not applied (no `this`-typed
+    /// constraint reaches here decided).
+    fn check_call_type_argument_constraints(
+        &mut self,
+        candidate: &Signature,
+        call: tsr_ast::NodeId,
+    ) -> Option<bool> {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
+            return None;
+        };
+        let nodes = call.type_arguments;
+        let parameters = self.type_parameter_types(candidate)?;
+        if nodes.len() > parameters.len() {
+            return None;
+        }
+        let names: Vec<String> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut map: Vec<(TypeId, TypeId)> = Vec::with_capacity(parameters.len());
+        for (position, &parameter) in parameters.iter().enumerate() {
+            let argument = match nodes.get(position) {
+                Some(&node) => self.get_type_from_type_node(node),
+                None => match candidate.type_parameters.get(position).and_then(|p| p.default) {
+                    Some(default) => self.instantiate_type(default, &map, &parameters, &names),
+                    None => self.intrinsics.unknown,
+                },
+            };
+            if self.is_error(argument) {
+                return None;
+            }
+            map.push((parameter, argument));
+        }
+        for (position, &node) in nodes.iter().enumerate() {
+            let Some(constraint) = self.type_parameter_constraint(parameters[position]) else {
+                continue;
+            };
+            let target = self.instantiate_type(constraint, &map, &parameters, &names);
+            let source = map[position].1;
+            if self.is_error(target)
+                || self.head_could_contain_type_variables(source, 3)
+                || self.head_could_contain_type_variables(target, 3)
+            {
+                return None;
+            }
+            match self.relate_ternary(source, target, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {
+                    let at = node.node_id()?;
+                    let span = self.error_span(at);
+                    self.report_relation_failure(
+                        at,
+                        span,
+                        None,
+                        source,
+                        target,
+                        Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
+                    );
+                    return Some(false);
+                }
+            }
+        }
+        Some(true)
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an
