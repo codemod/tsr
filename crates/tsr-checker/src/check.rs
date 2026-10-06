@@ -6675,15 +6675,48 @@ impl Checker<'_, '_> {
         else {
             return false;
         };
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+        // A binding element is checked as its root `VariableDeclaration`
+        // (`GetRootDeclaration`); a parameter root is `isParameter`, assumed
+        // initialized. The element itself is never `isNeverInitialized`
+        // (that wants a `VariableDeclaration`) and carries no `!`.
+        let is_binding_element = self.nodes.kind(declaration) == SyntaxKind::BindingElement;
+        let mut root = declaration;
+        while self.nodes.kind(root) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(root) else { return false };
+            let Some(owner) = self.nodes.parent(pattern) else { return false };
+            root = owner;
+        }
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(root) else {
             return false;
         };
-        // No initialiser, no `!`, and an explicit annotation — the annotation is
-        // what keeps the auto-typed path (`t == autoType`, a different
-        // diagnostic entirely) out of this rule.
-        if variable.initializer.is_some()
-            || variable.exclamation_token.is_some()
-            || variable.r#type.is_none()
+        // `isSameScopedBindingElement` (`checker.go:11202`): a read inside a
+        // binding element of the same root declaration (`const { a, b = a }`).
+        if is_binding_element
+            && let Some(element) = self
+                .nodes
+                .ancestors(node)
+                .find(|&id| self.nodes.kind(id) == SyntaxKind::BindingElement)
+        {
+            let mut element_root = element;
+            while self.nodes.kind(element_root) == SyntaxKind::BindingElement {
+                let Some(owner) =
+                    self.nodes.parent(element_root).and_then(|pattern| self.nodes.parent(pattern))
+                else {
+                    break;
+                };
+                element_root = owner;
+            }
+            if element_root == root {
+                return false;
+            }
+        }
+        // No `!`, and an annotation or an initialiser — neither is upstream's
+        // auto-typed path (`t == autoType`, a different diagnostic entirely).
+        // An initialised declaration still reports when some path reaches the
+        // read without passing it (a `catch` after a throwing initialiser,
+        // `controlFlowDestructuringVariablesInTryCatch`).
+        if variable.exclamation_token.is_some()
+            || (variable.r#type.is_none() && variable.initializer.is_none())
         {
             return false;
         }
@@ -6693,8 +6726,34 @@ impl Checker<'_, '_> {
         // (`checker.go:11158`). `declare const b: B` supplied **227 of the
         // first measurement's 4,781 wrong lines from one case**
         // (`compiler/genericDefaults`), which is what put both tests here.
-        let Some(list) = self.nodes.parent(declaration) else { return false };
-        if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
+        let Some(list) = self.nodes.parent(root) else { return false };
+        if variable.initializer.is_none()
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+        {
+            return false;
+        }
+        // Exact fast path, not a decline: an initialised block-scoped
+        // declaration read *after* it in its own block is assigned on every
+        // path to the read — a block's statements run in order, loops re-enter
+        // past the head, exceptions leave the scope — so the walk below could
+        // only answer "no `undefined`". The one way to enter a block past a
+        // statement is a `switch` jumping to a later `case`, which keeps the
+        // walk. Measured: walking every such read cost ~5% CPU on
+        // `domain-model` (`docs/parity/notes/flow.md` §13).
+        if variable.initializer.is_some()
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED)
+            && self.nodes.span(node).start >= self.nodes.span(root).end
+            && !self
+                .nodes
+                .parent(list)
+                .and_then(|statement| self.nodes.parent(statement))
+                .is_some_and(|block| {
+                    matches!(
+                        self.nodes.kind(block),
+                        SyntaxKind::CaseClause | SyntaxKind::DefaultClause
+                    )
+                })
+        {
             return false;
         }
         // `declaration.Flags&NodeFlagsAmbient != 0` (`checker.go:11158`): a
@@ -6732,7 +6791,9 @@ impl Checker<'_, '_> {
         let is_outer_variable =
             self.control_flow_container(node) != self.control_flow_container(declaration);
         if is_outer_variable {
-            let is_never_initialized = self.is_mutable_local_variable_declaration(declaration)
+            let is_never_initialized = !is_binding_element
+                && variable.initializer.is_none()
+                && self.is_mutable_local_variable_declaration(declaration)
                 && !self.is_symbol_assigned_definitely(symbol);
             if !is_never_initialized {
                 return false;
@@ -6744,8 +6805,10 @@ impl Checker<'_, '_> {
         // `checker-notes-diag2.md` §76, which is §42.1 one level up. Every
         // other annotation shape answers identically through both.
         let declared = match variable.r#type {
-            Some(annotation) => self.get_type_from_type_node_unprinted(annotation),
-            None => self.get_type_of_symbol(symbol),
+            Some(annotation) if !is_binding_element => {
+                self.get_type_from_type_node_unprinted(annotation)
+            }
+            _ => self.get_type_of_symbol(symbol),
         };
         if declared == self.intrinsics.error
             || declared == self.intrinsics.any

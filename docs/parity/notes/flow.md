@@ -337,3 +337,41 @@ enclosing function read inside `function () { … } (param)` and
 `((p) => { … })(param)`); 0 diagnostic / 0 type losses, no other output
 changes. CPU median: `domain-model` 1.020, `generic-imports` 1.030 at 21
 samples and 1.020 at 41.
+
+## 13. TS2454 for initialised and destructured declarations
+
+Baseline from here: the merge `210b098` (3,881 RIGHT diagnostics cases).
+
+`uninitialized_variable_reads_declared` required a plain `VariableDeclaration`
+with an annotation and **no initialiser** — §8's bound. Upstream has neither
+restriction: `checkIdentifier` starts every strict, not-assumed-initialised
+read at `getOptionalType(t)` and reports when `undefined` survives, which for
+an initialised `var` happens when a path bypasses the initialiser (a `catch`
+after a throwing call, a read before a hoisted `var`'s line). Ported:
+
+- an initialiser no longer exits; only "no annotation *and* no initialiser"
+  does, which is upstream's auto-typed road (a different diagnostic);
+- a `BindingElement` is checked through its root `VariableDeclaration`
+  (`GetRootDeclaration`), with `isSameScopedBindingElement`
+  (`checker.go:11202`) and the element's own `isNeverInitialized == false`;
+- `isNeverInitialized` now also requires no initialiser, as written, so an
+  initialised outer variable is assumed initialised.
+
+**Fast path (exact).** Walking every read of every initialised local cost
+1.056 CPU on `domain-model` (41 samples). For an initialised `let`/`const`/
+`using` read textually after its declaration and not in a `case` clause,
+every flow path to the read passes the initialiser (a block's statements run
+in order, loop back-edges re-enter after the head, exceptions leave the
+scope); only `switch` can enter a block past a statement. Those reads return
+before the walk. Output byte-identical with and without it; CPU median after:
+`domain-model` 0.974, `generic-imports` 1.003 (41 samples).
+
+**Measured.** +22 TS2454 lines, 0 extra, 0 diagnostic / 0 type losses;
+`controlFlowDestructuringVariablesInTryCatch`, `useBeforeDeclaration_destructuring`,
+`classStaticBlockUseBeforeDef3`, `parserS7.2_A1.5_T2`, `scannerS7.2_A1.5_T2`,
+`parserUnicode1` convert; lines gained in `controlFlowFunctionLikeCircular1`,
+`decoratorUsedBeforeDeclaration`, `controlFlowAliasing`, `exportBinding`.
+
+**Falsifier.** A TS2454 extra on an initialised declaration means a path the
+port's flow graph has that upstream's does not (a binder edge), not that the
+bound should return.
