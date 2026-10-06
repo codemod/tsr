@@ -2722,34 +2722,10 @@ impl<'a> Checker<'a, '_> {
             // annotation does not resolve used to decline the WHOLE literal —
             // `{ a: string; b: Array }` printed `error`, losing `a` as well.
             // Upstream's member carries `errorType` and the node builder reuses
-            // the written annotation node, exactly as it does for a parameter.
-            //
-            // Recorded in the same channel (`qualified_written_text`), so the
-            // `printed` slot below picks it up through
-            // `written_annotation_text` for the three annotation shapes it
-            // already consults, and `unresolved_printed` carries the rest.
-            let mut unresolved_printed = None;
+            // the written annotation node, exactly as it does for a parameter
+            // (`pseudoTypeEquivalentToType`'s error charity).
             let member_type = match property.r#type {
-                Some(annotation) => {
-                    let member_type = self.get_type_from_type_node(annotation);
-                    if member_type == error {
-                        let mut single_quoted = false;
-                        let mut array_headed = false;
-                        let Some(spelled) = Self::written_type_text(
-                            annotation,
-                            &mut single_quoted,
-                            &mut array_headed,
-                        ) else {
-                            // No printable spelling: still a whole-literal
-                            // decline, because inventing one would be worse.
-                            return error;
-                        };
-                        unresolved_printed = Some(spelled);
-                        self.intrinsics.any
-                    } else {
-                        member_type
-                    }
-                }
+                Some(annotation) => self.get_type_from_type_node(annotation),
                 None => self.intrinsics.any,
             };
             // `?` on a property signature; `!` cannot appear on one, so the
@@ -2759,32 +2735,22 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
-            // A property *written* with a single-member literal keeps its
-            // braces text, the same carriage the parameter slot takes —
-            // `bd tsr-d4li`; the second measurement's 55 residual losses were
-            // exactly this slot. Restricted to the literal shape so nothing
-            // else changes spelling here.
-            // §517 adds the UNION spelling: a member annotation `number |
-            // string` whose union interned under the other order prints the
-            // WRITTEN order (`functionOverloads43-45`'s
-            // `{ a: number | string; }`); `written_annotation_text`'s §137
-            // gate admits ONLY same-set-different-order unions, so nothing
-            // else changes spelling.
-            let printed = match (unresolved_printed, property.r#type) {
-                // §930: the annotation did not resolve; its written spelling is
-                // the answer, whatever shape the node is.
-                (Some(spelled), _) => spelled,
-                (
-                    None,
-                    Some(
-                        annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
-                        | tsr_ast::TypeNode::ArrayTypeNode(_)
-                        | tsr_ast::TypeNode::UnionTypeNode(_)),
-                    ),
-                ) => self
-                    .written_annotation_text(annotation)
-                    .unwrap_or_else(|| self.type_to_string(member_type)),
-                _ => self.type_to_string(member_type),
+            // `addPropertyToElementList` (`nodebuilderimpl.go:2486`) prints
+            // the member through `serializeTypeForDeclaration`, whose reuse
+            // arm keeps the WRITTEN annotation node when it is equivalent to
+            // the member's type (`crate::node_reuse`).
+            let reused = property
+                .r#type
+                .and_then(|annotation| self.reused_annotation_text(annotation, member_type));
+            let (member_type, printed) = if member_type == error {
+                // No reusable node: still a whole-literal decline, because
+                // inventing a spelling would be worse. Otherwise this port's
+                // stand-in for `errorType` at printing positions is `any`.
+                let Some(reused) = reused else { return error };
+                (self.intrinsics.any, reused)
+            } else {
+                let printed = reused.unwrap_or_else(|| self.type_to_string(member_type));
+                (member_type, printed)
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
                 // declareSymbolEx (binder.go:152): `PropertyExcludes` is

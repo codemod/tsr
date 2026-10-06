@@ -19,7 +19,10 @@
 //!
 //! - **Native operation:** the two serializers above, at pinned `5b1047d`,
 //!   consumed by `signatureToSignatureDeclarationHelper` for every parameter
-//!   and return annotation of a signature with a declaration.
+//!   and return annotation of a signature with a declaration, and by
+//!   `addPropertyToElementList` (`nodebuilderimpl.go:2486`) for a type
+//!   literal's property signature, whose text this port bakes when the
+//!   literal is built ([`Checker::reused_annotation_text`]).
 //! - **Identity and owner:** no cache and no side table. The decision is keyed
 //!   by the annotation node and the type it must be equivalent to, and its
 //!   result is exactly that pair ([`WrittenAnnotation`], `Copy`), carried on
@@ -51,7 +54,10 @@
 //!   per annotated slot and walks nothing (the one exception is the
 //!   alias-mapper check, which needs the frames live and runs only under
 //!   one). Each print of a reused slot is one walk over the annotation
-//!   subtree. A sub-node the visitor refuses falls back to
+//!   subtree; a type literal's property is printed when the literal is built
+//!   (its text is part of the literal's baked name), so that walk runs once
+//!   per annotated property signature per build, never under an
+//!   alias-evaluation frame. A sub-node the visitor refuses falls back to
 //!   `typeToTypeNode(getTypeFromTypeNode(node))` (`nodecopy.go:866`), which
 //!   here is [`Checker::get_type_from_type_node`] (node-cached) plus the
 //!   site's renderer.
@@ -350,13 +356,49 @@ impl<'a> Checker<'a, '_> {
         written: WrittenAnnotation,
         current: TypeId,
     ) -> Option<String> {
+        let (text, scope_local) = self.emit_from_annotation_scope(written, current)?;
+        (!scope_local).then_some(text)
+    }
+
+    /// The visitor run with no print site: the text as seen from the
+    /// annotation's own scope, and whether a name in it resolves only inside
+    /// a scope narrower than its file's top level.
+    fn emit_from_annotation_scope(
+        &mut self,
+        written: WrittenAnnotation,
+        current: TypeId,
+    ) -> Option<(String, bool)> {
         if !written.is_equivalent_to(current, self.intrinsics.error) {
             return None;
         }
         let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
         let mut cx = ReuseContext::new(None, written.node);
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
-        (!cx.scope_local).then_some(text)
+        Some((text, cx.scope_local))
+    }
+
+    /// The reuse decision and the print at once, for a member whose text this
+    /// port bakes where the member is built, from the member's own scope (a
+    /// type literal's property signature, printed by
+    /// `addPropertyToElementList` through `serializeTypeForDeclaration`,
+    /// `nodebuilderimpl.go:2486`). The baked text the alternative
+    /// `type_to_string` gives is the same inside view, so a scope-local name
+    /// does not refuse the reuse here.
+    pub(crate) fn reused_annotation_text(
+        &mut self,
+        node: TypeNode<'a>,
+        equivalent: TypeId,
+    ) -> Option<String> {
+        // Under an alias-evaluation frame the literal is an alias body being
+        // instantiated by re-resolution; the visitor's per-node fallback
+        // (`get_type_from_type_node`) would re-enter that evaluation from
+        // inside it (`flatArrayNoExcessiveStackDepth`'s recursive
+        // `FlatArray`), so the image keeps its serialized text.
+        if !self.alias_evaluation_bindings.is_empty() {
+            return None;
+        }
+        let written = self.reuse_annotation(node, equivalent)?;
+        Some(self.emit_from_annotation_scope(written, equivalent)?.0)
     }
 
     /// The reused annotation as printed at `reference`
