@@ -1,0 +1,389 @@
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5272,6 +5272,20 @@
+         if let Some(&(_, image)) = map.iter().find(|&&(from, _)| from == id) {
+             return image;
+         }
++        // Native getObjectTypeInstantiation retains an uncomputed callable
++        // with no outer parameters before demanding members/signatures/return.
++        // This declaration proof writes no completion or mapper image.
++        if self.uncomputed_callable_instantiation_is_identity(id) {
++            // Native nil mapper admission precedes the budget. A nonempty
++            // mapper still enters its object worker, even for an identity.
++            if !map.is_empty() {
++                if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
++                    return self.intrinsics.error;
++                }
++                self.instantiation_count += 1;
++            }
++            return id;
++        }
+         // A return mapper may inspect the original signature only after its
+         // declaration-owned lazy return completes. Active/unsupported originals
+         // decline before a no-type-parameter decision or mapper image is stored.
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -1996,6 +1996,86 @@
+         }
+         signature.r#type = self.get_return_type_of_signature(&signature)?;
+         Some(signature)
++    }
++
++    /// Native 5b1047d getObjectTypeInstantiation/getOuterTypeParameters
++    /// (checker.go:22304/23756) can retain an anonymous function before its
++    /// signature vector exists. Its own generic parameters do not belong to
++    /// that outer window. Prove this from the original declaration and owner;
++    /// empty metadata and printed names are not an identity proof.
++    ///
++    /// This bounded admission leaves pending/active/foreign-key originals to
++    /// the existing return guard. It adds no completion, cache or mapper image.
++    pub(crate) fn uncomputed_callable_instantiation_is_identity(&self, ty: TypeId) -> bool {
++        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(ty).data else {
++            return false;
++        };
++        let owner = self.binder.symbols().get(self.binder.merged_symbol(symbol));
++        if !owner.flags.contains(SymbolFlags::FUNCTION)
++            || owner.flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM)
++        {
++            return false;
++        }
++        if self.signature_types.contains_key(&ty)
++            || !self.alias_evaluation_bindings.is_empty()
++            || self.mapped_template_depth != 0
++            || self.unresolved_types.contains(&ty)
++            || self.symbol_types.get(&symbol) != Some(&ty)
++        {
++            return false;
++        }
++        let mut found_function = false;
++        for &declaration in &owner.declarations {
++            if !matches!(self.node_map.get(declaration), Some(Node::FunctionDeclaration(_))) {
++                continue;
++            }
++            found_function = true;
++            if self.pending_signature_returns.keys().any(|key| key.node == declaration)
++                || self.resolutions.active_signature_keys(declaration).next().is_some()
++            {
++                return false;
++            }
++            let mut current = self.nodes.parent(declaration);
++            while let Some(node) = current {
++                let has_outer_parameters = match self.node_map.get(node) {
++                    // includeThisTypes is true in native, even for a nongeneric
++                    // enclosing class/interface. Keep that receiver distinct.
++                    Some(
++                        Node::ClassDeclaration(_)
++                        | Node::ClassExpression(_)
++                        | Node::InterfaceDeclaration(_)
++                        | Node::MappedTypeNode(_)
++                        | Node::ConditionalTypeNode(_),
++                    ) => true,
++                    Some(Node::FunctionDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::FunctionExpression(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::ArrowFunction(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::MethodDeclaration(n)) => {
++                        !n.type_parameters.is_empty()
++                            || self.is_context_sensitive_function_like(node)
++                    }
++                    Some(Node::CallSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::ConstructSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::MethodSignatureDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::FunctionTypeNode(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::ConstructorTypeNode(n)) => !n.type_parameters.is_empty(),
++                    Some(Node::TypeAliasDeclaration(n)) => !n.type_parameters.is_empty(),
++                    Some(_) => false,
++                    None => return false,
++                };
++                if has_outer_parameters {
++                    return false;
++                }
++                current = self.nodes.parent(node);
++            }
++        }
++        found_function
+     }
+ 
+     /// A mapper must not copy an unresolved return or infer "no parameter"
+@@ -8417,6 +8497,276 @@
+     }
+ 
+     #[test]
++    fn callable_without_outer_parameters_maps_by_identity_without_forcing_metadata() {
++        for function in [
++            "function f(){return 1} namespace f {export const bar=1}",
++            "function f():number{return 1} namespace f {export const bar=1}",
++            "declare function f():number; namespace f {export const bar=1}",
++            "function f<U>(u:U){return u} namespace f {export const bar=1}",
++            "function f(){return 1}",
++        ] {
++            for checked_first in [false, true] {
++                let source = format!("{function} interface Owner<T> {{self:this}}");
++                let arena = tsr_core::Arena::new();
++                let parsed = tsr_parser::parse(&arena, &source);
++                assert!(parsed.diagnostics.is_empty());
++                let bound = tsr_binder::bind(
++                    &arena,
++                    parsed.source_file,
++                    &parsed.nodes,
++                    tsr_binder::FileInfo { name: "admission.ts", text: &source },
++                );
++                let root = parsed.source_file.node_id.unwrap();
++                let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++                if checked_first {
++                    checker.check_source_file(
++                        root,
++                        crate::check::FileContext { ambient: false, has_parse_errors: false },
++                    );
++                }
++                let callable_symbol = bound.lookup_local(root, "f").unwrap();
++                let callable = checker.get_type_of_symbol(callable_symbol);
++                let owner_symbol = bound.lookup_local(root, "Owner").unwrap();
++                let owner = checker.get_declared_type_of_symbol(owner_symbol);
++                let this_node = (0..u32::try_from(parsed.nodes.len()).unwrap())
++                    .find_map(|index| match parsed.node_map.get(tsr_ast::NodeId::new(index)) {
++                        Some(tsr_ast::Node::ThisTypeNode(node)) => {
++                            Some(tsr_ast::TypeNode::ThisTypeNode(node))
++                        }
++                        _ => None,
++                    })
++                    .unwrap();
++                let formal_this = checker.get_type_from_type_node(this_node);
++                assert!(
++                    checker
++                        .store
++                        .get(formal_this)
++                        .flags
++                        .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
++                );
++                let absent = !checker.signature_types.contains_key(&callable);
++                if !checked_first && function.contains("namespace") {
++                    assert!(absent, "the merged control must reach actual absent metadata");
++                }
++                for mapper in [vec![(formal_this, owner)], vec![(formal_this, formal_this)], vec![]]
++                {
++                    let snapshot = source_view_snapshot(&checker);
++                    for _ in 0..3 {
++                        assert_eq!(
++                            checker.instantiate_type(callable, &mapper, &[formal_this], &["this"]),
++                            callable,
++                            "native retains {function}, checked_first={checked_first}, absent={absent}"
++                        );
++                        assert_eq!(
++                            source_view_snapshot(&checker),
++                            snapshot,
++                            "identity mapping must leave signatures and return deferred"
++                        );
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn absent_callable_identity_keeps_pending_active_and_alias_contexts_ineligible() {
++        let source = "type Frame<T>=T; function f(){return 1} namespace f {export const bar=1}";
++        for state in ["pending", "active", "resolution", "alias"] {
++            let arena = tsr_core::Arena::new();
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "states.ts", text: source },
++            );
++            let root = parsed.source_file.node_id.unwrap();
++            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let owner = bound.lookup_local(root, "f").unwrap();
++            let ty = checker.get_type_of_symbol(owner);
++            assert!(!checker.signature_types.contains_key(&ty));
++            let declaration = bound
++                .symbols()
++                .get(owner)
++                .declarations
++                .iter()
++                .copied()
++                .find(|id| {
++                    matches!(parsed.node_map.get(*id), Some(tsr_ast::Node::FunctionDeclaration(_)))
++                })
++                .unwrap();
++            let key = checker.type_literal_key(declaration);
++            // Explicit admission fault controls use the real parsed owner/type;
++            // these state injections are not natural return-resolution traces.
++            match state {
++                "pending" => {
++                    checker
++                        .pending_signature_returns
++                        .insert(key.clone(), super::LazyReturnState::Pending);
++                }
++                "active" => {
++                    checker
++                        .pending_signature_returns
++                        .insert(key.clone(), super::LazyReturnState::Active);
++                }
++                "resolution" => {
++                    assert!(checker.resolutions.push(
++                        crate::resolution::ResolutionTarget::Signature(key.clone()),
++                        crate::resolution::PropertyName::ResolvedReturnType
++                    ));
++                }
++                "alias" => {
++                    let tsr_ast::Statement::TypeAliasDeclaration(alias) =
++                        parsed.source_file.statements[0]
++                    else {
++                        panic!("alias")
++                    };
++                    let parameter =
++                        bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
++                    checker
++                        .alias_evaluation_bindings
++                        .push([(parameter, checker.intrinsics.number)].into_iter().collect());
++                }
++                _ => unreachable!(),
++            }
++            let image = checker.intrinsics.string;
++            let before = source_view_snapshot(&checker);
++            for _ in 0..3 {
++                assert_eq!(
++                    checker.instantiate_type(ty, &[(ty, image)], &[], &[]),
++                    image,
++                    "direct hit {state}"
++                );
++                assert_eq!(
++                    checker.instantiate_type(ty, &[], &[], &[]),
++                    checker.intrinsics.error,
++                    "unsupported admission {state}"
++                );
++                assert_eq!(
++                    source_view_snapshot(&checker),
++                    before,
++                    "refusal must not publish {state}"
++                );
++            }
++            if state == "resolution" {
++                assert!(checker.resolutions.pop());
++            }
++            if state == "alias" {
++                checker.alias_evaluation_bindings.pop();
++            }
++            checker.pending_signature_returns.remove(&key);
++            assert_eq!(
++                checker.instantiate_type(ty, &[], &[], &[]),
++                ty,
++                "actual cold identity after fault state is removed"
++            );
++            assert!(!checker.signature_types.contains_key(&ty));
++        }
++    }
++
++    #[test]
++    fn callable_mapping_keeps_outer_and_own_generic_parameters_distinct() {
++        for (body, own) in
++            [("function f(){return x}", false), ("function f<U>(u:U){return u}", true)]
++        {
++            let source = format!("function outer<T>(x:T){{{body} return f}}");
++            for return_first in [false, true] {
++                let arena = tsr_core::Arena::new();
++                let parsed = tsr_parser::parse(&arena, &source);
++                assert!(parsed.diagnostics.is_empty());
++                let bound = tsr_binder::bind(
++                    &arena,
++                    parsed.source_file,
++                    &parsed.nodes,
++                    tsr_binder::FileInfo { name: "outer.ts", text: &source },
++                );
++                let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++                let tsr_ast::Statement::FunctionDeclaration(outer) =
++                    parsed.source_file.statements[0]
++                else {
++                    panic!("outer")
++                };
++                let outer_signature =
++                    checker.get_signature_from_declaration(outer.node_id.unwrap()).unwrap();
++                let parameters = checker.type_parameter_types(&outer_signature).unwrap();
++                let function=(0..u32::try_from(parsed.nodes.len()).unwrap()).find_map(|index| {
++                    let id=tsr_ast::NodeId::new(index);
++                    matches!(parsed.node_map.get(id),Some(tsr_ast::Node::FunctionDeclaration(n)) if n.name.is_some_and(|name|name.text=="f")).then_some(id)
++                }).unwrap();
++                let original = checker.get_type_of_symbol(bound.symbol_of(function).unwrap());
++                if return_first {
++                    let sig = checker.resolve_call_signature(original, None).unwrap();
++                    checker.get_return_type_of_signature(&sig).unwrap();
++                }
++                for _ in 0..3 {
++                    let number = checker.intrinsics.number;
++                    let mapped = checker.instantiate_type(
++                        original,
++                        &[(parameters[0], number)],
++                        &parameters,
++                        &["T"],
++                    );
++                    assert_ne!(
++                        mapped, checker.intrinsics.error,
++                        "outer mapping must remain supported"
++                    );
++                    let signature = checker.resolve_call_signature(mapped, None).unwrap();
++                    let returned = checker.get_return_type_of_signature(&signature).unwrap();
++                    if own {
++                        assert_eq!(signature.type_parameters.len(), 1);
++                        assert_eq!(returned, checker.parameter_type(&signature.parameters[0]));
++                        assert_ne!(returned, number, "own U cannot become outer T's image");
++                    } else {
++                        assert_eq!(returned, number, "outer T must become number");
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn uncomputed_callable_identity_obeys_nonempty_mapper_instantiation_budget() {
++        let source = "function f(){} namespace f {export const bar=1}";
++        for (depth, count, refuse) in [(100, 0, true), (0, 5_000_000, true), (0, 0, false)] {
++            let arena = tsr_core::Arena::new();
++            let parsed = tsr_parser::parse(&arena, source);
++            assert!(parsed.diagnostics.is_empty());
++            let bound = tsr_binder::bind(
++                &arena,
++                parsed.source_file,
++                &parsed.nodes,
++                tsr_binder::FileInfo { name: "budget.ts", text: source },
++            );
++            let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++            let root = parsed.source_file.node_id.unwrap();
++            let symbol = bound.lookup_local(root, "f").unwrap();
++            let callable = checker.get_type_of_symbol(symbol);
++            assert!(!checker.signature_types.contains_key(&callable));
++            checker.instantiation_depth = depth;
++            checker.instantiation_count = count;
++            let number = checker.intrinsics.number;
++            let string = checker.intrinsics.string;
++            let mapped = checker.instantiate_type(callable, &[(number, string)], &[], &[]);
++            assert_eq!(
++                mapped,
++                if refuse { checker.intrinsics.error } else { callable },
++                "native nonempty mapper budget depth={depth}, count={count}"
++            );
++            assert_eq!(checker.instantiation_depth, depth);
++            assert_eq!(checker.instantiation_count, count + u32::from(!refuse));
++            assert!(!checker.signature_types.contains_key(&callable));
++            assert!(checker.instantiated_objects.is_empty());
++            assert_eq!(
++                checker.instantiate_type(callable, &[], &[], &[]),
++                callable,
++                "native nil mapper precedes budget"
++            );
++            assert_eq!(checker.instantiation_count, count + u32::from(!refuse));
++        }
++    }
++
++    #[test]
+     fn pending_callable_mapping_preserves_direct_hits_and_declines_active_or_unsupported() {
+         for (initializer, supported) in [("() => 23", true), ("function*() { yield* []; }", false)]
+         {

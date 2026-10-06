@@ -122,3 +122,11 @@ pass. The issue-ID gate fails on 191 existing IDs; all 737 reported citation
 lines are unchanged from `51960e07`. This is a scoped check, not a global pass.
 The single-context delivery review covers these five passive paths. Rust package,
 full-corpus and performance checks are not part of this native contract phase.
+
+## Compiling Rust continuation at `f2325620`
+
+The [bounded Rust handoff](checker-signature-admission-rust.md) completes the
+remaining compiling seam for `.27` and `.28`. It preserves deferred callable
+identity and pending/active ownership, and qualifies native nil versus nonempty
+mapper resource admission. The earlier source-bound native phase remains intact.
+Only the bounded handoff is complete; production reuse and speed gates remain.

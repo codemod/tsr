@@ -22,12 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Compiling signature prerequisite (`tsr-1yb.27` / `.28`), frozen `f2325620`:
+189 library/package/strict-Clippy checks; 204 combined member library checks,
+four compiling mutants, six fresh native budget controls. Final 120 CLI children
+restore merged/subtypesOfUnion TS2411: member native agreements 16 -> 20/24,
+zero bounded agreement losses. Handoff complete, no production or speed retention.
+[Source-bound replay and remaining full gates](docs/architecture/checker-signature-admission-rust.md).
+
 Native signature prerequisite (`tsr-1yb.27`) at `51960e07` / native `5b1047d`:
 80 parsed controls and three compiling mutations qualify deferred signature/
 return forcing, including missing metadata with supported no-op identity. Full
 4,988 Go files and 108 libraries restored; 60 CLI children, 18/20 main native
-agreements and 16/20 private replay agreements. Compiling Rust seam pending,
-no runtime or speed change.
+agreements and 16/20 private replay agreements. The compiling seam was pending
+at that receipt; the completed handoff is above. No runtime or speed change.
 [Contract and exact remaining gates](docs/architecture/checker-signature-admission-native.md).
 
 Member prerequisite continuation (`tsr-1yb.33.1`), frozen `53826afe`: native
@@ -3430,10 +3437,12 @@ thislessFunctionsNotContextSensitive3 type losses and one subtypesOfUnion
 diagnostic loss. Correct these actual paths before builder reuse; reference
 admission and contextual reads repaired earlier JSX/override/temporal losses.
 [Current source-bound continuation](docs/architecture/checker-member-admission-contextual-read.md).
-The signature native phase `.27` now has 80 qualified controls. `.28` must compile
-the actual absent/pending/active/completed/no-op admission seam before repairing
-merged-function TS2411; no blanket guard bypass. Circular return-annotation TS2577
-is separately tracked as `tsr-6.74`. [Native handoff](docs/architecture/checker-signature-admission-native.md).
+Signature native `.27` and compiling `.28` handoffs are complete at frozen
+`f2325620`: bounded no-outer-parameter identity restores merged/subtypesOfUnion
+TS2411 while retaining pending/active guards and native resource limits. Consume
+[the exact Rust seam](docs/architecture/checker-signature-admission-rust.md) with
+`.33.1`; refresh full no-RIGHT-loss gates before production. Circular return-
+annotation TS2577 remains `tsr-6.74`; no cache expansion or speed acceptance.
 Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
 [Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
@@ -6911,6 +6920,11 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Signature seam/member integration at `f2325620` is not production-qualified:
+20/24 bounded case/mode comparisons agree, with TS2577 and thisless cases still
+mismatched; fresh full no-RIGHT-loss corpora are unrun. The frozen `53826afe`
+18/one refusal is preserved below. [Exact handoff limits](docs/architecture/checker-signature-admission-rust.md).
 
 At frozen `53826afe`, member prerequisite production retention remains refused
 on18 previous RIGHT type losses /477970 and one passing diagnostic loss /10570,
@@ -14785,3 +14799,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `53826afe` / native `5b1047d` | — | — | **Member admission/contextual-read progress, tsr-1yb.33.1; retention refused.** Two actual paths repaired privately;15 fresh native observations,200 restored library passes, three compiling mutants detected. Fresh477970/10570 corpora reduce entry49/four losses to18/one; all74/9 changed rows retained. Two CLI matrices608 children plus8 exploratory; final62/78 main outputs equal,56 native agreements, two main agreements lost on missing subtypesOfUnion TS2411. No main runtime, coverage or speed gain;4.2.1 gated and PR5 regression34 unresolved. [Replay and limits](docs/architecture/checker-member-admission-contextual-read.md). |
 
 | 2026-10-06 | `51960e07` / native `5b1047d` | — | — | **Native signature-admission progress, tsr-1yb.27.** 80 fresh parsed controls; three compiling mutants detect eager return, skipped signature completion and premature success. Exact qualified rerun passes 80 controls; all 4,988 Go files and 108 libraries restored. 60 CLI children/20 pairs: main has 18 native agreements and private replay has 16. Merged generic TS2411 loss reproduced; missing circular TS2577 filed as tsr-6.74. False direct-recursion any expectation corrected explicitly from native never; original failed run retained. Compiling Rust seam pending; .27 in progress, .28 open, no runtime, coverage or speed gain. [Contract](docs/architecture/checker-signature-admission-native.md). |
+
+| 2026-10-06 | `f2325620` / native `5b1047d` | — | — | **Compiling signature-admission handoff, tsr-1yb.27/.28.** Final 189 library/package/strict-Clippy/fmt checks, 204 combined member library checks, four compiling mutants detected and exact restoration. Six parsed native injected-budget controls expose/fix early identity resource bypass; all 4,988 Go files restored. Three public matrices total 360 terminal children; final 20/24 baseline/seam/member-plus-seam case/mode native agreements versus member16, zero bounded agreement losses. Merged and original subtypesOfUnion TS2411 restored; TS2577/thisless still differ. No fresh full corpus, runtime retention, coverage or speed gain; previous18/one remains frozen538. [Replay](docs/architecture/checker-signature-admission-rust.md). |
