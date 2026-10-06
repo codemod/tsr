@@ -393,3 +393,37 @@ redirect to land on the global; without the edge the reference resolves to
 the conflicting class itself. **Not shipped.** The edge can go once name
 resolution stops consulting script-file locals (reported to the integrator);
 until then §3's check-side test stays.
+
+## §17 TS2564 on an error-typed property: shipped, bounded to a failed reference (supersedes §6)
+
+§6 declined upstream's skip of an `errorType` property in
+`checkPropertyInitialization` because a type-only import failed to resolve
+(`decoratorMetadataWithTypeOnlyImport2`). The names lane has since resolved
+type-only import clause names, and following upstream no longer loses it.
+
+Dropping §324's "computed name only" bound outright, though, lost eight TS2564
+lines in `missingTypeArguments1` and `returnTypeTypeArguments`: `p3: X3[]`
+and `p4: I<X4>` (with `X3`/`X4` missing type arguments) are `Array<errorType>`
+and `I<errorType>` upstream — objects, so TS2564 is reported — but this port
+carries a nested `error` up as a gap (`get_type_from_array_type_node`: "a gap
+in the element is a gap in the array"), so the property's type reads as
+`error` too. The skip therefore applies only when the annotation **is** the
+failed reference — a type reference, `import()` type or `typeof` query whose
+own type arguments all resolved — which is exactly where
+`getTypeFromTypeReference` / `getTypeFromImportTypeNode` /
+`getTypeFromTypeQueryNode` answer `errorType`. A union or other composite
+annotation that contains an error keeps reporting (upstream's union with
+`errorType` is `errorType`, so that is a remaining decline, not a port).
+
+Measured: +10 (`decoratorMetadataNoLibIsolatedModulesTypes`,
+`decoratorMetadataTypeOnlyImport`, `genericReturnTypeFromGetter1`,
+`genericsWithoutTypeParameters1`, `metadataImportType`, `missingTypeArguments1`,
+`returnTypeTypeArguments`,
+`ClassAndModuleThatMergeWithModuleMemberThatUsesClassTypeParameter`,
+`parserRealSource6`, `typeParameterUsedAsTypeParameterConstraint4`), no loss;
+TS2564 extra lines 15 → 1 (`circularIndexedAccessErrors`, a circular
+indexed-access annotation).
+
+**What would remove the bound.** The gap producers answering upstream's types
+(`Array<errorType>`) instead of `error` (§3a, `tsr-2zk.31`); then the test is
+`is_error(declared)` alone.

@@ -3844,16 +3844,16 @@ impl Checker<'_, '_> {
             // (`Checker::unresolved_types`), and `class C { [e]: Type }` with
             // neither name declared is exactly that shape — §43's first wrong
             // line.
-            // §324 — `is_error` conflates two shapes: a property whose *type*
-            // did not resolve, and one whose *name* did not. TS2564 is about
-            // the initialiser, and an unresolved annotation does not make a
-            // property initialised — `public cars: Car[]` with `Car` an
-            // unresolved import-equals is a real miss. §43's wrong line is the
-            // other shape, `class C { [e]: Type }`, which is a **computed**
-            // name; that stays declined.
-            let computed_name =
-                matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_));
-            if (self.is_error(declared) && computed_name)
+            // An error-typed property is skipped as upstream skips
+            // `errorType` — but only when the annotation is itself the
+            // reference that failed. This port also answers `error` for a
+            // *gap* propagated out of a nested node (`X3[]`, `I<X4>` with `X3`
+            // and `X4` missing their type arguments), where upstream's type is
+            // `Array<errorType>` / `I<errorType>` and TS2564 is reported
+            // (`missingTypeArguments1`). `docs/parity/notes/decls.md` §17,
+            // superseding §6's decline and §324's computed-name bound.
+            if (self.is_error(declared)
+                && self.annotation_is_failed_reference(property.r#type.and_then(|t| t.node_id())))
                 || declared == self.intrinsics.any
                 || declared == self.intrinsics.unknown
                 || self.contains_undefined_type(declared)
@@ -14678,4 +14678,28 @@ enum AliasBodyKind {
 struct AliasFrame {
     bindings: Vec<(NodeId, NodeId, usize)>,
     parent: Option<usize>,
+}
+
+impl Checker<'_, '_> {
+    /// Whether a property's written annotation is a reference (type
+    /// reference, `import()` type or `typeof` query) whose own resolution
+    /// failed — its type arguments, if any, all resolved —
+    /// so that the property's `error` type is upstream's `errorType` from
+    /// `getTypeFromTypeReference` rather than a gap carried up from a nested
+    /// node. `docs/parity/notes/decls.md` §17.
+    pub(crate) fn annotation_is_failed_reference(&mut self, annotation: Option<NodeId>) -> bool {
+        // `getTypeFromTypeReference`, `getTypeFromImportTypeNode` and
+        // `getTypeFromTypeQueryNode` each answer `errorType` when the entity
+        // they name does not resolve.
+        let arguments = match annotation.and_then(|id| self.node_map.get(id)) {
+            Some(Node::TypeReferenceNode(reference)) => reference.type_arguments,
+            Some(Node::ImportTypeNode(import)) => import.type_arguments,
+            Some(Node::TypeQueryNode(query)) => query.type_arguments,
+            _ => return false,
+        };
+        arguments.iter().all(|&argument| {
+            let argument = self.get_type_from_type_node(argument);
+            !self.is_error(argument)
+        })
+    }
 }
