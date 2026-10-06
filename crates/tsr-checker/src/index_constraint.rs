@@ -156,7 +156,22 @@ impl<'a> Checker<'a, '_> {
             // owned by its `__type` symbol.
             SyntaxKind::TypeLiteral => {
                 let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(node) else { return };
+                // `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` runs
+                // unconditionally upstream; resolving it is where a circular
+                // `typeof` member reports TS2502 (`recursiveTypesWithTypeof`).
                 let ty = self.get_type_from_type_node(tsr_ast::TypeNode::TypeLiteralNode(literal));
+                // A literal has no base types, so its index infos come only
+                // from its own index signatures and non-bindable computed
+                // members; without either there is nothing to check, and its
+                // properties need not be enumerated.
+                if !literal.members.iter().any(|member| {
+                    matches!(member, tsr_ast::TypeElement::IndexSignatureDeclaration(_))
+                        || member.node_id().and_then(|id| self.declaration_name_of(id)).is_some_and(
+                            |name| self.nodes.kind(name) == SyntaxKind::ComputedPropertyName,
+                        )
+                }) {
+                    return;
+                }
                 self.check_index_constraints_of_type(ty, symbol, false);
             }
             _ => {}
