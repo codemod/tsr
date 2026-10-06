@@ -303,3 +303,32 @@ strings, bitwise operators (always finite) — declines; `constEnumErrors`'
 
 **Measured.** `enumWithPrimitiveName`, `enumConstantMembers` converted; two
 more correct lines in `constEnumErrors`; none lost.
+
+## §15 TS2651: enum initializers referencing later members
+
+**Forcing constraint.** `evaluateEnumMember` (`checker.go:24077`) reports
+TS2651 when `computeEnumMemberValues` evaluates an initializer (location =
+the member) and `evaluateEntity` resolves an enum member that
+`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) places after the
+location: same file, declared at a later position, usage not ambient.
+
+**What was ported.** `check_enum_member_forward_references` walks the
+initializer in the evaluator's visit order (`evaluator.go`): parentheses, a
+prefix operand, *both* binary operands whatever the operator (the evaluator
+evaluates both before looking at the operator), and the entity forms
+`evaluateEntity` accepts — an identifier, `E.m`, and `E["m"]` on an
+identifier that resolves to an enum. Declaration order is compared by
+start position within one file; another file is always "before"
+(upstream: "order cannot be determined"). A `declare enum` or an ambient
+context is skipped (`isInAmbientOrTypeNode(usage)`).
+
+**Declines.** A template expression's spans after the first: the evaluator
+stops at the first span without a value, which needs values this port does
+not compute. Aliases and longer entity names (`N.E.m`): `resolveEntityName`
+follows them, the binder lookup used here does not. The self-reference arm
+(`declaration == location`, TS2565 with a printed symbol) is not ported.
+The value `0` the arm substitutes is irrelevant to the other enum rules here,
+which decline on member references.
+
+**Measured.** `forwardRefInEnum` converted, `constEnumErrors` +1 line; none
+lost.

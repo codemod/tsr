@@ -14,7 +14,7 @@
 //! `nil`. No cache, side table or traversal beyond the initializer's spine.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -246,5 +246,174 @@ impl Checker<'_, '_> {
             }
             _ => None,
         }
+    }
+
+    /// TS2651 — `A member initializer in a enum declaration cannot reference
+    /// members declared after it, including members defined in other enums.`
+    ///
+    /// `evaluateEnumMember` (`checker.go:24077`), reached when
+    /// `computeEnumMemberValues` evaluates an initializer with the member as
+    /// `location`. The evaluator (`evaluator.go`) visits a prefix operand,
+    /// both binary operands whatever the operator, and hands identifiers and
+    /// entity-name accesses to `evaluateEntity` (`checker.go:24024`); an
+    /// enum member it resolves that is declared after `location` in the same
+    /// file (`isBlockScopedNameDeclaredBeforeUse`, `checker.go:1922`) is
+    /// reported at the reference. `docs/parity/notes/misc-checks.md` §15.
+    pub(crate) fn check_enum_member_forward_references(&mut self, node: NodeId, ambient: bool) {
+        // `isInAmbientOrTypeNode(usage)` makes every ambient use legal.
+        if ambient {
+            return;
+        }
+        let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
+        let Some(initializer) = member.initializer.and_then(|initializer| initializer.node_id())
+        else {
+            return;
+        };
+        if let Some(parent) = self.nodes.parent(node)
+            && let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent)
+            && declaration.modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::DeclareKeyword)
+            })
+        {
+            return;
+        }
+        let mut offenders = Vec::new();
+        self.collect_enum_forward_references(initializer, node, 0, &mut offenders);
+        for at in offenders {
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_MEMBER_INITIALIZER_IN_A_ENUM_DECLARATION_CANNOT_REFERENCE_MEMBERS_DECLARED_AFTER_IT_INCLUDING_MEMBERS_DEFINED_IN_OTHER_ENUMS,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// The evaluator's visit order over `expr`. A template's spans are
+    /// visited only while earlier spans have values, which needs values;
+    /// only the first span (always visited) is followed.
+    fn collect_enum_forward_references(
+        &self,
+        expr: NodeId,
+        location: NodeId,
+        depth: u32,
+        offenders: &mut Vec<NodeId>,
+    ) {
+        if depth > 64 {
+            return;
+        }
+        match self.node_map.get(expr) {
+            Some(Node::ParenthesizedExpression(wrapper)) => {
+                if let Some(inner) = wrapper.expression.and_then(|e| e.node_id()) {
+                    self.collect_enum_forward_references(inner, location, depth + 1, offenders);
+                }
+            }
+            Some(Node::PrefixUnaryExpression(unary)) => {
+                if let Some(operand) = unary.operand.and_then(|e| e.node_id()) {
+                    self.collect_enum_forward_references(operand, location, depth + 1, offenders);
+                }
+            }
+            Some(Node::BinaryExpression(binary)) => {
+                for side in [binary.left, binary.right] {
+                    if let Some(side) = side.and_then(|e| e.node_id()) {
+                        self.collect_enum_forward_references(side, location, depth + 1, offenders);
+                    }
+                }
+            }
+            Some(Node::TemplateExpression(template)) => {
+                if let Some(first) =
+                    template.template_spans.first().and_then(|span| span.expression)
+                    && let Some(first) = first.node_id()
+                {
+                    self.collect_enum_forward_references(first, location, depth + 1, offenders);
+                }
+            }
+            Some(
+                Node::Identifier(_)
+                | Node::PropertyAccessExpression(_)
+                | Node::ElementAccessExpression(_),
+            ) => {
+                if let Some(member) = self.evaluated_enum_member(expr)
+                    && self.enum_member_declared_after(member, location)
+                {
+                    offenders.push(expr);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The enum member `evaluateEntity` resolves `expr` to: an identifier
+    /// naming one, `E.m` or `E["m"]` on an identifier naming the enum.
+    /// Aliases and longer entity names decline (`resolveEntityName` follows
+    /// them; this binder lookup does not).
+    fn evaluated_enum_member(&self, expr: NodeId) -> Option<SymbolId> {
+        let resolve = |at: NodeId, text: &str| {
+            self.binder.resolve_name(self.nodes, self.node_map, at, text, SymbolFlags::VALUE)
+        };
+        let symbol = match self.node_map.get(expr)? {
+            Node::Identifier(identifier) => resolve(expr, identifier.text)?,
+            Node::PropertyAccessExpression(access) => {
+                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+                let root = access.expression?.node_id()?;
+                let Some(Node::Identifier(root_name)) = self.node_map.get(root) else {
+                    return None;
+                };
+                let enumeration = self.binder.merged_symbol(resolve(root, root_name.text)?);
+                let record = self.binder.symbols().get(enumeration);
+                if !record.flags.intersects(SymbolFlags::ENUM) {
+                    return None;
+                }
+                *record.exports.get(name.text)?
+            }
+            Node::ElementAccessExpression(access) => {
+                let name = match access.argument_expression? {
+                    tsr_ast::Expression::StringLiteral(literal) => literal.text,
+                    tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal) => literal.text,
+                    _ => return None,
+                };
+                let root = access.expression?.node_id()?;
+                let Some(Node::Identifier(root_name)) = self.node_map.get(root) else {
+                    return None;
+                };
+                let enumeration = self.binder.merged_symbol(resolve(root, root_name.text)?);
+                let record = self.binder.symbols().get(enumeration);
+                if !record.flags.intersects(SymbolFlags::ENUM) {
+                    return None;
+                }
+                *record.exports.get(name)?
+            }
+            _ => return None,
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::ENUM_MEMBER)
+            .then_some(symbol)
+    }
+
+    /// `!isBlockScopedNameDeclaredBeforeUse(declaration, location)` for an
+    /// enum member declaration: same file and starting after `location`.
+    /// A self-reference (`declaration == location`) is TS2565's arm, not
+    /// this one.
+    fn enum_member_declared_after(&self, member: SymbolId, location: NodeId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(member).value_declaration else {
+            return false;
+        };
+        if declaration == location {
+            return false;
+        }
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(location)
+        {
+            return false;
+        }
+        self.nodes.span(declaration).start > self.nodes.span(location).start
     }
 }
