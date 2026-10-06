@@ -5210,16 +5210,24 @@ mod tests {
                     if name != "ordered" {
                         // Native eraseTypeParameters does not instantiate a
                         // constraint/default which belongs only to the target.
-                        // The present-only object has no 'absent' property;
-                        // moving erasure after the existing worker would turn
-                        // its metadata-only indexed substitution into refusal.
-                        let out = checker.instantiate_signature(
-                            original.clone(),
-                            &[(parameters[0], answer), (parameters[1], written_u)],
-                            &parameters,
-                            &["T", "U"],
-                        );
-                        assert!(out.is_none(), "metadata substitution must decline {name}");
+                        // The present-only object has no 'absent' property,
+                        // so substituting that metadata would rewrite it to
+                        // getIndexedAccessTypeEx's nil-node answer, `unknown`
+                        // (checker.go:26930) — a different type from the
+                        // target's preserved `T['absent']` checked above.
+                        let out = checker
+                            .instantiate_signature(
+                                original.clone(),
+                                &[(parameters[0], answer), (parameters[1], written_u)],
+                                &parameters,
+                                &["T", "U"],
+                            )
+                            .unwrap();
+                        let metadata = out.type_parameters[1]
+                            .constraint
+                            .or(out.type_parameters[1].default)
+                            .unwrap();
+                        assert_eq!(metadata, checker.intrinsics.unknown, "{name}");
                     }
                     eprintln!("{name} {stage} call={id:?} concrete={concrete:?}");
                 }

@@ -5155,6 +5155,33 @@ impl<'a> Checker<'a, '_> {
         self.instantiate_signature(signature, &map, &own, &names)
     }
 
+    /// Whether `object[index]` is `getIndexedAccessTypeOrUndefined`'s
+    /// computed nil (`checker.go:26935`) rather than a shape this port does
+    /// not resolve: a string or number literal key, a non-generic object
+    /// whose member names and index signatures are both decided, no member
+    /// of that name and no index signature at all. A union, intersection or
+    /// instantiable object, or any undecided table, answers `false`.
+    fn is_decided_indexed_access_miss(&mut self, object: TypeId, index: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        let object_flags = self.store.get(object).flags;
+        if !object_flags.contains(TypeFlags::OBJECT)
+            || object_flags.intersects(TypeFlags::INSTANTIABLE)
+            || !self
+                .store
+                .get(index)
+                .flags
+                .intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+        {
+            return false;
+        }
+        let Some(name) = self.property_name_from_index(index) else { return false };
+        let Some(names) = self.get_property_names_of_type(object) else { return false };
+        if names.contains(&name) {
+            return false;
+        }
+        self.get_index_infos_of_type(object).is_some_and(|infos| infos.is_empty())
+    }
+
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
     /// shapes this port can rebuild.
     ///
@@ -5288,9 +5315,22 @@ impl<'a> Checker<'a, '_> {
             if object == error || index == error {
                 return error;
             }
-            return self
-                .resolved_indexed_access_type(object, index, include_undefined)
-                .unwrap_or(error);
+            if let Some(resolved) =
+                self.resolved_indexed_access_type(object, index, include_undefined)
+            {
+                return resolved;
+            }
+            // `instantiateTypeWorker` (`checker.go:22264`) re-asks
+            // `getIndexedAccessTypeEx` with a nil access node, whose nil
+            // answer is `unknownType` (`checker.go:26930`), not `errorType`.
+            // The port's `None` also covers shapes it cannot resolve, so only
+            // a decided miss — a literal key against a plain object whose
+            // member and index tables are complete — takes upstream's answer.
+            return if self.is_decided_indexed_access_miss(object, index) {
+                self.intrinsics.unknown
+            } else {
+                error
+            };
         }
         if let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned() {
             let mut substituted = Vec::with_capacity(arguments.len());
