@@ -29,7 +29,8 @@ use crate::{
 };
 
 impl Checker<'_, '_> {
-    /// The operand check for one `+`, `+=`, `<`, `>`, `<=` or `>=`.
+    /// The operand check for one `+`, `+=`, `<`, `>`, `<=`, `>=` or equality
+    /// operator.
     pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
         // **No `file_has_parse_errors` gate**, for the reason §892 removed the
         // one below: upstream's `checkBinaryLikeExpression` runs regardless, and
@@ -38,11 +39,28 @@ impl Checker<'_, '_> {
         // emitted the parse error*. §895 measured the class as a whole at
         // −1/+13 and closed it; this is one rule, measured on its own, which is
         // the route it left open. §896.
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         let Some(operator) = binary.operator_token.map(|token| token.kind) else { return };
+        // The equality arm's literal and NaN rules run in JS too (TS2839 only
+        // for `===`/`!==` there), so they precede the JS gate.
+        if matches!(
+            operator,
+            SyntaxKind::EqualsEqualsToken
+                | SyntaxKind::ExclamationEqualsToken
+                | SyntaxKind::EqualsEqualsEqualsToken
+                | SyntaxKind::ExclamationEqualsEqualsToken
+        ) {
+            if let (Some(left), Some(right)) = (binary.left, binary.right) {
+                self.check_equality_operator(node, operator, left, right);
+            }
+            return;
+        }
+        if self.in_js_file(node) {
+            return;
+        }
         // `+=` is upstream's arm too, and it is declined here with a named
         // owner. A compound assignment's left operand goes through the
         // assignment-target checks first, and those answer `errorType` when
@@ -820,6 +838,94 @@ impl Checker<'_, '_> {
                 [token_text(operator).to_string(), left_text, right_text],
             ),
         );
+    }
+}
+
+impl Checker<'_, '_> {
+    /// The two operand rules of the equality arm of
+    /// `checkBinaryLikeExpressionWorker` (`checker.go:12479`) that precede
+    /// `reportOperatorErrorUnless`: TS2839 for an object, array, regex,
+    /// function or class literal operand, then `checkNaNEquality` (TS2845).
+    /// The comparability report (TS2367) that follows them is
+    /// `crate::comparison_overlap`'s.
+    fn check_equality_operator(
+        &mut self,
+        node: NodeId,
+        operator: SyntaxKind,
+        left: tsr_ast::Expression<'_>,
+        right: tsr_ast::Expression<'_>,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let strict = matches!(
+            operator,
+            SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        );
+        let equality =
+            matches!(operator, SyntaxKind::EqualsEqualsToken | SyntaxKind::EqualsEqualsEqualsToken);
+        let always = if equality { "false" } else { "true" };
+        // `isLiteralExpressionOfObject` (`utilities.go:1064`) — the operand
+        // as written, parentheses not skipped; only `===`/`!==` in JS.
+        let literal_of_object = |operand: tsr_ast::Expression<'_>| {
+            matches!(
+                operand,
+                tsr_ast::Expression::ObjectLiteralExpression(_)
+                    | tsr_ast::Expression::ArrayLiteralExpression(_)
+                    | tsr_ast::Expression::RegularExpressionLiteral(_)
+                    | tsr_ast::Expression::FunctionExpression(_)
+                    | tsr_ast::Expression::ClassExpression(_)
+            )
+        };
+        if (literal_of_object(left) || literal_of_object(right))
+            && (!self.in_js_file(node) || strict)
+        {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_0_SINCE_JAVASCRIPT_COMPARES_OBJECTS_BY_REFERENCE_NOT_VALUE,
+                    span,
+                    [always.to_string()],
+                ),
+            );
+        }
+        // `checkNaNEquality` (`checker.go:12827`). The `Did you mean
+        // 'Number.isNaN(…)'?` related information is not part of the
+        // code/position this port reports.
+        if self.is_global_nan(left) || self.is_global_nan(right) {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_0,
+                    span,
+                    [always.to_string()],
+                ),
+            );
+        }
+    }
+
+    /// `isGlobalNaN` (`checker.go:12853`): an identifier `NaN` (parentheses
+    /// skipped) that resolves to the global `NaN` value symbol.
+    fn is_global_nan(&mut self, expression: tsr_ast::Expression<'_>) -> bool {
+        let mut expression = expression;
+        while let tsr_ast::Expression::ParenthesizedExpression(parenthesized) = expression {
+            let Some(inner) = parenthesized.expression else { return false };
+            expression = inner;
+        }
+        let tsr_ast::Expression::Identifier(identifier) = expression else { return false };
+        if identifier.text != "NaN" {
+            return false;
+        }
+        let Some(id) = identifier.node_id else { return false };
+        let Some(global) = self.binder.globals().get("NaN").copied() else { return false };
+        if !self.binder.symbols().get(global).flags.intersects(SymbolFlags::VALUE) {
+            return false;
+        }
+        self.binder
+            .resolve_name(self.nodes, self.node_map, id, identifier.text, SymbolFlags::VALUE)
+            .is_some_and(|resolved| {
+                self.binder.merged_symbol(resolved) == self.binder.merged_symbol(global)
+            })
     }
 }
 
