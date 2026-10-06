@@ -250,3 +250,29 @@ identifier with empty text, which is what a missing identifier is here.
 
 **Measured.** `assignmentLHSIsValue` converted, +44 lines over six cases,
 none lost. The other parse-error fixtures still owe codes from other rules.
+
+## §13 TS2806: reading a set-only private accessor
+
+`checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+(`checker.go:11307`) reports `Private accessor was defined without a getter`
+once `getPrivateIdentifierPropertyOfType(leftType, lexicallyScopedSymbol)`
+finds a property with `SetAccessor` and no `GetAccessor`, unless the access is
+a *definite* assignment target (`=` and its destructuring positions;
+`+=` and `++` read first and do report).
+
+**Where it lives.** The faithful home is the property-access worker in
+`members.rs` (another lane's file). The check is a separate rule there,
+after the lookup succeeded, with no decision shared with the type it
+computes, so it is ported as its own dispatch rule
+(`private_setter_read.rs`) beside TS2540's private-accessor sibling
+(`check_private_accessor_is_writable`). It repeats the lookup:
+`lookupSymbolForPrivateIdentifierDeclaration` as the nearest enclosing
+class declaring the name; the receiver's non-nullable apparent type's
+property of that spelling must be declared in that class (otherwise upstream
+finds a different, mangled symbol and reports shadowing instead).
+
+**Declines.** Files with parse errors, JS files and ambient contexts, as the
+sibling private-name rules here do.
+
+**Measured.** `privateNameSetterNoGetter`, `privateWriteOnlyAccessorRead`
+converted; none lost.
