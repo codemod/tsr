@@ -327,6 +327,9 @@ pub(crate) struct Binder<'a, 'n> {
     /// bound and module resolution, exactly as `initializeChecker`'s last
     /// loop (`checker.go:1384-1391`) runs after everything else.
     module_augmentations: Vec<crate::ModuleAugmentation<'a>>,
+    /// Carried through for [`crate::BindResult::pattern_ambient_module`];
+    /// filled only by the augmentation merge.
+    pattern_ambient_module_augmentations: rustc_hash::FxHashMap<&'a str, SymbolId>,
     in_assignment_pattern: bool,
     seen_this_keyword: bool,
 
@@ -384,6 +387,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             merged,
             merge_conflicts,
             module_augmentations,
+            pattern_ambient_module_augmentations,
             undefined_symbol,
             computed_names,
             diagnostics,
@@ -467,6 +471,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             in_ambient_module: false,
             global_augmentations: Vec::new(),
             module_augmentations,
+            pattern_ambient_module_augmentations,
             in_assignment_pattern: false,
             seen_this_keyword: false,
             facts,
@@ -586,6 +591,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             merged: self.merged,
             merge_conflicts: self.merge_conflicts,
             module_augmentations: self.module_augmentations,
+            pattern_ambient_module_augmentations: self.pattern_ambient_module_augmentations,
             undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
             node_symbols: self.node_symbols,

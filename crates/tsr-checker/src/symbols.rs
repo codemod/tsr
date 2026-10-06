@@ -657,9 +657,17 @@ impl<'a> Checker<'a, '_> {
         let target = self.resolve_alias_fully(target);
         let target_flags = self.binder.symbols().get(target).flags;
         let kind = if target_flags.contains(SymbolFlags::CLASS) {
-            crate::signatures::SignatureKind::Construct
+            Some(crate::signatures::SignatureKind::Construct)
         } else if target_flags.contains(SymbolFlags::FUNCTION) {
-            crate::signatures::SignatureKind::Call
+            Some(crate::signatures::SignatureKind::Call)
+        } else if target_flags.contains(SymbolFlags::VALUE_MODULE)
+            && self.namespace_import_is_esm_cjs_ref(declaration)
+        {
+            // `isEsmCjsRef` (`checker.go:15609`): an ES-syntax namespace
+            // import of a CommonJS file is cloned even without signatures,
+            // with the synthetic `default` the clone's member reads add
+            // (`module_clone_default_symbol`). names-modules notes §5.
+            None
         } else {
             return None;
         };
@@ -673,9 +681,10 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         if self.is_error(value)
-            || self
-                .signatures_of_type_kind(value, kind)
-                .is_none_or(|signatures| signatures.is_empty())
+            || kind.is_some_and(|kind| {
+                self.signatures_of_type_kind(value, kind)
+                    .is_none_or(|signatures| signatures.is_empty())
+            })
         {
             return None;
         }
@@ -720,13 +729,45 @@ impl<'a> Checker<'a, '_> {
 
     /// The synthetic default aliases the export-equals value. Reuse that
     /// alias's value/readonly metadata rather than a constructor property.
+    ///
+    /// An ESM-to-CommonJS reference (`isEsmCjsRef`) of a module without
+    /// `export =` takes the module itself, as
+    /// `getTypeWithSyntheticDefaultImportType` does.
     pub(crate) fn module_clone_default_symbol(&mut self, alias: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(alias)?;
         let specifier = self.import_declaration_specifier(declaration)?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
-        self.can_have_synthetic_default(module)
-            .then(|| self.binder.symbols().get(module).exports.get("export=").copied())
-            .flatten()
+        if !self.can_have_synthetic_default_for_usage(module, specifier) {
+            return None;
+        }
+        let export_equals = self.binder.symbols().get(module).exports.get("export=").copied();
+        export_equals
+            .or_else(|| self.namespace_import_is_esm_cjs_ref(declaration).then_some(module))
+    }
+
+    /// `isESMFormatImportImportingCommonjsFormatFile(usageMode, targetMode)`
+    /// (`checker.go:15628`) for a namespace import's specifier and the file
+    /// it resolves to.
+    fn namespace_import_is_esm_cjs_ref(&mut self, declaration: NodeId) -> bool {
+        let Some(specifier) = self.import_declaration_specifier(declaration) else {
+            return false;
+        };
+        let Some(module) = self.resolve_external_module_name(declaration, specifier) else {
+            return false;
+        };
+        let Some(&file) = self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .iter()
+            .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+        else {
+            return false;
+        };
+        let Some(host) = self.module_host else { return false };
+        self.usage_emit_syntax(specifier) == tsr_core::ModuleKind::ESNext
+            && host.implied_node_format_for_emit(file) == tsr_core::ModuleKind::CommonJS
     }
 
     /// Pinned 5b1047d getSymbol (checker.go:2176) supplies target meaning to
@@ -1444,7 +1485,7 @@ impl<'a> Checker<'a, '_> {
         };
         let specifier = specifier?.node_id()?;
         let module = self.resolve_external_module_name(declaration, specifier)?;
-        self.module_default_target(module, declaration, specifier)
+        self.module_default_target(module, specifier)
     }
 
     /// TYPE naming's completed alias target, ported from native `resolveAlias`
@@ -1626,9 +1667,11 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    /// The default target shared by clauses and identifier-default specifiers.
-    /// New synthetic defaults retain the immediate `export=` link; only a
-    /// complete, uncloned plain-TS file-module chain establishes eligibility.
+    /// The default target shared by clauses and `default` specifiers (import
+    /// and re-export alike): `getTargetOfModuleDefault` with
+    /// `dontResolveAlias = true`. A synthetic default is the immediate
+    /// `export=` symbol (or the module itself), for every module shape the
+    /// usage-aware [`Checker::can_have_synthetic_default_for_usage`] admits.
     ///
     /// `getTargetOfModuleDefault` (`checker.go:14536`) opens with the
     /// `module.exports` arm: a `CommonJS`-emitted specifier of an ES-module file
@@ -1636,171 +1679,154 @@ impl<'a> Checker<'a, '_> {
     /// `"module.exports"` export (`resolveExportByName`, `checker.go:14615`)
     /// before any default — `__importDefault(require(m)).default` is that
     /// export's value. `specifier` is `getModuleSpecifierForImportOrExport`.
-    fn module_default_target(
-        &mut self,
-        module: SymbolId,
-        declaration: NodeId,
-        specifier: NodeId,
-    ) -> Option<SymbolId> {
+    fn module_default_target(&mut self, module: SymbolId, specifier: NodeId) -> Option<SymbolId> {
         if self.esm_file_used_with_commonjs_syntax(module, specifier)
             && let Some(module_exports) =
                 self.resolve_export_by_name(module, INTERNAL_MODULE_EXPORTS)
         {
             return Some(module_exports);
         }
-        let synthetic = (|| {
-            if self.module_kind != tsr_core::ModuleKind::CommonJS || self.in_js_file(declaration) {
-                return None;
+        // `resolveExportByName(moduleSymbol, "default", node, true)`, which
+        // `isShorthandAmbientModuleSymbol` skips; a real default that is
+        // itself an alias keeps this port's one more hop.
+        let shorthand = self.is_shorthand_ambient_module(module);
+        let default =
+            (!shorthand).then(|| self.resolve_export_by_name(module, "default")).flatten();
+        let default = default.map(|default| {
+            let default = self.binder.merged_symbol(default);
+            if self.binder.symbols().get(default).flags.intersects(SymbolFlags::ALIAS) {
+                self.resolve_alias(default)
+            } else {
+                Some(default)
             }
-            let immediate = self.resolve_external_module_symbol(module);
-            if immediate == module {
-                return None;
-            }
-            let mut current = immediate;
-            let mut seen = Vec::new();
-            // Match the existing naming walk's bound, but establish completeness
-            // ourselves: resolve_alias_fully also returns partial/cyclic links.
-            for _ in 0..8 {
-                if !self.binder.symbols().get(current).flags.contains(SymbolFlags::ALIAS) {
-                    break;
-                }
-                if seen.contains(&current) {
-                    return None;
-                }
-                seen.push(current);
-                let link = self.declaration_of_alias_symbol(current)?;
-                let file = self.source_file_of(link)?;
-                if self.nodes.parent(link) != Some(file)
-                    || self.in_js_file(file)
-                    || self.nodes.flags(file).contains(NodeFlags::JSON_FILE)
-                    || self.module_host?.is_declaration_file(file)
-                {
-                    return None;
-                }
-                // Prefilter before resolving. In particular, resolve_alias on
-                // external import-equals can follow an unchecked export= link,
-                // and default/specifier aliases can reenter this reader.
-                current = match self.node_map.get(link)? {
-                    Node::ExportAssignment(node)
-                        if node.is_export_equals
-                            && matches!(node.expression, Some(Expression::Identifier(_))) =>
-                    {
-                        self.export_assignment_target(link)?
-                    }
-                    Node::ImportEqualsDeclaration(node) => {
-                        let ModuleReference::ExternalModuleReference(reference) =
-                            node.module_reference?
-                        else {
-                            return None;
-                        };
-                        let specifier = reference.expression?.node_id()?;
-                        let imported = self.resolve_external_module_name(link, specifier)?;
-                        self.resolve_external_module_symbol(imported)
-                    }
-                    _ => return None,
-                };
-                current = self.binder.merged_symbol(current);
-            }
-            let entry = self.binder.symbols().get(current);
-            let [file] = entry.declarations.as_slice() else { return None };
-            if entry.flags != SymbolFlags::VALUE_MODULE
-                || self.nodes.kind(*file) != SyntaxKind::SourceFile
-                || self.binder.symbol_of(*file) != Some(current)
-                || self.in_js_file(*file)
-                || self.nodes.flags(*file).contains(NodeFlags::JSON_FILE)
-                || self.module_host?.is_declaration_file(*file)
-            {
-                return None;
-            }
-            let value = self.get_type_of_symbol(current);
-            if !matches!(self.store.get(value).data,
-                crate::types::TypeData::Anonymous { symbol, signature: false, .. }
-                    if symbol == current)
-                || self.module_value_clones.contains_key(&value)
-                || !self.get_signatures_of_symbol(current)?.is_empty()
-            {
-                return None;
-            }
-            Some(immediate)
-        })();
-        if synthetic.is_some() {
-            return synthetic;
+        });
+        // `hasSyntheticDefault || hasDefaultOnly`: per emit behaviour a
+        // synthetic default overrides a real `.default` member when no
+        // `__esModule` marker is present. The answer is
+        // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`:
+        // the immediate `export =` symbol, or the module itself.
+        // `docs/parity/notes/names-modules.md` §3.
+        if self.can_have_synthetic_default_for_usage(module, specifier)
+            || self.is_only_importable_as_default(module, specifier)
+        {
+            return Some(self.resolve_external_module_symbol(module));
         }
-        if self.nodes.kind(declaration) != SyntaxKind::ImportClause {
-            // Preserve the specifiers' existing real-default lookup, and their
-            // refusals outside the proven synthetic domain. Clause-only legacy
-            // JSON/JS/ambient behavior below must not expand those domains.
-            return (self.resolve_external_module_symbol(module) == module)
-                .then(|| self.get_export_of_module(module, "default"))
-                .flatten();
+        default.flatten()
+    }
+
+    /// `isOnlyImportableAsDefault` (`checker.go:14800`): under `node16`..
+    /// `nodenext`, an ES-syntax usage of a JSON module.
+    fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
+        if !(tsr_core::ModuleKind::Node16..=tsr_core::ModuleKind::NodeNext)
+            .contains(&self.module_kind)
+        {
+            return false;
         }
-        if self
+        if self.usage_emit_syntax(usage) != tsr_core::ModuleKind::ESNext {
+            return false;
+        }
+        self.binder
+            .symbols()
+            .get(module)
+            .declarations
+            .iter()
+            .any(|&declaration| self.nodes.flags(declaration).contains(NodeFlags::JSON_FILE))
+    }
+
+    /// `getEmitSyntaxForModuleSpecifierExpression` (`checker.go:14877`):
+    /// `None` unless `usage` is a string literal.
+    fn usage_emit_syntax(&self, usage: NodeId) -> tsr_core::ModuleKind {
+        if !matches!(
+            self.nodes.kind(usage),
+            SyntaxKind::StringLiteral | SyntaxKind::NoSubstitutionTemplateLiteral
+        ) {
+            return tsr_core::ModuleKind::None;
+        }
+        let (Some(host), Some(importing)) = (self.module_host, self.source_file_of(usage)) else {
+            return tsr_core::ModuleKind::None;
+        };
+        host.emit_syntax_for_usage_location(importing, usage)
+    }
+
+    /// `canHaveSyntheticDefault(file, moduleSymbol, dontResolveAlias, usage)`
+    /// (`checker.go:14818`), whole: the usage-dependent block first, then the
+    /// declaration-file arm through `resolveExportByName` (so an `export =`
+    /// value's own `default` / `__esModule` property counts), then the
+    /// TypeScript and JavaScript file arms. The project-reference arm
+    /// (`:14836`) is not reached: this port's programs have no references.
+    ///
+    /// [`Checker::can_have_synthetic_default`] (`check.rs`) is the
+    /// usage-free reading the TS1192 check still uses.
+    pub(crate) fn can_have_synthetic_default_for_usage(
+        &mut self,
+        module: SymbolId,
+        usage: NodeId,
+    ) -> bool {
+        use tsr_core::ModuleKind;
+        let file = self
             .binder
             .symbols()
             .get(module)
             .declarations
             .iter()
-            .any(|&id| self.nodes.flags(id).contains(NodeFlags::JSON_FILE))
-        {
-            return Some(self.resolve_external_module_symbol(module));
+            .copied()
+            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile);
+        if let Some(file) = file {
+            let usage_mode = self.usage_emit_syntax(usage);
+            if usage_mode != ModuleKind::None {
+                let target_mode = self
+                    .module_host
+                    .map_or(ModuleKind::None, |host| host.implied_node_format_for_emit(file));
+                if usage_mode == ModuleKind::ESNext
+                    && target_mode == ModuleKind::CommonJS
+                    && (ModuleKind::Node16..=ModuleKind::NodeNext).contains(&self.module_kind)
+                {
+                    return true;
+                }
+                if usage_mode == ModuleKind::ESNext && target_mode == ModuleKind::ESNext {
+                    return false;
+                }
+            }
         }
-        // getTargetOfModuleDefault gives a synthetic CommonJS default priority
-        // over a real exports.default when no __esModule marker is present.
-        if self.can_have_synthetic_default(module)
-            && self
-                .binder
-                .symbols()
-                .get(module)
-                .declarations
-                .iter()
-                .any(|&id| self.nodes.kind(id) == SyntaxKind::SourceFile && self.in_js_file(id))
-        {
-            return Some(self.resolve_external_module_symbol(module));
-        }
-        let default = self.binder.symbols().get(module).exports.get("default").copied();
-        let Some(default) = default else {
-            // §132: no explicit `default` but an `export =` — the SYNTHETIC
-            // default. `canHaveSyntheticDefault`'s declaration-file arm
-            // grants it regardless of the interop options, and
-            // `getTargetOfModuleDefault` then resolves the module symbol
-            // through the assignment (es6ExportEqualsInterop's x-family
-            // wants: `x2 : { a: number; b: number; }`). A module without
-            // `export =` keeps the miss.
-            let resolved = self.resolve_external_module_symbol(module);
-            if resolved == module || !self.can_have_synthetic_default(module) {
-                return None;
-            }
-            // AMBIENT modules only (`declare module "x"`): a real-file
-            // module gaining a default alias flips the printer's chosen
-            // spelling for every qualified reference through the other
-            // aliases (importEquals1's 6 G→W — `types.A` became
-            // `import("./a").A`); an ambient module's naming road is stable.
-            let ambient =
-                self.binder.symbols().get(module).declarations.iter().any(|&declaration| {
-                    self.nodes.kind(declaration) == SyntaxKind::ModuleDeclaration
-                });
-            if !ambient {
-                return None;
-            }
-            let target = self.resolve_alias(resolved)?;
-            // ONLY variable targets: their type prints STRUCTURALLY
-            // (`{ a: number; b: number; }`). A namespace/class/function
-            // target prints `typeof <name>`, and adding a SECOND alias to
-            // the same target broke the one-alias rename (`typeof z4` →
-            // `typeof Foo`, 10 R→W on this pair) — the tsr-4jk constraint,
-            // fired again; those stay gaps until per-site naming exists.
-            let flags = self.binder.symbols().get(target).flags;
-            if flags.intersects(SymbolFlags::NAMESPACE | SymbolFlags::CLASS | SymbolFlags::FUNCTION)
-            {
-                return None;
-            }
-            return Some(target);
+        let declaration_file = match file {
+            None => true,
+            Some(file) => self.module_host.is_some_and(|host| host.is_declaration_file(file)),
         };
-        let default = self.binder.merged_symbol(default);
-        if self.binder.symbols().get(default).flags.intersects(SymbolFlags::ALIAS) {
-            return self.resolve_alias(default);
+        if declaration_file {
+            if let Some(default) = self.resolve_export_by_name(module, "default")
+                && self
+                    .binder
+                    .symbols()
+                    .get(default)
+                    .declarations
+                    .clone()
+                    .into_iter()
+                    .any(|declaration| self.is_syntactic_default(declaration))
+            {
+                return false;
+            }
+            return self.resolve_export_by_name(module, "__esModule").is_none();
         }
-        Some(default)
+        let exports = &self.binder.symbols().get(module).exports;
+        if let Some(file) = file
+            && self.in_js_file(file)
+            && let Some(Node::SourceFile(source)) = self.node_map.get(file)
+        {
+            return !tsr_binder::is_external_module(source) && !exports.contains_key("__esModule");
+        }
+        exports.contains_key("export=")
+    }
+
+    /// `isSyntacticDefault` (`utilities.go:250`).
+    fn is_syntactic_default(&self, declaration: NodeId) -> bool {
+        let Some(node) = self.node_map.get(declaration) else { return false };
+        match node {
+            Node::ExportAssignment(node) => !node.is_export_equals,
+            Node::ExportSpecifier(_) | Node::NamespaceExport(_) => true,
+            node => crate::check::modifiers_of(node).is_some_and(|modifiers| {
+                tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DefaultKeyword)
+            }),
+        }
     }
 
     /// `getTargetOfExportAssignment` (`checker.go:14889`) for the identifier
@@ -1887,7 +1913,7 @@ impl<'a> Checker<'a, '_> {
             {
                 let module_specifier = export.module_specifier?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
-                return self.module_default_target(module, declaration, module_specifier);
+                return self.module_default_target(module, module_specifier);
             }
             // `case exportDeclaration.ModuleSpecifier() != nil:
             // getExternalModuleMember(exportDeclaration, node, …)`
@@ -1912,14 +1938,11 @@ impl<'a> Checker<'a, '_> {
 
     /// The symbol an **import specifier** names — `import { x } from "./m"`.
     ///
-    /// Ported from `Checker.getTargetOfImportSpecifier` (`checker.go:14647`),
-    /// reduced to its second half. Upstream's first half handles
-    /// `import { default as d }` through `getTargetOfModuleDefault`
-    /// (`checker.go:14536`); for a module that has a real `export default`, that
-    /// function reduces to `resolveExportByName(moduleSymbol, "default", …)`,
-    /// which is the same `exports` lookup the fall-through below performs. The
-    /// two differ only where there is **no** real default and upstream
-    /// synthesises one — unported, and a miss rather than a wrong target.
+    /// Ported from `Checker.getTargetOfImportSpecifier` (`checker.go:14647`).
+    /// Upstream's first half handles `import { default as d }` through
+    /// `getTargetOfModuleDefault` (`checker.go:14536`), the same road an
+    /// import clause takes ([`Checker::module_default_target`]), synthetic
+    /// default included.
     ///
     /// `root := node.Parent.Parent.Parent` (`checker.go:14658`) is the
     /// `ImportDeclaration`: specifier → `NamedImports` → `ImportClause` →
@@ -1939,7 +1962,7 @@ impl<'a> Checker<'a, '_> {
         {
             let module_specifier = node.module_specifier?.node_id()?;
             let module = self.resolve_external_module_name(declaration, module_specifier)?;
-            return self.module_default_target(module, declaration, module_specifier);
+            return self.module_default_target(module, module_specifier);
         }
         self.get_external_module_member(import, declaration)
     }
@@ -2994,7 +3017,14 @@ impl<'a> Checker<'a, '_> {
         let importing_file = self.source_file_of(location)?;
         let host = self.module_host?;
         let mode = self.module_resolution_mode(host, importing_file, location);
-        let target = host.resolved_module_in_mode(importing_file, text, mode)?;
+        let Some(target) = host.resolved_module_in_mode(importing_file, text, mode) else {
+            // `resolveExternalModule`'s pattern-ambient arm (`checker.go:15364`):
+            // only after the file resolution failed. names-modules notes §6.
+            if !self.has_pattern_ambient_modules {
+                return None;
+            }
+            return self.binder.pattern_ambient_module(text);
+        };
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
         // that is not an external module — upstream's `File_0_is_not_a_module` —
         // and it is the reason the host answers a *file* rather than a symbol:
@@ -6787,6 +6817,13 @@ mod tests {
         let pair = bound.symbols().get(original).exports["Pair"];
         let declarations = bound.symbols().get(pair).declarations.clone();
         let flags = bound.symbols().get(pair).flags;
+        // getTargetOfModuleDefault's synthetic arm: the immediate `export=`.
+        // Its `resolveExportByName` reads the `export=` value's type, which
+        // ordinary resolution publishes; the naming reader below adds none.
+        assert_eq!(
+            checker.resolve_alias(aliases["React"]),
+            Some(bound.symbols().get(bound.ambient_module("pure").unwrap()).exports["export="])
+        );
         let publications = (
             checker.computations,
             checker.node_types.len(),
@@ -6795,7 +6832,6 @@ mod tests {
             checker.qualified_reference_types.len(),
             checker.qualified_generic_reference_types.len(),
         );
-        assert_eq!(checker.resolve_alias(aliases["React"]), None);
         for _ in 0..2 {
             let mut path = vec![pair];
             assert_eq!(
@@ -6844,7 +6880,7 @@ mod tests {
             }
             assert_eq!(
                 checker.resolve_alias(aliases["React"]),
-                None,
+                Some(bound.symbols().get(bound.ambient_module("pure").unwrap()).exports["export="]),
                 "ordinary VALUE admission is unchanged"
             );
         }

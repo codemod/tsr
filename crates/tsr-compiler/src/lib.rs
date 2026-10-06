@@ -62,6 +62,7 @@ use std::time::{Duration, Instant};
 use rustc_hash::FxHashMap;
 use tsr_ast::{NodeId, NodeMap, NodeTable};
 use tsr_binder::{BindResult, FileInfo};
+use tsr_checker::resolution::ImportHelpersModule;
 use tsr_core::{Arena, CompilerOptions, ResolutionMode};
 use tsr_path::{Path, to_path};
 
@@ -437,9 +438,9 @@ impl<'a> Program<'a> {
     /// decides and applies each merge
     /// ([`BindResult::merge_module_augmentations`]); this supplies the module
     /// resolution it needs: `resolveExternalModuleNameWorker` reduced to
-    /// `tryFindAmbientModule` (`checker.go:15533`) and then this program's
-    /// resolved module in the usage's mode, the same two steps
-    /// `tsr_checker`'s `resolve_external_module_name` takes.
+    /// `tryFindAmbientModule` (`checker.go:15533`), this program's resolved
+    /// module in the usage's mode, and then the pattern ambient modules — the
+    /// same three steps `tsr_checker`'s `resolve_external_module_name` takes.
     fn merge_module_augmentations(&mut self, arena: &'a Arena) {
         let bound = std::mem::replace(&mut self.binder, BindResult::empty());
         let program = &*self;
@@ -464,8 +465,12 @@ impl<'a> Program<'a> {
                     return Some(ambient);
                 }
                 let mode = program.mode_for_usage_location(importing_file, usage);
-                let target = program.resolved_module_in_mode(importing_file, specifier, mode)?;
-                bound.symbol_of(target)
+                match program.resolved_module_in_mode(importing_file, specifier, mode) {
+                    Some(target) => bound.symbol_of(target),
+                    // `resolveExternalModule`'s pattern-ambient arm
+                    // (`checker.go:15364`), after a failed file resolution.
+                    None => bound.pattern_ambient_module(specifier),
+                }
             },
         );
         self.binder = merged;
@@ -805,6 +810,35 @@ impl<'a> Program<'a> {
         loader::UsageSyntax::Other
     }
 
+    /// What `file`'s synthetic `tslib` import resolved to
+    /// (`GetImportHelpersImportSpecifier`, `program.go:1965`, then the
+    /// checker's `resolveExternalModule` of it). The loader resolves that
+    /// import first (`fileloader.go:543`), so it is the first entry recorded
+    /// for the name.
+    #[must_use]
+    pub fn import_helpers_module(&self, file: NodeId) -> ImportHelpersModule {
+        if !self.options.import_helpers.is_true() {
+            return ImportHelpersModule::NotRequested;
+        }
+        let Some(&index) = self.files_by_source_file.get(&file) else {
+            return ImportHelpersModule::NotRequested;
+        };
+        let Some(first) = self
+            .resolved_modules
+            .get(self.files[index].path())
+            .and_then(|names| names.get(loader::EXTERNAL_HELPERS_MODULE_NAME))
+            .and_then(|modes| modes.first())
+        else {
+            return ImportHelpersModule::NotRequested;
+        };
+        match &first.resolved {
+            None => ImportHelpersModule::NotFound,
+            Some(target) => self
+                .source_file_for_resolved_path(target)
+                .map_or(ImportHelpersModule::OutsideProgram, ImportHelpersModule::File),
+        }
+    }
+
     /// `Program.GetDefaultResolutionModeForFile` (`program.go:1562`).
     #[must_use]
     pub fn default_resolution_mode_for_file(&self, file: NodeId) -> ResolutionMode {
@@ -932,6 +966,10 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         usage: NodeId,
     ) -> ResolutionMode {
         Program::emit_syntax_for_usage_location(self, importing_file, usage)
+    }
+
+    fn import_helpers_module(&self, file: NodeId) -> ImportHelpersModule {
+        Program::import_helpers_module(self, file)
     }
 
     fn implied_node_format_for_emit(&self, file: NodeId) -> ResolutionMode {

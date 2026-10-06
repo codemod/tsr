@@ -578,6 +578,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) module_kind: tsr_core::ModuleKind,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
+    /// `compilerOptions.ImportHelpers.IsTrue()`, read by
+    /// `checkExternalEmitHelpers` (`crate::emit_helpers`).
+    pub(crate) import_helpers: bool,
+    /// `sourceFileLinks`' `externalHelpersModule` and
+    /// `requestedExternalEmitHelpers`, keyed by source file
+    /// (`crate::emit_helpers` documents ownership).
+    pub(crate) external_helpers: FxHashMap<NodeId, crate::emit_helpers::ExternalHelpersLinks>,
     /// `emitStandardClassFields` — `useDefineForClassFields` with upstream's
     /// `target >= ES2022` default. A derived field shadows its base at
     /// construction time only under `[[Define]]` semantics, which is what
@@ -1407,6 +1414,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
             legacy_decorators: false,
+            import_helpers: false,
+            external_helpers: FxHashMap::default(),
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
@@ -1608,6 +1617,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
+        self.import_helpers = options.import_helpers.is_true();
         // `GetEmitStandardClassFields` — the flag, defaulting to
         // `target >= ES2022`. §751.
         self.standard_class_fields = match options.use_define_for_class_fields {

@@ -50,9 +50,12 @@
 //!   reproduced here. The exception is `libReplacement`, which resolves
 //!   `@typescript/lib-*` through the module resolver and *does* trace; that is
 //!   still not done (bd tsr-9or.5).
-//! - **`importHelpers` does not synthesise a `tslib` import.** No `.trace.json`
-//!   baseline contains one — checked, `Resolving module 'tslib'` appears zero
-//!   times across all 146 — so implementing it would be untested code.
+//! - **`importHelpers`' synthetic `tslib` import is resolved but traced
+//!   nowhere a baseline checks.** No `.trace.json` baseline contains one —
+//!   `Resolving module 'tslib'` appears zero times across all 146. It is
+//!   resolved (`fileloader.go:543`) because the checker's
+//!   `checkExternalEmitHelpers` reads the result
+//!   (`docs/parity/notes/names-modules.md` §7).
 //! - **Project references and their redirects** are absent. Package-identity
 //!   redirects are implemented and can be disabled with `deduplicatePackages`.
 //! - **`moduleDetection` is assumed `auto`**, upstream's default. It is not a
@@ -61,6 +64,9 @@
 //!   changes how `declare module "x"` inside it is classified.
 
 use std::time::{Duration, Instant};
+
+/// `externalHelpersModuleNameText` (`compiler/fileloader.go`).
+pub(crate) const EXTERNAL_HELPERS_MODULE_NAME: &str = "tslib";
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_core::{CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ResolutionMode};
@@ -888,7 +894,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 .imports
                 .extend(tsr_parser::collect_jsdoc_import_references(file.jsdoc(), &self.nodes));
         }
-        self.resolve_imports_and_module_augmentations(index, references);
+        self.resolve_imports_and_module_augmentations(index, references, is_external_module);
         self.tasks[index].file = Some(file);
     }
 
@@ -995,6 +1001,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         &mut self,
         index: usize,
         references: tsr_parser::ExternalModuleReferences,
+        is_external_module: bool,
     ) {
         let file_name = self.tasks[index].file_name.clone();
         let metadata = self.tasks[index].metadata.clone();
@@ -1002,7 +1009,20 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let is_declaration_file = is_declaration_file_name(&file_name);
 
         let mut specifiers: Vec<tsr_parser::ModuleSpecifier> = Vec::new();
-        // `importHelpers`' `tslib` would come first. See the module docs.
+        // `importHelpers`' synthetic `tslib` import comes first
+        // (`fileloader.go:542-547`).
+        if (is_js_file
+            || (!is_declaration_file
+                && (self.options.get_isolated_modules() || is_external_module)))
+            && self.options.import_helpers.is_true()
+        {
+            specifiers.push(tsr_parser::ModuleSpecifier {
+                text: EXTERNAL_HELPERS_MODULE_NAME.to_string(),
+                pos: 0,
+                context: SpecifierContext::Synthetic,
+                resolution_mode_override: tsr_parser::ResolutionMode::None,
+            });
+        }
         if is_js_file || file_extension_is(&file_name, EXTENSION_TSX) {
             if let Some(jsx_import) = self.jsx_runtime_import() {
                 specifiers.push(tsr_parser::ModuleSpecifier {
