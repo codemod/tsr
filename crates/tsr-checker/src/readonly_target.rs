@@ -1051,7 +1051,7 @@ impl Checker<'_, '_> {
     /// property is found: the message and arguments an inaccessible `prop`
     /// reports at `location`, or `None` when it is accessible or a link
     /// cannot be followed.
-    fn property_accessibility_error(
+    pub(crate) fn property_accessibility_error(
         &mut self,
         location: NodeId,
         is_super: bool,
@@ -1190,13 +1190,28 @@ impl Checker<'_, '_> {
             Some(Node::MethodDeclaration(n)) => n.parameters,
             _ => return ThisParameterClass::None,
         };
-        let Some(this_parameter) = parameters.first().filter(|parameter| {
-            matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-        }) else {
-            return ThisParameterClass::None;
+        let annotation = parameters
+            .first()
+            .filter(|parameter| {
+                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+            })
+            .and_then(|parameter| parameter.r#type);
+        let this_type = match annotation {
+            Some(annotation) => self.get_type_from_type_node(annotation),
+            // 3. "The 'this' parameter of a contextual type"
+            // (`getContextualThisParameterType`). Its contextual-signature arm
+            // is ported; the object-literal and `obj.m = function` arms (under
+            // `noImplicitThis` or in JS) are not, and decline.
+            None => match self.contextual_this_parameter_type(container) {
+                Some(this_type) => this_type,
+                None if (self.no_implicit_this || self.in_js_file(container))
+                    && self.contextual_this_needs_unported_arm(container) =>
+                {
+                    return ThisParameterClass::Unsupported;
+                }
+                None => return ThisParameterClass::None,
+            },
         };
-        let Some(annotation) = this_parameter.r#type else { return ThisParameterClass::None };
-        let this_type = self.get_type_from_type_node(annotation);
         // A type parameter is read through its constraint; an unconstrained
         // or primitive one is no class (`ObjectFlagsClassOrInterface` unset).
         let this_type = self.apparent_type(this_type);
@@ -1212,6 +1227,27 @@ impl Checker<'_, '_> {
             Some(class) => ThisParameterClass::Class(class),
             None => ThisParameterClass::None,
         }
+    }
+
+    /// Would `getContextualThisParameterType` reach its object-literal arm
+    /// (`getContainingObjectLiteral`) or its assignment arm (`obj.m =
+    /// function …`) for this function?
+    fn contextual_this_needs_unported_arm(&self, function: NodeId) -> bool {
+        let Some(mut parent) = self.nodes.parent(function) else { return false };
+        while self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression {
+            let Some(next) = self.nodes.parent(parent) else { return false };
+            parent = next;
+        }
+        matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::ObjectLiteralExpression
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::BinaryExpression
+        ) || self.nodes.kind(function) == SyntaxKind::MethodDeclaration
+            && self
+                .nodes
+                .parent(function)
+                .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ObjectLiteralExpression)
     }
 
     /// Does `class` reach `base` through its `extends` chain, or **is** it
