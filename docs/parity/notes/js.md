@@ -168,3 +168,20 @@ The §1 note that `expression.rs` held these was half right: that file's
 fallback had been fixed by the parser lane; the remaining report was
 `module.rs`'s own.
 
+## 5. `@type` on an export assignment
+
+`checkExportAssignment` (`checker.go:5662`) checks the expression against
+`node.Type()`, which `reparseHosted` sets from a `@type` tag on the export
+assignment, elaborating at the expression. `check_jsdoc_annotated_initializer`
+gains that arm (`export default` and `export =` alike; both are
+`KindExportAssignment` upstream — `KindJSExportAssignment` is
+`module.exports =`). Converts `checkJsdocTypeTagOnExportAssignment2`.
+
+**Not converted, and why.** `…OnExportAssignment1`/`4`/`6` name a `@typedef`
+declared in the same file, which is a module (it has the `export default`).
+In a JS module file a `@typedef` name does not resolve from the file itself
+here — `/** @typedef {number} Foo */ /** @type {Foo} */ var x = "";` reports
+TS2322 in a script and nothing once any `export` is added. Upstream binds the
+typedef as an implicitly exported declaration
+(`IsImplicitlyExportedJSDocDeclaration`) that still resolves locally. That is
+the binder's / name resolution's, not this check's.
