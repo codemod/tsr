@@ -1,0 +1,438 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1784,6 +1784,150 @@
+     /// by its global symbol (a name outside `K` reads through `T`), and an
+     /// alias reference with a non-literal body (evaluated under §91's
+     /// bindings, then re-asked). `None` stays *no such property*.
++
++    /// Native 5b1047d shared-property/base-publication prototype (.29/.30).
++    /// No completion cache: preserve the supplying reference and original this
++    /// at one consumer. Active bases cannot certify a complete read view.
++    pub(crate) fn member_consumer_view(
++        &mut self,
++        receiver: TypeId,
++        name: &str,
++    ) -> crate::member_completeness::MemberConsumerResult {
++        self.member_consumer_view_worker(receiver, name, receiver, &mut Vec::new())
++    }
++
++    fn member_consumer_view_worker(
++        &mut self,
++        id: TypeId,
++        name: &str,
++        receiver: TypeId,
++        path: &mut Vec<SymbolId>,
++    ) -> crate::member_completeness::MemberConsumerResult {
++        use crate::member_completeness::{
++            MemberConsumerIdentity as Identity, MemberConsumerResult as Result,
++            MemberConsumerView as View,
++        };
++        if id == self.intrinsics.error {
++            return Result::Failed;
++        }
++        if let TypeData::Intersection { types, .. } = self.store.get(id).data.clone() {
++            if types.len() != 2 {
++                return Result::Unsupported;
++            }
++            let mut views = Vec::new();
++            for part in types {
++                let apparent = self.apparent_type(part);
++                match self.member_consumer_view_worker(apparent, name, receiver, path) {
++                    Result::Complete(view) => views.push(view),
++                    other => return other,
++                }
++            }
++            let mut first = views.remove(0);
++            let second = views.remove(0);
++            // Native compareProperties does NOT compare writes. A merged
++            // instantiated clone keeps the first supplier/mapper/write.
++            if first.root == second.root
++                && first.read == second.read
++                && first.optional == second.optional
++                && first.readonly == second.readonly
++                && first.accessibility == second.accessibility
++            {
++                first.identity = if first.supplier == second.supplier {
++                    Identity::Single
++                } else {
++                    Identity::Merged
++                };
++            } else {
++                first.read = self.get_intersection_type(&[first.read, second.read], None);
++                first.identity = Identity::Synthesized;
++                // A general synthesized writable view needs native index,
++                // union and deferred rules; this read consumer does not use it.
++                first.write = None;
++            }
++            return Result::Complete(first);
++        }
++        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
++            return Result::Unsupported;
++        };
++        let owner = self.binder.merged_symbol(owner);
++        if !self
++            .binder
++            .symbols()
++            .get(owner)
++            .flags
++            .intersects(SymbolFlags::INTERFACE | SymbolFlags::CLASS)
++        {
++            return Result::Unsupported;
++        }
++        if self.resolutions.on_stack(owner, crate::resolution::PropertyName::ResolvedBaseTypes)
++            || path.contains(&owner)
++        {
++            // Native re-entry still returns its valid partial prefix. Exposing
++            // it here never publishes that prefix as an immutable complete view.
++            return Result::Active { prefix: self.get_base_types(owner) };
++        }
++        self.get_declared_type_of_symbol(owner);
++        let bases = self.get_base_types(owner);
++        path.push(owner);
++        let result = if let Some(&property) = self.binder.symbols().get(owner).members.get(name) {
++            let flags = self.binder.symbols().get(property).flags;
++            if !flags.intersects(
++                SymbolFlags::PROPERTY | SymbolFlags::GET_ACCESSOR | SymbolFlags::SET_ACCESSOR,
++            ) {
++                Result::Unsupported
++            } else {
++                let declared = self.get_type_of_symbol(property);
++                let read = self.instantiate_for_reference_with_this(id, declared, receiver);
++                let write = self.accessor_write_parameter(property).map(|parameter| {
++                    self.instantiate_for_reference_with_this(id, parameter.r#type, receiver)
++                });
++                if read == self.intrinsics.error || write == Some(self.intrinsics.error) {
++                    Result::Failed
++                } else {
++                    let accessibility = if self
++                        .property_has_modifier(property, tsr_ast::SyntaxKind::PrivateKeyword)
++                    {
++                        1
++                    } else if self
++                        .property_has_modifier(property, tsr_ast::SyntaxKind::ProtectedKeyword)
++                    {
++                        2
++                    } else {
++                        0
++                    };
++                    Result::Complete(View {
++                        root: property,
++                        supplier: id,
++                        receiver,
++                        read,
++                        write,
++                        optional: self.property_is_optional(property),
++                        readonly: self.is_readonly_property(property),
++                        accessibility,
++                        identity: Identity::Single,
++                    })
++                }
++            }
++        } else {
++            let mut result = Result::Unsupported;
++            // Use filtered resolved bases, never re-admit written excluded
++            // cycle edges. Instantiate each under the receiving reference.
++            for base in bases {
++                let base = self.instantiate_for_reference(id, base);
++                match self.member_consumer_view_worker(base, name, receiver, path) {
++                    Result::Unsupported => {}
++                    answer => {
++                        result = answer;
++                        break;
++                    }
++                }
++            }
++            result
++        };
++        path.pop();
++        result
++    }
++
+     fn property_type_via_shape(
+         &mut self,
+         id: TypeId,
+@@ -1797,6 +1941,11 @@
+             let constituents = types.clone();
+             if self.intersection_has_never_discriminant(id) {
+                 return None;
++            }
++            if let crate::member_completeness::MemberConsumerResult::Complete(view) =
++                self.member_consumer_view(id, name)
++            {
++                return Some(view.read);
+             }
+             for skip_augment in [true, false] {
+                 if !skip_augment && skip_object_function_augment {
+@@ -3455,6 +3604,231 @@
+         let root = parsed.source_file.node_id().unwrap();
+         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+         test(&mut checker, root)
++    }
++
++    #[test]
++    fn member_consumer_common_self_keeps_alias_after_inheritance() {
++        let source = "interface Base { self: this } interface Left extends Base { l: number } interface Right extends Base { r: string } type Both = Left & Right; declare const value: Both; const probe = value.self;";
++        for expression_first in [false, true] {
++            with_checker(source, |checker, root| {
++                if expression_first {
++                    let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                    checker.get_type_of_symbol(probe);
++                }
++                let both = checker.binder.lookup_local(root, "Both").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(both);
++                for _ in 0..3 {
++                    let read = checker.get_type_of_property_of_type(receiver, "self").unwrap();
++                    assert_eq!(checker.type_to_string(read), "Both");
++                }
++            });
++        }
++    }
++
++    #[test]
++    fn member_consumer_distinct_self_roots_still_intersect() {
++        let source = "interface Left { self: this; l: number } interface Right { self: this; r: string } type Both = Left & Right;";
++        with_checker(source, |checker, root| {
++            let both = checker.binder.lookup_local(root, "Both").unwrap();
++            let receiver = checker.get_declared_type_of_symbol(both);
++            for _ in 0..3 {
++                let read = checker.get_type_of_property_of_type(receiver, "self").unwrap();
++                assert_eq!(checker.type_to_string(read), "Left & Right");
++            }
++        });
++    }
++
++    #[test]
++    fn member_consumer_generic_reads_do_not_merge_on_bare_symbol() {
++        use crate::member_completeness::{
++            MemberConsumerIdentity as Identity, MemberConsumerResult as Result,
++        };
++        let prefix = "interface Base<T> { value:T } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V }";
++        for (body, expected_read, expected_identity) in [
++            ("type Both = Left<string> & Right<string>;", "string", Identity::Single),
++            ("type Both = Left<string> & Right<number>;", "never", Identity::Synthesized),
++        ] {
++            let source =
++                format!("{prefix} {body} declare const receiver:Both; const probe=receiver.value;");
++            for order in 0..3 {
++                with_checker(&source, |checker, root| {
++                    if order == 1 {
++                        let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                        checker.get_type_of_symbol(probe);
++                    } else if order == 2 {
++                        checker.check_source_file(
++                            root,
++                            crate::check::FileContext { ambient: false, has_parse_errors: false },
++                        );
++                    }
++                    let both = checker.binder.lookup_local(root, "Both").unwrap();
++                    let receiver = checker.get_declared_type_of_symbol(both);
++                    let Result::Complete(first) = checker.member_consumer_view(receiver, "value")
++                    else {
++                        panic!("no completed generic view");
++                    };
++                    assert_eq!(checker.type_to_string(first.read), expected_read);
++                    assert_eq!(first.identity, expected_identity);
++                    assert_eq!(first.receiver, receiver);
++                    for _ in 0..3 {
++                        assert_eq!(
++                            checker.member_consumer_view(receiver, "value"),
++                            Result::Complete(first.clone())
++                        );
++                    }
++                });
++            }
++        }
++    }
++
++    #[test]
++    fn member_consumer_equal_reads_keep_distinct_declaration_origins() {
++        use crate::member_completeness::{
++            MemberConsumerIdentity as Identity, MemberConsumerResult as Result,
++        };
++        with_checker(
++            "interface Left {value:string; left:number} interface Right {value:string; right:number} type Both = Left & Right;",
++            |checker, root| {
++                let both = checker.binder.lookup_local(root, "Both").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(both);
++                let Result::Complete(view) = checker.member_consumer_view(receiver, "value") else {
++                    panic!("view");
++                };
++                assert_eq!(checker.type_to_string(view.read), "string");
++                assert_eq!(view.identity, Identity::Synthesized);
++            },
++        );
++    }
++
++    #[test]
++    fn member_consumer_generic_accessor_preserves_first_write_context() {
++        use crate::member_completeness::{
++            MemberConsumerIdentity as Identity, MemberConsumerResult as Result,
++        };
++        let prefix = "class Base<T> { get value():number {return 0;} set value(v:T) {} } class Left<U> extends Base<U> {declare left:U} class Right<V> extends Base<V> {declare right:V}";
++        for (body, expected_write) in [
++            ("type Both=Left<string>&Right<number>;", "string"),
++            ("type Both=Right<number>&Left<string>;", "number"),
++        ] {
++            let source =
++                format!("{prefix} {body} declare const receiver:Both; const probe=receiver.value;");
++            for order in 0..3 {
++                with_checker(&source, |checker, root| {
++                    if order == 1 {
++                        let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                        checker.get_type_of_symbol(probe);
++                    } else if order == 2 {
++                        checker.check_source_file(
++                            root,
++                            crate::check::FileContext { ambient: false, has_parse_errors: false },
++                        );
++                    }
++                    let both = checker.binder.lookup_local(root, "Both").unwrap();
++                    let receiver = checker.get_declared_type_of_symbol(both);
++                    let Result::Complete(view) = checker.member_consumer_view(receiver, "value")
++                    else {
++                        panic!("accessor view");
++                    };
++                    assert_eq!(checker.type_to_string(view.read), "number");
++                    assert_eq!(view.identity, Identity::Merged);
++                    assert_eq!(
++                        checker.type_to_string(view.write.expect("setter write")),
++                        expected_write
++                    );
++                    assert_eq!(
++                        checker.member_consumer_view(receiver, "value"),
++                        Result::Complete(view)
++                    );
++                });
++            }
++        }
++    }
++
++    #[test]
++    fn member_consumer_active_bases_are_not_completed_empty_members() {
++        use crate::member_completeness::MemberConsumerResult as Result;
++        use crate::resolution::PropertyName;
++        with_checker(
++            "interface Root {root:number} interface A extends Root {own:string}",
++            |checker, root| {
++                let symbol = checker.binder.lookup_local(root, "A").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(symbol);
++                // Explicit frame countercontrol, not a claimed natural nested
++                // callback. The native producer separately qualifies natural reentry.
++                assert!(checker.resolutions.push(symbol, PropertyName::ResolvedBaseTypes));
++                assert_eq!(
++                    checker.member_consumer_view(receiver, "own"),
++                    Result::Active { prefix: vec![] }
++                );
++                assert!(!checker.resolutions.pop(), "base reentry marked the cycle frame");
++                let Result::Complete(view) = checker.member_consumer_view(receiver, "own") else {
++                    panic!("own completion");
++                };
++                assert_eq!(checker.type_to_string(view.read), "string");
++                let Result::Complete(view) = checker.member_consumer_view(receiver, "root") else {
++                    panic!("base completion");
++                };
++                assert_eq!(checker.type_to_string(view.read), "number");
++                assert_eq!(checker.resolutions.depth(), 0);
++                assert_eq!(checker.member_consumer_view(receiver, "missing"), Result::Unsupported);
++            },
++        );
++    }
++
++    #[test]
++    fn member_consumer_uses_filtered_cycle_bases_and_keeps_valid_prefixes() {
++        use crate::member_completeness::MemberConsumerResult as Result;
++        let source = "interface Root {root:number} interface Later {later:number} interface A<T> extends Root,B<T>,Later {a:T} interface B<T> extends A<T> {b:T} type Seen=A<string>;";
++        with_checker(source, |checker, root| {
++            let symbol = checker.binder.lookup_local(root, "A").unwrap();
++            let bases = checker.get_base_types(symbol);
++            assert_eq!(
++                bases.iter().map(|&base| checker.type_to_string(base)).collect::<Vec<_>>(),
++                ["Root", "Later"]
++            );
++            let seen = checker.binder.lookup_local(root, "Seen").unwrap();
++            let receiver = checker.get_declared_type_of_symbol(seen);
++            for name in ["root", "later"] {
++                let Result::Complete(view) = checker.member_consumer_view(receiver, name) else {
++                    panic!("valid base view");
++                };
++                assert_eq!(checker.type_to_string(view.read), "number");
++            }
++            assert_eq!(checker.member_consumer_view(receiver, "b"), Result::Unsupported);
++        });
++    }
++
++    #[test]
++    fn member_consumer_scalar_completion_matches_native_query_history() {
++        use crate::member_completeness::{
++            MemberConsumerIdentity as Identity, MemberConsumerResult as Result,
++        };
++        let source = "interface Base<T> {value:number} interface Left<U> extends Base<U> {left:U} interface Right<V> extends Base<V> {right:V} type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;";
++        let mut observed = Vec::new();
++        for order in 0..3 {
++            with_checker(source, |checker, root| {
++                if order == 1 {
++                    let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                    checker.get_type_of_symbol(probe);
++                } else if order == 2 {
++                    checker.check_source_file(
++                        root,
++                        crate::check::FileContext { ambient: false, has_parse_errors: false },
++                    );
++                }
++                let both = checker.binder.lookup_local(root, "Both").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(both);
++                let Result::Complete(view) = checker.member_consumer_view(receiver, "value") else {
++                    panic!("scalar view");
++                };
++                // Exact qualified native .29 table: receiver-first and checked-
++                // first reuse the resolved invariant original symbol; expression-
++                // first retains its earlier merged-instantiation clone.
++                observed.push(view.identity.clone());
++                assert_eq!(checker.type_to_string(view.read), "number");
++            });
++        }
++        assert_eq!(observed, [Identity::Single, Identity::Merged, Identity::Single]);
+     }
+ 
+     #[test]
+diff --git a/crates/tsr-checker/src/member_completeness.rs b/crates/tsr-checker/src/member_completeness.rs
+--- a/crates/tsr-checker/src/member_completeness.rs
++++ b/crates/tsr-checker/src/member_completeness.rs
+@@ -52,6 +52,36 @@
+ /// is a *missing* diagnostic. The corpus contains inheritance chains written to
+ /// break compilers.
+ const MAX_BASE_DEPTH: u32 = 32;
++
++/// Query-local prototype, never a general member-completion or absence cache.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) enum MemberConsumerResult {
++    Complete(MemberConsumerView),
++    Active { prefix: Vec<crate::types::TypeId> },
++    Failed,
++    Unsupported,
++}
++
++/// IDs are valid only in the private checker executing this request.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct MemberConsumerView {
++    pub root: tsr_binder::SymbolId,
++    pub supplier: crate::types::TypeId,
++    pub receiver: crate::types::TypeId,
++    pub read: crate::types::TypeId,
++    pub write: Option<crate::types::TypeId>,
++    pub optional: bool,
++    pub readonly: bool,
++    pub accessibility: u8,
++    pub identity: MemberConsumerIdentity,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) enum MemberConsumerIdentity {
++    Single,
++    Merged,
++    Synthesized,
++}
+ 
+ impl Checker<'_, '_> {
+     /// Is every property of `id` reachable by this port's own member walk?
