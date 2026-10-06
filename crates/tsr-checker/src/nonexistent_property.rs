@@ -615,6 +615,9 @@ impl Checker<'_, '_> {
         if self.get_property_of_type(apparent, name).is_some() {
             return Some(false);
         }
+        if let Some(arguments) = self.omit_reference_arguments(apparent) {
+            return self.omit_reference_lacks(arguments, name, depth);
+        }
         if self.declared_members_are_complete(apparent) {
             // A class's static side is certified without reading its
             // `static [k: string]` signatures; ask them per name too.
@@ -677,6 +680,54 @@ impl Checker<'_, '_> {
             }
         }
         self.no_index_signature_admits(apparent, name)
+    }
+
+    /// The miss certificate for a reference to the global `Omit<T, K>`, the
+    /// type `getRestType` (`checker.go:17792`) builds for a rest element over a
+    /// generic source (`{ ...rest } = this`), given its `[T, K]` arguments:
+    /// [`Checker::apparent_type_lacks`]'s answer for it.
+    ///
+    /// `Omit<T, K>` is `Pick<T, Exclude<keyof T, K>>`, a mapped type whose
+    /// properties `resolveMappedTypeMembers` (`checker.go:20894`) creates one
+    /// per literal of the constraint's `getLowerBoundOfKeyType`
+    /// (`checker.go:21021`): `keyof T` reads through `getApparentType(T)` into
+    /// `getIndexType`, whose literals come from `getLiteralTypeFromProperty`
+    /// (`checker.go:26746`) and skip private and protected members; a string
+    /// (or number) index signature of the apparent type survives `Exclude` as
+    /// an index signature of the mapped type. So a name is absent exactly when
+    /// `K` names it, the apparent source holds it non-public, or the apparent
+    /// source certainly lacks it with no index signature admitting it. This
+    /// is the property road `property_type_via_shape` (`crate::members`)
+    /// answers for the same reference. No cache: one lookup on the apparent
+    /// source after the receiver's own lookup missed.
+    fn omit_reference_lacks(
+        &mut self,
+        [source, removed]: [TypeId; 2],
+        name: &str,
+        depth: u32,
+    ) -> Option<bool> {
+        const MAX_DEPTH: u32 = 32;
+        // A `K` that is not a literal-key union (or `never`) leaves the
+        // constraint unresolved here.
+        if self.literal_key_texts(removed)?.iter().any(|key| key == name) {
+            return Some(true);
+        }
+        let source = self.apparent_type(source);
+        if let Some(property) = self.get_property_of_type(source, name) {
+            return Some(self.is_non_public_member(property));
+        }
+        if depth >= MAX_DEPTH {
+            return None;
+        }
+        self.apparent_type_lacks_at(source, name, depth + 1)
+    }
+
+    /// `[T, K]` of a reference to the global `Omit<T, K>`.
+    fn omit_reference_arguments(&mut self, id: TypeId) -> Option<[TypeId; 2]> {
+        let (target, arguments) = self.type_reference_targets.get(&id)?;
+        let (target, arguments) = (*target, arguments.clone());
+        let [source, removed] = arguments[..] else { return None };
+        (self.global_type_symbol_with_arity("Omit", 2) == Some(target)).then_some([source, removed])
     }
 
     /// Is this object literal image's *type* one this port reaches by a road
