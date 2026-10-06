@@ -836,7 +836,8 @@ impl Checker<'_, '_> {
         signature: &Signature,
         report: bool,
     ) -> Ternary {
-        let Some(this_type) = signature.this_parameter.as_ref().map(|parameter| parameter.r#type)
+        let Some(this_type) =
+            signature.this_parameter.as_ref().map(|parameter| self.parameter_type(parameter))
         else {
             return Ternary::Related;
         };
@@ -918,8 +919,9 @@ impl Checker<'_, '_> {
             if !candidate.type_parameters.is_empty()
                 || self.nodes.parent(candidate.declaration) != parent
                 || candidate.parameters.iter().any(|parameter| {
+                    let parameter_type = self.parameter_type(parameter);
                     self.store
-                        .get(parameter.r#type)
+                        .get(parameter_type)
                         .flags
                         .intersects(TypeFlags::LITERAL | TypeFlags::NULL)
                 })
@@ -2207,7 +2209,8 @@ impl Checker<'_, '_> {
             return signatures.iter().any(|signature| {
                 !signature.type_parameters.is_empty()
                     || signature.parameters.iter().any(|parameter| {
-                        self.head_could_contain_type_variables(parameter.r#type, depth - 1)
+                        let parameter_type = self.parameter_type(parameter);
+                        self.head_could_contain_type_variables(parameter_type, depth - 1)
                     })
                     || self.head_could_contain_type_variables(signature.r#type, depth - 1)
             });
@@ -3783,9 +3786,10 @@ impl Checker<'_, '_> {
                         {
                             continue;
                         }
+                        let parameter_type = self.parameter_type(parameter);
                         match self.relate_ternary(
                             argument_type,
-                            parameter.r#type,
+                            parameter_type,
                             Relation::Assignable,
                         ) {
                             Ternary::NotRelated => {
@@ -4006,7 +4010,8 @@ impl Checker<'_, '_> {
                 {
                     continue;
                 }
-                match self.relate_ternary(argument, parameter.r#type, Relation::Assignable) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(argument, parameter_type, Relation::Assignable) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
                         break;
@@ -4382,7 +4387,8 @@ impl Checker<'_, '_> {
             }
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
-                match self.relate_ternary(argument, parameter.r#type, Relation::Subtype) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(argument, parameter_type, Relation::Subtype) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
                         break;
@@ -4680,7 +4686,11 @@ impl Checker<'_, '_> {
         instantiated
     }
 
-    fn longest_candidate_index(&self, candidates: &[Signature], argument_count: usize) -> usize {
+    fn longest_candidate_index(
+        &mut self,
+        candidates: &[Signature],
+        argument_count: usize,
+    ) -> usize {
         candidates
             .iter()
             .position(|c| {
@@ -4852,11 +4862,12 @@ impl Checker<'_, '_> {
             // the candidate, but must not hide an independently known failure.
             let mut receiver_relation_unknown = false;
             if let Some(parameter) = &concrete.this_parameter
-                && parameter.r#type != self.intrinsics.void
+                && self.parameter_type(parameter) != self.intrinsics.void
             {
                 let Some(call) = call else { return OverloadPass::Undecidable };
                 let receiver = self.this_argument_type_of_call(Some(call));
-                match self.relate_ternary(receiver, parameter.r#type, relation) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(receiver, parameter_type, relation) {
                     Ternary::NotRelated => {
                         failures.push(Some(concrete.clone()), vec![None; arguments.len()]);
                         continue;
@@ -5149,7 +5160,7 @@ mod tests {
                         } else {
                             let signature = signature.expect("explicit worker completion");
                             assert!(signature.type_parameters.is_empty());
-                            assert_eq!(signature.parameters[0].r#type, expected);
+                            assert_eq!(checker.parameter_type(&signature.parameters[0]), expected);
                             assert_eq!(signature.r#type, expected);
                             let target = signature.target.as_ref().unwrap();
                             assert_eq!(target.declaration, original.declaration);
@@ -5159,7 +5170,10 @@ mod tests {
                                 checker.type_parameter_types(target).unwrap(),
                                 original_parameters
                             );
-                            assert_eq!(target.parameters[0].r#type, original_parameters[0]);
+                            assert_eq!(
+                                checker.parameter_type(&target.parameters[0]),
+                                original_parameters[0]
+                            );
                             assert_eq!(target.r#type, original_parameters[0]);
                             assert_eq!(format!("{target:?}"), format!("{original:?}"));
                             if stage == "worker" {

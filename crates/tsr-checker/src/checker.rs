@@ -2543,9 +2543,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 out.push_str(&text);
             } else {
+                let parameter_type = self.parameter_type(parameter);
                 let rendered = self
-                    .type_to_string_at(parameter.r#type, reference)
-                    .unwrap_or_else(|| self.type_to_string(parameter.r#type));
+                    .type_to_string_at(parameter_type, reference)
+                    .unwrap_or_else(|| self.type_to_string(parameter_type));
                 out.push_str(&rendered);
             }
         }

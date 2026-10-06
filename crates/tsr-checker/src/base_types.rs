@@ -200,10 +200,11 @@ impl<'a> Checker<'a, '_> {
         };
         let [signature] = signatures.as_slice() else { return false };
         let [parameter] = signature.parameters.as_slice() else { return false };
-        signature.type_parameters.is_empty()
-            && parameter.rest
-            && (self.store.get(parameter.r#type).flags.contains(TypeFlags::ANY)
-                || self.signature_array_element(parameter.r#type) == Some(self.intrinsics.any))
+        signature.type_parameters.is_empty() && parameter.rest && {
+            let parameter_type = self.parameter_type(parameter);
+            self.store.get(parameter_type).flags.contains(TypeFlags::ANY)
+                || self.signature_array_element(parameter_type) == Some(self.intrinsics.any)
+        }
     }
 
     /// `getBaseTypes` (`checker.go:19167`) of the declared type of a class or

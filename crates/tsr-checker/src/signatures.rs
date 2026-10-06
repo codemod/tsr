@@ -43,36 +43,81 @@ pub(crate) enum LazyReturnState {
     Active,
 }
 
-/// One parameter of a [`Signature`], reduced to what a printed line needs.
-///
-/// Upstream carries the parameter *symbol* and asks `getTypeOfSymbol` for its
-/// type at print time (`nodebuilderimpl.go:1654`); the type is resolved eagerly
-/// here for the reason given in the module docs.
-#[derive(Debug, Clone)]
-pub struct Parameter {
-    /// The parameter's name, as written.
-    pub name: String,
-    /// Whether the node builder emits a `?` after the name.
-    pub optional: bool,
-    /// Whether the node builder emits a leading `...`.
-    pub rest: bool,
-    /// `getTypeOfSymbol` of the parameter symbol.
-    pub r#type: TypeId,
-    /// The written annotation's own text, when the node builder would reuse
-    /// the node instead of re-printing the computed type.
+pub use parameter::Parameter;
+
+mod parameter {
+    use crate::types::TypeId;
+
+    /// One parameter of a [`super::Signature`], reduced to what a printed
+    /// line needs.
     ///
-    /// `symbolToParameterDeclaration` reaches `serializeTypeForDeclaration`
-    /// (`nodebuilderimpl.go:2216`), whose reuse branch
-    /// (`tryReuseExistingTypeNode`, `nodebuilderimpl.go:2229` region) keeps the
-    /// **written** node when the type it denotes equals the computed type —
-    /// which holds by construction for the very annotation this signature's
-    /// type was computed *from*. Carried only for a `TypeQueryNode` annotation
-    /// (`typeof a`), the one form whose computed print differs from its
-    /// written text: measured on the first `bd tsr-4sc.10` run, 1,341
-    /// gap→wrong lines, 1,059 of them with `typeof` still in the wanted text
-    /// (`docs/architecture/checker-notes-tquery.md` §5). Wider reuse — every
-    /// annotation — stands refused at 9.1 lost-per-gained (`bd tsr-a2c`).
-    pub written_text: Option<String>,
+    /// Upstream carries the parameter *symbol* and asks `getTypeOfSymbol` for
+    /// its type on demand (`getTypeOfParameter`, `checker.go`; the node
+    /// builder at print time, `nodebuilderimpl.go:1654`). The type slot is
+    /// private: every reader goes through the canonical accessor
+    /// [`crate::checker::Checker::parameter_type`], so the slot's
+    /// publication state is decided in one place.
+    #[derive(Debug, Clone)]
+    pub struct Parameter {
+        /// The parameter's name, as written.
+        pub name: String,
+        /// Whether the node builder emits a `?` after the name.
+        pub optional: bool,
+        /// Whether the node builder emits a leading `...`.
+        pub rest: bool,
+        /// `getTypeOfSymbol` of the parameter symbol; read only through
+        /// [`crate::checker::Checker::parameter_type`].
+        slot: TypeId,
+        /// The written annotation's own text, when the node builder would
+        /// reuse the node instead of re-printing the computed type.
+        ///
+        /// `symbolToParameterDeclaration` reaches `serializeTypeForDeclaration`
+        /// (`nodebuilderimpl.go:2216`), whose reuse branch
+        /// (`tryReuseExistingTypeNode`, `nodebuilderimpl.go:2229` region) keeps
+        /// the **written** node when the type it denotes equals the computed
+        /// type — which holds by construction for the very annotation this
+        /// signature's type was computed *from*. Carried only for a
+        /// `TypeQueryNode` annotation (`typeof a`), the one form whose computed
+        /// print differs from its written text: measured on the first
+        /// `bd tsr-4sc.10` run, 1,341 gap→wrong lines, 1,059 of them with
+        /// `typeof` still in the wanted text
+        /// (`docs/architecture/checker-notes-tquery.md` §5). Wider reuse —
+        /// every annotation — stands refused at 9.1 lost-per-gained
+        /// (`bd tsr-a2c`).
+        pub written_text: Option<String>,
+    }
+
+    impl Parameter {
+        /// A parameter whose type slot is already resolved.
+        #[must_use]
+        pub fn new(
+            name: String,
+            optional: bool,
+            rest: bool,
+            r#type: TypeId,
+            written_text: Option<String>,
+        ) -> Self {
+            Self { name, optional, rest, slot: r#type, written_text }
+        }
+
+        /// Replace the slot with a resolved type — an instantiation's or a
+        /// contextual assignment's image of this parameter.
+        pub fn set_type(&mut self, r#type: TypeId) {
+            self.slot = r#type;
+        }
+
+        /// This parameter with its slot replaced; see [`Self::set_type`].
+        #[must_use]
+        pub fn with_type(mut self, r#type: TypeId) -> Self {
+            self.slot = r#type;
+            self
+        }
+
+        /// The stored slot, for the canonical accessor only.
+        pub(crate) fn slot(&self) -> TypeId {
+            self.slot
+        }
+    }
 }
 
 /// One type parameter of a [`Signature`].
@@ -306,7 +351,7 @@ impl<'a> Checker<'a, '_> {
 
     /// Only parameters with no written type read the contextual fixing mapper.
     pub(crate) fn consumed_contextual_parameter_types(
-        &self,
+        &mut self,
         declaration: NodeId,
         context: &Signature,
     ) -> Vec<TypeId> {
@@ -316,21 +361,20 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
             .collect();
-        let mut consumed: Vec<_> = context
-            .parameters
-            .iter()
-            .enumerate()
-            .filter_map(|(index, parameter)| {
-                own.get(index).is_some_and(|own| own.r#type.is_none()).then_some(parameter.r#type)
-            })
-            .collect();
+        let mut consumed = Vec::new();
+        for (index, parameter) in context.parameters.iter().enumerate() {
+            if own.get(index).is_some_and(|own| own.r#type.is_none()) {
+                consumed.push(self.parameter_type(parameter));
+            }
+        }
         if self.is_context_sensitive_function_like(declaration)
             && !parts
                 .parameters
                 .first()
                 .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
+            && let Some(parameter) = &context.this_parameter
         {
-            consumed.extend(context.this_parameter.iter().map(|parameter| parameter.r#type));
+            consumed.push(self.parameter_type(parameter));
         }
         consumed
     }
@@ -1489,13 +1533,8 @@ impl<'a> Checker<'a, '_> {
         if let Some(annotation) = this_tag {
             let typed = self.get_type_from_type_node(annotation);
             if typed != self.intrinsics.error {
-                this_parameter = Some(Parameter {
-                    name: "this".to_string(),
-                    optional: false,
-                    rest: false,
-                    r#type: typed,
-                    written_text: None,
-                });
+                this_parameter =
+                    Some(Parameter::new("this".to_string(), false, false, typed, None));
             }
         }
         let mut parameters: Vec<Parameter> = Vec::with_capacity(parameter_nodes.len());
@@ -1522,7 +1561,7 @@ impl<'a> Checker<'a, '_> {
                     if self.strict_null_checks && suffix_optional {
                         typed = self.get_optional_type(typed, false);
                     }
-                    parameter.r#type = typed;
+                    parameter.set_type(typed);
                     parameter.optional |= *bracketed || suffix_optional;
                 }
             }
@@ -1623,16 +1662,11 @@ impl<'a> Checker<'a, '_> {
                 None => self
                     .contextual_signature(declaration)
                     .and_then(|signature| signature.this_parameter)
-                    .map(|parameter| parameter.r#type),
+                    .map(|parameter| self.parameter_type(&parameter)),
             };
             if let Some(inherited) = inherited {
-                this_parameter = Some(Parameter {
-                    name: "this".to_string(),
-                    optional: false,
-                    rest: false,
-                    r#type: inherited,
-                    written_text: None,
-                });
+                this_parameter =
+                    Some(Parameter::new("this".to_string(), false, false, inherited, None));
             }
         }
         Some(Signature {
@@ -1825,6 +1859,27 @@ impl<'a> Checker<'a, '_> {
         None
     }
 
+    /// The type of one signature parameter — the canonical reader of a
+    /// [`Parameter`]'s slot.
+    ///
+    /// Ported from `Checker.getTypeOfParameter` (`checker.go:17042`), which
+    /// every native consumer (`getTypeAtPosition`, `relater.go:1757`; the node
+    /// builder) reaches through the parameter symbol. Every reader in this
+    /// port goes through here so the slot's publication state is decided in
+    /// one place.
+    #[allow(clippy::unused_self)]
+    pub fn parameter_type(&mut self, parameter: &Parameter) -> TypeId {
+        parameter.slot()
+    }
+
+    /// The type of one signature parameter for a read that cannot resolve —
+    /// a `&self` structural walk over completed types. `None` is an
+    /// unresolved slot; such a walk follows no edge for it.
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+    pub(crate) fn peek_parameter_type(&self, parameter: &Parameter) -> Option<TypeId> {
+        Some(parameter.slot())
+    }
+
     /// Canonical semantic return accessor. Instantiated/composite signatures
     /// already carry their mapped return; only an original declaration can use
     /// its completed slot. Context-sensitive declarations retain their checked
@@ -2006,13 +2061,7 @@ impl<'a> Checker<'a, '_> {
             if r#type == self.intrinsics.error {
                 return None;
             }
-            parameters.push(Parameter {
-                name: name.text.to_string(),
-                optional: false,
-                rest: false,
-                r#type,
-                written_text: None,
-            });
+            parameters.push(Parameter::new(name.text.to_string(), false, false, r#type, None));
         }
         Some(Signature {
             declaration,
@@ -4833,13 +4882,13 @@ impl<'a> Checker<'a, '_> {
                         if let Some(contextual) = self.get_contextually_typed_parameter_type(id)
                             && contextual != self.intrinsics.error
                         {
-                            return Some(Parameter {
-                                name: name_text,
-                                optional: node.question_token.is_some(),
-                                rest: node.dot_dot_dot_token.is_some(),
-                                r#type: contextual,
-                                written_text: None,
-                            });
+                            return Some(Parameter::new(
+                                name_text,
+                                node.question_token.is_some(),
+                                node.dot_dot_dot_token.is_some(),
+                                contextual,
+                                None,
+                            ));
                         }
                         return None;
                     }
@@ -4874,13 +4923,13 @@ impl<'a> Checker<'a, '_> {
                         // The canonical native padding helper preserves source
                         // tuple flags and fills missing object/tuple defaults.
                         // Annotation and contextual admission remain above.
-                        return Some(Parameter {
-                            name: name_text,
-                            optional: false,
-                            rest: node.dot_dot_dot_token.is_some(),
-                            r#type: self.pad_binding_parameter_type(id, computed, pattern)?,
-                            written_text: None,
-                        });
+                        return Some(Parameter::new(
+                            name_text,
+                            false,
+                            node.dot_dot_dot_token.is_some(),
+                            self.pad_binding_parameter_type(id, computed, pattern)?,
+                            None,
+                        ));
                     }
                     computed
                 }
@@ -4895,13 +4944,13 @@ impl<'a> Checker<'a, '_> {
             }
             let written_text =
                 node.r#type.and_then(|annotation| self.written_annotation_text(annotation));
-            return Some(Parameter {
-                name: name_text,
-                optional: false,
-                rest: node.dot_dot_dot_token.is_some(),
+            return Some(Parameter::new(
+                name_text,
+                false,
+                node.dot_dot_dot_token.is_some(),
                 r#type,
                 written_text,
-            });
+            ));
         }
         let symbol = self.binder.symbol_of(id)?;
         // `symbolToParameterDeclaration` (`nodebuilderimpl.go:1654`) takes
@@ -4984,14 +5033,14 @@ impl<'a> Checker<'a, '_> {
             let mut array_headed = false;
             Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
         });
-        Some(Parameter {
-            name: name_text,
-            // Filled in by the caller: optionality needs the whole list.
-            optional: false,
-            rest: node.dot_dot_dot_token.is_some(),
+        // Optionality is filled in by the caller: it needs the whole list.
+        Some(Parameter::new(
+            name_text,
+            false,
+            node.dot_dot_dot_token.is_some(),
             r#type,
             written_text,
-        })
+        ))
     }
 
     /// The written text of an annotation whose node the builder would reuse,
@@ -6278,7 +6327,10 @@ impl<'a> Checker<'a, '_> {
                     match signature {
                         crate::contextual::ContextualSignature::Present(signature) => signature.parameters.iter().enumerate().all(|(index, parameter)| {
                             parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
-                                || !self.mentions_any_type_parameter(parameter.r#type, 2)
+                                || !{
+                                    let parameter_type = self.parameter_type(parameter);
+                                    self.mentions_any_type_parameter(parameter_type, 2)
+                                }
                         }),
                         // A computed nil context licenses ordinary implicit
                         // parameters. Generic call failures additionally need
@@ -6379,7 +6431,7 @@ impl<'a> Checker<'a, '_> {
         if parameter.rest {
             return false;
         }
-        let parameter_type = parameter.r#type;
+        let parameter_type = self.parameter_type(&parameter);
         let crate::types::TypeData::Named { members: Some(symbol), .. } =
             self.store.get(parameter_type).data
         else {
@@ -6427,14 +6479,15 @@ impl<'a> Checker<'a, '_> {
         let Some(parameter) = self.argument_context_parameter(declaration) else { return false };
         if parameter.rest {
             // `...arg: any[]` — the sliced element is `any`.
-            return self.type_reference_targets.get(&parameter.r#type).is_some_and(
+            let parameter_type = self.parameter_type(&parameter);
+            return self.type_reference_targets.get(&parameter_type).is_some_and(
                 |(target, arguments)| {
                     self.global_type_symbol("Array") == Some(*target)
                         && arguments.as_slice() == [self.intrinsics.any]
                 },
             );
         }
-        parameter.r#type == self.intrinsics.any
+        self.parameter_type(&parameter) == self.intrinsics.any
     }
 
     /// Pinned tsgo 5b1047d serializeTypeForDeclaration /
@@ -6548,7 +6601,7 @@ impl<'a> Checker<'a, '_> {
     /// Reuse the existing query/literal spelling helpers only when both source
     /// identifiers resolve to the same merged symbols at the viewing site.
     fn signature_parameter_source_text_at(
-        &self,
+        &mut self,
         signature: &Signature,
         index: usize,
         reference: NodeId,
@@ -6619,8 +6672,12 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let slot = signature.parameters.get(index)?;
-        let original = published.parameters.get(index)?;
-        if slot.r#type != original.r#type
+        // The published vector belongs to `signature_types`; its slot is read
+        // through the canonical accessor, which needs the Checker.
+        let original = published.parameters.get(index)?.clone();
+        let slot_type = self.parameter_type(slot);
+        let original_type = self.parameter_type(&original);
+        if slot_type != original_type
             || slot.name != name.text
             || original.name != name.text
             || slot.optional
@@ -6628,7 +6685,7 @@ impl<'a> Checker<'a, '_> {
             || slot.rest
             || original.rest
             || ![self.intrinsics.string, self.intrinsics.number, self.intrinsics.boolean]
-                .contains(&slot.r#type)
+                .contains(&slot_type)
         {
             return None;
         }
@@ -6959,7 +7016,8 @@ impl<'a> Checker<'a, '_> {
             let tsr_ast::BindingName::Identifier(name) = node.name? else { return None };
             (name.text == parameter.name).then_some(node.r#type).flatten()
         })?;
-        self.annotation_alias_text_at(annotation, parameter.r#type, reference)
+        let parameter_type = self.parameter_type(parameter);
+        self.annotation_alias_text_at(annotation, parameter_type, reference)
     }
 
     pub(crate) fn signature_return_alias_text_at(
@@ -7220,9 +7278,10 @@ impl<'a> Checker<'a, '_> {
             // keep `typeof t2` — row 111's expanding want is the ARROW
             // VALUE's fresh signature, not the annotation's). Resolved
             // lazily from §87's recorded node.
+            let parameter_type = self.parameter_type(parameter);
             if parameter.rest
                 && parameter.written_text.is_none()
-                && let Some(&tuple_node) = self.tuple_rest_tails.get(&parameter.r#type)
+                && let Some(&tuple_node) = self.tuple_rest_tails.get(&parameter_type)
                 && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
                 && let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(_)] = tuple.elements
                 && !prefix.is_empty()
@@ -7271,11 +7330,11 @@ impl<'a> Checker<'a, '_> {
             }
             if parameter.rest
                 && parameter.written_text.is_none()
-                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter.r#type)
+                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter_type)
             {
                 let elements = elements.clone();
-                let mask = self.tuple_optional_masks.get(&parameter.r#type).cloned();
-                let labels = self.tuple_labels.get(&parameter.r#type).cloned();
+                let mask = self.tuple_optional_masks.get(&parameter_type).cloned();
+                let labels = self.tuple_labels.get(&parameter_type).cloned();
                 let mut pieces = Vec::with_capacity(elements.len());
                 for (position, &element) in elements.iter().enumerate() {
                     let optional =
@@ -7316,7 +7375,7 @@ impl<'a> Checker<'a, '_> {
             {
                 out.push_str(&text);
             } else {
-                let text = render(self, parameter.r#type);
+                let text = render(self, parameter_type);
                 out.push_str(&text);
             }
             if out.len() > separator_at {
@@ -7339,7 +7398,7 @@ impl<'a> Checker<'a, '_> {
         out
     }
 
-    pub(crate) fn signature_to_string(&self, signature: &Signature) -> String {
+    pub(crate) fn signature_to_string(&mut self, signature: &Signature) -> String {
         let mut out = match signature.kind {
             SignatureKind::Call => String::new(),
             SignatureKind::Construct => "new ".to_string(),
@@ -7372,12 +7431,13 @@ impl<'a> Checker<'a, '_> {
         out.push('(');
         let mut emitted = false;
         for parameter in signature.this_parameter.iter().chain(signature.parameters.iter()) {
+            let parameter_type = self.parameter_type(parameter);
             if parameter.rest
                 && parameter.written_text.is_none()
-                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter.r#type)
+                && let Some((elements, _)) = self.tuple_element_lists.get(&parameter_type)
             {
-                let mask = self.tuple_optional_masks.get(&parameter.r#type);
-                let labels = self.tuple_labels.get(&parameter.r#type);
+                let mask = self.tuple_optional_masks.get(&parameter_type);
+                let labels = self.tuple_labels.get(&parameter_type);
                 for (index, &element) in elements.iter().enumerate() {
                     if emitted {
                         out.push_str(", ");
@@ -7405,7 +7465,7 @@ impl<'a> Checker<'a, '_> {
             out.push_str(if parameter.optional { "?: " } else { ": " });
             match &parameter.written_text {
                 Some(written) => out.push_str(written),
-                None => out.push_str(&self.type_to_string(parameter.r#type)),
+                None => out.push_str(&self.type_to_string(parameter_type)),
             }
             emitted = true;
         }
@@ -7478,7 +7538,7 @@ mod tests {
     // Exercise the production source-view path through the approved immutable
     // certificate, retaining the explicit TypeId input of its predecessor test.
     fn certified_indexed_parameter_annotation(
-        checker: &crate::Checker<'_, '_>,
+        checker: &mut crate::Checker<'_, '_>,
         ty: crate::types::TypeId,
         signature: &super::Signature,
         index: usize,
@@ -7718,7 +7778,7 @@ mod tests {
             checker.get_type_of_symbol(bound.lookup_local(root, first_name).unwrap());
             let ty = checker.get_type_of_symbol(foo);
             let signature = checker.signature_types[&ty][0].clone();
-            assert_eq!(signature.parameters[0].r#type, checker.intrinsics.string);
+            assert_eq!(checker.parameter_type(&signature.parameters[0]), checker.intrinsics.string);
             assert_eq!(signature.r#type, checker.intrinsics.string);
             assert_eq!(checker.type_to_string(ty), "(arg: string) => string");
             let bar_ty = checker.get_type_of_symbol(bar);
@@ -7737,7 +7797,7 @@ mod tests {
                     &[],
                 )
                 .unwrap();
-            assert_eq!(mapped.parameters[0].r#type, checker.intrinsics.number);
+            assert_eq!(checker.parameter_type(&mapped.parameters[0]), checker.intrinsics.number);
             assert!(mapped.target.is_some());
             for case in 0..19 {
                 let mut candidate = signature.clone();
@@ -7745,7 +7805,7 @@ mod tests {
                 let mut slot = 0;
                 match case {
                     1 => candidate.target = Some(std::sync::Arc::new(signature.clone())),
-                    2 => candidate.parameters[0].r#type = checker.intrinsics.number,
+                    2 => candidate.parameters[0].set_type(checker.intrinsics.number),
                     3 => candidate.non_inferrable = true,
                     4 => slot = 1,
                     5 => checker
@@ -7816,7 +7876,7 @@ mod tests {
                 let before = source_view_snapshot(&checker);
                 for _ in 0..3 {
                     let certified = certified_indexed_parameter_annotation(
-                        &checker,
+                        &mut checker,
                         candidate_ty,
                         &candidate,
                         slot,
@@ -7909,7 +7969,7 @@ mod tests {
                     let identity = checker.get_type_of_symbol(owner);
                     let signature = checker.signature_types[&identity][0].clone();
                     assert_eq!(signature.declaration, original);
-                    let parameter = signature.parameters[0].r#type;
+                    let parameter = checker.parameter_type(&signature.parameters[0]);
                     for _ in 0..3 {
                         let result =
                             checker.get_type_of_symbol(bound.lookup_local(root, "result").unwrap());
@@ -7961,7 +8021,7 @@ mod tests {
                     let signature = checker.signature_types[&identity][0].clone();
                     assert_eq!(signature.declaration, original);
                     assert_eq!(signature.type_parameters.len(), 1);
-                    let parameter = signature.parameters[0].r#type;
+                    let parameter = checker.parameter_type(&signature.parameters[0]);
                     let mut foreign = rustc_hash::FxHashMap::default();
                     let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = checker.node_map.get(
                         bound
@@ -8215,8 +8275,14 @@ mod tests {
                     if let Some(signature) = projection {
                         assert_eq!(signature.declaration, declaration);
                         assert_eq!(signature.parameters.len(), 2);
-                        assert_eq!(signature.parameters[0].r#type, checker.intrinsics.string);
-                        assert_eq!(signature.parameters[1].r#type, checker.intrinsics.number);
+                        assert_eq!(
+                            checker.parameter_type(&signature.parameters[0]),
+                            checker.intrinsics.string
+                        );
+                        assert_eq!(
+                            checker.parameter_type(&signature.parameters[1]),
+                            checker.intrinsics.number
+                        );
                         assert!(signature.parameters.iter().all(|p| !p.optional && !p.rest));
                         assert_eq!(signature.r#type, checker.intrinsics.error);
                         assert!(checker.get_return_type_of_signature(&signature).is_none());
@@ -8254,7 +8320,7 @@ mod tests {
         let ty = checker.get_type_of_symbol(callable);
         let signature = checker.signature_types[&ty][0].clone();
         let key = checker.type_literal_key(signature.declaration);
-        let original_parameter = signature.parameters[0].r#type;
+        let original_parameter = checker.parameter_type(&signature.parameters[0]);
         let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
         else {
             panic!("alias frame declaration");
@@ -8268,7 +8334,7 @@ mod tests {
                 checker.signature_shapes_of_type_kind(ty, super::SignatureKind::Call).unwrap();
             assert_eq!(shapes.len(), 1);
             assert_eq!(shapes[0].declaration, signature.declaration);
-            assert_eq!(shapes[0].parameters[0].r#type, original_parameter);
+            assert_eq!(checker.parameter_type(&shapes[0].parameters[0]), original_parameter);
             assert!(checker.get_return_type_of_signature(&shapes[0]).is_none());
             assert!(checker.pending_signature_returns[&key] == super::LazyReturnState::Pending);
             assert!(!checker.signature_returns.contains_key(&key));
@@ -8282,7 +8348,7 @@ mod tests {
         checker.alias_evaluation_bindings.pop();
         for _ in 0..3 {
             let selected = checker.resolve_call_signature(ty, None).unwrap();
-            assert_eq!(selected.parameters[0].r#type, original_parameter);
+            assert_eq!(checker.parameter_type(&selected.parameters[0]), original_parameter);
             assert_eq!(selected.r#type, checker.intrinsics.any);
             assert_eq!(checker.get_type_of_symbol(callable), ty);
             assert!(!checker.pending_signature_returns.contains_key(&key));

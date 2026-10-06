@@ -173,7 +173,7 @@ fn cold_string_slots_reuse_the_unchanged_reader_and_boolean_slots_still_decline(
                 assert_eq!(checker.completed_callable_symbol(ty), Some(function));
                 assert!(signature.target.is_none());
                 assert_eq!(signature.declaration, site);
-                assert_eq!(signature.parameters[0].r#type, expected);
+                assert_eq!(checker.parameter_type(&signature.parameters[0]), expected);
                 assert_eq!(signature.r#type, expected);
                 let key = checker.type_literal_key(site);
                 assert!(key.is_unmapped());

@@ -316,10 +316,12 @@ fn infer_from_types(
         // target accepts is legal TypeScript and is the common shape —
         // `p.then(() => 1)` against `(value: T) => …`.
         for (tp, sp) in t.parameters.iter().zip(s.parameters.iter()) {
+            let source_parameter = checker.parameter_type(sp);
+            let target_parameter = checker.parameter_type(tp);
             infer_from_types(
                 checker,
-                sp.r#type,
-                tp.r#type,
+                source_parameter,
+                target_parameter,
                 parameters,
                 out,
                 depth + 1,
@@ -411,18 +413,19 @@ fn forecast(
     let mut candidates: Vec<(TypeId, TypeId, bool)> = Vec::new();
     for (index, parameter) in signature.parameters.iter().enumerate() {
         let Some(&argument) = argument_types.get(index) else { continue };
+        let parameter_type = checker.parameter_type(parameter);
         if structural {
             infer_from_types(
                 checker,
                 argument,
-                parameter.r#type,
+                parameter_type,
                 parameters,
                 &mut candidates,
                 0,
                 false,
             );
         } else {
-            infer_bare_only(argument, parameter.r#type, parameters, &mut candidates);
+            infer_bare_only(argument, parameter_type, parameters, &mut candidates);
         }
     }
     let never = checker.intrinsics().never;
@@ -559,11 +562,12 @@ fn forecast(
                 let mut where_ = String::from("(no parameter mentions it)");
                 for (index, parameter) in signature.parameters.iter().enumerate() {
                     let Some(&argument) = argument_types.get(index) else { continue };
+                    let parameter_type = checker.parameter_type(parameter);
                     let mut probe = Vec::new();
                     infer_from_types(
                         checker,
                         argument,
-                        parameter.r#type,
+                        parameter_type,
                         &[type_parameter],
                         &mut probe,
                         0,
@@ -572,7 +576,7 @@ fn forecast(
                     if !probe.is_empty() {
                         continue;
                     }
-                    let target = shape_of(checker, parameter.r#type);
+                    let target = shape_of(checker, parameter_type);
                     let source = shape_of(checker, argument);
                     if target == "no mention" {
                         continue;

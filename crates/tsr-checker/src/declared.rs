@@ -2011,8 +2011,10 @@ impl<'a> Checker<'a, '_> {
         for property in properties.iter_mut().flatten() {
             property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
             if let Some(write) = &mut property.accessor_write {
-                write.r#type = self.instantiate_type(write.r#type, map, parameters, names);
-                failed |= write.r#type == self.intrinsics.error;
+                let write_type = self.parameter_type(write);
+                let write_type = self.instantiate_type(write_type, map, parameters, names);
+                write.set_type(write_type);
+                failed |= self.parameter_type(write) == self.intrinsics.error;
             }
             failed |= property.r#type == self.intrinsics.error;
             property.printed_type = self.type_to_string(property.r#type);

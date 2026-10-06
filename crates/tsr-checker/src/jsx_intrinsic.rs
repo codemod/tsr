@@ -95,10 +95,12 @@ impl Checker<'_, '_> {
     ) -> Option<crate::types::TypeId> {
         let context_node = self.jsx_inference_context_node(opening);
         if let Some(context) = self.active_inference_contexts.get(&context_node) {
-            return context.signature.parameters.first().map(|parameter| parameter.r#type);
+            let first = context.signature.parameters.first().cloned();
+            return first.map(|parameter| self.parameter_type(&parameter));
         }
         if let Some(signature) = self.resolved_call_signatures.get(&opening) {
-            return signature.parameters.first().map(|parameter| parameter.r#type);
+            let first = signature.parameters.first().cloned();
+            return first.map(|parameter| self.parameter_type(&parameter));
         }
         if !self.resolving_signature_calls.insert(opening) {
             return None;
@@ -183,7 +185,10 @@ impl Checker<'_, '_> {
                     || signature.kind == SignatureKind::AbstractConstruct
                     || signature.union_contains_abstract
                     || self.is_error(signature.r#type)
-                    || signature.parameters.iter().any(|parameter| self.is_error(parameter.r#type))
+                    || signature.parameters.iter().any(|parameter| {
+                        let parameter_type = self.parameter_type(parameter);
+                        self.is_error(parameter_type)
+                    })
                 {
                     return None;
                 }
@@ -205,12 +210,12 @@ impl Checker<'_, '_> {
         let mut signature = signatures.remove(0);
         let mut props = if class_reference {
             match self.jsx_container_property(opening, "ElementAttributesProperty") {
-                None => signature.parameters.first().map(|p| p.r#type),
+                None => signature.parameters.first().map(|p| self.parameter_type(p)),
                 Some(name) if name.is_empty() => Some(signature.r#type),
                 Some(name) => self.get_type_of_property_of_type(signature.r#type, &name),
             }
         } else {
-            signature.parameters.first().map(|p| p.r#type)
+            signature.parameters.first().map(|p| self.parameter_type(p))
         }
         .unwrap_or(self.intrinsics.unknown);
         if let Some(managed) = self.jsx_type_symbol(opening, "LibraryManagedAttributes") {
@@ -230,13 +235,8 @@ impl Checker<'_, '_> {
             let intrinsic = self.get_declared_type_of_symbol(intrinsic);
             props = self.get_intersection_type(&[intrinsic, props], None);
         }
-        signature.parameters = vec![crate::signatures::Parameter {
-            name: "props".to_string(),
-            optional: false,
-            rest: false,
-            r#type: props,
-            written_text: None,
-        }];
+        signature.parameters =
+            vec![crate::signatures::Parameter::new("props".to_string(), false, false, props, None)];
         if signature.type_parameters.is_empty() {
             self.resolved_call_signatures.insert(opening, signature);
             return Some(props);
@@ -255,7 +255,7 @@ impl Checker<'_, '_> {
             let mut resolved =
                 self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
             resolved.type_parameters.clear();
-            let props = resolved.parameters[0].r#type;
+            let props = self.parameter_type(&resolved.parameters[0]);
             self.resolved_call_signatures.insert(opening, resolved);
             return Some(props);
         }
@@ -292,7 +292,7 @@ impl Checker<'_, '_> {
             let mut resolved =
                 self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
             resolved.type_parameters.clear();
-            let props = resolved.parameters[0].r#type;
+            let props = self.parameter_type(&resolved.parameters[0]);
             self.resolved_call_signatures.insert(opening, resolved);
             Some(props)
         })();

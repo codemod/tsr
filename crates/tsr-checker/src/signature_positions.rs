@@ -47,7 +47,8 @@ impl Checker<'_, '_> {
     pub(crate) fn signature_is_top(&mut self, signature: &Signature) -> bool {
         if !signature.type_parameters.is_empty()
             || signature.this_parameter.as_ref().is_some_and(|parameter| {
-                !self.store.get(parameter.r#type).flags.contains(TypeFlags::ANY)
+                let parameter_type = self.parameter_type(parameter);
+                !self.store.get(parameter_type).flags.contains(TypeFlags::ANY)
             })
         {
             return false;
@@ -56,7 +57,8 @@ impl Checker<'_, '_> {
         if !parameter.rest {
             return false;
         }
-        let rest = self.signature_array_element(parameter.r#type).unwrap_or(parameter.r#type);
+        let parameter_type = self.parameter_type(parameter);
+        let rest = self.signature_array_element(parameter_type).unwrap_or(parameter_type);
         if !self.store.get(rest).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
             return false;
         }
@@ -69,15 +71,16 @@ impl Checker<'_, '_> {
     }
 
     /// Ported from `getParameterCount` (`internal/checker/relater.go`).
-    pub(crate) fn signature_parameter_count(&self, signature: &Signature) -> usize {
+    pub(crate) fn signature_parameter_count(&mut self, signature: &Signature) -> usize {
         let count = signature.parameters.len();
         let Some(rest) = signature.parameters.last().filter(|parameter| parameter.rest) else {
             return count;
         };
-        if let Some((elements, _)) = self.tuple_element_lists.get(&rest.r#type) {
+        let rest_type = self.parameter_type(rest);
+        if let Some((elements, _)) = self.tuple_element_lists.get(&rest_type) {
             return count - 1 + elements.len();
         }
-        if let Some((elements, _)) = self.variadic_tuple_elements.get(&rest.r#type) {
+        if let Some((elements, _)) = self.variadic_tuple_elements.get(&rest_type) {
             let fixed =
                 elements.iter().position(|element| element.spread).unwrap_or(elements.len());
             return count + fixed;
@@ -86,10 +89,13 @@ impl Checker<'_, '_> {
     }
 
     /// Ported from `hasEffectiveRestParameter` (`internal/checker/relater.go`).
-    pub(crate) fn signature_has_effective_rest(&self, signature: &Signature) -> bool {
-        signature.parameters.last().is_some_and(|parameter| {
-            parameter.rest && !self.tuple_element_lists.contains_key(&parameter.r#type)
-        })
+    pub(crate) fn signature_has_effective_rest(&mut self, signature: &Signature) -> bool {
+        let Some(parameter) = signature.parameters.last() else { return false };
+        if !parameter.rest {
+            return false;
+        }
+        let parameter_type = self.parameter_type(parameter);
+        !self.tuple_element_lists.contains_key(&parameter_type)
     }
 
     /// Ported from `getEffectiveRestType` (`internal/checker/relater.go`).
@@ -97,7 +103,8 @@ impl Checker<'_, '_> {
         &mut self,
         signature: &Signature,
     ) -> Option<TypeId> {
-        let rest = signature.parameters.last().filter(|parameter| parameter.rest)?.r#type;
+        let rest =
+            self.parameter_type(signature.parameters.last().filter(|parameter| parameter.rest)?);
         if self.tuple_element_lists.contains_key(&rest) {
             return None;
         }
@@ -131,7 +138,7 @@ impl Checker<'_, '_> {
         let rest = signature.parameters.last().filter(|parameter| parameter.rest);
         let leading = signature.parameters.len() - usize::from(rest.is_some());
         if position < leading {
-            let parameter_type = signature.parameters[position].r#type;
+            let parameter_type = self.parameter_type(&signature.parameters[position]);
             return Some(
                 if self.strict_null_checks
                     && self.signature_parameter_includes_undefined(signature, position)
@@ -144,7 +151,8 @@ impl Checker<'_, '_> {
         }
         let rest = rest?;
         let index = position - leading;
-        if let Some((elements, _)) = self.tuple_element_lists.get(&rest.r#type)
+        let rest_type = self.parameter_type(rest);
+        if let Some((elements, _)) = self.tuple_element_lists.get(&rest_type)
             && index >= elements.len()
         {
             return None;
@@ -155,7 +163,7 @@ impl Checker<'_, '_> {
             false,
         );
         Some(
-            self.resolved_indexed_access_type(rest.r#type, index, false)
+            self.resolved_indexed_access_type(rest_type, index, false)
                 .unwrap_or(self.intrinsics.error),
         )
     }
@@ -167,9 +175,14 @@ impl Checker<'_, '_> {
             .iter()
             .rposition(|parameter| !parameter.optional && !parameter.rest)
             .map_or(0, |position| position + 1);
-        if let Some(rest) = signature.parameters.last().filter(|parameter| parameter.rest)
-            && (self.tuple_element_lists.contains_key(&rest.r#type)
-                || self.variadic_tuple_elements.contains_key(&rest.r#type))
+        let rest_type = signature
+            .parameters
+            .last()
+            .filter(|parameter| parameter.rest)
+            .map(|rest| self.parameter_type(rest));
+        if let Some(rest_type) = rest_type
+            && (self.tuple_element_lists.contains_key(&rest_type)
+                || self.variadic_tuple_elements.contains_key(&rest_type))
         {
             let leading = signature.parameters.len() - 1;
             let required = self.signature_tuple_arguments(signature)[leading..]
@@ -345,7 +358,10 @@ mod tests {
                 let signature = checker
                     .get_signature_from_declaration(function.node_id.unwrap())
                     .expect("signature");
-                let stored: Vec<_> = signature.parameters.iter().map(|p| p.r#type).collect();
+                let mut stored = Vec::with_capacity(signature.parameters.len());
+                for p in &signature.parameters {
+                    stored.push(checker.parameter_type(p));
+                }
                 if matches!(name, "optional" | "defaulted" | "before" | "required") {
                     assert_eq!(checker.type_to_string(stored[0]), "number", "stored {name}");
                 }
@@ -365,11 +381,11 @@ mod tests {
                         .map(|ty| checker.type_to_string(ty));
                     assert_eq!(got.as_deref(), expected, "{name}[{position}], strict={strict}");
                 }
-                assert_eq!(
-                    signature.parameters.iter().map(|p| p.r#type).collect::<Vec<_>>(),
-                    stored,
-                    "positional reads do not alter stored annotations"
-                );
+                let mut reread = Vec::with_capacity(signature.parameters.len());
+                for p in &signature.parameters {
+                    reread.push(checker.parameter_type(p));
+                }
+                assert_eq!(reread, stored, "positional reads do not alter stored annotations");
                 if name == "before" {
                     assert!(!signature.parameters[0].optional);
                     assert_eq!(checker.signature_min_argument_count(&signature), 2);

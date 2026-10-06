@@ -173,9 +173,10 @@ fn sibling_optional_properties_distinguish_missing_from_explicit_undefined() {
                 }
                 tsr_ast::Node::CallExpression(call) => {
                     let callee = checker.check_expression(call.expression.expect("callee"));
-                    let target = checker.signatures_of_type(callee).expect("signature")[0]
+                    let parameter = checker.signatures_of_type(callee).expect("signature")[0]
                         .parameters[0]
-                        .r#type;
+                        .clone();
+                    let target = checker.parameter_type(&parameter);
                     let source = checker.check_expression(call.arguments[0]);
                     omissions.push(checker.is_type_assignable_to(source, target));
                 }

@@ -498,8 +498,9 @@ impl Checker<'_, '_> {
         for property in properties {
             if let Some(write) = &property.accessor_write
                 && !property.readonly
-                && write.r#type != property.r#type
+                && self.parameter_type(write) != property.r#type
             {
+                let write_type = self.parameter_type(write);
                 let name = &property.printed_name;
                 members.push(Member::Signature {
                     printed: format!("get {name}(): {}", property.printed_type),
@@ -508,7 +509,7 @@ impl Checker<'_, '_> {
                     printed: format!(
                         "set {name}({}: {})",
                         write.name,
-                        self.type_to_string(write.r#type)
+                        self.type_to_string(write_type)
                     ),
                 });
                 continue;

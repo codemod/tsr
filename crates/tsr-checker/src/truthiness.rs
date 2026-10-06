@@ -337,7 +337,7 @@ impl Checker<'_, '_> {
             if signature
                 .this_parameter
                 .as_ref()
-                .is_some_and(|this| this.r#type != self.intrinsics.void)
+                .is_some_and(|this| self.parameter_type(this) != self.intrinsics.void)
             {
                 return None;
             }

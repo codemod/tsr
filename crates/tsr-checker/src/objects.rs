@@ -220,7 +220,10 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
 /// waiting for the day the caller's arm is reused. `abstract` is deliberately
 /// **not** emitted: the grammar admits it on a constructor *type node* only, so
 /// an abstract construct signature member is a state upstream cannot produce.
-pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signature) -> String {
+pub(crate) fn signature_member_text(
+    checker: &mut Checker<'_, '_>,
+    signature: &Signature,
+) -> String {
     let mut out = match signature.kind {
         crate::signatures::SignatureKind::Call => String::new(),
         crate::signatures::SignatureKind::Construct
@@ -265,9 +268,11 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
         // The node-reuse rule on `Parameter::written_text`: a `typeof a`
         // annotation prints as written, in this form exactly as in the
         // `FunctionTypeNode` form.
-        match &parameter.written_text {
-            Some(written) => out.push_str(written),
-            None => out.push_str(&checker.type_to_string(parameter.r#type)),
+        if let Some(written) = &parameter.written_text {
+            out.push_str(written);
+        } else {
+            let parameter_type = checker.parameter_type(parameter);
+            out.push_str(&checker.type_to_string(parameter_type));
         }
     }
     out.push_str("): ");
@@ -1504,7 +1509,9 @@ impl Checker<'_, '_> {
                             let member_type = signature
                                 .parameters
                                 .first()
-                                .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                                .map_or(self.intrinsics.any, |parameter| {
+                                    self.parameter_type(parameter)
+                                });
                             let printed = self.member_text_at(member_type, node.node_id);
                             if unique {
                                 accessor_members.push((name.clone(), members.len()));
@@ -2081,8 +2088,9 @@ impl Checker<'_, '_> {
             };
             let printed = self.signature_to_string(&signature);
             let value = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, true);
-            self.contextual_this_parameters
-                .insert(id, signature.this_parameter.as_ref().map(|parameter| parameter.r#type));
+            let this_type =
+                signature.this_parameter.as_ref().map(|parameter| self.parameter_type(parameter));
+            self.contextual_this_parameters.insert(id, this_type);
             self.signature_types.insert(value, vec![signature]);
             value
         } else {

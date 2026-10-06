@@ -259,9 +259,10 @@ mod node_identity_tests {
                     );
                     assert_eq!(first, repeated, "same node must retain identity");
                     assert!(identities.insert(first), "different nodes must stay distinct");
-                    let signature = &checker.signature_types[&first][0];
-                    assert!(parameters.insert(signature.parameters[0].r#type));
-                    assert_eq!(checker.type_to_string(signature.parameters[0].r#type), "T");
+                    let signature = checker.signature_types[&first][0].clone();
+                    let parameter_type = checker.parameter_type(&signature.parameters[0]);
+                    assert!(parameters.insert(parameter_type));
+                    assert_eq!(checker.type_to_string(parameter_type), "T");
                     assert_eq!(
                         signature.kind,
                         if matches!(node, TypeNode::FunctionTypeNode(_)) {
@@ -319,7 +320,10 @@ mod node_identity_tests {
                                 );
                                 observations.push((mapped_depth, argument, node, first));
                                 let signature = checker.signature_types[&first][0].clone();
-                                assert_eq!(signature.parameters[0].r#type, argument);
+                                assert_eq!(
+                                    checker.parameter_type(&signature.parameters[0]),
+                                    argument
+                                );
                                 if signature.kind == SignatureKind::Call {
                                     assert_eq!(signature.r#type, argument);
                                 } else {
@@ -403,8 +407,9 @@ mod node_identity_tests {
                         TypeData::Anonymous { signature: false, .. }
                     ));
                     let signature = checker.signature_types[&first][0].clone();
+                    let parameter_type = checker.parameter_type(&signature.parameters[0]);
                     assert_eq!(
-                        checker.type_to_string(signature.parameters[0].r#type),
+                        checker.type_to_string(parameter_type),
                         if function { "1" } else { "\"head\"" }
                     );
                     if function {

@@ -4489,7 +4489,7 @@ impl<'a> Checker<'a, '_> {
                     if parameter.rest {
                         return None;
                     }
-                    let mut t = parameter.r#type;
+                    let mut t = self.parameter_type(parameter);
                     t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
                         if t == self.intrinsics.error {

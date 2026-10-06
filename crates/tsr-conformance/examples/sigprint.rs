@@ -123,7 +123,8 @@ fn compose(
         if let Some(written) = &parameter.written_text {
             out.push_str(written);
         } else {
-            let text = render(checker, parameter.r#type, site);
+            let parameter_type = checker.parameter_type(parameter);
+            let text = render(checker, parameter_type, site);
             out.push_str(&text);
         }
     }

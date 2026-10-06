@@ -1971,19 +1971,18 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::with_capacity(parameter_count + 1);
         if let (Some(source_this), Some(target_this)) =
             (&source_signature.this_parameter, &target_signature.this_parameter)
-            && source_this.r#type != self.checker.intrinsics.void
+            && self.checker.parameter_type(source_this) != self.checker.intrinsics.void
         {
+            let source_this = self.checker.parameter_type(source_this);
+            let target_this = self.checker.parameter_type(target_this);
             parts.push(if strict_variance {
-                self.is_related_to(target_this.r#type, source_this.r#type)
+                self.is_related_to(target_this, source_this)
             } else {
-                let forward = self.is_related_to(source_this.r#type, target_this.r#type);
+                let forward = self.is_related_to(source_this, target_this);
                 if forward.is_success() {
                     forward
                 } else {
-                    RelationResult::any([
-                        forward,
-                        self.is_related_to(target_this.r#type, source_this.r#type),
-                    ])
+                    RelationResult::any([forward, self.is_related_to(target_this, source_this)])
                 }
             });
             if parts.last() == Some(&RelationResult::NotRelated) {

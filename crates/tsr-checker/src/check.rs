@@ -13153,9 +13153,9 @@ impl Checker<'_, '_> {
         let mut pairs = Vec::new();
         if let (Some(source_this), Some(target_this)) =
             (&source.this_parameter, &target.this_parameter)
-            && source_this.r#type != self.intrinsics.void
+            && self.parameter_type(source_this) != self.intrinsics.void
         {
-            pairs.push((source_this.r#type, target_this.r#type));
+            pairs.push((self.parameter_type(source_this), self.parameter_type(target_this)));
         }
         let count = self.signature_parameter_count(source).max(target_count);
         for position in 0..count {
