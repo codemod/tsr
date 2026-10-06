@@ -1702,39 +1702,11 @@ impl Checker<'_, '_> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::CLASS) {
             return Some(false);
         }
-        let base = if let Some(base) = self.first_base_type_of_class_symbol(parent) {
-            base
-        } else {
-            if !self.class_symbol_has_extends_clause(parent) {
-                return Some(false);
-            }
-            self.value_base_type_of_class_symbol(parent)?
+        let Some(base) = self.first_base_type_of_class_symbol(parent) else {
+            return (!self.class_symbol_has_extends_clause(parent)).then_some(false);
         };
         let Some(property) = self.get_property_of_type(base, name) else { return Some(false) };
         Some(self.binder.symbols().get(property).value_declaration.is_some())
-    }
-
-    /// `resolveBaseTypesOfClass` (`checker.go:19220`) for an `extends` entry
-    /// that names a **value** (`declare const F: new () => B; class D extends
-    /// F`), which [`Checker::first_base_type_of_class_symbol`] refuses because
-    /// it resolves the entry in type meaning: the entry resolved as a value,
-    /// then the first construct signature matching the type-argument count,
-    /// whose return type is the base.
-    fn value_base_type_of_class_symbol(&mut self, class: SymbolId) -> Option<crate::types::TypeId> {
-        let declaration = self.binder.symbols().get(class).value_declaration?;
-        let clauses = match self.node_map.get(declaration)? {
-            Node::ClassDeclaration(node) => node.heritage_clauses,
-            Node::ClassExpression(node) => node.heritage_clauses,
-            _ => return None,
-        };
-        let entry = clauses
-            .iter()
-            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-            .flat_map(|clause| clause.types.iter())
-            .next()?;
-        let base = self.heritage_entity_symbol(entry.expression?, SymbolFlags::VALUE)?;
-        let t = self.instance_base_type_of_heritage_entry(base, entry);
-        (!self.is_error(t)).then_some(t)
     }
 
     /// Does any declaration of this class symbol carry an `extends` clause?
