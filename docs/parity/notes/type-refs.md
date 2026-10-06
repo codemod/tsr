@@ -383,3 +383,20 @@ deeper than one export level, and `getWithAlternativeContainers`
 (`SYMBOL-CHAIN-EXPORT-EQUALS-CONTAINER`). `own_name_alias_at` still
 requires `flags == ALIAS` exactly (`shadowedInternalModule`'s merged
 alias+var), which belongs to the same walk.
+
+### 3.4 A merged alias still names its target (`tsr-2zk.16.20`)
+
+`own_name_alias_at` stops qualification when the bare name resolves at the
+site to an alias of the target. It required the hit's flags to be exactly
+`ALIAS`. Upstream's binder excludes only `Alias` from an alias declaration
+(`AliasExcludes`), so `import Y = X.Y; var Y = 12` is one symbol carrying
+`Alias | FunctionScopedVariable` (the conflict is a checker diagnostic, not a
+binder split), and `trySymbolTable` iterates it as an alias (`:562`). The
+test is now `contains(ALIAS)`; the immediate-target comparison that guards
+merged namespace/alias symbols is unchanged.
+
+Measured against the merged baseline (`246056c`: types 468,044 RIGHT,
+diagnostics 4,050 RIGHT / 4,958 EMPTY_RIGHT): +4 type lines, 1 case
+(`moduleSharesNameWithImportDeclarationInsideIt4`; `shadowedInternalModule`
+line 26 turns RIGHT, the case has other gaps), 0 R→W in either dump. No new
+state.

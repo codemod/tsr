@@ -4130,10 +4130,17 @@ impl<'a, 'n> Checker<'a, 'n> {
         None
     }
 
-    /// An accessible pure alias with the target's own name stops qualification
+    /// An accessible alias with the target's own name stops qualification
     /// (`symbolaccessibility.go:656-684`). Merged namespace/alias symbols have
     /// their own meaning too: following their entire alias chain would hide a
     /// real shadow, so compare only the immediate target here.
+    ///
+    /// The hit need only CARRY `ALIAS`: upstream's `AliasExcludes` is `Alias`
+    /// alone, so `import Y = X.Y; var Y = 12` is one symbol with both flags,
+    /// and `trySymbolTable`'s alias iteration (`:562`) still takes it
+    /// (`shadowedInternalModule` records `Y`, not `X.Y`). Requiring exactly
+    /// `ALIAS` dropped those merged aliases (`docs/parity/notes/type-refs.md`
+    /// §3.4).
     fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
         let name = self.binder.symbols().get(symbol).name;
         let Some(hit) = self.binder.resolve_name(
@@ -4145,7 +4152,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         ) else {
             return false;
         };
-        self.binder.symbols().get(hit).flags == SymbolFlags::ALIAS
+        self.binder.symbols().get(hit).flags.contains(SymbolFlags::ALIAS)
             && self.resolve_alias(hit).map(|target| self.binder.merged_symbol(target))
                 == Some(self.binder.merged_symbol(symbol))
             && !self.alias_targets_module_clone(hit)
