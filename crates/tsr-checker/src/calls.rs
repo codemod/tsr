@@ -1202,6 +1202,39 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Whether `ty` mentions a literal type within `depth` member levels: a
+    /// literal itself, a union/intersection constituent, or a property or
+    /// index-signature value. The contextual types under which
+    /// `isLiteralOfContextualType` (`checker.go`) can keep an object
+    /// literal member's literal type are among these.
+    fn type_mentions_literal(&mut self, ty: TypeId, depth: u32) -> bool {
+        let flags = self.store.get(ty).flags;
+        if flags.intersects(TypeFlags::LITERAL) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(ty).data
+        {
+            let types = types.clone();
+            return types.into_iter().any(|part| self.type_mentions_literal(part, depth));
+        }
+        if depth == 0 || !flags.intersects(TypeFlags::OBJECT) {
+            return false;
+        }
+        if let Some(names) = self.get_property_names_of_type(ty) {
+            for name in &names {
+                if let Some(member) = self.get_type_of_property_of_type(ty, name)
+                    && self.type_mentions_literal(member, depth - 1)
+                {
+                    return true;
+                }
+            }
+        }
+        self.get_index_infos_of_type(ty).is_some_and(|infos| {
+            infos.iter().any(|info| self.type_mentions_literal(info.value, depth - 1))
+        })
+    }
+
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
     /// is generic: with written type arguments `checkTypeArguments`
     /// (`checker.go:9222`), else `inferTypeArguments`; then
@@ -1380,11 +1413,12 @@ impl Checker<'_, '_> {
     ///
     /// An argument whose cached type relates needs nothing more, and one
     /// whose type cannot depend on its contextual type reports from the cached
-    /// type. The rest decline: an object or array literal (literal
-    /// preservation and tuple-ness follow the instantiated context), a
-    /// context-sensitive function (`assignContextualParameterTypes`, generic
-    /// contextual signatures) and a class expression (its class identity is
-    /// re-created by a re-check).
+    /// type. An object literal reports from its cached type unless the target
+    /// mentions a literal type (literal preservation follows the instantiated
+    /// context). The rest decline: an array literal (tuple-ness follows the
+    /// instantiated context), a context-sensitive function
+    /// (`assignContextualParameterTypes`, generic contextual signatures) and a
+    /// class expression (its class identity is re-created by a re-check).
     fn check_instantiated_candidate_arguments(
         &mut self,
         arguments: &[Expression<'_>],
@@ -1406,6 +1440,43 @@ impl Checker<'_, '_> {
             while let Expression::ParenthesizedExpression(parenthesized) = inner {
                 let Some(expression) = parenthesized.expression else { return };
                 inner = expression;
+            }
+            // A non-context-sensitive object literal: its cached type is
+            // reported through `checkTypeRelatedToAndOptionallyElaborate`
+            // (excess property, then `elaborateError` at the member), as the
+            // overload reporter does for a literal the walk re-checked.
+            // Upstream checks it under the instantiated parameter, whose
+            // literal members keep the literal's own literal types
+            // (`getWidenedLiteralLikeTypeForContextualType`); the cached type
+            // was widened under another context, so a target mentioning a
+            // literal type declines (a superset of the members that differ).
+            if matches!(inner, Expression::ObjectLiteralExpression(_))
+                && !self.is_context_sensitive_argument(argument)
+            {
+                if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
+                    || self.head_could_contain_type_variables(source, 3)
+                    || self.head_could_contain_type_variables(target, 3)
+                    || self.type_mentions_literal(target, 3)
+                    || self.absent_member_flags_unreadable(source, target)
+                {
+                    return;
+                }
+                let before = self.diagnostics.len();
+                self.check_excess_properties(target, argument_id);
+                if self.diagnostics.len() == before {
+                    let span = self.error_span(argument_id);
+                    self.report_relation_failure(
+                        argument_id,
+                        span,
+                        Some(argument_id),
+                        source,
+                        target,
+                        Some(
+                            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+                        ),
+                    );
+                }
+                return;
             }
             if matches!(
                 inner,
