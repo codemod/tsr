@@ -335,3 +335,59 @@ unresolved key (`ENUM1[A]--`, 1 line) is upstream's `errorType`, which is
 any-flagged and applies the enum's reverse index, but this port's error key is
 not known to be the deliberate one (§3a); mapped receivers
 (`mappedTypeRelationships`, 4 lines) belong to the mapped-type cluster.
+
+## 10. Private names: `checkPrivateIdentifierPropertyAccess` and its fall-through
+
+**Forcing constraint.** The private-name arm of
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11268`) has four
+outcomes, and this port had one: TS18013 whenever no enclosing class declared
+the name and the receiver was not `any`. Upstream reports TS18013 only when the
+receiver's **type** has a private-named property of that spelling
+(`checkPrivateIdentifierPropertyAccess`, `checker.go:11494`); with none, the
+access falls to `reportNonexistentProperty` — TS2339, which this port never
+reported for a `#name` (`nonexistent_property` declines private names). An
+any-like receiver outside every class body is the grammar error TS18016.
+
+**Decision.** `check_private_identifier_access` (`readonly_target.rs`) ports
+the arm in order:
+- the lexical lookup is `lookupSymbolForPrivateIdentifierDeclaration`'s, which
+  starts at `getContainingClassExcludingClassDecorators` — a `#x` in
+  `@dec(x => x.#x) class A { #x }` is not scoped by `A`
+  (`esDecorators-privateFieldAccess`). The type road's
+  `lexical_private_declaring_class` (`members.rs`, SS190) still omits that
+  exclusion; changing it changes types and was not measured here;
+- any-like (`any`, `unknown` under `strictNullChecks`, which
+  `checkNonNullExpression` makes the error type): silent with a lexical
+  declaration, TS18016 outside class bodies;
+- TS18013 when the receiver's property of that spelling is private-named and
+  declared in a class that does not lexically enclose the lexical one (that
+  case is TS18014; `check_private_name_shadowing` reports it, and now requires
+  the enclosing relation too — it reported a sibling subclass,
+  `privateNamesAndStaticFields`);
+- otherwise TS2339, when the miss is certified: `never`, any-like, or
+  `private_names_are_complete`, a narrower certificate than
+  `declared_members_are_complete` because a `#name` is never answered by an
+  index signature, never computed, and never inherited on the static side
+  (`addInheritedMembers` skips `isStaticPrivateIdentifierProperty`).
+
+**Text-keyed members.** Upstream files each class's `#x` under its own mangled
+name, so `new Child().#foo` inside `Parent` finds `Parent`'s member even when
+`Child` redeclares `#foo`; this port's table answers `Child`'s. An instance
+receiver whose class inherits from the lexical class is therefore treated as
+holding the lexical member (`privateNamesConstructorChain-1/-2` were the 2
+false TS18013 lines without it).
+
+**Declines.** Union/intersection receivers; an error-typed receiver (a gap)
+except for the TS18016 position test; a `this` receiver inside a decorator
+(`check_this_expression` types it from the decorated class, so `this.#foo` in
+`@dec(() => this.#foo) class D {}` inside `C` was a false TS2339).
+
+**Measured.** 27 baseline lines; `esDecorators-privateFieldAccess`,
+`privateNameBadAssignment`, `privateNameStaticAccessorssDerivedClasses`,
+`privateNameStaticFieldAccess`, `privateNamesUnique-2` convert; 0 losses.
+**2 false lines, kept and reported:** `privateNameStaticMethodClassExpression`
+types `C.getClass()` (and `D` inside its own static initializer) as `any` where
+upstream infers `typeof D`, so the faithful any-like arm reports TS18016 where
+upstream reports TS18013. The producer is the class-expression self-reference /
+return-type inference, not this rule (§3a); guessing that this `any` is not
+upstream's would be the rejected pattern.
