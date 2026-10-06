@@ -141,7 +141,7 @@ fn defaults_share_the_original_module_not_its_default_property() {
 }
 
 #[test]
-fn only_complete_chains_within_the_naming_bound_are_admitted() {
+fn chains_past_the_naming_bound_still_resolve() {
     for depth in [4, 5] {
         let mut source =
             String::from("// @module: commonjs\n// @filename: mod.ts\nexport const token = 17;\n");
@@ -171,12 +171,10 @@ fn only_complete_chains_within_the_naming_bound_are_admitted() {
         for _ in 0..2 {
             for (_, symbol) in aliases(&program, "use.ts") {
                 let value = checker.get_type_of_symbol(symbol);
-                if depth == 4 {
-                    assert_eq!(value, checker.get_type_of_symbol(module));
-                } else {
-                    assert_eq!(checker.resolve_alias(symbol), None);
-                    assert_eq!(value, checker.intrinsics().error);
-                }
+                // getTargetOfModuleDefault has no chain bound: past the
+                // naming walk's depth the alias still resolves and types.
+                assert!(checker.resolve_alias(symbol).is_some());
+                assert_eq!(value, checker.get_type_of_symbol(module));
             }
         }
     }
@@ -225,7 +223,7 @@ fn direct_real_defaults_still_name_the_callable() {
 }
 
 #[test]
-fn unsupported_alias_shapes_and_cycles_decline_before_following_them() {
+fn every_alias_shape_resolves_to_the_immediate_export_equals() {
     for (wrapper, suffix) in [
         ("import * as canonical from \"./mod\"; export = canonical;", "ts"),
         ("import canonical from \"./plain\"; export = canonical;", "ts"),
@@ -253,10 +251,26 @@ fn unsupported_alias_shapes_and_cycles_decline_before_following_them() {
         let mut checker = types_producer::configured_checker(&program);
         let sites = aliases(&program, "use.ts");
         assert_eq!(sites.len(), 3);
+        let wrapper_file = program
+            .source_file(&format!("wrapper.{suffix}"))
+            .unwrap()
+            .source_file()
+            .node_id
+            .unwrap();
+        let wrapper_module = program.binder().symbol_of(wrapper_file).unwrap();
+        let immediate =
+            program.binder().symbols().get(wrapper_module).exports.get("export=").copied();
+        assert!(immediate.is_some());
+        // getTargetOfModuleDefault resolves every shape to
+        // `resolveExternalModuleSymbol(wrapper, dontResolveAlias = true)`;
+        // a wrapper that imports itself is circular and reads errorType.
+        let cycle = wrapper.contains("./wrapper");
         for _ in 0..2 {
             for &(_, symbol) in &sites {
-                assert_eq!(checker.resolve_alias(symbol), None, "{wrapper}");
-                assert_eq!(checker.get_type_of_symbol(symbol), checker.intrinsics().error);
+                assert_eq!(checker.resolve_alias(symbol), immediate, "{wrapper}");
+                if cycle {
+                    assert_eq!(checker.get_type_of_symbol(symbol), checker.intrinsics().error);
+                }
             }
         }
     }

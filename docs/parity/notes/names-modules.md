@@ -141,11 +141,12 @@ at 9 samples). The walk is per alias *declaration*, never per reference.
 alias. This binder keeps them apart, so the cycle never forms. That is a
 `tsr-binder/src/lib.rs` globals change.
 
-## §3. Synthetic default import target — built, measured, held back (cluster `tsr-2zk.16.6`)
+## §3. Synthetic default import target (cluster `tsr-2zk.16.6`)
 
-**Not merged.** The patch is
-`docs/parity/notes/names-modules-3-synthetic-default.diff`; it applies to
-`crates/tsr-checker/src/symbols.rs` at this lane's head.
+**Landed in round 3** — see "Round 3" at the end of this section. The
+round-1/round-2 text below records why it was held, and is kept as written.
+The held patch (`names-modules-3-synthetic-default.diff`) was removed when
+the port landed; it is in git history before that commit.
 
 ### What it ports
 
@@ -248,6 +249,71 @@ Two variants were measured and refused:
   returns `true` from the `node16` usage block (ESM importing CommonJS) before
   the declaration-file arm. That is the `true` branch the diff declines (see
   above). The two must land together.
+
+### Round 3: landed as upstream's whole function
+
+`module_default_target` (`crates/tsr-checker/src/symbols.rs`) is now
+`getTargetOfModuleDefault` (`checker.go:14536`) with `dontResolveAlias =
+true`, for every caller: the import clause, `import { default as x }` and
+`export { default as y } from`. In order: the `module.exports` arm
+(unchanged); the real `default` through `resolveExportByName` (skipped for a
+shorthand ambient module); then, when `canHaveSyntheticDefault` or
+`isOnlyImportableAsDefault` holds, `resolveExternalModuleSymbol(module)` — the
+immediate `export=` symbol, or the module itself. The synthetic arm overrides
+a real `.default`, as upstream's comment says it must.
+
+Removed with it, because upstream has none of them: the guarded file-module
+walk (CommonJS only, TS only, at most 8 hops, uncloned, no signatures), the
+clause-only JSON and JS arms (both are `canHaveSyntheticDefault`'s JS arm —
+a JSON file is parsed `JavaScriptFile | JsonFile`, `parser.go:306`), and the
+ambient-only, variable-target-only gate.
+
+`can_have_synthetic_default_for_usage` is `canHaveSyntheticDefault`
+(`checker.go:14818`) whole, against the host's real
+`emit_syntax_for_usage_location` / `implied_node_format_for_emit` (added since
+round 1, so the extension-only approximation the round-1 patch carried is
+gone):
+
+- the usage block: ESM usage of a CommonJS file under `node16`..`nodenext`
+  answers `true`; ESM usage of an ESM file answers `false`;
+- the declaration-file arm through `resolveExportByName`, so an `export =`
+  value's own `default` property (if `isSyntacticDefault`) or `__esModule`
+  property suppresses the synthetic default;
+- the TS (`export =`) and JS arms as before.
+
+These two pieces were measured to need each other (round 2): the
+`resolveExportByName` arm alone lost
+`nodeNextEsmImportsOfPackagesWithExtensionlessMains`, and the `true` branch
+alone made `import * as ns` print `typeof d` (§5 is what fixes that).
+
+The usage-free [`Checker::can_have_synthetic_default`] in `check.rs` stays
+for TS1192 and the two missing-member readers (`missing_default_established`,
+the TS2305 `default` arm). It is a hub-file function; routing the
+diagnostics through the usage-aware port is a separate measured change.
+
+**The tests that pinned the old declines now assert upstream's answer.**
+`tests/module_default_file_owner.rs` (in `tsr-conformance`):
+`only_complete_chains_…` became `chains_past_the_naming_bound_still_resolve`
+(depth 5 resolves and types as the module, like depth 4), and
+`unsupported_alias_shapes_and_cycles_decline_…` became
+`every_alias_shape_resolves_to_the_immediate_export_equals` (all 13 shapes
+resolve to the wrapper's `export=`; the three self-importing wrappers still
+type as `errorType`). `symbols.rs`'s
+`semantic_type_naming_targets_…` precondition now expects the `export=`
+symbol, asserted before the publication snapshot because
+`resolveExportByName` reads the `export=` value's type. Two
+`tests/cross_file_aliases.rs` controls (`a_default_{named_import,re_export}_…`)
+expected `errorType`; upstream types both as the whole `export =` value
+`{ default: number; }` — still not the numeric `default` property the tests
+guard against.
+
+Measured with §5, unfiltered, against the box baseline at `d109b0c`:
+diagnostics **+2 cases** (`exportEqualsDefaultProperty`, `importEquals1`),
+`checker_types` **+100 aligned RIGHT lines**, **0 lost** in either. Largest
+gains: `allowSyntheticDefaultImports9` 10, `importEquals1` 9,
+`nodeNextCjsNamespaceImportDefault1`/`2` 9 each, `modulePreserve4` 7.
+Median CPU self-ratio 1.006 (`domain-model`) and 0.981 (`generic-imports`),
+21 samples, diagnostics matching.
 
 ## §4. Non-global module augmentations merge (`mergeModuleAugmentation`, cluster `tsr-2zk.38` / `tsr-2zk.16.15`)
 
@@ -371,3 +437,32 @@ belongs in the baseline parser (not this lane's file).
 - **TS2649 for a non-namespace target** (`Cannot augment module '{0}' because
   it resolves to a non-module entity`, `checker.go:1445`) is not reported; the
   augmentation is just not merged.
+
+## §5. An ESM namespace import of a CommonJS file is a module clone (cluster `tsr-2zk.16.22`, part)
+
+`resolveESModuleSymbol` (`checker.go:15568`) clones the module for a
+namespace import when `isEsmCjsRef` holds (ESM usage, CommonJS target file),
+even without signatures, and the clone's type gains a synthetic `default`
+(`getTypeWithSyntheticDefaultImportType`). Without it, `import d from
+'./a.cjs'` (now the module itself, §3) and `import * as ns from './a.cjs'`
+share one module type, and the printer names it by the first alias it finds
+(`ns : typeof d`).
+
+`module_clone_type` already built clones for class/function targets in
+`module_value_clones`; it now also clones a `VALUE_MODULE` target when
+`namespace_import_is_esm_cjs_ref` holds, with no signature requirement and no
+copied properties (member reads delegate to the source module, the existing
+clone convention). `module_clone_default_symbol` answers `default` with the
+`export=` symbol as before, or — for an ESM-to-CJS reference of a module
+without one — the module itself, gated by the usage-aware
+`can_have_synthetic_default_for_usage`. The clone prints through
+`module_clone_name_at`, which names it by the alias whose type it is (`typeof
+ns`).
+
+Not ported: the other two clone triggers for a value module — a module type
+with a real `default` property (`getPropertyOfTypeEx(typ, "default")`) under
+an ES-syntax namespace import, and `getTypeWithSyntheticDefaultOnly` (JSON
+under `node16`+). Both stay on the uncloned road.
+
+Converted: `nodeNextCjsNamespaceImportDefault1`/`2` fully RIGHT (16 lines
+each), counted in §3's measurement.
