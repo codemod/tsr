@@ -449,3 +449,52 @@ alias). Both are pre-existing wrong lines, not new ones.
 `umdGlobalAugmentationNoCrash` and
 `umdNamespaceMergedWithGlobalAugmentationIsNotCircular` are now right (those
 cases still owe the table replacement above, or TS2502).
+
+## §20 TS2668 / TS2435 / TS1147, and TS2664 only on external augmentations
+
+**Forcing constraint.** `privacyImportParseErrors` and
+`privacyGloImportParseErrors` owe 49 lines from three unported position rules,
+and the port drew a wrong TS2664 on every `declare module "x"` nested in a
+namespace of a module file, where upstream reports TS2435 instead.
+
+**What was ported** (check.rs, beside `check_module_augmentation_name`):
+- TS2668, `bindModuleDeclaration` (`binder.go:773`): an ambient module
+  (`IsAmbientModule`) with a syntactic `export`, at the first token — the
+  first modifier, so `declare export module "m"` reports at `declare`. A
+  binder diagnostic upstream; reported from the check walk because it reads
+  only syntax and the port's binder has no first-token helper.
+- TS2435, `checkModuleDeclaration`'s last arm (`checker.go:5214`): a
+  string-named module in a module block that is not a script's top-level
+  ambient module (not `IsModuleAugmentationExternal`, parent not a global
+  source file).
+- TS1147, `checkExternalImportOrExportDeclaration` (`checker.go:5345`): an
+  `import … from "m"` or `import x = require("m")` whose parent is a module
+  block not owned by an ambient module. The position test is
+  `external_import_is_positioned_for_resolution`, which already withheld
+  resolution there; the diagnostic it stood in for now exists. Declarations
+  outside a file or module block are skipped
+  (`checkGrammarModuleElementContext` returns first).
+
+**TS2664 narrowed.** `check_module_augmentation_name` treated any
+`declare module "x"` in a module file as an augmentation. Upstream's
+`mergeModuleAugmentation` sees only `IsModuleAugmentationExternal`
+declarations and validates the name only when `moduleName.Parent.Parent` (the
+declaration's parent) is not ambient: a top-level statement of the module
+file. The nested ambient-module arm is in an ambient block (exempt), and a
+module nested in a namespace is not an augmentation.
+
+**Remaining.** TS2664 is still reported where upstream finds the module
+through a pattern ambient module (`"a.foo"` against `declare module "*.foo"`,
+`ambientDeclarationsPatterns_merging1`–`3`) or reports TS2665 for an untyped
+JavaScript target (`untypedModuleImport_withAugmentation`): both are
+`resolveExternalModuleNameWorker` arms of the shared resolver, not this rule.
+The same cases' TS2307 lines for `import x = require("m")` inside a namespace
+(`privacyImportParseErrors`, `importInsideModule`) come from upstream resolving
+the alias later (`checkImportBinding` is skipped, but the alias's type is
+still asked for); not ported.
+
+**Measured.** `importDeclarationInModuleDeclaration1`,
+`ambientExternalModuleInsideNonAmbient`,
+`ambientExternalModuleInsideNonAmbientExternalModule` converted; every TS1147,
+TS2435 and TS2668 line of `privacyImportParseErrors` (+42 lines, 10 wrong
+TS2664 removed) and `privacyGloImportParseErrors` (+13) is right; none lost.
