@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4091/5502 (74.35%)
-Failed         : 1411
+Passed         : 4094/5502 (74.41%)
+Failed         : 1408
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1411 failures:
+First 100 of 1408 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -144,8 +144,6 @@ compiler/checkSuperCallBeforeThisAccess
   6 missing (first TS2855 at checkSuperCallBeforeThisAccess.ts(9,24))
 compiler/checkerInitializationCrash
   2 missing (first TS2300 at /node_modules/@fullcalendar/core/index.d.ts(4,10))
-compiler/checkingObjectWithThisInNamePositionNoCrash
-  1 missing (first TS2339 at checkingObjectWithThisInNamePositionNoCrash.ts(4,19))
 compiler/circularAccessorAnnotations
   1 missing (first TS2502 at circularAccessorAnnotations.ts(19,9))
 compiler/circularBaseTypes
@@ -212,3 +210,5 @@ compiler/compareTypeParameterConstrainedByLiteralToLiteral
   1 missing (first TS2367 at compareTypeParameterConstrainedByLiteralToLiteral.ts(5,5))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
+compiler/complicatedGenericRecursiveBaseClassReference
+  2 missing (first TS2554 at complicatedGenericRecursiveBaseClassReference.ts(4,10))
