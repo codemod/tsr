@@ -1489,6 +1489,12 @@ impl<'a> Checker<'a, '_> {
     /// Answers **whether it reported**, so the caller can stop:
     /// `getSignatureApplicabilityError` returns on the first failing argument
     /// (`checker-notes-diag2.md` §59).
+    ///
+    /// The argument is checked through `checkTypeRelatedToAndOptionallyElaborate`
+    /// (`getSignatureApplicabilityError`, `checker.go:9302`) with the argument
+    /// as both error node and expression, so a failed relation first runs
+    /// `elaborateError` (`relater.go:440`) and reports the offending member
+    /// (TS2322 at a property, element or arrow return) instead of TS2345.
     pub(crate) fn report_argument_failure(
         &mut self,
         at: NodeId,
@@ -1505,6 +1511,16 @@ impl<'a> Checker<'a, '_> {
         }
         let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             == crate::relater::Ternary::NotRelated;
+        if not_related
+            && self.elaborate_error(
+                at,
+                source,
+                target,
+                Some(&messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1),
+            )
+        {
+            return true;
+        }
         if !not_related && !self.object_against_primitive(source, target) {
             return false;
         }
@@ -1621,7 +1637,7 @@ impl<'a> Checker<'a, '_> {
         // report and, when it speaks, `checkTypeRelatedToEx` stays silent. The
         // hand-off is exclusive by construction here because both live in this
         // one function: elaborating returns, it does not fall through. §176.
-        if source_node.is_some_and(|node| self.elaborate_error(node, source, target)) {
+        if source_node.is_some_and(|node| self.elaborate_error(node, source, target, head)) {
             probe!(PROBE_REPORTED);
             return true;
         }
@@ -1897,9 +1913,16 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateError` (`relater.go:440`): descend into the source expression
     /// to report on the innermost node that explains the failure. Answers
     /// whether it reported; the caller then stays silent. A generic conditional
-    /// target is not elaborated. `elaborateDidYouMeanToCallOrConstruct` is not
-    /// ported here, so those failures keep the caller's outer report.
-    fn elaborate_error(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+    /// target is not elaborated. `head` is the caller's head message, which
+    /// only `elaborateDidYouMeanToCallOrConstruct` reports with (TS2345 at an
+    /// argument); the member arms report their own TS2322.
+    fn elaborate_error(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> bool {
         if self.is_or_has_generic_conditional(target) {
             return false;
         }
@@ -1908,11 +1931,13 @@ impl<'a> Checker<'a, '_> {
             source,
             target,
             crate::signatures::SignatureKind::Construct,
+            head,
         ) || self.elaborate_did_you_mean_to_call_or_construct(
             node,
             source,
             target,
             crate::signatures::SignatureKind::Call,
+            head,
         ) {
             return true;
         }
@@ -1950,7 +1975,7 @@ impl<'a> Checker<'a, '_> {
         };
         inner
             .and_then(|inner| inner.node_id())
-            .is_some_and(|inner| self.elaborate_error(inner, source, target))
+            .is_some_and(|inner| self.elaborate_error(inner, source, target, head))
     }
 
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
@@ -1965,6 +1990,7 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
         kind: crate::signatures::SignatureKind,
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> bool {
         let Some(signatures) = self.signatures_of_type_kind(source, kind) else { return false };
         let mut callable = false;
@@ -1982,7 +2008,11 @@ impl<'a> Checker<'a, '_> {
                 break;
             }
         }
-        callable && self.report_assignability_failure_with(node, None, source, target)
+        if !callable {
+            return false;
+        }
+        let span = self.error_span(node);
+        self.report_relation_failure(node, span, None, source, target, head)
     }
 
     /// `getBestMatchingType` (`relater.go`) for an object-literal source, in
