@@ -1789,9 +1789,14 @@ impl Checker<'_, '_> {
     /// TS2358 — `The left-hand side of an 'instanceof' expression must be of
     /// type 'any', an object type or a type parameter.`
     ///
-    /// The primitive argument's sixth position. A primitive is none of the
-    /// three the message permits, and §459's rule says the position is free
-    /// because it carries those types — a template literal is a string. §466.
+    /// `checkInstanceOfExpression` (`checker.go:13056`):
+    /// `!IsTypeAny(leftType) && allTypesAssignableToKind(leftType, TypeFlagsPrimitive)`.
+    /// §466 of `checker-notes-diag2.md` reported the four widened intrinsic
+    /// primitives only; the flag arm of `isTypeAssignableToKind` is exact for
+    /// every primitive-flagged type (`void`, `null`, `undefined`, `symbol`,
+    /// literals, enums, and unions of them). Its assignability arm (a type
+    /// parameter constrained to a primitive, a branded intersection, `never`)
+    /// declines. `docs/parity/notes/misc-checks.md` §11.
     fn check_instanceof_left_operand(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -1803,8 +1808,7 @@ impl Checker<'_, '_> {
         let Some(left) = binary.left else { return };
         let Some(id) = left.node_id() else { return };
         let left_type = self.check_expression(left);
-        let widened = self.get_base_type_of_literal_type(left_type);
-        if !self.is_decidable_primitive(widened) {
+        if !self.all_types_primitive_by_flags(left_type) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
@@ -1816,6 +1820,18 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// `allTypesAssignableToKind(t, TypeFlagsPrimitive)` (`checker.go:27628`)
+    /// through its flag arm only: every union constituent carries a
+    /// primitive flag. `false` where only the assignability arm could answer.
+    fn all_types_primitive_by_flags(&self, ty: crate::types::TypeId) -> bool {
+        match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().all(|&member| self.all_types_primitive_by_flags(member))
+            }
+            _ => self.store.get(ty).flags.intersects(crate::flags::TypeFlags::PRIMITIVE),
+        }
     }
 
     /// TS2359 — `The right-hand side of an 'instanceof' expression must be

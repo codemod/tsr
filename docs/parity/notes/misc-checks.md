@@ -200,3 +200,30 @@ still not ported.
 `deleteOperatorWithEnumType`, `symbolType3` converted; no line lost
 (`privateNamesNoDelete`'s TS2790 was lost by a first draft that resolved no
 private names, and is kept by the private-name arm).
+
+## §11 TS2358: every primitive-flagged left operand
+
+**Forcing constraint.** `checkInstanceOfExpression` (`checker.go:13056`)
+reports when `!IsTypeAny(leftType) && allTypesAssignableToKind(leftType,
+TypeFlagsPrimitive)`. §466 of `docs/architecture/checker-notes-diag2.md`
+ported it as "the widened left type is one of `string`, `number`, `bigint`,
+`boolean`", reusing `is_decidable_primitive`, whose list exists for an
+identity comparison (§865's `any` hazard). This test reads flags, so that
+hazard does not apply: `void`, `null`, `undefined`, `symbol`, literals,
+enums and unions of primitives (`number | string`) all carry a
+`TypeFlagsPrimitive` bit upstream and here.
+
+**What was ported.** `allTypesAssignableToKind`'s union recursion and
+`isTypeAssignableToKind`'s flag arm (`source.flags&kind != 0`). `any` is
+never primitive-flagged, so the `IsTypeAny` conjunct needs no test.
+
+**Declined.** The assignability arm — `isTypeAssignableTo(source, number)`
+and its siblings — answers for a type parameter constrained to a primitive,
+a branded intersection such as `string & { tag: 1 }`, and `never`. None is in
+the lane's failing set; porting it needs the relater on the four primitive
+targets.
+
+**Measured.** `instanceofWithPrimitiveUnion`,
+`instanceofOperatorWithInvalidOperands`, `symbolType1` converted; correct
+lines in `instanceofOperatorWithInvalidOperands.es2015` and `widenedTypes`;
+none lost.
