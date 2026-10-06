@@ -240,3 +240,66 @@ decision replaces an equivalent `peek_kind`).
   reads the source text of the `=>` token's full span; the checker has no
   source text and the token records no preceding-line-break flag
   (`arrowFunctionErrorSpan`).
+
+## Round 2: the lists that bypassed `ParsingContext`
+
+Round 2 (lane brief, 2026-10-06) started from the recovery divergence. The
+list machinery (`crates/tsr-parser/src/list.rs`) only knew the contexts whose
+loops had been ported onto it; type parameters, type arguments, tuple element
+types, heritage clauses and their elements were hand loops that stopped at the
+first token that was not a `,`. Two things follow from upstream's
+`isInSomeParsingContext` that a hand loop cannot reproduce: a stray token inside
+`<…>` is reported once with the list's own message and skipped, and an *inner*
+list nested in one of these (a type literal inside type arguments, say) aborts
+on a token the outer list would take. Both need the context bit to be set.
+
+Ported (`parser.go` @ `5b1047d`): `PCHeritageClauseElement`,
+`PCObjectLiteralMembers` (its arms only: `parse_object_literal` does not set the bit yet), `PCTypeParameters`,
+`PCTypeArguments`, `PCTupleElementTypes` and `PCHeritageClauses`, each with its
+`isListElement`, `isListTerminator` and `parsingContextErrors` arm, and the
+loops of `parseTypeParameters`, `parseTypeArguments` (type references and
+heritage types), `parseTupleType`, `parseHeritageClauses` /
+`parseHeritageClause` / `parseExpressionWithTypeArguments` moved onto
+`parse_list` / `parse_delimited_list`.
+
+Judgment calls:
+
+- **`>` is split before the `PCTypeParameters` terminator test.** Upstream's
+  scanner only ever produces a lone `>`; this one packs `>=`, `>>` eagerly. The
+  arm calls `rescan_greater_than` first, as the `PCJsxAttributes` arm already
+  did. `PCTypeArguments`' terminator is "anything but `,`", so it needs no split.
+- **A heritage element is `parseLeftHandSideExpressionOrHigher`.** The
+  bespoke `parse_left_hand_side_for_heritage` (identifier, class expression or
+  parenthesised expression, then a member/call chain) could not parse
+  `"".bogus` or `{ foo: string; }` and reported TS1003 where upstream parses an
+  expression and the checker reports TS2507/TS2339. It is replaced by the
+  general call/member parser; an instantiation expression it returns (`A<T>,`)
+  is the element itself, as in upstream.
+- **Type parameter modifiers are `parseModifiersEx(false, true, false)`.** The
+  old loop took only `in`/`out`/`const`. `parse_modifiers_ex` gained a private
+  worker with `allowDecorators`; `<public T>` now parses `public` as a modifier
+  (the checker's TS1273) and `<in in>` names its parameter `in` (TS1359).
+- **Tuple named-member rest types: tried and reverted.** Upstream parses the
+  type after `name:` with `parseTupleElementType`, which accepts `...T`
+  (`[rest: ...string[]]`, the checker's TS5087). Porting it removed the extra
+  TS1110 in `namedTupleMembersErrors` but turned two RIGHT type rows
+  (`Opt : Opt`, `Trailing : Trailing`) into `any`: the checker cannot type a
+  `NamedTupleMember` whose type is an `OptionalType` or `RestType`. Reported to
+  the integrator; with that checker fix the parser change is the one-line call
+  in `parse_tuple_element`.
+
+One type row changed verdict and is recorded rather than reverted:
+`varianceAnnotationsWithCircularlyReferencesError:0:0` (`type T1<in in> = T1`).
+The delimited list now yields two type parameters (`in`-modified with a
+missing name, then a missing name), which is upstream's parse — its baseline
+has TS2637 at both columns 9 and 11 and TS2300 for the duplicate empty name.
+The old row printed `T1 : any` only because the old loop stopped after one
+parameter. Upstream's `any` comes from TS2456 (the alias circularly references
+itself through `T1` written without type arguments); this checker does not
+detect that circularity and prints `T1<, >`. The fix belongs in the checker's
+alias resolution (another lane).
+
+Measured at the commit: diagnostics 3846 → 3851 RIGHT (+1 EMPTY_RIGHT), no
+diagnostics losses; checker_types 7602 → 7618; `parser_reachable_target`
+unchanged at 5031/10570; median CPU self-ratio 0.972 (domain-model) and 0.994
+(generic-imports) at 21 samples.

@@ -455,6 +455,12 @@ impl<'a> Parser<'a> {
         expression
     }
 
+    /// typescript-go's `Parser.parseLeftHandSideExpressionOrHigher`
+    /// (`parser.go`), which a heritage clause element starts with.
+    pub(crate) fn parse_left_hand_side_expression_or_higher(&mut self) -> Expression<'a> {
+        self.parse_call_or_member_expression()
+    }
+
     /// Parse a primary expression followed by any chain of calls and accesses.
     fn parse_call_or_member_expression(&mut self) -> Expression<'a> {
         let start = self.pos();

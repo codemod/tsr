@@ -78,20 +78,6 @@ impl<'a> Parser<'a> {
         TypePredicateParameterName::Identifier(self.parse_identifier())
     }
 
-    /// Whether `in`/`out`/`const` here is the parameter's *name* rather than a
-    /// modifier — `<const>` declares a parameter called `const`.
-    fn next_is_type_parameter_terminator(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            matches!(
-                kind,
-                SyntaxKind::GreaterThanToken
-                    | SyntaxKind::CommaToken
-                    | SyntaxKind::EqualsToken
-                    | SyntaxKind::ExtendsKeyword
-            )
-        })
-    }
-
     /// Whether a `.` follows, making a keyword a namespace qualifier.
     fn next_is_dot(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::DotToken)
@@ -831,6 +817,11 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        self.parse_tuple_element_type_rest(start)
+    }
+
+    /// `parseTupleElementType` after its `...` arm.
+    fn parse_tuple_element_type_rest(&mut self, start: u32) -> TypeNode<'a> {
         let inner = self.parse_type();
         // `parseTupleElementType` (`parser.go:3645`): a postfix `T?` the type
         // grammar read as a JSDoc nullable is the tuple's optional element.
@@ -876,19 +867,15 @@ impl<'a> Parser<'a> {
 
     fn parse_tuple_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-        self.expect(SyntaxKind::OpenBracketToken);
-        let mut elements = Vec::new();
-        while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
-            let before = self.pos();
-            elements.push(self.parse_tuple_element());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-            if self.pos() == before {
-                break;
-            }
-        }
-        self.expect(SyntaxKind::CloseBracketToken);
+        // `parseBracketedList(PCTupleElementTypes, …, [, ])` (`parser.go:3613`).
+        let elements = if self.expect(SyntaxKind::OpenBracketToken) {
+            let (elements, _) = self
+                .parse_delimited_list(ParsingContext::TupleElementTypes, Self::parse_tuple_element);
+            self.expect(SyntaxKind::CloseBracketToken);
+            elements
+        } else {
+            Vec::new()
+        };
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(TupleTypeNode::new(elements), SyntaxKind::TupleType, start);
         TypeNode::TupleTypeNode(node)
@@ -1378,13 +1365,9 @@ impl<'a> Parser<'a> {
             return Vec::new();
         }
         self.next_token();
-        let mut arguments = Vec::new();
-        loop {
-            arguments.push(self.parse_type());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
+        // `parseBracketedList(PCTypeArguments, parseType, <, >)` (`parser.go:3014`).
+        let (arguments, _) =
+            self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
         // `List<List<T>>` lexes the close as `>>`; split it.
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
@@ -1393,7 +1376,11 @@ impl<'a> Parser<'a> {
         arguments
     }
 
-    /// `<T, U extends V>` on a declaration, if present.
+    /// `<T, U extends V>` on a declaration, if present — typescript-go's
+    /// `Parser.parseTypeParameters` (`parser.go:3221`): a bracketed
+    /// `parseDelimitedList(PCTypeParameters, parseTypeParameter)`, so a stray
+    /// token inside the brackets recovers through the list machinery
+    /// (`crate::list`) rather than ending the list at the first non-comma.
     pub(crate) fn parse_type_parameters(&mut self) -> Vec<&'a TypeParameterDeclaration<'a>> {
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
@@ -1402,41 +1389,31 @@ impl<'a> Parser<'a> {
             return Vec::new();
         }
         self.next_token();
-        let mut parameters = Vec::new();
-        while !self.at(SyntaxKind::GreaterThanToken) && !self.at(SyntaxKind::EndOfFile) {
-            let start = self.pos();
-            // Variance annotations (`in`, `out`) and `const` type parameters.
-            let mut modifiers = Vec::new();
-            while matches!(
-                self.token.kind,
-                SyntaxKind::InKeyword | SyntaxKind::OutKeyword | SyntaxKind::ConstKeyword
-            ) && !self.next_is_type_parameter_terminator()
-            {
-                let modifier_start = self.pos();
-                let kind = self.token.kind;
-                self.next_token();
-                let token = self.alloc_token(kind, tsr_core::Span::new(modifier_start, self.pos()));
-                modifiers.push(ModifierLike::Token(token));
-            }
-            let modifiers = self.arena.alloc_slice(&modifiers);
-            let name = self.parse_identifier();
-            let constraint =
-                if self.eat(SyntaxKind::ExtendsKeyword) { Some(self.parse_type()) } else { None };
-            let default =
-                if self.eat(SyntaxKind::EqualsToken) { Some(self.parse_type()) } else { None };
-            parameters.push(self.finish_node(
-                TypeParameterDeclaration::new(modifiers, Some(name), constraint, None, default),
-                SyntaxKind::TypeParameter,
-                start,
-            ));
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
+        let (parameters, _) =
+            self.parse_delimited_list(ParsingContext::TypeParameters, Self::parse_type_parameter);
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
         self.expect(SyntaxKind::GreaterThanToken);
         parameters
+    }
+
+    /// One type parameter — typescript-go's `Parser.parseTypeParameter`
+    /// (`parser.go:3228`). Only called where `isListElement(PCTypeParameters)`
+    /// holds.
+    fn parse_type_parameter(&mut self) -> &'a TypeParameterDeclaration<'a> {
+        let start = self.pos();
+        let modifiers = self.parse_type_parameter_modifiers();
+        let modifiers = self.arena.alloc_slice(&modifiers);
+        let name = self.parse_identifier();
+        let constraint =
+            if self.eat(SyntaxKind::ExtendsKeyword) { Some(self.parse_type()) } else { None };
+        let default =
+            if self.eat(SyntaxKind::EqualsToken) { Some(self.parse_type()) } else { None };
+        self.finish_node(
+            TypeParameterDeclaration::new(modifiers, Some(name), constraint, None, default),
+            SyntaxKind::TypeParameter,
+            start,
+        )
     }
 }
