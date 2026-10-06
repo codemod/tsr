@@ -11,6 +11,11 @@ qualification below explains.
 No runtime change, production cache, coverage gain or speedup is retained.
 Equivalent complete-work TSR/native median wall <=0.50 remains unverified.
 
+The [natural-publication continuation at d417a8c9](checker-natural-member-publication.md)
+now passes the previously pending circular-default field/reset control. Its
+broader retention gate still fails on 63 type assertion and eight diagnostic
+case RIGHT losses. The historical experiments below remain unchanged.
+
 The [receipt](checker-private-member-publication.json) contains full test/build
 outputs, source and binary bindings, mutation payloads, executed drivers and all
 ordinary CLI diagnostics. The [rejected patch](checker-private-member-publication-rejected.patch)

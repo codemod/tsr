@@ -22,6 +22,20 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Natural structured-member progress (`tsr-1yb.33.1`), frozen `d417a8c9` / native
+`5b1047d`: the previously pending circular-default control now reproduces own
+publication, reset, fresh/outer completion and exactly one TS2310 in three orders.
+Nonempty inherited signature/index fields and late-bound suppliers have focused
+native controls. All 196 private library tests pass after six detected compiling
+mutations restore. Wider retention remains **refused**: 63 previous RIGHT type
+losses over 477,970 aligned rows and eight passing diagnostic losses over 10,570
+cases. The initial candidate lost 611 type rows; raw/reference registry and
+late-bound writer corrections reduce that failure. Two CLI batches total 336
+terminal children; final 46/56 output pairs stay equal and all ten changed pairs
+improve to native, but that bounded matrix does not overrule the corpus losses.
+Canonical runtime unchanged; no coverage or speed gain. The task remains in
+progress. [Replay, full changes and limits](docs/architecture/checker-natural-member-publication.md).
+
 Prepared-reference progress (`tsr-1yb.33.1`), frozen `55ed1a2a` / native
 `5b1047d`: actual raw/reduced/apparent TypeIds and final original-this arguments
 now preserve scalar Single/Merged/Single, including readonly/private variants.
@@ -3370,6 +3384,11 @@ supplier/clone identities at frozen `55ed1a2a`; natural partial-base observation
 also passes. It remains in progress for field-complete natural reset/continuation
 and diagnostic admission. Do not restart the rejected declaration classifier or
 repeat the incorrect distinct-self result expectation.
+The `d417a8c9` continuation now passes the natural default/reset sequence and
+focused nonempty fields. Raw/reference classification and late-bound suppliers
+are repaired privately. Broader retention still fails on 63 type/eight diagnostic
+RIGHT losses; those exact corpus rows are the next repair, preserving existing
+receiver/signature owners. No production builder or speed improvement lands.
 Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
 [Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
@@ -6847,6 +6866,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `d417a8c9`, the natural structured-member candidate is refused for
+production retention on **63 previous RIGHT type assertion losses and eight
+passing diagnostic case losses**, despite 196 passing library tests and ten
+native-aligned CLI improvements. Its initial version lost 611 type assertions
+and emitted false shared-self TS2430; writer registry and late-bound table
+repairs correct those paths but do not clear the full gate. All 108 final changed
+type rows and 14 diagnostic case changes, including already-WRONG changes, are
+preserved. The natural circular-default control now passes; do not repeat the
+older missing-TS2310 diagnosis on this newer private source. No main runtime or
+speed gain. [Source-bound rejection](docs/architecture/checker-natural-member-publication.md).
 
 The historical private-symbol prototype (`tsr-1yb.33`, frozen `88a0d3ce`)
 remains refused on Merged/Merged/Single versus native Single/Merged/Single.
@@ -14686,3 +14716,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `88a0d3ce` / native `5b1047d` | — | — | **Actual private-member prototype, tsr-1yb.33: compiled and rejected.** 188 library passes/two reported failures; scalar Merged/Merged/Single. Corrected by the following preparation entry: the three distinct-self result expectations confused native supplier reads with the synthesized result, so those were false parity failures. Five mutants detected; 162 ordinary invocations preserve all 54 baseline/prototype full-output pairs. Three fresh native constructor orders preserve Single/Merged/Single and isolate missing raw/reduced/apparent preparation. All 650 baseline Rust files restore; 185 baseline library tests pass. Native touched files restore and three qualified hashes match; no new full-archive hash claim. .33.1 gates builder4.2.1; no runtime, corpus or speed gain. [Evidence](docs/architecture/checker-private-member-publication.md). |
 
 | 2026-10-06 | `55ed1a2a` / native `5b1047d` | — | — | **Prepared reference progress, tsr-1yb.33.1, still in progress.** Concrete final original-this arguments and raw/reduced/apparent forcing preserve Single/Merged/Single; exact-optional declaration flags and ordinary writes are repaired privately. Fresh native 39 controls correct the previous false distinct-self and clone-containing assertions. Final library 192 passes/one ignored; the ignored natural-default test is also executed and misses TS2310 in all three matched-option orders. A real unresolved base re-entry exposes [Root] before completed [Root, Later]. Three compiling mutations are detected, restored, then 192 passes repeat. Two CLI batches total 324 completed invocations; each preserves all 54 baseline/prototype output pairs and the same 11 existing native mismatch families. No canonical runtime retention, full corpus or speed claim; natural field-complete completion/reset remains the prerequisite for builder4.2.1. [Replay and limits](docs/architecture/checker-private-member-publication.md#prepared-reference-progress-at-55ed1a2a). |
+
+| 2026-10-06 | `d417a8c9` / native `5b1047d` | — | — | **Natural structured-member progress, tsr-1yb.33.1; retention refused.** Actual own-field publication/reset and fresh-or-outer completion reproduce exactly one TS2310 across three matched orders. Fresh native 30 recursive controls,39 shared controls plus6 enumeration projections,3 nonempty-field controls and42 resolved-member controls qualify bounded behavior. Raw declaration/reference classification and late-bound suppliers correct genuine broader failures. Final196 library passes after6 compiling mutants detect faults and exact restoration. Two CLI batches336 terminal children: final46/56 full output pairs equal,10 changed pairs improve to native, no bounded native agreement loss. Unfiltered477970 type rows still lose63 previously RIGHT assertions(initial611);10570 diagnostic cases lose8. Full changed rows include already-WRONG cases. No canonical runtime retention, coverage or speed gain; task remains in progress and builder4.2.1 gated. [Replay and limits](docs/architecture/checker-natural-member-publication.md). |
