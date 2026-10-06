@@ -227,3 +227,26 @@ targets.
 `instanceofOperatorWithInvalidOperands`, `symbolType1` converted; correct
 lines in `instanceofOperatorWithInvalidOperands.es2015` and `widenedTypes`;
 none lost.
+
+## §12 TS2628–TS2631 / TS2539 in files with parse errors
+
+**Forcing constraint.** `check_identifier_assignment_target`
+(`readonly_target.rs`, `checkIdentifier`'s non-variable assignment arm,
+`checker.go:11077`) declined in any file with parse errors. Upstream has no
+such gate. Every lane case owing these codes is a parser-recovery fixture
+(`assignmentLHSIsValue`, `compoundAssignmentLHSIsValue`,
+`compoundExponentiationAssignmentLHSIsValue`,
+`increment/decrementOperatorWithAnyOtherTypeInvalidOperations`): 44 correct
+lines withheld.
+
+**What changed.** The bail is removed; the rule reads only the identifier,
+its assignment-target position and the symbol it resolves to. Removing it
+alone surfaced one wrong line, `reservedWords2.ts(1,14)` TS2630: recovery
+produced an assignment whose left is a *missing* identifier (empty text),
+which resolved to `function throw() {}`, whose name was also lost.
+Upstream's `getResolvedSymbol` resolves nothing for a missing node
+(`!ast.NodeIsMissing(node)`, `checker.go:13894`); the port now skips an
+identifier with empty text, which is what a missing identifier is here.
+
+**Measured.** `assignmentLHSIsValue` converted, +44 lines over six cases,
+none lost. The other parse-error fixtures still owe codes from other rules.
