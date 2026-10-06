@@ -31,6 +31,13 @@ use crate::checker::Checker;
 const BLOCK_SCOPED: SymbolFlags =
     SymbolFlags::BLOCK_SCOPED_VARIABLE.union(SymbolFlags::CLASS).union(SymbolFlags::ENUM);
 
+/// The bound on a miss certificate's walk through type compositions (alias
+/// bodies, intersections, `Omit` sources). Upstream has none beyond its
+/// instantiation limits; a chain of fifty `merge<…>` aliases
+/// (`longObjectInstantiationChain1`) is three levels per link. A deeper
+/// composition is not certified.
+const MAX_COMPOSITION_DEPTH: u32 = 256;
+
 impl Checker<'_, '_> {
     /// The nonexistent-property check for one property access.
     ///
@@ -772,6 +779,9 @@ impl Checker<'_, '_> {
             }
             return self.no_index_signature_admits(apparent, name);
         }
+        if self.is_intersection_or_alias_reference(apparent) {
+            return self.intersection_or_alias_lacks(apparent, name, depth);
+        }
         let crate::types::TypeData::Named { members: Some(owner), .. } =
             self.store.get(apparent).data
         else {
@@ -818,6 +828,61 @@ impl Checker<'_, '_> {
         self.no_index_signature_admits(apparent, name)
     }
 
+    /// The miss certificate for an intersection and for a type alias
+    /// reference this port keeps unevaluated; `None` when `apparent` is
+    /// neither, otherwise [`Checker::apparent_type_lacks`]'s answer.
+    ///
+    /// - An **intersection**'s property is `createUnionOrIntersectionProperty`
+    ///   over each constituent's apparent type (`checker.go`): any constituent
+    ///   holding the name makes the property, and `getApplicableIndexInfoForName`
+    ///   unions the constituents' index infos. So the name is absent exactly
+    ///   when every constituent certainly lacks it with no index signature
+    ///   admitting it. An intersection `getReducedType` would reduce to
+    ///   `never` (a never-typed discriminant) is not certified.
+    /// - An **alias reference** is the alias body instantiated with its
+    ///   arguments, the same evaluation `property_type_via_shape`
+    ///   (`crate::members`) reads properties through.
+    ///
+    /// No cache: the constituents' lookups after the receiver's own miss.
+    fn intersection_or_alias_lacks(
+        &mut self,
+        apparent: TypeId,
+        name: &str,
+        depth: u32,
+    ) -> Option<bool> {
+        if depth >= MAX_COMPOSITION_DEPTH {
+            return None;
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(apparent).data {
+            let types = types.clone();
+            if self.intersection_has_never_discriminant(apparent) {
+                return None;
+            }
+            for constituent in types {
+                let constituent = self.apparent_type(constituent);
+                let constituent = self.primitive_apparent_type(constituent);
+                if self.apparent_type_lacks_at(constituent, name, depth + 1) != Some(true) {
+                    return None;
+                }
+            }
+            return Some(true);
+        }
+        let (target, arguments) = self.type_reference_targets.get(&apparent)?.clone();
+        let evaluated = self.evaluate_alias_body(target, &arguments)?;
+        if evaluated == apparent {
+            return None;
+        }
+        self.apparent_type_lacks_at(evaluated, name, depth + 1)
+    }
+
+    /// An intersection, or a reference to a type alias.
+    fn is_intersection_or_alias_reference(&self, id: TypeId) -> bool {
+        matches!(self.store.get(id).data, crate::types::TypeData::Intersection { .. })
+            || self.type_reference_targets.get(&id).is_some_and(|(target, _)| {
+                self.binder.symbols().get(*target).flags.contains(SymbolFlags::TYPE_ALIAS)
+            })
+    }
+
     /// The miss certificate for a reference to the global `Omit<T, K>`, the
     /// type `getRestType` (`checker.go:17792`) builds for a rest element over a
     /// generic source (`{ ...rest } = this`), given its `[T, K]` arguments:
@@ -842,7 +907,6 @@ impl Checker<'_, '_> {
         name: &str,
         depth: u32,
     ) -> Option<bool> {
-        const MAX_DEPTH: u32 = 32;
         // A `K` that is not a literal-key union (or `never`) leaves the
         // constraint unresolved here.
         if self.literal_key_texts(removed)?.iter().any(|key| key == name) {
@@ -852,7 +916,7 @@ impl Checker<'_, '_> {
         if let Some(property) = self.get_property_of_type(source, name) {
             return Some(self.is_non_public_member(property));
         }
-        if depth >= MAX_DEPTH {
+        if depth >= MAX_COMPOSITION_DEPTH {
             return None;
         }
         self.apparent_type_lacks_at(source, name, depth + 1)
