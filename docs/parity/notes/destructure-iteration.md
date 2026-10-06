@@ -195,3 +195,47 @@ either kept its previous answer.
 (CREATE-GENERATOR-TYPE-EMPTY-FALLBACK). Moving those three reads onto
 `get_contextual_iteration_type` / `createGeneratorType`'s `{}` fallback is
 handed to the calls box as a measured patch (§7).
+
+## 7. `return_type_from_body`'s generator arm — patch for the calls box (CREATE-GENERATOR-TYPE-EMPTY-FALLBACK, YIELD-NEXT fallback)
+
+`signatures.rs` belongs to the calls box, so this box does not commit it. The
+measured patch is `docs/parity/notes/destructure-iteration-signatures.patch`
+(`git apply` from the repository root). It makes three changes to
+`return_type_from_body`'s generator arm and moves three test pins with them:
+
+1. **NEXT fallback.** An empty next aggregate reads
+   `getContextualIterationType(Next, fn)` orElse `unknown` (`checker.go:20251`)
+   through §6's `get_contextual_iteration_type`, instead of the third type
+   argument of a single `Generator`-family contextual reference.
+2. **Async gate.** The async generator expression declines only when
+   `get_contextual_return_type` cannot finish.
+3. **`createGeneratorType`'s `{}` fallback** (`checker.go:20442-20447`): with
+   neither `Generator` nor `IterableIterator` (or the async pair) the arm
+   answers the empty object type rather than `None`.
+   `generatorReturnTypeFallback.2` (`@lib: es5`) wants `() => {}`. Three unit
+   pins that recorded the old decline (`error`/`None`) for a lib-less
+   generator now read `{}`/`() => {}`: `signature_positions.rs`,
+   `tests/return_inference.rs`, `tests/types.rs`.
+
+**The fallback inside (1) and (2).** Where the new lookup is undecidable, the
+patch keeps the pre-port read of a single generator-family reference. Without
+it, `types.asyncGenerators.es2018.1` lost 11 RIGHT lines: an async generator
+IIFE inside `yield*` takes its context from the `yield*` operand
+(`Generator<…> | AsyncGenerator<…>`), and for the sync `Generator<…>`
+constituent under the async use the engine cannot establish that
+`[Symbol.asyncIterator]` is absent (`declared_property_table` declines
+generic heritage; members lane). Falsifier: once that absence is decidable,
+the fallback is unreachable and both arms reduce to the upstream call.
+
+§6's `contextual_type_for_yield_operand_result` is the prerequisite: an IIFE
+in a yield operand takes `getContextualTypeForYieldOperand`'s answer with its
+nil kept apart from an unfinished lookup, where `get_contextual_type`'s
+`None` would have read every nil there as undecidable. Alone it changes no
+verdict (measured: 467725 RIGHT lines before and after).
+
+**Measured on top of §6 (`1a2f0d7`):** checker_types RIGHT lines
+467725 → 467740, both loss checks empty; cases newly fully RIGHT:
+`contextualTypeOnYield1`, `contextualTypeOnYield2`,
+`generatorReturnTypeFallback.2`, `generatorTypeCheck27`, `29`, `30`, `64`,
+`types.forAwait.es2018.3`. CPU-median self-ratio 0.94 (domain-model), 0.97
+(generic-imports); workspace tests pass with the patch applied.

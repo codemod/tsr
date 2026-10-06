@@ -1509,6 +1509,24 @@ impl<'a> Checker<'a, '_> {
             }
             ContextualSignature::Absent => {
                 let Some(call) = self.immediately_invoked_call(function) else { return Ok(None) };
+                // `getContextualType(iife)`. A yield operand position keeps
+                // upstream's nil apart from an unfinished lookup; elsewhere a
+                // `None` is nil only where `has_no_contextual_type` proves it.
+                let mut position = call;
+                let mut parent = self.nodes.parent(call);
+                while let Some(id) = parent
+                    && self.nodes.kind(id) == tsr_ast::SyntaxKind::ParenthesizedExpression
+                {
+                    position = id;
+                    parent = self.nodes.parent(id);
+                }
+                if let Some(id) = parent
+                    && let Some(Node::YieldExpression(yield_expression)) = self.node_map.get(id)
+                    && yield_expression.expression.and_then(|e| e.node_id()) == Some(position)
+                {
+                    let delegates = yield_expression.asterisk_token.is_some();
+                    return self.contextual_type_for_yield_operand_result(id, delegates);
+                }
                 match self.get_contextual_type(call) {
                     Some(contextual) => Ok(Some(contextual)),
                     None if self.has_no_contextual_type(call) => Ok(None),
@@ -1906,9 +1924,22 @@ impl<'a> Checker<'a, '_> {
         yield_id: NodeId,
         delegates: bool,
     ) -> Option<TypeId> {
+        self.contextual_type_for_yield_operand_result(yield_id, delegates).ok().flatten()
+    }
+
+    /// [`Self::contextual_type_for_yield_operand`] keeping upstream's nil
+    /// (`Ok(None)`) apart from an unfinished lookup (`Err`), for the IIFE arm
+    /// of [`Self::get_contextual_return_type`].
+    fn contextual_type_for_yield_operand_result(
+        &mut self,
+        yield_id: NodeId,
+        delegates: bool,
+    ) -> Result<Option<TypeId>, crate::iteration::Unsupported> {
         use crate::iteration::IterationTypeKind;
-        let function = self.containing_function(yield_id)?;
-        let mut contextual = self.get_contextual_return_type(function).ok()??;
+        let Some(function) = self.containing_function(yield_id) else { return Ok(None) };
+        let Some(mut contextual) = self.get_contextual_return_type(function)? else {
+            return Ok(None);
+        };
         let is_async = self.contextual_function_is_async(function);
         if !delegates && self.store.get(contextual).flags.contains(crate::flags::TypeFlags::UNION) {
             let mut undecided = false;
@@ -1926,32 +1957,31 @@ impl<'a> Checker<'a, '_> {
                     .is_some()
             });
             if undecided {
-                return None;
+                return Err(());
             }
         }
         if !delegates {
-            let yielded = self
-                .get_iteration_type_of_generator_function_return_type(
-                    IterationTypeKind::Yield,
-                    contextual,
-                    is_async,
-                )
-                .ok()??;
-            return Some(self.unwrap_contextual_awaited_slot(yielded, is_async));
+            let yielded = self.get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Yield,
+                contextual,
+                is_async,
+            )?;
+            return Ok(
+                yielded.map(|yielded| self.unwrap_contextual_awaited_slot(yielded, is_async))
+            );
         }
-        let types = self
-            .get_iteration_types_of_generator_function_return_type(contextual, is_async)
-            .ok()?;
+        let types =
+            self.get_iteration_types_of_generator_function_return_type(contextual, is_async)?;
         let yielded = types.yield_type.unwrap_or_else(|| self.get_silent_never_type());
         let returned =
             self.get_contextual_type(yield_id).unwrap_or_else(|| self.get_silent_never_type());
         let next = types.next_type.unwrap_or(self.intrinsics.unknown);
-        let sync = self.create_generator_type(yielded, returned, next, false).ok()?;
+        let sync = self.create_generator_type(yielded, returned, next, false)?;
         if is_async {
-            let asynchronous = self.create_generator_type(yielded, returned, next, true).ok()?;
-            Some(self.get_union_type(&[sync, asynchronous]))
+            let asynchronous = self.create_generator_type(yielded, returned, next, true)?;
+            Ok(Some(self.get_union_type(&[sync, asynchronous])))
         } else {
-            Some(sync)
+            Ok(Some(sync))
         }
     }
 
