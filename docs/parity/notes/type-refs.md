@@ -169,7 +169,11 @@ rule 3, is not built).
 No new table: this changes the value stored in the existing `declared_types`
 owner, under the existing `resolutions` frame.
 
-### 2.3 Held, measured, blocked on two annotation-reuse sites outside this lane
+### 2.3 Held patch A, measured, blocked on two annotation-reuse sites outside this lane
+
+Patch: `type-refs-held/A-dup-members-and-type-parameter-body.patch` (applies to
+this branch's head; NOT built into the tree — it touches `signatures.rs` and
+`objects.rs`, which this box does not own).
 
 Two more slices are built and measured but NOT committed, because each moves a
 signature print that upstream produces by reusing the written annotation
@@ -196,3 +200,58 @@ predecessor): 18 cases, +43 lines, 0 losses — the held slices add
 `objectTypeWithDuplicateNumericProperty`, `unknownType2`,
 `intersectionApparentTypeCaching`, `inferTypeParameterConstraints`,
 `relatedViaDiscriminatedTypeNoError2`, `importClause_namespaceImport`.
+
+### 2.4 Held patch B: deferred type references carry their alias (ADR-0045's first table)
+
+Patch: `type-refs-held/B-deferred-type-reference-alias.patch` — NOT built into
+the tree. It is the first writer and reader of ADR-0045's side table:
+
+- `Checker::alias_of: TypeId -> (alias SymbolId, alias arguments)` and the
+  intern table `deferred_alias_references: (alias, reference) -> TypeId`
+  (checker.rs fields; ADR-0045 rule 1's representation).
+- Writer: `deferred_alias_reference` (declared.rs) — `createDeferredTypeReference`
+  through `isDeferredTypeReferenceNode`'s alias arm (`checker.go:23236`), for an
+  array node (`getTypeFromArrayOrTupleTypeNode :24115`) or a generic
+  class/interface reference (`getTypeFromClassOrInterfaceReference :23200`) that
+  is directly the body of a NON-generic alias. The copy keeps flags, member
+  owner and `type_reference_targets`, so every semantic consumer sees the same
+  `(target, arguments)`; only the printer reads `alias_of`.
+- Reader: `type_to_string_at` prints `alias_of` first through
+  `reference_text_at` (ADR-0045 rule 5, the node builder's alias arm `:3362`).
+- `without_alias` recovers the canonical reference for consumers that build a
+  NEW type from the structure: the variadic-tuple rest print
+  (`createNormalizedTupleType` stores a rest's element type; `[...Numbers, boolean]`
+  prints `[...number[], boolean]` — measured 3 R→W without it).
+
+Checker port convention: native operation `createDeferredTypeReference` /
+`isDeferredTypeReferenceNode` @ `5b1047d`; key `(alias SymbolId, canonical
+reference TypeId)`, owner the Checker; published once at creation, never
+mutated, absent = no alias (complete); consumer context printing only; work
+boundary one hash lookup per alias-body array/class reference, which runs once
+per alias because the declared type is memoised.
+
+Measured (on top of 2.1/2.2): +158 type lines, 11 cases
+(`constraintOfRecursivelyMappedTypeWithConditionalIsResolvable`,
+`genericDefaultsErrors`, `instanceofTypeAliasToGenericClass`,
+`selfReferencingTypeReferenceInference`,
+`typeVariableConstraintedToAliasNotAssignableToUnion`,
+`destructuringParameterDeclaration3ES5/ES6`, `destructuringParameterDeclaration4`,
+`directDependenceBetweenTypeAliases`,
+`objectTypeWithStringAndNumberIndexSignatureToAny`, `readonlyArraysAndTuples2`).
+Losses, which is why it is held:
+
+1. `recursiveTypeReferences1` (2 lines, `children.length` → `any`):
+   `members.rs` `completed_array_placeholder_length_body` requires
+   `instantiations[key] == declared_types[owner]`, which the alias copy is not.
+   The patch includes the one-line fix (`self.without_alias(...)` on the
+   declared body), measured to remove both losses — but `members.rs` is the
+   property lane's file.
+2. `spreadBooleanRespectsFreshness` (1 line): `c ? fa : [fb]` with
+   `fa: FooArray` now prints `FooArray`; upstream prints `FooBase[]`. With two
+   distinct but structurally identical constituents `removeSubtypes`
+   (`checker.go:25934`) removes whichever sorts LAST, so upstream's answer says
+   either the fresh array-literal reference is not a strict subtype of the
+   deferred alias reference, or it sorts earlier. Not diagnosed: the decision
+   is in the relater (strict-subtype over a fresh array literal) or in type-id
+   creation order, neither of which this box owns. Falsifier for any fix: the
+   case's line 10 turns RIGHT and no other line moves.
