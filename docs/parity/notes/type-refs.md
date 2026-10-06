@@ -411,3 +411,40 @@ channel as the optional `?`), so the quote changes printing and nothing
 else. Only the type-literal method half is here; object-literal and class
 methods are printed by other lanes' code. +2 lines, 2 cases (`vardecl`,
 `parser645484`), 0 R→W.
+
+### 3.6 `keyof` alias references instantiate their body (ADR-0045 rule 3, one body kind)
+
+**Held patch C** (`type-refs-held/C-keyof-alias-instantiation.patch`). This change
+is NOT in the tree. Besides the owned `templates.rs` change, it needs two hunks
+outside this box's files:
+
+- `signatures.rs` type-parameter `written_constraint`: tsgo's
+  `typeParameterToDeclaration` (`nodebuilderimpl.go:1615`) reuses the written
+  constraint node, so `<K extends Key<T>>` prints `Key<T>` even though the
+  type is now `keyof T`. Without this hunk the probe
+  `computed_indexes::computed_keyof_alias_constraint` (pinned tsgo) fails.
+- `tsr-conformance/tests/original_callable_entry.rs`: the test asserted a
+  TS2464 that is now gone. Native's bag is empty, so the expectation becomes
+  `[]`.
+
+With all three hunks applied: workspace tests pass and fmt is clean. Perf
+(median CPU, 41 samples): domain-model 0.976, generic-imports 0.991.
+
+§2.2 made a `keyof X` alias body its own declared type but left references on
+the `create_type_reference` road, so `type KeyOf<T> = keyof T` printed
+`KeyOf<{ a: 1 }>` where upstream prints `"a"`. Upstream's
+`getTypeFromTypeOperatorNode` takes no alias, so the declared type is an
+index type and `getTypeAliasInstantiation` → `instantiateType` re-runs
+`getIndexType` on the instantiated operand. `instantiate_template_alias`
+(templates.rs) already evaluated a template body under the alias's
+argument bindings; it now admits a `keyof` operator body on the same road
+(same in-progress guard, same `alias_evaluation_bindings` frame, result
+cached in `instantiations` by the caller). A generic argument yields
+`keyof U`, which is also upstream's print.
+
+Measured against `3612144` (patch applied): +9 type lines (`keyofIntersection`,
+`mappedTypeAsClauses` 6, `recursiveTypeRelations` 2), diagnostics
+`mappedTypeAsClauses` WRONG→RIGHT and
+`declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`
+EMPTY_WRONG→EMPTY_RIGHT, 0 losses in either dump. No new state: the
+instantiation cache entry is the existing `instantiations[(alias, args)]`.

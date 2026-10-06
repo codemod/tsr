@@ -1,0 +1,124 @@
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index f7d339c..c4a239a 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -5834,10 +5834,18 @@ impl<'a> Checker<'a, '_> {
+             self.written_annotation_text(annotation).or_else(|| {
+                 // A mapped reference can resolve to a tuple while the node
+                 // builder reuses the reference written in the constraint.
++                // Likewise a reference to an alias whose `keyof`/template body
++                // is evaluated per instantiation (`type Key<T> = keyof T`):
++                // the type is `keyof T`, the reused node `Key<T>`
++                // (`typeToTypeNodeHelperWithPossibleReusableTypeNode`,
++                // `nodebuilderimpl.go:1615`).
+                 let resolved = constraint?;
+-                if !matches!(annotation, TypeNode::TypeReferenceNode(_))
+-                    || !(self.tuple_element_lists.contains_key(&resolved)
+-                        || self.variadic_tuple_elements.contains_key(&resolved))
++                let TypeNode::TypeReferenceNode(reference) = annotation else {
++                    return None;
++                };
++                if !(self.tuple_element_lists.contains_key(&resolved)
++                    || self.variadic_tuple_elements.contains_key(&resolved)
++                    || self.is_evaluated_operator_alias_reference(reference))
+                 {
+                     return None;
+                 }
+diff --git a/crates/tsr-checker/src/templates.rs b/crates/tsr-checker/src/templates.rs
+index c20c47b..4145dd4 100644
+--- a/crates/tsr-checker/src/templates.rs
++++ b/crates/tsr-checker/src/templates.rs
+@@ -23,8 +23,19 @@ impl Checker<'_, '_> {
+         else {
+             return None;
+         };
+-        let body @ tsr_ast::TypeNode::TemplateLiteralTypeNode(_) = alias.r#type? else {
+-            return None;
++        // `keyof X` bodies take the same road: getTypeFromTypeOperatorNode
++        // receives no alias (ADR-0045 rule 4), so the instantiation is the
++        // index type of the instantiated operand — `type KeyOf<T> = keyof T`
++        // makes `KeyOf<{ a: 1 }>` the literal `"a"`, and a generic argument
++        // stays `keyof U` (`instantiateType` over an IndexType, `getIndexType`).
++        let body = match alias.r#type? {
++            body @ tsr_ast::TypeNode::TemplateLiteralTypeNode(_) => body,
++            body @ tsr_ast::TypeNode::TypeOperatorNode(operator)
++                if operator.operator.kind == tsr_ast::SyntaxKind::KeyOfKeyword =>
++            {
++                body
++            }
++            _ => return None,
+         };
+         if alias.type_parameters.len() != arguments.len()
+             || !self.template_alias_in_progress.insert(symbol)
+@@ -45,6 +56,49 @@ impl Checker<'_, '_> {
+         Some(result)
+     }
+ 
++    /// Whether `reference` names a type alias whose body
++    /// [`Checker::instantiate_template_alias`] evaluates per instantiation (a
++    /// template literal or `keyof` body): its type never prints as the
++    /// written reference, so a printer that reuses written nodes must reuse
++    /// this one explicitly.
++    pub(crate) fn is_evaluated_operator_alias_reference(
++        &self,
++        reference: &tsr_ast::TypeReferenceNode<'_>,
++    ) -> bool {
++        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
++            return false;
++        };
++        let Some(id) = name.node_id else { return false };
++        let Some(symbol) = self.binder.resolve_name(
++            self.nodes,
++            self.node_map,
++            id,
++            name.text,
++            tsr_binder::SymbolFlags::TYPE,
++        ) else {
++            return false;
++        };
++        let symbol = self.binder.merged_symbol(symbol);
++        if !self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
++            return false;
++        }
++        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
++        else {
++            return false;
++        };
++        matches!(
++            self.node_map.get(declaration),
++            Some(tsr_ast::Node::TypeAliasDeclaration(alias)) if !alias.type_parameters.is_empty()
++                && match alias.r#type {
++                    Some(tsr_ast::TypeNode::TemplateLiteralTypeNode(_)) => true,
++                    Some(tsr_ast::TypeNode::TypeOperatorNode(operator)) => {
++                        operator.operator.kind == tsr_ast::SyntaxKind::KeyOfKeyword
++                    }
++                    _ => false,
++                }
++        )
++    }
++
+     pub(crate) fn get_template_literal_type(
+         &mut self,
+         texts: &[String],
+diff --git a/crates/tsr-conformance/tests/original_callable_entry.rs b/crates/tsr-conformance/tests/original_callable_entry.rs
+index 141dd49..71acadd 100644
+--- a/crates/tsr-conformance/tests/original_callable_entry.rs
++++ b/crates/tsr-conformance/tests/original_callable_entry.rs
+@@ -19,10 +19,11 @@ fn recursive_declarations_original_entry_does_not_add_either_circular_return_occ
+         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+         .collect();
+     actual.sort_unstable();
+-    // Native has an empty bag. The prefix51a6 checkpoint already has this
+-    // unrelated TS2464; the complete occurrence gate keeps it as rejected
+-    // prerequisite evidence, not as an expected native diagnostic. This
+-    // successor must remove both new TS7024 (8,20)/(11,13), not hide them in
+-    // the already-WRONG bucket or discard another diagnostic occurrence.
+-    assert_eq!(actual, [(13, 82, 2464)]);
++    // Native has an empty bag. The unrelated TS2464 the prefix51a6
++    // checkpoint carried was the computed key `{ [key]: v }` with
++    // `key: K extends Key<U>` (`type Key<U> = keyof U`): the constraint was
++    // an opaque alias reference, not `keyof U`. Type-refs round 3
++    // (`docs/parity/notes/type-refs.md` §3.6) instantiates that body, so the
++    // bag now matches native. Both TS7024 (8,20)/(11,13) must stay absent.
++    assert_eq!(actual, []);
+ }
