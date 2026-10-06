@@ -4008,6 +4008,7 @@ impl Checker<'_, '_> {
         // variable or an enum member names a property
         // (`tryGetNameFromEntityNameExpression`). A parameter narrowed to a
         // literal does not: `key = "a"; obj[key]` is not `obj.a`.
+        let mut key_expression = argument;
         if !matches!(
             argument,
             tsr_ast::Expression::StringLiteral(_)
@@ -4015,13 +4016,32 @@ impl Checker<'_, '_> {
                 | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
         ) {
             let symbol = self.entity_name_expression_value_symbol(argument)?;
-            if !(self.is_constant_variable(symbol)
-                || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ENUM_MEMBER))
-            {
+            if self.is_constant_variable(symbol) {
+                // `tryGetNameFromEntityNameExpression` (`flow.go:1753`): the
+                // declared annotation's literal, else the initializer's type
+                // — only for a non-binding-element declaration declared before
+                // this use, so a later `const` is never resolved from here.
+                let declaration = self.binder.symbols().get(symbol).value_declaration?;
+                if let Some(annotation) = self.type_annotation_of(declaration) {
+                    let declared = self.get_type_from_type_node(annotation);
+                    if let TypeData::StringLiteral(text) | TypeData::NumberLiteral(text) =
+                        &self.store.get(declared).data
+                    {
+                        return Some(text.clone());
+                    }
+                }
+                if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration
+                    || !self
+                        .is_block_scoped_name_declared_before_use(declaration, argument.node_id()?)
+                {
+                    return None;
+                }
+                key_expression = self.initializer_of(declaration)?;
+            } else if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ENUM_MEMBER) {
                 return None;
             }
         }
-        let key = self.check_expression(argument);
+        let key = self.check_expression(key_expression);
         match &self.store.get(key).data {
             // A numeric literal key names the same member as its text —
             // `a[0]` and `a["0"]` are one property — so both arms answer the

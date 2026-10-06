@@ -6384,6 +6384,31 @@ impl Checker<'_, '_> {
         self.binder.symbols().get(namespace).exports.get(text).copied()
     }
 
+    /// `isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) for a value
+    /// use: a declaration in another file answers `true`; otherwise the
+    /// variable arms ([`Checker::variable_declared_before_use`]) when the
+    /// declaration comes first and the deferral arms
+    /// ([`Checker::use_is_not_deferred`]) when it comes after — the two halves
+    /// the TS2448 report already reads.
+    pub(crate) fn is_block_scoped_name_declared_before_use(
+        &self,
+        declaration: NodeId,
+        usage: NodeId,
+    ) -> bool {
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(usage)
+        {
+            return true;
+        }
+        if self.nodes.span(declaration).start <= self.nodes.span(usage).start {
+            return !matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::VariableDeclaration | SyntaxKind::BindingElement
+            ) || self.variable_declared_before_use(declaration, usage, 0);
+        }
+        !self.use_is_not_deferred(usage, declaration)
+    }
+
     /// `isBlockScopedNameDeclaredBeforeUse`'s deferral arms (`checker.go:1922`),
     /// which §96 measured are the *majority* of that function rather than its
     /// edge cases — 176 wrong lines when they were approximated.
