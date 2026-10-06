@@ -371,6 +371,15 @@ pub struct Checker<'a, 'n> {
     /// sensitive arguments. Later contextual reads use the selected signature.
     pub(crate) resolved_call_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// `CallState.candidatesForArgumentError` (`checker.go:8838`) as the
+    /// final (assignable) pass of the §487 overload walk left it when both
+    /// passes rejected every candidate, keyed by the CALL node. Owner:
+    /// `calls.rs` (`transcribed_generic_set_walk`, the only writer, which
+    /// removes the entry when it picks or declines);
+    /// `reportCallResolutionErrors` (`checker.go:9649`) on the diagnostics
+    /// road is the reader. See [`crate::calls::OverloadArgumentFailure`].
+    pub(crate) overload_argument_failures:
+        rustc_hash::FxHashMap<tsr_ast::NodeId, crate::calls::OverloadArgumentFailure>,
     /// Calls currently serving contextual signatures containing type parameters
     /// propagated from a generic argument (`instantiateTypeWithSingleGenericCallSignature`,
     /// internal/checker/checker.go).
@@ -1335,6 +1344,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+            overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),

@@ -580,11 +580,17 @@ impl Checker<'_, '_> {
                         }
                     }
                     CallArity::ApplicableOverloads(candidates) => {
-                        if !self.check_overload_candidates_arguments(node, &candidates) {
+                        if !self.check_overload_candidates_arguments(node, &candidates)
+                            && !self.report_overload_argument_failure(node)
+                        {
                             self.check_call_arity(node, false);
                         }
                     }
-                    CallArity::Applicable(None) => self.check_call_arity(node, false),
+                    CallArity::Applicable(None) => {
+                        if !self.report_overload_argument_failure(node) {
+                            self.check_call_arity(node, false);
+                        }
+                    }
                     CallArity::Undecided => {
                         self.check_call_arity(node, true);
                         self.check_call_type_argument_arity(node);
@@ -933,6 +939,179 @@ impl Checker<'_, '_> {
             }
         }
         true
+    }
+
+    /// `reportCallResolutionErrors`' `candidatesForArgumentError` arm
+    /// (`checker.go:9649`) over the verdicts the type road's overload walk
+    /// ([`Checker::transcribed_generic_set_walk`]) published for this call:
+    /// `isSignatureApplicable` (`checker.go:9256`) re-run with `reportErrors`
+    /// against the last rejected candidate, as checked (instantiated when
+    /// generic). Its first failing argument is reported; with several
+    /// rejected candidates the head is TS2769 (the chain and related
+    /// information await `tsr-2zk.22`, as in
+    /// [`Checker::check_overload_candidates_arguments`]).
+    ///
+    /// Each argument's type is the one the walk checked under that
+    /// candidate's parameter as contextual type where it re-checked it,
+    /// else its cached type; an argument whose type follows the contextual
+    /// type but was not re-checked (an object, array or class literal, a
+    /// context-sensitive function) stops the walk without a report, as do a
+    /// failing receiver (the TS2684 arm is not ported) and an undecidable
+    /// pair. Answers whether the walk published a verdict to read, so the
+    /// caller's declaration-only fallback does not run on an overload set.
+    fn report_overload_argument_failure(&mut self, node: tsr_ast::NodeId) -> bool {
+        // `resolveCall` reports from the resolution itself; here the type
+        // road's resolution publishes the verdict, so it is demanded first
+        // (cached in `node_types`; a no-op when the call was already typed).
+        // Inside a declaration with type parameters the demand is declined:
+        // this port's eager signature return types re-enter recursive
+        // return inference there (TS7024 in
+        // `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`,
+        // `tests/original_callable_entry.rs`), the decline
+        // `docs/parity/notes/calls-inference.md` §4 records for TS2349.
+        if !self.node_types.contains_key(&node) && self.in_generic_declaration(node) {
+            return false;
+        }
+        match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                self.check_expression(Expression::CallExpression(call));
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => {
+                self.check_expression(Expression::NewExpression(new));
+            }
+            _ => return false,
+        }
+        let Some(failure) = self.overload_argument_failures.get(&node).cloned() else {
+            return false;
+        };
+        let Some(last) = failure.last else { return true };
+        let arguments = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
+            _ => return true,
+        };
+        if let Some(parameter) = &last.this_parameter
+            && parameter.r#type != self.intrinsics.void
+        {
+            let receiver = self.this_argument_type_of_call(Some(node));
+            if self.relate_ternary(receiver, parameter.r#type, Relation::Assignable)
+                != Ternary::Related
+            {
+                return true;
+            }
+        }
+        let before = self.diagnostics.len();
+        for (position, argument) in arguments.iter().enumerate() {
+            let Some(argument_id) = argument.node_id() else { break };
+            let Some(target) = self.signature_type_at_position(&last, position) else { break };
+            if self.is_error(target) {
+                break;
+            }
+            let checked = failure.checked.get(position).copied().flatten();
+            if checked.is_none() && self.argument_type_is_not_upstreams(*argument) {
+                break;
+            }
+            let source = checked.unwrap_or_else(|| self.check_expression(*argument));
+            match self.relate_ternary(source, target, Relation::Assignable) {
+                Ternary::Related => continue,
+                Ternary::Unknown => break,
+                Ternary::NotRelated => {}
+            }
+            let mut inner = *argument;
+            while let Expression::ParenthesizedExpression(parenthesized) = inner {
+                let Some(expression) = parenthesized.expression else { break };
+                inner = expression;
+            }
+            let literal = matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::ClassExpression(_)
+            ) || self.is_context_sensitive_argument(argument);
+            // This port's relation over a generic source or target (a type
+            // parameter, a homomorphic mapped type over one) is not
+            // upstream's, nor are the types it assigns inside the generic
+            // context (a rest parameter contextually typed by `...args:
+            // Args` reads `any[]`): the refusal of
+            // [`Checker::check_overload_candidates_arguments`], both sides.
+            if (checked.is_none()
+                && (literal
+                    || self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())))
+                || self.head_could_contain_type_variables(source, 3)
+                || self.head_could_contain_type_variables(target, 3)
+                || (literal && self.absent_member_flags_unreadable(source, target))
+            {
+                break;
+            }
+            if literal {
+                // `checkTypeRelatedToAndOptionallyElaborate` with the
+                // argument as expression: `elaborateError` speaks first.
+                self.check_excess_properties(target, argument_id);
+                if self.diagnostics.len() == before {
+                    let span = self.error_span(argument_id);
+                    self.report_relation_failure(
+                        argument_id,
+                        span,
+                        Some(argument_id),
+                        source,
+                        target,
+                        Some(
+                            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+                        ),
+                    );
+                }
+            } else {
+                self.report_argument_failure(argument_id, source, target);
+            }
+            break;
+        }
+        if failure.count > 1 {
+            for (_, diagnostic) in &mut self.diagnostics[before..] {
+                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
+                diagnostic.args.clear();
+            }
+        }
+        true
+    }
+
+    /// Whether a function-like or class declaration enclosing `node` declares
+    /// type parameters.
+    fn in_generic_declaration(&self, node: tsr_ast::NodeId) -> bool {
+        use tsr_ast::Node;
+        let mut current = self.nodes.parent(node);
+        while let Some(ancestor) = current {
+            let generic = match self.node_map.get(ancestor) {
+                Some(Node::FunctionDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::FunctionExpression(n)) => !n.type_parameters.is_empty(),
+                Some(Node::ArrowFunction(n)) => !n.type_parameters.is_empty(),
+                Some(Node::MethodDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::ConstructorDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::GetAccessorDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::SetAccessorDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::ClassDeclaration(n)) => !n.type_parameters.is_empty(),
+                Some(Node::ClassExpression(n)) => !n.type_parameters.is_empty(),
+                _ => false,
+            };
+            if generic {
+                return true;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        false
+    }
+
+    /// Whether `source` lacks a member of `target` whose symbol this port
+    /// cannot resolve although it types it (a member inherited through an
+    /// instantiated generic base, `interface Q extends P<string>`). The
+    /// relater reads such a member's optionality from its symbol
+    /// (`property_flags`), so its rejection of the absent member is not
+    /// upstream's `propertiesRelatedTo` verdict and is not reported.
+    fn absent_member_flags_unreadable(&mut self, source: TypeId, target: TypeId) -> bool {
+        let Some(names) = self.get_property_names_of_type(target) else { return false };
+        names.iter().any(|name| {
+            self.get_type_of_property_of_type(source, name).is_none()
+                && self.get_property_of_type(target, name).is_none()
+        })
     }
 
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
@@ -1440,7 +1619,9 @@ impl Checker<'_, '_> {
                     CallArity::Applicable(None)
                     | CallArity::ApplicableGeneric(_)
                     | CallArity::ApplicableOverloads(_) => {
-                        self.check_new_arity(node, false);
+                        if !self.report_overload_argument_failure(node) {
+                            self.check_new_arity(node, false);
+                        }
                     }
                     CallArity::Undecided => {
                         self.check_new_arity(node, true);
@@ -3981,8 +4162,44 @@ enum SubtypePassOutcome {
 enum OverloadPass {
     /// Boxed for the same reason as [`SubtypePassOutcome::Picked`].
     Picked(Box<Signature>),
-    AllRejected,
+    /// Every candidate rejected; carries the pass's
+    /// `candidatesForArgumentError`.
+    AllRejected(OverloadArgumentFailure),
     Undecidable,
+}
+
+/// `CallState.candidatesForArgumentError` (`checker.go:8838`) after the
+/// §487 walk's final pass: `chooseOverload` (`checker.go:9025`) resets it at
+/// each pass entry and appends every arity-matching candidate (instantiated
+/// when generic) that `isSignatureApplicable` rejected. Only what
+/// `reportCallResolutionErrors` (`checker.go:9649`) reads is kept: the last
+/// entry and the length.
+///
+/// Published per call node in `Checker::overload_argument_failures` by
+/// [`Checker::transcribed_generic_set_walk`] when both passes reject every
+/// candidate; the walk removes the entry when it picks or declines. No work
+/// happens on publication: the signature and argument types are the walk's
+/// own verdict data.
+#[derive(Clone, Default)]
+pub(crate) struct OverloadArgumentFailure {
+    /// The last rejected candidate, as checked. `None` when the last
+    /// rejection did not go through `isSignatureApplicable` here (the
+    /// missing-array-member pre-inference skip), so no report is upstream's.
+    pub(crate) last: Option<Box<Signature>>,
+    /// `len(candidatesForArgumentError)`.
+    pub(crate) count: usize,
+    /// Each argument's type as checked under `last`'s parameter as
+    /// contextual type (`checkExpressionWithContextualType`), where the walk
+    /// re-checked it; `None` where the walk read the context-free type.
+    pub(crate) checked: Vec<Option<TypeId>>,
+}
+
+impl OverloadArgumentFailure {
+    fn push(&mut self, last: Option<Signature>, checked: Vec<Option<TypeId>>) {
+        self.last = last.map(Box::new);
+        self.count += 1;
+        self.checked = checked;
+    }
 }
 
 impl Checker<'_, '_> {
@@ -4064,6 +4281,9 @@ impl Checker<'_, '_> {
             return None;
         }
         let call = call.or_else(|| self.call_for_overload_arguments(arguments));
+        if let Some(call) = call {
+            self.overload_argument_failures.remove(&call);
+        }
         let contextual = arguments.iter().any(|a| self.is_context_sensitive_argument(a));
         if contextual && call.is_none() {
             return None;
@@ -4129,6 +4349,7 @@ impl Checker<'_, '_> {
             return None;
         }
         let mut checked_contexts = vec![None; arguments.len()];
+        let mut failures = OverloadArgumentFailure::default();
         for relation in [Relation::Subtype, Relation::Assignable] {
             match self.overload_pass(
                 candidates,
@@ -4139,9 +4360,15 @@ impl Checker<'_, '_> {
                 &mut checked_contexts,
             ) {
                 OverloadPass::Picked(signature) => return Some(*signature),
-                OverloadPass::AllRejected => {}
+                // The final pass's list is the one reported.
+                OverloadPass::AllRejected(rejected) => failures = rejected,
                 OverloadPass::Undecidable => return None,
             }
+        }
+        if let Some(call) = call
+            && failures.count != 0
+        {
+            self.overload_argument_failures.insert(call, failures);
         }
         // `getCandidateForOverloadFailure` (`checker.go:9498`) with a generic
         // in the set → `pickLongestCandidateSignature` (`:9510`):
@@ -4214,6 +4441,8 @@ impl Checker<'_, '_> {
         call: Option<tsr_ast::NodeId>,
         checked_contexts: &mut [Option<TypeId>],
     ) -> OverloadPass {
+        // `chooseOverload` resets `candidatesForArgumentError` at entry.
+        let mut failures = OverloadArgumentFailure::default();
         let retain_context =
             candidates.iter().all(|candidate| candidate.type_parameters.is_empty());
         // A call's array-literal argument checked under a candidate's
@@ -4279,6 +4508,10 @@ impl Checker<'_, '_> {
                         })
                     })
                 }) {
+                    // Upstream instantiates and rejects it in
+                    // `isSignatureApplicable`; that instantiation is not
+                    // computed here, so it is no reportable last entry.
+                    failures.push(None, Vec::new());
                     continue;
                 }
                 // inferTypeArguments re-checks every argument with this
@@ -4333,7 +4566,10 @@ impl Checker<'_, '_> {
                 let Some(call) = call else { return OverloadPass::Undecidable };
                 let receiver = self.this_argument_type_of_call(Some(call));
                 match self.relate_ternary(receiver, parameter.r#type, relation) {
-                    Ternary::NotRelated => continue,
+                    Ternary::NotRelated => {
+                        failures.push(Some(concrete.clone()), vec![None; arguments.len()]);
+                        continue;
+                    }
                     Ternary::Unknown => receiver_relation_unknown = true,
                     Ternary::Related => {}
                 }
@@ -4390,7 +4626,10 @@ impl Checker<'_, '_> {
                         argument
                     };
                     match self.relate_ternary(argument, parameter_types[index], relation) {
-                        Ternary::NotRelated => continue 'candidate,
+                        Ternary::NotRelated => {
+                            failures.push(Some(concrete), vec![None; arguments.len()]);
+                            continue 'candidate;
+                        }
                         Ternary::Unknown => return OverloadPass::Undecidable,
                         Ternary::Related => {}
                     }
@@ -4465,7 +4704,14 @@ impl Checker<'_, '_> {
             }
             match verdict {
                 Ternary::Unknown => return OverloadPass::Undecidable,
-                Ternary::NotRelated => {}
+                Ternary::NotRelated => {
+                    let checked = checked_arguments
+                        .iter()
+                        .zip(&contextual_arguments)
+                        .map(|(&ty, &needed)| needed.then_some(ty))
+                        .collect();
+                    failures.push(Some(concrete), checked);
+                }
                 Ternary::Related => {
                     // A literal the picked instantiation did not re-check
                     // under its own context keeps its published type, not
@@ -4485,7 +4731,7 @@ impl Checker<'_, '_> {
         for (id, ty) in published {
             self.node_types.insert(id, ty);
         }
-        OverloadPass::AllRejected
+        OverloadPass::AllRejected(failures)
     }
 
     /// Records an array-literal argument's published type, once per walk,
