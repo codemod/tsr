@@ -28,9 +28,6 @@ use crate::{
 impl Checker<'_, '_> {
     /// The heritage conformance checks for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if self.in_js_file(node) {
             // The JS arm is the implemented-type loop over the `@implements`
             // tags `reparseHosted` moves into the class's implements clause;
@@ -276,9 +273,6 @@ impl Checker<'_, '_> {
     /// the spelling suggestion. `ambient` is the class's ambient context
     /// (`node.Flags&ast.NodeFlagsAmbient`).
     pub(crate) fn check_members_for_override_modifier(&mut self, node: NodeId, ambient: bool) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let is_js = self.in_js_file(node);
         let (members, clauses) = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => (class.members, class.heritage_clauses),

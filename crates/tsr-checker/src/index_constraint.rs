@@ -40,7 +40,7 @@ impl<'a> Checker<'a, '_> {
     /// index parameter's written annotation and nothing else is consulted.
     /// `docs/architecture/checker-notes-diag2.md` §69.
     pub(crate) fn check_duplicate_index_signatures(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let signatures: Vec<(&'static str, NodeId)> = match self.node_map.get(node) {
@@ -130,7 +130,7 @@ impl<'a> Checker<'a, '_> {
     /// the symbol's first interface declaration, which is the one a file-order
     /// check reaches first.
     pub(crate) fn check_index_constraints(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return };

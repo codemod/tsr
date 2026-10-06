@@ -437,3 +437,12 @@ and the merge arms read only symbols and declared types. Removed for this
 rule: +3 (`asyncArrowFunction9_es6`, `asyncArrowFunction9_es2017`,
 `negateOperatorInvalidOperations`), two more TS2687 lines, no new extra line
 of any code.
+
+The same gate was then lifted from `checkClassLikeDeclaration` /
+`checkInterfaceDeclaration`'s heritage rules (`heritage_conformance`),
+`checkIndexConstraints` and the enum-member name rule: +2
+(`interfaceDeclaration4`, `interfaceExtendingClass2`), nine more correct
+TS2374/TS2411/TS2420/TS2430 lines, no new extra. **Kept** on
+`merged_export_spaces` (TS2395): lifting it lost `anonymousModules`, where
+`module {` recovers as an expression statement and the block's `export var`s
+are bound as a merge upstream never forms.

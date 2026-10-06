@@ -65,9 +65,6 @@ impl Checker<'_, '_> {
         node: NodeId,
         member: &tsr_ast::EnumMember<'_>,
     ) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(initializer) = member.initializer else { return };
         let Some(at) = initializer.node_id() else { return };
         let Some(parent) = self.nodes.parent(node) else { return };
