@@ -242,3 +242,30 @@ lookup was not upstream's and found it.
 *base* (§3's decline), not on road 1 resolving: with a pragma-only runtime
 the container cannot resolve here, and falling through would start marking
 and reporting `React` where upstream resolved the runtime and returned.
+
+## 6. TS2786 on the one signature this port resolves
+
+`checkJsxOpeningLikeElementOrOpeningFragment` (`jsx.go:131`) relates the
+resolved signature's return type to the bound its `getJsxReferenceKind`
+selects (`checkJsxReturnAssignableToAppropriateBound`, `jsx.go:168`):
+`JSX.Element | null` for a function, `JSX.ElementClass` for a class, their
+union for a mixed tag. Ported as `check_jsx_component_bound`, reporting
+TS2786 on the tag name (the chained detail lines are not modelled; the code
+and span are upstream's).
+
+The signature is the one `jsx_attributes_context` publishes in
+`resolved_call_signatures`: a single candidate, instantiated when generic —
+what `resolveCall` returns for a one-candidate list whether or not the
+arguments fit. Declined, each because the faithful answer lives elsewhere:
+
+- **overloads and union tags** — the candidate is `resolveCall`'s choice
+  (calls lane; `tsxElementResolution9` keeps two missing TS2786);
+- **`JSX.ElementType` in scope** — upstream takes the `elementTypeConstraint`
+  branch instead (tag type against `ElementType`, instantiated with
+  defaults); not ported (`jsxElementType*`);
+- **intrinsic tags** — the fake signature returns `JSX.Element`, which the
+  mixed bound always accepts, so nothing is lost by skipping them;
+- **an `errorType` bound or return** — relates to everything upstream.
+
+A false TS2786 here would mean the published signature is not upstream's
+resolved one; compare against `resolveJsxOpeningLikeElement`, not this rule.

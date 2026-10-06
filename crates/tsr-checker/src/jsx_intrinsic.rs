@@ -39,7 +39,7 @@ const JSX: &str = "JSX";
 /// hyphen anywhere. The second is what makes `<foo-bar/>` and `<my-element/>`
 /// intrinsic regardless of case, and dropping it would send custom elements to
 /// the value-tag path instead.
-fn is_intrinsic_jsx_name(name: &str) -> bool {
+pub(crate) fn is_intrinsic_jsx_name(name: &str) -> bool {
     let Some(first) = name.chars().next() else { return false };
     first.is_ascii_lowercase() || name.contains('-')
 }
