@@ -238,3 +238,118 @@ identical on all four generated projects.
 Against tsgo's 863 ms median (§3) the combined probe would move
 domain-model-large from 1.04 to roughly 0.94–0.97 observed. Real progress, and
 an order of magnitude short of 0.50: see §8 C4.
+
+## §10 Round 3 (`tsr-2zk.17`), source `8b24e49`
+
+Same 4-vCPU container class as §1. Native tsgo rebuilt from the pinned
+submodule (`scripts/offline-cargo/build-tsgo.sh`, Go 1.26.8). All numbers in
+§10–§13 are callgrind `Ir` (total instructions, deterministic) for the
+generated `--modules 100` project, `--singleThreaded --pretty false`, release
+build of the `tsr` binary with each patch applied alone to `8b24e49`.
+Every variant's complete CLI output is `md5`-identical to the base
+(`aac485d0…`).
+
+**Wall ratios against tsgo were not re-measured this round.** The integrator
+called the wrap-up while the corpus dumps were occupying the box, and a wall
+sample taken under that load would be noise (§1). §3 remains the latest
+observed ratio table; the base has meanwhile grown: the same 100-module
+project costs **5,578.5 M** instructions at `8b24e49` against 4,758.9 M at
+`9c1e3c2` (+17.2%), so the §3 ratios are, if anything, optimistic for today's
+tree.
+
+## §11 Patches for the integrator (checker files; not committed by this lane)
+
+| Patch | Change | Ir | Δ vs base |
+|---|---|---:|---:|
+| — base `8b24e49` | | 5,578,537,115 | — |
+| [`perf-mentions-no-names.patch`](perf-mentions-no-names.patch) (C1) | `mentions_type_parameter_inner` returns `false` before printing when `names` is empty | 5,529,983,477 | −0.87% |
+| [`perf-env-probes-once.patch`](perf-env-probes-once.patch) (C2) | all 7 per-call `std::env::var` debug probes read once (`debug_env.rs`, one `OnceLock`) | 5,426,715,866 | −2.72% |
+| [`perf-reference-member-memo.patch`](perf-reference-member-memo.patch) (C3) | memo for `instantiate_for_reference_with_this` with the port-convention record below | 5,479,746,196 | −1.77% |
+| C1+C2+C3 | | 5,279,038,087 | −5.37% |
+| [`perf-this-mention-filter.patch`](perf-this-mention-filter.patch) (C5, new) | one exact negative walk before the per-this-type walks in `access_member_lookup` | 4,989,756,755 | **−10.55%** |
+| [`perf-effects-signature-memo.patch`](perf-effects-signature-memo.patch) (C6, new) | `signatureLinks.effectsSignature` memo in `get_effects_signature` | 5,250,626,888 | −5.88% |
+
+All five apply to `8b24e49` and stack (`git apply` in order C1, C2, C3, C5,
+C6). C1/C5 are behaviour-free by construction; C2 is behaviour-free unless a
+developer sets a probe variable after process start; C3/C6 are caches and
+carry the convention records in §12.
+
+**Corpus check, C1+C2+C3 together:** the unfiltered `diagverdictdump` is
+`cmp`-identical to the `8b24e49` baseline (both §5 loss checks trivially
+empty); the type dump was still running at wrap-up and is reported in the
+integrator message, not here. **C5 and C6 have not had a corpus run**; they
+must pass both §5 loss checks at integration before merging.
+
+C3 is smaller than the round-1 probe (−3.94% then) because the shippable form
+refuses to publish answers the probe cached blindly (errors, and unchanged
+`declared` results that depended on `declared`'s current contents); most of
+the remaining cost of the function is those unpublished re-computations.
+
+## §12 Port-convention records for the caches
+
+**C3 `reference_member_types`.** Native operation: `getTypeOfInstantiatedSymbol`
+(`checker.go:15987`) via `instantiateSymbol` (`:20753`), consumer
+`get_type_of_property_with_this_argument` and the array-literal arm of
+`members.rs`. Key `(receiver, declared, this_argument)`, all TypeIds of the
+owning private `Checker`; value `(polymorphic this of the target at
+publication, result)`. Publication: only when the worker returns neither
+`errorType` (unresolved parameter list, arity mismatch, pending return, depth
+or count limit — all possibly provisional) nor, after a real substitution,
+`declared` unchanged (that answer read `declared`'s current contents, and a
+reserved object is completed in place by `TypeStore::complete_object`). An
+empty map (no type arguments, no this) is content-independent and published.
+Context: print mode (`identity_unmapped_type_parameters`), alias evaluation
+bindings and mapped-template frames neither read nor publish
+(`mapper-mode.md`). The this-type is minted lazily, so a hit is revalidated
+against the target's current this-type. Expensive boundary:
+`instantiate_type` (42,468 instantiations for 55,205 reads at round 1).
+Residual known gap: a union/intersection result built while a constituent was
+still a reserved placeholder can be frozen; no corpus case exhibits it
+(round-1 probe without any guard was byte-identical). Falsifier: any §5 loss
+under the patch.
+
+**C6 `effects_signatures`.** Native operation: `getEffectsSignature`
+(`signatureLinks.effectsSignature`), consumers the flow walk's call-node arms
+(`flow.rs` three sites). Key: the call-expression `NodeId`, private
+`Checker`. Value: `Option<Signature>`; `None` is a completed "no effects"
+answer, absence is uncomputed. Published only for decided answers: a callee
+symbol proven effect-free, `super`, a signature set with no predicate/never
+return, or a non-generic effects signature. An error callee, an unbuilt
+signature set, failed overload resolution and generic instantiation are
+recomputed as before. Read and publish only when no resolution is on the
+stack, no flow loop is active, and no alias/mapper/print frame is open (the
+places this port's callee typing can be provisional). Expensive boundary:
+`get_type_of_dotted_name`/`check_expression` of the callee — 107,654 requests,
+7.8% of instructions. Falsifier: a §5 loss under the patch.
+
+**C5 needs no record** (no cache): it adds one walk with predicate "type
+parameter named `this`", a superset of every minted this type (all five
+mint sites use `new_named(TYPE_PARAMETER, "this", …)`), so its `false` is an
+exact negative for the original per-mint walks, which run unchanged when it
+says `true`. Native does the same substitution once, through the receiver
+mapper.
+
+## §13 Attribution at `8b24e49` and the next candidates
+
+Inclusive shares, base, 100-module project:
+
+| Native operation (TSR function) | Share | Cause |
+|---|---:|---|
+| `mentions_type_parameter_inner` (all callers) | 11.1% | 454,195 walks from `access_member_lookup` (one per minted this type per access: C5) and one per `instantiate_type` recursion level (re-walks every subtree: quadratic) |
+| `signature_candidates_of_interface_symbol` (`resolveObjectTypeMembers` call/construct signatures) | 14.3% (after C5) | rebuilt per query, 94,728 heritage lookups; native caches in the type's resolved members |
+| `get_type_of_symbol` | 11.8% | — |
+| `instantiated_heritage_base` | 9.0% | base type re-instantiated per query (native: `resolveBaseTypesOfInterface` once) |
+| `resolve_name` | 8.6% incl. / 4.9% self | 151,476 from `heritage_entity_symbol`, 106,951 from `get_type_of_dotted_name` (native: `resolvedSymbol` node links) |
+| `get_effects_signature` | 7.8% | C6 |
+| `get_signature_from_declaration` | 7.2% | uncached (native `links.resolvedSignature`) |
+| malloc/free | ~18% self | allocation count, §6 |
+
+Next three candidates, **not built**: (C7) memoise
+`signature_candidates_of_interface_symbol` per `(merged symbol, kind)` for
+top-level (`visiting` empty) `Some` answers under the C6 quiescence gate,
+plus no pending lazy returns; (C8) a parameter-agnostic
+`couldContainTypeVariables` bit cached per TypeId in front of
+`mentions_type_parameter` (exact only for types whose edges are final; needs
+the publication rule for lazily filled side tables); (C9) per-heritage-entry
+cache of `heritage_entity_symbol`/`instantiated_heritage_base`. Each is the
+same shape as §8 C4: work native caches in links, redone per query here.
