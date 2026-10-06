@@ -161,3 +161,81 @@ unchanged.
 **Not ported:** the tagged-template road's TS2349
 (`taggedTemplateWithConstructableTag01/02`, `templateStringInTaggedTemplate*`)
 and the union sub-messages (head code only is compared).
+
+## 5. `getNoInferType` at instantiation (tsr-2zk.44) — BLOCKED on one relate-lane line
+
+**Status: not pushed as code.** The full patch is
+`docs/parity/notes/calls-inference-noinfer.diff` (round 2, measured on top of
+`15f1743`); it needs one hunk in `assignreport.rs`, which this box does not
+own, so the integrator serializes it.
+
+**Forcing constraint.** `compiler/contextuallyTypedJsxChildren2` reports two
+false TS2345 at `Math.max(selected, 0)`: `selected` types `NoInfer<any>`.
+`instantiateTypeWorker`'s substitution arm (`checker.go:22277`) instantiates
+`NoInfer<T>` to `getNoInferType(T')` (`checker.go:27394`), which keeps the
+wrapper only when `isNoInferTargetType(T')` (`:27401`); `any` is not a
+target, so upstream's `selected` is `any`. TSR rebuilt the alias reference
+unconditionally (the integration's relate lane then reports an "object"
+`NoInfer<any>` against `number`).
+
+**The patch, three pieces, each forced by the previous:**
+
+1. *Port* — `instantiate_type_worker` (inference.rs) returns the
+   instantiated base of a `NoInfer` reference unless
+   `is_no_infer_target_type` (a port of `isNoInferTargetType`; TSR's only
+   substitution type is the `NoInfer` reference, which is not a target).
+   Converts the target case, but **loses `compiler/narrowingNoInfer1`**
+   (EMPTY_RIGHT → TS2698 at `{ ..._ }`).
+2. *The loss's cause* — the diagnostic walk reaches a callback body before
+   anything resolves the call, so `_` is typed by `contextual.rs`'s stateless
+   "fixing" road, which maps every type parameter to `unknown` even when an
+   earlier argument fixes it. `NoInfer<unknown>` used to pass the spread
+   check as an object; upstream's `unknown` does not. The base binary already
+   reports the same false TS2698 for a plain `(a: A) => …` callback
+   (`map7(m, (_) => ({ ..._ }))`), so the wrapper was masking it. The
+   faithful order is upstream's: `checkCallExpression` → `resolveCall`
+   assigns callback parameter types before the body is checked.
+   `check_single_generic_candidate_arguments` (calls.rs, the diagnostic rule
+   that runs on the call node before its children) now runs the call's type
+   road first when a context-sensitive argument needs its published
+   instantiation.
+3. *Exposed by 2* — `tests/partial_inference.rs`'s
+   `indexed_callbacks_retain_native_negative_diagnostics_and_concrete_values`
+   pins native TS2322 on `const rejected: string = missingValue` where
+   `missingValue: T["missing"]`, `T = { present: number }`. Upstream's
+   instantiation answers `unknownType` for an absent key with no access node
+   (`getIndexedAccessTypeEx`, `checker.go:26930`); TSR answered `error`.
+   `indexed_access_is_certainly_absent` ports the not-found leg on certified
+   inputs only (literal key, non-generic object with a complete property
+   list, no apparent property, `Some(empty)` index infos); every other
+   `None` stays "not computed" (`error`). TSR previously passed this test by
+   coincidence: the stateless road typed the parameter `T["missing"]`.
+   The calls.rs unit test that pinned `instantiate_signature` declining on
+   that metadata now expects upstream's success.
+
+**The blocker.** With 1–3, `missingValue` is upstream's `unknown`, and
+`assignability_pair_is_reportable` (assignreport.rs) vetoes every `unknown`
+side. The patch's hunk there exempts an *exact* `unknown` intrinsic source;
+flagged look-alikes and targets keep the veto.
+
+**Measured** (whole patch, unfiltered, vs the frozen base at `15f1743`):
+diagnostics 6 cases WRONG→RIGHT (`contextuallyTypedJsxChildren2`,
+`contextualTypingWithFixedTypeParameters1`,
+`genericFunctionTypedArgumentsAreFixed`, `typeInferenceConflictingCandidates`,
+`genericCallWithObjectTypeArgsAndConstraints2`,
+`typeArgumentInferenceWithObjectLiteral`), 0 losses; types 7 WRONG→RIGHT,
+0 losses. The assignreport hunk alone changes no corpus verdict. Workspace
+tests pass with all hunks; without the assignreport hunk exactly the
+`partial_inference` test above fails. CPU-median self-ratio (41 samples):
+domain-model 1.004, generic-imports 1.003.
+
+**Not ported:** the collapse at type-node creation (`NoInfer<any>` written
+in source still builds the reference; `create_type_reference`, declared.rs,
+type-refs lane), and `getNarrowableTypeForReference`'s NoInfer strip
+(`checker.go:31492`; flow lane) — the remaining WRONG type lines of both
+NoInfer cases.
+
+**How to know it is wrong:** step 2 should never *add* a diagnostic whose
+call upstream resolves identically; a new false positive inside a callback
+body after merging names a call whose type road answers differently from
+upstream, not a reason to restore the stateless road.
