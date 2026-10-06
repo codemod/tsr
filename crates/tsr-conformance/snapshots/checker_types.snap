@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7682/9538 (80.54%)
-Assertion lines: 467900/478855 (97.71%)  — a gradient, not a pass rate
-Failed         : 1856
+Passed         : 7696/9538 (80.69%)
+Assertion lines: 467937/478855 (97.72%)  — a gradient, not a pass rate
+Failed         : 1842
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1856 failures:
+First 100 of 1842 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -116,7 +116,7 @@ compiler/awaitedTypeJQuery
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
 compiler/awaitedTypeStrictNull
-  awaitedTypeStrictNull.ts: >T13 : _Expect<string | number | null, string | number | null> — expected >T13 : string | number | null
+  awaitedTypeStrictNull.ts: >MaybePromise : MaybePromise — expected >MaybePromise : MaybePromise<T>
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseClassImprovedMismatchErrors
