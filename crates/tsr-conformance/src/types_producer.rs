@@ -775,12 +775,17 @@ pub fn type_id_at_location_tracking<'a>(
         return checker.get_declared_type_of_symbol(target);
     }
 
-    // A declaration name resolves through its parent's symbol.
+    // A declaration name resolves through its parent's symbol:
+    // `getTypeOfNode`'s `IsDeclarationNameOrImportPropertyName` arm
+    // (`checker.go:31927`) types `getSymbolAtLocation(name)`, which for a
+    // declaration name is `getSymbolOfDeclaration(parent)` (`:14390`) =
+    // `getMergedSymbol(...)` — so a script declaration merged into a lib or
+    // another file's global answers the merged symbol's type.
     if let Some(parent) = nodes.parent(id)
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
         && let Some(symbol) = binder.symbol_of(parent)
     {
-        let computed = checker.get_type_of_symbol(symbol);
+        let computed = checker.get_type_of_symbol(binder.merged_symbol(symbol));
         return computed;
     }
 
