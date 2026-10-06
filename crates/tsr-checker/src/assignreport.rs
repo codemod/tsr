@@ -1551,11 +1551,14 @@ impl<'a> Checker<'a, '_> {
         {
             return true;
         }
+        let span = self.error_span(at);
+        if self.report_weak_type_failure(at, span, source, target) {
+            return true;
+        }
         if !not_related && !self.object_against_primitive(source, target) {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
-        let span = self.error_span(at);
         // reportRelationError suppresses the TS2345 head when the chain ends in
         // the pair's missing-property message (relater.go:4751), exactly as it
         // does for TS2322; a fresh literal keeps the written-key guard.
@@ -1685,6 +1688,10 @@ impl<'a> Checker<'a, '_> {
         if !self.assignability_pair_is_reportable(source, target) {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
+        }
+        if self.report_weak_type_failure(at, span, source, target) {
+            probe!(PROBE_REPORTED);
+            return true;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         if REPORT_MISSING_REQUIRED_PROPERTY
@@ -2640,6 +2647,170 @@ impl<'a> Checker<'a, '_> {
             Some(table) => Some(table.into_iter().map(|(name, _)| name).collect()),
             None => self.get_property_names_of_type(t),
         }
+    }
+
+    /// `isPerformingCommonPropertyChecks && !hasCommonProperties`
+    /// (`isRelatedToEx`, `relater.go:2676`) under the assignable relation at
+    /// the top of a reported comparison: a source with properties or
+    /// signatures against a weak target (`isWeakType`, `relater.go:681`)
+    /// that knows none of the source's property names (`isKnownProperty`).
+    /// `false` wherever this port cannot decide (an uncertified member
+    /// table), so it never rejects a pair upstream accepts.
+    ///
+    /// Not yet an arm of `crate::relater`: there it also rejects
+    /// `Opt1 -> Opt3`-style pairs inside overload and identity decisions, and
+    /// the port's call-signature `reorderCandidates` grouping
+    /// (`signatures.rs`, call signatures of merged interfaces) still picks
+    /// overloads upstream does not, which the relation's laxness was masking
+    /// (`overloadBindingAcrossDeclarationBoundaries`).
+    fn fails_common_property_check(&mut self, source: TypeId, target: TypeId) -> bool {
+        if !self
+            .type_of(source)
+            .flags
+            .intersects(TypeFlags::PRIMITIVE | TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+            || !self.type_of(target).flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+        {
+            return false;
+        }
+        // `source != globalObjectType`.
+        if let TypeData::Named { members: Some(owner), .. } = self.type_of(source).data
+            && self.global_type_symbol_with_arity("Object", 0) == Some(owner)
+        {
+            return false;
+        }
+        if self.is_weak_type(target) != Some(true) {
+            return false;
+        }
+        // `getPropertiesOfType` reads the reduced apparent type.
+        let apparent = self.apparent_type(source);
+        let Some(names) = self.get_property_names_of_type(apparent) else { return false };
+        if names.is_empty() && !self.type_has_call_or_construct_signatures(source) {
+            return false;
+        }
+        for name in &names {
+            if self.is_known_property(target, name) != Some(false) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `isWeakType` (`relater.go:681`): an object type with at least one
+    /// property, every property optional, and no signatures or index
+    /// signatures; an intersection of only such. `None` where the member
+    /// table is not certified.
+    fn is_weak_type(&mut self, t: TypeId) -> Option<bool> {
+        if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
+            for part in types {
+                if !self.is_weak_type(part)? {
+                    return Some(false);
+                }
+            }
+            return Some(true);
+        }
+        if !self.type_of(t).flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        let table = self.relation_property_table(t)?;
+        if table.is_empty() || table.iter().any(|(_, optional)| !optional) {
+            return Some(false);
+        }
+        if !self.get_index_infos_of_type(t)?.is_empty() {
+            return Some(false);
+        }
+        Some(!self.type_has_call_or_construct_signatures_certified(t)?)
+    }
+
+    /// `typeHasCallOrConstructSignatures`, `false` where undecidable.
+    fn type_has_call_or_construct_signatures(&mut self, t: TypeId) -> bool {
+        self.type_has_call_or_construct_signatures_certified(t) == Some(true)
+    }
+
+    fn type_has_call_or_construct_signatures_certified(&mut self, t: TypeId) -> Option<bool> {
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            if !self.signatures_of_type_kind(t, kind)?.is_empty() {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
+    /// TS2559 / TS2560 — the weak-type failure `isRelatedToEx`
+    /// (`relater.go:2676`) reports with `reportError` and no head message, so
+    /// it is the whole diagnostic at the error node, for assignments and
+    /// arguments alike. Asked of `isRelatedToEx`'s normalized pair: a
+    /// `NoInfer` target is its base, and a definitely non-nullable source
+    /// against `null`/`undefined` plus one other type is related to that
+    /// type. TS2560 when the source's first call (or construct) signature
+    /// returns a type related to the target. Answers whether it reported.
+    fn report_weak_type_failure(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let target = self.no_infer_base_type(target).unwrap_or(target);
+        let target = self.non_nullable_union_candidate(source, target).unwrap_or(target);
+        if !self.fails_common_property_check(source, target) {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let mut callable = false;
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            let Some(first) = self
+                .signatures_of_type_kind(source, kind)
+                .and_then(|signatures| signatures.into_iter().next())
+            else {
+                continue;
+            };
+            let Some(return_type) = self.get_return_type_of_signature(&first) else { continue };
+            match self.relate_ternary(return_type, target, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => {
+                    callable = true;
+                    break;
+                }
+                crate::relater::Ternary::NotRelated => {}
+                crate::relater::Ternary::Unknown => return false,
+            }
+        }
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        let message = if callable {
+            &messages::VALUE_OF_TYPE_0_HAS_NO_PROPERTIES_IN_COMMON_WITH_TYPE_1_DID_YOU_MEAN_TO_CALL_IT
+        } else {
+            &messages::TYPE_0_HAS_NO_PROPERTIES_IN_COMMON_WITH_TYPE_1
+        };
+        self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
+        true
+    }
+
+    /// `isRelatedToEx`'s nullable-stripping step (`relater.go:2640`): a
+    /// `TypeFlagsDefinitelyNonNullable` source against a union of two (or
+    /// three) types, all but one `null`/`undefined`, is related to the
+    /// remaining one.
+    fn non_nullable_union_candidate(&mut self, source: TypeId, target: TypeId) -> Option<TypeId> {
+        if !self.type_of(source).flags.intersects(TypeFlags::DEFINITELY_NON_NULLABLE) {
+            return None;
+        }
+        let TypeData::Union { types, .. } = &self.type_of(target).data else { return None };
+        if !(2..=3).contains(&types.len()) {
+            return None;
+        }
+        let mut candidate = None;
+        for &part in types {
+            if self.type_of(part).flags.intersects(TypeFlags::NULLABLE) {
+                continue;
+            }
+            if candidate.replace(part).is_some() {
+                return None;
+            }
+        }
+        candidate
     }
 
     /// `getApplicableIndexInfoForName`'s key: the name's string-literal type
