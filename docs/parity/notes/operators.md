@@ -185,6 +185,10 @@ the patch, refreshed to apply on that head, is +10 cases (the nine above plus
 `noImplicitSymbolToString`, which also needed §7) with the same single loss;
 lane MISSING TS2365 55 → 5.
 
+**Re-measured on `d394fe7`** (after §8 and §10): same +10 / −1; with §10
+the patch also takes MISSING TS18050 17 → 7. The patch now reuses
+`assignment_operand_type` for the left operand.
+
 **Reopening condition.** When the calls/contextual owner types that arrow's
 parameter as `number` (or as `any`, which silences TS2365 the way upstream's
 `IsTypeAny` does), `git apply docs/parity/notes/operators-plus.diff` should
