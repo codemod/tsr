@@ -1627,7 +1627,9 @@ impl Relater<'_, '_, '_> {
         if self.checker.is_generic_homomorphic_mapped_type(id)
             && let Some((properties, true)) = self.checker.anonymous_properties.get(&id)
             && properties.iter().all(|property| {
-                !self.checker.is_error(property.r#type)
+                self.checker
+                    .peek_property_type(property)
+                    .is_none_or(|ty| !self.checker.is_error(ty))
                     && property.origin.is_some_and(|origin| {
                         !self
                             .checker

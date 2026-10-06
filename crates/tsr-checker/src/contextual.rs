@@ -3649,7 +3649,8 @@ function f(c: I<"right"> = class { static x = { a: "right" }; }) {}"#;
         // Some(error) is an existing semantic value, not an absent property or
         // permission to fall back to the original declaration's type parameter.
         let error = checker.intrinsics.error;
-        checker.anonymous_properties.get_mut(&context).expect("captured").0[0].r#type = error;
+        checker.anonymous_properties.get_mut(&context).expect("captured").0[0].slot =
+            crate::objects::PropertySlot::resolved(error);
         assert_eq!(checker.get_contextual_type(literal), Some(error));
     }
 }

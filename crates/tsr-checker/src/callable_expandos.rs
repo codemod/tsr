@@ -50,8 +50,8 @@ impl Checker<'_, '_> {
                 printed_name,
                 optional: self.property_is_optional(member),
                 readonly: self.is_readonly_symbol(member),
-                printed_type: self.type_to_string(t),
-                r#type: t,
+                printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(t)),
+                slot: crate::objects::PropertySlot::resolved(t),
             });
         }
         Some(members)
@@ -110,25 +110,26 @@ impl Checker<'_, '_> {
             });
         }
         for property in properties {
+            let ty = self.property_type(&property);
             members.push(Member::Property {
                 name: property.printed_name,
                 optional: property.optional,
                 readonly: property.readonly,
-                printed: self.type_to_string_at(property.r#type, reference)?,
+                printed: self.type_to_string_at(ty, reference)?,
             });
         }
         Some(crate::objects::render_object_type(&members))
     }
-}
 
-pub(crate) fn property_members(properties: &[AnonymousProperty]) -> Vec<Member> {
-    properties
-        .iter()
-        .map(|property| Member::Property {
-            name: property.printed_name.clone(),
-            optional: property.optional,
-            readonly: property.readonly,
-            printed: property.printed_type.clone(),
-        })
-        .collect()
+    pub(crate) fn property_members(&mut self, properties: &[AnonymousProperty]) -> Vec<Member> {
+        properties
+            .iter()
+            .map(|property| Member::Property {
+                name: property.printed_name.clone(),
+                optional: property.optional,
+                readonly: property.readonly,
+                printed: self.property_printed_type(property).into_owned(),
+            })
+            .collect()
+    }
 }

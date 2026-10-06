@@ -663,8 +663,9 @@ impl Checker<'_, '_> {
         if !flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER) {
             return None;
         }
-        let (properties, _) = self.anonymous_properties.get(&apparent)?;
-        let mut types: Vec<TypeId> = properties.iter().map(|property| property.r#type).collect();
+        let properties = self.anonymous_properties.get(&apparent)?.0.clone();
+        let mut types: Vec<TypeId> =
+            properties.iter().map(|property| self.property_type(property)).collect();
         types.push(self.intrinsics.undefined);
         Some(self.get_union_type(&types))
     }

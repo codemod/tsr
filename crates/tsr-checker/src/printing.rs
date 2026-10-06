@@ -291,11 +291,12 @@ impl Checker<'_, '_> {
                 let crate::objects::Member::Property { printed, .. } = member else {
                     unreachable!("certified original property slot");
                 };
+                let property_type = self.property_type(&property);
                 // Primitive/literal slots have no site-dependent symbol.
                 // Keep the actual writer's source-reuse display, including
                 // single-quoted const literals, rather than reformatting it.
                 if matches!(
-                    self.store.get(property.r#type).data,
+                    self.store.get(property_type).data,
                     TypeData::Intrinsic { .. }
                         | TypeData::StringLiteral(_)
                         | TypeData::NumberLiteral(_)
@@ -334,28 +335,28 @@ impl Checker<'_, '_> {
                     ) {
                         return None;
                     }
-                    let symbol = self.completed_callable_symbol(property.r#type)?;
+                    let symbol = self.completed_callable_symbol(property_type)?;
                     if self.binder.symbol_of(initializer.node_id()?) != Some(symbol) {
                         return None;
                     }
-                    let [signature] = self.signature_types.get(&property.r#type)?.as_slice() else {
+                    let [signature] = self.signature_types.get(&property_type)?.as_slice() else {
                         return None;
                     };
                     (signature.declaration == initializer.node_id()?).then(|| signature.clone())
                 });
                 let source_object = initializer.is_some_and(|initializer| {
                     matches!(initializer, tsr_ast::Expression::ObjectLiteralExpression(_))
-                        && matches!(self.store.get(property.r#type).data,
+                        && matches!(self.store.get(property_type).data,
                             TypeData::Named { members: Some(owner), .. }
                                 if initializer.node_id().and_then(|node| self.binder.symbol_of(node)) == Some(owner))
                 });
                 *printed = if let Some(signature) = source_signature {
                     self.signature_to_string_at(&signature, reference)
                 } else if source_object {
-                    self.object_literal_text_at(property.r#type, reference, false)
-                        .or_else(|| self.type_to_string_at(property.r#type, reference))?
+                    self.object_literal_text_at(property_type, reference, false)
+                        .or_else(|| self.type_to_string_at(property_type, reference))?
                 } else {
-                    self.type_to_string_at(property.r#type, reference)?
+                    self.type_to_string_at(property_type, reference)?
                 };
                 Some(())
             })
@@ -541,8 +542,9 @@ impl Checker<'_, '_> {
             });
         }
         for property in properties {
+            let property_type = self.property_type(&property);
             if property.method {
-                let Some(signatures) = self.signature_types.get(&property.r#type).cloned() else {
+                let Some(signatures) = self.signature_types.get(&property_type).cloned() else {
                     self.rendering_composites.remove(&id);
                     return None;
                 };
@@ -569,7 +571,7 @@ impl Checker<'_, '_> {
                     }
                 });
                 let alias = annotation.and_then(|annotation| {
-                    self.annotation_alias_text_at(annotation, property.r#type, reference)
+                    self.annotation_alias_text_at(annotation, property_type, reference)
                 });
                 // Preserve the producer's written-node precedence using its
                 // declaration, not equality of two rendered strings. An
@@ -587,10 +589,11 @@ impl Checker<'_, '_> {
                 let printed = if let Some(alias) = alias {
                     alias
                 } else if written {
-                    property.printed_type
+                    self.property_printed_type(&property).into_owned()
+                } else if let Some(text) = self.type_to_string_at(property_type, reference) {
+                    text
                 } else {
-                    self.type_to_string_at(property.r#type, reference)
-                        .unwrap_or(property.printed_type)
+                    self.property_printed_type(&property).into_owned()
                 };
                 members.push(crate::objects::Member::Property {
                     name: property.printed_name,

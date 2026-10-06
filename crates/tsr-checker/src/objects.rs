@@ -49,6 +49,50 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+pub(crate) use property_slot::{PrintedSlot, PropertySlot};
+
+mod property_slot {
+    use crate::types::TypeId;
+
+    /// An [`super::AnonymousProperty`]'s type slot. Private: every reader goes
+    /// through [`crate::checker::Checker::property_type`] (or, for a `&self`
+    /// structural walk, [`crate::checker::Checker::peek_property_type`]), the
+    /// port of native `getTypeOfSymbol` on the property symbol, so the slot's
+    /// publication state is decided in one place.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) struct PropertySlot(TypeId);
+
+    impl PropertySlot {
+        /// A resolved property type.
+        pub(crate) fn resolved(r#type: TypeId) -> Self {
+            Self(r#type)
+        }
+
+        /// The stored type, for the canonical accessors only.
+        pub(super) fn get(self) -> TypeId {
+            self.0
+        }
+    }
+
+    /// An [`super::AnonymousProperty`]'s printed type. Private: every reader
+    /// goes through [`crate::checker::Checker::property_printed_type`], the
+    /// node builder's `serializeTypeForDeclaration` of the property type.
+    #[derive(Clone, Debug)]
+    pub(crate) struct PrintedSlot(String);
+
+    impl PrintedSlot {
+        /// Text printed by the property's producer.
+        pub(crate) fn printed(text: String) -> Self {
+            Self(text)
+        }
+
+        /// The stored text, for the canonical accessor only.
+        pub(super) fn get(&self) -> &str {
+            &self.0
+        }
+    }
+}
+
 /// An anonymous object's typed properties and method flags, retained for
 /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
 #[derive(Clone)]
@@ -74,10 +118,41 @@ pub(crate) struct AnonymousProperty {
     pub(crate) checked_declaration: Option<tsr_ast::NodeId>,
     pub(crate) name: String,
     pub(crate) printed_name: String,
-    pub(crate) printed_type: String,
+    /// Read only through [`crate::checker::Checker::property_printed_type`].
+    pub(crate) printed_slot: PrintedSlot,
     pub(crate) optional: bool,
     pub(crate) readonly: bool,
-    pub(crate) r#type: TypeId,
+    /// Read only through [`crate::checker::Checker::property_type`].
+    pub(crate) slot: PropertySlot,
+}
+
+impl Checker<'_, '_> {
+    /// The type of one anonymous-object property — the canonical reader of an
+    /// [`AnonymousProperty`]'s slot: native `getTypeOfSymbol` on the property
+    /// symbol (`checker.go:16493`), which every native consumer reaches
+    /// through the member table.
+    #[allow(clippy::unused_self)]
+    pub(crate) fn property_type(&mut self, property: &AnonymousProperty) -> TypeId {
+        property.slot.get()
+    }
+
+    /// The type of one anonymous-object property for a read that cannot
+    /// resolve — a `&self` structural walk over completed types. `None` is an
+    /// unresolved slot; such a walk follows no edge for it.
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+    pub(crate) fn peek_property_type(&self, property: &AnonymousProperty) -> Option<TypeId> {
+        Some(property.slot.get())
+    }
+
+    /// The printed type of one anonymous-object property — the canonical
+    /// reader of [`AnonymousProperty`]'s printed slot.
+    #[allow(clippy::unused_self)]
+    pub(crate) fn property_printed_type<'p>(
+        &mut self,
+        property: &'p AnonymousProperty,
+    ) -> std::borrow::Cow<'p, str> {
+        std::borrow::Cow::Borrowed(property.printed_slot.get())
+    }
 }
 
 /// One rendered member of a structural object type.
@@ -367,9 +442,9 @@ impl Checker<'_, '_> {
                         origin: symbol,
                         checked_declaration: None,
                         printed_name: name.clone(),
-                        printed_type: self.type_to_string(ty),
+                        printed_slot: PrintedSlot::printed(self.type_to_string(ty)),
                         name,
-                        r#type: ty,
+                        slot: PropertySlot::resolved(ty),
                         optional: symbol.is_some_and(|symbol| self.property_is_optional(symbol)),
                         readonly: symbol.is_some_and(|symbol| self.is_readonly_property(symbol)),
                     })
@@ -378,7 +453,9 @@ impl Checker<'_, '_> {
         }
         if let Some(mut properties) = properties {
             for property in &mut properties {
-                property.r#type = self.get_regular_type_of_object_literal(property.r#type);
+                let r#type = self.property_type(property);
+                property.slot =
+                    PropertySlot::resolved(self.get_regular_type_of_object_literal(r#type));
             }
             self.anonymous_properties.insert(regular, (properties, true));
         }
@@ -1841,10 +1918,10 @@ impl Checker<'_, '_> {
                         .flatten(),
                         name: semantic_name,
                         printed_name: name.clone(),
-                        printed_type: printed.clone(),
+                        printed_slot: PrintedSlot::printed(printed.clone()),
                         optional: member_optional,
                         readonly: const_context,
-                        r#type: member_type,
+                        slot: PropertySlot::resolved(member_type),
                     };
                     if let Some(index) =
                         typed_properties.iter().position(|p| p.name == property.name)
@@ -1915,7 +1992,7 @@ impl Checker<'_, '_> {
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 _ => left.name.cmp(&right.name),
             });
-            members = crate::callable_expandos::property_members(&typed_properties);
+            members = self.property_members(&typed_properties);
         }
         index_members.extend(members);
         let members = index_members;
@@ -2130,8 +2207,8 @@ impl Checker<'_, '_> {
             method,
             name,
             printed_name,
-            printed_type: self.type_to_string(value),
-            r#type: value,
+            printed_slot: PrintedSlot::printed(self.type_to_string(value)),
+            slot: PropertySlot::resolved(value),
             optional: self.property_is_optional(symbol),
             readonly: readonly || self.is_readonly_symbol(symbol),
         };
@@ -2237,12 +2314,14 @@ impl Checker<'_, '_> {
             property.accessor_write = None;
             property.optional = true;
             if self.strict_null_checks {
-                property.r#type = self.get_optional_type(property.r#type, true);
+                let r#type = self.property_type(property);
+                property.slot = PropertySlot::resolved(self.get_optional_type(r#type, true));
             }
-            let displayed = self.remove_missing_type(property.r#type);
-            property.printed_type = self.type_to_string(displayed);
+            let r#type = self.property_type(property);
+            let displayed = self.remove_missing_type(r#type);
+            property.printed_slot = PrintedSlot::printed(self.type_to_string(displayed));
         }
-        partial_members.extend(crate::callable_expandos::property_members(&properties));
+        partial_members.extend(self.property_members(&properties));
         let owner = match self.store.get(first).data {
             TypeData::Named { members, .. } => members,
             _ => None,
@@ -2824,7 +2903,8 @@ mod display_source_tests {
                             else {
                                 panic!();
                             };
-                            let signature = checker.signature_types[&property.r#type][0].clone();
+                            let ty = checker.peek_property_type(property).unwrap();
+                            let signature = checker.signature_types[&ty][0].clone();
                             assert_eq!(
                                 signature.declaration,
                                 assignment.initializer.unwrap().node_id().unwrap()
@@ -2846,8 +2926,8 @@ mod display_source_tests {
                         .0
                         .iter()
                         .find(|property| property.name == "nested")
+                        .and_then(|property| checker.peek_property_type(property))
                         .unwrap()
-                        .r#type
                 };
                 assert_ne!(
                     nested(fresh),
@@ -2867,7 +2947,10 @@ mod display_source_tests {
                             assert_eq!(current.origin, original.origin);
                             assert_eq!(current.name, original.name);
                             assert_eq!(current.checked_declaration, original.checked_declaration);
-                            assert_eq!(current.r#type, original.r#type);
+                            assert_eq!(
+                                checker.peek_property_type(current),
+                                checker.peek_property_type(original)
+                            );
                         }
                     }
                 }

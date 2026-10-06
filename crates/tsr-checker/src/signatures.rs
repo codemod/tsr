@@ -575,10 +575,10 @@ impl<'a> Checker<'a, '_> {
                         checked_declaration: None,
                         name: name.text.to_string(),
                         printed_name: name.text.to_string(),
-                        printed_type: printed.clone(),
+                        printed_slot: crate::objects::PrintedSlot::printed(printed.clone()),
                         optional: false,
                         readonly,
-                        r#type: ty,
+                        slot: crate::objects::PropertySlot::resolved(ty),
                     };
                     let signature = if method {
                         self.call_signatures_of_type(ty).and_then(|signatures| {

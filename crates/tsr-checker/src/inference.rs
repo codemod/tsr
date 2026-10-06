@@ -3439,9 +3439,10 @@ impl<'a> Checker<'a, '_> {
         if self.object_literal_members.contains_key(&ty)
             && let Some((properties, _)) = self.anonymous_properties.get(&ty)
         {
-            return properties
-                .iter()
-                .any(|property| self.is_partially_inferable_type(property.r#type));
+            return properties.iter().any(|property| {
+                self.peek_property_type(property)
+                    .is_some_and(|ty| self.is_partially_inferable_type(ty))
+            });
         }
         self.tuple_element_lists.get(&ty).is_some_and(|(elements, _)| {
             elements.iter().any(|&element| self.is_partially_inferable_type(element))
@@ -3615,10 +3616,10 @@ impl<'a> Checker<'a, '_> {
                 checked_declaration: None,
                 name,
                 printed_name,
-                printed_type: String::new(),
+                printed_slot: crate::objects::PrintedSlot::printed(String::new()),
                 optional,
                 readonly,
-                r#type: ty,
+                slot: crate::objects::PropertySlot::resolved(ty),
             });
         }
         (members, index)
@@ -3667,17 +3668,18 @@ impl<'a> Checker<'a, '_> {
             });
         let mut texts = Vec::with_capacity(members.len());
         for member in &mut members {
-            let anonymous = self.is_anonymous_object_type(member.r#type);
+            let member_type = self.property_type(member);
+            let anonymous = self.is_anonymous_object_type(member_type);
             self.reverse_property_anonymous.push(anonymous);
             let ty =
-                self.reverse_mapped_member_type(member.r#type, target, &info, operand, constraint);
+                self.reverse_mapped_member_type(member_type, target, &info, operand, constraint);
             self.reverse_property_anonymous.pop();
             let text = match self.reverse_placeholder_texts.get(&ty) {
                 Some(placeholder) if !anonymous => placeholder.clone(),
                 _ => self.type_to_string(ty),
             };
-            member.r#type = ty;
-            member.printed_type.clone_from(&text);
+            member.slot = crate::objects::PropertySlot::resolved(ty);
+            member.printed_slot = crate::objects::PrintedSlot::printed(text.clone());
             texts.push(text);
         }
         let reversed_index = index.map(|index| {
@@ -5589,8 +5591,9 @@ impl<'a> Checker<'a, '_> {
             rendered.extend(members);
         }
         for property in &mut properties {
-            let original = property.r#type;
-            property.r#type = self.instantiate_type(original, map, parameters, names);
+            let original = self.property_type(property);
+            let instantiated = self.instantiate_type(original, map, parameters, names);
+            property.slot = crate::objects::PropertySlot::resolved(instantiated);
             if let Some(write) = &mut property.accessor_write {
                 let write_type = self.parameter_type(write);
                 write.set_type(self.instantiate_type(write_type, map, parameters, names));
@@ -5598,11 +5601,12 @@ impl<'a> Checker<'a, '_> {
                     return self.intrinsics.error;
                 }
             }
-            if property.r#type == self.intrinsics.error {
+            if instantiated == self.intrinsics.error {
                 return self.intrinsics.error;
             }
-            if property.r#type != original {
-                property.printed_type = self.type_to_string(property.r#type);
+            if instantiated != original {
+                property.printed_slot =
+                    crate::objects::PrintedSlot::printed(self.type_to_string(instantiated));
             }
             let Some(members) = self.anonymous_property_members(std::slice::from_ref(property))
             else {
@@ -5681,7 +5685,9 @@ impl<'a> Checker<'a, '_> {
             .map(|(properties, _)| properties.clone())
             .unwrap_or_default();
         for property in &mut properties {
-            property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            let current = self.property_type(property);
+            let instantiated = self.instantiate_type(current, map, parameters, names);
+            property.slot = crate::objects::PropertySlot::resolved(instantiated);
             if let Some(write) = &mut property.accessor_write {
                 let write_type = self.parameter_type(write);
                 write.set_type(self.instantiate_type(write_type, map, parameters, names));
@@ -5689,10 +5695,11 @@ impl<'a> Checker<'a, '_> {
                     return self.intrinsics.error;
                 }
             }
-            if property.r#type == error {
+            if instantiated == error {
                 return error;
             }
-            property.printed_type = self.type_to_string(property.r#type);
+            property.printed_slot =
+                crate::objects::PrintedSlot::printed(self.type_to_string(instantiated));
         }
         let (text, signature_node) = match printed.as_slice() {
             [] => return error,
@@ -5704,7 +5711,7 @@ impl<'a> Checker<'a, '_> {
                         printed: crate::objects::signature_member_text(self, signature),
                     })
                     .collect();
-                members.extend(crate::callable_expandos::property_members(&properties));
+                members.extend(self.property_members(&properties));
                 (crate::objects::render_object_type(&members), false)
             }
         };
@@ -6285,18 +6292,17 @@ impl<'a> Checker<'a, '_> {
             }
             return self.anonymous_properties.get(&id).is_some_and(|(properties, _)| {
                 properties.iter().any(|property| {
-                    self.mentions_type_parameter_inner(
-                        property.r#type,
-                        is_parameter,
-                        names,
-                        visited,
-                    )
+                    self.peek_property_type(property).is_some_and(|ty| {
+                        self.mentions_type_parameter_inner(ty, is_parameter, names, visited)
+                    })
                 })
             });
         }
         if let Some((properties, _)) = self.anonymous_properties.get(&id) {
             return properties.iter().any(|property| {
-                self.mentions_type_parameter_inner(property.r#type, is_parameter, names, visited)
+                self.peek_property_type(property).is_some_and(|ty| {
+                    self.mentions_type_parameter_inner(ty, is_parameter, names, visited)
+                })
             });
         }
         if let Some((elements, _)) = self.tuple_element_lists.get(&id) {

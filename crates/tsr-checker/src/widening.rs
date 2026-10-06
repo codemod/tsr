@@ -5,7 +5,7 @@ use tsr_binder::SymbolId;
 use crate::{
     checker::Checker,
     flags::TypeFlags,
-    objects::{AnonymousProperty, Member},
+    objects::{AnonymousProperty, Member, PrintedSlot, PropertySlot},
     types::{TypeData, TypeId},
 };
 
@@ -235,8 +235,8 @@ impl Checker<'_, '_> {
                         checked_declaration: None,
                         name: name.clone(),
                         printed_name: name.clone(),
-                        printed_type: self.type_to_string(ty),
-                        r#type: ty,
+                        printed_slot: PrintedSlot::printed(self.type_to_string(ty)),
+                        slot: PropertySlot::resolved(ty),
                         optional: symbol.is_some_and(|s| self.property_is_optional(s)),
                         readonly: symbol.is_some_and(|s| self.is_readonly_property(s)),
                     }
@@ -254,7 +254,7 @@ impl Checker<'_, '_> {
                     Member::Index { .. } => false,
                 })
                 .cloned()
-                .unwrap_or_else(|| Self::widening_property_member(&property));
+                .unwrap_or_else(|| self.widening_property_member(&property));
             result.push(WideningProperty { property, symbol, member });
         }
         result
@@ -278,12 +278,12 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn widening_property_member(property: &AnonymousProperty) -> Member {
+    fn widening_property_member(&mut self, property: &AnonymousProperty) -> Member {
         Member::Property {
             name: property.printed_name.clone(),
             optional: property.optional,
             readonly: property.readonly,
-            printed: property.printed_type.clone(),
+            printed: self.property_printed_type(property).into_owned(),
         }
     }
 
@@ -334,7 +334,7 @@ impl Checker<'_, '_> {
                 .widening_properties(sibling)
                 .iter()
                 .find(|p| p.property.name == name)
-                .map(|p| p.property.r#type)
+                .map(|p| self.property_type(&p.property))
             {
                 if let TypeData::Union { types, .. } = &self.store.get(ty).data {
                     siblings.extend(types);
@@ -362,11 +362,12 @@ impl Checker<'_, '_> {
             }
             let child = context
                 .map(|index| self.child_widening_context(index, &property.property.name, contexts));
-            let widened = self.widen_type_with_context(property.property.r#type, child, contexts);
-            if widened != property.property.r#type {
-                property.property.r#type = widened;
-                property.property.printed_type = self.type_to_string(widened);
-                property.member = Self::widening_property_member(&property.property);
+            let property_type = self.property_type(&property.property);
+            let widened = self.widen_type_with_context(property_type, child, contexts);
+            if widened != property_type {
+                property.property.slot = PropertySlot::resolved(widened);
+                property.property.printed_slot = PrintedSlot::printed(self.type_to_string(widened));
+                property.member = self.widening_property_member(&property.property);
             }
         }
         let mut added = Vec::new();
@@ -382,14 +383,15 @@ impl Checker<'_, '_> {
                 if let Some(cached) = self.widening_undefined_properties.get(&name) {
                     property = cached.clone();
                 } else {
-                    property.property.r#type = if self.exact_optional_property_types {
+                    let undefined = if self.exact_optional_property_types {
                         self.intrinsics.missing
                     } else {
                         self.intrinsics.undefined
                     };
-                    "undefined".clone_into(&mut property.property.printed_type);
+                    property.property.slot = PropertySlot::resolved(undefined);
+                    property.property.printed_slot = PrintedSlot::printed("undefined".to_owned());
                     property.property.optional = true;
-                    property.member = Self::widening_property_member(&property.property);
+                    property.member = self.widening_property_member(&property.property);
                     self.widening_undefined_properties.insert(name, property.clone());
                 }
                 added.push(property.property.name.clone());

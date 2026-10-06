@@ -373,8 +373,8 @@ impl Checker<'_, '_> {
                     crate::objects::AnonymousProperty {
                         name: name.text.to_string(),
                         printed_name: name.text.to_string(),
-                        printed_type: self.type_to_string(ty),
-                        r#type: ty,
+                        printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
+                        slot: crate::objects::PropertySlot::resolved(ty),
                         origin: node.node_id.and_then(|id| self.binder.symbol_of(id)),
                         checked_declaration: None,
                         optional: false,
@@ -456,8 +456,8 @@ impl Checker<'_, '_> {
                 properties.push(crate::objects::AnonymousProperty {
                     name: name.clone(),
                     printed_name: name,
-                    printed_type: self.type_to_string(ty),
-                    r#type: ty,
+                    printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
+                    slot: crate::objects::PropertySlot::resolved(ty),
                     origin: None,
                     checked_declaration: None,
                     optional: false,
@@ -467,7 +467,7 @@ impl Checker<'_, '_> {
                 });
             }
         }
-        let members = crate::callable_expandos::property_members(&properties);
+        let members = self.property_members(&properties);
         let ty = self.store.new_named(
             crate::flags::TypeFlags::OBJECT,
             crate::objects::render_object_type(&members),

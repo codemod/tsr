@@ -394,15 +394,14 @@ impl<'a> Checker<'a, '_> {
             checked_declaration: None,
             name: name.to_owned(),
             printed_name: name.to_owned(),
-            printed_type: self.type_to_string(ty),
+            printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
             optional: false,
             readonly: false,
-            r#type: ty,
+            slot: crate::objects::PropertySlot::resolved(ty),
         })
         .collect::<Vec<_>>();
-        let text = crate::objects::render_object_type(&crate::callable_expandos::property_members(
-            &properties,
-        ));
+        let members = self.property_members(&properties);
+        let text = crate::objects::render_object_type(&members);
         let ty = self.store.new_named(TypeFlags::OBJECT, text, None);
         self.anonymous_properties.insert(ty, (properties, true));
         self.decorator_types.overrides.insert(key, ty);

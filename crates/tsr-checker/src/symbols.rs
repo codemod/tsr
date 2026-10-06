@@ -706,15 +706,13 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: "default".to_owned(),
                     printed_name: "default".to_owned(),
-                    printed_type: self.type_to_string(value),
+                    printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(value)),
                     optional: false,
                     readonly: false,
-                    r#type: value,
+                    slot: crate::objects::PropertySlot::resolved(value),
                 });
             }
-            text = crate::objects::render_object_type(&crate::callable_expandos::property_members(
-                &properties,
-            ));
+            text = crate::objects::render_object_type(&self.property_members(&properties));
             Some(properties)
         };
         let flags = self.store.get(value).flags;
@@ -3691,7 +3689,7 @@ impl<'a> Checker<'a, '_> {
         let Some(export_properties) = self.callable_export_properties(symbol) else {
             return self.intrinsics.error;
         };
-        let export_members = crate::callable_expandos::property_members(&export_properties);
+        let export_members = self.property_members(&export_properties);
         // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
         // `FunctionTypeNode` only for a resolved type with exactly one call
         // signature and no construct signatures (`nodebuilderimpl.go:2706`).
@@ -7150,10 +7148,12 @@ mod tests {
                                         checked_declaration: None,
                                         name: "x".into(),
                                         printed_name: "x".into(),
-                                        printed_type: "V".into(),
+                                        printed_slot: crate::objects::PrintedSlot::printed(
+                                            "V".into(),
+                                        ),
                                         optional: synthetic_optional,
                                         readonly: false,
-                                        r#type: missing_value,
+                                        slot: crate::objects::PropertySlot::resolved(missing_value),
                                     }],
                                     instantiated,
                                 ),

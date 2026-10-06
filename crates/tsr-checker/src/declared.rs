@@ -2009,15 +2009,18 @@ impl<'a> Checker<'a, '_> {
         self.instantiated_objects.insert(cache_key.clone(), reserved);
         let mut failed = false;
         for property in properties.iter_mut().flatten() {
-            property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            let current = self.property_type(property);
+            let instantiated = self.instantiate_type(current, map, parameters, names);
+            property.slot = crate::objects::PropertySlot::resolved(instantiated);
             if let Some(write) = &mut property.accessor_write {
                 let write_type = self.parameter_type(write);
                 let write_type = self.instantiate_type(write_type, map, parameters, names);
                 write.set_type(write_type);
                 failed |= self.parameter_type(write) == self.intrinsics.error;
             }
-            failed |= property.r#type == self.intrinsics.error;
-            property.printed_type = self.type_to_string(property.r#type);
+            failed |= instantiated == self.intrinsics.error;
+            property.printed_slot =
+                crate::objects::PrintedSlot::printed(self.type_to_string(instantiated));
         }
         let signatures: Option<Vec<_>> = original_signatures
             .unwrap_or_default()
@@ -2093,8 +2096,8 @@ impl<'a> Checker<'a, '_> {
                 };
                 self.type_literal_member_key(method.name, symbol, &printed) == property.name
             });
-            if is_method
-                && let Some(overloads) = self.signature_types.get(&property.r#type).cloned()
+            let property_type = self.property_type(property);
+            if is_method && let Some(overloads) = self.signature_types.get(&property_type).cloned()
             {
                 for signature in overloads {
                     members.push(crate::objects::Member::Signature {
@@ -2111,7 +2114,7 @@ impl<'a> Checker<'a, '_> {
                     name: property.printed_name.clone(),
                     optional: property.optional,
                     readonly: property.readonly,
-                    printed: property.printed_type.clone(),
+                    printed: self.property_printed_type(property).into_owned(),
                 });
             }
         }
@@ -2387,7 +2390,8 @@ impl<'a> Checker<'a, '_> {
                     let existing =
                         typed_properties.iter().position(|property| property.name == key);
                     let mut overloads = existing
-                        .and_then(|index| self.signature_types.get(&typed_properties[index].r#type))
+                        .map(|index| self.property_type(&typed_properties[index]))
+                        .and_then(|property_type| self.signature_types.get(&property_type))
                         .cloned()
                         .unwrap_or_default();
                     overloads.push(signature);
@@ -2416,10 +2420,10 @@ impl<'a> Checker<'a, '_> {
                         checked_declaration: None,
                         name: key,
                         printed_name,
-                        printed_type,
+                        printed_slot: crate::objects::PrintedSlot::printed(printed_type),
                         optional,
                         readonly: false,
-                        r#type: method_type,
+                        slot: crate::objects::PropertySlot::resolved(method_type),
                     };
                     if let Some(index) = existing {
                         typed_properties[index] = property;
@@ -2553,10 +2557,10 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: accessor_name.text.to_string(),
                     printed_name: accessor_name.text.to_string(),
-                    printed_type: printed.clone(),
+                    printed_slot: crate::objects::PrintedSlot::printed(printed.clone()),
                     optional: false,
                     readonly: is_getter && !paired,
-                    r#type: member_type,
+                    slot: crate::objects::PropertySlot::resolved(member_type),
                 });
                 properties.push(crate::objects::Member::Property {
                     name: accessor_name.text.to_string(),
@@ -2722,10 +2726,10 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: self.type_literal_member_key(property.name, symbol, &name),
                     printed_name: name.clone(),
-                    printed_type: printed.clone(),
+                    printed_slot: crate::objects::PrintedSlot::printed(printed.clone()),
                     optional,
                     readonly,
-                    r#type: member_type,
+                    slot: crate::objects::PropertySlot::resolved(member_type),
                 });
             }
             properties.push(crate::objects::Member::Property { name, optional, readonly, printed });

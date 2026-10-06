@@ -368,10 +368,10 @@ impl<'a> Checker<'a, '_> {
             checked_declaration: None,
             printed_name,
             name,
-            printed_type: self.type_to_string(ty),
+            printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
             optional,
             readonly: false,
-            r#type: ty,
+            slot: crate::objects::PropertySlot::resolved(ty),
         }
     }
 
@@ -393,7 +393,7 @@ impl<'a> Checker<'a, '_> {
         for index in &indexes {
             members.extend(self.index_info_members(index)?);
         }
-        members.extend(crate::callable_expandos::property_members(&properties));
+        members.extend(self.property_members(&properties));
         let ty = self.store.new_named(
             TypeFlags::OBJECT,
             crate::objects::render_object_type(&members),

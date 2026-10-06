@@ -751,10 +751,10 @@ impl<'a> Checker<'a, '_> {
                 checked_declaration: None,
                 name,
                 printed_name,
-                printed_type: self.type_to_string(value),
+                printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(value)),
                 optional,
                 readonly,
-                r#type: value,
+                slot: crate::objects::PropertySlot::resolved(value),
             });
         }
         self.anonymous_properties.insert(id, (properties, true));
@@ -856,7 +856,7 @@ impl<'a> Checker<'a, '_> {
             name: property.printed_name.clone(),
             optional: property.optional,
             readonly: property.readonly,
-            printed: property.printed_type.clone(),
+            printed: self.property_printed_type(property).into_owned(),
         }));
         let text = crate::objects::render_object_type(&members);
         let result = self.store.new_named(TypeFlags::OBJECT, text, None);
@@ -1278,9 +1278,10 @@ function read<T extends Shape>(req: Req<T>, part: Part<T>, read: Read<T>, mutabl
                     assert_eq!(properties[0].origin, Some(a));
                     assert_eq!(properties[1].origin, Some(b));
                     assert!(properties.iter().all(|property| {
-                        checker.type_of(property.r#type).flags.contains(TypeFlags::INDEXED_ACCESS)
+                        let ty = checker.peek_property_type(property).unwrap();
+                        checker.type_of(ty).flags.contains(TypeFlags::INDEXED_ACCESS)
                     }));
-                    let b_value = properties[1].r#type;
+                    let b_value = checker.peek_property_type(&properties[1]).unwrap();
                     assert_eq!(
                         checker.base_constraint_of_type(b_value),
                         Some(checker.intrinsics.number)
@@ -1424,7 +1425,7 @@ function read<T extends { a: string; b: number } | { a: string; c: boolean }, K 
                 let properties = checker.anonymous_properties[&mapped].clone();
                 assert!(properties.1);
                 assert_eq!(properties.0.len(), 1);
-                assert_eq!(properties.0[0].r#type, checker.intrinsics.string);
+                assert_eq!(checker.property_type(&properties.0[0]), checker.intrinsics.string);
                 assert_eq!(properties.0[0].origin, None);
                 assert!(!properties.0[0].optional);
                 let count = checker.type_count();
@@ -1435,16 +1436,17 @@ function read<T extends { a: string; b: number } | { a: string; c: boolean }, K 
                         Some(vec!["fixed".into()])
                     );
                     assert_eq!(checker.get_index_infos_of_type(mapped), Some(indexes.clone()));
-                    let (properties, complete) = &checker.anonymous_properties[&mapped];
+                    let (properties, complete) = checker.anonymous_properties[&mapped].clone();
                     assert!(complete);
                     assert_eq!(properties.len(), 1);
                     let property = &properties[0];
+                    let property_type = checker.property_type(property);
                     assert_eq!(
                         (
                             &*property.name,
                             &*property.printed_name,
-                            &*property.printed_type,
-                            property.r#type,
+                            &*checker.property_printed_type(property),
+                            property_type,
                             property.optional,
                             property.readonly,
                             property.origin,
