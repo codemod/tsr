@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Allocation-origin refresh (`tsr-1yb.16.3`), frozen `2bf3601b` / native
+`5b1047d`: 40 ordinary/probe comparisons preserve complete output and 14,051
+ordered Next.js inputs with 24 diagnostics. Default records 7.81M instantiation
+requests / 3.13M worker entries; single records 4.51M / 1.38M. Selected traffic
+repeats exactly. Member-name walks request 1.70GB cumulatively in default;
+unclassified traffic remains explicit. Five allocator controls and two detected
+mutants pass qualification. Private source and ordinary binary are restored
+exactly; no production optimization, new corpus score or native speed claim.
+[Counts, limits and handoff](docs/architecture/checker-allocation-origins.md).
+
 Member-consumer prototype (`tsr-1yb.31`), frozen `f5db6e78` / native
 `5b1047d`: 27 focused/existing member tests pass and four incorrect mutations
 are detected, but scalar identity qualification rejects the proposed view.
@@ -3023,6 +3033,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The current allocation observer is an archived eight-file replay, not a
+production allocator or reusable member/type answer. Its counters separate
+request entry, instantiation worker entry, nested parameter walks and original
+storage ownership. Ordinary output is preserved; actual native work and reuse
+eligibility still require their existing contracts.
+
 The `f5db6e78` member-consumer experiment contributes a compiled, rejected replay
 and native-backed red controls, not a member cache or retained receiver repair.
 Its private API tests separate supplying context, original receiver, read/write
@@ -3251,6 +3267,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Current `2bf3601b` allocation evidence selects `tsr-1yb.16.3.5` for a measured
+borrowed-name candidate in local type-parameter queries. Preserve every
+declaration-type forcing step, ID/order, default/JSDoc ownership and refusal;
+measure the specific copy site before implementation or benefit claims.
+Member publication `.32`/`.33` and mapper contracts retain their gates. The
+refreshed operation counts supersede using the old serial profile to choose
+these origins; they add no reachability score or verified <=0.50 ratio.
 
 Member reuse must consume the actual published private symbol view, including
 completion-dependent invariant original-symbol reuse and clone target/link/flag
@@ -6735,6 +6759,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Allocation reporter v1 (`tsr-1yb.16.3`, frozen `2bf3601b`) is refused by its
+own live-sum assertion: 1,746 bytes in origin snapshots versus 1,810 in the
+total, because formatting adds 64 bytes during reporting. The failed binary
+and complete output remain archived. Collection stops before corrected report
+formatting. Enabled default observations take 45.449/43.633s versus an unpaired
+14.988s ordinary run; observer timings cannot establish an optimization gain.
+[Failure, correction and overhead](docs/architecture/checker-allocation-origins.md).
 
 Member-consumer identity reconstruction (`tsr-1yb.31`, frozen `f5db6e78` /
 native `5b1047d`) is refused despite 27 passing member controls and four detected
@@ -14283,6 +14315,8 @@ holds only the numbers.
 | 2026-10-02 | `f102831c` | **95.49%** | **6,998/9,538** | **Recursive reverse mapped inference (tsr-6.9): +40 assertions (40 W→R), zero RIGHT losses and no other transitions vs a full baseline at 68fc00ef; no complete case moves.** Self-referencing mapped aliases capture on first inference use; `?` templates add optionality for reverse inference; reverse expanding stacks with mapped recursion identities; reverse mapped objects resolve lazily (replaceIndexedAccess, nested placeholder text) so `Deep<XMLHttpRequest>` stays finite. Gains: mappedTypeRecursiveInference 25, isomorphicMappedTypeInference 8, mappedTypesArraysTuples 4. [Evidence and limits](docs/architecture/checker-95-recursive-reverse-mapped.md). |
 
 | 2026-10-06 | `f5db6e78` (prototype source) | — | — | **Rejected member-consumer prototype, tsr-1yb.31:** 27 passing member controls, four detected mutations, 39 replayed native parsed controls and 162 complete CLI children. Scalar identity returns merged/merged/merged versus native single/merged/single. All 54 baseline/prototype output pairs unchanged; 643 private Rust files restored and 20 original member controls pass. Evidence-only delivery; no new coverage or speed claim. [Replay](docs/architecture/checker-member-consumer-prototype.md). |
+
+| 2026-10-06 | `2bf3601b` (measurement source) | — | — | **Allocation-origin refresh, tsr-1yb.16.3:** 40 output-preserving ordinary/probe comparisons, five allocator controls and two detected mutants. Default3.13M versus single1.38M instantiation worker entries; member walks request1.70GB/1.36GB cumulatively. Unclassified traffic and observer overhead remain explicit; reporter v1 rejected by64-byte self-allocation. All665 baseline source/manifest/lock files and ordinary binary restored exactly. No retained runtime optimization, corpus gain or verified native ratio. [Evidence](docs/architecture/checker-allocation-origins.md). |
 
 ## 8. Updating this file
 
