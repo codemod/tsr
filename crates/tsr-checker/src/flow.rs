@@ -883,7 +883,12 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 if state.outer_reference
-                    && (state.symbol.is_some_and(|s| self.symbol_has_any_assignment(s))
+                    && (state.symbol.is_some_and(|s| {
+                        // `isNeverInitialized` asks for a DEFINITE assignment
+                        // (`checker.go:11147`): an outer `let i: number`
+                        // touched only by `i++` keeps `undefined`.
+                        self.symbol_has_any_assignment(s) && !self.is_never_initialized(s)
+                    })
                         // `isNeverInitialized` requires a mutable LOCAL
                         // (`checker.go:11147`, `isMutableLocalVariableDeclaration`):
                         // a file-level declaration referenced inside a
@@ -1811,6 +1816,39 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`) as written:
+    /// unlike [`Checker::is_parameter_or_mutable_local_variable`], a
+    /// module-level `let` is a mutable local. Gates `isSymbolAssignedDefinitely`'s
+    /// record only.
+    fn is_parameter_or_mutable_local_variable_faithful(&self, symbol: SymbolId) -> bool {
+        let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        while let Some(parent) = self.nodes.parent(declaration) {
+            if matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::BindingElement
+                    | SyntaxKind::ObjectBindingPattern
+                    | SyntaxKind::ArrayBindingPattern
+                    | SyntaxKind::Parameter
+            ) {
+                declaration = parent;
+            } else {
+                break;
+            }
+        }
+        match self.nodes.kind(declaration) {
+            SyntaxKind::Parameter => true,
+            SyntaxKind::VariableDeclaration => {
+                self.nodes
+                    .parent(declaration)
+                    .is_some_and(|list| self.nodes.kind(list) == SyntaxKind::CatchClause)
+                    || self.is_mutable_local_variable_declaration(declaration)
+            }
+            _ => false,
+        }
+    }
+
     /// `isPastLastAssignment` (`flow.go:2668`): never assigned (0) or last
     /// assigned before the reference.
     fn is_past_last_assignment(&mut self, symbol: SymbolId, location: NodeId) -> bool {
@@ -1935,8 +1973,15 @@ impl Checker<'_, '_> {
                     identifier.text,
                     SymbolFlags::VALUE,
                 )
-                && self.is_parameter_or_mutable_local_variable(symbol)
             {
+                // The definite flag is gated by upstream's predicate as written
+                // (a module-level `let` is a mutable local); the position below
+                // keeps the `.types` reader's file-level refusal (§42).
+                if kind == crate::expressions::AssignmentTargetKind::Definite
+                    && self.is_parameter_or_mutable_local_variable_faithful(symbol)
+                {
+                    self.definitely_assigned.insert(symbol);
+                }
                 // `hasDefiniteAssignment` is written **outside** the
                 // `lastAssignmentPos != MAX` guard upstream (`flow.go:2718`):
                 // the guard governs the position, not the flag, and a symbol
@@ -1944,10 +1989,9 @@ impl Checker<'_, '_> {
                 // assignment. Splitting the two writes apart is what keeps this
                 // addition from moving `last_assignment_pos` by a single entry
                 // — `checker-notes-diag2.md` §42.
-                if kind == crate::expressions::AssignmentTargetKind::Definite {
-                    self.definitely_assigned.insert(symbol);
-                }
-                if self.last_assignment_pos.get(&symbol) != Some(&i64::MAX) {
+                if self.is_parameter_or_mutable_local_variable(symbol)
+                    && self.last_assignment_pos.get(&symbol) != Some(&i64::MAX)
+                {
                     self.record_assignment_position(id, symbol);
                 }
             }
@@ -1993,6 +2037,33 @@ impl Checker<'_, '_> {
     /// The whole point of the per-symbol record. TS2454's `isNeverInitialized`
     /// is its only consumer, and a *name*-based approximation of the same
     /// question measured 4 lost cases (`checker-notes-diag2.md` §42).
+    /// `isNeverInitialized` (`checker.go:11147`): a mutable local
+    /// `VariableDeclaration`, not a `for..in`/`for..of` head, with no
+    /// initialiser and no `!`, that no definite assignment targets.
+    pub(crate) fn is_never_initialized(&mut self, symbol: SymbolId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        if variable.initializer.is_some() || variable.exclamation_token.is_some() {
+            return false;
+        }
+        if self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list)).is_some_and(
+            |owner| {
+                matches!(
+                    self.nodes.kind(owner),
+                    SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+                )
+            },
+        ) {
+            return false;
+        }
+        self.is_mutable_local_variable_declaration(declaration)
+            && !self.is_symbol_assigned_definitely(symbol)
+    }
+
     pub(crate) fn is_symbol_assigned_definitely(&mut self, symbol: SymbolId) -> bool {
         self.ensure_assignments_marked(symbol);
         self.definitely_assigned.contains(&symbol)
@@ -8444,39 +8515,79 @@ impl Checker<'_, '_> {
         }
         // A signature, or an arrow with an expression body, has nothing to
         // check; nor does a body whose end the flow graph cannot reach.
-        // Only the unported `noImplicitReturns` arm speaks without an
-        // annotation, so an unannotated function stops here — **before** the
-        // reachability query, which types `never`-returning calls in the body
-        // and can re-enter the function's own inferred return type
-        // (`thisTypeInObjectLiterals2`'s TS7023 was the measured cost).
-        let Some(t) = return_type else { return };
+        // Without an annotation only the `noImplicitReturns` arm can speak,
+        // and only for a body with an explicit `return` (`checker.go:3768`);
+        // both are asked **before** the reachability query, which types
+        // `never`-returning calls in the body and can re-enter the function's
+        // own inferred return type (`thisTypeInObjectLiterals2`'s TS7023 was
+        // the measured cost). Upstream asks reachability first; the reorder
+        // changes no answer, only which function pays for the query.
+        let has_explicit_return =
+            self.binder.facts(function).contains(tsr_binder::NodeFacts::HAS_EXPLICIT_RETURN);
+        if return_type.is_none() && !(self.no_implicit_returns && has_explicit_return) {
+            return;
+        }
         let Some(body) = body else { return };
         if self.nodes.kind(body) != SyntaxKind::Block
             || !self.function_has_implicit_return(function)
         {
             return;
         }
-        let has_explicit_return =
-            self.binder.facts(function).contains(tsr_binder::NodeFacts::HAS_EXPLICIT_RETURN);
-        let message = if self.type_of(t).flags.intersects(TypeFlags::NEVER) {
-            &messages_flow::A_FUNCTION_RETURNING_NEVER_CANNOT_HAVE_A_REACHABLE_END_POINT
-        } else if !has_explicit_return {
-            &messages_flow::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE
-        } else if self.strict_null_checks
-            && self.relate_ternary(
-                self.intrinsics.undefined,
-                t,
-                crate::relater::Relation::Assignable,
-            ) == crate::relater::Ternary::NotRelated
-        {
-            &messages_flow::FUNCTION_LACKS_ENDING_RETURN_STATEMENT_AND_RETURN_TYPE_DOES_NOT_INCLUDE_UNDEFINED
-        } else {
-            return;
+        let message = match return_type {
+            Some(t) if self.type_of(t).flags.intersects(TypeFlags::NEVER) => {
+                &messages_flow::A_FUNCTION_RETURNING_NEVER_CANNOT_HAVE_A_REACHABLE_END_POINT
+            }
+            Some(_) if !has_explicit_return => {
+                &messages_flow::A_FUNCTION_WHOSE_DECLARED_TYPE_IS_NEITHER_UNDEFINED_VOID_NOR_ANY_MUST_RETURN_A_VALUE
+            }
+            Some(t)
+                if self.strict_null_checks
+                    && self.relate_ternary(
+                        self.intrinsics.undefined,
+                        t,
+                        crate::relater::Relation::Assignable,
+                    ) == crate::relater::Ternary::NotRelated =>
+            {
+                &messages_flow::FUNCTION_LACKS_ENDING_RETURN_STATEMENT_AND_RETURN_TYPE_DOES_NOT_INCLUDE_UNDEFINED
+            }
+            _ if !self.no_implicit_returns => return,
+            Some(_) => &messages_flow::NOT_ALL_CODE_PATHS_RETURN_A_VALUE,
+            None => {
+                // `checker.go:3771`: the inferred return type, unwrapped, must
+                // not be `undefined`, `void` or any-like. A return type this
+                // port cannot infer is upstream's `errorType`, which is
+                // any-like, so it stays silent.
+                let Some(signature) = self.get_signature_from_declaration(function) else {
+                    return;
+                };
+                let Some(inferred) = self.get_return_type_of_signature(&signature) else {
+                    return;
+                };
+                let unwrapped = if is_async {
+                    match self.awaited_type_no_alias(inferred) {
+                        Some(awaited) => awaited,
+                        None => return,
+                    }
+                } else {
+                    inferred
+                };
+                if self.is_error(inferred)
+                    || self.is_error(unwrapped)
+                    || self.maybe_type_of_kind(unwrapped, TypeFlags::VOID)
+                    || self.type_of(unwrapped).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED)
+                {
+                    return;
+                }
+                &messages_flow::NOT_ALL_CODE_PATHS_RETURN_A_VALUE
+            }
         };
-        // The error node is the return annotation.
-        let Some(at) = annotation.and_then(|annotation| annotation.node_id()) else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        // The error node is the return annotation, else the function itself
+        // (`checker.go:3745`; this port has no `FullSignature` JSDoc node).
+        let span = match annotation.and_then(|annotation| annotation.node_id()) {
+            Some(at) => self.nodes.span(at),
+            None => self.error_span(function),
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(function) else { return };
         self.report(file, tsr_diagnostics::Diagnostic::new(message, span));
     }
 }
