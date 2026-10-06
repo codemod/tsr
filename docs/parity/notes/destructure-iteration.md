@@ -239,3 +239,36 @@ verdict (measured: 467725 RIGHT lines before and after).
 `generatorReturnTypeFallback.2`, `generatorTypeCheck27`, `29`, `30`, `64`,
 `types.forAwait.es2018.3`. CPU-median self-ratio 0.94 (domain-model), 0.97
 (generic-imports); workspace tests pass with the patch applied.
+
+## 8. A for-of pattern's parent through `checkRightHandSideOfForOf`; `never` has no members (tsr-2zk.10)
+
+**Forcing constraint.** `getTypeForVariableLikeDeclaration`'s for-of arm is
+`checkRightHandSideOfForOf` (`checker.go:17678`) =
+`checkIteratedTypeOrElementType(ForOf, checkNonNullExpression(expr))`, the
+iterable road whenever the global `Iterable` exists (`checker.go:6116`).
+`get_type_for_binding_element_parent` read the pattern's parent through
+`symbols.rs`'s `for_of_element_type`, which declines a degenerate element:
+`for (const [,] of [])` (strict) had parent `error`, so the empty pattern's
+`TS2488 Type 'never' must have a '[Symbol.iterator]()'…`
+(`checkVariableLikeDeclaration`'s pattern check) never fired
+(`omittedExpressionForOfLoop`, 2 missing).
+
+**What was ported.** `for_of_iterated_type` (`iteration.rs`) is that
+expression on the iteration engine: `any`/`never` input answer `any` (the
+`nil → anyType` of `checkIteratedTypeOrElementType`; `never` is reported by
+the statement's own check), else the YIELD type orElse `any`. With no global
+`Iterable` (the array-like road, unported) or an undecidable protocol it
+answers `None` and the destructure arm keeps the old element road. Only the
+pattern-parent arm uses it; plain for-of names stay on `symbols.rs`.
+
+**`never` has no members.** The iterated element of `never[]` is the
+implicit-never variant, which is not `intrinsics.never`, so it reaches the
+protocol walk rather than `getIteratedTypeOrElementType`'s identity arm.
+`getPropertyOfType` on `never` answers nil for every name, so
+`iteration_member_decidably_absent` now counts `NEVER` beside the primitives,
+and the walk reports TS2488 as upstream's does.
+
+**Measured** at the merge `26d6033`: missing diagnostics 4374 → 4372 (both
+`omittedExpressionForOfLoop` TS2488), extras unchanged, both loss checks
+empty, no verdict change (the case still lacks `checkNonNullExpression`'s
+TS18050, not this lane).

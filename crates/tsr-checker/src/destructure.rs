@@ -530,6 +530,12 @@ impl Checker<'_, '_> {
                     && let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement)
                     && let Some(expression) = for_of.expression
                 {
+                    // checkRightHandSideOfForOf through the iteration
+                    // engine; where it cannot answer (no global `Iterable`,
+                    // an undecidable protocol) the earlier element road.
+                    if let Some(iterated) = self.for_of_iterated_type(statement) {
+                        return iterated;
+                    }
                     let is_async = for_of.await_modifier.is_some();
                     return self
                         .for_of_statement_element_type(expression, is_async)
