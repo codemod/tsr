@@ -324,3 +324,18 @@ Measured: +6 (`parameterPropertyInConstructor2`, `staticModifierAlreadySeen`,
 **Falsifier.** An extra TS2300 on a member whose symbol the binder merged
 where upstream would not (a members-table merge across a conflict) — the
 report trusts the binder's declaration lists.
+
+## §13 TS2411: `checkTypeLiteral`'s index-constraint call
+
+`check_index_constraints` ran for classes and interfaces only; upstream's
+fourth call site is `checkTypeLiteral` (`checker.go:3134`), which checks the
+literal's own type against its index signatures with the `__type` symbol as
+owner. The port's binder gives a type literal that symbol (§12), and
+`declared_in_owner` already reads a member's parent symbol, so the error node
+resolves to the literal's member exactly as for an interface. No new cache:
+the literal's type is `get_type_from_type_node`'s, which is already cached by
+node.
+
+Measured: +4 (`propertiesAndIndexers`, `stringIndexerConstrainsPropertyDeclarations2`,
+`genericCallWithObjectTypeArgsAndIndexersErrors`, `recursiveTypesWithTypeof`),
+no loss, no new extra TS2411.

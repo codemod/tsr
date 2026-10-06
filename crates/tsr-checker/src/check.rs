@@ -688,6 +688,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::TypeLiteralNode(_) => {
+                self.check_index_constraints(node);
                 self.check_object_type_for_duplicate_declarations(node);
                 self.check_private_name_in_object_literal(node);
                 // A type literal carries index signatures exactly as an
@@ -7538,8 +7539,10 @@ impl Checker<'_, '_> {
         let class_members = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => class.members,
             Some(Node::ClassExpression(class)) => class.members,
-            Some(Node::InterfaceDeclaration(InterfaceDeclaration { members, .. }))
-            | Some(Node::TypeLiteralNode(TypeLiteralNode { members, .. })) => {
+            Some(
+                Node::InterfaceDeclaration(InterfaceDeclaration { members, .. })
+                | Node::TypeLiteralNode(TypeLiteralNode { members, .. }),
+            ) => {
                 for member in *members {
                     let Some(id) = member.node_id() else { continue };
                     let kind = match member {

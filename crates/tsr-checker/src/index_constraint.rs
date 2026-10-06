@@ -119,10 +119,11 @@ impl<'a> Checker<'a, '_> {
         Some((kind, at))
     }
 
-    /// `checkIndexConstraints`' three call sites (`checker.go:4786`):
+    /// `checkIndexConstraints`' four call sites (`checker.go:4786`):
     /// `checkClassLikeDeclaration` runs it on the instance type and on the
     /// static side (`checker.go:4387`), `checkInterfaceDeclaration` once per
-    /// symbol on the declared type (`checker.go:5013`).
+    /// symbol on the declared type (`checker.go:5013`), `checkTypeLiteral` on
+    /// the literal's type (`checker.go:3137`).
     ///
     /// The interface arm is guarded by `links.interfaceChecked`, a once-per-
     /// symbol flag set by whichever declaration is checked first; this runs on
@@ -150,6 +151,13 @@ impl<'a> Checker<'a, '_> {
                 }
                 let declared = self.get_declared_type_of_class_or_interface(symbol);
                 self.check_index_constraints_of_type(declared, symbol, false);
+            }
+            // `checkTypeLiteral` (`checker.go:3134`): the literal's own type,
+            // owned by its `__type` symbol.
+            SyntaxKind::TypeLiteral => {
+                let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(node) else { return };
+                let ty = self.get_type_from_type_node(tsr_ast::TypeNode::TypeLiteralNode(literal));
+                self.check_index_constraints_of_type(ty, symbol, false);
             }
             _ => {}
         }
