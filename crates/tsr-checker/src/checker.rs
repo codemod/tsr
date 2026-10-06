@@ -745,9 +745,12 @@ pub struct Checker<'a, 'n> {
     /// `jsxFactory` (`h` for `h.createElement`), else by `reactNamespace`.
     ///
     /// The per-file `@jsx` pragma, which upstream consults first
-    /// (`getLocalJsxNamespace`), is not ported — see
-    /// [`Checker::jsx_namespace_symbol`].
+    /// (`getLocalJsxNamespace`), comes from the host — see
+    /// [`Checker::jsx_namespace_at`].
     pub(crate) jsx_namespace: String,
+    /// The first identifier of `jsxFragmentFactory`, when that option parses
+    /// as an entity name (`getJsxFragmentFactoryEntity`, `jsx.go:1431`).
+    pub(crate) jsx_fragment_namespace: Option<String>,
     /// What JSX compiles to. TS2874 is reported **only** under
     /// [`tsr_core::JsxEmit::React`] (`checker.go:28508`). §261.
     pub(crate) jsx_emit: tsr_core::JsxEmit,
@@ -1413,6 +1416,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
+            jsx_fragment_namespace: None,
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
             alias_inline_level: 0,
@@ -1620,9 +1624,16 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         } else {
             // `GetFirstIdentifier(parseIsolatedEntityName(…))`. The entity is a
-            // dotted name and only its root is the namespace.
-            options.jsx_factory.split('.').next().unwrap_or("React").to_string()
+            // dotted name and only its root is the namespace; a factory that
+            // does not parse leaves the default, `React` (`jsx.go:1376`).
+            crate::jsx_factory::isolated_entity_name_root(&options.jsx_factory)
+                .unwrap_or("React")
+                .to_string()
         };
+        // `getJsxFragmentFactoryEntity`'s option arm (`jsx.go:1431`).
+        self.jsx_fragment_namespace =
+            crate::jsx_factory::isolated_entity_name_root(&options.jsx_fragment_factory)
+                .map(str::to_string);
 
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();

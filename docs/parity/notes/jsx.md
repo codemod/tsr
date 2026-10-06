@@ -124,3 +124,64 @@ the spread child's type is the memoised `check_expression`, and an `errorType`
 (a gap) reports nothing. `grammarErrorOnNode`'s parse-error gate is
 `file_has_parse_errors`.
 
+
+## 3. The JSX factory is a name per file, not an entity
+
+### Forcing constraint
+
+`markJsxAliasReferenced` (`checker.go:28502`) was ported only as its TS2874
+report, under `jsx: react`, for elements. Its other effect — `isUse` marking
+of the factory's root symbol — is what keeps `import React = require("react")`
+from being TS6133 under `noUnusedLocals` in **every** emit mode, and
+fragments resolve a second name (the `@jsxFrag` / `jsxFragmentFactory` root,
+then the element factory's root). At round 2's baseline that was 13 lane
+cases (`unusedImports13`–`16` EXTRA 6133, `inlineJsxAndJsxFragPragma`,
+`jsxFragmentAndFactoryUsedOnFragmentUse` EXTRA 6192, three `jsxFactory*`
+cases with a wrong TS2874 or a missing TS2552).
+
+### What was ported, and the representational choice
+
+`crates/tsr-checker/src/jsx_factory.rs` holds `getJsxNamespace`,
+`getJsxFactoryEntity` (its root) and `markJsxAliasReferenced` whole. Upstream
+parses each factory into a synthetic entity with `parseIsolatedEntityName`
+and caches it in `sourceFileLinks`; every reader here takes only
+`GetFirstIdentifier` of it, so this port keeps the root *string*: per file
+from the parser's `FileReferences` (`@jsx`, `@jsxFrag`, `@jsxImportSource`,
+`@jsxRuntime`, last pragma wins as in `GetPragmaFromSourceFile`), per checker
+from the options. Rejected: storing the entity — nothing reads its tail.
+
+`parseIsolatedEntityName` matters for its *failures*: `jsxFactory:
+Element.createElement=` does not parse, so upstream falls back to `React`
+(`jsxFactoryNotIdentifierOrQualifiedName{,2}`). The old `split('.')` took
+`Element`. The parse is identifier names joined by `.` (keywords allowed, so
+`@jsxfrag null` names `null`, which the fragment arm exempts). It exists twice
+— `tsr_parser::pragma::isolated_entity_name_root` and
+`jsx_factory::isolated_entity_name_root` — because the checker does not depend
+on the parser crate; adding that dependency for eight lines was rejected.
+
+A miss under `jsx: react` goes through `onFailedToResolveSymbol`'s lib and
+spelling arms before the TS2874 fallback, so `jsxFactory: createElement` with
+`frameElement` in the DOM lib is TS2552 (`jsxFactoryIdentifierWithAbsentParameter`).
+The `checkAndReportErrorFor*` arms before those are not ported; none fires on
+a tag name in the corpus.
+
+The old `file_has_parse_errors` gate on TS2874 was removed: TS2874 is a
+`resolveName` error, not a grammar error, and upstream reports it in files
+with parse errors (`tsxErrorRecovery3`).
+
+### The decline kept
+
+`getJsxNamespaceContainerForImplicitImport` returns early only when the
+automatic runtime's module *resolves*; this port returns whenever
+`GetJSXImplicitImportBase` selects the automatic runtime (host method
+`jsx_implicit_import_base`). The difference is the TS2875 population, where
+upstream still marks and reports `React`; there this port does neither, which
+was its behaviour before (nothing marked the factory at all). Lifting it needs
+module resolution by name from the checker, filed with the round-2 report.
+
+### How we would know this is wrong
+
+An EXTRA TS6133 on a JSX factory import under classic runtime, or a TS2874
+naming a different root than the baseline, is a divergence in
+`jsx_namespace_at`; an EXTRA TS6133 under `jsx: react-jsx` with an unresolved
+runtime module is the decline above.

@@ -960,6 +960,43 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         self.files[index].file_references().jsx_factory_namespace.clone()
     }
 
+    fn jsx_fragment_factory_namespace(&self, file: tsr_ast::NodeId) -> Option<String> {
+        let &index = self.files_by_source_file.get(&file)?;
+        if index < self.lib_file_count {
+            return None;
+        }
+        self.files[index].file_references().jsx_fragment_factory_namespace.clone()
+    }
+
+    /// `ast.GetJSXImplicitImportBase` (`utilities.go:2771`), pragma for
+    /// pragma.
+    fn jsx_implicit_import_base(&self, file: tsr_ast::NodeId) -> Option<String> {
+        let &index = self.files_by_source_file.get(&file)?;
+        let references = self.files[index].file_references();
+        let runtime = references.jsx_runtime.as_deref();
+        if runtime == Some("classic") {
+            return None;
+        }
+        let options = &self.options;
+        if matches!(options.jsx, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev)
+            || !options.jsx_import_source.is_empty()
+            || references.jsx_import_source.is_some()
+            || runtime == Some("automatic")
+        {
+            let base = references
+                .jsx_import_source
+                .clone()
+                .filter(|source| !source.is_empty())
+                .or_else(|| {
+                    (!options.jsx_import_source.is_empty())
+                        .then(|| options.jsx_import_source.clone())
+                })
+                .unwrap_or_else(|| "react".to_string());
+            return Some(base);
+        }
+        None
+    }
+
     fn is_declaration_file(&self, file: tsr_ast::NodeId) -> bool {
         self.files_by_source_file.get(&file).is_some_and(|&index| {
             index >= self.lib_file_count

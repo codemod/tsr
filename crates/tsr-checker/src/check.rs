@@ -889,7 +889,7 @@ impl Checker<'_, '_> {
         }
         self.check_parser_lane_statement(typed);
         self.check_jsx_intrinsic_element(node, typed);
-        self.check_jsx_factory_in_scope(typed);
+        self.mark_jsx_alias_referenced(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
@@ -4963,7 +4963,7 @@ impl Checker<'_, '_> {
     /// it: `$ERROR` against `Error` is one deletion plus five case differences,
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
+    pub(crate) fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
         let candidates = self.binder.names_in_scope_with_meaning(
             self.nodes,
             self.node_map,
@@ -14203,7 +14203,7 @@ fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Mess
     })
 }
 
-fn suggested_lib_for(name: &str) -> Option<&'static str> {
+pub(crate) fn suggested_lib_for(name: &str) -> Option<&'static str> {
     LIB_FEATURE_NAMES
         .binary_search_by_key(&name, |(feature, _)| *feature)
         .ok()
