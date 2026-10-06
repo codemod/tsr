@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7759/9538 (81.35%)
-Assertion lines: 468415/478855 (97.82%)  — a gradient, not a pass rate
-Failed         : 1779
+Passed         : 7792/9538 (81.69%)
+Assertion lines: 468622/478855 (97.86%)  — a gradient, not a pass rate
+Failed         : 1746
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1779 failures:
+First 100 of 1746 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -43,12 +43,6 @@ compiler/allowImportClausesToMergeWithTypes
   index.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
   app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
-compiler/allowSyntheticDefaultImports1
-  a.ts: >Namespace : any — expected >Namespace : typeof Namespace
-compiler/allowSyntheticDefaultImports4
-  a.ts: >Foo : any — expected >Foo : typeof Foo
-compiler/allowSyntheticDefaultImports9
-  a.ts: >default : any — expected >default : typeof Foo
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
 compiler/ambientExportDefaultErrors
@@ -144,7 +138,7 @@ compiler/callOfConditionalTypeWithConcreteBranches
 compiler/callbacksDontShareTypes
   callbacksDontShareTypes.ts: >r5a : any — expected >r5a : Collection<string>
 compiler/callsOnComplexSignatures
-  callsOnComplexSignatures.tsx: >React : any — expected >React : typeof React
+  callsOnComplexSignatures.tsx: >React : typeof import("react").React — expected >React : typeof React
 compiler/cannotIndexGenericWritingError
   cannotIndexGenericWritingError.ts: >foo2 : <T extends number[] & { [s: string]: string | number; }>(target: T, p: string | number) => void — expected >foo2 : <T extends number[] & { [s: string]: number | string; }>(target: T, p: string | number) => void
 compiler/capturedParametersInInitializers1
@@ -201,15 +195,21 @@ compiler/circularlySimplifyingConditionalTypesNoCrash
   circularlySimplifyingConditionalTypesNoCrash.ts: >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<unknown, unknown> — expected >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<TStateProps, Omit<P, Extract<keyof TStateProps, keyof P>> & TOwnProps>
 compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
-compiler/classBlockScoping
-  classBlockScoping.ts: >y : any — expected >y : Foo
 compiler/classDeclarationMergedInModuleWithContinuation
   classDeclarationMergedInModuleWithContinuation.ts: >M.N : M.N — expected >M.N : N
 compiler/classDeclaredBeforeClassFactory
   classDeclaredBeforeClassFactory.ts: >makeBaseClass() : typeof Base — expected >makeBaseClass() : Base
 compiler/classExpressionNames
   ts.ts: >({ B: undefined }) : { B: undefined; } — expected >({ B: undefined }) : { B?: undefined; }
-compiler/classExpressionWithStaticProperties1
-  classExpressionWithStaticProperties1.ts: >c : any — expected >c : number
-compiler/classExpressionWithStaticPropertiesES61
-  classExpressionWithStaticPropertiesES61.ts: >c : any — expected >c : number
+compiler/classExtendingQualifiedName2
+  classExtendingQualifiedName2.ts: >M.C : M.C — expected >M.C : C
+compiler/classExtendsInterface
+  classExtendsInterface.ts: >Comparable : Comparable — expected >Comparable : any
+compiler/classExtendsInterfaceInExpression
+  classExtendsInterfaceInExpression.ts: >factory(A) : new () => Object — expected >factory(A) : Object
+compiler/classExtendsMultipleBaseClasses
+  classExtendsMultipleBaseClasses.ts: >B : B — expected >B : A
+compiler/classExtendsNull3
+  classExtendsNull3.ts: >super : any — expected >super : null
+compiler/classFieldSuperAccessible
+  classFieldSuperAccessible.ts: >class Expr {} : typeof Expr — expected >class Expr {} : Expr
