@@ -992,6 +992,20 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::NotRelated;
         }
+        // isRelatedToWorker's common-property check (relater.go:2675): a
+        // weak target (`isWeakType`) that knows none of a source's
+        // properties rejects it, except under comparability for a non-unit
+        // source and for a constituent of a target intersection
+        // (`IntersectionStateTarget`, this port's `check_excess == false`).
+        // `fails_common_property_check` answers `false` wherever a member
+        // table is not certified, so it only ever adds a definite negative.
+        if check_excess
+            && (self.relation != Relation::Comparable
+                || self.checker.type_of(source).flags.intersects(TypeFlags::UNIT))
+            && self.checker.fails_common_property_check(source, target)
+        {
+            return RelationResult::NotRelated;
+        }
         // anyFunctionType has no properties, and function expressions have
         // no own property requirements. Their call-signature relation is the
         // wildcard rule even when no symbol member table is attached.

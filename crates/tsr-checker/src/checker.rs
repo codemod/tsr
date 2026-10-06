@@ -309,6 +309,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) deferred_indexed_access_types: FxHashMap<TypeId, (TypeId, TypeId, bool)>,
     /// `getIndexedAccessTypeOrUndefined`'s interning key (`checker.go`).
     pub(crate) deferred_indexed_access_cache: FxHashMap<(TypeId, TypeId, bool), TypeId>,
+    /// `isWeakType`'s decided answers (`relater.go:681`), owned by
+    /// `assignreport.rs::is_weak_type`; see `docs/parity/notes/relate-report.md` §21.
+    pub(crate) weak_type_answers: FxHashMap<TypeId, bool>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -1352,6 +1355,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             deferred_index_mints: rustc_hash::FxHashSet::default(),
             deferred_indexed_access_types: FxHashMap::default(),
             deferred_indexed_access_cache: FxHashMap::default(),
+            weak_type_answers: FxHashMap::default(),
             resolutions: Resolutions::new(),
             dependent_binding_parents_in_flight: rustc_hash::FxHashSet::default(),
             flow_analysis_disabled: false,

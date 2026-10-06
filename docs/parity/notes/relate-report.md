@@ -520,3 +520,47 @@ the box's final report).
 
 Lane state at `d7d1d2b`: whole-suite `diagnostics` 3935/5488 and
 `checker_types` 7609/9538.
+
+## 21. Round 3: the weak-type check is an arm of the relation
+
+`isRelatedToWorker`'s common-property check (`relater.go:2675`) is now an
+arm of `Relater::is_related_to_with_excess`, after the excess-property check
+and before the structural walk, as upstream orders it. It applies under every
+relation except comparability for a non-unit source, and not to a constituent
+of a target intersection (`IntersectionStateTarget`; this port's
+`check_excess == false`, the only caller passing it). The decision is the
+existing `fails_common_property_check` (§20's reporter half), which answers
+`false` for any uncertified table, so the arm adds only definite negatives.
+The §20 overload-order loss went away with `main`'s `e292d1a` (calls lane:
+`reorder_candidates` groups call signatures by owner), so the
+calls-lane patch is no longer needed.
+
+`issueMemberSpecificError`'s broad fallback reaches the same check:
+`isRelatedToEx` reports the weak-type failure itself with no head message, so
+the diagnostic is TS2559 at the class name, not TS2420
+(`heritage_conformance.rs`).
+
+**Cache.** `Checker::weak_type_answers` (key: the target `TypeId`; owner:
+`assignreport.rs::is_weak_type`) memoizes decided answers. Upstream's
+`isWeakType` reads resolved members, which are cached; the port's
+`relation_property_table` rebuilds a `Vec<(String, bool)>` per call, and the
+arm asks it of every object target at every depth. Measured without the cache:
+generic-imports median CPU ratio 1.038 (21 samples) and 1.046 (41). With the
+cache: 0.983 / 0.974 (41). Publication: only `Some` answers are stored. A
+table moves from uncertified to certified at most once (lazy mapped info), and
+a certified table does not change, so a stored answer cannot go stale. If a
+zero-loss run showed a case whose verdict depends on the order in which types
+are asked about, that assumption would be wrong.
+
+Converted: `compiler/incorrectNumberOfTypeArgumentsDuringErrorReporting`,
+`compiler/weakType`, `conformance/subtypingWithObjectMembers5`; +4
+`checker_types` lines. Both zero-loss checks are empty.
+
+**Not done this round.** The indexed-access target arm (§20) needs a write-flavoured
+`getIndexedAccessTypeOrUndefined` (`AccessFlagsWriting`: an intersection over
+a union index, and `NoIndexSignatures` when the object was replaced by its
+constraint). `indexed.rs::resolved_indexed_access_type` answers the read
+union, so that arm would accept pairs upstream rejects. The two §20 losses
+(`mapped.rs` symbol key, `base_constraint_of_type(Funcs[K])`) are also still
+open. `identity.rs` → `Relation::Identity` (tsr-2zk.32) is not cheap: it is a
+630-line separate walk, and folding it in touches the hot relater.

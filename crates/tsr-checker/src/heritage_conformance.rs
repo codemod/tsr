@@ -257,6 +257,12 @@ impl Checker<'_, '_> {
         let at = self.declaration_name_of(node).unwrap_or(node);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
+        // A weak-type failure is reported by `isRelatedToEx` itself
+        // (`relater.go:2680`) with no head message, so the chain is TS2559
+        // (or TS2560) alone and the broad message is never added.
+        if self.report_weak_type_failure(at, span, source, target) {
+            return;
+        }
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));

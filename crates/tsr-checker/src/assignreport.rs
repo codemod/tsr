@@ -2746,13 +2746,8 @@ impl<'a> Checker<'a, '_> {
     /// `false` wherever this port cannot decide (an uncertified member
     /// table), so it never rejects a pair upstream accepts.
     ///
-    /// Not yet an arm of `crate::relater`: there it also rejects
-    /// `Opt1 -> Opt3`-style pairs inside overload and identity decisions, and
-    /// the port's call-signature `reorderCandidates` grouping
-    /// (`signatures.rs`, call signatures of merged interfaces) still picks
-    /// overloads upstream does not, which the relation's laxness was masking
-    /// (`overloadBindingAcrossDeclarationBoundaries`).
-    fn fails_common_property_check(&mut self, source: TypeId, target: TypeId) -> bool {
+    /// Also the relation's arm in `Relater::is_related_to_with_excess`.
+    pub(crate) fn fails_common_property_check(&mut self, source: TypeId, target: TypeId) -> bool {
         if !self
             .type_of(source)
             .flags
@@ -2789,6 +2784,20 @@ impl<'a> Checker<'a, '_> {
     /// signatures; an intersection of only such. `None` where the member
     /// table is not certified.
     fn is_weak_type(&mut self, t: TypeId) -> Option<bool> {
+        // Upstream reads resolved (cached) members; the port's certified
+        // table is rebuilt per call, and the relation asks this of every
+        // object target at every depth. Only decided answers are kept: a
+        // table becomes certified (None -> Some) at most once and a certified
+        // table does not change afterwards.
+        if let Some(&answer) = self.weak_type_answers.get(&t) {
+            return Some(answer);
+        }
+        let answer = self.is_weak_type_worker(t)?;
+        self.weak_type_answers.insert(t, answer);
+        Some(answer)
+    }
+
+    fn is_weak_type_worker(&mut self, t: TypeId) -> Option<bool> {
         if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
             for part in types {
                 if !self.is_weak_type(part)? {
@@ -2834,7 +2843,7 @@ impl<'a> Checker<'a, '_> {
     /// against `null`/`undefined` plus one other type is related to that
     /// type. TS2560 when the source's first call (or construct) signature
     /// returns a type related to the target. Answers whether it reported.
-    fn report_weak_type_failure(
+    pub(crate) fn report_weak_type_failure(
         &mut self,
         at: NodeId,
         span: tsr_core::Span,
