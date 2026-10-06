@@ -1529,12 +1529,15 @@ impl<'a> Checker<'a, '_> {
         // reportRelationError suppresses the TS2345 head when the chain ends in
         // the pair's missing-property message (relater.go:4751), exactly as it
         // does for TS2322; a fresh literal keeps the written-key guard.
+        // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
+        // missing-property messages name the normalized target.
+        let normalized = self.no_infer_base_type(target).unwrap_or(target);
         if not_related
             && let Some(properties) = self
-                .missing_required_property(source, target)
-                .or_else(|| self.unmatched_property_report(source, target))
+                .missing_required_property(source, normalized)
+                .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            self.report_missing_properties(file, span, source, target, &properties);
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
@@ -1665,12 +1668,15 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
+        // missing-property messages name the normalized target.
+        let normalized = self.no_infer_base_type(target).unwrap_or(target);
         if REPORT_MISSING_REQUIRED_PROPERTY
             && union_literal.is_none()
-            && let Some(properties) = self.missing_required_property(source, target)
+            && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            self.report_missing_properties(file, span, source, target, &properties);
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
@@ -1689,9 +1695,9 @@ impl<'a> Checker<'a, '_> {
         probe!(PROBE_REPORTED);
         if not_related
             && union_literal.is_none()
-            && let Some(properties) = self.unmatched_property_report(source, target)
+            && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            self.report_missing_properties(file, span, source, target, &properties);
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
@@ -2440,11 +2446,36 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let tuple_target = self.tuple_element_lists.contains_key(&target);
-        if !tuple_target && self.variadic_tuple_elements.contains_key(&target) {
-            return false;
-        }
-        let array_element =
-            if tuple_target { None } else { self.tuple_spread_array_element(target) };
+        // A variadic tuple's properties are its leading fixed elements
+        // (generateLimitedTupleElements skips an index the tuple-like target
+        // has no property for).
+        let variadic_prefix: Option<Vec<TypeId>> = match self.variadic_tuple_elements.get(&target) {
+            Some((elements, _)) => {
+                let fixed: Vec<_> = elements
+                    .iter()
+                    .take_while(|element| !element.spread)
+                    .map(|element| (element.r#type, element.optional))
+                    .collect();
+                Some(
+                    fixed
+                        .into_iter()
+                        .map(|(t, optional)| {
+                            if optional && self.strict_null_checks {
+                                self.get_union_type(&[t, self.intrinsics.undefined])
+                            } else {
+                                t
+                            }
+                        })
+                        .collect(),
+                )
+            }
+            None => None,
+        };
+        let array_element = if tuple_target || variadic_prefix.is_some() {
+            None
+        } else {
+            self.tuple_spread_array_element(target)
+        };
         let source_tuple = self.tuple_element_lists.contains_key(&source);
         let elements: Vec<NodeId> =
             literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
@@ -2453,7 +2484,10 @@ impl<'a> Checker<'a, '_> {
             if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
                 continue;
             }
-            let target_element = if tuple_target {
+            let target_element = if let Some(prefix) = &variadic_prefix {
+                let Some(&member) = prefix.get(index) else { continue };
+                member
+            } else if tuple_target {
                 // isTupleLikeType(target) && no property `index`: skipped.
                 if self.tuple_element_lists.get(&target).is_none_or(|(list, _)| index >= list.len())
                 {
