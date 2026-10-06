@@ -1,0 +1,393 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index c4266ff2..be1c1d60 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -1822,0 +1823,6 @@ impl<'a> Checker<'a, '_> {
++                let mut state_request = crate::reference_state_probe::Request::enter(
++                    std::ptr::from_ref(self) as usize,
++                    2,
++                    Some(symbol),
++                    &[],
++                );
+@@ -1824 +1830,2 @@ impl<'a> Checker<'a, '_> {
+-                if let Some(&cached) = self.instantiations.get(&key) {
++                if let Some(&cached) = crate::reference_state_probe::get!(self, 0, &key) {
++                    state_request.returned(cached, self.intrinsics.error, true);
+@@ -1830 +1837,2 @@ impl<'a> Checker<'a, '_> {
+-                self.instantiations.insert(key, named);
++                crate::reference_state_probe::insert!(self, 1, key, named);
++                state_request.returned(named, self.intrinsics.error, false);
+@@ -1939,2 +1947,2 @@ impl<'a> Checker<'a, '_> {
+-        let mut properties = self.anonymous_properties.get(&id).map(|(p, _)| p.clone());
+-        let original_signatures = self.signature_types.get(&id).cloned();
++        let mut properties = crate::mapper_key_probe::literal_properties(self, id);
++        let original_signatures = crate::mapper_key_probe::literal_signatures(self, id);
+@@ -1944 +1952,3 @@ impl<'a> Checker<'a, '_> {
+-        let cache_key = (id, map.to_vec());
++        let cache_key = crate::mapper_key_probe::key(3, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -1945,0 +1956,8 @@ impl<'a> Checker<'a, '_> {
++            crate::mapper_key_probe::lookup(
++                3,
++                diagnostic_owner,
++                &cache_key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -1947,0 +1966,10 @@ impl<'a> Checker<'a, '_> {
++        crate::mapper_key_probe::lookup(
++            3,
++            diagnostic_owner,
++            &cache_key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(3, diagnostic_owner, &cache_key);
+@@ -1954 +1982 @@ impl<'a> Checker<'a, '_> {
+-        self.instantiated_objects.insert(cache_key.clone(), reserved);
++        self.instantiated_objects.insert(crate::mapper_key_probe::clone_key(&cache_key), reserved);
+@@ -2086,0 +2115 @@ impl<'a> Checker<'a, '_> {
++        diagnostic_worker.complete(true);
+@@ -4059,0 +4089,6 @@ impl<'a> Checker<'a, '_> {
++                let mut state_request = crate::reference_state_probe::Request::enter(
++                    std::ptr::from_ref(self) as usize,
++                    3,
++                    Some(symbol),
++                    arguments,
++                );
+@@ -4061 +4096,2 @@ impl<'a> Checker<'a, '_> {
+-                if let Some(&existing) = self.instantiations.get(&key) {
++                if let Some(&existing) = crate::reference_state_probe::get!(self, 2, &key) {
++                    state_request.returned(existing, self.intrinsics.error, true);
+@@ -4070 +4106,2 @@ impl<'a> Checker<'a, '_> {
+-                self.instantiations.insert(key, deferred);
++                crate::reference_state_probe::insert!(self, 3, key, deferred);
++                state_request.returned(deferred, self.intrinsics.error, false);
+@@ -5383,0 +5421,6 @@ impl<'a> Checker<'a, '_> {
++        let mut state_request = crate::reference_state_probe::Request::enter(
++            std::ptr::from_ref(self) as usize,
++            0,
++            Some(symbol),
++            &arguments,
++        );
+@@ -5387 +5430,3 @@ impl<'a> Checker<'a, '_> {
+-            return self.get_global_non_nullable_type_instantiation(arguments[0]);
++            let state_return = self.get_global_non_nullable_type_instantiation(arguments[0]);
++            state_request.returned(state_return, self.intrinsics.error, false);
++            return state_return;
+@@ -5389,2 +5434,5 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(mapped) = self.instantiate_string_mapping_alias(symbol, &arguments) {
+-            self.instantiations.insert((symbol, arguments), mapped);
++        if let Some(mapped) = crate::reference_state_probe::worker(0, self.intrinsics.error, || {
++            self.instantiate_string_mapping_alias(symbol, &arguments)
++        }) {
++            crate::reference_state_probe::insert!(self, 4, (symbol, arguments), mapped);
++            state_request.returned(mapped, self.intrinsics.error, false);
+@@ -5393 +5441,3 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(mapped) = self.instantiate_identity_mapped_alias(symbol, &arguments) {
++        if let Some(mapped) = crate::reference_state_probe::worker(1, self.intrinsics.error, || {
++            self.instantiate_identity_mapped_alias(symbol, &arguments)
++        }) {
+@@ -5397 +5447,2 @@ impl<'a> Checker<'a, '_> {
+-            self.instantiations.insert((symbol, arguments), mapped);
++            crate::reference_state_probe::insert!(self, 5, (symbol, arguments), mapped);
++            state_request.returned(mapped, self.intrinsics.error, false);
+@@ -5412 +5463,11 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
++        let diagnostic_key = crate::mapper_key_probe::reference_key(symbol, &arguments);
++        let diagnostic_lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
++        if let Some(&cached) = crate::reference_state_probe::get!(self, 6, &diagnostic_key) {
++            crate::mapper_key_probe::reference_lookup(
++                diagnostic_owner,
++                &diagnostic_key,
++                Some(cached),
++                diagnostic_lookup_start,
++            );
++            state_request.returned(cached, self.intrinsics.error, true);
+@@ -5414,0 +5476,9 @@ impl<'a> Checker<'a, '_> {
++        crate::mapper_key_probe::reference_lookup(
++            diagnostic_owner,
++            &diagnostic_key,
++            None,
++            diagnostic_lookup_start,
++        );
++        let _diagnostic_worker =
++            crate::mapper_key_probe::ReferenceWorker::enter(diagnostic_owner, &diagnostic_key);
++        drop(diagnostic_key);
+@@ -5425 +5495,2 @@ impl<'a> Checker<'a, '_> {
+-            self.instantiations.insert((symbol, arguments), evaluated);
++            crate::reference_state_probe::insert!(self, 7, (symbol, arguments), evaluated);
++            state_request.returned(evaluated, self.intrinsics.error, false);
+@@ -5428,2 +5499,7 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {
+-            self.instantiations.insert((symbol, arguments), evaluated);
++        if let Some(evaluated) =
++            crate::reference_state_probe::worker(2, self.intrinsics.error, || {
++                self.evaluate_conditional_alias(symbol, &arguments, None)
++            })
++        {
++            crate::reference_state_probe::insert!(self, 8, (symbol, arguments), evaluated);
++            state_request.returned(evaluated, self.intrinsics.error, false);
+@@ -5438 +5514,4 @@ impl<'a> Checker<'a, '_> {
+-            && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
++            && let Some(evaluated) =
++                crate::reference_state_probe::worker(3, self.intrinsics.error, || {
++                    self.evaluate_alias_body(symbol, &arguments)
++                })
+@@ -5447 +5526,4 @@ impl<'a> Checker<'a, '_> {
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+@@ -5458 +5540,4 @@ impl<'a> Checker<'a, '_> {
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+@@ -5469 +5554,4 @@ impl<'a> Checker<'a, '_> {
+-                self.type_reference_targets.insert(named, (symbol, arguments.clone()));
++                self.type_reference_targets.insert(
++                    named,
++                    (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)),
++                );
+@@ -5474 +5562,2 @@ impl<'a> Checker<'a, '_> {
+-            self.instantiations.insert((symbol, arguments), evaluated);
++            crate::reference_state_probe::insert!(self, 9, (symbol, arguments), evaluated);
++            state_request.returned(evaluated, self.intrinsics.error, false);
+@@ -5477,2 +5566,7 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
+-            self.instantiations.insert((symbol, arguments), template);
++        if let Some(template) =
++            crate::reference_state_probe::worker(4, self.intrinsics.error, || {
++                self.instantiate_template_alias(symbol, &arguments)
++            })
++        {
++            crate::reference_state_probe::insert!(self, 10, (symbol, arguments), template);
++            state_request.returned(template, self.intrinsics.error, false);
+@@ -5481,2 +5575,5 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
+-            self.instantiations.insert((symbol, arguments), mapped);
++        if let Some(mapped) = crate::reference_state_probe::worker(5, self.intrinsics.error, || {
++            self.instantiate_normalized_mapped_alias(symbol, &arguments)
++        }) {
++            crate::reference_state_probe::insert!(self, 11, (symbol, arguments), mapped);
++            state_request.returned(mapped, self.intrinsics.error, false);
+@@ -5533 +5630,6 @@ impl<'a> Checker<'a, '_> {
+-        self.instantiations.insert((symbol, arguments.clone()), id);
++        crate::reference_state_probe::insert!(
++            self,
++            12,
++            (symbol, crate::mapper_key_probe::reference_copy(&arguments, 11)),
++            id
++        );
+@@ -5541 +5643,2 @@ impl<'a> Checker<'a, '_> {
+-        self.type_reference_targets.insert(id, (symbol, arguments.clone()));
++        self.type_reference_targets
++            .insert(id, (symbol, crate::mapper_key_probe::reference_copy(&arguments, 12)));
+@@ -5543,2 +5646,5 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(mapped) = self.instantiate_mapped_alias_sequence(id, symbol, &arguments) {
+-            self.instantiations.insert((symbol, arguments), mapped);
++        if let Some(mapped) = crate::reference_state_probe::worker(6, self.intrinsics.error, || {
++            self.instantiate_mapped_alias_sequence(id, symbol, &arguments)
++        }) {
++            crate::reference_state_probe::insert!(self, 13, (symbol, arguments), mapped);
++            state_request.returned(mapped, self.intrinsics.error, false);
+@@ -5546,0 +5653 @@ impl<'a> Checker<'a, '_> {
++        state_request.returned(id, self.intrinsics.error, false);
+@@ -5553,0 +5661,6 @@ impl<'a> Checker<'a, '_> {
++        let mut state_request = crate::reference_state_probe::Request::enter(
++            std::ptr::from_ref(self) as usize,
++            1,
++            None,
++            &[t],
++        );
+@@ -5556,0 +5670 @@ impl<'a> Checker<'a, '_> {
++            state_request.returned(t, self.intrinsics.error, false);
+@@ -5560 +5674,3 @@ impl<'a> Checker<'a, '_> {
+-            return self.get_intersection_type(&[t, self.intrinsics.empty_object], None);
++            let state_return = self.get_intersection_type(&[t, self.intrinsics.empty_object], None);
++            state_request.returned(state_return, self.intrinsics.error, false);
++            return state_return;
+@@ -5562 +5678,3 @@ impl<'a> Checker<'a, '_> {
+-        if let Some(&cached) = self.instantiations.get(&(symbol, vec![t])) {
++        state_request.bind(symbol);
++        if let Some(&cached) = crate::reference_state_probe::get!(self, 14, &(symbol, vec![t])) {
++            state_request.returned(cached, self.intrinsics.error, true);
+@@ -5565 +5683,6 @@ impl<'a> Checker<'a, '_> {
+-        let Some(evaluated) = self.evaluate_alias_body(symbol, &[t]) else {
++        let Some(evaluated) =
++            crate::reference_state_probe::worker(7, self.intrinsics.error, || {
++                self.evaluate_alias_body(symbol, &[t])
++            })
++        else {
++            state_request.returned(self.intrinsics.error, self.intrinsics.error, false);
+@@ -5581 +5704,2 @@ impl<'a> Checker<'a, '_> {
+-        self.instantiations.insert((symbol, vec![t]), result);
++        crate::reference_state_probe::insert!(self, 15, (symbol, vec![t]), result);
++        state_request.returned(result, self.intrinsics.error, false);
+diff --git a/crates/tsr-checker/src/index_signatures.rs b/crates/tsr-checker/src/index_signatures.rs
+index 1b2716a3..a6b29f24 100644
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -220 +220 @@ impl<'a> Checker<'a, '_> {
+-        if self.instantiations.get(key) != Some(&id)
++        if crate::reference_state_probe::get!(self, 16, key) != Some(&id)
+@@ -253 +253 @@ impl<'a> Checker<'a, '_> {
+-            || self.instantiations.get(body_key) != Some(&body)
++            || crate::reference_state_probe::get!(self, 17, body_key) != Some(&body)
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5e..282763b3 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -3915 +3915 @@ impl Checker<'_, '_> {
+-        let key = (id, parameters.to_vec());
++        let key = crate::mapper_key_probe::predicate_key(id, parameters, top_level);
+@@ -3916,0 +3917 @@ impl Checker<'_, '_> {
++            crate::mapper_key_probe::predicate_hit();
+@@ -3918,0 +3920 @@ impl Checker<'_, '_> {
++        crate::mapper_key_probe::predicate_worker(top_level);
+@@ -5370 +5372,3 @@ impl Checker<'_, '_> {
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(0, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -5371,0 +5376,8 @@ impl Checker<'_, '_> {
++            crate::mapper_key_probe::lookup(
++                0,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -5373,0 +5386,10 @@ impl Checker<'_, '_> {
++        crate::mapper_key_probe::lookup(
++            0,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(0, diagnostic_owner, &key);
+@@ -5415,0 +5438 @@ impl Checker<'_, '_> {
++        diagnostic_worker.complete(true);
+@@ -5447 +5470,3 @@ impl Checker<'_, '_> {
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(1, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -5448,0 +5474,8 @@ impl Checker<'_, '_> {
++            crate::mapper_key_probe::lookup(
++                1,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -5450,0 +5484,10 @@ impl Checker<'_, '_> {
++        crate::mapper_key_probe::lookup(
++            1,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(1, diagnostic_owner, &key);
+@@ -5545,0 +5589 @@ impl Checker<'_, '_> {
++        diagnostic_worker.complete(true);
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 70a99b9a..267a1822 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -197,0 +198,5 @@ pub use types::{Type, TypeData, TypeId, TypeStore};
++
++pub mod mapper_key_probe;
++
++#[doc(hidden)]
++pub mod reference_state_probe;
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index c4751a62..788974e6 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -773 +773,3 @@ impl<'a> Checker<'a, '_> {
+-        let key = (id, map.to_vec());
++        let key = crate::mapper_key_probe::key(2, id, map);
++        let lookup_start = crate::mapper_key_probe::lookup_start();
++        let diagnostic_owner = std::ptr::from_ref(self) as usize;
+@@ -774,0 +777,8 @@ impl<'a> Checker<'a, '_> {
++            crate::mapper_key_probe::lookup(
++                2,
++                diagnostic_owner,
++                &key,
++                Some(cached),
++                self.intrinsics.error,
++                lookup_start,
++            );
+@@ -777 +787,12 @@ impl<'a> Checker<'a, '_> {
+-        self.instantiated_objects.insert(key.clone(), self.intrinsics.error);
++        crate::mapper_key_probe::lookup(
++            2,
++            diagnostic_owner,
++            &key,
++            None,
++            self.intrinsics.error,
++            lookup_start,
++        );
++        let mut diagnostic_worker =
++            crate::mapper_key_probe::Worker::enter(2, diagnostic_owner, &key);
++        self.instantiated_objects
++            .insert(crate::mapper_key_probe::clone_key(&key), self.intrinsics.error);
+@@ -779,0 +801 @@ impl<'a> Checker<'a, '_> {
++        diagnostic_worker.complete(result != self.intrinsics.error);
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..9e3773a8 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1652 +1652 @@ impl Checker<'_, '_> {
+-            || self.instantiations.get(key) != Some(&body)
++            || crate::reference_state_probe::get!(self, 18, key) != Some(&body)
+diff --git a/crates/tsr-execute/src/checker_pool.rs b/crates/tsr-execute/src/checker_pool.rs
+index be937c38..585cb4da 100644
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -107,0 +108 @@ pub fn check_program_files<'a>(
++        let mut mapper_probe = tsr_checker::mapper_key_probe::PoolWorker::enter(owner, count);
+@@ -120,0 +122,5 @@ pub fn check_program_files<'a>(
++        mapper_probe.setup_complete();
++        assert!(
++            std::env::var("TSR_MAPPER_FAIL_OWNER").ok().as_deref() != Some(&owner.to_string()),
++            "deliberate archive-only mapper worker failure"
++        );
+@@ -141,0 +148 @@ pub fn check_program_files<'a>(
++                let mapper_check_start = mapper_probe.check_start();
+@@ -148,0 +156 @@ pub fn check_program_files<'a>(
++                mapper_probe.checked(index, file.file_name(), mapper_check_start);
+@@ -159,0 +168 @@ pub fn check_program_files<'a>(
++        mapper_probe.complete(&checker);
+@@ -185,0 +195 @@ pub fn check_program_files<'a>(
++    tsr_checker::mapper_key_probe::finish_pool(count);
+--- a/crates/tsr-checker/src/mapper_key_probe.rs
++++ b/crates/tsr-checker/src/mapper_key_probe.rs
+@@ -616,0 +617,3 @@
++            for (name, value) in crate::reference_state_probe::local_counts() {
++                writeln!(out, "owner_count\t{name}\t{value}").unwrap();
++            }
+@@ -626 +629 @@
+-    writeln!(out, "schema\tmapper-pool-v1").unwrap();
++    writeln!(out, "schema\tmapper-reference-state-v1").unwrap();
+@@ -637,0 +641,3 @@
++            writeln!(out, "count\t{name}\t{value}").unwrap();
++        }
++        for (name, value) in crate::reference_state_probe::global_counts() {
