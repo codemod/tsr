@@ -1,0 +1,157 @@
+diff --git a/crates/tsr-checker/src/constraints.rs b/crates/tsr-checker/src/constraints.rs
+index 1519f583..88eecb48 100644
+--- a/crates/tsr-checker/src/constraints.rs
++++ b/crates/tsr-checker/src/constraints.rs
+@@ -581,7 +581,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(parameters) = self.local_type_parameter_types_of(symbol) else { return };
+         let parameter_types: Vec<TypeId> = parameters.iter().map(|&(ty, _)| ty).collect();
+-        let names: Vec<String> = parameters.iter().map(|(_, name)| name.clone()).collect();
++        let names: Vec<&str> = parameters.iter().map(|(_, name)| *name).collect();
+         let constraints: Vec<Option<TypeId>> = parameter_types
+             .iter()
+             .map(|&parameter| self.type_parameter_constraint(parameter))
+@@ -600,8 +600,7 @@ impl Checker<'_, '_> {
+             let default = self.get_type_from_type_node(default);
+             let map: Vec<(TypeId, TypeId)> =
+                 parameter_types[..index].iter().copied().zip(arguments.iter().copied()).collect();
+-            let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+-            let filled = self.instantiate_type(default, &map, &parameter_types, &name_refs);
++            let filled = self.instantiate_type(default, &map, &parameter_types, &names);
+             arguments.push(filled);
+         }
+         if arguments.iter().any(|&argument| self.is_error(argument)) {
+@@ -609,12 +608,11 @@ impl Checker<'_, '_> {
+         }
+         let map: Vec<(TypeId, TypeId)> =
+             parameter_types.iter().copied().zip(arguments.iter().copied()).collect();
+-        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+         for (index, constraint) in constraints.into_iter().enumerate() {
+             let Some(constraint) = constraint else { continue };
+             let Some(&argument_node) = reference.type_arguments.get(index) else { continue };
+             let Some(at) = argument_node.node_id() else { continue };
+-            let target = self.instantiate_type(constraint, &map, &parameter_types, &name_refs);
++            let target = self.instantiate_type(constraint, &map, &parameter_types, &names);
+             let source = arguments[index];
+             if self.is_error(target)
+                 || self.type_argument_node_is_generic(at)
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index a78cca57..439a4b18 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -57,7 +57,7 @@ impl<'a> Checker<'a, '_> {
+         }
+         let parameter_types = self.local_type_parameter_types_of(base)?;
+         let ids: Vec<_> = parameter_types.iter().map(|&(id, _)| id).collect();
+-        let names: Vec<_> = parameter_types.iter().map(|(_, name)| name.as_str()).collect();
++        let names: Vec<_> = parameter_types.iter().map(|(_, name)| *name).collect();
+         let mut arguments: Vec<_> =
+             written_arguments.iter().map(|&node| self.get_type_from_type_node(node)).collect();
+         let written_count = arguments.len();
+@@ -3991,7 +3991,7 @@ impl<'a> Checker<'a, '_> {
+                 return None;
+             }
+             let types: Vec<_> = parameters.iter().map(|&(t, _)| t).collect();
+-            let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
++            let names: Vec<_> = parameters.iter().map(|(_, name)| *name).collect();
+             let map: Vec<_> = types.iter().copied().zip(arguments.iter().copied()).collect();
+             let instantiated = self.instantiate_type(body, &map, &types, &names);
+             self.is_normalized_mapped_sequence(instantiated).then_some(instantiated)
+@@ -4307,7 +4307,7 @@ impl<'a> Checker<'a, '_> {
+                 return error;
+             };
+             let types: Vec<TypeId> = parameter_types.iter().map(|&(t, _)| t).collect();
+-            let names: Vec<String> = parameter_types.iter().map(|(_, n)| n.clone()).collect();
++            let names: Vec<&str> = parameter_types.iter().map(|(_, name)| *name).collect();
+             let declarations = self.local_type_parameters_of(symbol);
+             // fillMissingTypeArguments (checker.go:21954) first maps every
+             // unfilled position to errorType, so a default naming a later (or
+@@ -4347,8 +4347,7 @@ impl<'a> Checker<'a, '_> {
+                     }
+                     (resolved, types.iter().copied().zip(arguments.iter().copied()).collect())
+                 };
+-                let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+-                let instantiated = self.instantiate_type(resolved, &map, &types, &name_refs);
++                let instantiated = self.instantiate_type(resolved, &map, &types, &names);
+                 if instantiated == error {
+                     return error;
+                 }
+@@ -8528,14 +8527,19 @@ impl<'a> Checker<'a, '_> {
+     /// `None` when any parameter has no symbol or no declared type, which keeps
+     /// a partial list from producing a partial substitution — the same rule
+     /// `type_parameter_types` states.
++    ///
++    /// Names borrow the immutable parsed declarations for the Program lifetime;
++    /// resolved `TypeId`s and their forcing remain private to this Checker. A
++    /// query rebuilds the ordered list and preserves the same error/refusal
++    /// path; it does not cache completion or merge same-spelled parameters.
+     pub(crate) fn local_type_parameter_types_of(
+         &mut self,
+         symbol: SymbolId,
+-    ) -> Option<Vec<(TypeId, String)>> {
++    ) -> Option<Vec<(TypeId, &'a str)>> {
+         let declarations = self.local_type_parameters_of(symbol);
+         let mut parameters = Vec::with_capacity(declarations.len());
+         for declaration in declarations {
+-            let name = declaration.name?.text.to_string();
++            let name = declaration.name?.text;
+             let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+             let declared = self.get_declared_type_of_symbol(parameter);
+             if declared == self.intrinsics.error {
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249f409d..60c29081 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5777,7 +5777,7 @@ impl Checker<'_, '_> {
+         let map: Vec<_> =
+             parameters.iter().zip(arguments).map(|((id, _), argument)| (*id, argument)).collect();
+         let ids: Vec<_> = parameters.iter().map(|(id, _)| *id).collect();
+-        let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
++        let names: Vec<_> = parameters.iter().map(|(_, name)| *name).collect();
+         self.instantiate_signature_with_fresh_parameters(signature, &map, &ids, &names)
+     }
+ 
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..7ac022e0 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1058,7 +1058,7 @@ impl Checker<'_, '_> {
+                         continue;
+                     }
+                     let types: Vec<_> = parameters.iter().map(|&(id, _)| id).collect();
+-                    let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
++                    let names: Vec<_> = parameters.iter().map(|(_, name)| *name).collect();
+                     let map: Vec<_> = types.iter().copied().zip(arguments).collect();
+                     let instantiated = self.instantiate_type(constraint, &map, &types, &names);
+                     if instantiated == id || instantiated == self.intrinsics.error {
+@@ -1932,7 +1932,7 @@ impl Checker<'_, '_> {
+         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
+         for (index, (parameter, name)) in parameters.iter().enumerate() {
+             if *parameter != arguments[index] {
+-                names.push(name.as_str());
++                names.push(*name);
+                 types.push(*parameter);
+                 map.push((*parameter, arguments[index]));
+             }
+diff --git a/crates/tsr-checker/src/variances.rs b/crates/tsr-checker/src/variances.rs
+index 6f8f9750..797b29c2 100644
+--- a/crates/tsr-checker/src/variances.rs
++++ b/crates/tsr-checker/src/variances.rs
+@@ -138,7 +138,7 @@ impl Checker<'_, '_> {
+     fn create_variance_marker_type(
+         &mut self,
+         symbol: SymbolId,
+-        parameters: &[(TypeId, String)],
++        parameters: &[(TypeId, &str)],
+         index: usize,
+         marker: TypeId,
+         alias: bool,
+@@ -162,7 +162,7 @@ impl Checker<'_, '_> {
+                     self.variadic_alias_in_progress.remove(&symbol);
+                 }
+                 let own: Vec<_> = parameters.iter().map(|(parameter, _)| *parameter).collect();
+-                let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
++                let names: Vec<_> = parameters.iter().map(|(_, name)| *name).collect();
+                 let map: Vec<_> = own.iter().copied().zip(arguments).collect();
+                 self.instantiate_type(declared, &map, &own, &names)
+             } else {
