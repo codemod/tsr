@@ -7393,7 +7393,7 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            if let Some(text) = parameter.written_text.as_ref().and_then(|written| {
+            if let Some(text) = parameter.written_text.and_then(|written| {
                 self.written_annotation_text_at(written, parameter_type, reference)
             }) {
                 out.push_str(&text);
@@ -7416,7 +7416,7 @@ impl<'a> Checker<'a, '_> {
             }
         }
         out.push_str(") => ");
-        if let Some(text) = signature.written_return.as_ref().and_then(|written| {
+        if let Some(text) = signature.written_return.and_then(|written| {
             let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
             self.written_annotation_text_at(written, current, reference)
         }) {
@@ -7496,13 +7496,11 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            let error = self.intrinsics.error;
             match parameter
                 .written_text
-                .as_ref()
-                .and_then(|written| written.site_free_text(parameter_type, error))
+                .and_then(|written| self.site_free_annotation_text(written, parameter_type))
             {
-                Some(written) => out.push_str(written),
+                Some(written) => out.push_str(&written),
                 None => out.push_str(&self.type_to_string(parameter_type)),
             }
             emitted = true;
@@ -7517,11 +7515,10 @@ impl<'a> Checker<'a, '_> {
         // wrote `x is string`.
         let written_return = signature
             .written_return
-            .as_ref()
-            .and_then(|written| written.site_free_text(signature.r#type, self.intrinsics.error));
+            .and_then(|written| self.site_free_annotation_text(written, signature.r#type));
         match (&signature.predicate, written_return) {
             (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
-            (None, Some(written)) => out.push_str(written),
+            (None, Some(written)) => out.push_str(&written),
             (None, None) => out.push_str(&self.type_to_string(signature.r#type)),
         }
         out

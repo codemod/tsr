@@ -21,15 +21,15 @@
 //!   consumed by `signatureToSignatureDeclarationHelper` for every parameter
 //!   and return annotation of a signature with a declaration.
 //! - **Identity and owner:** no cache and no side table. The decision is keyed
-//!   by the annotation node and the type it must be equivalent to. Its result
-//!   is the text this port already carries on the signature —
-//!   [`crate::signatures::Parameter::written_text`] and
+//!   by the annotation node and the type it must be equivalent to, and its
+//!   result is exactly that pair ([`WrittenAnnotation`], `Copy`), carried on
+//!   the signature — [`crate::signatures::Parameter::written_text`] and
 //!   [`crate::signatures::Signature::written_return`] — filled when the
 //!   signature is built from its declaration. At that point the printed type
 //!   *is* `getTypeFromTypeNode(annotation)`, so the equivalence holds by
 //!   identity — unless the literal is being evaluated under an alias mapper,
-//!   where the port's slot already holds the image and the text is refused
-//!   when the annotation names a moved type parameter
+//!   where the port's slot already holds the image and the annotation is
+//!   refused when it names a moved type parameter
 //!   ([`Checker::reuse_annotation`]). Every printer then asks the gate again
 //!   of the type the slot holds at print time
 //!   ([`WrittenAnnotation::is_equivalent_to`]): an instantiation whose image
@@ -40,16 +40,19 @@
 //!   (`nodecopy.go:317`) keeps a written entity name only when its leftmost
 //!   identifier resolves to the same symbol at the print site
 //!   (`nodecopy.go:347`); otherwise the reference is serialized from its type.
-//!   The text built with the signature is the annotation-scope answer; when
-//!   the node names any symbol ([`WrittenAnnotation::node`]) — a global too,
-//!   since a module may shadow it — the site-aware printers re-emit the node
-//!   at their reference ([`Checker::written_annotation_text_at`]).
+//!   A site-aware printer re-emits the node at its reference
+//!   ([`Checker::written_annotation_text_at`]); a printer with no site emits
+//!   it from the annotation's own file
+//!   ([`Checker::site_free_annotation_text`]).
 //!   Type-parameter renaming by `typeParameterToName` inside the reused node
 //!   is not modelled.
-//! - **Work boundary:** one walk over the annotation subtree per signature
-//!   built from a declaration, plus one per site-aware print of an annotation
-//!   that names a symbol. A sub-node the visitor refuses falls back
-//!   to `typeToTypeNode(getTypeFromTypeNode(node))` (`nodecopy.go:866`), which
+//! - **Work boundary:** upstream decides reuse inside the node builder, at
+//!   print time, and so does this port: building a signature stores two ids
+//!   per annotated slot and walks nothing (the one exception is the
+//!   alias-mapper check, which needs the frames live and runs only under
+//!   one). Each print of a reused slot is one walk over the annotation
+//!   subtree. A sub-node the visitor refuses falls back to
+//!   `typeToTypeNode(getTypeFromTypeNode(node))` (`nodecopy.go:866`), which
 //!   here is [`Checker::get_type_from_type_node`] (node-cached) plus the
 //!   site's renderer.
 //!
@@ -71,29 +74,21 @@ use tsr_binder::SymbolFlags;
 
 /// A reused written annotation, as carried by
 /// [`crate::signatures::Parameter::written_text`] and
-/// [`crate::signatures::Signature::written_return`].
-#[derive(Debug, Clone)]
+/// [`crate::signatures::Signature::written_return`]: the annotation node and
+/// the type it denotes, nothing printed. `Copy`, so cloning and instantiating
+/// signatures carries two ids per slot; the text is emitted only when a
+/// printer asks ([`Checker::written_annotation_text`],
+/// [`Checker::written_annotation_text_at`]).
+#[derive(Debug, Clone, Copy)]
 pub struct WrittenAnnotation {
-    /// The node as emitted from the annotation's own scope.
-    text: String,
-    /// The annotation node, kept when it names a symbol (other than one it
-    /// declares itself), which may resolve differently at a print site.
-    node: Option<NodeId>,
-    /// Whether one of those names is not even resolvable from the top level
-    /// of the annotation's own file (a namespace member, a function local).
-    scope_local: bool,
+    /// The annotation node (`PseudoTypeDirect`'s node).
+    node: NodeId,
     /// `getTypeFromTypeNode` of the annotation: the type the printed slot must
     /// still hold for the node to be reused.
     r#type: TypeId,
 }
 
 impl WrittenAnnotation {
-    /// The node as emitted from the annotation's own scope.
-    #[must_use]
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
     /// `pseudoTypeEquivalentToType` (`pseudotypenodebuilder.go:362`), its
     /// identity and error-type arms, asked of the type the slot holds NOW: an
     /// instantiation or rewrite that changed the slot's type ends the reuse
@@ -102,26 +97,15 @@ impl WrittenAnnotation {
     pub fn is_equivalent_to(&self, current: TypeId, error: TypeId) -> bool {
         current == self.r#type || current == error
     }
-
-    /// The text for a printer with no print site, when the slot still holds
-    /// `current`. Such a printer stands for a site at the top level of the
-    /// annotation's own file, which is where a declaration's signature is
-    /// printed; a name only resolvable inside a narrower scope cannot be
-    /// reused without the real site.
-    #[must_use]
-    pub fn site_free_text(&self, current: TypeId, error: TypeId) -> Option<&str> {
-        (!self.scope_local && self.is_equivalent_to(current, error)).then_some(self.text.as_str())
-    }
 }
 
 /// The visitor's context: the print site (`ctx.enclosingDeclaration`), if
 /// known, and the root of the node being reused.
-// Independent facts the one visitor walk records; not a state machine.
-#[allow(clippy::struct_excessive_bools)]
 struct ReuseContext {
     site: Option<NodeId>,
-    root: Option<NodeId>,
-    site_dependent: bool,
+    root: NodeId,
+    /// With no print site: a name in the node is only resolvable inside a
+    /// scope narrower than its file's top level.
     scope_local: bool,
     /// An entity name in the node names a type parameter the active
     /// alias-evaluation mapper moves (see [`Checker::reuse_annotation`]).
@@ -131,6 +115,12 @@ struct ReuseContext {
     /// left to the type's own serialization rather than to the visitor's
     /// per-node fallback, which answers only upstream's own failures.
     unnameable: bool,
+}
+
+impl ReuseContext {
+    fn new(site: Option<NodeId>, root: NodeId) -> Self {
+        Self { site, root, scope_local: false, mapped: false, unnameable: false }
+    }
 }
 
 /// `ast.TypePrecedence` (`ast/precedence.go:403`), lowest first.
@@ -304,16 +294,15 @@ fn modifiers_prefix(modifiers: &[ModifierLike<'_>]) -> Option<String> {
 }
 
 impl<'a> Checker<'a, '_> {
-    /// `reuseTypeNode` (`nodecopy.go:56`): the written annotation re-emitted
-    /// through the existing-node visitor, each refused sub-node replaced by
-    /// its fresh serialization, as seen from the annotation's own scope.
-    /// `None` when the annotation node itself is refused: the slot is then
-    /// serialized from its type, which is what the printers do without one.
+    /// The reuse DECISION of `serializeTypeForDeclaration`: the written
+    /// annotation is kept on the slot, as a node and the type it denotes,
+    /// for a printer to re-emit ([`Checker::written_annotation_text_at`]).
+    /// Nothing is walked or printed here — signature construction is the hot
+    /// path and most signatures are never printed.
     ///
-    /// Callers own the reuse DECISION (`serializeTypeForDeclaration`'s
-    /// `pseudoTypeEquivalentToType` gate); see the module docs for why it
-    /// holds by identity where this port builds the text — except under an
-    /// alias-evaluation mapper, checked here.
+    /// Callers own the `pseudoTypeEquivalentToType` gate; see the module docs
+    /// for why it holds by identity where this port builds the signature —
+    /// except under an alias-evaluation mapper, checked here.
     ///
     /// Upstream builds a type literal once and instantiates it: the printed
     /// slot holds the mapper's image while `pseudoTypeToType` of the written
@@ -329,61 +318,62 @@ impl<'a> Checker<'a, '_> {
     /// that ([`ReuseContext::mapped`]) rather than resolving the annotation a
     /// second time with the frames lifted — which, for a recursive alias
     /// (`recursiveResolveTypeMembers`), re-enters the evaluation unbounded.
+    /// The frames exist only while the literal is evaluated, so that walk is
+    /// the one piece of the decision that runs here, and only under a frame.
     pub(crate) fn reuse_annotation(
         &mut self,
         node: TypeNode<'a>,
         equivalent: TypeId,
     ) -> Option<WrittenAnnotation> {
-        let root = Node::from(node).node_id();
-        let mut cx = ReuseContext {
-            site: None,
-            root,
-            site_dependent: false,
-            scope_local: false,
-            mapped: false,
-            unnameable: false,
-        };
-        let text = self.try_reuse_type_node(node, false, &mut cx)?;
-        if cx.mapped && !self.is_error(equivalent) {
+        let root = Node::from(node).node_id()?;
+        if !self.alias_evaluation_bindings.is_empty() && !self.is_error(equivalent) {
+            let mut cx = ReuseContext::new(None, root);
+            self.try_reuse_type_node(node, false, &mut cx)?;
+            if cx.mapped {
+                return None;
+            }
+        }
+        Some(WrittenAnnotation { node: root, r#type: equivalent })
+    }
+
+    /// `reuseTypeNode` (`nodecopy.go:56`) for a printer with no print site:
+    /// the written annotation re-emitted through the existing-node visitor
+    /// from the annotation's own scope, each refused sub-node replaced by its
+    /// fresh serialization. Such a printer stands for a site at the top level
+    /// of the annotation's own file, which is where a declaration's signature
+    /// is printed; a name only resolvable inside a narrower scope cannot be
+    /// reused without the real site. `None` when the slot no longer holds the
+    /// annotation's type or the node is refused: the slot is then serialized
+    /// from its type.
+    pub fn site_free_annotation_text(
+        &mut self,
+        written: WrittenAnnotation,
+        current: TypeId,
+    ) -> Option<String> {
+        if !written.is_equivalent_to(current, self.intrinsics.error) {
             return None;
         }
-        Some(WrittenAnnotation {
-            text,
-            node: if cx.site_dependent { root } else { None },
-            scope_local: cx.scope_local,
-            r#type: equivalent,
-        })
+        let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
+        let mut cx = ReuseContext::new(None, written.node);
+        let text = self.try_reuse_type_node(node, false, &mut cx)?;
+        (!cx.scope_local).then_some(text)
     }
 
     /// The reused annotation as printed at `reference`
-    /// (`ctx.enclosingDeclaration`): re-emitted there when one of its entity
-    /// names is not a global, so `trackExistingEntityName` can answer for
+    /// (`ctx.enclosingDeclaration`), so `trackExistingEntityName` answers for
     /// this site. `None` when the slot no longer holds the annotation's type,
     /// or the node is refused at this site.
-    pub(crate) fn written_annotation_text_at(
+    pub fn written_annotation_text_at(
         &mut self,
-        written: &WrittenAnnotation,
+        written: WrittenAnnotation,
         current: TypeId,
         reference: NodeId,
     ) -> Option<String> {
         if !written.is_equivalent_to(current, self.intrinsics.error) {
             return None;
         }
-        let Some(node) = written
-            .node
-            .and_then(|id| self.node_map.get(id))
-            .and_then(|node| TypeNode::try_from(node).ok())
-        else {
-            return Some(written.text.clone());
-        };
-        let mut cx = ReuseContext {
-            site: Some(reference),
-            root: written.node,
-            site_dependent: false,
-            scope_local: false,
-            mapped: false,
-            unnameable: false,
-        };
+        let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
+        let mut cx = ReuseContext::new(Some(reference), written.node);
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
         (!cx.unnameable).then_some(text)
     }
@@ -439,14 +429,12 @@ impl<'a> Checker<'a, '_> {
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
             // Named at the site by `typeParameterToName`; see the
             // `TypeReferenceNode` arm.
-            cx.site_dependent |= cx.site.is_none();
             return true;
         }
         let Some(site) = cx.site else {
-            // Any name may be hidden at a print site — a module's own
-            // declaration shadows a global of the same name, which the site
-            // then reaches as `globalThis.` (`serialize_type_name`).
-            cx.site_dependent = true;
+            // With no print site the annotation's own file answers: a name
+            // only resolvable inside a narrower scope marks the text
+            // scope-local.
             if !self.is_global_name(symbol, text, meaning) {
                 cx.scope_local |= !self.resolves_from_file_top_level(id, symbol, text, meaning);
             }
@@ -783,12 +771,7 @@ impl<'a> Checker<'a, '_> {
     /// encloses the annotation — the printed signature's own parameters,
     /// which `enterSignatureScope`/`enterNewScope`
     /// (`nodebuilderscopes.go:53`) put in scope.
-    fn declared_inside_reused_node(
-        &self,
-        symbol: tsr_binder::SymbolId,
-        root: Option<NodeId>,
-    ) -> bool {
-        let Some(root) = root else { return false };
+    fn declared_inside_reused_node(&self, symbol: tsr_binder::SymbolId, root: NodeId) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {
             return false;
@@ -813,6 +796,22 @@ impl<'a> Checker<'a, '_> {
             current = self.nodes.parent(current)?;
         }
         (self.nodes.kind(current) == SyntaxKind::Parameter).then_some(current)
+    }
+
+    /// `ast.IsInJSDoc`: a JSDoc node encloses `node` within its file.
+    fn has_jsdoc_ancestor(&self, node: NodeId) -> bool {
+        let mut current = self.nodes.parent(node);
+        while let Some(ancestor) = current {
+            let kind = self.nodes.kind(ancestor);
+            if (SyntaxKind::JSDocTypeExpression..=SyntaxKind::JSDocImportTag).contains(&kind) {
+                return true;
+            }
+            if kind == SyntaxKind::SourceFile {
+                return false;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        false
     }
 
     fn is_ancestor_or_self(&self, ancestor: NodeId, node: NodeId) -> bool {
@@ -1228,12 +1227,15 @@ impl<'a> Checker<'a, '_> {
         reference: &tsr_ast::TypeReferenceNode<'a>,
     ) -> bool {
         let Some(id) = reference.node_id else { return true };
-        if !self.in_js_file(id) {
+        // `NodeFlagsJSDoc` is a parse flag this parser does not set: a JSDoc
+        // type is the one with a JSDoc ancestor (as
+        // `get_type_from_type_reference` asks it). A JSDoc node's parent chain
+        // does not reach its file's flags, so `in_js_file` misses it.
+        let jsdoc = self.has_jsdoc_ancestor(id);
+        if !jsdoc && !self.in_js_file(id) {
             return true;
         }
-        if self.nodes.flags(id).contains(tsr_ast::NodeFlags::JSDOC)
-            && let Some(EntityName::Identifier(identifier)) = reference.type_name
-        {
+        if jsdoc && let Some(EntityName::Identifier(identifier)) = reference.type_name {
             let arguments = reference.type_arguments.len();
             let remapped = match identifier.text {
                 "String" | "Number" | "BigInt" | "Boolean" | "Void" | "Undefined" | "Null"

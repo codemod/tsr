@@ -2543,7 +2543,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
             let parameter_type = self.parameter_type(parameter);
-            if let Some(text) = parameter.written_text.as_ref().and_then(|written| {
+            if let Some(text) = parameter.written_text.and_then(|written| {
                 self.written_annotation_text_at(written, parameter_type, reference)
             }) {
                 out.push_str(&text);
@@ -2559,7 +2559,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         out.push_str("): ");
-        let written_return = signature.written_return.as_ref().and_then(|written| {
+        let written_return = signature.written_return.and_then(|written| {
             let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
             self.written_annotation_text_at(written, current, reference)
         });

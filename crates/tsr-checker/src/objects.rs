@@ -450,14 +450,12 @@ pub(crate) fn signature_member_text(
         out.push_str(if parameter.optional { "?: " } else { ": " });
         // The node-reuse rule on `Parameter::written_text`
         // (`crate::node_reuse`), for a printer with no print site.
-        let error = checker.intrinsics.error;
         let parameter_type = checker.parameter_type(parameter);
         match parameter
             .written_text
-            .as_ref()
-            .and_then(|written| written.site_free_text(parameter_type, error))
+            .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
         {
-            Some(written) => out.push_str(written),
+            Some(written) => out.push_str(&written),
             None => out.push_str(&checker.type_to_string(parameter_type)),
         }
     }
@@ -469,11 +467,10 @@ pub(crate) fn signature_member_text(
     // form that needs it, and the corpus records it on lib's `every`.
     let written_return = signature
         .written_return
-        .as_ref()
-        .and_then(|written| written.site_free_text(signature.r#type, checker.intrinsics.error));
+        .and_then(|written| checker.site_free_annotation_text(written, signature.r#type));
     match (&signature.predicate, written_return) {
         (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
-        (None, Some(written)) => out.push_str(written),
+        (None, Some(written)) => out.push_str(&written),
         (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
     }
     out
