@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4019/5502 (73.05%)
-Failed         : 1483
+Passed         : 4026/5502 (73.17%)
+Failed         : 1476
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1483 failures:
+First 100 of 1476 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -98,8 +98,6 @@ compiler/bases
   3 missing (first TS2693 at bases.ts(7,17))
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
-compiler/bigIntWithTargetLessThanES2016
-  2 missing (first TS2791 at bigIntWithTargetLessThanES2016.ts(1,1))
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 1 missing
 compiler/bigintIndex
@@ -212,3 +210,5 @@ compiler/collisionExportsRequireAndAlias
   2 missing (first TS2441 at collisionExportsRequireAndAlias_file2.ts(1,8))
 compiler/commonMissingSemicolons
   1 missing (first TS1003 at commonMissingSemicolons.ts(26,18))
+compiler/commonSourceDirectory_dts
+  1 missing (first TS5011 at /app/tsconfig.json(3,9))
