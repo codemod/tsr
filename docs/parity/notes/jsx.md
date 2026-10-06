@@ -337,3 +337,13 @@ whose `@jsx` directive lists variants (`@jsx: react-jsx,react-jsxdev`). The
 conformance harness leaves `jsx` unset for those, so the checker sees "no
 `--jsx`" where the baseline was produced under a concrete variant. The rule
 is three lines; it waits on the harness choosing a variant.
+
+## 10. JSX spread TS2698 has no parse-error gate
+
+`createJsxAttributesTypeFromAttributesProperty` reports `Spread types may
+only be created from object types` with `c.error` (`jsx.go:785`), not
+`grammarErrorOnNode`, so upstream reports it in files with parse errors —
+where `<a:b={…}>`-style recovery yields a spread attribute
+(`jsxNamespacePrefixInName{,React}`). `check_jsx_spread_of_non_object_type`
+carried a `file_has_parse_errors` gate copied from its object-literal
+sibling; it is removed for the JSX arm only.

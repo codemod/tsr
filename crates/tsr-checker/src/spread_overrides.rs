@@ -164,8 +164,12 @@ impl Checker<'_, '_> {
 
     /// TS2698 for a JSX spread attribute: `createJsxAttributesTypeFromAttributesProperty`
     /// (`jsx.go:785`) reports on the attribute's expression.
+    ///
+    /// `c.error`, not a grammar error: upstream reports it in files with parse
+    /// errors, where a recovered `{…}` attribute becomes a spread
+    /// (`jsxNamespacePrefixInName`, `docs/parity/notes/jsx.md` §10).
     pub(crate) fn check_jsx_spread_of_non_object_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::JsxSpreadAttribute(attribute)) = self.node_map.get(node) else { return };
