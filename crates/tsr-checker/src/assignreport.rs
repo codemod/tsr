@@ -1249,7 +1249,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The name node of the literal's property called `name`.
-    fn excess_property_name_node(
+    pub(crate) fn excess_property_name_node(
         &self,
         literal: &tsr_ast::ObjectLiteralExpression<'_>,
         name: &str,
@@ -1460,6 +1460,26 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        let span = self.error_span(at);
+        self.report_relation_failure(at, span, source_node, source, target, None)
+    }
+
+    /// [`Checker::report_assignability_failure`] with a caller's head message
+    /// and error span: `checkTypeAssignableToAndOptionallyElaborate`'s
+    /// `headMessage` (relater.go). `reportRelationError` (relater.go:4751)
+    /// uses the head as given; the TS2322 defaults (exact-optional variants)
+    /// apply only when there is none. A missing-property chain still replaces
+    /// the head (relater.go:4816), since no caller here passes a conversion or
+    /// interface-implementation message.
+    pub(crate) fn report_relation_failure(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source_node: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> bool {
         // An object literal against a **union** target is the excess-property
         // and discriminated-union machinery
         // (`getMatchingUnionConstituentForObjectLiteral`,
@@ -1477,8 +1497,7 @@ impl<'a> Checker<'a, '_> {
                 if assign_probe_enabled()
                     && let Some(probe_file) = self.source_file_of_for_diagnostics(at)
                 {
-                    let probe_span = self.error_span(at);
-                    self.assignability_probe.push((probe_file, probe_span, $verdict));
+                    self.assignability_probe.push((probe_file, span, $verdict));
                 }
             };
         }
@@ -1512,7 +1531,6 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
-        let span = self.error_span(at);
         if REPORT_MISSING_REQUIRED_PROPERTY
             && let Some(properties) = self.missing_required_property(source, target)
         {
@@ -1541,7 +1559,9 @@ impl<'a> Checker<'a, '_> {
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
-        let message = if self.exact_optional_property_assignment_mismatch(at, source) {
+        let message = if let Some(head) = head {
+            head
+        } else if self.exact_optional_property_assignment_mismatch(at, source) {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPE_OF_THE_TARGET
         } else if source_text != target_text && self.exact_optional_object_mismatch(source, target)
         {
