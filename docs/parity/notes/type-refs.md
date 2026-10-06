@@ -136,3 +136,17 @@ root-identifier rule, `types_producer.rs`, not owned);
 §1.2 for alias bodies that carry the alias, i.e. NB-SYMBOL-CHAIN);
 TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL and IMPORT-EQUALS-ALIAS-TYPEREF-TARGET
 (the identifier arm's §157/§491 roads) not started.
+
+## 2. Round 2 (baseline frozen at `15f1743`: types 467,200 RIGHT / 1,213 GAP / 9,239 WRONG; diagnostics 3,846 RIGHT / 4,941 EMPTY_RIGHT)
+
+### 2.1 Type-literal index infos are deduplicated by key (`tsr-2zk.16.40`)
+
+`getIndexInfosOfIndexSymbol` (`checker.go:19634`) appends an info for a key
+type only when `findIndexInfo` finds none (`:19655`), so two `[x: number]`
+signatures in one literal yield ONE info and print one row.
+`build_type_literal` (`declared.rs`) now skips a later index declaration whose
+key type it already holds. `index_signature_member` declines union keys before
+this point, so the key is a single type and identity is the right test.
+Measured: +6 lines, 4 cases (`duplicateNumericIndexers`,
+`duplicateStringIndexers`, `multipleNumericIndexers`, `multipleStringIndexers`),
+0 losses in either dump. No new cache or side table.

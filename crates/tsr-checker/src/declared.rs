@@ -2177,6 +2177,7 @@ impl<'a> Checker<'a, '_> {
             Vec::with_capacity(node.members.len());
         let mut typed_signatures = Vec::new();
         let mut typed_indexes = Vec::new();
+        let mut seen_index_keys: Vec<TypeId> = Vec::new();
         // SS333: computed property signatures whose name cannot late-bind
         // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
         // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
@@ -2357,6 +2358,21 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 }
                 let Some(rendered) = self.index_signature_member(index) else { return error };
+                // getIndexInfosOfIndexSymbol (checker.go:19634): an info is
+                // added for a key type only when `findIndexInfo` finds none
+                // yet (:19655), so `{ [x: number]: string; [x: number]: string }`
+                // has ONE info and prints one row. `index_signature_member`
+                // declined a union key above, so the key is one type here and
+                // the first declaration for it wins.
+                if let [parameter] = index.parameters
+                    && let Some(key_node) = parameter.r#type
+                {
+                    let key = self.get_type_from_type_node(key_node);
+                    if seen_index_keys.contains(&key) {
+                        continue;
+                    }
+                    seen_index_keys.push(key);
+                }
                 typed_indexes.extend(self.index_infos_of_declaration(index));
                 indexes.push(rendered);
                 continue;
