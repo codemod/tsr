@@ -950,6 +950,17 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::NotRelated;
         }
+        // isPerformingCommonPropertyChecks && !hasCommonProperties
+        // (isRelatedToEx, relater.go:2676): a weak target that knows none of
+        // the source's properties. Not under IntersectionStateTarget, and
+        // under the comparable relation only for a unit source.
+        if check_excess
+            && (!matches!(self.relation, Relation::Comparable)
+                || self.checker.type_of(source).flags.intersects(TypeFlags::UNIT))
+            && self.checker.fails_common_property_check(source, target)
+        {
+            return RelationResult::NotRelated;
+        }
         // anyFunctionType has no properties, and function expressions have
         // no own property requirements. Their call-signature relation is the
         // wildcard rule even when no symbol member table is attached.
