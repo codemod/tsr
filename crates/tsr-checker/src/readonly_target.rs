@@ -1242,3 +1242,701 @@ enum ThisParameterClass {
     /// A `this` type this port cannot read as a class or interface.
     Unsupported,
 }
+
+/// TS2729 — `checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`) and
+/// the declared-before-use machinery it asks (`isBlockScopedNameDeclaredBeforeUse`,
+/// `checker.go:1922`). `docs/parity/notes/property.md` §5.
+impl Checker<'_, '_> {
+    /// TS2729 — `Property '{0}' is used before its initialization.`
+    ///
+    /// `checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`), reached
+    /// from `checkPropertyAccessExpressionOrQualifiedName` once
+    /// `getPropertyOfType(apparentType)` found `prop`. The conjuncts are
+    /// upstream's, asked of the resolved property's `valueDeclaration`, in
+    /// upstream's order; the cheap syntactic ones run before the lookup.
+    ///
+    /// Declines where this port cannot answer upstream's question:
+    /// - a union or intersection receiver — upstream's synthetic property
+    ///   carries a `valueDeclaration` only when every constituent agrees,
+    ///   and this port's lookup answers a constituent's symbol;
+    /// - `isPropertyInitializedInStaticBlocks` with a static block in range
+    ///   (it asks the flow type at the block's end);
+    /// - a class-like `valueDeclaration` (the computed-name/decorator arm);
+    /// - an ancestor class whose first base type does not resolve.
+    pub(crate) fn check_property_not_used_before_declaration(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.file_is_ambient {
+            return;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let (Some(receiver), Some(member)) = (access.expression, access.name) else { return };
+        let (text, right) = match member {
+            tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id),
+            tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id),
+        };
+        let Some(right) = right else { return };
+        if !self.is_in_property_initializer_or_class_static_block(node, false) {
+            return;
+        }
+        // `!(IsAccessExpression(node) && IsAccessExpression(node.Expression()))`.
+        let Some(receiver_id) = receiver.node_id() else { return };
+        if matches!(
+            self.nodes.kind(receiver_id),
+            SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
+        ) {
+            return;
+        }
+        let Some(property) = self.property_of_access_for_use_before_init(node, receiver, text)
+        else {
+            return;
+        };
+        let record = self.binder.symbols().get(property);
+        let Some(value_declaration) = record.value_declaration else { return };
+        let parent_symbol = record.parent;
+        if self.is_optional_property_declaration(value_declaration) {
+            return;
+        }
+        match self.is_block_scoped_name_declared_before_use(value_declaration, right) {
+            Some(false) => {}
+            Some(true) | None => return,
+        }
+        if self.nodes.kind(value_declaration) == SyntaxKind::MethodDeclaration
+            && self.node_has_syntactic_modifier(value_declaration, SyntaxKind::StaticKeyword)
+        {
+            return;
+        }
+        // `GetUseDefineForClassFields()`, which is what `standard_class_fields`
+        // computes (the flag, else `target >= ES2022`).
+        if !self.standard_class_fields {
+            match self.is_property_declared_in_ancestor_class(parent_symbol, text) {
+                Some(false) => {}
+                Some(true) | None => return,
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
+        let span = self.nodes.span(right);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
+                span,
+                [text.to_string()],
+            ),
+        );
+    }
+
+    /// The `prop` `checkPropertyAccessExpressionOrQualifiedName` resolves:
+    /// `getPropertyOfType(getApparentType(leftType), right.Text())`, or for a
+    /// `#name` the lexically scoped class's own member
+    /// (`getPrivateIdentifierPropertyOfType`). `None` when the receiver is
+    /// any-like or an error, or the property is not found.
+    fn property_of_access_for_use_before_init(
+        &mut self,
+        node: NodeId,
+        receiver: tsr_ast::Expression<'_>,
+        text: &str,
+    ) -> Option<SymbolId> {
+        let lexical = if text.starts_with('#') {
+            Some(self.lexical_private_declaring_class(node, text)?)
+        } else {
+            None
+        };
+        let receiver_type = self.check_expression(receiver);
+        if self.is_error(receiver_type)
+            || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return None;
+        }
+        let apparent = self.apparent_type(receiver_type);
+        if self.type_of(apparent).flags.intersects(TypeFlags::UNION.union(TypeFlags::INTERSECTION))
+        {
+            return None;
+        }
+        let property = self.get_property_of_type(apparent, text)?;
+        if let Some(lexical) = lexical {
+            let declaration = self.binder.symbols().get(property).value_declaration?;
+            if self.containing_class_of(declaration) != Some(lexical) {
+                return None;
+            }
+        }
+        Some(property)
+    }
+
+    /// `isOptionalPropertyDeclaration` (`checker.go:11731`).
+    fn is_optional_property_declaration(&self, node: NodeId) -> bool {
+        let Some(Node::PropertyDeclaration(property)) = self.node_map.get(node) else {
+            return false;
+        };
+        !tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::AccessorKeyword)
+            && property.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+    }
+
+    /// `isPropertyDeclaredInAncestorClass` (`checker.go:11735`):
+    /// `getPropertyOfType(getBaseTypes(declaredType(prop.Parent))[0], name)`
+    /// has a `valueDeclaration`. `None` when the class has an `extends`
+    /// clause whose base type this port cannot resolve.
+    fn is_property_declared_in_ancestor_class(
+        &mut self,
+        parent: Option<SymbolId>,
+        name: &str,
+    ) -> Option<bool> {
+        let Some(parent) = parent else { return Some(false) };
+        if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::CLASS) {
+            return Some(false);
+        }
+        let base = if let Some(base) = self.first_base_type_of_class_symbol(parent) {
+            base
+        } else {
+            if !self.class_symbol_has_extends_clause(parent) {
+                return Some(false);
+            }
+            self.value_base_type_of_class_symbol(parent)?
+        };
+        let Some(property) = self.get_property_of_type(base, name) else { return Some(false) };
+        Some(self.binder.symbols().get(property).value_declaration.is_some())
+    }
+
+    /// `resolveBaseTypesOfClass` (`checker.go:19220`) for an `extends` entry
+    /// that names a **value** (`declare const F: new () => B; class D extends
+    /// F`), which [`Checker::first_base_type_of_class_symbol`] refuses because
+    /// it resolves the entry in type meaning: the entry resolved as a value,
+    /// then the first construct signature matching the type-argument count,
+    /// whose return type is the base.
+    fn value_base_type_of_class_symbol(&mut self, class: SymbolId) -> Option<crate::types::TypeId> {
+        let declaration = self.binder.symbols().get(class).value_declaration?;
+        let clauses = match self.node_map.get(declaration)? {
+            Node::ClassDeclaration(node) => node.heritage_clauses,
+            Node::ClassExpression(node) => node.heritage_clauses,
+            _ => return None,
+        };
+        let entry = clauses
+            .iter()
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .flat_map(|clause| clause.types.iter())
+            .next()?;
+        let base = self.heritage_entity_symbol(entry.expression?, SymbolFlags::VALUE)?;
+        let t = self.instance_base_type_of_heritage_entry(base, entry);
+        (!self.is_error(t)).then_some(t)
+    }
+
+    /// Does any declaration of this class symbol carry an `extends` clause?
+    fn class_symbol_has_extends_clause(&self, class: SymbolId) -> bool {
+        self.binder.symbols().get(class).declarations.iter().any(|&declaration| {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                _ => return false,
+            };
+            clauses.iter().any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        })
+    }
+
+    /// `HasSyntacticModifier(node, keyword)` for any modifier-bearing node.
+    fn node_has_syntactic_modifier(&self, node: NodeId, keyword: SyntaxKind) -> bool {
+        self.node_map
+            .get(node)
+            .and_then(crate::check::modifiers_of)
+            .is_some_and(|modifiers| tsr_ast::has_syntactic_modifier(modifiers, keyword))
+    }
+
+    /// `isInPropertyInitializerOrClassStaticBlock` (`checker.go:13706`).
+    pub(crate) fn is_in_property_initializer_or_class_static_block(
+        &self,
+        node: NodeId,
+        ignore_arrow_functions: bool,
+    ) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                SyntaxKind::PropertyDeclaration | SyntaxKind::ClassStaticBlockDeclaration => {
+                    return true;
+                }
+                SyntaxKind::TypeQuery | SyntaxKind::JsxClosingElement => return false,
+                SyntaxKind::ArrowFunction if !ignore_arrow_functions => return false,
+                SyntaxKind::Block
+                    if self.nodes.parent(id).is_some_and(|parent| {
+                        is_function_like_declaration_kind(self.nodes.kind(parent))
+                            && self.nodes.kind(parent) != SyntaxKind::ArrowFunction
+                    }) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(id);
+        }
+        false
+    }
+
+    /// `isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`), whole.
+    /// `None` where an arm needs an answer this port cannot give (see
+    /// [`Checker::check_property_not_used_before_declaration`]).
+    fn is_block_scoped_name_declared_before_use(
+        &mut self,
+        declaration: NodeId,
+        usage: NodeId,
+    ) -> Option<bool> {
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(usage)
+        {
+            return Some(true);
+        }
+        let container = self.block_scope_container_of(declaration);
+        if self.nodes.flags(usage).contains(tsr_ast::NodeFlags::JSDOC)
+            || self.is_in_type_query_for_use(usage)
+            || self.is_in_ambient_or_type_node(usage)
+        {
+            return Some(true);
+        }
+        let declaration_kind = self.nodes.kind(declaration);
+        let declaration_start = self.nodes.span(declaration).start;
+        let usage_start = self.nodes.span(usage).start;
+        let uninitialized_this_property = declaration_kind == SyntaxKind::PropertyDeclaration
+            && self.nodes.parent(usage).is_some_and(|parent| self.is_this_property(parent))
+            && matches!(
+                self.node_map.get(declaration),
+                Some(Node::PropertyDeclaration(property))
+                    if property.initializer.is_none()
+                        && property.postfix_token.is_none_or(|t| t.kind != SyntaxKind::ExclamationToken)
+            );
+        if declaration_start <= usage_start && !uninitialized_this_property {
+            return match declaration_kind {
+                SyntaxKind::BindingElement => {
+                    if let Some(error_element) = self
+                        .nodes
+                        .ancestors(usage)
+                        .find(|&a| self.nodes.kind(a) == SyntaxKind::BindingElement)
+                    {
+                        return Some(
+                            Some(error_element) != Some(declaration)
+                                && self.nearest_binding_element(error_element)
+                                    != self.nearest_binding_element(declaration)
+                                || declaration_start < self.nodes.span(error_element).start,
+                        );
+                    }
+                    let variable = self
+                        .nodes
+                        .ancestors(declaration)
+                        .find(|&a| self.nodes.kind(a) == SyntaxKind::VariableDeclaration)?;
+                    self.is_block_scoped_name_declared_before_use(variable, usage)
+                }
+                SyntaxKind::VariableDeclaration => {
+                    Some(!self.is_immediately_used_in_initializer_of_block_scoped_variable(
+                        declaration,
+                        usage,
+                        container,
+                    ))
+                }
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => None,
+                SyntaxKind::PropertyDeclaration => {
+                    Some(!self.is_property_immediately_referenced_within_declaration(
+                        declaration,
+                        usage,
+                        false,
+                    ))
+                }
+                _ if self.is_parameter_property_declaration(declaration) => Some(
+                    !(self.emit_standard_class_fields()
+                        && self.containing_class_of(declaration)
+                            == self.containing_class_of(usage)
+                        && self.is_used_in_function_or_instance_property_exact(
+                            usage,
+                            declaration,
+                            container,
+                        )?),
+                ),
+                _ => Some(true),
+            };
+        }
+        if let Some(parent) = self.nodes.parent(usage) {
+            match self.node_map.get(parent) {
+                Some(Node::ExportSpecifier(_)) => return Some(true),
+                Some(Node::ExportAssignment(assignment)) if assignment.is_export_equals => {
+                    return Some(true);
+                }
+                _ => {}
+            }
+        }
+        if matches!(self.node_map.get(usage), Some(Node::ExportAssignment(a)) if a.is_export_equals)
+        {
+            return Some(true);
+        }
+        if self.is_used_in_function_or_instance_property_exact(usage, declaration, container)? {
+            if self.emit_standard_class_fields()
+                && self.containing_class_of(declaration).is_some()
+                && (declaration_kind == SyntaxKind::PropertyDeclaration
+                    || self.is_parameter_property_declaration(declaration))
+            {
+                return Some(!self.is_property_immediately_referenced_within_declaration(
+                    declaration,
+                    usage,
+                    true,
+                ));
+            }
+            return Some(true);
+        }
+        Some(false)
+    }
+
+    /// `c.emitStandardClassFields` (`GetEmitStandardClassFields`): the flag
+    /// not `false` **and** `target >= ES2022`. `standard_class_fields` is
+    /// `GetUseDefineForClassFields`, which differs only when the flag is set
+    /// on an older target; that combination is not distinguishable from here
+    /// (the checker keeps no target), so this reads the stored flag.
+    fn emit_standard_class_fields(&self) -> bool {
+        self.standard_class_fields
+    }
+
+    /// `ast.FindAncestor(node, ast.IsBindingElement)`, including `node`.
+    fn nearest_binding_element(&self, node: NodeId) -> Option<NodeId> {
+        std::iter::once(node)
+            .chain(self.nodes.ancestors(node))
+            .find(|&a| self.nodes.kind(a) == SyntaxKind::BindingElement)
+    }
+
+    /// `isThisProperty` (`utilities.go`): a property or element access whose
+    /// expression is `this`.
+    fn is_this_property(&self, node: NodeId) -> bool {
+        let expression = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => access.expression,
+            Some(Node::ElementAccessExpression(access)) => access.expression,
+            _ => return false,
+        };
+        expression
+            .and_then(|e| e.node_id())
+            .is_some_and(|e| self.nodes.kind(e) == SyntaxKind::ThisKeyword)
+    }
+
+    /// `IsInTypeQuery` (`utilities.go`): an ancestor `typeof` query, stopping
+    /// at an expression-with-type-arguments or a non-entity-name parent.
+    fn is_in_type_query_for_use(&self, node: NodeId) -> bool {
+        for ancestor in self.nodes.ancestors(node) {
+            match self.nodes.kind(ancestor) {
+                SyntaxKind::TypeQuery => return true,
+                SyntaxKind::Identifier | SyntaxKind::QualifiedName => {}
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// `isInAmbientOrTypeNode` (`checker.go:11238`).
+    fn is_in_ambient_or_type_node(&self, node: NodeId) -> bool {
+        self.declaration_is_in_an_ambient_context(node)
+            || self.nodes.ancestors(node).any(|ancestor| {
+                matches!(
+                    self.nodes.kind(ancestor),
+                    SyntaxKind::InterfaceDeclaration
+                        | SyntaxKind::TypeAliasDeclaration
+                        | SyntaxKind::JSTypeAliasDeclaration
+                        | SyntaxKind::TypeLiteral
+                )
+            })
+    }
+
+    /// `IsParameterPropertyDeclaration(node, node.Parent)`: a parameter of a
+    /// constructor carrying a `ParameterPropertyModifier`.
+    fn is_parameter_property_declaration(&self, node: NodeId) -> bool {
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return false;
+        };
+        self.nodes.parent(node).is_some_and(|p| self.nodes.kind(p) == SyntaxKind::Constructor)
+            && [
+                SyntaxKind::PublicKeyword,
+                SyntaxKind::PrivateKeyword,
+                SyntaxKind::ProtectedKeyword,
+                SyntaxKind::ReadonlyKeyword,
+                SyntaxKind::OverrideKeyword,
+            ]
+            .into_iter()
+            .any(|keyword| tsr_ast::has_syntactic_modifier(parameter.modifiers, keyword))
+    }
+
+    /// `ast.GetEnclosingBlockScopeContainer` (`ast/utilities.go:2171`).
+    fn block_scope_container_of(&self, node: NodeId) -> Option<NodeId> {
+        self.nodes.ancestors(node).find(|&ancestor| match self.nodes.kind(ancestor) {
+            SyntaxKind::Block => !self.nodes.parent(ancestor).is_some_and(|parent| {
+                let kind = self.nodes.kind(parent);
+                is_function_like_kind(kind) || kind == SyntaxKind::ClassStaticBlockDeclaration
+            }),
+            kind => is_block_scope_kind(kind),
+        })
+    }
+
+    /// `isUsedInFunctionOrInstanceProperty` (`checker.go:2011`), every arm.
+    /// `None` when `isPropertyInitializedInStaticBlocks` would be asked
+    /// about a static block in range.
+    fn is_used_in_function_or_instance_property_exact(
+        &mut self,
+        usage: NodeId,
+        declaration: NodeId,
+        container: Option<NodeId>,
+    ) -> Option<bool> {
+        let mut current = usage;
+        loop {
+            if Some(current) == container {
+                return Some(false);
+            }
+            let kind = self.nodes.kind(current);
+            if is_function_like_kind(kind) {
+                if self.immediately_invoked_call(current).is_none() {
+                    return Some(true);
+                }
+            } else if kind == SyntaxKind::ClassStaticBlockDeclaration {
+                if self.nodes.span(declaration).start < self.nodes.span(usage).start {
+                    return Some(true);
+                }
+            } else if let Some(parent) = self.nodes.parent(current) {
+                if let Some(Node::PropertyDeclaration(property)) = self.node_map.get(parent)
+                    && property.initializer.and_then(|i| i.node_id()) == Some(current)
+                {
+                    if tsr_ast::has_syntactic_modifier(
+                        property.modifiers,
+                        SyntaxKind::StaticKeyword,
+                    ) {
+                        if self.nodes.kind(declaration) == SyntaxKind::MethodDeclaration {
+                            return Some(true);
+                        }
+                        if let Some(Node::PropertyDeclaration(declared)) =
+                            self.node_map.get(declaration)
+                            && self.containing_class_of(usage)
+                                == self.containing_class_of(declaration)
+                            && matches!(
+                                declared.name,
+                                tsr_ast::PropertyName::Identifier(_)
+                                    | tsr_ast::PropertyName::PrivateIdentifier(_)
+                            )
+                        {
+                            // isPropertyInitializedInStaticBlocks: blocks
+                            // between the class start and this initializer.
+                            let class = self.nodes.parent(declaration)?;
+                            let low = self.nodes.span(class).start;
+                            let high = self.nodes.span(current).start;
+                            if self.class_has_static_block_in_range(class, low, high) {
+                                return None;
+                            }
+                        }
+                    } else {
+                        let is_declaration_instance_property = self.nodes.kind(declaration)
+                            == SyntaxKind::PropertyDeclaration
+                            && !self.node_has_syntactic_modifier(
+                                declaration,
+                                SyntaxKind::StaticKeyword,
+                            );
+                        if !is_declaration_instance_property
+                            || self.containing_class_of(usage)
+                                != self.containing_class_of(declaration)
+                        {
+                            return Some(true);
+                        }
+                    }
+                }
+                if let Some(Node::Decorator(decorator)) = self.node_map.get(parent)
+                    && decorator.expression.and_then(|e| e.node_id()) == Some(current)
+                    && let Some(decorated) = self.nodes.parent(parent)
+                {
+                    let member = match self.nodes.kind(decorated) {
+                        SyntaxKind::Parameter => {
+                            self.nodes.parent(decorated).and_then(|f| self.nodes.parent(f))
+                        }
+                        SyntaxKind::MethodDeclaration => self.nodes.parent(decorated),
+                        _ => None,
+                    };
+                    // Found → `FindAncestorTrue`; not found → `FindAncestorQuit`.
+                    if let Some(member) = member {
+                        return self.is_used_in_function_or_instance_property_exact(
+                            member,
+                            declaration,
+                            container,
+                        );
+                    }
+                }
+            }
+            let Some(parent) = self.nodes.parent(current) else { return Some(false) };
+            current = parent;
+        }
+    }
+
+    /// Does `class` hold a static block whose start lies in `[low, high]`?
+    fn class_has_static_block_in_range(&self, class: NodeId, low: u32, high: u32) -> bool {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return false,
+        };
+        members.iter().any(|member| {
+            matches!(member, tsr_ast::ClassElement::ClassStaticBlockDeclaration(_))
+                && member.node_id().is_some_and(|id| {
+                    let start = self.nodes.span(id).start;
+                    low <= start && start <= high
+                })
+        })
+    }
+
+    /// `isImmediatelyUsedInInitializerOfBlockScopedVariable` (`checker.go:2069`).
+    fn is_immediately_used_in_initializer_of_block_scoped_variable(
+        &self,
+        declaration: NodeId,
+        usage: NodeId,
+        container: Option<NodeId>,
+    ) -> bool {
+        let Some(grandparent) = self.nodes.parent(declaration).and_then(|p| self.nodes.parent(p))
+        else {
+            return false;
+        };
+        let grandparent_kind = self.nodes.kind(grandparent);
+        if matches!(
+            grandparent_kind,
+            SyntaxKind::VariableStatement | SyntaxKind::ForStatement | SyntaxKind::ForOfStatement
+        ) && self.same_scope_descendent_of(usage, Some(declaration), container)
+        {
+            return true;
+        }
+        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(grandparent) else {
+            return false;
+        };
+        self.same_scope_descendent_of(
+            usage,
+            statement.expression.and_then(|e| e.node_id()),
+            container,
+        )
+    }
+
+    /// `isSameScopeDescendentOf` (`checker.go:2087`).
+    fn same_scope_descendent_of(
+        &self,
+        initial: NodeId,
+        parent: Option<NodeId>,
+        stop_at: Option<NodeId>,
+    ) -> bool {
+        let Some(parent) = parent else { return false };
+        let mut n = Some(initial);
+        while let Some(id) = n {
+            if id == parent {
+                return true;
+            }
+            if Some(id) == stop_at
+                || is_function_like_kind(self.nodes.kind(id))
+                    && (self.immediately_invoked_call(id).is_none()
+                        || self.is_async_or_generator_function(id))
+            {
+                return false;
+            }
+            n = self.nodes.parent(id);
+        }
+        false
+    }
+
+    /// `GetFunctionFlags(n) & FunctionFlagsAsyncGenerator != 0`: the mask is
+    /// `Async | Generator`, so either an `async` modifier or a `*` sets it.
+    fn is_async_or_generator_function(&self, node: NodeId) -> bool {
+        let (modifiers, asterisk) = match self.node_map.get(node) {
+            Some(Node::FunctionExpression(n)) => (n.modifiers, n.asterisk_token.is_some()),
+            Some(Node::FunctionDeclaration(n)) => (n.modifiers, n.asterisk_token.is_some()),
+            Some(Node::MethodDeclaration(n)) => (n.modifiers, n.asterisk_token.is_some()),
+            Some(Node::ArrowFunction(n)) => (n.modifiers, false),
+            _ => return false,
+        };
+        asterisk || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword)
+    }
+
+    /// `isPropertyImmediatelyReferencedWithinDeclaration` (`checker.go:2106`).
+    fn is_property_immediately_referenced_within_declaration(
+        &self,
+        declaration: NodeId,
+        usage: NodeId,
+        stop_at_any_property_declaration: bool,
+    ) -> bool {
+        if self.nodes.span(usage).end > self.nodes.span(declaration).end {
+            return false;
+        }
+        let mut node = Some(usage);
+        while let Some(id) = node {
+            if id == declaration {
+                break;
+            }
+            match self.nodes.kind(id) {
+                SyntaxKind::ArrowFunction => return false,
+                SyntaxKind::PropertyDeclaration => {
+                    let same_class = if self.nodes.kind(declaration)
+                        == SyntaxKind::PropertyDeclaration
+                    {
+                        self.nodes.parent(id) == self.nodes.parent(declaration)
+                    } else {
+                        self.is_parameter_property_declaration(declaration)
+                            && self.nodes.parent(id)
+                                == self.nodes.parent(declaration).and_then(|c| self.nodes.parent(c))
+                    };
+                    return stop_at_any_property_declaration && same_class;
+                }
+                SyntaxKind::Block
+                    if self.nodes.parent(id).is_some_and(|parent| {
+                        matches!(
+                            self.nodes.kind(parent),
+                            SyntaxKind::MethodDeclaration
+                                | SyntaxKind::GetAccessor
+                                | SyntaxKind::SetAccessor
+                        )
+                    }) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+            node = self.nodes.parent(id);
+        }
+        true
+    }
+}
+
+/// `ast.IsFunctionLikeDeclaration`'s kinds.
+fn is_function_like_declaration_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::FunctionDeclaration
+            | SyntaxKind::MethodDeclaration
+            | SyntaxKind::Constructor
+            | SyntaxKind::GetAccessor
+            | SyntaxKind::SetAccessor
+            | SyntaxKind::FunctionExpression
+            | SyntaxKind::ArrowFunction
+    )
+}
+
+/// `ast.IsFunctionLike`'s kinds (`IsFunctionLikeKind`): the declarations and
+/// the signature kinds, not a class static block.
+fn is_function_like_kind(kind: SyntaxKind) -> bool {
+    is_function_like_declaration_kind(kind)
+        || matches!(
+            kind,
+            SyntaxKind::MethodSignature
+                | SyntaxKind::CallSignature
+                | SyntaxKind::JSDocSignature
+                | SyntaxKind::ConstructSignature
+                | SyntaxKind::IndexSignature
+                | SyntaxKind::FunctionType
+                | SyntaxKind::ConstructorType
+        )
+}
+
+/// `ast.IsBlockScope`'s non-`Block` kinds (`ast/utilities.go:2177`).
+fn is_block_scope_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::SourceFile
+            | SyntaxKind::CaseBlock
+            | SyntaxKind::CatchClause
+            | SyntaxKind::ModuleDeclaration
+            | SyntaxKind::ForStatement
+            | SyntaxKind::ForInStatement
+            | SyntaxKind::ForOfStatement
+            | SyntaxKind::Constructor
+            | SyntaxKind::MethodDeclaration
+            | SyntaxKind::GetAccessor
+            | SyntaxKind::SetAccessor
+            | SyntaxKind::FunctionDeclaration
+            | SyntaxKind::FunctionExpression
+            | SyntaxKind::ArrowFunction
+            | SyntaxKind::PropertyDeclaration
+            | SyntaxKind::ClassStaticBlockDeclaration
+    )
+}

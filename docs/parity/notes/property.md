@@ -151,3 +151,65 @@ clause — and `CallableFunction extends Function`.
 **Rejected.** Certifying arrow-function and function-expression `typeof`
 receivers the same way: their expando members are recorded on the variable,
 not the function symbol, so an empty `exports` does not prove absence.
+
+## 5. TS2729 asked of the resolved property symbol
+
+**Forcing constraint.** `checkPropertyNotUsedBeforeDeclaration`
+(`checker.go:11709`) runs inside `checkPropertyAccessExpressionOrQualifiedName`
+on the `prop` the lookup found, and asks `isBlockScopedNameDeclaredBeforeUse`
+(`checker.go:1922`) of `prop.ValueDeclaration`. This port's
+`check_property_used_before_initialization` (check.rs) was a syntactic slice:
+`this.X`/`C.X` against the same class's member list. It could not see an enum
+member, an object-literal property or a namespace export read from a static
+initializer (`classStaticInitializersUsePropertiesBeforeDeclaration`), a
+`#private` name (`privateNamesUseBeforeDef`), an `accessor` field written from a
+static block (`classStaticBlockUseBeforeDef5`), an uninitialized field read
+before the constructor assigns it (`initializerWithThisPropertyAccess`), and
+its nested-access test read the *parent* (`this.a.b` declined) where upstream
+reads the node's *expression* (`this.bar.prop` reports on `bar`).
+
+**Decision.** Replaced by `check_property_not_used_before_declaration`
+(`readonly_target.rs`): resolve `prop` as `getPropertyOfType(getApparentType(leftType))`
+(a `#name` through the lexically declaring class), then upstream's conjuncts in
+order, with `isBlockScopedNameDeclaredBeforeUse`,
+`isUsedInFunctionOrInstanceProperty`, `isPropertyImmediatelyReferencedWithinDeclaration`,
+`isImmediatelyUsedInInitializerOfBlockScopedVariable` and
+`isInPropertyInitializerOrClassStaticBlock` transcribed whole beside it. The
+check.rs helpers of the same names were not reused: they are slices for TS2448
+(no static-initializer arm, an extra type-node stop, no decorator quit), owned
+by another lane.
+
+**Correction.** §975's note in check.rs said upstream does not report TS2729 on
+a JSX tag name. It does, on the opening and self-closing tags; it is only the
+*closing* tag that `isInPropertyInitializerOrClassStaticBlock` quits at
+(`useBeforeDeclaration_jsx` wants `<C.z>` and `<C.z/>` reported). The earlier
+line was right for its own wrong reason.
+
+**Declines** (each answers silence, never a report):
+- a union/intersection apparent receiver — upstream's synthetic property has a
+  `valueDeclaration` only when its constituents agree, and this lookup answers
+  one constituent's symbol;
+- `isPropertyInitializedInStaticBlocks` with a static block in range — it asks
+  the flow type at the block's end, which needs a synthesized reference;
+- a class-like `valueDeclaration` (the computed-name/decorator arm, which is
+  check.rs-private);
+- `isPropertyDeclaredInAncestorClass` when the first base type does not resolve.
+  An `extends` naming a **value** (`extends BaseFactory`) is resolved here
+  through the entry's value symbol and its first arity-matching construct
+  signature (`resolveBaseTypesOfClass`), because
+  `first_base_type_of_class_symbol` resolves the entry in type meaning;
+  `checkInheritedProperty` was this port's one loss without it.
+
+**Known divergence.** Upstream uses `emitStandardClassFields` inside
+`isBlockScopedNameDeclaredBeforeUse` and `GetUseDefineForClassFields` in the
+TS2729 conjunct. The checker stores only the latter (`standard_class_fields`);
+they differ only for `useDefineForClassFields: true` on a target below ES2022.
+Needs a checker field (hub, not owned).
+
+**Measured.** Every TS2729 line in the corpus now matches (10 cases had missing
+lines, 0 false lines before or after); 7 cases convert, 0 losses.
+
+**Falsifier.** A false TS2729 whose `valueDeclaration` sits after the use in
+the same file but is reached through a type this port's lookup answers with
+the wrong symbol (a merged or instantiated member) would show the lookup, not
+the predicate, is at fault.
