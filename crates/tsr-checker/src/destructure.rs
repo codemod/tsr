@@ -205,23 +205,15 @@ impl Checker<'_, '_> {
                         // (`checker.go:26947`, `:27117`). A miss under
                         // AllowMissing on an object-literal type is `undefined`
                         // (`checker.go:27187`).
-                        match self.get_applicable_index_info(parent_type, key) {
-                            Some(info) => {
-                                let include = self.no_unchecked_indexed_access;
-                                self.include_unchecked_undefined(
-                                    info.value,
-                                    include,
-                                    parent_type,
-                                    key,
-                                )
+                        if let Some(info) = self.get_applicable_index_info(parent_type, key) {
+                            let include = self.no_unchecked_indexed_access;
+                            self.include_unchecked_undefined(info.value, include, parent_type, key)
+                        } else {
+                            let apparent = self.apparent_type(parent_type);
+                            if !(allow_missing && self.is_object_literal_type(apparent)) {
+                                return error;
                             }
-                            None => {
-                                let apparent = self.apparent_type(parent_type);
-                                if !(allow_missing && self.is_object_literal_type(apparent)) {
-                                    return error;
-                                }
-                                self.intrinsics.undefined
-                            }
+                            self.intrinsics.undefined
                         }
                     }
                 } else {
