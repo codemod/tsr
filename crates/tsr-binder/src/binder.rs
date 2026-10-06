@@ -2686,7 +2686,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             return Some((SymbolFlags::VALUE_MODULE, Destination::Locals));
         }
 
-        let (flags, destination) = classify(node)?;
+        let (flags, destination) = classify(node, &self.ancestors)?;
 
         // A `static` class member belongs to the class's **exports**, an instance
         // member to its **members**. Upstream's `declareClassMember` splits on
@@ -4853,8 +4853,13 @@ fn is_generator_function_expression(node: Node<'_>) -> bool {
 
 /// What kind of symbol `node` declares, and where it belongs.
 ///
-/// `None` for nodes that declare nothing, which is most of them.
-fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
+/// `None` for nodes that declare nothing, which is most of them. `parents` is
+/// the binder's ancestor stack (ending with `node`'s parent), which
+/// `GetModuleInstanceState` climbs for an `export { x }` target.
+fn classify<'a>(
+    node: Node<'a>,
+    parents: &[(NodeId, Node<'a>)],
+) -> Option<(SymbolFlags, Destination)> {
     use Destination as D;
     use SymbolFlags as S;
     Some(match node {
@@ -4897,7 +4902,10 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         // `binder_symbols` unmoved at 100%.
         Node::ModuleDeclaration(_) => (
             if matches!(
-                tsr_ast::module_instance_state(node),
+                tsr_ast::module_instance_state(
+                    node,
+                    &parents.iter().map(|&(_, parent)| parent).collect::<Vec<_>>()
+                ),
                 tsr_ast::ModuleInstanceState::NonInstantiated
             ) {
                 S::NAMESPACE_MODULE

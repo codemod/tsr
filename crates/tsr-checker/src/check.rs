@@ -12349,7 +12349,10 @@ impl Checker<'_, '_> {
     /// `IsInstantiatedModule` (`ast/utilities.go:2443`).
     fn is_instantiated_module(&self, node: NodeId) -> bool {
         let Some(typed) = self.node_map.get(node) else { return true };
-        match tsr_ast::module_instance_state(typed) {
+        let mut parents: Vec<_> =
+            self.nodes.ancestors(node).filter_map(|ancestor| self.node_map.get(ancestor)).collect();
+        parents.reverse();
+        match tsr_ast::module_instance_state(typed, &parents) {
             tsr_ast::ModuleInstanceState::Instantiated => true,
             tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
             tsr_ast::ModuleInstanceState::NonInstantiated => false,
