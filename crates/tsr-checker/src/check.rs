@@ -664,12 +664,14 @@ impl Checker<'_, '_> {
                 self.check_delete_operand_is_optional(node, typed);
                 ambient
             }
-            Node::CallExpression(_) => {
+            Node::CallExpression(call) => {
+                self.resolve_call_before_callback_bodies(node, call.arguments);
                 self.check_call_expression_diagnostics(node);
                 self.check_import_call_specifier(node);
                 ambient
             }
-            Node::NewExpression(_) => {
+            Node::NewExpression(new) => {
+                self.resolve_call_before_callback_bodies(node, new.arguments);
                 self.check_new_expression_diagnostics(node);
                 self.check_implicit_any_new_expression(node);
                 ambient

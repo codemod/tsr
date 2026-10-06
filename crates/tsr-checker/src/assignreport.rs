@@ -1984,10 +1984,21 @@ impl<'a> Checker<'a, '_> {
             // above describes, under a different type id — a type the port
             // could not build, which the relater cannot distinguish from one
             // that failed.
-            if self.is_error(side) || side == unknown || side == any {
+            if self.is_error(side) || side == any {
                 return false;
             }
-            if self.type_of(side).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
+            // The `unknown` SOURCE is a real type that fails real relations
+            // (`unknown` to `string` is TS2322 upstream, `isSimpleTypeRelatedTo`
+            // relates it only to `any`/`unknown` targets and through the
+            // `{} | null | undefined` arm). A callback parameter typed by
+            // `getIndexedAccessTypeEx`'s nil answer (`checker.go:26930`) is
+            // such a source. An `unknown` target relates every source.
+            if side == unknown && side == source {
+                continue;
+            }
+            if side == unknown
+                || self.type_of(side).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN)
+            {
                 return false;
             }
         }
