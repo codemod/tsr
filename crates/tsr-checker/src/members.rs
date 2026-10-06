@@ -125,7 +125,7 @@ impl Checker<'_, '_> {
     /// that symbol's per-class MANGLED name
     /// (`binder.GetSymbolNameForPrivateIdentifier`), so a same-spelled
     /// private on any other class can never match.
-    fn lexical_private_declaring_class(
+    pub(crate) fn lexical_private_declaring_class(
         &self,
         node: tsr_ast::NodeId,
         name: &str,
