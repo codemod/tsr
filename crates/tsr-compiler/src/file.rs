@@ -52,7 +52,7 @@ pub struct ProgramFile<'a> {
     /// The half-open run of ids this file's parse claimed in the program's
     /// shared node table.
     ///
-    /// Contiguous, because files are parsed one at a time — which is what makes
+    /// Contiguous, because files are published one at a time — which is what makes
     /// "which file does this node belong to" answerable at all once a `NodeId`
     /// spans the program. A `Span` is still an offset into *this* file's text,
     /// so something has to answer that question, and this is what answers it.

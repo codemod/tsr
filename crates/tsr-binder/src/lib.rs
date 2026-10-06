@@ -66,7 +66,10 @@
 mod binder;
 mod container;
 mod flow;
+mod names;
 mod narrowing;
+#[cfg(test)]
+mod parallel_tests;
 mod symbol;
 
 use rustc_hash::FxHashMap;
@@ -77,6 +80,7 @@ use tsr_diagnostics::Diagnostic;
 pub use binder::{is_declaration_file, is_external_module};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
+pub use names::PreparedNames;
 pub use symbol::{
     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
 };
@@ -168,6 +172,47 @@ pub struct BindResult<'a> {
     end_flow: FxHashMap<NodeId, FlowId>,
     return_flow: FxHashMap<NodeId, FlowId>,
     fallthrough_flow: FxHashMap<NodeId, FlowId>,
+}
+
+/// An unpublished file-local bind. Its IDs cannot be read by a checker.
+/// AST identities already belong to the program; symbols and flow remain private.
+pub struct FileBindResult<'a, 'n> {
+    nodes: &'n NodeTable,
+    bindings: BindResult<'a>,
+    node_base: usize,
+    root: NodeId,
+    is_module: bool,
+    commonjs_module: bool,
+    global_augmentations: Vec<SymbolId>,
+}
+
+/// Bind one published AST using only private, file-sized mutable tables.
+/// UMD export declarations retain the serial path because the accumulating
+/// binder reuses previously declared UMD aliases during declaration itself.
+#[must_use]
+pub fn bind_file<'a, 'n>(
+    names: &'n PreparedNames<'a>,
+    nodes: &'n NodeTable,
+    file: &'a SourceFile<'a>,
+    info: FileInfo<'a>,
+    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    node_range: std::ops::Range<u32>,
+) -> FileBindResult<'a, 'n> {
+    binder::Binder::bind_independent(names, nodes, file, info, jsdoc, node_range)
+}
+
+impl<'a> BindResult<'a> {
+    /// Publish one completed file in program order, including the ordered
+    /// global merge and first-file synthetic undefined boundary.
+    #[must_use]
+    pub fn publish_file(
+        self,
+        arena: &'a tsr_core::Arena,
+        nodes: &NodeTable,
+        local: FileBindResult<'a, '_>,
+    ) -> Self {
+        binder::Binder::publish_file(arena, nodes, self, local)
+    }
 }
 
 impl<'a> BindResult<'a> {

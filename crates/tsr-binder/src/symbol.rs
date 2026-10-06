@@ -24,6 +24,12 @@ use tsr_ast::NodeId;
 pub struct SymbolId(u32);
 
 impl SymbolId {
+    pub(crate) fn relocated(self, base: usize) -> Self {
+        Self(
+            u32::try_from(base.checked_add(self.index()).expect("symbol count overflow"))
+                .expect("symbol count exceeds u32"),
+        )
+    }
     /// As a `usize`, for indexing.
     #[must_use]
     pub const fn index(self) -> usize {
@@ -497,6 +503,24 @@ impl Default for SymbolStore<'_> {
 }
 
 impl<'a> SymbolStore<'a> {
+    /// Append private records, preserving this store's checker-handle identity.
+    pub(crate) fn append(&mut self, local: Self) -> usize {
+        let base = self.len();
+        u32::try_from(base + local.len()).expect("symbol count exceeds u32");
+        self.symbols.extend(local.symbols.into_iter().map(|mut symbol| {
+            symbol.parent = symbol.parent.map(|id| id.relocated(base));
+            symbol.export_symbol = symbol.export_symbol.map(|id| id.relocated(base));
+            for field in [&mut symbol.members, &mut symbol.exports] {
+                if let Some(table) = &mut field.0 {
+                    for id in table.values_mut() {
+                        *id = id.relocated(base);
+                    }
+                }
+            }
+            symbol
+        }));
+        base
+    }
     /// Shared identity for Checkers reading this immutable bound store.
     #[must_use]
     pub fn identity(&self) -> &SymbolStoreIdentity {

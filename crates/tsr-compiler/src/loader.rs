@@ -230,6 +230,9 @@ pub struct LoadStatistics {
     pub read_time: Duration,
     /// Parser calls into shared node tables, including JSDoc parsing.
     pub parse_time: Duration,
+    /// Private root parsing before the ordered task walk. Included in parse
+    /// time, but excluded from the discovery subtraction inside task bodies.
+    pub parse_preparation_time: Duration,
     /// Module/type-directive queries within tasks; excludes lib replacement.
     /// This is a subset of discovery time, not another disjoint phase.
     pub resolution_time: Duration,
@@ -248,7 +251,11 @@ impl LoadStatistics {
     /// Includes source copies, reference collection, and module resolution.
     #[must_use]
     pub fn discovery_time(&self) -> Duration {
-        self.task_time.saturating_sub(self.metadata_time + self.read_time + self.parse_time)
+        self.task_time.saturating_sub(
+            self.metadata_time
+                + self.read_time
+                + self.parse_time.saturating_sub(self.parse_preparation_time),
+        )
     }
 }
 
@@ -419,6 +426,9 @@ pub struct FileLoader<'host, 'a> {
     /// Root file texts read ahead of the walk, by file name, consumed by
     /// [`FileLoader::load_task`]. See [`FileLoader::prefetch_root_files`].
     prefetched: FxHashMap<String, Option<String>>,
+    /// Private root parses, keyed by canonical task path. Discovery, metadata,
+    /// package identity and publication still follow the original serial walk.
+    prepared_roots: FxHashMap<Path, tsr_parser::ParsedFile>,
 }
 
 impl<'host, 'a> FileLoader<'host, 'a> {
@@ -467,6 +477,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             supported_extensions,
             supported_extensions_with_json,
             prefetched: FxHashMap::default(),
+            prepared_roots: FxHashMap::default(),
         };
 
         for root in &root_file_names {
@@ -580,6 +591,72 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         }
         self.prefetched =
             names.into_iter().map(str::to_owned).zip(texts).collect::<FxHashMap<_, _>>();
+        self.prepare_root_parses();
+    }
+
+    fn parse_options(&self, name: &str) -> tsr_parser::ParseOptions {
+        let inferred = tsr_parser::ScriptKind::from_file_name(name);
+        let lowered = name.to_ascii_lowercase();
+        let script_kind = if inferred == tsr_parser::ScriptKind::TypeScript
+            && self.options.jsx != tsr_core::JsxEmit::None
+            && [".js", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+        {
+            tsr_parser::ScriptKind::Tsx
+        } else {
+            inferred
+        };
+        tsr_parser::ParseOptions { script_kind, ..Default::default() }
+    }
+
+    fn prepare_root_parses(&mut self) {
+        let mut seen = rustc_hash::FxHashSet::default();
+        let inputs: Vec<_> = self
+            .root_tasks
+            .iter()
+            .filter_map(|&index| {
+                let task = &self.tasks[index];
+                if !seen.insert(task.path.clone()) {
+                    return None;
+                }
+                if has_extension(&task.file_name)
+                    && !self.options.allow_non_ts_extensions.is_true()
+                    && !self.is_supported_extension(&get_canonical_file_name(
+                        &task.file_name,
+                        self.host.fs().use_case_sensitive_file_names(),
+                    ))
+                {
+                    return None;
+                }
+                let text = self.prefetched.get(&task.file_name)?.as_ref()?;
+                Some((task.path.clone(), text, self.parse_options(&task.file_name)))
+            })
+            .collect();
+        let workers = if inputs.iter().map(|(_, text, _)| text.len()).sum::<usize>() < 128 * 1024 {
+            1
+        } else {
+            crate::front_end::workers(&self.options, inputs.len())
+        };
+        if workers == 1 {
+            return;
+        }
+        let started = self.options.extended_diagnostics.is_true().then(Instant::now);
+        let mut prepared = FxHashMap::default();
+        crate::front_end::ordered(
+            &inputs,
+            workers,
+            |_, (_, text, options)| {
+                tsr_parser::ParsedFile::parse_with_options((*text).clone(), *options)
+            },
+            |index, parsed| {
+                prepared.insert(inputs[index].0.clone(), parsed);
+            },
+        );
+        self.prepared_roots = prepared;
+        if let Some(started) = started {
+            let elapsed = started.elapsed();
+            self.statistics.parse_time += elapsed;
+            self.statistics.parse_preparation_time += elapsed;
+        }
     }
 
     /// The default libs, or the ones `--lib` named (`fileloader.go:157-171`).
@@ -777,23 +854,18 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let Some(text) = text else { return };
         let name: &'a str = arena.alloc_str(&file_name);
 
-        let inferred_script_kind = tsr_parser::ScriptKind::from_file_name(name);
         let lowered = name.to_ascii_lowercase();
-        let script_kind = if inferred_script_kind == tsr_parser::ScriptKind::TypeScript
-            && self.options.jsx != tsr_core::JsxEmit::None
-            && [".js", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
-        {
-            tsr_parser::ScriptKind::Tsx
-        } else {
-            inferred_script_kind
-        };
-        let options = tsr_parser::ParseOptions { script_kind, ..Default::default() };
+        let options = self.parse_options(name);
         // Into the program's shared tables, not fresh ones: this is the parser
         // half of the identity widening, and parsing into fresh tables here
         // would give two files the same `NodeId`s.
         let parse_started = self.options.extended_diagnostics.is_true().then(Instant::now);
-        let parsed =
-            tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map);
+        let parsed = match self.prepared_roots.remove(&self.tasks[index].path) {
+            Some(prepared) if prepared.source() == text => {
+                prepared.publish(arena, text, &mut self.nodes, &mut self.node_map)
+            }
+            _ => tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map),
+        };
         if let Some(started) = parse_started {
             self.statistics.parse_time += started.elapsed();
             self.statistics.parsed_files += 1;

@@ -22,6 +22,7 @@ mod generated;
 mod node_map;
 pub mod parent;
 pub mod predicates;
+pub mod publication;
 pub use generated::visit::{for_each_child_id, push_children};
 pub use node_map::NodeMap;
 pub use parent::assign_parents;
@@ -118,6 +119,20 @@ pub struct NodeTable {
 }
 
 impl NodeTable {
+    /// Append a completed file's private rows at a canonical program base.
+    /// Spans remain file-relative; only parent identities are relocated.
+    pub fn append_relocated(&mut self, local: &Self) -> std::ops::Range<u32> {
+        let base = u32::try_from(self.len()).expect("node count exceeds u32");
+        let end = base
+            .checked_add(u32::try_from(local.len()).expect("node count exceeds u32"))
+            .expect("node count exceeds u32");
+        self.kind.extend_from_slice(&local.kind);
+        self.span.extend_from_slice(&local.span);
+        self.flags.extend_from_slice(&local.flags);
+        self.parent
+            .extend(local.parent.iter().map(|id| id.map(|id| NodeId::new(base + id.as_u32()))));
+        base..end
+    }
     /// An empty table.
     #[must_use]
     pub fn new() -> Self {

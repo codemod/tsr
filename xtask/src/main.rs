@@ -123,6 +123,10 @@ fn codegen() -> Result<()> {
     write_generated(&out_dir.join("nodes.rs"), &gen_nodes::generate_nodes(&ast, &nullability)?)?;
     write_generated(&out_dir.join("alias.rs"), &gen_nodes::generate_aliases(&ast, &nullability)?)?;
     write_generated(&out_dir.join("visit.rs"), &gen_nodes::generate_visit(&ast, &nullability)?)?;
+    write_generated(
+        &out_dir.join("publish.rs"),
+        &gen_nodes::generate_publication(&ast, &nullability)?,
+    )?;
 
     // A machine-readable record of what the generator saw, so the conformance test
     // can assert against upstream without re-parsing ast.json at test time.
@@ -157,6 +161,7 @@ const MOD_RS: &str = "//! Generated AST definitions.\n\
      pub mod alias;\n\
      pub mod kind;\n\
      pub mod nodes;\n\
+     pub(crate) mod publish;\n\
      pub mod visit;\n";
 
 fn write_generated(path: &std::path::Path, contents: &str) -> Result<()> {

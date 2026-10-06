@@ -5,4 +5,5 @@
 pub mod alias;
 pub mod kind;
 pub mod nodes;
+pub(crate) mod publish;
 pub mod visit;

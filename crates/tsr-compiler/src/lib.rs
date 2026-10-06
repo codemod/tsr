@@ -54,6 +54,7 @@
 
 pub mod comment_directives;
 mod file;
+mod front_end;
 pub mod loader;
 pub mod program_diagnostics;
 
@@ -253,12 +254,10 @@ impl<'a> Program<'a> {
 
     /// Parse every file into `arena`, without binding.
     ///
-    /// **Sequential, where this used to be a rayon `into_par_iter`.** One arena
-    /// and one node table cannot be filled from several threads, and the ids
-    /// have to continue the numbering in a defined order — the same
-    /// serialisation ADR-0034 records for binding, arriving one phase earlier.
-    /// Parallelism moves out to the caller, which is where the conformance
-    /// harness already has it: a case per worker, an arena per case.
+    /// Large file lists parse in private worker arenas, then publish into the
+    /// caller's arena and node tables in input order. Small programs and
+    /// `singleThreaded` keep direct serial parsing. IDs and all AST borrows
+    /// become immutable program identities before binding can consume them.
     #[must_use]
     pub fn parse(arena: &'a Arena, options: ProgramOptions) -> Self {
         let ProgramOptions {
@@ -271,32 +270,58 @@ impl<'a> Program<'a> {
         let mut nodes = NodeTable::new();
         let mut node_map = NodeMap::new();
         let mut parsed: Vec<ProgramFile<'a>> = Vec::with_capacity(files.len());
-        for (file_name, text) in files {
-            let path = to_path(&file_name, &current_directory, use_case_sensitive_file_names);
-            // Copied into the arena for the reason the loader copies: the
-            // symbol store outlives any per-file storage. See
-            // `ProgramFile`'s module docs.
-            let file_name: &'a str = arena.alloc_str(&file_name);
-            let text: &'a str = arena.alloc_str(&text);
-            let parse_options = tsr_parser::ParseOptions {
-                script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
-                ..Default::default()
-            };
-            let into =
-                tsr_parser::parse_into(arena, text, parse_options, &mut nodes, &mut node_map);
-            // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
-            // `ScriptKind`; this parser never sees the file name (ADR-0016),
-            // so the program — the one place that holds both the name and the
-            // table — stamps the root. `checker-notes-assign.md` §11.1 is the
-            // consumer that found the flag declared and set by nothing.
-            let lowered = file_name.to_ascii_lowercase();
-            if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
-                && let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
-            {
-                nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
-            }
-            parsed.push(ProgramFile::new(path, file_name, text, into));
-        }
+        let workers = if files.iter().map(|(_, text)| text.len()).sum::<usize>() < 128 * 1024 {
+            1
+        } else {
+            front_end::workers(&compiler_options, files.len())
+        };
+        front_end::ordered(
+            &files,
+            workers,
+            |_, (file_name, text)| {
+                (workers > 1).then(|| {
+                    tsr_parser::ParsedFile::parse_with_options(
+                        text.clone(),
+                        tsr_parser::ParseOptions::for_file(file_name),
+                    )
+                })
+            },
+            |index, private| {
+                let (file_name, text) = &files[index];
+                let path = to_path(file_name, &current_directory, use_case_sensitive_file_names);
+                // Copied into the arena for the reason the loader copies: the
+                // symbol store outlives any per-file storage. See
+                // `ProgramFile`'s module docs.
+                let file_name: &'a str = arena.alloc_str(file_name);
+                let text: &'a str = arena.alloc_str(text);
+                let parse_options = tsr_parser::ParseOptions {
+                    script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
+                    ..Default::default()
+                };
+                let into = match private {
+                    Some(private) => private.publish(arena, text, &mut nodes, &mut node_map),
+                    None => tsr_parser::parse_into(
+                        arena,
+                        text,
+                        parse_options,
+                        &mut nodes,
+                        &mut node_map,
+                    ),
+                };
+                // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
+                // `ScriptKind`; this parser never sees the file name (ADR-0016),
+                // so the program — the one place that holds both the name and the
+                // table — stamps the root. `checker-notes-assign.md` §11.1 is the
+                // consumer that found the flag declared and set by nothing.
+                let lowered = file_name.to_ascii_lowercase();
+                if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+                    && let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
+                {
+                    nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+                }
+                parsed.push(ProgramFile::new(path, file_name, text, into));
+            },
+        );
 
         // First spelling wins, as upstream's `filesByPath` does: a file added
         // twice under two spellings of one path is one file, and the later one
@@ -403,18 +428,76 @@ impl<'a> Program<'a> {
 
     /// Bind every file that is not bound (`Program.BindSourceFiles`).
     ///
-    /// **Sequential, where this used to be a rayon `par_iter_mut`.**
-    /// `bind_into` accumulates into one `SymbolStore`, so a program binds in one
-    /// pass, in file order — libs first, because a global interface declared in
-    /// several files merges in the order the files were added. Upstream binds in
-    /// parallel and can, because its symbols are pointers with no shared
-    /// allocator between them; ADR-0034 records the trade and the escape hatch
-    /// (bind per file into its own store, merge with a `SymbolId` offset).
+    /// Workers bind independent files into private symbols and flow graphs.
+    /// Publication relocates all private edges and merges globals in file order
+    /// (libs first), preserving the accumulating binder's identities. UMD alias
+    /// declarations keep the ordered path because declaration itself can reuse
+    /// a previous file's alias. Small programs and `singleThreaded` stay serial.
     ///
     /// Idempotent, as upstream's `file.IsBound()` guard makes it: only the files
     /// past `bound_file_count` are bound, so calling this twice binds nothing
     /// the second time.
     pub fn bind_source_files(&mut self, arena: &'a Arena) {
+        let files = &self.files[self.bound_file_count..];
+        let workers = if self.nodes.len() < 10_000 {
+            1
+        } else {
+            front_end::workers(&self.options, files.len())
+        };
+        if workers > 1 {
+            let names = tsr_binder::PreparedNames::new(arena, &self.node_map);
+            let nodes = &self.nodes;
+            let node_map = &self.node_map;
+            let binder = &mut self.binder;
+            let diagnostic_ends = &mut self.bind_diagnostic_ends;
+            front_end::ordered(
+                files,
+                workers,
+                |_, file| {
+                    // UMD declarations can reuse an earlier file's alias while
+                    // declaring it. Keep that small ordered subset on the caller.
+                    let ordered = file.node_range().any(|id| {
+                        matches!(
+                            node_map.get(NodeId::new(id)),
+                            Some(tsr_ast::Node::NamespaceExportDeclaration(_))
+                        )
+                    });
+                    if ordered {
+                        return None;
+                    }
+                    let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+                    Some(tsr_binder::bind_file(
+                        &names,
+                        nodes,
+                        file.source_file(),
+                        FileInfo { name: file.file_name(), text: file.text() },
+                        &jsdoc,
+                        file.node_range(),
+                    ))
+                },
+                |index, local| {
+                    let previous = std::mem::replace(binder, BindResult::empty());
+                    *binder = if let Some(local) = local {
+                        previous.publish_file(arena, nodes, local)
+                    } else {
+                        let file = &files[index];
+                        let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+                        tsr_binder::bind_into_with_jsdoc(
+                            previous,
+                            arena,
+                            file.source_file(),
+                            nodes,
+                            FileInfo { name: file.file_name(), text: file.text() },
+                            &jsdoc,
+                        )
+                    };
+                    diagnostic_ends.push(binder.diagnostics().len());
+                },
+            );
+            self.bound_file_count = self.files.len();
+            self.merge_module_augmentations(arena);
+            return;
+        }
         for index in self.bound_file_count..self.files.len() {
             let file = &self.files[index];
             let previous = std::mem::replace(&mut self.binder, BindResult::empty());
