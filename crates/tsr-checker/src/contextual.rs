@@ -2491,6 +2491,18 @@ impl<'a> Checker<'a, '_> {
         index: usize,
     ) -> Option<TypeId> {
         let callee_type = self.check_expression(callee);
+        // `getContextualTypeForArgumentAtIndex` (`checker.go:29772`) reads the
+        // call's resolved signature. An untyped call resolves to
+        // `anySignature` (`resolveUntypedCall`, `checker.go:9902`), and an
+        // error callee checks its arguments in `resolveErrorCall` while the
+        // signature is still `resolvingSignature`; both have no parameters, so
+        // `getTypeAtPosition` is `any` at every index (`relater.go:1757`).
+        if callee_type == self.intrinsics.error
+            || self.is_untyped_call_target(callee_type)
+            || self.is_untyped_function_typed_callee(callee_type)
+        {
+            return Some(self.intrinsics.any);
+        }
         if let Some(signature) = self.single_call_signature(callee_type) {
             return self.contextual_argument_type(&signature, index, call.arguments.len());
         }

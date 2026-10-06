@@ -109,7 +109,38 @@ Converted: `discriminatedUnionWithIndexSignature`,
 `objectLiteralComputedNameNoDeclarationError` (and 5 lines of
 `narrowingNoInfer1`, still blocked on NOINFER-SUBSTITUTION).
 
-## 5. `this` of an uncontextualised object literal — not landed
+## 5. An untyped or error call gives its arguments an `any` context
+
+`getContextualTypeForArgumentAtIndex` (`checker.go:29772`) answers
+`getTypeAtPosition` of the call's resolved signature. `resolveCallExpression`
+sends an untyped call (`isUntypedFunctionCall`: an `any` callee, or a
+signature-less `Function`-typed one) to `resolveUntypedCall`, which resolves
+to `anySignature`, and an error callee to `resolveErrorCall`, which checks the
+arguments while the call's signature is still `resolvingSignature`. Neither
+signature has parameters, so every argument's contextual type is `any`.
+
+`contextual_type_for_argument_resolving` now answers `any` for those callees,
+asking `is_untyped_call_target` / `is_untyped_function_typed_callee` (the
+calls lane's ports of `isUntypedFunctionCall`'s disjuncts) and `errorType`
+identity. The error arm reads TSR's `error` as upstream's `errorType`; where a
+TSR producer answers `error` for "could not compute", that producer is the
+defect (`tsr-2zk.31`), not this arm. Measured: zero RIGHT lines lost.
+
+Not reached from here: a function nested in an argument under that `any`
+context (`commentsOnObjectLiteral2`'s object-literal property,
+`fatarrowfunctionsOptionalArgsErrors4`'s curried arrows) still gaps at the
+function-expression gate in `signatures.rs`, which accepts an `any` context
+only for a direct argument of a single-signature callee
+(`argument_context_parameter`). Upstream reaches them through the general
+road: the property of an `any` context, and the return of a function with no
+contextual signature, have no contextual type.
+
+Converted: `superCallFromFunction1`, `superCallFromClassThatHasNoBaseType1`,
+`parser509534`, and lines of `fatarrowfunctionsOptionalArgsErrors4`,
+`fatarrowfunctionsErrors`, `parserindenter`, `parserRealSource9`,
+`parserMissingLambdaOpenBrace1` and others (+29 lines).
+
+## 6. `this` of an uncontextualised object literal — not landed
 
 `getContextualThisParameterType`'s object-literal arm (`checker.go:12049`)
 answers `getWidenedType(checkExpressionCached(literal))` when the containing
