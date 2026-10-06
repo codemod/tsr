@@ -4466,6 +4466,30 @@ impl<'a> Checker<'a, '_> {
                 return;
             }
         }
+        // inferFromTypes' IndexedAccess/IndexedAccess arm (inference.go:240):
+        // infer object to object and index to index.
+        if let (Some(&(source_object, source_index, _)), Some(&(target_object, target_index, _))) = (
+            self.deferred_indexed_access_types.get(&source),
+            self.deferred_indexed_access_types.get(&target),
+        ) {
+            self.infer_from_types_within(
+                source_object,
+                target_object,
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+            self.infer_from_types_within(
+                source_index,
+                target_index,
+                original,
+                parameters,
+                out,
+                depth + 1,
+            );
+            return;
+        }
         // Native dispatch matches references before conditional targets.
         // invokeOnce(inferToConditionalType) must precede branch reads: a
         // recursive conditional can return the same reference from a branch.
