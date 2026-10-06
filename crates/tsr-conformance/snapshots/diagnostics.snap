@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4050/5502 (73.61%)
-Failed         : 1452
+Passed         : 4073/5502 (74.03%)
+Failed         : 1429
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1452 failures:
+First 100 of 1429 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -147,7 +147,7 @@ compiler/checkerInitializationCrash
 compiler/checkingObjectWithThisInNamePositionNoCrash
   1 missing (first TS2339 at checkingObjectWithThisInNamePositionNoCrash.ts(4,19))
 compiler/circularAccessorAnnotations
-  1 unexpected (first TS2502 at circularAccessorAnnotations.ts(1,15)), 2 missing
+  1 missing (first TS2502 at circularAccessorAnnotations.ts(19,9))
 compiler/circularBaseTypes
   4 missing (first TS2310 at circularBaseTypes.ts(4,11))
 compiler/circularConstraintYieldsAppropriateError
