@@ -159,30 +159,7 @@ impl Checker<'_, '_> {
                 else {
                     return;
                 };
-                // A union receiver that is a narrowable reference is the one
-                // shape whose flow type this port cannot certify: the narrowing
-                // arms decline to the declared union silently, and a declined
-                // narrowing reads exactly like no narrowing (the flowed == declared
-                // test above), unless no narrowing can reach the reference.
-                // `boolean` is a union only by representation.
-                if matches!(
-                    self.store.get(receiver_type).data,
-                    crate::types::TypeData::Union { .. }
-                ) && !self
-                    .store
-                    .get(receiver_type)
-                    .flags
-                    .contains(crate::flags::TypeFlags::BOOLEAN)
-                    && matches!(
-                        self.nodes.kind(receiver_id),
-                        SyntaxKind::Identifier
-                            | SyntaxKind::ThisKeyword
-                            | SyntaxKind::PropertyAccessExpression
-                            | SyntaxKind::ElementAccessExpression
-                            | SyntaxKind::ParenthesizedExpression
-                    )
-                    && !self.flow_cannot_narrow_identifier(receiver_id)
-                {
+                if self.union_receiver_flow_is_uncertified(receiver_id, receiver_type) {
                     return;
                 }
                 apparent
@@ -481,47 +458,8 @@ impl Checker<'_, '_> {
     ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         let flags = self.store.get(receiver).flags;
-        if let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data {
-            let types = types.clone();
-            let mut missing = false;
-            let mut properties = Vec::new();
-            for constituent in types {
-                let constituent_flags = self.store.get(constituent).flags;
-                if constituent_flags.intersects(TypeFlags::NEVER) {
-                    continue;
-                }
-                if constituent_flags
-                    .intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
-                    || self.is_object_literal_type(constituent)
-                {
-                    return None;
-                }
-                let apparent = self.primitive_apparent_type(constituent);
-                if apparent == self.intrinsics.error {
-                    return None;
-                }
-                let lacks = self.apparent_type_lacks(apparent, name)?;
-                missing |= lacks;
-                if !lacks && let Some(property) = self.get_property_of_type(apparent, name) {
-                    properties.push(property);
-                }
-            }
-            // createUnionOrIntersectionProperty's last refusal: different
-            // declarations across constituents, one of them private or
-            // protected, and no declaration common to all of them.
-            if !missing && properties.iter().any(|&p| p != properties[0]) {
-                let non_public =
-                    properties.iter().any(|&property| self.property_is_non_public(property));
-                let common = self.binder.symbols().get(properties[0]).declarations.iter().any(
-                    |declaration| {
-                        properties.iter().all(|&property| {
-                            self.binder.symbols().get(property).declarations.contains(declaration)
-                        })
-                    },
-                );
-                missing = non_public && !common;
-            }
-            return missing.then_some(receiver);
+        if matches!(self.store.get(receiver).data, crate::types::TypeData::Union { .. }) {
+            return self.union_property_lacks(receiver, name, false)?.then_some(receiver);
         }
         // getApparentType(never) is never, whose getPropertyOfType misses with
         // no index info; only silentNeverType is any-like
@@ -587,6 +525,178 @@ impl Checker<'_, '_> {
             return self.get_property_of_type(apparent, name).is_none().then_some(apparent);
         }
         self.apparent_type_lacks(apparent, name)?.then_some(apparent)
+    }
+
+    /// `getPropertyOfUnionOrIntersectionType` (`checker.go`) on a union
+    /// receiver, answered `Some(true)` when it is `nil` with every
+    /// constituent's table certified: one constituent without the name makes
+    /// the property `ReadPartial` (`createUnionOrIntersectionProperty`). An
+    /// object literal constituent makes it write-partial instead (a readable
+    /// `undefined`) unless it carries `ObjectFlagsContainsSpread`, which this
+    /// port does not record, so it declines.
+    ///
+    /// `nullable_lacks` says who owns a `null`/`undefined` constituent: a
+    /// property access declines it (`checkNonNullExpression` reports there
+    /// first); an indexed access from a destructuring has no such check, and
+    /// `getApparentType(undefined)` has no properties, so the constituent
+    /// lacks the name.
+    fn union_property_lacks(
+        &mut self,
+        receiver: TypeId,
+        name: &str,
+        nullable_lacks: bool,
+    ) -> Option<bool> {
+        use crate::flags::TypeFlags;
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data else {
+            return None;
+        };
+        let types = types.clone();
+        let mut missing = false;
+        let mut properties = Vec::new();
+        for constituent in types {
+            let constituent_flags = self.store.get(constituent).flags;
+            if constituent_flags.intersects(TypeFlags::NEVER) {
+                continue;
+            }
+            if nullable_lacks && constituent_flags.intersects(TypeFlags::NULLABLE) {
+                missing = true;
+                continue;
+            }
+            if constituent_flags
+                .intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
+                || self.is_object_literal_type(constituent)
+            {
+                return None;
+            }
+            let apparent = self.primitive_apparent_type(constituent);
+            if apparent == self.intrinsics.error {
+                return None;
+            }
+            let lacks = self.apparent_type_lacks(apparent, name)?;
+            missing |= lacks;
+            if !lacks && let Some(property) = self.get_property_of_type(apparent, name) {
+                properties.push(property);
+            }
+        }
+        // createUnionOrIntersectionProperty's last refusal: different
+        // declarations across constituents, one of them private or
+        // protected, and no declaration common to all of them.
+        if !missing && properties.iter().any(|&p| p != properties[0]) {
+            let non_public =
+                properties.iter().any(|&property| self.property_is_non_public(property));
+            let common =
+                self.binder.symbols().get(properties[0]).declarations.iter().any(|declaration| {
+                    properties.iter().all(|&property| {
+                        self.binder.symbols().get(property).declarations.contains(declaration)
+                    })
+                });
+            missing = non_public && !common;
+        }
+        Some(missing)
+    }
+
+    /// A union receiver that is a narrowable reference is the one shape whose
+    /// flow type this port cannot certify: the narrowing arms decline to the
+    /// declared union silently, and a declined narrowing reads exactly like
+    /// no narrowing (`receiver_type_is_the_declared_one`'s flowed == declared
+    /// test), unless no narrowing can reach the reference. `boolean` is a
+    /// union only by representation.
+    fn union_receiver_flow_is_uncertified(&self, receiver: NodeId, receiver_type: TypeId) -> bool {
+        matches!(self.store.get(receiver_type).data, crate::types::TypeData::Union { .. })
+            && !self.store.get(receiver_type).flags.contains(crate::flags::TypeFlags::BOOLEAN)
+            && matches!(
+                self.nodes.kind(receiver),
+                SyntaxKind::Identifier
+                    | SyntaxKind::ThisKeyword
+                    | SyntaxKind::PropertyAccessExpression
+                    | SyntaxKind::ElementAccessExpression
+                    | SyntaxKind::ParenthesizedExpression
+            )
+            && !self.flow_cannot_narrow_identifier(receiver)
+    }
+
+    /// The literal-name miss of an indexed access whose access node is a
+    /// destructuring name: `getIndexedAccessTypeOrUndefined` →
+    /// `getPropertyTypeForIndexType`'s final arm (`checker.go:27001`), reached
+    /// from `getBindingElementTypeFromParentType` (`checker.go:17707`) and
+    /// `checkObjectLiteralDestructuringPropertyAssignment` with no access
+    /// expression. `Some(object)` is the certified miss and
+    /// `getReducedApparentType(parent)`, the type the message prints.
+    ///
+    /// `source` is the expression node the parent type was read from, when
+    /// there is one: its (already checked) flow type is certified as a
+    /// property access receiver's is (the parent may be that type with
+    /// `undefined` removed, or a member of it).
+    /// A binding name never defers a generic object (`shouldDeferIndexedAccessType`
+    /// defers only generic tuples for it), so a type parameter reads through
+    /// its constraint. An `any`/`never` object answers itself, a JS literal
+    /// `any`, and `allow_missing` (a defaulted name) an object literal
+    /// `undefined` — none reports. No cache: run once per destructured name
+    /// after the parent type is answered.
+    pub(crate) fn destructured_property_is_absent(
+        &mut self,
+        source: Option<NodeId>,
+        parent: TypeId,
+        name: &str,
+        allow_missing: bool,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let flags = self.store.get(parent).flags;
+        if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER)
+            || self.is_error(parent)
+        {
+            return None;
+        }
+        if let Some(source) = source {
+            let &flowed = self.node_types.get(&source)?;
+            if !self.receiver_type_is_the_declared_one(source, flowed)
+                || self.union_receiver_flow_is_uncertified(source, flowed)
+            {
+                return None;
+            }
+        }
+        let apparent =
+            if matches!(self.store.get(parent).data, crate::types::TypeData::Union { .. }) {
+                if !self.union_property_lacks(parent, name, true)? {
+                    return None;
+                }
+                parent
+            } else {
+                let apparent =
+                    if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+                        self.intrinsics.empty_object
+                    } else if flags.intersects(TypeFlags::TYPE_PARAMETER) {
+                        let constraint = self.apparent_type(parent);
+                        if self.store.get(constraint).flags.intersects(
+                            TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN | TypeFlags::ANY,
+                        ) {
+                            return None;
+                        }
+                        self.primitive_apparent_type(constraint)
+                    } else {
+                        self.primitive_apparent_type(parent)
+                    };
+                if apparent == self.intrinsics.error {
+                    return None;
+                }
+                let lacks = if apparent == self.intrinsics.empty_object {
+                    self.get_property_of_type(apparent, name).is_none()
+                } else if let Some(lacks) = self.function_declaration_lacks(apparent, name) {
+                    lacks
+                } else {
+                    self.apparent_type_lacks(apparent, name)?
+                };
+                if !lacks {
+                    return None;
+                }
+                apparent
+            };
+        if (allow_missing && self.is_object_literal_type(apparent))
+            || self.is_js_literal_type(apparent)
+        {
+            return None;
+        }
+        Some(apparent)
     }
 
     /// `getPropertyOfType(apparent, name) == nil` with no applicable index
