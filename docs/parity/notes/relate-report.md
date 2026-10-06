@@ -462,3 +462,27 @@ Re-applied on `main`'s `assignreport.rs` after the §17 merge (the two pieces
 Converted at `2114e6a`: `conformance/destructuringParameterDeclaration3ES5`,
 `conformance/destructuringParameterDeclaration3ES6`; TS2741 matched
 149 → 150. Zero-loss checks empty.
+
+## 19. Round 2: the JSX-attributes arm of `elaborateError` (for the jsx lane)
+
+`elaborateError`'s `KindJsxAttributes` case (`relater.go:470`) calls
+`elaborateJsxComponents` (`jsx.go:295`), and its `KindJsxExpression` case
+unwraps like a parenthesized expression. `Checker::elaborate_jsx_attributes`
+ports the attribute half: each non-spread attribute whose name is not
+hyphenated (`isHyphenatedJsxName`) is an element, with the attribute name as
+error node and its initializer (none for `<C flag />`) as the expression to
+elaborate into; the target member is the props type's property or applicable
+index signature, and `elaborate_element` reports TS2322/TS2741/excess at the
+attribute exactly as for an object-literal member.
+
+The JSX checker is expected to call
+`report_assignability_failure(tag_name, attributes_node, attributes_type,
+props_type)` — upstream's `checkTypeRelatedToAndOptionallyElaborate(…,
+node.tagName, node.attributes, …)` — and gets the attribute-level report for
+free. No caller exists at this commit, so the corpus is unchanged (zero-loss
+checks empty, no line moves); the jsx lane measured ~45 cases waiting on it.
+
+Not ported: the children half (`getJsxElementChildrenPropertyName`, the
+TS2745/TS2746 arity messages, per-child elaboration and the TS2747 text-child
+diagnostic) and union props targets (the object-literal union decline
+applies). A failure only in `children` still reports at the tag name.

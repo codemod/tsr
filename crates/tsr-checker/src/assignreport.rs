@@ -1972,6 +1972,9 @@ impl<'a> Checker<'a, '_> {
         }
         let inner = match self.node_map.get(node) {
             Some(Node::ParenthesizedExpression(parenthesized)) => parenthesized.expression,
+            // `case ast.KindJsxExpression, ast.KindParenthesizedExpression`
+            // (relater.go:457): elaborate the wrapped expression.
+            Some(Node::JsxExpression(expression)) => expression.expression,
             Some(Node::AsExpression(assertion))
                 if assertion.r#type.is_some_and(crate::assertions::is_const_type_reference) =>
             {
@@ -1986,6 +1989,9 @@ impl<'a> Checker<'a, '_> {
             }
             Some(Node::ObjectLiteralExpression(_)) => {
                 return self.elaborate_object_literal(node, source, target);
+            }
+            Some(Node::JsxAttributes(_)) => {
+                return self.elaborate_jsx_attributes(node, source, target);
             }
             // checkTypeRelatedToAndOptionallyElaborate elaborates only a failed
             // relation. A member mismatch need not fail the whole (a `void`
@@ -2284,6 +2290,75 @@ impl<'a> Checker<'a, '_> {
                 self.elaborate_element(name_id, next, source_property_type, target_property_type);
         }
         Some(reported)
+    }
+
+    /// The attribute half of `elaborateJsxComponents` (`jsx.go:295`), the
+    /// `KindJsxAttributes` arm of `elaborateError` (`relater.go:470`): every
+    /// non-spread attribute whose name is not hyphenated is an element — its
+    /// name is the error node and its initializer (absent for a bare
+    /// `<C flag />`) the expression to elaborate into. The JSX checker
+    /// reaches this by handing the attributes node to
+    /// [`Checker::report_assignability_failure`] as the source node, with the
+    /// tag name as the error node (`checkJsxOpeningLikeElementOrOpeningFragment`
+    /// → `checkTypeRelatedToAndOptionallyElaborate`).
+    ///
+    /// The children half (`getJsxElementChildrenPropertyName`, the
+    /// single/multiple-children arity messages TS2745/TS2746 and per-child
+    /// elaboration) is not ported: a failure only in `children` still reports
+    /// at the tag name. A union target keeps the object-literal decline
+    /// (`getBestMatchingType` is narrow here); an attribute whose target
+    /// member this port cannot read is skipped, as upstream skips a `nil`
+    /// target member.
+    fn elaborate_jsx_attributes(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+        let Some(Node::JsxAttributes(attributes)) = self.node_map.get(node) else {
+            return false;
+        };
+        if self
+            .type_of(target)
+            .flags
+            .intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER | TypeFlags::UNION)
+        {
+            return false;
+        }
+        let mut members = Vec::with_capacity(attributes.properties.len());
+        for property in attributes.properties {
+            let tsr_ast::JsxAttributeLike::JsxAttribute(attribute) = property else { continue };
+            let (name_id, name) = match attribute.name {
+                Some(tsr_ast::JsxAttributeName::Identifier(identifier)) => {
+                    (identifier.node_id, identifier.text.to_string())
+                }
+                Some(tsr_ast::JsxAttributeName::JsxNamespacedName(namespaced)) => {
+                    let (Some(namespace), Some(local)) = (namespaced.namespace, namespaced.name)
+                    else {
+                        continue;
+                    };
+                    (namespaced.node_id, format!("{}:{}", namespace.text, local.text))
+                }
+                None => continue,
+            };
+            let Some(name_id) = name_id else { continue };
+            // isHyphenatedJsxName: `data-*`/`aria-*` attributes are never
+            // checked against the props type.
+            if name.contains('-') {
+                continue;
+            }
+            let next = attribute.initializer.and_then(|initializer| initializer.node_id());
+            let Some(target_member) = self
+                .get_type_of_property_of_type(target, &name)
+                .or_else(|| self.elaboration_index_value(target, name_id, &name))
+            else {
+                continue;
+            };
+            members.push((name_id, next, name, target_member));
+        }
+        let mut reported = false;
+        for (name_id, next, name, target_member) in members {
+            let Some(source_member) = self.get_type_of_property_of_type(source, &name) else {
+                continue;
+            };
+            reported |= self.elaborate_element(name_id, next, source_member, target_member);
+        }
+        reported
     }
 
     /// `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`) for a
