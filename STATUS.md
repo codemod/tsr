@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Current member-field attribution, frozen `53896fa4`: private publication removes
+593,159 default declared lookups, but ordinary inclusive root interval is only
+36.831ms with clocks/nested work; typed forcing remains similar. Publication is
+99.06% completed hits. The private store creates 56,360 members and reserves
+12,058,624 inline bytes, versus ordinary four sentinels/736 bytes; this is not
+total heap/RSS attribution. Five clone sites copy 963,043 string-payload bytes.
+All 106 observer CLI children preserve role outputs and repeat counts. Existing
+`.7.7.1.2` owns private storage/access costs; no extra memo, runtime retention,
+full corpus or speed win. `.4.2.1`/`.33.1`/`.34` and complete-work 2x stay open.
+[Source-bound costs and limits](docs/architecture/checker-member-field-cost.md).
+
 Current CLI diagnosis / member selection, frozen `bb982558`: fresh copies
 reproduce 6.66–15.55s before `main`, including outside the agent; repeats enter
 in ~3ms. Scoped XProtect results finish near entry, and version-only native
@@ -3413,6 +3424,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Frozen `53896fa4` selects existing `tsr-1yb.7.7.1.2` for private symbol capacity
+and publication design, coordinated with `.33.1`; avoid a duplicate task or
+another member memo with 99.06% hits. The 12.06MB inline capacity belongs to the private
+prototype, not ordinary main's sentinel-only stores. `.4.2.1` still needs costly
+eligible worker attribution; small declaration intervals on one public workload
+do not close its general gate. Full fidelity/complete-work benefit remains.
+[Current attribution and ownership](docs/architecture/checker-member-field-cost.md).
 
 At frozen `bb982558`, do not retain the current completed-member replay as a
 speed optimization: warm default and single walls/CPU/RSS are worse in the
@@ -6978,6 +6997,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `53896fa4`: no additional declaration/member cache selected. Private
+publication avoids 593,159 declared calls, but ordinary inclusive root interval
+is 36.831ms and overlapping clocks/work cannot be counted as saved wall/CPU.
+Typed calls increase 233,754 ->245,519. Repeated counts and 106 terminal controls
+qualify attribution only; prior warm retention rejection remains frozen `bb982558`.
+No fresh full-corpus/native-ratio certificate or canonical runtime change.
+[Measured boundaries](docs/architecture/checker-member-field-cost.md).
 
 Frozen `bb982558`: current member builder first fails public fidelity on799
 extra protected-access errors. A narrow imported-base alias repair passes30
@@ -13745,6 +13772,17 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-06, frozen `53896fa4`: private query/copy/store observers qualify 40 public
+and 66 control children, with complete outputs, partial input snapshots, repeated
+per-owner counters and fresh exact five/fourteen-file patch replays. Original
+setup failures and unmeasured partial build retained. Default replay reserves
+12,058,624 inline symbol bytes while ordinary stores retain 736; no total heap/RSS
+claim. Cache 99.06% hits, cheap declared intervals and similar typed forcing select
+existing `.7.7.1.2` storage/publication attribution, not another memo. Reset control
+preserves native/replay TS2310 that main misses. No full package/corpus/current
+speed win; `.4.2.1`/`.33.1`/`.34` and equivalent-work <=0.50 remain unfinished.
+[Complete passive receipt](docs/architecture/checker-member-field-cost.md).
 
 2026-10-06, frozen `bb982558`: current-source launch/member investigation.
 Fresh ordinary copies and private first-statement probes reproduce pre-main

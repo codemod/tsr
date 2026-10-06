@@ -1,0 +1,233 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -51,6 +51,7 @@
+               independent compiler options."
+ )]
+ pub struct Checker<'a, 'n> {
++    pub(crate) member_cost: crate::member_cost::LegacyMemberCost,
+     pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
+     pub(crate) store: TypeStore,
+     pub(crate) intrinsics: Intrinsics,
+@@ -1323,6 +1324,7 @@
+             symbol_types.insert(undefined, intrinsics.undefined);
+         }
+         Self {
++            member_cost: crate::member_cost::LegacyMemberCost::default(),
+             symbols: crate::symbol_access::CheckerSymbols::new(
+                 binder.symbols(),
+                 intrinsics.unresolved,
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -157,7 +157,8 @@
+ pub mod mapped;
+ pub mod meaning_mismatch;
+ pub mod member_completeness;
+-pub mod members;
++pub mod member_cost;
++mod members;
+ pub mod merge_conflicts;
+ mod merged_export_spaces;
+ pub mod node_reuse;
+diff --git a/crates/tsr-checker/src/member_cost.rs b/crates/tsr-checker/src/member_cost.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/src/member_cost.rs
+@@ -0,0 +1,90 @@
++//! Private locating observer; never supplies semantic answers.
++use std::time::Instant;
++
++pub(crate) struct LegacyMemberCost {
++    pub(crate) enabled: bool,
++    timed: bool,
++    depth: [u32; 3],
++    calls: [u64; 3],
++    roots: [u64; 3],
++    success: [u64; 3],
++    elapsed_ns: [u128; 3],
++    pub(crate) declared_entries: u64,
++    pub(crate) declared_guards: u64,
++    pub(crate) declared_own_hits: u64,
++    pub(crate) names_entries: u64,
++    pub(crate) names_guards: u64,
++}
++
++impl Default for LegacyMemberCost {
++    fn default() -> Self {
++        let mode = std::env::var("TSR_MEMBER_FIELD_COST").unwrap_or_default();
++        Self {
++            enabled: matches!(mode.as_str(), "count" | "time"),
++            timed: mode == "time",
++            depth: [0; 3], calls: [0; 3], roots: [0; 3], success: [0; 3],
++            elapsed_ns: [0; 3], declared_entries: 0, declared_guards: 0,
++            declared_own_hits: 0, names_entries: 0, names_guards: 0,
++        }
++    }
++}
++
++impl LegacyMemberCost {
++    pub(crate) fn enter(&mut self, kind: usize) -> Option<Instant> {
++        if !self.enabled { return None; }
++        self.calls[kind] += 1;
++        let root = self.depth[kind] == 0;
++        if root { self.roots[kind] += 1; }
++        self.depth[kind] += 1;
++        (self.timed && root).then(Instant::now)
++    }
++
++    pub(crate) fn exit(&mut self, kind: usize, start: Option<Instant>, success: bool) {
++        if !self.enabled { return; }
++        if success { self.success[kind] += 1; }
++        self.depth[kind] -= 1;
++        if let Some(start) = start { self.elapsed_ns[kind] += start.elapsed().as_nanos(); }
++    }
++}
++
++impl Drop for LegacyMemberCost {
++    fn drop(&mut self) {
++        if self.enabled {
++            eprintln!("MEMBER_LEGACY {{\"calls\":{:?},\"roots\":{:?},\"success\":{:?},\"elapsed_ns\":{:?},\"depth_at_drop\":{:?},\"declared_entries\":{},\"declared_guards\":{},\"declared_own_hits\":{},\"names_entries\":{},\"names_guards\":{}}}",
++                self.calls,self.roots,self.success,self.elapsed_ns,self.depth,
++                self.declared_entries,self.declared_guards,self.declared_own_hits,
++                self.names_entries,self.names_guards);
++        }
++    }
++}
++
++#[derive(Default)]
++pub(crate) struct PublicationCost {
++    pub(crate) legacy: LegacyMemberCost,
++    pub(crate) image_calls: u64,
++    pub(crate) completed_hits: u64,
++    pub(crate) active_hits: u64,
++    pub(crate) image_workers: u64,
++    pub(crate) unsupported: u64,
++    pub(crate) declared_calls: u64,
++    pub(crate) declared_hits: u64,
++    pub(crate) declared_none_hits: u64,
++    pub(crate) declared_workers: u64,
++    pub(crate) read_calls: u64,
++    pub(crate) read_hits: u64,
++    pub(crate) read_misses: u64,
++    pub(crate) new_members: u64,
++    pub(crate) invariant_reuses: u64,
++    pub(crate) instantiate_calls: u64,
++    pub(crate) resets: u64,
++    // clone operations, member entries, string payload bytes, calls, constructs, indexes
++    pub(crate) copies: [[u64; 6]; 5],
++}
++
++impl PublicationCost {
++    pub(crate) fn copy(&mut self, kind: usize, counts: [u64; 5]) {
++        if !self.legacy.enabled { return; }
++        self.copies[kind][0] += 1;
++        for (out, value) in self.copies[kind][1..].iter_mut().zip(counts) { *out += value; }
++    }
++}
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1277,6 +1277,19 @@
+     /// getTypeWithThisArgument retains the original receiver when member
+     /// lookup proceeds through its apparent constraint.
+     fn get_type_of_property_with_this_argument(
++        &mut self,
++        id: TypeId,
++        name: &str,
++        this_argument: TypeId,
++        skip_object_function_augment: bool,
++    ) -> Option<TypeId> {
++        let start = self.member_cost.enter(0);
++        let result = self.get_type_of_property_with_this_argument_work(id, name, this_argument, skip_object_function_augment);
++        self.member_cost.exit(0, start, result.is_some());
++        result
++    }
++
++    fn get_type_of_property_with_this_argument_work(
+         &mut self,
+         id: TypeId,
+         name: &str,
+@@ -3290,7 +3303,21 @@
+         names: &mut Vec<String>,
+         visiting: &mut Vec<tsr_binder::SymbolId>,
+     ) -> bool {
++        let start = self.member_cost.enter(1);
++        let result = self.collect_structured_property_names_work(owner, names, visiting);
++        self.member_cost.exit(1, start, result);
++        result
++    }
++
++    fn collect_structured_property_names_work(
++        &mut self,
++        owner: tsr_binder::SymbolId,
++        names: &mut Vec<String>,
++        visiting: &mut Vec<tsr_binder::SymbolId>,
++    ) -> bool {
++        if self.member_cost.enabled { self.member_cost.names_entries += 1; }
+         if visiting.contains(&owner) {
++            if self.member_cost.enabled { self.member_cost.names_guards += 1; }
+             return true;
+         }
+         visiting.push(owner);
+@@ -3362,13 +3389,28 @@
+         name: &str,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<SymbolId> {
++        let start = self.member_cost.enter(2);
++        let result = self.get_property_of_declared_symbol_work(owner, name, visiting);
++        self.member_cost.exit(2, start, result.is_some());
++        result
++    }
++
++    fn get_property_of_declared_symbol_work(
++        &mut self,
++        owner: SymbolId,
++        name: &str,
++        visiting: &mut Vec<SymbolId>,
++    ) -> Option<SymbolId> {
++        if self.member_cost.enabled { self.member_cost.declared_entries += 1; }
+         if visiting.contains(&owner) {
++            if self.member_cost.enabled { self.member_cost.declared_guards += 1; }
+             return None;
+         }
+         visiting.push(owner);
+         if let Some(&found) = self.binder.symbols().get(owner).members.get(name)
+             && self.symbol_is_value(found)
+         {
++            if self.member_cost.enabled { self.member_cost.declared_own_hits += 1; }
+             return Some(found);
+         }
+         // getPropertyOfType searches the resolved member table for every
+diff --git a/crates/tsr-checker/src/symbol_access.rs b/crates/tsr-checker/src/symbol_access.rs
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -282,6 +282,7 @@
+
+ /// Private records and redirects for one Checker reading one frozen bound store.
+ pub struct CheckerSymbols<'a> {
++    member_field_cost: bool,
+     program: &'a SymbolStore<'a>,
+     domain: CheckerIdentity,
+     records: Vec<PrivateSymbol<'a>>,
+@@ -298,6 +299,7 @@
+         let domain = CheckerIdentity(Arc::new(1));
+         let unknown = SymbolRef(Identity::Private(domain.clone(), 0));
+         Self {
++            member_field_cost: matches!(std::env::var("TSR_MEMBER_FIELD_COST").unwrap_or_default().as_str(), "count" | "time"),
+             program,
+             domain,
+             unknown,
+@@ -654,3 +656,12 @@
+         assert!(weak.upgrade().is_none());
+     }
+ }
++
++impl Drop for CheckerSymbols<'_> {
++    fn drop(&mut self) {
++        if !self.member_field_cost { return; }
++        let usage=self.storage_usage();
++        eprintln!("MEMBER_SYMBOL_STORAGE {{\"records\":{},\"record_capacity\":{},\"inline_record_bytes\":{},\"owned_name_bytes\":{},\"declaration_bytes\":{},\"unresolved_entries\":{},\"unresolved_capacity\":{},\"path_key_bytes\":{},\"merged_entries\":{},\"merged_capacity\":{},\"edge_capacity\":{},\"stamp_references\":{}}}",
++            usage.records,usage.record_capacity,usage.inline_record_bytes,usage.owned_name_bytes,usage.declaration_bytes,usage.unresolved_entries,usage.unresolved_capacity,usage.path_key_bytes,usage.merged_entries,usage.merged_capacity,usage.edge_capacity,usage.stamp_references);
++    }
++}
