@@ -391,3 +391,35 @@ upstream infers `typeof D`, so the faithful any-like arm reports TS18016 where
 upstream reports TS18013. The producer is the class-expression self-reference /
 return-type inference, not this rule (§3a); guessing that this `any` is not
 upstream's would be the rejected pattern.
+
+## 11. TS7053/TS2339 on an element access: the captured image certifies too
+
+**Forcing constraint.** `getPropertyTypeForIndexType` (`checker.go:27002`) asks
+the same `getPropertyOfType` and index infos as a dotted access, but this
+port's element-access miss accepted only `declared_members_are_complete`, so
+an object-literal receiver (`var obj1 = { … }; obj1["0b11010"]`) never reached
+the TS7053 family. §2's captured-image certificate (`apparent_type_lacks`) now
+applies to an **object** element-access receiver with a published image;
+primitives and unions keep their own roads.
+
+**Exposed and ported.** `checkElementAccess` widens the receiver for an
+assignment target or a method access for a call, and
+`getWidenedTypeOfObjectLiteral` does not carry `ObjectFlagsObjectLiteral`, so a
+write to a fresh literal skips the object-literal TS2339 arm and reaches the
+TS7052 family (`noImplicitAnyStringIndexerOnObject`: 6 false TS2339 lines on
+writes without this). TS7052 itself ("did you mean to call 'set'") is still
+declined.
+
+**Exposed and declined.** `tsr_core::jsnum::numeric_value` answers `NaN` for a
+radix literal past `u128` (`0B111…1` with ~2,000 digits), where JavaScript
+answers a huge double or `Infinity`, so the binder files that member under
+`"NaN"` and the image is not upstream's (`obj1["Infinity"]` became a false
+TS7053). An image with a numeric-literal name whose value is `NaN` is
+uncertified (`object_image_road_is_uncertified`); a literal's value is never
+`NaN` upstream. The fix is `numeric_value` accumulating overflowing digits in
+`f64` (tsr-core, not owned); then `binaryIntegerLiteralES6` and
+`octalIntegerLiteralES6` convert and this decline goes.
+
+**Measured.** 6 baseline lines (`binaryIntegerLiteralES6` 2,
+`noImplicitAnyStringIndexerOnObject` 3, `noImplicitAnyIndexing` 1), 0 false,
+0 losses; no case flips yet.
