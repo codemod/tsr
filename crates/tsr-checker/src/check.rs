@@ -12893,7 +12893,7 @@ impl Checker<'_, '_> {
         // class's constructor members in source order, and the dedup
         // `function_symbol_checked` gives a symbol is given here by running
         // only for the first of them.
-        let declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
+        let mut declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
             let symbol = self.binder.merged_symbol(symbol);
             if !self.function_symbol_checked.insert(symbol) {
                 return;
@@ -12906,7 +12906,36 @@ impl Checker<'_, '_> {
             }
             siblings
         };
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(mut file) = self.source_file_of_for_diagnostics(node) else { return };
+        let mut ambient = ambient;
+        // A module augmentation (`mergeModuleAugmentation`,
+        // `docs/parity/notes/names-modules.md` §4) adds ambient declarations
+        // from another file. In the loop below an ambient declaration only
+        // resets the adjacency chain and is never the implementation or the
+        // last non-ambient one, so when the declarations span files the
+        // ambient ones are dropped and the rest are checked in their own file.
+        if declarations
+            .iter()
+            .any(|&declaration| self.source_file_of_for_diagnostics(declaration) != Some(file))
+        {
+            let remaining: Vec<NodeId> = declarations
+                .iter()
+                .copied()
+                .filter(|&declaration| !self.is_ambient_declaration(declaration))
+                .collect();
+            if let Some(&first) = remaining.first()
+                && remaining.len() < declarations.len()
+                && let Some(remaining_file) = self.source_file_of_for_diagnostics(first)
+            {
+                if remaining_file != file {
+                    ambient = self
+                        .module_host
+                        .is_some_and(|host| host.is_declaration_file(remaining_file));
+                    file = remaining_file;
+                }
+                declarations = remaining;
+            }
+        }
         // The single-file bound: anything else and the per-declaration ambient
         // context is unavailable, so nothing is said.
         if declarations

@@ -109,6 +109,25 @@ bitflags::bitflags! {
     }
 }
 
+/// One `declare module "x" { … }` that augments another module: an entry of
+/// upstream's `SourceFile.ModuleAugmentations` that is not `declare global`.
+#[derive(Debug, Clone, Copy)]
+pub struct ModuleAugmentation<'a> {
+    /// The augmentation's symbol — every `declare module "x"` of one file
+    /// shares it.
+    pub symbol: SymbolId,
+    /// The source file the augmentation is written in.
+    pub file: NodeId,
+    /// The string literal naming the augmented module.
+    pub name: NodeId,
+    /// Its text.
+    pub text: &'a str,
+    /// Nested in a top-level ambient module of a script rather than written at
+    /// the top level of a module. Upstream's parser collects that form only
+    /// under a non-relative name (`references.go:61`).
+    pub nested: bool,
+}
+
 /// What the binder produced.
 ///
 /// Read-only by construction: there is no method taking `&mut self`, so once this
@@ -129,6 +148,9 @@ pub struct BindResult<'a> {
     /// `(target, source)` for every merge the excludes masks forbade; see
     /// [`BindResult::merge_conflicts`].
     merge_conflicts: Vec<(SymbolId, SymbolId)>,
+    /// Non-global module augmentations not yet merged; see
+    /// [`BindResult::merge_module_augmentations`].
+    module_augmentations: Vec<ModuleAugmentation<'a>>,
     /// The synthesised `undefined` global, if this bind created one.
     ///
     /// `None` when the program declared its own `undefined`, which must keep
@@ -163,6 +185,7 @@ impl<'a> BindResult<'a> {
             globals: SymbolTable::default(),
             merged: FxHashMap::default(),
             merge_conflicts: Vec::new(),
+            module_augmentations: Vec::new(),
             undefined_symbol: None,
             computed_names: FxHashMap::default(),
             diagnostics: Vec::new(),
@@ -322,6 +345,211 @@ impl<'a> BindResult<'a> {
             long_key.as_str()
         };
         self.globals.get(key).copied().map(|found| self.merged_symbol(found))
+    }
+
+    /// Merge every recorded non-global module augmentation into the module it
+    /// augments: the last loop of `initializeChecker`
+    /// (`internal/checker/checker.go:1384-1391`) over `mergeModuleAugmentation`
+    /// (`:1405-1448`).
+    ///
+    /// Run once every file is bound, because an augmentation may name a module
+    /// bound after it. Module resolution is the program's, so `resolve`
+    /// answers `resolveExternalModuleNameWorker` for an augmentation's name or
+    /// an `export *` specifier: `(this result, importing file, specifier,
+    /// usage node, nested augmentation)` to the module symbol, or `None`.
+    ///
+    /// Per augmentation, as upstream:
+    ///
+    /// 1. resolve the name; a miss merges nothing (TS2664 is the checker's,
+    ///    `check_module_augmentation_name`);
+    /// 2. follow `export =` (`resolveExternalModuleSymbol`, aliases
+    ///    resolved);
+    /// 3. a target without `Namespace` meaning merges nothing (upstream's
+    ///    TS2649, not reported here);
+    /// 4. when the target re-exports with `export *`, an augmentation export
+    ///    naming a re-exported symbol merges into that symbol too;
+    /// 5. `mergeSymbol(target, augmentation)`.
+    ///
+    /// Declined, each a gap rather than a wrong merge, and each recorded in
+    /// `docs/parity/notes/names-modules.md` §4: a pattern ambient module
+    /// target (upstream merges unidirectionally into a separate table), and an
+    /// `export =` or re-export through an alias this binder cannot follow
+    /// without the checker.
+    #[must_use]
+    pub fn merge_module_augmentations(
+        mut self,
+        arena: &'a tsr_core::Arena,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        mut resolve: impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+    ) -> Self {
+        let augmentations = std::mem::take(&mut self.module_augmentations);
+        for augmentation in augmentations {
+            let merges =
+                self.module_augmentation_merges(nodes, node_map, augmentation, &mut resolve);
+            if !merges.is_empty() {
+                self = binder::Binder::resuming(arena, nodes, self).merge_pairs(&merges);
+            }
+        }
+        self
+    }
+
+    /// The `(target, source)` merges one augmentation makes, in upstream's
+    /// order; empty when it merges nothing.
+    fn module_augmentation_merges(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        augmentation: ModuleAugmentation<'a>,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        let Some(main) = resolve(
+            self,
+            augmentation.file,
+            augmentation.text,
+            augmentation.name,
+            augmentation.nested,
+        ) else {
+            return Vec::new();
+        };
+        let Some(main) =
+            self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(main))
+        else {
+            return Vec::new();
+        };
+        let target = self.symbols.get(main);
+        // `mainModule.Flags&ast.SymbolFlagsNamespace != 0`.
+        if !target.flags.intersects(SymbolFlags::NAMESPACE)
+            // The pattern-ambient arm (`checker.go:1424-1431`) merges the other
+            // way round into `patternAmbientModuleAugmentations`, which this
+            // port does not have.
+            || target.name.contains('*')
+        {
+            return Vec::new();
+        }
+        let source = self.symbols.get(augmentation.symbol);
+        let mut merges = Vec::new();
+        // `checker.go:1433-1441`: an augmentation export that names something
+        // the target re-exports through `export *` (and does not export
+        // itself) merges into the re-exported symbol as well.
+        if target.exports.get(binder::INTERNAL_EXPORT_STAR).is_some() && !source.exports.is_empty()
+        {
+            for (name, value) in &source.exports {
+                if target.exports.get(name).is_none()
+                    && let Some(found) = self.export_star_member(
+                        nodes,
+                        node_map,
+                        main,
+                        name,
+                        resolve,
+                        &mut Vec::new(),
+                    )
+                {
+                    merges.push((found, *value));
+                }
+            }
+        }
+        merges.push((main, augmentation.symbol));
+        merges
+    }
+
+    /// `resolveExternalModuleSymbol(module, dontResolveAlias=false)`
+    /// (`checker.go:15556`): the module's `export =` target, its alias
+    /// resolved, or the module itself. `None` for an `export =` alias this
+    /// binder cannot resolve — only `export = Name` with `Name` declared in
+    /// scope and not itself an alias is followed.
+    fn resolve_external_module_symbol(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        module: SymbolId,
+    ) -> Option<SymbolId> {
+        let Some(&export_equals) =
+            self.symbols.get(module).exports.get(binder::INTERNAL_EXPORT_EQUALS)
+        else {
+            return Some(module);
+        };
+        let symbol = self.symbols.get(export_equals);
+        if !symbol.flags.intersects(SymbolFlags::ALIAS) {
+            return Some(self.merged_symbol(export_equals));
+        }
+        let declaration = *symbol.declarations.first()?;
+        let Some(tsr_ast::Node::ExportAssignment(assignment)) = node_map.get(declaration) else {
+            return None;
+        };
+        let Some(tsr_ast::Expression::Identifier(name)) = assignment.expression else {
+            return None;
+        };
+        let resolved = self.resolve_name(
+            nodes,
+            node_map,
+            declaration,
+            name.text,
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+        )?;
+        let resolved = self.merged_symbol(resolved);
+        (!self.symbols.get(resolved).flags.intersects(SymbolFlags::ALIAS)).then_some(resolved)
+    }
+
+    /// `getExportsOfModule(module)[name]` for a name the module does not
+    /// export itself: the member its `export *` declarations re-export,
+    /// depth-first in declaration order (`getExportsOfModuleWorker`'s
+    /// `visit`, `checker.go`). `default` is never re-exported by a star, and
+    /// two stars naming different symbols make the name ambiguous, which
+    /// upstream's `extendExportStars` drops.
+    fn export_star_member(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        module: SymbolId,
+        name: &str,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+        visited: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        if name == binder::INTERNAL_DEFAULT || name == binder::INTERNAL_EXPORT_EQUALS {
+            return None;
+        }
+        if visited.contains(&module) {
+            return None;
+        }
+        visited.push(module);
+        let star = *self.symbols.get(module).exports.get(binder::INTERNAL_EXPORT_STAR)?;
+        let mut found: Option<SymbolId> = None;
+        for &declaration in &self.symbols.get(star).declarations {
+            let Some(tsr_ast::Node::ExportDeclaration(export)) = node_map.get(declaration) else {
+                continue;
+            };
+            let Some(specifier) = export.module_specifier.and_then(|specifier| specifier.node_id())
+            else {
+                continue;
+            };
+            let text = match node_map.get(specifier) {
+                Some(tsr_ast::Node::StringLiteral(literal)) => literal.text,
+                _ => continue,
+            };
+            let Some(file) = std::iter::once(declaration)
+                .chain(nodes.ancestors(declaration))
+                .find(|&node| nodes.kind(node) == SyntaxKind::SourceFile)
+            else {
+                continue;
+            };
+            let Some(nested) = resolve(self, file, text, specifier, false).and_then(|nested| {
+                self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(nested))
+            }) else {
+                continue;
+            };
+            let candidate = match self.symbols.get(nested).exports.get(name) {
+                Some(&own) => Some(self.merged_symbol(own)),
+                None => self.export_star_member(nodes, node_map, nested, name, resolve, visited),
+            };
+            match (found, candidate) {
+                (_, None) => {}
+                (None, Some(candidate)) => found = Some(candidate),
+                (Some(previous), Some(candidate)) if previous == candidate => {}
+                (Some(_), Some(_)) => return None,
+            }
+        }
+        found
     }
 
     /// Look a name up in `container`'s own scope, without walking outward.

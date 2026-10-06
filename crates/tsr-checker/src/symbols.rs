@@ -2953,14 +2953,16 @@ impl<'a> Checker<'a, '_> {
     /// `CommonJS` file reaching an ES module. None of it changes which symbol is
     /// returned.
     ///
-    /// # Two resolutions that are not ported, both misses
+    /// # One resolution that is not ported, and one that is not needed
     ///
     /// - **Pattern ambient modules** (`declare module "foo/*"`), upstream's
     ///   fallback after the host misses.
-    /// - **`getMergedSymbol`** on the result: a module symbol that merges with a
-    ///   module augmentation is answered unmerged.
+    /// - **`getMergedSymbol`** on the result is not needed: module
+    ///   augmentations merge *in place* into the target module symbol
+    ///   (`docs/parity/notes/names-modules.md` §4), so the file's own symbol
+    ///   already carries them.
     ///
-    /// Each is a `None`, so each is an `errorType` — a gap, never a wrong
+    /// The pattern miss is a `None`, so an `errorType` — a gap, never a wrong
     /// target. `tryFindAmbientModule` was the third entry on this list until
     /// the seventh session; it is the arm below, and
     /// `docs/architecture/checker-notes-modobj.md` §10 carries its sizing.
@@ -3335,7 +3337,7 @@ impl<'a> Checker<'a, '_> {
     /// one table spans every file of a program, so the id this returns
     /// identifies a file across the whole program and is what
     /// [`crate::resolution::ModuleHost`] is keyed on.
-    fn source_file_of(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn source_file_of(&self, node: NodeId) -> Option<NodeId> {
         let mut current = node;
         loop {
             if self.nodes.kind(current) == SyntaxKind::SourceFile {
