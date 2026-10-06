@@ -376,3 +376,28 @@ reports TS1183 on such a body, and a second reporter would double it.
 
 `compiler/giant`'s 36 missing TS1005 are all this; its remaining rows are the
 checker's TS2386.
+
+### `checkGrammarTypeOperatorNode`
+
+Not ported before at all. Now in `grammar.rs`, dispatched for every
+`TypeOperator` from `check_grammar_behind_modifiers` (a type operator has no
+modifiers, so the gate there is only the file's parse diagnostics, which is
+`grammarErrorOnNode`'s own). `unique` must apply to `symbol` ("'symbol'
+expected" on the operand) and its owner, found through parenthesized types,
+must be a `const` identifier-named variable of a variable statement (TS1332 /
+TS1333 / TS1334), a `static readonly` class property (TS1331) or a `readonly`
+property signature (TS1330); anything else is TS1335. `readonly` on a type
+that is not an array or tuple is TS1354 on the keyword. All 60 grammar rows of
+`uniqueSymbolsErrors` match; its remaining row is a checker TS2322.
+
+### Tried and reverted: `<T>x` as a unary, not a primary
+
+Upstream parses a type assertion in `parseSimpleUnaryExpression`
+(`parser.go:5071`); `parsePrimaryExpression` has no `<` arm, so `new <T> x`
+reports TS1109 at the `<` (the callee is a member expression). This port has
+the arm in `parse_primary_expression`. Moving it converted
+`parserTypeAssertionInObjectCreationExpression1` with no diagnostics loss,
+but `tsr-printer`'s `recovered_new_type_assertion_does_not_gain_a_second_call`
+pins the old tree (`new <any>Factory()` printed back verbatim); that test is
+another lane's. Reported; with the test updated to upstream's tree the parser
+change is the two-arm move.

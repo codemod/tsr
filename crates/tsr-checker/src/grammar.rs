@@ -11,6 +11,7 @@ use tsr_ast::{
 };
 use tsr_diagnostics::{Diagnostic, messages};
 
+use crate::check::has_modifier;
 use crate::checker::Checker;
 
 impl Checker<'_, '_> {
@@ -305,6 +306,10 @@ impl Checker<'_, '_> {
             // expression never reaches `check_modifier_order`.
             Node::ClassExpression(_) => {
                 self.check_grammar_decorator_target(node, typed);
+                None
+            }
+            Node::TypeOperatorNode(operator) => {
+                self.check_grammar_type_operator_node(node, operator);
                 None
             }
             Node::IndexSignatureDeclaration(_) => {
@@ -823,6 +828,122 @@ impl Checker<'_, '_> {
             return true;
         }
         false
+    }
+
+    /// `Checker.checkGrammarTypeOperatorNode` (`grammarchecks.go:1369`),
+    /// reached from `checkTypeOperator` for every type operator.
+    ///
+    /// `unique` must apply to `symbol` ("'symbol' expected" on the operand)
+    /// and may only type a `const` variable of a variable statement with an
+    /// identifier name, a `static readonly` class property or a `readonly`
+    /// property signature, the owner found through any parenthesized types;
+    /// `readonly` may only modify an array or tuple type (TS1354, on the
+    /// operator's first token).
+    fn check_grammar_type_operator_node(
+        &mut self,
+        node: NodeId,
+        operator: &tsr_ast::TypeOperatorNode<'_>,
+    ) {
+        let Some(inner) = operator.r#type.and_then(|t| t.node_id()) else { return };
+        match operator.operator.kind {
+            SyntaxKind::UniqueKeyword => {
+                if self.nodes.kind(inner) != SyntaxKind::SymbolKeyword {
+                    let Some(file) = self.source_file_of_for_diagnostics(inner) else { return };
+                    let span = self.error_span(inner);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(&messages::_0_EXPECTED, span, ["symbol".to_string()]),
+                    );
+                    return;
+                }
+                // `ast.WalkUpParenthesizedTypes(node.Parent)`.
+                let mut parent = self.nodes.parent(node);
+                while let Some(at) = parent
+                    && self.nodes.kind(at) == SyntaxKind::ParenthesizedType
+                {
+                    parent = self.nodes.parent(at);
+                }
+                let Some(parent) = parent else { return };
+                match self.node_map.get(parent) {
+                    Some(Node::VariableDeclaration(declaration)) => {
+                        if !matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_))) {
+                            self.grammar_error_on_node(
+                                node,
+                                &messages::UNIQUE_SYMBOL_TYPES_MAY_NOT_BE_USED_ON_A_VARIABLE_DECLARATION_WITH_A_BINDING_NAME,
+                            );
+                            return;
+                        }
+                        let list = self.nodes.parent(parent);
+                        let in_statement = list.is_some_and(|list| {
+                            self.nodes.kind(list) == SyntaxKind::VariableDeclarationList
+                                && self.nodes.parent(list).is_some_and(|statement| {
+                                    self.nodes.kind(statement) == SyntaxKind::VariableStatement
+                                })
+                        });
+                        if !in_statement {
+                            self.grammar_error_on_node(
+                                node,
+                                &messages::UNIQUE_SYMBOL_TYPES_ARE_ONLY_ALLOWED_ON_VARIABLES_IN_A_VARIABLE_STATEMENT,
+                            );
+                            return;
+                        }
+                        if list
+                            .is_some_and(|list| !self.nodes.flags(list).contains(NodeFlags::CONST))
+                            && let Some(name) = declaration.name.and_then(|n| n.node_id())
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_VARIABLE_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_CONST,
+                            );
+                        }
+                    }
+                    Some(Node::PropertyDeclaration(property)) => {
+                        if (!has_modifier(property.modifiers, SyntaxKind::StaticKeyword)
+                            || !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword))
+                            && let Some(name) = property.name.node_id()
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_PROPERTY_OF_A_CLASS_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_BOTH_STATIC_AND_READONLY,
+                            );
+                        }
+                    }
+                    Some(Node::PropertySignatureDeclaration(property)) => {
+                        if !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword)
+                            && let Some(name) = property.name.node_id()
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_PROPERTY_OF_AN_INTERFACE_OR_TYPE_LITERAL_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_READONLY,
+                            );
+                        }
+                    }
+                    _ => self.grammar_error_on_node(
+                        node,
+                        &messages::UNIQUE_SYMBOL_TYPES_ARE_NOT_ALLOWED_HERE,
+                    ),
+                }
+            }
+            SyntaxKind::ReadonlyKeyword => {
+                if !matches!(self.nodes.kind(inner), SyntaxKind::ArrayType | SyntaxKind::TupleType)
+                    && let Some(file) = self.source_file_of_for_diagnostics(node)
+                {
+                    // `grammarErrorOnFirstToken`: the `readonly` keyword,
+                    // which opens the node.
+                    let start = self.nodes.span(node).start;
+                    let span = tsr_core::Span::new(start, start + 8);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::READONLY_TYPE_MODIFIER_IS_ONLY_PERMITTED_ON_ARRAY_AND_TUPLE_LITERAL_TYPES,
+                            span,
+                            ["symbol".to_string()],
+                        ),
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 
     /// `grammarErrorOnNode(mod, X_0_modifier_cannot_be_used_here, …)`.
