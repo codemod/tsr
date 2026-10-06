@@ -213,3 +213,26 @@ lines, 0 false lines before or after); 7 cases convert, 0 losses.
 the same file but is reached through a type this port's lookup answers with
 the wrong symbol (a merged or instantiated member) would show the lookup, not
 the predicate, is at fault.
+
+## 6. TS2803 from the lexical private symbol
+
+**Port.** `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11280`)
+reports TS2803 for an assignment target `x.#m` whose
+`lookupSymbolForPrivateIdentifierDeclaration` symbol has a method
+`valueDeclaration`. It asks the lexical symbol only, not the receiver's type,
+so `b.#m = …` with `b: any` reports. `check_private_method_assignment`
+(`readonly_target.rs`) reads the lexically declaring class
+(`lexical_private_declaring_class`) and the first declaration of that name in
+member order, which is the binder's `valueDeclaration`.
+
+**Measured.** 11 baseline lines, 0 false, 0 losses;
+`privateNameMethodAssignment`, `privateNameStaticMethodAssignment`,
+`privateNameReadonly` convert.
+
+**Perf note.** The first build measured a domain-model CPU-median ratio of
+1.048 (21 samples) and 1.052 (41) against the previous commit's binary, while
+two copies of one binary measured 1.008 and a rebuild of the previous commit
+was bit-identical. The function returns on the first `match` for every
+non-`#name` access, so the cost was code placement, not work:
+`#[inline(never)]` on it measured 0.943 / 0.983 / 0.956. Kept, with this
+record, so the next reader does not remove it as noise.

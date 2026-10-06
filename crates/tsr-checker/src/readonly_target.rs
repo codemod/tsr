@@ -579,6 +579,7 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors {
             return;
         }
+        self.check_private_method_assignment(node);
         // The `#name` arm keeps its JS decline (`privateIdentifierExpando`);
         // the accessibility arm below reads JSDoc `@private`/`@protected`.
         if !self.in_js_file(node) {
@@ -590,6 +591,65 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         self.report(file, Diagnostic::with_args(message, span, arguments));
+    }
+
+    /// TS2803 — `Cannot assign to private method '{0}'. Private methods are
+    /// not writable.`
+    ///
+    /// `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+    /// (`checker.go:11280`): an assignment target whose
+    /// `lookupSymbolForPrivateIdentifierDeclaration` symbol has a method as
+    /// its `valueDeclaration`, reported with `grammarErrorOnNode` at the name.
+    /// It asks only the lexical symbol, never the receiver's type, so `b.#m =
+    /// …` with `b: any` reports too.
+    #[inline(never)]
+    fn check_private_method_assignment(&mut self, node: NodeId) {
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
+        let Some(at) = name.node_id else { return };
+        if self.assignment_target_kind(node) == AssignmentTargetKind::None {
+            return;
+        }
+        let Some(class) = self.lexical_private_declaring_class(node, name.text) else { return };
+        if !self.private_name_value_declaration_is_method(class, name.text) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_ASSIGN_TO_PRIVATE_METHOD_0_PRIVATE_METHODS_ARE_NOT_WRITABLE,
+                span,
+                [name.text.to_string()],
+            ),
+        );
+    }
+
+    /// Is the `valueDeclaration` of `class`'s private member `text` a method?
+    /// The binder's `valueDeclaration` is the first value declaration in
+    /// member order (`SetValueDeclaration` keeps the first).
+    fn private_name_value_declaration_is_method(&self, class: NodeId, text: &str) -> bool {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return false,
+        };
+        let is_name = |name: tsr_ast::PropertyName<'_>| matches!(name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == text);
+        for member in members {
+            match member {
+                tsr_ast::ClassElement::MethodDeclaration(n) if is_name(n.name) => return true,
+                tsr_ast::ClassElement::PropertyDeclaration(n) if is_name(n.name) => return false,
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) if is_name(n.name) => {
+                    return false;
+                }
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) if is_name(n.name) => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// TS18013 — `Property '{0}' is not accessible outside class '{1}' because
