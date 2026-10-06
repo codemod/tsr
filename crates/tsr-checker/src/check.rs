@@ -895,6 +895,7 @@ impl Checker<'_, '_> {
         self.check_jsx_intrinsic_tag_exists(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
         self.check_jsx_component_bound(node, typed);
+        self.check_jsx_string_literal_tag(node, typed);
         self.check_jsx_fragment_factory(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {

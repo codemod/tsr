@@ -84,6 +84,77 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// `resolveJsxOpeningLikeElement`'s string-literal arm (`jsx.go:544-583`
+    /// with `getUninstantiatedJsxSignaturesOfType`, `jsx.go:898`): a value tag
+    /// whose type is a string literal is looked up in `JSX.IntrinsicElements`
+    /// (`getIntrinsicAttributesTypeFromStringLiteralType`). A name that is
+    /// neither a property nor covered by the table's `string` index reports
+    /// TS2339 on the element; the signature list is then empty, and since a
+    /// string literal is not an untyped call (`isUntypedFunctionCall`: not
+    /// `any`, not assignable to `Function`), TS2604 follows on the tag name.
+    ///
+    /// Only this arm of the no-signature path is ported: it does not read
+    /// any signature list, so it does not inherit the producer gap that keeps
+    /// round 1's general arm unlanded (`docs/parity/notes/jsx.md` §8). An
+    /// unenumerable table declines; with no `IntrinsicElements` upstream
+    /// answers `anyType` and reports nothing.
+    pub(crate) fn check_jsx_string_literal_tag(&mut self, node: NodeId, typed: Node<'_>) {
+        let tag = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name,
+            Node::JsxSelfClosingElement(element) => element.tag_name,
+            _ => return,
+        };
+        let Some(tag) = tag else { return };
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
+        {
+            return;
+        }
+        if matches!(tag, JsxTagNameExpression::JsxNamespacedName(_)) {
+            return;
+        }
+        let Some(tag_id) = tag.node_id() else { return };
+        let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+        let tag_type = self.check_expression(expression);
+        let crate::types::TypeData::StringLiteral(value) = self.store.get(tag_type).data.clone()
+        else {
+            return;
+        };
+        let Some(symbol) = self.jsx_type_symbol(node, "IntrinsicElements") else { return };
+        let table = self.get_declared_type_of_symbol(symbol);
+        if self.is_error(table) {
+            return;
+        }
+        let Some(names) = self.get_property_names_of_type(table) else { return };
+        if names.contains(&value) {
+            return;
+        }
+        let string = self.intrinsics.string;
+        if self.get_applicable_index_info(table, string).is_some() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                span,
+                [value, "JSX.IntrinsicElements".to_string()],
+            ),
+        );
+        let span = self.error_span(tag_id);
+        let text = self.jsx_tag_text(tag_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::JSX_ELEMENT_TYPE_0_DOES_NOT_HAVE_ANY_CONSTRUCT_OR_CALL_SIGNATURES,
+                span,
+                [text],
+            ),
+        );
+    }
+
     /// `getJsxReferenceKind` (`jsx.go:1159`) for a value tag: construct
     /// signatures on the apparent type make a component, call signatures a
     /// function. `None` when a signature list is unresolved.

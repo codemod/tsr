@@ -306,3 +306,14 @@ local repro of the alias-with-defaults shape resolves its signature, so the
 gap is in how that declaration file's reference is resolved. Until the
 producer answers the signature (or `None`), the arm cannot trust an empty
 list.
+
+### The string-literal arm is landed on its own
+
+`resolveJsxOpeningLikeElement`'s string-literal arm
+(`getUninstantiatedJsxSignaturesOfType`, `jsx.go:902-909`, through
+`getIntrinsicAttributesTypeFromStringLiteralType`) reads no signature list:
+a value tag typed as a string literal missing from `IntrinsicElements`
+(property or `string` index) reports TS2339 on the element, and the empty
+list it returns then reports TS2604 on the tag, a string literal not being an
+untyped call. `check_jsx_string_literal_tag` ports exactly that, so it
+cannot inherit the producer gap above (`tsxDynamicTagName3`).
