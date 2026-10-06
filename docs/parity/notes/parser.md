@@ -442,3 +442,22 @@ JSDoc reparsing (`reparser.go`) is enabled. Whether the reparser exists is
 How we would know the shape is wrong: if a consumer needs the fact for a node
 whose file cannot be reached cheaply (a synthesized node with no parent), the
 per-file flag must become per-node.
+
+## Round 3
+
+Round 3 (lane brief, 2026-10-06) baseline: integration branch at `8b24e49`,
+diagnostics 4091 RIGHT / 4964 EMPTY_RIGHT, checker_types 467950 RIGHT.
+
+### A missing module specifier at end of file
+
+`importTag10`/`11`/`12` (`/** @import foo from⏎ */`) reported TS1109 on the
+`*/` line. The brief suspected `parse_import_tag`'s scanner restart; the
+restart is right (the `EndOfFile` token's full start is right after `from`).
+The divergence was `parse_module_specifier`'s "no expression can start here"
+arm, which reported at the token. Upstream reaches the same missing
+identifier through `parseExpression` → `parsePrimaryExpression` →
+`createIdentifierWithDiagnostic` (`parser.go:5841`), which reports at the
+token's *full* start when the token is `EndOfFile`. Both sites now call one
+helper, `missing_expression` (`expression.rs`). In `importTag11` the moved
+TS1109 also stops sharing a start with the `'from' expected` at the `*/`, so
+`finish`'s same-position dedup no longer drops it.

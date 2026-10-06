@@ -662,9 +662,12 @@ impl<'a> Parser<'a> {
             // parse mints a missing identifier — one TS1109 at the token,
             // NOTHING consumed — and the next statement parses intact, which
             // is exactly what its baseline records.
+            //
+            // That missing identifier is `parsePrimaryExpression`'s, so at end
+            // of file it is reported at the token's full start: `@import foo⏎ */`
+            // is TS1109 right after `foo` (`importTag10`/`11`/`12`).
             if !self.is_start_of_expression() {
-                self.error_at_current(&messages::EXPRESSION_EXPECTED);
-                return Expression::Identifier(self.missing_identifier());
+                return self.missing_expression();
             }
             self.error_at_current(&messages::STRING_LITERAL_EXPECTED);
             return self.parse_expression();

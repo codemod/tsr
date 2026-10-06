@@ -1191,19 +1191,22 @@ impl<'a> Parser<'a> {
             kind if kind.is_keyword() && !crate::statement::is_reserved_word(kind) => {
                 Expression::Identifier(self.parse_identifier())
             }
-            _ => {
-                // `parseIdentifierWithDiagnostic(Expression_expected)`: at end
-                // of file the report sits zero-width at the token's full
-                // start, as `report_missing_identifier`'s does.
-                let span = if self.at(SyntaxKind::EndOfFile) {
-                    Span::at(self.node_end())
-                } else {
-                    self.token.span
-                };
-                self.error_at(&messages::EXPRESSION_EXPECTED, span);
-                Expression::Identifier(self.missing_identifier())
-            }
+            _ => self.missing_expression(),
         }
+    }
+
+    /// `parseIdentifierWithDiagnostic(Expression_expected)`
+    /// (`createIdentifierWithDiagnostic`, `parser.go:5841`): TS1109 at the
+    /// token, or, at end of file, zero-width at the token's full start, as
+    /// `report_missing_identifier`'s report is. Nothing is consumed.
+    pub(crate) fn missing_expression(&mut self) -> Expression<'a> {
+        let span = if self.at(SyntaxKind::EndOfFile) {
+            Span::at(self.node_end())
+        } else {
+            self.token.span
+        };
+        self.error_at(&messages::EXPRESSION_EXPECTED, span);
+        Expression::Identifier(self.missing_identifier())
     }
 
     /// typescript-go's `Parser.parseArrayLiteralExpression` (`parser.go`):
