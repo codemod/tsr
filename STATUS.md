@@ -22,6 +22,14 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Member prerequisite continuation (`tsr-1yb.33.1`), frozen `53826afe`: native
+reference admission and actual instantiated contextual reads pass200 restored
+library tests. Fresh full corpora reduce losses from49/four to18 type assertions
+and one diagnostic case; retention remains **refused**. Final CLI312 children,
+62/78 main output pairs equal,56 native-aligned; two previous main agreements
+are lost on missing subtypesOfUnion TS2411. No runtime/coverage/speed gain.
+[Current replay and gates](docs/architecture/checker-member-admission-contextual-read.md).
+
 Declared-reference continuation (`tsr-1yb.33.1`), frozen `0fd93183` / native
 `5b1047d`: actual declared-class and inherited-interface formal-this admission
 repair collection inference and derived receiver projections privately. Two
@@ -3409,6 +3417,11 @@ current repair gate, including a new `subtypesOfUnion` diagnostic loss. Derived
 public inheritance still has false TS2430; stored interface call/construct this
 mapping remains unqualified. Preserve receiver/signature owners and qualify the
 actual writer before builder reuse. [Current source-bound handoff](docs/architecture/checker-declared-member-references.md).
+The current `53826afe` replay now has200 passing library tests, with18
+thislessFunctionsNotContextSensitive3 type losses and one subtypesOfUnion
+diagnostic loss. Correct these actual paths before builder reuse; reference
+admission and contextual reads repaired earlier JSX/override/temporal losses.
+[Current source-bound continuation](docs/architecture/checker-member-admission-contextual-read.md).
 Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
 [Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
@@ -6886,6 +6899,13 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `53826afe`, member prerequisite production retention remains refused
+on18 previous RIGHT type losses /477970 and one passing diagnostic loss /10570,
+despite200 library passes and three detected compiling mutations. Final CLI
+matrix loses two main native-agreement pairs on missing subtypesOfUnion TS2411;
+all changed and already-WRONG outputs remain recorded. No runtime speed gain.
+[Current rejection](docs/architecture/checker-member-admission-contextual-read.md).
 
 At frozen `0fd93183`, the private declared-reference continuation is refused
 for production retention on **49 previous RIGHT type losses and four passing
@@ -14749,3 +14769,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `d417a8c9` / native `5b1047d` | — | — | **Natural structured-member progress, tsr-1yb.33.1; retention refused.** Actual own-field publication/reset and fresh-or-outer completion reproduce exactly one TS2310 across three matched orders. Fresh native 30 recursive controls,39 shared controls plus6 enumeration projections,3 nonempty-field controls and42 resolved-member controls qualify bounded behavior. Raw declaration/reference classification and late-bound suppliers correct genuine broader failures. Final196 library passes after6 compiling mutants detect faults and exact restoration. Two CLI batches336 terminal children: final46/56 full output pairs equal,10 changed pairs improve to native, no bounded native agreement loss. Unfiltered477970 type rows still lose63 previously RIGHT assertions(initial611);10570 diagnostic cases lose8. Full changed rows include already-WRONG cases. No canonical runtime retention, coverage or speed gain; task remains in progress and builder4.2.1 gated. [Replay and limits](docs/architecture/checker-natural-member-publication.md). |
 
 | 2026-10-06 | `0fd93183` / native `5b1047d` | — | — | **Declared-reference progress, tsr-1yb.33.1; retention refused.** Class and inherited-interface formal-this admission repaired privately; two red/green controls, six fresh native orders, two final compiling mutants detected and exact restoration then 198 library passes. Two CLI batches total 384 terminal children; final 54/66 output pairs equal, ten changed pairs native-aligned, two derived negative pairs still wrong; no bounded native agreement loss. Unfiltered 477970 type rows lose 49 previously RIGHT, 10570 diagnostic cases lose four, including new subtypesOfUnion relative to class-only 62/six. All 101/12 changed rows retained. False public derived TS2430 and stored interface signature-this mapping remain unqualified. No main runtime retention, coverage or speed gain; builder 4.2.1 gated. [Replay and limits](docs/architecture/checker-declared-member-references.md). |
+
+| 2026-10-06 | `53826afe` / native `5b1047d` | — | — | **Member admission/contextual-read progress, tsr-1yb.33.1; retention refused.** Two actual paths repaired privately;15 fresh native observations,200 restored library passes, three compiling mutants detected. Fresh477970/10570 corpora reduce entry49/four losses to18/one; all74/9 changed rows retained. Two CLI matrices608 children plus8 exploratory; final62/78 main outputs equal,56 native agreements, two main agreements lost on missing subtypesOfUnion TS2411. No main runtime, coverage or speed gain;4.2.1 gated and PR5 regression34 unresolved. [Replay and limits](docs/architecture/checker-member-admission-contextual-read.md). |

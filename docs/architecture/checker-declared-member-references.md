@@ -140,3 +140,11 @@ restoration and a review of the delivery remain required. These observations lac
 CPU/RSS and equivalent performed-work qualification and overlap other runs.
 The PR #5 regression `tsr-1yb.34` remains unresolved; the TSR/native median wall
 target <=0.50 remains unmet.
+
+## Admission and contextual-reader continuation at `53826afe`
+
+The [current private replay](checker-member-admission-contextual-read.md) adds
+native reference admission and instantiated contextual property reads, with
+200 restored library passes and 15 fresh native observations. Fresh full
+corpora reduce main losses to 18 type assertions and one diagnostic case;
+retention is still refused. The historical `0fd93183` results above are unchanged.
