@@ -318,6 +318,7 @@ impl Checker<'_, '_> {
         returned: TypeId,
         parameters: &[TypeId],
         call: Option<NodeId>,
+        skip_binding_patterns: bool,
     ) -> (Vec<InferenceInfo>, Vec<InferenceInfo>) {
         let mut infos = Vec::new();
         // inferTypeArguments (checker.go) makes a weak ReturnType inference
@@ -362,8 +363,70 @@ impl Checker<'_, '_> {
                 InferencePriority::RETURN_TYPE,
             );
             self.infer_from_types(return_source, returned, parameters, &mut return_mapper, 0);
+        } else if let Some(call_id) = call
+            && !skip_binding_patterns
+            && let Some(pattern) = self.binding_pattern_return_context(call_id)
+        {
+            // isFromBindingPattern: the pattern's implied type feeds
+            // `context.returnMapper` only, never `context.inferences`.
+            let return_source = self.instantiate_outer_inference_context(pattern, call_id, false);
+            self.infer_from_types(return_source, returned, parameters, &mut return_mapper, 0);
         }
         (infos, return_mapper)
+    }
+
+    /// The contextual type `inferTypeArguments` (`checker.go:9390`) reads
+    /// from an unannotated array binding pattern when it does not pass
+    /// `ContextFlagsSkipBindingPatterns` (some type parameter has no
+    /// default): `getContextualTypeForVariableLikeDeclaration`'s
+    /// `getTypeFromBindingPattern(name, true, false)`
+    /// (`getTypeFromArrayBindingPattern`, `checker.go:17957`). Each plain
+    /// name element is `nonInferrableAnyType`, a hole `any`, so the implied
+    /// type of `const [a, b] = f(...)` is `[any, any]`.
+    ///
+    /// Built per call, uncached: the tuple is interned by
+    /// [`Checker::create_tuple_type`]. Only that shape is computed (no
+    /// cached contextual type changes); a pattern with a rest, a default, a
+    /// nested pattern, or no element (`createIterableType(any)`) answers
+    /// `None`, as does an object pattern. `nonInferrableAnyType` is this
+    /// port's `any`: inference infers whole tuples from the pattern, never
+    /// its element alone, in the shapes accepted here.
+    fn binding_pattern_return_context(&mut self, call: NodeId) -> Option<TypeId> {
+        let parent = self.nodes.parent(call)?;
+        let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(parent) else {
+            return None;
+        };
+        if declaration.r#type.is_some()
+            || declaration.initializer.and_then(|initializer| initializer.node_id()) != Some(call)
+            || self.in_js_file(call)
+        {
+            return None;
+        }
+        let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
+            return None;
+        };
+        if self.nodes.kind(pattern.node_id?) != tsr_ast::SyntaxKind::ArrayBindingPattern
+            || pattern.elements.is_empty()
+        {
+            return None;
+        }
+        let any = self.intrinsics.any;
+        let mut elements = Vec::with_capacity(pattern.elements.len());
+        for element in pattern.elements {
+            let element_id = element.node_id?;
+            match self.node_map.get(element_id)? {
+                Node::OmittedExpression(_) => elements.push(any),
+                Node::BindingElement(binding)
+                    if binding.dot_dot_dot_token.is_none()
+                        && binding.initializer.is_none()
+                        && matches!(binding.name, Some(tsr_ast::BindingName::Identifier(_))) =>
+                {
+                    elements.push(any);
+                }
+                _ => return None,
+            }
+        }
+        Some(self.create_tuple_type(elements, false))
     }
 
     /// checkExpressionWithContextualType's literal regularization
@@ -570,7 +633,14 @@ impl Checker<'_, '_> {
         let (mut infos, return_mapper) = if self.written_type_arguments(call).is_none()
             && let Some(parameters) = parameter_types.as_deref()
         {
-            self.contextual_return_inferences(signature.r#type, parameters, call)
+            let skip_binding_patterns =
+                signature.type_parameters.iter().all(|parameter| parameter.default.is_some());
+            self.contextual_return_inferences(
+                signature.r#type,
+                parameters,
+                call,
+                skip_binding_patterns,
+            )
         } else {
             (Vec::new(), Vec::new())
         };

@@ -138,3 +138,99 @@ port; the dead helper is deleted so `-D warnings` stays clean.
 zero losses; lane MISSING TS2356 31 → 0, EXTRA TS2357 4 → 0, MISSING TS2469
 21 → 14. Direct alternating timing (21 runs): domain-model 0.991, generic-imports
 0.960 (median new/base).
+
+## 5. The `+` / `+=` arm is ported and held: `operators-plus.diff`
+
+**What the port is.** `checkBinaryLikeExpressionWorker`'s `+` arm
+(`checker.go:12403`) in order: `checkNonNullType` with its reporter on both
+operands when neither is `isTypeAssignableToKind(StringLike)` (not strict);
+the result cascade (both `NumberLike` strict, both `BigIntLike` strict, either
+`StringLike` strict, either `IsTypeAny`); with a result,
+`checkForDisallowedESSymbolOperand` (TS2469); without one,
+`reportOperatorError` with the close-enough closure (`OperatorRelation::
+CloseEnough`) and no `checkAssignmentOperator`. `+=` joins the walk's numeric
+dispatch. It replaces the flag-built `addition_operands_have_no_result`, the
+type-parameter veto, `operand_is_nullish`, and `nullable_operand.rs`'s
+`check_nullable_operand` (whose `+`-only TS18050 path is the reporter the
+other arms already use). Each kind test is a `Ternary`; an `Unknown` step
+stops the arm without a diagnostic, as §1.
+
+**Measured** (against `15f1743`): diagnostics +9 cases WRONG→RIGHT
+(`additionOperatorWithInvalidOperands`, `additionOperatorWithTypeParameter`,
+`compoundAdditionAssignmentWithInvalidOperands`, `compoundAdditionAssignment
+LHSCanBeAssigned`, `arithmeticOnInvalidTypes2`, `expr`,
+`noUncheckedIndexedAccessCompoundAssignments`, `symbolType6`, `symbolType12`);
+lane MISSING TS2365 75 → 25, TS2469 14 → 0, TS18050 27 → 17. **One loss:**
+`conformance/genericRestParameters1` RIGHT → WRONG, an extra TS2365 at
+`(125,39)`.
+
+**The loss is a producer outside this lane.** The line is
+`f30(42, x => "" + x, x => x + 1)` with
+`declare function f30<T, U extends ((x: T) => any)[]>(x: T, ...args: U): U`.
+Upstream infers `T = number` and types `x` as `number`. In TSR the call's
+rest-tuple inference from context-sensitive arguments is unported — the type
+dump already answers `[error, error]` for `c30` and `any` for each `x` — and
+the walk then contextually types the arrow through
+`contextual_type_for_argument_resolving`'s single-generic-candidate road
+(`contextual.rs`, "the arrow ADOPTS the type parameters"), so `x` reads as
+the uninstantiated `T`. `T + number` is a correct TS2365 for that type; the
+type is wrong. Probes: `h<T>(x: T, f: (x: T) => any)` and
+`k<T, U extends (x: T) => any>` give `number`; only the rest-parameter shapes
+`U extends ((x: T) => any)[]` and `U extends [(x: T) => any]` give `T`. The
+relational arm already shows the same (`g(42, x => x < 1)` is TS2365 on `T`);
+no corpus case reaches it.
+
+**Re-measured after merging `origin/main` (`dda74f5`, calls-4 included):**
+the patch, refreshed to apply on that head, is +10 cases (the nine above plus
+`noImplicitSymbolToString`, which also needed §7) with the same single loss;
+lane MISSING TS2365 55 → 5.
+
+**Reopening condition.** When the calls/contextual owner types that arrow's
+parameter as `number` (or as `any`, which silences TS2365 the way upstream's
+`IsTypeAny` does), `git apply docs/parity/notes/operators-plus.diff` should
+measure +10 with zero losses. Not shipped now because a loss is never
+accepted (`box-protocol.md` §5).
+
+## 6. The equality arm's literal and NaN rules (TS2839, TS2845)
+
+`check_equality_operator` (`operator_operands.rs`) is the two rules of the
+equality arm (`checker.go:12479`) that precede `reportOperatorErrorUnless`:
+TS2839 when either operand, as written, is `isLiteralExpressionOfObject`
+(object, array, regex, function or class literal; parentheses not skipped),
+in JS only for `===`/`!==`; then `checkNaNEquality` (`checker.go:12827`),
+TS2845 when an operand with parentheses skipped is an identifier `NaN`
+resolving to the global `NaN` value symbol (`isGlobalNaN`, via
+`resolve_name` against `globals()["NaN"]`, the pattern `calls.rs` uses for
+`Promise`). Both report on the binary expression with `'false'` for
+`==`/`===` and `'true'` otherwise. The comparability report (TS2367) that
+follows them stays `crate::comparison_overlap`'s. The `Did you mean
+'Number.isNaN(…)'?` related information is not modelled, as nowhere in this
+port's reporter.
+
+They live in this lane's file rather than `comparison_overlap.rs` (the flow
+box's) because they are independent rules of the same arm, not part of its
+comparability decision; they share no state with it. Upstream skips all three
+under `CheckModeTypeOnly`; the diagnostics walk is never that mode.
+
+**Measured** (against `15f1743`): diagnostics +5 cases WRONG→RIGHT
+(`conditionalEqualityOnLiteralObjects`, `nanEquality`, `narrowByEquality`,
+`functionImplementations`, `plainJSTypeErrors`), zero losses in either dump;
+MISSING TS2839 28 → 0, TS2845 17 → 0.
+
+## 7. TS2731 — the template form of the symbol check
+
+`check_template_span_symbol_conversion` is `checkTemplateExpression`'s one
+diagnostic (`checker.go:7976`): a span expression that
+`maybeTypeOfKindConsideringBaseConstraint(t, ESSymbolLike)` reports TS2731 on
+the expression. The walk reaches it from a new `TemplateSpan` arm in
+`check.rs`. A span whose template is the template of a
+`TaggedTemplateExpression` is skipped: upstream never calls
+`checkTemplateExpression` there (the spans are call arguments,
+`checkTaggedTemplateExpression`, `checker.go:10034`) — the first measurement
+without that test turned `taggedTemplateStringWithSymbolExpression01`
+EMPTY_RIGHT → EMPTY_WRONG. It lives in this lane's file because it is the
+template counterpart of `+`'s `checkForDisallowedESSymbolOperand`.
+
+**Measured** (against §6's tree): MISSING TS2731 7 → 0, extra 0, zero
+losses; no case converts alone — `noImplicitSymbolToString` also needs the
+five `+`/`+=` TS2469 lines of the held §5 port.

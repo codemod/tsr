@@ -602,6 +602,10 @@ impl Checker<'_, '_> {
                 self.check_new_target_meta_property(node);
                 ambient
             }
+            Node::SatisfiesExpression(_) => {
+                self.check_satisfies_expression(node, ambient);
+                ambient
+            }
             Node::BinaryExpression(_) => {
                 self.check_instanceof_left_operand(node);
                 self.check_instanceof_right_operand(node);
@@ -691,6 +695,10 @@ impl Checker<'_, '_> {
             }
             Node::QualifiedName(_) => {
                 self.check_qualified_type_name(node);
+                ambient
+            }
+            Node::TemplateSpan(_) => {
+                self.check_template_span_symbol_conversion(node);
                 ambient
             }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
