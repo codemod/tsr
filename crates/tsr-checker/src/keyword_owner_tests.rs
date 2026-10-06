@@ -197,10 +197,12 @@ fn cold_string_slots_reuse_the_unchanged_reader_and_boolean_slots_still_decline(
                 let printed = checker.type_to_string_at(ty, site).unwrap();
                 assert_eq!(
                     printed,
+                    // `serializeTypeForDeclaration` reuses the written
+                    // annotation: it denotes the very type printed.
                     if name == "text" {
                         "(value: TextInputs<string>) => TextInputs<string>"
                     } else {
-                        "(value: boolean) => boolean"
+                        "(value: Inputs<string>) => Inputs<string>"
                     }
                 );
                 if phase == 0 {

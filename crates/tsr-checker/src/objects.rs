@@ -448,14 +448,17 @@ pub(crate) fn signature_member_text(
         }
         out.push_str(&parameter.name);
         out.push_str(if parameter.optional { "?: " } else { ": " });
-        // The node-reuse rule on `Parameter::written_text`: a `typeof a`
-        // annotation prints as written, in this form exactly as in the
-        // `FunctionTypeNode` form.
-        if let Some(written) = &parameter.written_text {
-            out.push_str(written);
-        } else {
-            let parameter_type = checker.parameter_type(parameter);
-            out.push_str(&checker.type_to_string(parameter_type));
+        // The node-reuse rule on `Parameter::written_text`
+        // (`crate::node_reuse`), for a printer with no print site.
+        let error = checker.intrinsics.error;
+        let parameter_type = checker.parameter_type(parameter);
+        match parameter
+            .written_text
+            .as_ref()
+            .and_then(|written| written.site_free_text(parameter_type, error))
+        {
+            Some(written) => out.push_str(written),
+            None => out.push_str(&checker.type_to_string(parameter_type)),
         }
     }
     out.push_str("): ");
@@ -464,7 +467,11 @@ pub(crate) fn signature_member_text(
     // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
     // node the builder is filling. `interface I { m(): this is S[]; }` is the
     // form that needs it, and the corpus records it on lib's `every`.
-    match (&signature.predicate, &signature.written_return) {
+    let written_return = signature
+        .written_return
+        .as_ref()
+        .and_then(|written| written.site_free_text(signature.r#type, checker.intrinsics.error));
+    match (&signature.predicate, written_return) {
         (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
         (None, Some(written)) => out.push_str(written),
         (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),

@@ -2542,14 +2542,16 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            if let Some(written) = &parameter.written_text {
-                out.push_str(written);
+            let parameter_type = self.parameter_type(parameter);
+            if let Some(text) = parameter.written_text.as_ref().and_then(|written| {
+                self.written_annotation_text_at(written, parameter_type, reference)
+            }) {
+                out.push_str(&text);
             } else if let Some(text) =
                 self.signature_parameter_alias_text_at(signature, parameter, reference)
             {
                 out.push_str(&text);
             } else {
-                let parameter_type = self.parameter_type(parameter);
                 let rendered = self
                     .type_to_string_at(parameter_type, reference)
                     .unwrap_or_else(|| self.type_to_string(parameter_type));
@@ -2557,9 +2559,13 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         out.push_str("): ");
-        match (&signature.predicate, &signature.written_return) {
+        let written_return = signature.written_return.as_ref().and_then(|written| {
+            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
+            self.written_annotation_text_at(written, current, reference)
+        });
+        match (&signature.predicate, written_return) {
             (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
-            (None, Some(written)) => out.push_str(written),
+            (None, Some(text)) => out.push_str(&text),
             (None, None) => {
                 let return_type =
                     self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
@@ -2964,7 +2970,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   288 lines that get a different container than upstream's; every one of
     ///   them is a line that is wrong today and stays wrong, so the omission
     ///   costs conversions rather than manufacturing losses.
-    fn symbol_chain(
+    pub(crate) fn symbol_chain(
         &mut self,
         symbol: SymbolId,
         reference: NodeId,
@@ -3176,7 +3182,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// correction. Dropping the merge here re-introduces those 13 lines as real
     /// losses, and `symbol_chain_does_not_split_a_merged_declaration` is the
     /// test that says so.
-    fn needs_qualification(
+    pub(crate) fn needs_qualification(
         &self,
         symbol: SymbolId,
         name: &str,

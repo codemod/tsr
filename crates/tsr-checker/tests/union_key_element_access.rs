@@ -207,13 +207,15 @@ fn empty_object_deferral_requires_an_instantiable_compound() {
                     const value = key;";
     assert_eq!(type_of_last(compound), "\"a\" | \"b\"");
 
+    // The parameter slot reuses the written node, parentheses included
+    // (`Printer.emitParenthesizedType` prints each written pair).
     let double_union = "function f<T, U>(key: keyof (((T | U)))) { return key; }";
-    assert_eq!(type_of_last(double_union), "<T, U>(key: keyof (T | U)) => keyof T & keyof U");
+    assert_eq!(type_of_last(double_union), "<T, U>(key: keyof (((T | U)))) => keyof T & keyof U");
 
     let double_intersection = "function f<T, U>(key: keyof (((T & U)))) { return key; }";
     assert_eq!(
         type_of_last(double_intersection),
-        "<T, U>(key: keyof (T & U)) => keyof T | keyof U"
+        "<T, U>(key: keyof (((T & U)))) => keyof T | keyof U"
     );
 }
 
