@@ -4710,6 +4710,75 @@ impl Checker<'_, '_> {
             })
     }
 
+    /// `getCandidateForOverloadFailure` (`checker.go:9498`) for the failure
+    /// this port can decide before choosing: the call's written type
+    /// arguments fit no candidate (`hasCorrectTypeArgumentArity`,
+    /// `checker.go:9214`), so `chooseOverload` rejects every one. A
+    /// non-generic overload set is combined
+    /// (`createUnionOfSignaturesForOverloadFailure`); otherwise
+    /// `pickLongestCandidateSignature` (`:9510`) instantiates the longest
+    /// candidate with `getTypeArgumentsFromNodes` (`:9557`): the written
+    /// arguments truncated to its type parameters, the tail filled with each
+    /// parameter's default, else its constraint, else `unknown`
+    /// (`new C<Date, Date>()` on `class C<T>` is `C<Date>`).
+    ///
+    /// `call` is the `new` or call node, read through `node_map` for the
+    /// written argument nodes. `None` when some candidate admits the written
+    /// count (the ordinary resolution owns that call) or the candidate cannot
+    /// be instantiated.
+    pub(crate) fn written_type_argument_arity_failure(
+        &mut self,
+        candidates: &[Signature],
+        call: tsr_ast::NodeId,
+        argument_count: usize,
+    ) -> Option<Signature> {
+        let written = match self.node_map.get(call)? {
+            tsr_ast::Node::NewExpression(node) => node.type_arguments,
+            tsr_ast::Node::CallExpression(node) => node.type_arguments,
+            _ => return None,
+        };
+        if written.is_empty()
+            || candidates.is_empty()
+            || candidates.iter().any(|candidate| {
+                written.len() >= Self::min_type_argument_count(&candidate.type_parameters)
+                    && written.len() <= candidate.type_parameters.len()
+            })
+        {
+            return None;
+        }
+        if candidates.len() > 1
+            && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
+        {
+            return self.union_signature_for_overload_failure(candidates);
+        }
+        let best = candidates[self.longest_candidate_index(candidates, argument_count)].clone();
+        if best.type_parameters.is_empty() {
+            return Some(best);
+        }
+        let parameters = self.type_parameter_types(&best)?;
+        let mut arguments: Vec<TypeId> = written
+            .iter()
+            .take(parameters.len())
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        while let Some(&parameter) = parameters.get(arguments.len()) {
+            let filled = match self.get_default_from_type_parameter(parameter) {
+                Some(default) => default,
+                None => {
+                    self.type_parameter_constraint(parameter).unwrap_or(self.intrinsics.unknown)
+                }
+            };
+            arguments.push(filled);
+        }
+        let names: Vec<String> =
+            best.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let map: Vec<(TypeId, TypeId)> = parameters.iter().copied().zip(arguments).collect();
+        let mut instance = best;
+        instance.type_parameters.clear();
+        self.instantiate_signature(instance, &map, &parameters, &names)
+    }
+
     /// The containing call for an actual argument list. Synthesized argument
     /// lists (constructors or template substitutions) have no such context.
     fn call_for_overload_arguments(&self, arguments: &[Expression<'_>]) -> Option<tsr_ast::NodeId> {

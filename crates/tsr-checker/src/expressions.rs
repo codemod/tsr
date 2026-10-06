@@ -2474,6 +2474,19 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
             let candidates = self.reorder_candidates(candidates);
+            // `resolveCall`'s overload failure when the written type
+            // arguments fit no candidate (`getCandidateForOverloadFailure`).
+            if let Some(call) = node.node_id
+                && let Some(failure) = self.written_type_argument_arity_failure(
+                    &candidates,
+                    call,
+                    node.arguments.len(),
+                )
+            {
+                let returned = failure.r#type;
+                self.resolved_call_signatures.insert(call, failure);
+                return returned;
+            }
             let selected = match candidates.as_slice() {
                 [single] => Some(single.clone()),
                 _ => self.choose_construct_overload(
