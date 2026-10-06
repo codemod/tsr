@@ -276,3 +276,32 @@ decline goes and the falsifier is those 6 cases staying RIGHT.
 **Measured.** 15 baseline lines, 0 false, 0 losses; `classImplementsClass6`,
 `classSideInheritance1`, `cloduleTest2`, `mergedClassNamespaceRecordCast`,
 `staticMemberExportAccess`, `staticPropertyNotInClassType` convert.
+
+## 8. Accessibility: a contextual `this`, and destructuring assignment targets
+
+**`getEnclosingClassFromThisParameter` arm 3** (`checker.go:12002`): with no
+annotated `this` parameter, the enclosing function's contextual `this`
+parameter (`getContextualThisParameterType`) names the class a protected
+access is judged from. `enclosing_class_from_this_parameter` read only the
+syntactic parameter, so `const f: (this: Foo) => void = function () {
+this.protec }` reported a false TS2445 (`protectedAccessThroughContextualThis`).
+It now asks `contextual_this_parameter_type` (`expressions.rs`, the
+contextual-signature arm). That helper does not port the object-literal and
+`obj.m = function` arms, which apply under `noImplicitThis` or in JS; a function
+in those positions with no signature answer declines (`Unsupported`) rather
+than reading "no class".
+
+**`checkObjectLiteralDestructuringPropertyAssignment`'s accessibility call**
+(`checker.go:12608`): each `name: target` or shorthand of an object assignment
+target is checked as a **write** with the source type, reported at the name.
+Not ported before. `check_object_assignment_accessibility`
+(`index_access_reports.rs`) uses the same name-literal rule
+(`getLiteralTypeFromPropertyName`, so `[nameX]` with `const nameX = "x"`
+counts) and `property_accessibility_error`. The source of a nested `{ a: { x } }`
+target is the outer source's `a` property type; a nested target with a default,
+or a union/intersection property type, declines (upstream's indexed access type
+there is a union with the default or with `undefined`, whose property lookup
+this port answers differently).
+
+**Measured.** `protectedAccessThroughContextualThis` (1 false line gone) and
+`destructuringAssignment_private` (4 lines) convert; 0 losses.
