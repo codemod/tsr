@@ -8650,14 +8650,10 @@ impl Checker<'_, '_> {
                 let Some(inferred) = self.get_return_type_of_signature(&signature) else {
                     return;
                 };
-                let unwrapped = if is_async {
-                    match self.awaited_type_no_alias(inferred) {
-                        Some(awaited) => awaited,
-                        None => return,
-                    }
-                } else {
-                    inferred
-                };
+                // `unwrapReturnType` (`checker.go:20388`) on the inferred type
+                // too: a generator's `TReturn`, an async function's awaited
+                // type (`generatorNoImplicitReturns`).
+                let unwrapped = self.unwrap_return_type_for_code_paths(inferred, generator, is_async);
                 if self.is_error(inferred)
                     || self.is_error(unwrapped)
                     || self.maybe_type_of_kind(unwrapped, TypeFlags::VOID)
