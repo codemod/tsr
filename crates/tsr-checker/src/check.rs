@@ -424,6 +424,7 @@ impl Checker<'_, '_> {
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
                 self.check_annotated_initializer(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::PropertySignatureDeclaration(_) => {
@@ -459,6 +460,7 @@ impl Checker<'_, '_> {
                 self.check_renamed_binding_element_in_signature(node);
                 self.check_binding_element_initializer(node, ambient);
                 self.check_binding_element_accessibility(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
@@ -8760,8 +8762,9 @@ impl Checker<'_, '_> {
     /// have identical modifiers.`
     ///
     /// `checkVariableLikeDeclaration`'s merged-declaration arms
-    /// (`checker.go:5893-5935`), for variable declarations, property
-    /// declarations and property signatures. On the symbol's primary
+    /// (`checker.go:5893-5935`), for variable declarations, parameters,
+    /// binding elements, property declarations and property signatures. On
+    /// the symbol's primary
     /// declaration (`symbol.ValueDeclaration`): TS2687 when another
     /// variable-like declaration's flags differ (`areDeclarationFlagsIdentical`).
     /// On a secondary one: `t := getTypeOfSymbol(symbol)` against the
@@ -8770,21 +8773,34 @@ impl Checker<'_, '_> {
     /// the primary. A type pair the identity relation cannot decide is not
     /// reported.
     ///
+    /// A parameter property's symbol is the class member it declares (the
+    /// binder lets the property win as the node's symbol, as upstream's
+    /// `bindParameter` does), so `y: number; constructor(private y: number)`
+    /// is a secondary declaration with different modifiers — TS2687.
+    ///
+    /// No parse-error gate: upstream checks a file with syntax errors too
+    /// (`asyncArrowFunction9_es2017`, `negateOperatorInvalidOperations`).
+    ///
     /// **`any` and `unknown` are trusted only where written.** In this port
     /// `any` is *"no better answer"* as often as it is the type the user wrote
     /// (§338; §865 measured −34 cases admitting it unconditionally), so a
     /// top-level `any`/`unknown` takes part only when the declaration's own
     /// annotation is that keyword.
     fn check_subsequent_declaration_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (name, annotated, is_property) = match self.node_map.get(node) {
             Some(Node::VariableDeclaration(declaration)) => (
                 declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
                 declaration.r#type.is_some(),
                 false,
             ),
+            Some(Node::ParameterDeclaration(declaration)) => (
+                declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+                declaration.r#type.is_some(),
+                false,
+            ),
+            Some(Node::BindingElement(element)) => {
+                (element.name.as_ref().and_then(tsr_ast::BindingName::node_id), false, false)
+            }
             Some(Node::PropertyDeclaration(declaration)) => {
                 (declaration.name.node_id(), declaration.r#type.is_some(), true)
             }
@@ -8794,8 +8810,17 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(name) = name else { return };
-        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
-        let text = identifier.text.to_string();
+        // `scanner.DeclarationNameToString` for the name kinds that reach the
+        // merge arms (a binding pattern returned earlier upstream). Upstream
+        // reads the source text; a string literal is respelled with double
+        // quotes here, which only the message argument can tell apart.
+        let text = match self.node_map.get(name) {
+            Some(Node::Identifier(identifier)) => identifier.text.to_string(),
+            Some(Node::PrivateIdentifier(identifier)) => identifier.text.to_string(),
+            Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),
+            Some(Node::NumericLiteral(literal)) => literal.text.to_string(),
+            _ => return,
+        };
         let Some(own) = self.binder.symbol_of(node) else { return };
         // **A merge the excludes forbid did not happen upstream.**
         // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
