@@ -121,26 +121,6 @@ fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
     )
 }
 
-/// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
-///
-/// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
-/// *not* a member, and upstream's comment says it is there so a trailing dot
-/// does not close the literal. The rest is `isLiteralPropertyName`: an
-/// identifier or keyword, a string, or a number.
-fn starts_object_literal_member(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::OpenBracketToken
-            | SyntaxKind::AsteriskToken
-            | SyntaxKind::DotDotDotToken
-            | SyntaxKind::DotToken
-            | SyntaxKind::StringLiteral
-            | SyntaxKind::NumericLiteral
-            | SyntaxKind::BigIntLiteral
-    ) || kind == SyntaxKind::Identifier
-        || kind.is_keyword()
-}
-
 fn is_assignment_operator(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_ASSIGNMENT as u16..=SyntaxKind::LAST_ASSIGNMENT as u16)
         .contains(&(kind as u16))
@@ -1233,58 +1213,19 @@ impl<'a> Parser<'a> {
         Expression::ArrayLiteralExpression(node)
     }
 
+    /// typescript-go's `Parser.parseObjectLiteralExpression` (`parser.go:5615`):
+    /// `parseDelimitedList(PCObjectLiteralMembers, parseObjectLiteralElement)`.
+    /// The list machinery reports a stray `,` as "Property assignment
+    /// expected" and skips it, skips a `;` used as a separator after the
+    /// "',' expected", and — unlike the hand loop it replaces — keeps going
+    /// past a token that is not a member unless an enclosing list wants it.
     pub(crate) fn parse_object_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
-        let mut properties = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            // §277's object-literal twin: a bare `,` cannot start a member and
-            // mints NOTHING — upstream reports "Property assignment expected"
-            // and skips it. `{ x: 0,, }` synthesized an empty property here
-            // that printed ` : any` AND leaked into the object's own type as
-            // `{ x: number; : any; }` (`parseErrorDoubleCommaInCall`).
-            if self.at(SyntaxKind::CommaToken) {
-                self.error_at_current(&messages::PROPERTY_ASSIGNMENT_EXPECTED);
-                self.next_token();
-                continue;
-            }
-            let before = self.pos();
-            properties.push(self.parse_object_literal_element());
-            if self.eat(SyntaxKind::CommaToken) {
-                if self.pos() == before {
-                    break;
-                }
-                continue;
-            }
-            if self.at(SyntaxKind::CloseBraceToken) || self.at(SyntaxKind::EndOfFile) {
-                break;
-            }
-            // `parseDelimitedList` (`parser.go:664`) reports the missing
-            // separator and continues. **And for object-literal members it then
-            // skips a `;`**, with upstream's own reason at `:678`: *"If the
-            // token was a semicolon, and the caller allows that, then skip it
-            // and continue. This ensures we get back on track and don't result
-            // in tons of parse errors. For example, this can happen when people
-            // do things like use a semicolon to delimit object literal
-            // members."*
-            //
-            // `var v = { foo(); }` is exactly that: one `',' expected` upstream,
-            // and two diagnostics here because this loop left the list. §218.
-            self.expect(SyntaxKind::CommaToken);
-            if self.at(SyntaxKind::SemicolonToken) && !self.token.has_preceding_line_break() {
-                self.next_token();
-            }
-            // `isListElement(PCObjectLiteralMembers)` (`parser.go:845`):
-            // `[`, `*`, `...`, `.`, or a literal property name. Continuing
-            // without it is what §198 measured at −64 parser files — the guard
-            // is what makes "recover by continuing" safe (§200).
-            if !starts_object_literal_member(self.token.kind) {
-                break;
-            }
-            if self.pos() == before {
-                self.next_token();
-            }
-        }
+        let (properties, _) = self.parse_delimited_list(
+            ParsingContext::ObjectLiteralMembers,
+            Self::parse_object_literal_element,
+        );
         self.expect(SyntaxKind::CloseBraceToken);
         let properties = self.arena.alloc_slice(&properties);
         let node = self.finish_node(
@@ -2701,7 +2642,12 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::OpenBracketToken => {
                 self.next_token();
-                let expression = self.parse_assignment_expression();
+                // `parseComputedPropertyName` (`parser.go:3467`) parses any
+                // expression, comma included, with `in` allowed; the grammar
+                // checker reports a comma expression (TS1171).
+                let saved_no_in = std::mem::take(&mut self.no_in);
+                let expression = self.parse_expression();
+                self.no_in = saved_no_in;
                 self.expect(SyntaxKind::CloseBracketToken);
                 let node = self.finish_node(
                     ComputedPropertyName::new(Some(expression)),

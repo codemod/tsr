@@ -254,7 +254,7 @@ list nested in one of these (a type literal inside type arguments, say) aborts
 on a token the outer list would take. Both need the context bit to be set.
 
 Ported (`parser.go` @ `5b1047d`): `PCHeritageClauseElement`,
-`PCObjectLiteralMembers` (its arms only: `parse_object_literal` does not set the bit yet), `PCTypeParameters`,
+`PCObjectLiteralMembers`, `PCTypeParameters`,
 `PCTypeArguments`, `PCTupleElementTypes` and `PCHeritageClauses`, each with its
 `isListElement`, `isListTerminator` and `parsingContextErrors` arm, and the
 loops of `parseTypeParameters`, `parseTypeArguments` (type references and
@@ -303,3 +303,33 @@ Measured at the commit: diagnostics 3846 → 3851 RIGHT (+1 EMPTY_RIGHT), no
 diagnostics losses; checker_types 7602 → 7618; `parser_reachable_target`
 unchanged at 5031/10570; median CPU self-ratio 0.972 (domain-model) and 0.994
 (generic-imports) at 21 samples.
+
+### Object literals and computed names
+
+`parse_object_literal` is now `parseDelimitedList(PCObjectLiteralMembers, …)`
+(`parser.go:5615`). The hand loop already reported the missing `,` and skipped
+a `;` separator (§218), but it *left the list* at any token that could not
+start a member, where upstream asks `isInSomeParsingContext`: a token no
+enclosing list wants is reported ("Property assignment expected") and skipped,
+and the literal goes on to its `}`. ``{ `a`: 321 }`` (a template literal as a
+name) therefore reports TS1136 at the template and closes cleanly instead of
+TS1003 plus a statement-level cascade; the same shape converts the parse side
+of `parserSymbolIndexer5`, `privateIndexer2` and
+`objectTypesWithOptionalProperties2` (their remaining rows are checker ones).
+The old loop's guard (§198 measured −64 files when continuing without it) is
+subsumed: continuing is safe once the enclosing contexts are consulted.
+
+`parseComputedPropertyName` parses a full expression with `in` allowed
+(`parseExpressionAllowIn`, `parser.go:3476`); this port parsed an assignment
+expression, so `[0, 1]` stopped at the comma. With the comma expression kept,
+`checkGrammarComputedPropertyName`'s TS1171 is ported into
+`check_grammar_object_literal_postfix_tokens` (`grammar.rs`), the port of
+`checkGrammarObjectLiteralExpression`'s per-member arms, where upstream calls
+it and ignores the result. The class-member call sites (behind
+`checkGrammarProperty`, `checkGrammarMethod` and
+`checkGrammarFunctionLikeDeclaration`/`checkGrammarAccessor`) are not ported:
+`check_grammar_property` does not yet answer whether it reported, which their
+short-circuit needs.
+
+Measured at the commit: diagnostics 3852 RIGHT (+1), checker_types 7627,
+`parser_reachable_target` 5031; CPU self-ratio 1.004 / 0.983.
