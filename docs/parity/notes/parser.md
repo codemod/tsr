@@ -357,3 +357,22 @@ so an `async` arrow keeps its return type there. No corpus case reaches it.
 Cases converted: `parserArrowFunctionExpression8`, `9`, `11`, `12`; `10`'s
 parse now matches and its remaining row is a checker TS2304 on the arrow's
 return type in the `.ts` file.
+
+### `checkGrammarAccessor`'s body arms
+
+`check_grammar_accessor` (`check.rs`) had only the parameter arms. The first
+two arms are ported (`grammarchecks.go:1309`, `:1315`): a body-less accessor
+outside an ambient context, a type literal or an interface that is not
+`abstract` is "'{' expected" on its last character, and an `abstract`
+accessor with a body is TS1318. They wait on `modifier_chain_reported`
+because upstream reaches `checkGrammarAccessor` only after
+`checkGrammarFunctionLikeDeclaration` (whose first test is
+`checkGrammarModifiers`) reports nothing, and a report returns before the
+parameter arms. Ambient is `file_is_ambient` or
+`declaration_is_in_an_ambient_context`, since the parser never sets
+`NodeFlagsAmbient` (see above). The TS1183 arm (a body in an interface or type
+literal) is not added: `check_grammar_statement_in_ambient_context` already
+reports TS1183 on such a body, and a second reporter would double it.
+
+`compiler/giant`'s 36 missing TS1005 are all this; its remaining rows are the
+checker's TS2386.

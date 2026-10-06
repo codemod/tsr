@@ -9691,10 +9691,19 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `checkGrammarAccessor`'s parameter arms (`grammarchecks.go:1332`,
-    /// `:1345`, `:1349`).
+    /// `checkGrammarAccessor`'s body arms (`grammarchecks.go:1309`, `:1315`)
+    /// and parameter arms (`:1332`, `:1345`, `:1349`).
+    ///
+    /// The body arms sit behind `checkGrammarFunctionLikeDeclaration`'s
+    /// `checkGrammarModifiers` upstream, so they wait on
+    /// `modifier_chain_reported`; a report returns, as upstream's does.
     fn check_grammar_accessor(&mut self, node: NodeId, typed: Node<'_>) {
         if self.file_has_parse_errors {
+            return;
+        }
+        if !self.modifier_chain_reported.contains(&node)
+            && self.check_grammar_accessor_body(node, typed)
+        {
             return;
         }
         let is_set = matches!(typed, Node::SetAccessorDeclaration(_));
@@ -9732,6 +9741,56 @@ impl Checker<'_, '_> {
                 &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
             );
         }
+    }
+
+    /// `checkGrammarAccessor`'s first two arms: outside an ambient context,
+    /// a type literal or an interface, a body-less accessor that is not
+    /// `abstract` is "'{' expected" on its last character
+    /// (`grammarErrorAtPos(accessor, accessor.End()-1, len(";"), …)`), and an
+    /// `abstract` accessor with a body is TS1318. The interface/type-literal
+    /// body arm (TS1183) is `check_grammar_statement_in_ambient_context`'s
+    /// report here and is not repeated.
+    fn check_grammar_accessor_body(&mut self, node: NodeId, typed: Node<'_>) -> bool {
+        let (modifiers, has_body) = match typed {
+            Node::GetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
+            Node::SetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
+            _ => return false,
+        };
+        let is_abstract = has_modifier(modifiers, SyntaxKind::AbstractKeyword);
+        if has_body {
+            if is_abstract {
+                self.report_grammar(
+                    node,
+                    &messages::AN_ABSTRACT_ACCESSOR_CANNOT_HAVE_AN_IMPLEMENTATION,
+                );
+                return true;
+            }
+            return false;
+        }
+        let in_type = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::TypeLiteral | SyntaxKind::InterfaceDeclaration
+            )
+        });
+        if is_abstract
+            || in_type
+            || self.file_is_ambient
+            || self.declaration_is_in_an_ambient_context(node)
+        {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
+        let end = self.nodes.span(node).end;
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_EXPECTED,
+                tsr_core::Span::new(end - 1, end),
+                ["{".to_string()],
+            ),
+        );
+        true
     }
 
     /// `grammarErrorOnNode` at an optional node id.
