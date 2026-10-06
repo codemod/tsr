@@ -46,7 +46,31 @@ pub(crate) enum LazyReturnState {
 pub use parameter::Parameter;
 
 mod parameter {
+    use tsr_binder::SymbolId;
+
     use crate::types::TypeId;
+
+    /// A [`Parameter`]'s type slot and its publication state.
+    ///
+    /// Native `getSignatureFromDeclaration` (`checker.go:19836`) stores the
+    /// parameter *symbols* and never asks their types; `getTypeOfParameter`
+    /// (`checker.go:17042`) resolves one on demand through `getTypeOfSymbol`,
+    /// whose `valueSymbolLinks.resolvedType` ([`crate::checker::Checker`]'s
+    /// `symbol_types`) is the only owner of the answer.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Slot {
+        /// A resolved type: an annotation, an instantiation's or contextual
+        /// assignment's image, or a symbol type read at construction.
+        Resolved(TypeId),
+        /// Not yet read: the type of this parameter symbol, demanded by the
+        /// first reader. Built only when the symbol's own type frame was
+        /// active while its signature was constructed — the re-entry native
+        /// never makes, because native construction asks no parameter type.
+        /// The slot holds no copy: every read asks `getTypeOfSymbol`, which
+        /// answers the published type, or closes the native cycle when the
+        /// reader runs while that frame is still active.
+        Symbol(SymbolId),
+    }
 
     /// One parameter of a [`super::Signature`], reduced to what a printed
     /// line needs.
@@ -56,7 +80,7 @@ mod parameter {
     /// builder at print time, `nodebuilderimpl.go:1654`). The type slot is
     /// private: every reader goes through the canonical accessor
     /// [`crate::checker::Checker::parameter_type`], so the slot's
-    /// publication state is decided in one place.
+    /// publication state ([`Slot`]) is decided in one place.
     #[derive(Debug, Clone)]
     pub struct Parameter {
         /// The parameter's name, as written.
@@ -67,7 +91,7 @@ mod parameter {
         pub rest: bool,
         /// `getTypeOfSymbol` of the parameter symbol; read only through
         /// [`crate::checker::Checker::parameter_type`].
-        slot: TypeId,
+        slot: Slot,
         /// The written annotation's own text, when the node builder would
         /// reuse the node instead of re-printing the computed type.
         ///
@@ -97,24 +121,31 @@ mod parameter {
             r#type: TypeId,
             written_text: Option<String>,
         ) -> Self {
-            Self { name, optional, rest, slot: r#type, written_text }
+            Self { name, optional, rest, slot: Slot::Resolved(r#type), written_text }
+        }
+
+        /// A parameter whose type is its symbol's, read on demand
+        /// ([`Slot::Symbol`]).
+        #[must_use]
+        pub(crate) fn of_symbol(name: String, rest: bool, symbol: SymbolId) -> Self {
+            Self { name, optional: false, rest, slot: Slot::Symbol(symbol), written_text: None }
         }
 
         /// Replace the slot with a resolved type — an instantiation's or a
         /// contextual assignment's image of this parameter.
         pub fn set_type(&mut self, r#type: TypeId) {
-            self.slot = r#type;
+            self.slot = Slot::Resolved(r#type);
         }
 
         /// This parameter with its slot replaced; see [`Self::set_type`].
         #[must_use]
         pub fn with_type(mut self, r#type: TypeId) -> Self {
-            self.slot = r#type;
+            self.slot = Slot::Resolved(r#type);
             self
         }
 
-        /// The stored slot, for the canonical accessor only.
-        pub(crate) fn slot(&self) -> TypeId {
+        /// The stored slot, for the canonical accessors only.
+        pub(crate) fn slot(&self) -> Slot {
             self.slot
         }
     }
@@ -1867,17 +1898,29 @@ impl<'a> Checker<'a, '_> {
     /// builder) reaches through the parameter symbol. Every reader in this
     /// port goes through here so the slot's publication state is decided in
     /// one place.
-    #[allow(clippy::unused_self)]
+    ///
+    /// A [`parameter::Slot::Symbol`] slot is resolved here, at the read,
+    /// through `getTypeOfSymbol` — the same owner, cache and cycle frame the
+    /// eager construction road uses, so the work moves to the reader rather
+    /// than being duplicated, and a reader that runs while the symbol's own
+    /// frame is still active closes native's cycle exactly where native's
+    /// `getTypeAtPosition` would.
     pub fn parameter_type(&mut self, parameter: &Parameter) -> TypeId {
-        parameter.slot()
+        match parameter.slot() {
+            parameter::Slot::Resolved(r#type) => r#type,
+            parameter::Slot::Symbol(symbol) => self.get_type_of_symbol(symbol),
+        }
     }
 
     /// The type of one signature parameter for a read that cannot resolve —
-    /// a `&self` structural walk over completed types. `None` is an
-    /// unresolved slot; such a walk follows no edge for it.
-    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+    /// a `&self` structural walk over completed types. `None` is a
+    /// [`parameter::Slot::Symbol`] slot whose symbol type is not yet
+    /// published; such a walk follows no edge for it.
     pub(crate) fn peek_parameter_type(&self, parameter: &Parameter) -> Option<TypeId> {
-        Some(parameter.slot())
+        match parameter.slot() {
+            parameter::Slot::Resolved(r#type) => Some(r#type),
+            parameter::Slot::Symbol(symbol) => self.symbol_types.get(&symbol).copied(),
+        }
     }
 
     /// Canonical semantic return accessor. Instantiated/composite signatures
@@ -4970,6 +5013,23 @@ impl<'a> Checker<'a, '_> {
         // `| undefined` a `?` adds (see [`crate::optionality`]); the signature
         // prints the annotation as written. Taking the symbol's type here would
         // print `(value?: string | undefined)`, which appears nowhere.
+        //
+        // Native construction (`getSignatureFromDeclaration`,
+        // `checker.go:19836`) never asks this type; `getTypeOfParameter`
+        // does, at the reader. This port reads it here, which is
+        // indistinguishable except when the parameter's own type is the
+        // resolution in progress — `function foo(a = bar())` inside
+        // `function bar(a = foo())` builds `bar`'s signature again while
+        // `a@bar` resolves. Demanding it then would close a cycle native never
+        // forms; the slot defers to the reader instead
+        // ([`parameter::Slot::Symbol`]), and a reader that needs the type
+        // before the frame completes still closes native's cycle.
+        if node.r#type.is_none()
+            && !self.symbol_types.contains_key(&symbol)
+            && self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+        {
+            return Some(Parameter::of_symbol(name_text, node.dot_dot_dot_token.is_some(), symbol));
+        }
         let mut r#type = match node.r#type {
             Some(annotation) => self.get_type_from_type_node(annotation),
             None => self.get_type_of_symbol(symbol),
