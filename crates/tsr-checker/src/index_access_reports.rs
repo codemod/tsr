@@ -272,6 +272,7 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
+        self.check_object_assignment_accessibility(node);
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
         let mut keys = Vec::new();
         for property in literal.properties {
@@ -299,6 +300,100 @@ impl Checker<'_, '_> {
             let key_type = self.check_expression(expression);
             self.report_missing_index_signature(source, key_type, has_default, expression_id);
         }
+    }
+
+    /// `checkObjectLiteralDestructuringPropertyAssignment`'s accessibility
+    /// arm (`checker.go:12608`): each `name: target` or shorthand `name` of an
+    /// object literal assignment target whose name is usable as a property
+    /// name and names a property of the source type is checked as a **write**
+    /// by `checkPropertyAccessibility`, reported at the property's name.
+    fn check_object_assignment_accessibility(&mut self, node: NodeId) {
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
+        let properties: Vec<_> = literal
+            .properties
+            .iter()
+            .filter_map(|property| {
+                let id = property.node_id()?;
+                let name = match self.node_map.get(id)? {
+                    Node::PropertyAssignment(assignment) => assignment.name,
+                    Node::ShorthandPropertyAssignment(shorthand) => shorthand.name,
+                    _ => return None,
+                };
+                Some((id, name))
+            })
+            .collect();
+        if properties.is_empty() {
+            return;
+        }
+        let Some(source) = self.object_assignment_target_source(node) else { return };
+        if source == self.intrinsics.any
+            || self.type_of(source).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return;
+        }
+        for (property, name) in properties {
+            // getLiteralTypeFromPropertyName + isTypeUsableAsPropertyName.
+            let text = match name {
+                tsr_ast::PropertyName::Identifier(identifier) => identifier.text.to_string(),
+                tsr_ast::PropertyName::StringLiteral(literal) => literal.text.to_string(),
+                tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    let Some(expression) = computed.expression else { continue };
+                    let key = self.check_expression(expression);
+                    match &self.type_of(key).data {
+                        TypeData::StringLiteral(text) | TypeData::NumberLiteral(text) => {
+                            text.clone()
+                        }
+                        _ => continue,
+                    }
+                }
+                _ => continue,
+            };
+            let Some(prop) = self.get_property_of_type(source, &text) else { continue };
+            let Some((message, arguments)) =
+                self.property_accessibility_error(property, false, true, source, prop, &text)
+            else {
+                continue;
+            };
+            let Some(at) = name.node_id() else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            self.report(file, Diagnostic::with_args(message, span, arguments));
+        }
+    }
+
+    /// The source type an object literal assignment target destructures:
+    /// [`Checker::destructuring_assignment_source`] for the top level and
+    /// array elements, and for a nested `{ a: { … } }` target the outer
+    /// source's `a` property (`checkObjectLiteralDestructuringPropertyAssignment`
+    /// recursing through `getIndexedAccessType`). A nested target with a
+    /// default (`{ a: { … } = d }`) declines: its type is the union with the
+    /// default's.
+    fn object_assignment_target_source(&mut self, node: NodeId) -> Option<TypeId> {
+        let parent = self.nodes.parent(node)?;
+        if let Some(Node::PropertyAssignment(assignment)) = self.node_map.get(parent) {
+            if assignment.initializer.and_then(|i| i.node_id()) != Some(node) {
+                return None;
+            }
+            let outer = self.nodes.parent(parent)?;
+            if self.nodes.kind(outer) != SyntaxKind::ObjectLiteralExpression {
+                return None;
+            }
+            let outer_source = self.object_assignment_target_source(outer)?;
+            if outer_source == self.intrinsics.any {
+                return Some(outer_source);
+            }
+            let text = match assignment.name {
+                tsr_ast::PropertyName::Identifier(identifier) => identifier.text,
+                tsr_ast::PropertyName::StringLiteral(literal) => literal.text,
+                _ => return None,
+            };
+            let t = self.get_type_of_property_of_type(outer_source, text)?;
+            return (!self.is_error(t)
+                && !self.type_of(t).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION))
+            .then_some(t);
+        }
+        self.destructuring_assignment_source(node)
     }
 
     /// Whether `ty` or a union/intersection constituent is instantiable, or is

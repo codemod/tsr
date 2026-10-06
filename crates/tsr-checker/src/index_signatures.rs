@@ -302,6 +302,16 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn union_index_infos(&mut self, types: &[TypeId]) -> Option<Vec<IndexInfo>> {
         let mut constituents = Vec::with_capacity(types.len());
         for &ty in types {
+            // `getIndexInfosOfType` reads each constituent through
+            // `getReducedApparentType`: a `string` constituent contributes
+            // `String`'s `readonly [index: number]: string`
+            // (`classDoesNotDependOnBaseTypes`). An object constituent is its
+            // own apparent type, so only primitives are mapped here.
+            let ty = if self.type_of(ty).flags.intersects(TypeFlags::PRIMITIVE) {
+                self.apparent_type(ty)
+            } else {
+                ty
+            };
             constituents.push(self.get_index_infos_of_type(ty)?);
         }
         let Some(first) = constituents.first() else { return Some(Vec::new()) };

@@ -51,7 +51,7 @@ impl Checker<'_, '_> {
     /// Every truthiness-tested position under `node`, dispatched from the
     /// check traversal.
     pub(crate) fn check_truthiness_sites(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.in_js_file(node) {
             return;
         }
         self.check_known_truthy_sites(node);
