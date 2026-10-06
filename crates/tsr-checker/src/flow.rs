@@ -6748,7 +6748,7 @@ impl Checker<'_, '_> {
     }
 
     /// `isLiteralType` (`checker.go:25393`).
-    fn is_literal_type(&self, t: TypeId) -> bool {
+    pub(crate) fn is_literal_type(&self, t: TypeId) -> bool {
         let ty = self.store.get(t);
         if ty.flags.intersects(TypeFlags::BOOLEAN) {
             return true;

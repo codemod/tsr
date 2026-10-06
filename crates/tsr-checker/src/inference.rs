@@ -4242,6 +4242,51 @@ impl<'a> Checker<'a, '_> {
         preferred.map_or(source, |(_, ty)| ty)
     }
 
+    /// createEmptyObjectTypeFromStringLiteral (inference.go:1229): an
+    /// anonymous object with one `any` property per string-literal
+    /// constituent, plus a `string` index of `{}` when the source is `string`.
+    /// A fresh mint per call, as native's `newAnonymousType`; no cache.
+    fn empty_object_type_from_string_literal(&mut self, source: TypeId) -> TypeId {
+        let parts = match &self.store.get(source).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![source],
+        };
+        let mut properties = Vec::new();
+        for part in parts {
+            let TypeData::StringLiteral(name) = &self.store.get(part).data else { continue };
+            let name = name.clone();
+            let printed_name = if crate::objects::is_identifier_text(&name) {
+                name.clone()
+            } else {
+                crate::printing::quote(&name)
+            };
+            properties.push(crate::objects::AnonymousProperty {
+                accessor_write: None,
+                method: false,
+                origin: None,
+                checked_declaration: None,
+                name,
+                printed_name,
+                printed_slot: crate::objects::PrintedSlot::on_demand(),
+                optional: false,
+                readonly: false,
+                slot: crate::objects::PropertySlot::resolved(self.intrinsics.any),
+            });
+        }
+        let indexes = if self.store.get(source).flags.intersects(crate::flags::TypeFlags::STRING) {
+            vec![crate::index_signatures::IndexInfo {
+                components: None,
+                declaration: None,
+                key: self.intrinsics.string,
+                value: self.intrinsics.empty_object,
+                readonly: false,
+            }]
+        } else {
+            Vec::new()
+        };
+        self.mint_rest_properties(properties, indexes)
+    }
+
     fn infer_from_types_within(
         &mut self,
         source: TypeId,
@@ -4380,6 +4425,46 @@ impl<'a> Checker<'a, '_> {
             // inferFromObjectTypes (internal/checker/inference.go) continues
             // structurally when the reference targets differ. Candidate
             // direction and priority resolve the resulting inferences.
+        }
+        // inferFromTypes' `keyof` arms (inference.go:234-239). `keyof S` to
+        // `keyof T` infers contravariantly between the operands; a literal or
+        // `string` source to `keyof T` infers the object whose keys it names,
+        // at LiteralKeyof priority (its contra candidates are intersected).
+        if let Some(&target_operand) = self.deferred_keyof_operands.get(&target) {
+            if let Some(&source_operand) = self.deferred_keyof_operands.get(&source) {
+                let saved = self.inference_contravariant;
+                self.inference_contravariant = !saved;
+                self.infer_from_types_within(
+                    source_operand,
+                    target_operand,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+                self.inference_contravariant = saved;
+                return;
+            }
+            if self.is_literal_type(source)
+                || self.store.get(source).flags.intersects(crate::flags::TypeFlags::STRING)
+            {
+                let empty = self.empty_object_type_from_string_literal(source);
+                let (saved_priority, saved_contravariant) =
+                    (self.inference_priority, self.inference_contravariant);
+                self.inference_priority |= InferencePriority::LITERAL_KEYOF;
+                self.inference_contravariant = !saved_contravariant;
+                self.infer_from_types_within(
+                    empty,
+                    target_operand,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+                self.inference_priority = saved_priority;
+                self.inference_contravariant = saved_contravariant;
+                return;
+            }
         }
         // Native dispatch matches references before conditional targets.
         // invokeOnce(inferToConditionalType) must precede branch reads: a
