@@ -968,6 +968,12 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         self.files[index].file_references().jsx_fragment_factory_namespace.clone()
     }
 
+    fn jsx_pragmas_present(&self, file: tsr_ast::NodeId) -> (bool, bool) {
+        let Some(&index) = self.files_by_source_file.get(&file) else { return (false, false) };
+        let references = self.files[index].file_references();
+        (references.has_jsx_pragma, references.has_jsx_frag_pragma)
+    }
+
     /// `ast.GetJSXImplicitImportBase` (`utilities.go:2771`), pragma for
     /// pragma.
     fn jsx_implicit_import_base(&self, file: tsr_ast::NodeId) -> Option<String> {

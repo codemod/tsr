@@ -751,6 +751,10 @@ pub struct Checker<'a, 'n> {
     /// The first identifier of `jsxFragmentFactory`, when that option parses
     /// as an entity name (`getJsxFragmentFactoryEntity`, `jsx.go:1431`).
     pub(crate) jsx_fragment_namespace: Option<String>,
+    /// `checkJsxFragment`'s option half (`jsx.go:114`): `Some` when the JSX
+    /// transform is enabled and `jsxFragmentFactory` is unset, carrying
+    /// whether `jsxFactory` is set.
+    pub(crate) jsx_fragment_factory_missing: Option<bool>,
     /// What JSX compiles to. TS2874 is reported **only** under
     /// [`tsr_core::JsxEmit::React`] (`checker.go:28508`). §261.
     pub(crate) jsx_emit: tsr_core::JsxEmit,
@@ -1417,6 +1421,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
             jsx_fragment_namespace: None,
+            jsx_fragment_factory_missing: None,
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
             alias_inline_level: 0,
@@ -1634,6 +1639,15 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.jsx_fragment_namespace =
             crate::jsx_factory::isolated_entity_name_root(&options.jsx_fragment_factory)
                 .map(str::to_string);
+        // `GetJSXTransformEnabled` (`compileroptions.go`): the three emits that
+        // call a factory.
+        let jsx_transform = matches!(
+            options.jsx,
+            tsr_core::JsxEmit::React | tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev
+        );
+        self.jsx_fragment_factory_missing = (jsx_transform
+            && options.jsx_fragment_factory.is_empty())
+        .then_some(!options.jsx_factory.is_empty());
 
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();

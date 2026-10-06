@@ -291,6 +291,13 @@ pub trait ModuleHost {
         None
     }
 
+    /// Whether the file has an `@jsx` pragma and an `@jsxFrag` pragma, in that
+    /// order — present at all, whether or not their factories parse
+    /// (`checkJsxFragment`, `checker/jsx.go:114`).
+    fn jsx_pragmas_present(&self, _file: NodeId) -> (bool, bool) {
+        (false, false)
+    }
+
     /// Is this file a `.d.ts`?
     ///
     /// `SourceFile.IsDeclarationFile`, which the checker reads in

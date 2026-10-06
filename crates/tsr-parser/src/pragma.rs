@@ -109,6 +109,12 @@ pub struct FileReferences {
     /// The argument of the last `@jsxRuntime` pragma (`classic` or
     /// `automatic`; `utilities.go:2774`).
     pub jsx_runtime: Option<String>,
+    /// Whether the file carries an `@jsx` pragma at all, parseable or not
+    /// (`GetPragmaFromSourceFile(file, "jsx") != nil`, `checkJsxFragment`,
+    /// `checker/jsx.go:114`).
+    pub has_jsx_pragma: bool,
+    /// Whether the file carries an `@jsxFrag` pragma at all.
+    pub has_jsx_frag_pragma: bool,
     /// Spans of `<reference />` directives naming none of `path`, `types`, or
     /// `lib`, which the parser reports as invalid syntax.
     pub invalid_reference_directives: Vec<Span>,
@@ -226,6 +232,7 @@ fn process_pragma(pragma: &Pragma, result: &mut FileReferences) {
         // (`GetPragmaFromSourceFile`, `utilities.go:2801`), and a factory that
         // `parseIsolatedEntityName` rejects leaves the file without one.
         "jsx" => {
+            result.has_jsx_pragma = true;
             if let Some((_, value, _)) = pragma.args.first() {
                 result.jsx_factory_namespace = isolated_entity_name_root(value).map(str::to_string);
             }
@@ -233,6 +240,7 @@ fn process_pragma(pragma: &Pragma, result: &mut FileReferences) {
         // `@jsxFrag <factory>` (`getJsxNamespace`'s fragment arm,
         // `checker/jsx.go:1350`): the same parse, its own field.
         "jsxfrag" => {
+            result.has_jsx_frag_pragma = true;
             if let Some((_, value, _)) = pragma.args.first() {
                 result.jsx_fragment_factory_namespace =
                     isolated_entity_name_root(value).map(str::to_string);

@@ -179,9 +179,18 @@ upstream still marks and reports `React`; there this port does neither, which
 was its behaviour before (nothing marked the factory at all). Lifting it needs
 module resolution by name from the checker, filed with the round-2 report.
 
+### `checkJsxFragment`'s TS17016/TS17017
+
+Reported from the per-node walk on the `JsxFragment` (§2's split): under a
+JSX transform, a `jsxFactory` option or `@jsx` pragma without a fragment
+factory. The pragma test is *presence* (`has_jsx_pragma`), parseable or not.
+`getJSXFragmentType`'s TS2879 is not ported: it lives inside fragment
+signature resolution, which this port does not have.
+
 ### How we would know this is wrong
 
 An EXTRA TS6133 on a JSX factory import under classic runtime, or a TS2874
 naming a different root than the baseline, is a divergence in
 `jsx_namespace_at`; an EXTRA TS6133 under `jsx: react-jsx` with an unresolved
 runtime module is the decline above.
+

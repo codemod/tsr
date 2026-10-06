@@ -183,4 +183,32 @@ impl Checker<'_, '_> {
         };
         self.report(file, diagnostic);
     }
+
+    /// `checkJsxFragment`'s factory check (`jsx.go:111-120`): under a JSX
+    /// transform, a `jsxFactory` option or an `@jsx` pragma needs a
+    /// fragment factory beside it — TS17016 when the option set the element
+    /// factory, TS17017 when the pragma did.
+    ///
+    /// Upstream reports it from the fragment's type function; this port
+    /// reports from the per-node walk, which visits each fragment once (the
+    /// same split as `check_jsx_expression`, §2).
+    pub(crate) fn check_jsx_fragment_factory(&mut self, node: NodeId, typed: Node<'_>) {
+        if !matches!(typed, Node::JsxFragment(_)) {
+            return;
+        }
+        let Some(factory_option) = self.jsx_fragment_factory_missing else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let (jsx_pragma, jsx_frag_pragma) =
+            self.module_host.map_or((false, false), |host| host.jsx_pragmas_present(file));
+        if !(factory_option || jsx_pragma) || jsx_frag_pragma {
+            return;
+        }
+        let message = if factory_option {
+            &messages::THE_JSXFRAGMENTFACTORY_COMPILER_OPTION_MUST_BE_PROVIDED_TO_USE_JSX_FRAGMENTS_WITH_THE_JSXFACTORY_COMPILER_OPTION
+        } else {
+            &messages::AN_JSXFRAG_PRAGMA_IS_REQUIRED_WHEN_USING_AN_JSX_PRAGMA_WITH_JSX_FRAGMENTS
+        };
+        let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(message, span));
+    }
 }

@@ -890,6 +890,7 @@ impl Checker<'_, '_> {
         self.check_parser_lane_statement(typed);
         self.check_jsx_intrinsic_element(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
+        self.check_jsx_fragment_factory(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
