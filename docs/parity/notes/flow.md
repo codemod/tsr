@@ -265,3 +265,34 @@ type over `ArrayLike | Iterable`), `controlFlowWithIncompleteTypes` (loop with
 constructor), `controlFlowAliasing` (aliased conditions through a destructured
 `const`), `discriminatedUnionTypes3/4`, `returnTagTypeGuard` (JSDoc `@return`
 predicate), `templateLiteralTypes3`, `typeGuardsWithInstanceOfByConstructorSignature`.
+
+## 10. TS7030: `checkAllCodePathsInNonVoidFunctionReturnOrThrow`'s last arm
+
+§6 left the `noImplicitReturns` arm unported for want of an options field.
+`Checker::no_implicit_returns` (`checker.rs`, `NoImplicitReturns == TSTrue`,
+no `strict` fallback — upstream compares with `core.TSTrue`) now carries it,
+and the arm is ported in `flow.rs::check_all_code_paths_return_or_throw`:
+an annotated type that survives the first three arms reports TS7030; an
+unannotated function reports only when its body has an explicit `return` and
+its inferred return type, unwrapped for `async`, is not `void`/`undefined`/
+any-like. An inferred type this port cannot compute is upstream's `errorType`
+(any-like), so it is silent.
+
+**One reorder.** Upstream asks `functionHasImplicitReturn` before
+`hasExplicitReturn`. Here the unannotated, no-`return` case returns first: the
+reachability query types `never`-returning calls and can re-enter the
+function's inferred return type (§6's `thisTypeInObjectLiterals2` TS7023).
+No answer changes; only which functions pay for the query.
+
+**Error node.** The return annotation, else the function's error span
+(its name, or the node's start for an anonymous function or arrow).
+`FullSignature` (a JSDoc `@type` on the function) is not modelled.
+
+**Harness gap (not owned).** `crates/tsr-conformance/src/trace_case.rs` maps
+`@noImplicitReturns` to nothing, so the corpus never turns the option on.
+Measured with that one line added locally (not committed): 24 TS7030 lines,
+0 extra, 0 losses; `noImplicitReturnsExclusions`, `noImplicitReturnsInAsync2`,
+`reachabilityChecks5/6/7` convert. `noImplicitReturnsWithoutReturnExpression`
+also needs `checkReturnStatement`'s `return;` arm (`checker.go:4123`,
+non-strict only) in `assignreport.rs::check_return_statement` — reported.
+Perf (option off on both bench projects): 1.025 / 0.993 CPU median.
