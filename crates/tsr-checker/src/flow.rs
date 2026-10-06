@@ -4031,8 +4031,7 @@ impl Checker<'_, '_> {
                     }
                 }
                 if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration
-                    || !self
-                        .is_block_scoped_name_declared_before_use(declaration, argument.node_id()?)
+                    || !self.value_use_declared_before_use(declaration, argument.node_id()?)
                 {
                     return None;
                 }

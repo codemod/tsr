@@ -6390,11 +6390,7 @@ impl Checker<'_, '_> {
     /// declaration comes first and the deferral arms
     /// ([`Checker::use_is_not_deferred`]) when it comes after — the two halves
     /// the TS2448 report already reads.
-    pub(crate) fn is_block_scoped_name_declared_before_use(
-        &self,
-        declaration: NodeId,
-        usage: NodeId,
-    ) -> bool {
+    pub(crate) fn value_use_declared_before_use(&self, declaration: NodeId, usage: NodeId) -> bool {
         if self.source_file_of_for_diagnostics(declaration)
             != self.source_file_of_for_diagnostics(usage)
         {
