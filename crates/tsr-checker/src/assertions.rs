@@ -164,7 +164,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 elements.push(element_type);
             }
-            return self.create_tuple_type(elements, true);
+            // checkArrayLiteral's readonly rule (checker.go:8087): a mutable
+            // array-like contextual type keeps the const tuple mutable.
+            let readonly =
+                !array.node_id.is_some_and(|id| self.array_literal_contextual_is_mutable(id));
+            return self.create_tuple_type(elements, readonly);
         }
         let operand_type = self.check_expression(operand);
         self.get_regular_type_of_literal_type(operand_type)

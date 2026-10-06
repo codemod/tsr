@@ -410,6 +410,10 @@ enum CallArity {
     /// `chooseOverload` infers its type arguments and checks the
     /// instantiation (`checker.go:9055`).
     ApplicableGeneric(Box<Signature>),
+    /// Several candidates, none generic, in `reorderCandidates` order; those
+    /// whose arity matched. `chooseOverload` checks each against the
+    /// arguments (`checker.go:9025`).
+    ApplicableOverloads(Vec<Signature>),
 }
 
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
@@ -575,6 +579,11 @@ impl Checker<'_, '_> {
                             self.check_call_arity(node, false);
                         }
                     }
+                    CallArity::ApplicableOverloads(candidates) => {
+                        if !self.check_overload_candidates_arguments(node, &candidates) {
+                            self.check_call_arity(node, false);
+                        }
+                    }
                     CallArity::Applicable(None) => self.check_call_arity(node, false),
                     CallArity::Undecided => {
                         self.check_call_arity(node, true);
@@ -727,6 +736,17 @@ impl Checker<'_, '_> {
             {
                 return CallArity::ApplicableGeneric(Box::new(candidate.clone()));
             }
+            if is_call
+                && type_arguments.is_empty()
+                && let Some(overloads) = self.non_generic_overload_candidates(
+                    &candidates,
+                    &effective,
+                    arguments.len(),
+                    no_argument_list,
+                )
+            {
+                return CallArity::ApplicableOverloads(overloads);
+            }
             return CallArity::Applicable(None);
         }
         let error_node = match callee.and_then(|callee| callee.node_id()) {
@@ -775,6 +795,144 @@ impl Checker<'_, '_> {
                 return;
             }
         }
+    }
+
+    /// The candidates `chooseOverload` (`checker.go:9025`) would check when
+    /// a call written without type arguments has several signatures, every
+    /// one non-generic: those passing `hasCorrectArity`, in
+    /// `reorderCandidates` (`checker.go:8958`) order.
+    ///
+    /// `reorderCandidates` keeps declaration order when every signature
+    /// shares one declaration parent and none is specialized
+    /// (`SignatureFlagsHasLiteralTypes`, set for a `LiteralType` parameter
+    /// annotation in `getSignatureFromDeclaration`); anything else is
+    /// declined, as is a `this` parameter (the `this`-argument arm of
+    /// `getSignatureApplicabilityError` is not ported) and a spread argument.
+    /// The literal test reads the parameter's type, a superset of the written
+    /// node test: it can only decline more.
+    fn non_generic_overload_candidates(
+        &mut self,
+        candidates: &[Signature],
+        effective: &[EffectiveArgument],
+        argument_count: usize,
+        no_argument_list: bool,
+    ) -> Option<Vec<Signature>> {
+        if candidates.len() < 2
+            || effective.len() != argument_count
+            || effective.iter().any(|argument| argument.spread)
+        {
+            return None;
+        }
+        let parent = self.nodes.parent(candidates[0].declaration);
+        for candidate in candidates {
+            if !candidate.type_parameters.is_empty()
+                || candidate.this_parameter.is_some()
+                || self.nodes.parent(candidate.declaration) != parent
+                || candidate.parameters.iter().any(|parameter| {
+                    self.store
+                        .get(parameter.r#type)
+                        .flags
+                        .intersects(TypeFlags::LITERAL | TypeFlags::NULL)
+                })
+            {
+                return None;
+            }
+        }
+        let mut matched = Vec::new();
+        for candidate in candidates {
+            if self.has_correct_arity(candidate, effective, no_argument_list)? {
+                matched.push(candidate.clone());
+            }
+        }
+        Some(matched)
+    }
+
+    /// `chooseOverload` (`checker.go:9025`) over several non-generic
+    /// candidates with the assignable relation, then
+    /// `reportCallResolutionErrors` (`checker.go:9649`): when no candidate is
+    /// applicable, the last failing one (`candidatesForArgumentError`'s last
+    /// entry) is re-checked with `reportErrors`. With one failing candidate
+    /// its diagnostic is reported as is (TS2345); with several, upstream
+    /// chains it under `The_last_overload_gave_the_following_error` and
+    /// `No_overload_matches_this_call` at the same location, so its head is
+    /// TS2769. This port's `Diagnostic` has no message chain or related
+    /// information yet (`tsr-2zk.22`): only the head is emitted, and the
+    /// chain and `The_last_overload_is_declared_here` are dropped.
+    ///
+    /// Arguments are read from their checked types (no new cache). Upstream
+    /// checks each argument under the candidate's parameter as contextual
+    /// type, so an argument whose type depends on it is declined: an object,
+    /// array or class literal, a context-sensitive function, and the shapes
+    /// of [`Checker::argument_type_is_not_upstreams`]. A relation this port
+    /// cannot decide also declines. Answers `false` on decline.
+    fn check_overload_candidates_arguments(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidates: &[Signature],
+    ) -> bool {
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
+            return false;
+        };
+        let arguments = call.arguments;
+        for argument in arguments {
+            let mut inner = *argument;
+            while let Expression::ParenthesizedExpression(parenthesized) = inner {
+                let Some(expression) = parenthesized.expression else { return false };
+                inner = expression;
+            }
+            if matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::ClassExpression(_)
+            ) || self.is_context_sensitive_argument(argument)
+                || self.argument_type_is_not_upstreams(*argument)
+            {
+                return false;
+            }
+        }
+        for candidate in candidates {
+            let mut applicable = true;
+            for (position, argument) in arguments.iter().enumerate() {
+                let Some(target) = self.signature_type_at_position(candidate, position) else {
+                    return false;
+                };
+                if self.is_error(target) {
+                    return false;
+                }
+                let source = self.check_expression(*argument);
+                // This port's relation over a generic source (a homomorphic
+                // mapped type over a type parameter, `Boxified<T>` against
+                // `concat`'s overloads) is not upstream's; declined, the same
+                // refusal as the signature-less callee's.
+                if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
+                    || self.head_could_contain_type_variables(source, 3)
+                {
+                    return false;
+                }
+                match self.relate_ternary(source, target, Relation::Assignable) {
+                    Ternary::Related => {}
+                    Ternary::NotRelated => {
+                        applicable = false;
+                        break;
+                    }
+                    Ternary::Unknown => return false,
+                }
+            }
+            if applicable {
+                return true;
+            }
+        }
+        let Some(last) = candidates.last() else { return false };
+        let before = self.diagnostics.len();
+        self.check_single_candidate_arguments(node, last);
+        if candidates.len() > 1 {
+            for (_, diagnostic) in &mut self.diagnostics[before..] {
+                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
+                diagnostic.args.clear();
+            }
+        }
+        true
     }
 
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
@@ -1279,7 +1437,9 @@ impl Checker<'_, '_> {
                     CallArity::Applicable(Some(signature)) => {
                         self.check_single_candidate_arguments(node, &signature);
                     }
-                    CallArity::Applicable(None) | CallArity::ApplicableGeneric(_) => {
+                    CallArity::Applicable(None)
+                    | CallArity::ApplicableGeneric(_)
+                    | CallArity::ApplicableOverloads(_) => {
                         self.check_new_arity(node, false);
                     }
                     CallArity::Undecided => {
@@ -4056,7 +4216,19 @@ impl Checker<'_, '_> {
     ) -> OverloadPass {
         let retain_context =
             candidates.iter().all(|candidate| candidate.type_parameters.is_empty());
+        // A call's array-literal argument checked under a candidate's
+        // context (`checkExpressionWithContextualType`, uncached upstream)
+        // gets its published type back unless that candidate is picked:
+        // upstream's printed type is the literal's check outside a rejected
+        // candidate's context. A `new` keeps the candidate's answer (its
+        // overloads publish it). Restored before each next candidate.
+        let is_new =
+            call.is_some_and(|call| self.nodes.kind(call) == tsr_ast::SyntaxKind::NewExpression);
+        let mut published: Vec<(tsr_ast::NodeId, TypeId)> = Vec::new();
         'candidate: for candidate in candidates {
+            for &(id, ty) in &published {
+                self.node_types.insert(id, ty);
+            }
             if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
@@ -4112,16 +4284,18 @@ impl Checker<'_, '_> {
                 // inferTypeArguments re-checks every argument with this
                 // candidate's parameter type as context; an array literal's
                 // tuple-ness depends on it, so a previous candidate's (or the
-                // context-free) answer must not be reused.
-                if call
-                    .is_some_and(|call| self.nodes.kind(call) == tsr_ast::SyntaxKind::NewExpression)
-                {
-                    for argument in arguments {
-                        if matches!(argument, Expression::ArrayLiteralExpression(_))
-                            && let Some(id) = argument.node_id()
-                        {
-                            self.evict_subtree(id);
-                        }
+                // context-free) answer must not be reused. On a call this is
+                // done for an empty literal only: re-checking elements under a
+                // candidate's context re-enters their own calls' resolution,
+                // whose published answers this walk does not undo
+                // (`tupleTypeInference`'s `[$q.when<string>(), ...]`).
+                for argument in arguments {
+                    if let Expression::ArrayLiteralExpression(literal) = argument
+                        && (is_new || literal.elements.is_empty())
+                        && let Some(id) = argument.node_id()
+                    {
+                        self.publish_array_argument(is_new, id, &mut published);
+                        self.evict_subtree(id);
                     }
                 }
                 let mut instantiated = None;
@@ -4243,6 +4417,12 @@ impl Checker<'_, '_> {
                             continue;
                         }
                         if let Some(id) = argument.node_id() {
+                            if !retain_context
+                                && matches!(argument, Expression::ArrayLiteralExpression(literal)
+                                    if literal.elements.is_empty())
+                            {
+                                self.publish_array_argument(is_new, id, &mut published);
+                            }
                             self.evict_subtree(id);
                         }
                         let checked = self.check_expression(*argument);
@@ -4286,10 +4466,42 @@ impl Checker<'_, '_> {
             match verdict {
                 Ternary::Unknown => return OverloadPass::Undecidable,
                 Ternary::NotRelated => {}
-                Ternary::Related => return OverloadPass::Picked(Box::new(concrete)),
+                Ternary::Related => {
+                    // A literal the picked instantiation did not re-check
+                    // under its own context keeps its published type, not
+                    // inference's context.
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if !contextual_arguments[index]
+                            && let Some(id) = argument.node_id()
+                            && let Some(&(_, ty)) = published.iter().find(|&&(seen, _)| seen == id)
+                        {
+                            self.node_types.insert(id, ty);
+                        }
+                    }
+                    return OverloadPass::Picked(Box::new(concrete));
+                }
             }
         }
+        for (id, ty) in published {
+            self.node_types.insert(id, ty);
+        }
         OverloadPass::AllRejected
+    }
+
+    /// Records an array-literal argument's published type, once per walk,
+    /// for [`Checker::overload_pass`]'s restore.
+    fn publish_array_argument(
+        &self,
+        is_new: bool,
+        id: tsr_ast::NodeId,
+        published: &mut Vec<(tsr_ast::NodeId, TypeId)>,
+    ) {
+        if !is_new
+            && !published.iter().any(|&(seen, _)| seen == id)
+            && let Some(&ty) = self.node_types.get(&id)
+        {
+            published.push((id, ty));
+        }
     }
 }
 
