@@ -292,3 +292,23 @@ refusal existed.
 site through a producer that still answers the plain type where upstream
 answers the twin (or the reverse) would show up as `{ p: null }` vs
 `{ p: any }` disagreement on a declaration line; the fix is that producer.
+
+## 8. Where `ContextualSignature::Absent` still disagrees with tsgo (round 3, measured, not fixed)
+
+The implicit-any lane does not trust `Absent` (implicit-any-widening.md §3:
+trusting it lost twelve cases in round 2). Re-measured on `ad012b1` by
+locally letting `contextual_parameter_type_is_absent` answer `true` for
+`Absent` (not committed): **only three cases lose now**, and four convert
+(`jsxFragmentFactoryNoUnusedLocals`, `uncalledFunctionChecksInConditional2`,
+`tsxReactEmitNesting`, `typeSatisfaction_contextualTyping2` WRONG→RIGHT).
+The three, with what the contextual type was when `Absent` was answered:
+
+| case | TSR context | cause | owner |
+|---|---|---|---|
+| `contextuallyTypedByDiscriminableUnion` (29,12) | the undiscriminated `ADT` union, two different `method` signatures | the literal discriminates by a **shorthand** `kind`; `discriminateContextualTypeByObjectMembers` (`checker.go:30755`) admits `ShorthandPropertyAssignment` and any `isPossiblyDiscriminantValue` initializer, `discriminate_union_root` only literal initializers of `PropertyAssignment` | `symbols.rs` |
+| `ipromise4` (14,58) | `any` | the second `.then` callback's context is `any`: the receiver chain `p.then(...)` is answered as untyped/error, where tsgo resolves `IPromise<string>.then` | calls lane (overload resolution / `tsr-2zk.31` producer) |
+| `parserArgumentList1` (2,81…) | `string` | `replace(_classNameRegexp(…), function …)` with an unresolved first argument: TSR picks the `replaceValue: string` overload, tsgo the replacer-function overload | calls lane (`chooseOverload`) |
+
+Not a `crate::contextual` defect in any of the three rows, so nothing is
+changed here. When those land, admitting `Absent` in `implicit_any.rs`
+should be +4 cases with no losses — the falsifier for this table.
