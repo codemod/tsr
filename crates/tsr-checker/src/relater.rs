@@ -3572,10 +3572,36 @@ impl Relater<'_, '_, '_> {
             // `None` still means *no such property* — a property that exists
             // and does not type answers `Some(errorType)` — so the existence
             // test below is unchanged.
-            let (Some(target_type), Some(source_type)) = (
-                self.checker.get_type_of_property_of_type(target, &name),
-                self.checker.get_type_of_property_of_type(source, &name),
-            ) else {
+            let target_type = self.checker.get_type_of_property_of_type(target, &name);
+            // isPropertySymbolTypeRelated (relater.go:4334) relates an `any`
+            // target property (outside the strict subtype relation also an
+            // `unknown` one) before it reads the source property's type, so
+            // an existing source member is not resolved for it. Existence is
+            // the source's named members, as getPropertyOfObjectType answers.
+            let type_related_unread = target_type.is_some_and(|target_type| {
+                let target_type = if self.checker.exact_optional_property_types {
+                    self.checker.remove_missing_type(target_type)
+                } else {
+                    target_type
+                };
+                let top = if self.relation == Relation::StrictSubtype {
+                    TypeFlags::ANY
+                } else {
+                    TypeFlags::ANY_OR_UNKNOWN
+                };
+                self.checker.store.get(target_type).flags.intersects(top)
+            }) && intersection_names
+                .clone()
+                .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
+                .is_some_and(|names| names.contains(&name));
+            // An unread source member stands in as the target's type; the
+            // type comparison below answers Related without relating it.
+            let source_type = if type_related_unread {
+                target_type
+            } else {
+                self.checker.get_type_of_property_of_type(source, &name)
+            };
+            let (Some(target_type), Some(source_type)) = (target_type, source_type) else {
                 // Row 2 of `checker-notes-assign.md` §2, half-answered by §15:
                 // a target property with no source counterpart is fine when
                 // the target property is OPTIONAL — under assignability
@@ -3725,7 +3751,11 @@ impl Relater<'_, '_, '_> {
             // resolved member types, including parameters and their constraints.
             // get_type_of_property_of_type has already applied receiver maps;
             // a surviving parameter can be the intended semantic member type.
-            parts.push(self.is_related_to(source_type, target_type));
+            parts.push(if type_related_unread {
+                RelationResult::Related
+            } else {
+                self.is_related_to(source_type, target_type)
+            });
         }
         RelationResult::all(parts)
     }

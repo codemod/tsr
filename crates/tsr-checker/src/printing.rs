@@ -214,6 +214,70 @@ impl Checker<'_, '_> {
         reference: tsr_ast::NodeId,
         visit_identity: bool,
     ) -> Option<String> {
+        self.certified_object_literal_text_at(id, reference, visit_identity)
+            .or_else(|| self.deferred_accessor_text_at(id, reference))
+    }
+
+    /// An object-literal image whose member plan the certified renderer
+    /// declines still carries the placeholder an on-demand accessor slot baked
+    /// at the mint (`DEFERRED_ACCESSOR_TEXT`). Native serializes that member
+    /// from the accessor symbol's type (createTypeNodesFromResolvedType), so
+    /// the baked plan is kept and only those slots are printed from the type
+    /// read here. While a variable enclosing the literal is still resolving,
+    /// that read is the re-entry native never makes: keep the baked text.
+    fn deferred_accessor_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let properties = &self.anonymous_properties.get(&id)?.0;
+        if !properties.iter().any(crate::objects::AnonymousProperty::reads_on_demand) {
+            return None;
+        }
+        let deferred: Vec<_> =
+            properties.iter().filter(|property| property.reads_on_demand()).cloned().collect();
+        // createAnonymousTypeNode's visited check: re-entry elides to `any`.
+        if self.rendering_composites.contains(&id) {
+            return Some("any".to_string());
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        if self
+            .binder
+            .symbols()
+            .get(owner)
+            .declarations
+            .iter()
+            .any(|&declaration| self.enclosing_variable_resolving(declaration))
+        {
+            return None;
+        }
+        let mut members = self.object_literal_members.get(&id)?.clone();
+        self.rendering_composites.insert(id);
+        let result = deferred.iter().try_for_each(|property| {
+            let Some(crate::objects::Member::Property { printed, .. }) =
+                members.iter_mut().find(|member| {
+                    matches!(member, crate::objects::Member::Property { name, .. }
+                        if *name == property.printed_name)
+                })
+            else {
+                return Some(());
+            };
+            let property_type = self.property_type(property);
+            *printed = self.type_to_string_at(property_type, reference)?;
+            Some(())
+        });
+        self.rendering_composites.remove(&id);
+        result.map(|()| crate::objects::render_object_type(&members))
+    }
+
+    fn certified_object_literal_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+        visit_identity: bool,
+    ) -> Option<String> {
         let mut source = id;
         while !self.fresh_object_literal_types.contains(&source) {
             // Widening's temporary source -> source entry is not completion.
@@ -246,15 +310,8 @@ impl Checker<'_, '_> {
         // variable's value. Node building is not part of member collection;
         // demanding a captured return here would fail that variable's type
         // resolution before normal publication. Decline without forcing it.
-        let mut parent = self.nodes.parent(*declaration);
-        while let Some(node) = parent {
-            if self.nodes.kind(node) == tsr_ast::SyntaxKind::VariableDeclaration
-                && let Some(symbol) = self.binder.symbol_of(node)
-                && self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
-            {
-                return None;
-            }
-            parent = self.nodes.parent(node);
+        if self.enclosing_variable_resolving(*declaration) {
+            return None;
         }
         if !self.object_literal_index_infos.get(&source)?.is_empty()
             // Widening omits an empty index table. Its completed transfer
@@ -278,6 +335,17 @@ impl Checker<'_, '_> {
             .iter_mut()
             .zip(properties)
             .try_for_each(|(member, property)| {
+                // An on-demand accessor slot baked a placeholder at the mint
+                // (`DEFERRED_ACCESSOR_TEXT`); native serializes the accessor
+                // symbol's type read here (createTypeNodesFromResolvedType).
+                if property.reads_on_demand() {
+                    let crate::objects::Member::Property { printed, .. } = member else {
+                        return None;
+                    };
+                    let property_type = self.property_type(&property);
+                    *printed = self.type_to_string_at(property_type, reference)?;
+                    return Some(());
+                }
                 // Method/accessor overrides retain their producer's display.
                 // Only original property assignments and shorthand slots are
                 // admitted to the dynamic property serializer below.

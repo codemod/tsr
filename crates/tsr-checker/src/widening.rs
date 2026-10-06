@@ -360,6 +360,13 @@ impl Checker<'_, '_> {
             if matches!(property.member, Member::Signature { .. }) {
                 continue;
             }
+            // getWidenedProperty (checker.go:18432) returns a non-Property
+            // symbol unchanged: an accessor's type is its getter's already
+            // widened return. An on-demand accessor slot is such a symbol of
+            // this literal; it stays unread rather than forced by widening.
+            if property.property.reads_on_demand() {
+                continue;
+            }
             let child = context
                 .map(|index| self.child_widening_context(index, &property.property.name, contexts));
             let property_type = self.property_type(&property.property);

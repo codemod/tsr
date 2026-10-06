@@ -419,7 +419,7 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go:20118`). Reading `node.r#type` for both would silently
     /// answer `None` for every setter, since a setter's own `r#type` slot is
     /// only ever filled by a grammar error.
-    fn accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+    pub(crate) fn accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         match self.node_map.get(declaration)? {
             Node::GetAccessorDeclaration(node) => node.r#type,
             Node::SetAccessorDeclaration(node) => node.parameters.first()?.r#type,
