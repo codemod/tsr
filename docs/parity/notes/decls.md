@@ -274,3 +274,18 @@ assignability, which cannot separate `f(x: any): any` from `f<T>(x: T): T`
 member types are declarations' written types, the kind §2 trusts
 structurally. Measured: `genericAndNonGenericInheritedSignature1` and `2`
 converted, no loss.
+
+## §7a TS2813/TS2814 now come from `crate::class_function_merge` (integration)
+
+At the merge with `main` (2026-10-05), two ports of
+`checkFunctionOrConstructorSymbolWorker`'s class-merge arm met: this lane's,
+inside `check_function_or_constructor_symbol`, and main's standalone
+`class_function_merge.rs`. Both reporting doubled every TS2813/TS2814. This
+lane's arm sat behind the worker's single-file bound and was reached only from
+function-like declarations, so it missed a class and a function merged across
+files (`duplicateIdentifiersAcrossFileBoundaries`); main's runs from both
+declaration kinds with a per-declaration ambient test. The integration kept
+main's module as the only port and removed this lane's arm; every case either
+side had RIGHT (`callOverloads1`–`5`, `classOverloadForFunction(2)`,
+`funClodule`, `augmentedTypes*`, `nameCollisions`,
+`duplicateIdentifiersAcross*Boundaries`, `staticClassMemberError`) is RIGHT.

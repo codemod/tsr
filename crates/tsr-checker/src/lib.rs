@@ -111,6 +111,7 @@ pub mod calls;
 pub mod check;
 pub mod checker;
 mod circular_alias;
+mod class_function_merge;
 pub mod comparison_overlap;
 pub mod computed_name;
 mod const_inference;

@@ -254,6 +254,7 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(declaration) => {
                 self.check_exports_on_merged_declarations(node);
+                self.check_class_function_merge(node);
                 self.check_super_call_is_first(node);
                 self.check_derived_constructor_calls_super(node);
                 self.check_static_side_assignability(node);
@@ -320,6 +321,7 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
+                self.check_class_function_merge(node);
                 self.check_function_or_constructor_symbol(node, ambient);
                 self.check_overload_ambient_agreement(node);
                 let ambient =
@@ -12933,15 +12935,9 @@ impl Checker<'_, '_> {
             return;
         }
 
-        // `hasNonAmbientClass` (`checker.go:3606`): a class declaration outside
-        // an ambient context among the symbol's declarations. Class
-        // declarations are not function-like, so the walk below skips them;
-        // the arm after it reports TS2813/TS2814. `docs/parity/notes/decls.md`
-        // §7.
-        let has_non_ambient_class = declarations.iter().any(|&declaration| {
-            self.nodes.kind(declaration) == SyntaxKind::ClassDeclaration
-                && !self.is_in_ambient_context_for_overloads(declaration)
-        });
+        // `hasNonAmbientClass`'s TS2813/TS2814 arm (`checker.go:3660`) is
+        // `crate::class_function_merge`, run from the class and function
+        // declarations themselves so a symbol merged across files is covered.
         if declarations
             .iter()
             .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ClassExpression)
@@ -13032,32 +13028,6 @@ impl Checker<'_, '_> {
                     file,
                     Diagnostic::new(&messages::DUPLICATE_FUNCTION_IMPLEMENTATION, span),
                 );
-            }
-        }
-        // `checker.go:3660-3678`: a function merged with a non-ambient class
-        // reports on every class (TS2813) and every function declaration
-        // (TS2814), each at its name. The related "Consider adding a
-        // `declare` modifier" chain is not carried (`Diagnostic` has no
-        // related information).
-        if has_non_ambient_class
-            && !is_constructor
-            && let Some(symbol) = self.binder.symbol_of(node).map(|s| self.binder.merged_symbol(s))
-            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::FUNCTION)
-        {
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            for &declaration in &declarations {
-                let message = match self.nodes.kind(declaration) {
-                    SyntaxKind::ClassDeclaration => {
-                        &messages::CLASS_DECLARATION_CANNOT_IMPLEMENT_OVERLOAD_LIST_FOR_0
-                    }
-                    SyntaxKind::FunctionDeclaration => {
-                        &messages::FUNCTION_WITH_BODIES_CAN_ONLY_MERGE_WITH_CLASSES_THAT_ARE_AMBIENT
-                    }
-                    _ => continue,
-                };
-                let at = self.declaration_name_of(declaration).unwrap_or(declaration);
-                let span = self.error_span(at);
-                self.report(file, Diagnostic::with_args(message, span, [name.clone()]));
             }
         }
         // "Abstract methods can't have an implementation -- in particular, they
