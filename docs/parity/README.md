@@ -47,12 +47,27 @@ judged RIGHT cases only, EMPTY cases are excluded by the suite):
 | relate-6 (local) `2396df9b` | 7,679 | 3,971 | 1.15 |
 | contextual (local) `0a5d310d` | 7,679 | 3,981 | 0.82 |
 | types-writer-2 (local) `e5f61737` | 7,720 | 3,982 | 1.17 |
-| property-3 (local) `0fbc6228` | 7,720 (80.94%) | 3,998 (72.85%) | 1.13 |
+| property-3 (local) `0fbc6228` | 7,720 | 3,998 | 1.13 |
+| contextual-2 prerequisites + PR #5 (other integrator) `48e300a4` | 7,928 | 4,160 | 1.15 |
+| types-writer-4 (local) `abbaa1d9` | 7,928 | 4,163 | 1.13 |
+| property-4 (local) `e528e745` | 7,928 | 4,171 | 1.16 |
+| contextual-3 (local) `ab7f56ce` | 7,930 | 4,173 | 1.15 |
+| laziness (local) `d417a8c9` | 7,931 | 4,173 | 1.18 |
+| decls (local) `43576bf1` | 7,931 | 4,194 | 1.18 |
+| types-misc (local) `50dfae18` | 7,941 | 4,195 | 1.11 |
+| laziness-2 (local) `ea1306d3` | 7,944 | 4,195 | 1.24 |
+| types-misc-2 (local) `6ccb0d0f` | 7,983 | 4,197 | 1.21 |
+| calls-7 (local) `4497370d` | 7,988 (83.75%) | 4,203 (76.39%) | 1.23 |
+
+Held from merge: node-reuse (`local/node-reuse-2`, +42 types cases, 348
+WRONG→RIGHT lines, zero losses) because A/B child CPU read 1.025 / 1.036
+(31 samples) — a hot-path slowdown; its owner is moving the reuse work to
+print time.
 
 From `b201a70b` on, each merge is also gated on interleaved A/B child CPU of
 the previous `main` binary against the merged one on
 `benches/projects/domain-model-large` (15 rounds, diagnostics identical); every
-merge above read between 0.992 and 1.014.
+merge above read between 0.95 and 1.014.
 
 From 2026-10-05 ~09:45 PDT the Box service stopped answering (`Not connected`;
 new machines did not start), so lanes continued as local workers. Smoke ratios
