@@ -275,7 +275,10 @@ mod tests {
             ("(value: any) => 1 as any", false, false, None),
             ("<T>(...args: any[]) => 1 as any", false, false, None),
             ("function(this: number, ...args: any[]) { return 1 as any; }", false, false, None),
-            ("function*(...args: any[]) { yield* []; }", false, true, None),
+            // No `Generator`/`IterableIterator` global in this fixture:
+            // `createGeneratorType` answers `emptyObjectType`
+            // (`checker.go:20442-20447`).
+            ("function*(...args: any[]) { yield* []; }", false, true, Some("{}")),
         ] {
             let source = format!(
                 "interface Array<T> {{ [index: number]: T; }} const object = {{ f: {initializer} }};"
