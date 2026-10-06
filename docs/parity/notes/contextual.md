@@ -66,7 +66,28 @@ case mixes a method with a differently spelled property of the same name.
 Converted: `duplicateObjectLiteralProperty_computedName1`,
 `binaryIntegerLiteralError`, `octalIntegerLiteralError` (8 lines).
 
-## 3. `this` of an uncontextualised object literal — not landed
+## 3. A method name is classified, not copied
+
+`classifyPropertyName` (`nodebuilderimpl.go:2384`) makes a **method** named
+`new` a string literal (`{ new(x) {} }` would re-parse as a construct
+signature) and any name that is not identifier text a string literal too. The
+object-literal method arms copied the spelled name, with a `new` check only on
+the identifier route, so `{ ["new"](x) {} }` printed `new(x: number)` and the
+parser-recovery empty name of `{ *() {} }` printed as a call signature
+`(): Generator<…>`.
+
+`classified_method_name` applies the rule to the name both arms have already
+spelled. That spelling has quoted every non-identifier string and normalised
+every number, so the only non-identifier text left to classify is the empty
+name. Not changed (not this lane's files): the type-literal method signature
+in `declared.rs` (`vardecl`, `parser645484` print `new?(): any`), and the
+empty-named method symbol's own type in `symbols.rs`
+(EMPTY-NAMED-FUNCTION-SYMBOL-TYPE, the remaining line of
+`FunctionPropertyAssignments{2,3,6}_es6`).
+
+Converted: `emitMethodCalledNew`; 6 lines of `FunctionPropertyAssignments{2,3,6}_es6`.
+
+## 4. `this` of an uncontextualised object literal — not landed
 
 `getContextualThisParameterType`'s object-literal arm (`checker.go:12049`)
 answers `getWidenedType(checkExpressionCached(literal))` when the containing

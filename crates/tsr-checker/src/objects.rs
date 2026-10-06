@@ -1068,7 +1068,8 @@ impl Checker<'_, '_> {
                                 };
                                 if unique {
                                     let printed = format!(
-                                        "{name}{}",
+                                        "{}{}",
+                                        classified_method_name(&name),
                                         signature_member_text(self, &signature)
                                     );
                                     upsert_member(&mut members, Member::Method { name, printed });
@@ -1166,11 +1167,7 @@ impl Checker<'_, '_> {
                         Some(reference) => self.signature_member_text_at(&signature, reference),
                         None => signature_member_text(self, &signature),
                     };
-                    let printed = if name == "new" {
-                        format!("\"new\"{member_text}")
-                    } else {
-                        format!("{name}{member_text}")
-                    };
+                    let printed = format!("{}{member_text}", classified_method_name(name));
                     upsert_member(&mut members, Member::Method { name: name.to_owned(), printed });
                     capture_complete &= self.capture_checked_object_member(
                         property,
@@ -1757,7 +1754,7 @@ impl Checker<'_, '_> {
             // Upsert prevents duplicate members while collecting the literal.
             // Final ordering uses surviving declaration provenance below:
             // `{ ...{ a: 1, b: 2 }, a: "x" }` prints `{ b: number; a: string; }`.
-            let printed = match (const_context, &value) {
+let printed = match (const_context, &value) {
                 // SS109: the carried shape is DIRECTLY a single-quoted
                 // string literal - it prints single-quoted inside the
                 // object type while its standalone line stays double
@@ -2487,6 +2484,19 @@ fn upsert_member(members: &mut Vec<Member>, member: Member) {
         return;
     }
     members.push(member);
+}
+
+/// `classifyPropertyName` (`nodebuilderimpl.go:2384`) for a method name this
+/// producer has already spelled: a method named `new` is a string literal (it
+/// would re-parse as a construct signature), and so is a name that is not
+/// identifier text — here only the parser-recovery empty name of `{ *() {} }`,
+/// since every other spelling arrives quoted or numeric already.
+fn classified_method_name(spelled: &str) -> &str {
+    match spelled {
+        "new" => "\"new\"",
+        "" => "\"\"",
+        other => other,
+    }
 }
 
 /// Replace the named member `previous` (a different spelling of the same
