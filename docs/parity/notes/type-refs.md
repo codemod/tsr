@@ -150,3 +150,49 @@ this point, so the key is a single type and identity is the right test.
 Measured: +6 lines, 4 cases (`duplicateNumericIndexers`,
 `duplicateStringIndexers`, `multipleNumericIndexers`, `multipleStringIndexers`),
 0 losses in either dump. No new cache or side table.
+
+### 2.2 First ADR-0045 slice: alias-free generic bodies declare their body
+
+ADR-0045 rule 4 (the declared type is the body as built, the alias lands only
+through an alias-accepting constructor) applied to the three body kinds whose
+upstream constructors never receive `getAliasForTypeNode`: a template literal
+(`getTypeFromTemplateTypeNode`), `keyof X` (`getTypeFromTypeOperatorNode`) and
+a type query. `get_declared_type_of_type_alias` answers the resolved body for
+those instead of the `Name<Params>` mint; a body this port cannot resolve
+(`typeof g<V>`, an instantiation expression) keeps the mint. Measured: +27
+lines, 1 case (`templateLiteralTypes8`), 0 losses. References are unchanged:
+`instantiate_template_alias` already evaluated template bodies, and `keyof`
+references keep their `create_type_reference` road (`K<{ a: 1 }>` still
+prints the reference where upstream prints `"a"` — the instantiation half,
+rule 3, is not built).
+
+No new table: this changes the value stored in the existing `declared_types`
+owner, under the existing `resolutions` frame.
+
+### 2.3 Held, measured, blocked on two annotation-reuse sites outside this lane
+
+Two more slices are built and measured but NOT committed, because each moves a
+signature print that upstream produces by reusing the written annotation
+(`serializeTypeForDeclaration`), at a site this box does not own:
+
+- **Duplicate property signatures merge** (`tsr-2zk.16.54`): `declareSymbolEx`
+  merges same-named property signatures, so `{ a: string; a: string; }`
+  prints `{ a: string; }` everywhere except a reused annotation.
+  `checkTypePredicateForRedundantProperties` (a passing case) wants the
+  written `x is { a: string; a: string; }`. Needs `signatures.rs`
+  `type_predicate_from_node` to read `qualified_written_text` for ANY
+  annotation node, not only `TypeReferenceNode`.
+- **Type-parameter body instantiation** (`instantiateTypeWithAlias` over a
+  type parameter returns the image): `type Id<T> = T; type X = Id<string>`
+  is `string`. `divergentAccessorsTypes6` (passing) wants
+  `set x(value: Fail<string>)`. Needs `objects.rs`'s divergent-setter print
+  to use `written_annotation_text(annotation)` before `type_to_string`.
+
+With both one-line changes applied (measured together with 2.1/2.2's
+predecessor): 18 cases, +43 lines, 0 losses — the held slices add
+`conditionalTypeAnyUnion`, `divergentAccessorsTypes6`, `propertySignatures`,
+`duplicatePropertiesInTypeAssertions01/02`, `duplicatePropertyNames`,
+`numericNamedPropertyDuplicates`, `stringNamedPropertyDuplicates`,
+`objectTypeWithDuplicateNumericProperty`, `unknownType2`,
+`intersectionApparentTypeCaching`, `inferTypeParameterConstraints`,
+`relatedViaDiscriminatedTypeNoError2`, `importClause_namespaceImport`.

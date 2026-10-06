@@ -6590,6 +6590,27 @@ impl<'a> Checker<'a, '_> {
                     return structural;
                 }
             }
+            // getDeclaredTypeOfTypeAlias (checker.go:23837) declares the body
+            // type AS BUILT, and the alias lands only through a constructor
+            // that receives `getAliasForTypeNode` (ADR-0045). A template
+            // literal (getTypeFromTemplateTypeNode), a `keyof` operator
+            // (getTypeFromTypeOperatorNode) and a type query never receive
+            // one, so `type Stringify<T extends string> = \`${T}\`` records
+            // `>Stringify : \`${T}\`` and `type KeyOf<T> = keyof T` records
+            // `>KeyOf : keyof T` (`templateLiteralTypes8`). A body this port
+            // cannot resolve keeps the name mint below.
+            if let Some(body) = self.alias_free_generic_alias_body(symbol) {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(body);
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+                if resolved != error {
+                    return resolved;
+                }
+            }
             // A homomorphic mapping that normalizes to an array or tuple
             // creates the normalized type without the enclosing alias identity
             // (instantiateMappedType -> createNormalizedTupleType, checker.go).
@@ -6698,6 +6719,29 @@ impl<'a> Checker<'a, '_> {
             ),
         );
         error
+    }
+
+    /// A generic alias body whose type constructor never takes an alias
+    /// symbol: a template literal, `keyof X`, or `typeof x` (parentheses
+    /// transparent). The declared type of such an alias is the body itself.
+    fn alias_free_generic_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let mut body = alias.r#type?;
+        while let TypeNode::ParenthesizedTypeNode(inner) = body {
+            body = inner.r#type?;
+        }
+        match body {
+            TypeNode::TemplateLiteralTypeNode(_) | TypeNode::TypeQueryNode(_) => Some(body),
+            TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == SyntaxKind::KeyOfKeyword =>
+            {
+                Some(body)
+            }
+            _ => None,
+        }
     }
 
     /// The original, unmapped keyword body of one uniquely bound TS alias.
