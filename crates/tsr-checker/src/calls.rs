@@ -4216,7 +4216,19 @@ impl Checker<'_, '_> {
     ) -> OverloadPass {
         let retain_context =
             candidates.iter().all(|candidate| candidate.type_parameters.is_empty());
+        // A call's array-literal argument checked under a candidate's
+        // context (`checkExpressionWithContextualType`, uncached upstream)
+        // gets its published type back unless that candidate is picked:
+        // upstream's printed type is the literal's check outside a rejected
+        // candidate's context. A `new` keeps the candidate's answer (its
+        // overloads publish it). Restored before each next candidate.
+        let is_new =
+            call.is_some_and(|call| self.nodes.kind(call) == tsr_ast::SyntaxKind::NewExpression);
+        let mut published: Vec<(tsr_ast::NodeId, TypeId)> = Vec::new();
         'candidate: for candidate in candidates {
+            for &(id, ty) in &published {
+                self.node_types.insert(id, ty);
+            }
             if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
@@ -4272,16 +4284,18 @@ impl Checker<'_, '_> {
                 // inferTypeArguments re-checks every argument with this
                 // candidate's parameter type as context; an array literal's
                 // tuple-ness depends on it, so a previous candidate's (or the
-                // context-free) answer must not be reused.
-                if call
-                    .is_some_and(|call| self.nodes.kind(call) == tsr_ast::SyntaxKind::NewExpression)
-                {
-                    for argument in arguments {
-                        if matches!(argument, Expression::ArrayLiteralExpression(_))
-                            && let Some(id) = argument.node_id()
-                        {
-                            self.evict_subtree(id);
-                        }
+                // context-free) answer must not be reused. On a call this is
+                // done for an empty literal only: re-checking elements under a
+                // candidate's context re-enters their own calls' resolution,
+                // whose published answers this walk does not undo
+                // (`tupleTypeInference`'s `[$q.when<string>(), ...]`).
+                for argument in arguments {
+                    if let Expression::ArrayLiteralExpression(literal) = argument
+                        && (is_new || literal.elements.is_empty())
+                        && let Some(id) = argument.node_id()
+                    {
+                        self.publish_array_argument(is_new, id, &mut published);
+                        self.evict_subtree(id);
                     }
                 }
                 let mut instantiated = None;
@@ -4403,6 +4417,12 @@ impl Checker<'_, '_> {
                             continue;
                         }
                         if let Some(id) = argument.node_id() {
+                            if !retain_context
+                                && matches!(argument, Expression::ArrayLiteralExpression(literal)
+                                    if literal.elements.is_empty())
+                            {
+                                self.publish_array_argument(is_new, id, &mut published);
+                            }
                             self.evict_subtree(id);
                         }
                         let checked = self.check_expression(*argument);
@@ -4446,10 +4466,42 @@ impl Checker<'_, '_> {
             match verdict {
                 Ternary::Unknown => return OverloadPass::Undecidable,
                 Ternary::NotRelated => {}
-                Ternary::Related => return OverloadPass::Picked(Box::new(concrete)),
+                Ternary::Related => {
+                    // A literal the picked instantiation did not re-check
+                    // under its own context keeps its published type, not
+                    // inference's context.
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if !contextual_arguments[index]
+                            && let Some(id) = argument.node_id()
+                            && let Some(&(_, ty)) = published.iter().find(|&&(seen, _)| seen == id)
+                        {
+                            self.node_types.insert(id, ty);
+                        }
+                    }
+                    return OverloadPass::Picked(Box::new(concrete));
+                }
             }
         }
+        for (id, ty) in published {
+            self.node_types.insert(id, ty);
+        }
         OverloadPass::AllRejected
+    }
+
+    /// Records an array-literal argument's published type, once per walk,
+    /// for [`Checker::overload_pass`]'s restore.
+    fn publish_array_argument(
+        &self,
+        is_new: bool,
+        id: tsr_ast::NodeId,
+        published: &mut Vec<(tsr_ast::NodeId, TypeId)>,
+    ) {
+        if !is_new
+            && !published.iter().any(|&(seen, _)| seen == id)
+            && let Some(&ty) = self.node_types.get(&id)
+        {
+            published.push((id, ty));
+        }
     }
 }
 
