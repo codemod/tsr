@@ -1597,7 +1597,7 @@ impl Checker<'_, '_> {
     }
 
     /// `isUntypedFunctionCall` (`checker.go:9933`), the signature-less arm: no
-    /// call or construct signatures, not a union, not `never`, and assignable
+    /// call or construct signatures, not a union, not reducing to `never`, and assignable
     /// to the global `Function`. `None` when that relation is undecidable.
     fn is_untyped_signatureless_call(
         &mut self,
@@ -1606,9 +1606,12 @@ impl Checker<'_, '_> {
         call_count: usize,
         construct_count: usize,
     ) -> Option<bool> {
+        // `getReducedType(apparentFuncType).flags&TypeFlagsNever`: an
+        // intersection with a never-reduced discriminant is `never` here.
         if call_count != 0
             || construct_count != 0
             || self.store.get(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
+            || self.intersection_has_never_discriminant(apparent)
         {
             return Some(false);
         }
