@@ -122,3 +122,41 @@ method signature's name, are declarations, so the scan skips them. Computed
 property names and nested patterns are still scanned (they can hold real
 references). Remaining approximation: any other same-text identifier in the
 signature (e.g. a type reference named like the binding) still suppresses.
+
+## §9 TS2777–TS2781: optional-chain reference targets
+
+`checkReferenceExpression` (`checker.go:13130`) has two arms over
+`SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`: a non-reference
+reports the caller's "must be a variable" message, an access carrying
+`NodeFlagsOptionalChain` the caller's "may not be an optional property access"
+message, both at the unskipped `expr`.
+
+**Forcing constraint.** §181 of `docs/architecture/checker-notes-diag2.md` ported only the first arm and
+declined whenever a syntactic `?.` walk found a chain, because the parser did
+not then set `NodeFlags::OPTIONAL_CHAIN`. It has since §748 of
+`docs/architecture/checker-notes-callres.md`. The walk differed
+from the flag through parentheses: `(a?.b).c = 1` is a plain access upstream
+(the parenthesis ends the chain) but declined here.
+
+**What was ported.** The second arm over the flag, at every caller:
+assignment and compound assignment (TS2779) and `++`/`--` (TS2777) in
+`check_reference_expression`; `for...in` (TS2780) inside
+`check_for_in_variable_type`, because upstream runs it only in the `else` of
+the TS2405 type test, so it sits exactly where that test passes; `for...of`
+(both arms, TS2487/TS2781) and destructuring-assignment leaf targets
+(`checkReferenceAssignment`, `checker.go:12703`: TS2364/TS2779, and
+TS2701/TS2778 under an object rest) in `reference_target.rs`. `delete` keeps
+no optional arm (`checkDeleteExpression` has none; `delete a?.b` is legal).
+
+**Duplicate avoidance.** Upstream's `checkDestructuringAssignment` first runs
+`checkBinaryExpression` on a `target = default`, which checks the same left
+side again, and the diagnostic collection drops the repeat. This port's
+traversal visits that nested `=` as its own node, so the destructuring walk
+skips such targets instead of reporting twice. The rest-element arms mirror
+upstream's early returns: a rest that is not last (TS2462) and an array rest
+with an initializer (TS1186) are not reference-checked.
+
+**Measured.** `propertyAccessChain.3`, `elementAccessChain.3`, `for-of3`,
+`parserPrivateIdentifierInArrayAssignment` converted; partial lines in
+`assignmentLHSIsValue` (2×TS2364) and `objectRestNegative` (TS2701); no
+line lost.

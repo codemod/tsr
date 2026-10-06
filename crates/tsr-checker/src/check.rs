@@ -533,6 +533,7 @@ impl Checker<'_, '_> {
             {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
                     self.check_assignment_operator(binary, ambient);
+                    self.check_destructuring_assignment_targets(node);
                 }
                 self.check_private_accessor_is_writable(node);
                 self.check_reference_expression(node);
@@ -938,6 +939,7 @@ impl Checker<'_, '_> {
             self.check_for_await_context(node);
             self.check_for_of_iteration(node);
             self.check_for_of_reference_assignment(node, ambient);
+            self.check_for_of_reference_target(node);
         }
         if matches!(typed, Node::ArrowFunction(_)) {
             self.check_arrow_expression_body(node, ambient);
@@ -5561,6 +5563,16 @@ impl Checker<'_, '_> {
         if self.relate_ternary(string, left, crate::relater::Relation::Assignable)
             != crate::relater::Ternary::NotRelated
         {
+            // `else { checkReferenceExpression(...) }` (`checker.go:4013`):
+            // only after the type test passes. Its first arm is
+            // `check_for_in_reference_expression` (TS2406); this is the
+            // optional-chain arm. §9 of `docs/parity/notes/misc-checks.md`.
+            if self.is_optional_chain_reference(at) {
+                self.report_reference_error(
+                    at,
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS,
+                );
+            }
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
@@ -10149,7 +10161,7 @@ impl Checker<'_, '_> {
         if self.in_js_file(node) {
             return;
         }
-        let (target, message, skip_assertions) = match self.node_map.get(node) {
+        let (target, message, optional_message, skip_assertions) = match self.node_map.get(node) {
             // **Every assignment operator, not just `=`.** Upstream's
             // `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
             // any `isAssignmentOperator`, and `1 >>= 2` is four of this rule's
@@ -10182,6 +10194,7 @@ impl Checker<'_, '_> {
                 (
                     left,
                     &messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10198,6 +10211,7 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10211,6 +10225,7 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10219,21 +10234,13 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_A_PROPERTY_REFERENCE,
+                    None,
                     false,
                 )
             }
             _ => return,
         };
         let spine = self.skip_reference_spine(target, skip_assertions);
-        // `node.Flags&ast.NodeFlagsOptionalChain != 0` is upstream's *second*
-        // arm and carries its own code (TS2779). When §181 wrote this the
-        // parser did not set `NodeFlags::OPTIONAL_CHAIN`, so the syntax the
-        // flag is derived from stood in for it and the rule declines rather
-        // than emitting the wrong code. The flag IS set since §748; porting
-        // the TS2779 arm over it is that section's named follow-up.
-        if self.spine_has_optional_chain(target) {
-            return;
-        }
         let kind = self.nodes.kind(spine);
         let is_reference = kind == SyntaxKind::Identifier
             || matches!(
@@ -10251,6 +10258,17 @@ impl Checker<'_, '_> {
             )
         };
         if acceptable {
+            // `node.Flags&ast.NodeFlagsOptionalChain != 0`, upstream's second
+            // arm (`checker.go:13137`), reported at the unskipped `expr`.
+            // `checkDeleteExpression` has no such arm: `delete a?.b` is legal.
+            // §181 declined here on a syntactic `?.` walk while the parser
+            // did not set the flag (`checker-notes-callres.md` §748 sets it).
+            // `docs/parity/notes/misc-checks.md` §9.
+            if let Some(optional_message) = optional_message
+                && self.is_optional_chain_reference(target)
+            {
+                self.report_reference_error(target, optional_message);
+            }
             return;
         }
         // **The two report at different nodes, and the difference is one
@@ -10282,34 +10300,6 @@ impl Checker<'_, '_> {
             node = next;
         }
         node
-    }
-
-    /// Whether the spine contains a `?.`. Written (§181) when
-    /// `NodeFlags::OPTIONAL_CHAIN` was never set; the flag exists since
-    /// §748 and this walk is retained unchanged until the TS2779 arm is
-    /// ported over it (through parentheses this walk and the flag differ).
-    fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
-        for _ in 0..64 {
-            let next = match self.node_map.get(node) {
-                Some(Node::PropertyAccessExpression(access)) => {
-                    if access.question_dot_token.is_some() {
-                        return true;
-                    }
-                    access.expression
-                }
-                Some(Node::ElementAccessExpression(access)) => {
-                    if access.question_dot_token.is_some() {
-                        return true;
-                    }
-                    access.expression
-                }
-                Some(Node::ParenthesizedExpression(inner)) => inner.expression,
-                _ => return false,
-            };
-            let Some(next) = next.and_then(|expression| expression.node_id()) else { return false };
-            node = next;
-        }
-        false
     }
 
     /// TS2371 — `A parameter initializer is only allowed in a function or
