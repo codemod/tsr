@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7699/9538 (80.72%)
-Assertion lines: 467950/478855 (97.72%)  — a gradient, not a pass rate
-Failed         : 1839
+Passed         : 7711/9538 (80.85%)
+Assertion lines: 468048/478855 (97.74%)  — a gradient, not a pass rate
+Failed         : 1827
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1839 failures:
+First 100 of 1827 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -26,7 +26,7 @@ compiler/accessorInferredReturnTypeErrorInReturnStatement
 compiler/aliasBug
   aliasBug.ts: >p2 : foo.Provide — expected >p2 : provide.Provide
 compiler/aliasDoesNotDuplicateSignatures
-  demo.d.ts: >alias : typeof demoNS — expected >alias : typeof alias
+  user.ts: >f : any — expected >f : () => void
 compiler/aliasErrors
   aliasErrors.ts: >undefined : undefined — expected >undefined : any
 compiler/aliasInaccessibleModule2
@@ -187,8 +187,6 @@ compiler/circularInlineMappedGenericTupleTypeNoCrash
   circularInlineMappedGenericTupleTypeNoCrash.ts: >...this.elements : any — expected >...this.elements : { bar: unknown; }
 compiler/circularInstantiationExpression
   circularInstantiationExpression.ts: >foo : error — expected >foo : <T>(t: T) => typeof foo<T>
-compiler/circularReferenceInImport
-  db.d.ts: >Db : typeof Types.Types — expected >Db : typeof Types
 compiler/circularReferenceInReturnType
   circularReferenceInReturnType.ts: >res3 : any — expected >res3 : (a: unknown) => void
 compiler/circularReferenceInReturnType2
@@ -213,3 +211,5 @@ compiler/classExpressionNames
   ts.ts: >({ B: undefined }) : { B: undefined; } — expected >({ B: undefined }) : { B?: undefined; }
 compiler/classExpressionWithStaticProperties1
   classExpressionWithStaticProperties1.ts: >c : any — expected >c : number
+compiler/classExpressionWithStaticPropertiesES61
+  classExpressionWithStaticPropertiesES61.ts: >c : any — expected >c : number
