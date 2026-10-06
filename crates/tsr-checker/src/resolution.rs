@@ -272,6 +272,32 @@ pub trait ModuleHost {
         None
     }
 
+    /// The namespace an `@jsxFrag` pragma names for this file, if it has one
+    /// (`getJsxNamespace`'s fragment arm, `checker/jsx.go:1350`).
+    ///
+    /// Defaulted to `None` for the reason [`ModuleHost::jsx_factory_namespace`]
+    /// gives.
+    fn jsx_fragment_factory_namespace(&self, _file: NodeId) -> Option<String> {
+        None
+    }
+
+    /// `ast.GetJSXImplicitImportBase(options, file)` (`utilities.go:2771`):
+    /// the package the automatic JSX runtime imports from, or `None` under
+    /// the classic runtime.
+    ///
+    /// Defaulted to `None`: a host with no options and no pragmas is the
+    /// classic runtime.
+    fn jsx_implicit_import_base(&self, _file: NodeId) -> Option<String> {
+        None
+    }
+
+    /// Whether the file has an `@jsx` pragma and an `@jsxFrag` pragma, in that
+    /// order — present at all, whether or not their factories parse
+    /// (`checkJsxFragment`, `checker/jsx.go:114`).
+    fn jsx_pragmas_present(&self, _file: NodeId) -> (bool, bool) {
+        (false, false)
+    }
+
     /// Is this file a `.d.ts`?
     ///
     /// `SourceFile.IsDeclarationFile`, which the checker reads in
@@ -289,6 +315,29 @@ pub trait ModuleHost {
     fn is_declaration_file(&self, _file: NodeId) -> bool {
         false
     }
+
+    /// `resolveHelpersModule`'s program half (`checker.go:28676`): what the
+    /// synthetic `tslib` import the loader adds under `importHelpers`
+    /// (`fileloader.go:543`) resolved to, for this file. Defaulted to
+    /// [`ImportHelpersModule::NotRequested`]: a host without that import
+    /// makes the checker answer `unknownSymbol` and report nothing.
+    fn import_helpers_module(&self, _file: NodeId) -> ImportHelpersModule {
+        ImportHelpersModule::NotRequested
+    }
+}
+
+/// [`ModuleHost::import_helpers_module`]'s answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportHelpersModule {
+    /// The file got no synthetic `tslib` import.
+    NotRequested,
+    /// The import resolved to nothing: TS2354 territory.
+    NotFound,
+    /// The import resolved to a file the program does not hold (an untyped
+    /// package; upstream's TS7016 family).
+    OutsideProgram,
+    /// The import resolved to this source file.
+    File(NodeId),
 }
 
 /// `getSuggestedImportExtension`'s answer (`checker.go:15461`) for an

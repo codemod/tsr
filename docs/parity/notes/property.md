@@ -151,3 +151,275 @@ clause — and `CallableFunction extends Function`.
 **Rejected.** Certifying arrow-function and function-expression `typeof`
 receivers the same way: their expando members are recorded on the variable,
 not the function symbol, so an empty `exports` does not prove absence.
+
+## 5. TS2729 asked of the resolved property symbol
+
+**Forcing constraint.** `checkPropertyNotUsedBeforeDeclaration`
+(`checker.go:11709`) runs inside `checkPropertyAccessExpressionOrQualifiedName`
+on the `prop` the lookup found, and asks `isBlockScopedNameDeclaredBeforeUse`
+(`checker.go:1922`) of `prop.ValueDeclaration`. This port's
+`check_property_used_before_initialization` (check.rs) was a syntactic slice:
+`this.X`/`C.X` against the same class's member list. It could not see an enum
+member, an object-literal property or a namespace export read from a static
+initializer (`classStaticInitializersUsePropertiesBeforeDeclaration`), a
+`#private` name (`privateNamesUseBeforeDef`), an `accessor` field written from a
+static block (`classStaticBlockUseBeforeDef5`), an uninitialized field read
+before the constructor assigns it (`initializerWithThisPropertyAccess`), and
+its nested-access test read the *parent* (`this.a.b` declined) where upstream
+reads the node's *expression* (`this.bar.prop` reports on `bar`).
+
+**Decision.** Replaced by `check_property_not_used_before_declaration`
+(`readonly_target.rs`): resolve `prop` as `getPropertyOfType(getApparentType(leftType))`
+(a `#name` through the lexically declaring class), then upstream's conjuncts in
+order, with `isBlockScopedNameDeclaredBeforeUse`,
+`isUsedInFunctionOrInstanceProperty`, `isPropertyImmediatelyReferencedWithinDeclaration`,
+`isImmediatelyUsedInInitializerOfBlockScopedVariable` and
+`isInPropertyInitializerOrClassStaticBlock` transcribed whole beside it. The
+check.rs helpers of the same names were not reused: they are slices for TS2448
+(no static-initializer arm, an extra type-node stop, no decorator quit), owned
+by another lane.
+
+**Correction.** §975's note in check.rs said upstream does not report TS2729 on
+a JSX tag name. It does, on the opening and self-closing tags; it is only the
+*closing* tag that `isInPropertyInitializerOrClassStaticBlock` quits at
+(`useBeforeDeclaration_jsx` wants `<C.z>` and `<C.z/>` reported). The earlier
+line was right for its own wrong reason.
+
+**Declines** (each answers silence, never a report):
+- a union/intersection apparent receiver — upstream's synthetic property has a
+  `valueDeclaration` only when its constituents agree, and this lookup answers
+  one constituent's symbol;
+- `isPropertyInitializedInStaticBlocks` with a static block in range — it asks
+  the flow type at the block's end, which needs a synthesized reference;
+- a class-like `valueDeclaration` (the computed-name/decorator arm, which is
+  check.rs-private);
+- `isPropertyDeclaredInAncestorClass` when the first base type does not resolve.
+  An `extends` naming a **value** (`extends BaseFactory`) is resolved here
+  through the entry's value symbol and its first arity-matching construct
+  signature (`resolveBaseTypesOfClass`), because
+  `first_base_type_of_class_symbol` resolves the entry in type meaning;
+  `checkInheritedProperty` was this port's one loss without it.
+
+**Known divergence.** Upstream uses `emitStandardClassFields` inside
+`isBlockScopedNameDeclaredBeforeUse` and `GetUseDefineForClassFields` in the
+TS2729 conjunct. The checker stores only the latter (`standard_class_fields`);
+they differ only for `useDefineForClassFields: true` on a target below ES2022.
+Needs a checker field (hub, not owned).
+
+**Measured.** Every TS2729 line in the corpus now matches (10 cases had missing
+lines, 0 false lines before or after); 7 cases convert, 0 losses.
+
+**Falsifier.** A false TS2729 whose `valueDeclaration` sits after the use in
+the same file but is reached through a type this port's lookup answers with
+the wrong symbol (a merged or instantiated member) would show the lookup, not
+the predicate, is at fault.
+
+## 6. TS2803 from the lexical private symbol
+
+**Port.** `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11280`)
+reports TS2803 for an assignment target `x.#m` whose
+`lookupSymbolForPrivateIdentifierDeclaration` symbol has a method
+`valueDeclaration`. It asks the lexical symbol only, not the receiver's type,
+so `b.#m = …` with `b: any` reports. `check_private_method_assignment`
+(`readonly_target.rs`) reads the lexically declaring class
+(`lexical_private_declaring_class`) and the first declaration of that name in
+member order, which is the binder's `valueDeclaration`.
+
+**Measured.** 11 baseline lines, 0 false, 0 losses;
+`privateNameMethodAssignment`, `privateNameStaticMethodAssignment`,
+`privateNameReadonly` convert.
+
+**Perf note.** The first build measured a domain-model CPU-median ratio of
+1.048 (21 samples) and 1.052 (41) against the previous commit's binary, while
+two copies of one binary measured 1.008 and a rebuild of the previous commit
+was bit-identical. The function returns on the first `match` for every
+non-`#name` access, so the cost was code placement, not work:
+`#[inline(never)]` on it measured 0.943 / 0.983 / 0.956. Kept, with this
+record, so the next reader does not remove it as noise.
+
+## 7. TS2576 by `typeHasStaticProperty`, and a clodule's instance side
+
+**`typeHasStaticProperty`** (`checker.go:27215`) asks
+`getPropertyOfType(getTypeOfSymbol(containingType.symbol), name)` and tests the
+found property's `valueDeclaration` for `static`. This port answered TS2576
+from the receiver symbol's own `exports` table (`other_side_of_class_has`), so
+an **inherited** static (`c2.bar()` with `class C2 extends A`, `static bar` on
+`A`) fell to TS2339 (`classSideInheritance1`, `classImplementsClass6`). Ported
+as `type_has_static_property` (`nonexistent_property.rs`), which reads the
+`typeof C` lookup and so its inherited statics.
+
+**Removed decline.** When the other side held the name but not as a static
+(a namespace export merged onto the class, `$.sammy.x`), the rule answered
+silence. Upstream has no such arm: `typeHasStaticProperty` is false and the
+plain TS2339 follows (`staticMemberExportAccess`, `cloduleTest2`,
+`staticPropertyNotInClassType`).
+
+**A clodule's instance members are complete.** `declared_members_are_complete`
+(`member_completeness.rs`, the one function this lane may edit there) refused
+every symbol with a `ModuleDeclaration`, because the shared walk reads one as an
+unreadable declaration. A namespace merged onto a class files its declarations
+in `exports` only — the `typeof C` side — never in `members`, which is what
+`getPropertyOfType` reads for the instance type. So for a class symbol the
+module declarations are skipped and the class/interface declarations and bases
+walked as usual.
+
+**The decline that rode on it.** Measured without one, the arm lost 6 cases
+(`moduleAugmentation{DeclarationEmit,ExtendAmbientModule,ExtendFileModule}{1,2}`):
+the binder does not run `mergeModuleAugmentation` (`checker.go:1407`), so an
+augmented class's members lack what `declare module "./m" { interface C {…} }`
+adds, and the old `ModuleDeclaration` refusal had been hiding that by
+coincidence. The clodule arm therefore declines a class declared in an external
+module or an ambient `declare module "name"` body — the two places an
+augmentation can reach. Waits on tsr-2zk.38; when augmentations merge, the
+decline goes and the falsifier is those 6 cases staying RIGHT.
+
+**Measured.** 15 baseline lines, 0 false, 0 losses; `classImplementsClass6`,
+`classSideInheritance1`, `cloduleTest2`, `mergedClassNamespaceRecordCast`,
+`staticMemberExportAccess`, `staticPropertyNotInClassType` convert.
+
+## 8. Accessibility: a contextual `this`, and destructuring assignment targets
+
+**`getEnclosingClassFromThisParameter` arm 3** (`checker.go:12002`): with no
+annotated `this` parameter, the enclosing function's contextual `this`
+parameter (`getContextualThisParameterType`) names the class a protected
+access is judged from. `enclosing_class_from_this_parameter` read only the
+syntactic parameter, so `const f: (this: Foo) => void = function () {
+this.protec }` reported a false TS2445 (`protectedAccessThroughContextualThis`).
+It now asks `contextual_this_parameter_type` (`expressions.rs`, the
+contextual-signature arm). That helper does not port the object-literal and
+`obj.m = function` arms, which apply under `noImplicitThis` or in JS; a function
+in those positions with no signature answer declines (`Unsupported`) rather
+than reading "no class".
+
+**`checkObjectLiteralDestructuringPropertyAssignment`'s accessibility call**
+(`checker.go:12608`): each `name: target` or shorthand of an object assignment
+target is checked as a **write** with the source type, reported at the name.
+Not ported before. `check_object_assignment_accessibility`
+(`index_access_reports.rs`) uses the same name-literal rule
+(`getLiteralTypeFromPropertyName`, so `[nameX]` with `const nameX = "x"`
+counts) and `property_accessibility_error`. The source of a nested `{ a: { x } }`
+target is the outer source's `a` property type; a nested target with a default,
+or a union/intersection property type, declines (upstream's indexed access type
+there is a union with the default or with `undefined`, whose property lookup
+this port answers differently).
+
+**Measured.** `protectedAccessThroughContextualThis` (1 false line gone) and
+`destructuringAssignment_private` (4 lines) convert; 0 losses.
+
+## 9. TS2542 on a union receiver: constituents through their apparent type
+
+**Forcing constraint.** `getUnionIndexInfos` (`checker.go:13510`) asks
+`getIndexInfosOfType` of each constituent, and that reads the constituent
+through `getReducedApparentType`, so a `string` constituent contributes
+`String`'s `readonly [index: number]: string` and the union's number index is
+readonly. `union_index_infos` (`index_signatures.rs`) asked the bare primitive
+(no infos), so the union had none; and `check_readonly_index_signature_write`
+declined every union receiver. `x[0] = ""` with `x: string | Collection`
+(the declared type, which TS2454 returns) is TS2542 upstream
+(`classDoesNotDependOnBaseTypes`).
+
+**Decision.** Primitive constituents are mapped through `apparent_type` in
+`union_index_infos` (an object constituent is its own apparent type). The
+TS2542 rule keeps its union decline for a **dotted** access only, whose
+`getPropertyOfType(union)` is `createUnionOrIntersectionProperty`; an element
+access asks `getPropertyTypeForIndexType` of the union's own index infos,
+which are now upstream's.
+
+**Measured.** 2 baseline lines, 0 false; `classDoesNotDependOnBaseTypes`
+converts; 2 checker_types lines gain; 0 losses.
+
+**Remaining TS2542** (not taken): readonly tuples have no index infos in
+`get_index_infos_of_type` (`readonlyArraysAndTuples`, 5 lines; upstream's tuple
+members come from `ReadonlyArray<union of elements>` — tuple subsystem); an
+unresolved key (`ENUM1[A]--`, 1 line) is upstream's `errorType`, which is
+any-flagged and applies the enum's reverse index, but this port's error key is
+not known to be the deliberate one (§3a); mapped receivers
+(`mappedTypeRelationships`, 4 lines) belong to the mapped-type cluster.
+
+## 10. Private names: `checkPrivateIdentifierPropertyAccess` and its fall-through
+
+**Forcing constraint.** The private-name arm of
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11268`) has four
+outcomes, and this port had one: TS18013 whenever no enclosing class declared
+the name and the receiver was not `any`. Upstream reports TS18013 only when the
+receiver's **type** has a private-named property of that spelling
+(`checkPrivateIdentifierPropertyAccess`, `checker.go:11494`); with none, the
+access falls to `reportNonexistentProperty` — TS2339, which this port never
+reported for a `#name` (`nonexistent_property` declines private names). An
+any-like receiver outside every class body is the grammar error TS18016.
+
+**Decision.** `check_private_identifier_access` (`readonly_target.rs`) ports
+the arm in order:
+- the lexical lookup is `lookupSymbolForPrivateIdentifierDeclaration`'s, which
+  starts at `getContainingClassExcludingClassDecorators` — a `#x` in
+  `@dec(x => x.#x) class A { #x }` is not scoped by `A`
+  (`esDecorators-privateFieldAccess`). The type road's
+  `lexical_private_declaring_class` (`members.rs`, SS190) still omits that
+  exclusion; changing it changes types and was not measured here;
+- any-like (`any`, `unknown` under `strictNullChecks`, which
+  `checkNonNullExpression` makes the error type): silent with a lexical
+  declaration, TS18016 outside class bodies;
+- TS18013 when the receiver's property of that spelling is private-named and
+  declared in a class that does not lexically enclose the lexical one (that
+  case is TS18014; `check_private_name_shadowing` reports it, and now requires
+  the enclosing relation too — it reported a sibling subclass,
+  `privateNamesAndStaticFields`);
+- otherwise TS2339, when the miss is certified: `never`, any-like, or
+  `private_names_are_complete`, a narrower certificate than
+  `declared_members_are_complete` because a `#name` is never answered by an
+  index signature, never computed, and never inherited on the static side
+  (`addInheritedMembers` skips `isStaticPrivateIdentifierProperty`).
+
+**Text-keyed members.** Upstream files each class's `#x` under its own mangled
+name, so `new Child().#foo` inside `Parent` finds `Parent`'s member even when
+`Child` redeclares `#foo`; this port's table answers `Child`'s. An instance
+receiver whose class inherits from the lexical class is therefore treated as
+holding the lexical member (`privateNamesConstructorChain-1/-2` were the 2
+false TS18013 lines without it).
+
+**Declines.** Union/intersection receivers; an error-typed receiver (a gap)
+except for the TS18016 position test; a `this` receiver inside a decorator
+(`check_this_expression` types it from the decorated class, so `this.#foo` in
+`@dec(() => this.#foo) class D {}` inside `C` was a false TS2339).
+
+**Measured.** 27 baseline lines; `esDecorators-privateFieldAccess`,
+`privateNameBadAssignment`, `privateNameStaticAccessorssDerivedClasses`,
+`privateNameStaticFieldAccess`, `privateNamesUnique-2` convert; 0 losses.
+**2 false lines, kept and reported:** `privateNameStaticMethodClassExpression`
+types `C.getClass()` (and `D` inside its own static initializer) as `any` where
+upstream infers `typeof D`, so the faithful any-like arm reports TS18016 where
+upstream reports TS18013. The producer is the class-expression self-reference /
+return-type inference, not this rule (§3a); guessing that this `any` is not
+upstream's would be the rejected pattern.
+
+## 11. TS7053/TS2339 on an element access: the captured image certifies too
+
+**Forcing constraint.** `getPropertyTypeForIndexType` (`checker.go:27002`) asks
+the same `getPropertyOfType` and index infos as a dotted access, but this
+port's element-access miss accepted only `declared_members_are_complete`, so
+an object-literal receiver (`var obj1 = { … }; obj1["0b11010"]`) never reached
+the TS7053 family. §2's captured-image certificate (`apparent_type_lacks`) now
+applies to an **object** element-access receiver with a published image;
+primitives and unions keep their own roads.
+
+**Exposed and ported.** `checkElementAccess` widens the receiver for an
+assignment target or a method access for a call, and
+`getWidenedTypeOfObjectLiteral` does not carry `ObjectFlagsObjectLiteral`, so a
+write to a fresh literal skips the object-literal TS2339 arm and reaches the
+TS7052 family (`noImplicitAnyStringIndexerOnObject`: 6 false TS2339 lines on
+writes without this). TS7052 itself ("did you mean to call 'set'") is still
+declined.
+
+**Exposed and declined.** `tsr_core::jsnum::numeric_value` answers `NaN` for a
+radix literal past `u128` (`0B111…1` with ~2,000 digits), where JavaScript
+answers a huge double or `Infinity`, so the binder files that member under
+`"NaN"` and the image is not upstream's (`obj1["Infinity"]` became a false
+TS7053). An image with a numeric-literal name whose value is `NaN` is
+uncertified (`object_image_road_is_uncertified`); a literal's value is never
+`NaN` upstream. The fix is `numeric_value` accumulating overflowing digits in
+`f64` (tsr-core, not owned); then `binaryIntegerLiteralES6` and
+`octalIntegerLiteralES6` convert and this decline goes.
+
+**Measured.** 6 baseline lines (`binaryIntegerLiteralES6` 2,
+`noImplicitAnyStringIndexerOnObject` 3, `noImplicitAnyIndexing` 1), 0 false,
+0 losses; no case flips yet.

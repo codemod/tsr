@@ -5155,33 +5155,6 @@ impl<'a> Checker<'a, '_> {
         self.instantiate_signature(signature, &map, &own, &names)
     }
 
-    /// Whether `object[index]` is `getIndexedAccessTypeOrUndefined`'s
-    /// computed nil (`checker.go:26935`) rather than a shape this port does
-    /// not resolve: a string or number literal key, a non-generic object
-    /// whose member names and index signatures are both decided, no member
-    /// of that name and no index signature at all. A union, intersection or
-    /// instantiable object, or any undecided table, answers `false`.
-    fn is_decided_indexed_access_miss(&mut self, object: TypeId, index: TypeId) -> bool {
-        use crate::flags::TypeFlags;
-        let object_flags = self.store.get(object).flags;
-        if !object_flags.contains(TypeFlags::OBJECT)
-            || object_flags.intersects(TypeFlags::INSTANTIABLE)
-            || !self
-                .store
-                .get(index)
-                .flags
-                .intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
-        {
-            return false;
-        }
-        let Some(name) = self.property_name_from_index(index) else { return false };
-        let Some(names) = self.get_property_names_of_type(object) else { return false };
-        if names.contains(&name) {
-            return false;
-        }
-        self.get_index_infos_of_type(object).is_some_and(|infos| infos.is_empty())
-    }
-
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
     /// shapes this port can rebuild.
     ///
@@ -5272,6 +5245,59 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// `isNoInferTargetType` (`checker.go:27401`): whether `getNoInferType`
+    /// keeps a `NoInfer<T>` wrapper around `t` — "a more conservative and
+    /// predictable form of couldContainTypeVariables". A `NoInfer` reference
+    /// (this port's substitution type with an `unknown` constraint) is not a
+    /// target itself; TSR has no other substitution types.
+    pub(crate) fn is_no_infer_target_type(&self, t: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        if self.no_infer_base_type(t).is_some() {
+            return false;
+        }
+        let ty = self.store.get(t);
+        match &ty.data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. }
+                if ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) =>
+            {
+                return types.iter().any(|&member| self.is_no_infer_target_type(member));
+            }
+            _ => {}
+        }
+        if ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
+            return false;
+        }
+        ty.flags.contains(TypeFlags::OBJECT) && !self.is_empty_anonymous_object_type(t)
+            || ty.flags.intersects(TypeFlags::INSTANTIABLE - TypeFlags::SUBSTITUTION)
+                && !self.is_pattern_template(t)
+    }
+
+    /// getPropertyTypeForIndexType's not-found leg (`checker.go:27085`) on
+    /// inputs this port can certify complete: a literal key, a non-generic
+    /// object whose property list is complete and lacks the key, no
+    /// property through the apparent type, and no index signature at all.
+    fn indexed_access_is_certainly_absent(&mut self, object: TypeId, index: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        let Some(name) = self.property_name_from_index(index) else { return false };
+        let apparent = self.apparent_type(object);
+        let flags = self.store.get(apparent).flags;
+        if !flags.contains(TypeFlags::OBJECT)
+            || flags
+                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+            || self.mapped_types.contains_key(&apparent)
+            || self.unresolved_types.contains(&apparent)
+        {
+            return false;
+        }
+        // An object-literal or type-literal image carries its complete
+        // captured property list (`getPropertiesOfType`).
+        (self.anonymous_properties.contains_key(&apparent)
+            || self.declared_members_are_complete(apparent))
+            && !self.property_names_of(apparent).contains(&name)
+            && self.get_type_of_property_of_type(apparent, &name).is_none()
+            && self.get_index_infos_of_type(apparent).is_some_and(|infos| infos.is_empty())
+    }
+
     /// The recursive body of [`Checker::instantiate_type`] — arms 3 and 4 and
     /// the fallback — split out so the depth counter cannot be unbalanced by an
     /// early return. `instantiateTypeWorker` (`checker.go:22220`), for the
@@ -5320,17 +5346,15 @@ impl<'a> Checker<'a, '_> {
             {
                 return resolved;
             }
-            // `instantiateTypeWorker` (`checker.go:22264`) re-asks
-            // `getIndexedAccessTypeEx` with a nil access node, whose nil
-            // answer is `unknownType` (`checker.go:26930`), not `errorType`.
-            // The port's `None` also covers shapes it cannot resolve, so only
-            // a decided miss — a literal key against a plain object whose
-            // member and index tables are complete — takes upstream's answer.
-            return if self.is_decided_indexed_access_miss(object, index) {
-                self.intrinsics.unknown
-            } else {
-                error
-            };
+            // getIndexedAccessTypeEx (`checker.go:26927`): with no access
+            // node, a lookup getIndexedAccessTypeOrUndefined answers nil for
+            // instantiates to `unknownType`, not `errorType`. Only a certified absence
+            // (getPropertyTypeForIndexType's not-found leg) is that nil here;
+            // every other `None` is this port's "not computed".
+            if self.indexed_access_is_certainly_absent(object, index) {
+                return self.intrinsics.unknown;
+            }
+            return error;
         }
         if let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned() {
             let mut substituted = Vec::with_capacity(arguments.len());
@@ -5340,6 +5364,16 @@ impl<'a> Checker<'a, '_> {
                     return error;
                 }
                 substituted.push(image);
+            }
+            // instantiateTypeWorker's substitution arm (`checker.go:22277`):
+            // a `NoInfer<T>` instantiates to `getNoInferType` of the
+            // instantiated base, which drops the wrapper unless the base
+            // could still contain type variables.
+            if let [base] = substituted.as_slice()
+                && self.is_no_infer_alias(symbol)
+                && !self.is_no_infer_target_type(*base)
+            {
+                return *base;
             }
             // §91 (`checker-notes-narrow.md`): a CONDITIONAL alias body
             // evaluates at the rebuild when its keys are computable — the
@@ -7084,9 +7118,13 @@ const value = First.A;"#;
         // six right lines in `conformance/strictNullChecksNoWidening` and
         // `compiler/undefinedInferentialTyping` into gaps; that is how the
         // bar's second leg found the defect.
+        //
+        // Since `nullWideningType` exists (docs/parity/notes/contextual.md §7)
+        // the non-strict candidate is the widening twin and widens to `any`,
+        // as upstream's does.
         let source = "declare function f<T>(x: T): T;\nvar a = f(null);";
         assert_eq!(generic_call_with_strictness(source, "f", true), "null");
-        assert_eq!(generic_call_with_strictness(source, "f", false), "error");
+        assert_eq!(generic_call_with_strictness(source, "f", false), "any");
     }
 }
 

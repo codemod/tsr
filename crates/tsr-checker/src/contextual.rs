@@ -628,7 +628,23 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let literal = parent;
-        let contextual = self.get_contextual_type(literal)?;
+        // `checker.go:12049-12054`: with no contextual type for the containing
+        // literal, `this` is `getWidenedType(checkExpressionCached(literal))` —
+        // the literal's own type.
+        let Some(contextual) = self.get_contextual_type(literal) else {
+            if !self.node_types.contains_key(&literal)
+                && self.object_literal_member_return_is_resolving(literal)
+            {
+                // This port's literal check prints member signatures eagerly,
+                // so checking an uncached literal while one of its members'
+                // return type resolves re-enters that member; upstream's
+                // literal check never asks for a return type. Decline to the
+                // pre-existing receiver (docs/parity/notes/contextual.md §6).
+                return None;
+            }
+            let own = self.check_expression_at_node(literal);
+            return Some(self.widen_object_literal_freshness(own));
+        };
         let contextual = self.instantiate_contextual_inference_type(contextual, literal);
         let contextual = self.apparent_contextual_type(contextual);
         // getThisTypeOfObjectLiteralFromContextualType also checks directly
@@ -674,6 +690,44 @@ impl<'a> Checker<'a, '_> {
         let contextual = self.discriminate_union_root(contextual, literal);
         let contextual = self.get_non_nullable_type(contextual);
         Some(self.widen_object_literal_freshness(contextual))
+    }
+
+    /// Whether a function-valued member of `literal` (a method, an accessor or
+    /// a property's function expression) has its return type on the
+    /// resolution stack. No upstream counterpart: upstream resolves those
+    /// return types lazily, after `checkObjectLiteral` has cached the literal.
+    fn object_literal_member_return_is_resolving(&mut self, literal: NodeId) -> bool {
+        use tsr_ast::{Expression, Node, ObjectLiteralElementLike};
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return false;
+        };
+        object.properties.iter().any(|property| {
+            let member = match property {
+                ObjectLiteralElementLike::MethodDeclaration(method) => method.node_id,
+                ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => accessor.node_id,
+                ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => accessor.node_id,
+                ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    match assignment.initializer {
+                        Some(Expression::FunctionExpression(function)) => function.node_id,
+                        Some(Expression::ArrowFunction(function)) => function.node_id,
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            member.is_some_and(|member| {
+                self.resolutions.active_signature_keys(member).next().is_some()
+                    // A getter's return resolves inside its symbol's `Type`
+                    // frame (`getTypeOfAccessors`), not a signature frame.
+                    || (matches!(
+                        property,
+                        ObjectLiteralElementLike::GetAccessorDeclaration(_)
+                            | ObjectLiteralElementLike::SetAccessorDeclaration(_)
+                    ) && self.binder.symbol_of(member).is_some_and(|symbol| {
+                        self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+                    }))
+            })
+        })
     }
 
     /// getContextualThisParameterType's assignment arm (checker.go).
@@ -1059,6 +1113,11 @@ impl<'a> Checker<'a, '_> {
     /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
     /// one pattern here, but it is not measured separately, so it is a gap.
     pub(crate) fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
+        // A JS `@satisfies` is a reparsed `SatisfiesExpression` parent
+        // upstream, whose arm answers its type node (ADR-0046).
+        if let Some(satisfies) = self.jsdoc_satisfies_contextual_type(node) {
+            return Some(satisfies);
+        }
         let parent = self.nodes.parent(node)?;
         match self.node_map.get(parent)? {
             // `getContextualTypeForInitializerExpression` (`checker.go:29423`) →
@@ -1386,12 +1445,8 @@ impl<'a> Checker<'a, '_> {
                 // written return annotation before any contextual signature,
                 // for an arrow's concise body exactly as for a `return`
                 // (`checker.go:29358` routes both to the same function).
-                if let Some(annotation) = arrow.r#type {
-                    let contextual = self.get_type_from_type_node(annotation);
-                    return self.contextual_return_expression_slot(parent, contextual, false);
-                }
-                let signature = self.contextual_signature(parent)?;
-                self.contextual_return_expression_slot(parent, signature.r#type, true)
+                let contextual = self.get_contextual_return_type(parent).ok()??;
+                self.contextual_return_expression_slot(parent, contextual, false)
             }
             Node::ReturnStatement(_) => {
                 let mut function = self.nodes.parent(parent)?;
@@ -1417,24 +1472,140 @@ impl<'a> Checker<'a, '_> {
                         _ => function = self.nodes.parent(function)?,
                     }
                 }
-                let annotation = match self.node_map.get(function)? {
-                    Node::FunctionDeclaration(f) => f.r#type,
-                    Node::FunctionExpression(f) => f.r#type,
-                    Node::ArrowFunction(f) => f.r#type,
-                    Node::MethodDeclaration(f) => f.r#type,
-                    _ => None,
-                };
-                if let Some(annotation) = annotation {
-                    let contextual = self.get_type_from_type_node(annotation);
-                    return self.contextual_return_expression_slot(function, contextual, false);
-                }
-                // getContextualReturnType also uses the non-generic contextual
-                // signature of function expressions and object literal methods.
-                let signature = self.contextual_signature(function)?;
-                self.contextual_return_expression_slot(function, signature.r#type, true)
+                // getContextualReturnType: the annotation, the (filtered)
+                // contextual signature's return, then an IIFE's own context.
+                let contextual = self.get_contextual_return_type(function).ok()??;
+                self.contextual_return_expression_slot(function, contextual, false)
             }
             _ => None,
         }
+    }
+
+    /// `getContextualReturnType` (`checker.go:29665`). `Ok(None)` is upstream's
+    /// nil — the function provably has no contextual return type; `Err` is a
+    /// lookup this port cannot finish, which callers keep as a gap.
+    ///
+    /// The annotation arm reads the written return type of the four function
+    /// kinds that can carry one here. `getReturnTypeFromAnnotation`'s
+    /// constructor and setter-paired get-accessor arms are not reached: neither
+    /// container can hold a `yield`, and a `return` in either kept its earlier
+    /// answer (no context). See `docs/parity/notes/destructure-iteration.md` §6.
+    pub(crate) fn get_contextual_return_type(
+        &mut self,
+        function: NodeId,
+    ) -> Result<Option<TypeId>, crate::iteration::Unsupported> {
+        use crate::flags::TypeFlags;
+        let (annotation, generator) = match self.node_map.get(function) {
+            Some(Node::FunctionDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
+            Some(Node::FunctionExpression(f)) => (f.r#type, f.asterisk_token.is_some()),
+            Some(Node::ArrowFunction(f)) => (f.r#type, false),
+            Some(Node::MethodDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
+            _ => (None, false),
+        };
+        if let Some(annotation) = annotation {
+            return Ok(Some(self.get_type_from_type_node(annotation)));
+        }
+        // getContextualSignatureForFunctionLikeDeclaration: only function
+        // expressions, arrows and object-literal methods are contextually
+        // typed, so every other kind is decidably `Absent`.
+        // An immediately invoked function is a callee, a position
+        // `getContextualType` answers nil for (through any parentheses), so
+        // its signature is decidably absent without asking.
+        let contextually_typed = match self.nodes.kind(function) {
+            tsr_ast::SyntaxKind::FunctionExpression | tsr_ast::SyntaxKind::ArrowFunction => true,
+            tsr_ast::SyntaxKind::MethodDeclaration => {
+                self.nodes.parent(function).is_some_and(|parent| {
+                    self.nodes.kind(parent) == tsr_ast::SyntaxKind::ObjectLiteralExpression
+                })
+            }
+            _ => false,
+        };
+        let signature = if !contextually_typed || self.immediately_invoked_call(function).is_some()
+        {
+            ContextualSignature::Absent
+        } else {
+            self.contextual_signature_result(function).ok_or(())?
+        };
+        match signature {
+            ContextualSignature::Present(signature) => {
+                let return_type = signature.r#type;
+                if return_type == self.intrinsics.error {
+                    return Err(());
+                }
+                let is_async = self.contextual_function_is_async(function);
+                let keep = TypeFlags::ANY
+                    | TypeFlags::UNKNOWN
+                    | TypeFlags::VOID
+                    | TypeFlags::TYPE_PARAMETER
+                    | TypeFlags::CONDITIONAL
+                    | TypeFlags::SUBSTITUTION
+                    | TypeFlags::INDEXED_ACCESS;
+                if generator {
+                    let mut undecided = false;
+                    let filtered = self.filter_type(return_type, |checker, t| {
+                        checker.store.get(t).flags.intersects(keep)
+                            || checker
+                                .generator_instantiation_assignable_to_return_type(t, is_async)
+                                .unwrap_or_else(|()| {
+                                    undecided = true;
+                                    false
+                                })
+                    });
+                    // An undecidable relation on a single (non-union) type
+                    // keeps that type, the answer this lookup gave before the
+                    // filter was ported; on a union it is a gap. Boundary in
+                    // `docs/parity/notes/destructure-iteration.md` §6.
+                    if undecided {
+                        let union = self.store.get(return_type).flags.contains(TypeFlags::UNION);
+                        return if union { Err(()) } else { Ok(Some(return_type)) };
+                    }
+                    return Ok(Some(filtered));
+                }
+                if is_async {
+                    return Ok(Some(self.async_contextual_return_type(return_type)));
+                }
+                Ok(Some(return_type))
+            }
+            ContextualSignature::Absent => {
+                let Some(call) = self.immediately_invoked_call(function) else { return Ok(None) };
+                // `getContextualType(iife)`. A yield operand position keeps
+                // upstream's nil apart from an unfinished lookup; elsewhere a
+                // `None` is nil only where `has_no_contextual_type` proves it.
+                let mut position = call;
+                let mut parent = self.nodes.parent(call);
+                while let Some(id) = parent
+                    && self.nodes.kind(id) == tsr_ast::SyntaxKind::ParenthesizedExpression
+                {
+                    position = id;
+                    parent = self.nodes.parent(id);
+                }
+                if let Some(id) = parent
+                    && let Some(Node::YieldExpression(yield_expression)) = self.node_map.get(id)
+                    && yield_expression.expression.and_then(|e| e.node_id()) == Some(position)
+                {
+                    let delegates = yield_expression.asterisk_token.is_some();
+                    return self.contextual_type_for_yield_operand_result(id, delegates);
+                }
+                match self.get_contextual_type(call) {
+                    Some(contextual) => Ok(Some(contextual)),
+                    None if self.has_no_contextual_type(call) => Ok(None),
+                    None => Err(()),
+                }
+            }
+        }
+    }
+
+    /// `getContextualIterationType` (`checker.go:29656`).
+    pub(crate) fn get_contextual_iteration_type(
+        &mut self,
+        kind: crate::iteration::IterationTypeKind,
+        function: NodeId,
+    ) -> Result<Option<TypeId>, crate::iteration::Unsupported> {
+        let is_async = self.contextual_function_is_async(function);
+        let Some(contextual) = self.get_contextual_return_type(function)? else {
+            return Ok(None);
+        };
+        self.get_iteration_type_of_generator_function_return_type(kind, contextual, is_async)
     }
 
     /// getContextualTypeForReturnExpression's generator return slot
@@ -1454,11 +1625,36 @@ impl<'a> Checker<'a, '_> {
             Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
             _ => false,
         };
+        // A union is first narrowed to the constituents that have a RETURN
+        // iteration type, then that slot is read (`checker.go:29628-29637`).
         let contextual = if generator {
-            self.contextual_generator_iteration_type(contextual, 1)
+            let is_async = self.contextual_function_is_async(function);
+            let kind = crate::iteration::IterationTypeKind::Return;
+            let mut undecided = false;
+            let filtered =
+                if self.store.get(contextual).flags.contains(crate::flags::TypeFlags::UNION) {
+                    self.filter_type(contextual, |checker, t| {
+                        checker
+                            .get_iteration_type_of_generator_function_return_type(kind, t, is_async)
+                            .unwrap_or_else(|()| {
+                                undecided = true;
+                                None
+                            })
+                            .is_some()
+                    })
+                } else {
+                    contextual
+                };
+            if undecided {
+                return None;
+            }
+            let returned = self
+                .get_iteration_type_of_generator_function_return_type(kind, filtered, is_async)
+                .ok()??;
+            self.unwrap_contextual_awaited_slot(returned, is_async)
         } else {
-            Some(contextual)
-        }?;
+            contextual
+        };
         if self.contextual_function_is_async(function) {
             let contextual = if filter_signature && !generator {
                 self.async_contextual_return_type(contextual)
@@ -1472,6 +1668,18 @@ impl<'a> Checker<'a, '_> {
         } else {
             Some(contextual)
         }
+    }
+
+    /// The async resolver's `getAwaitedType` wraps a generic slot in
+    /// `Awaited<T>` (`isAwaitedTypeNeeded`, `checker.go:31392`). Upstream's
+    /// `isConstTypeVariable` sees through that wrapper by its conditional
+    /// constraint (`checker.go:13656`); `is_const_type_variable`
+    /// (`assertions.rs`) does not yet, so a contextual slot keeps the
+    /// unwrapped type the pre-port read gave. Bounded deviation, recorded in
+    /// `docs/parity/notes/destructure-iteration.md` §6; delete once that
+    /// helper answers `true` for `Awaited<T>` of a const `T`.
+    fn unwrap_contextual_awaited_slot(&mut self, slot: TypeId, is_async: bool) -> TypeId {
+        if is_async { self.unwrap_awaited_type(slot) } else { slot }
     }
 
     /// getContextualReturnType filters async signature results to promises or
@@ -1767,65 +1975,72 @@ impl<'a> Checker<'a, '_> {
         (checked != self.intrinsics.error).then_some(checked)
     }
 
-    /// getContextualTypeForYieldOperand (internal/checker/checker.go), for
-    /// the global iterator/iterable references whose iteration slots are known.
+    /// `getContextualTypeForYieldOperand` (`checker.go:29719`), on
+    /// [`Self::get_contextual_return_type`] and the iteration-types engine
+    /// (`iteration.rs`). An undecidable step answers `None` (a gap).
     fn contextual_type_for_yield_operand(
         &mut self,
         yield_id: NodeId,
         delegates: bool,
     ) -> Option<TypeId> {
-        let function = self.containing_function(yield_id)?;
-        let (annotation, modifiers) = match self.node_map.get(function)? {
-            Node::FunctionDeclaration(node) => (node.r#type, node.modifiers),
-            Node::FunctionExpression(node) => (node.r#type, node.modifiers),
-            Node::MethodDeclaration(node) => (node.r#type, node.modifiers),
-            _ => return None,
+        self.contextual_type_for_yield_operand_result(yield_id, delegates).ok().flatten()
+    }
+
+    /// [`Self::contextual_type_for_yield_operand`] keeping upstream's nil
+    /// (`Ok(None)`) apart from an unfinished lookup (`Err`), for the IIFE arm
+    /// of [`Self::get_contextual_return_type`].
+    fn contextual_type_for_yield_operand_result(
+        &mut self,
+        yield_id: NodeId,
+        delegates: bool,
+    ) -> Result<Option<TypeId>, crate::iteration::Unsupported> {
+        use crate::iteration::IterationTypeKind;
+        let Some(function) = self.containing_function(yield_id) else { return Ok(None) };
+        let Some(mut contextual) = self.get_contextual_return_type(function)? else {
+            return Ok(None);
         };
-        let contextual = if let Some(annotation) = annotation {
-            self.get_type_from_type_node(annotation)
-        } else {
-            self.contextual_signature(function)?.r#type
-        };
-        let (target, arguments) = self.type_reference_targets.get(&contextual)?.clone();
-        let supported = [
-            ("Iterator", 3),
-            ("Iterable", 3),
-            ("IterableIterator", 3),
-            ("Generator", 3),
-            ("AsyncIterator", 3),
-            ("AsyncIterable", 3),
-            ("AsyncIterableIterator", 3),
-            ("AsyncGenerator", 3),
-        ]
-        .into_iter()
-        .any(|(name, arity)| {
-            self.global_type_symbol_with_arity(name, arity).is_some_and(|symbol| {
-                self.binder.merged_symbol(symbol) == self.binder.merged_symbol(target)
-            })
-        });
-        if !supported {
-            return None;
+        let is_async = self.contextual_function_is_async(function);
+        if !delegates && self.store.get(contextual).flags.contains(crate::flags::TypeFlags::UNION) {
+            let mut undecided = false;
+            contextual = self.filter_type(contextual, |checker, t| {
+                checker
+                    .get_iteration_type_of_generator_function_return_type(
+                        IterationTypeKind::Return,
+                        t,
+                        is_async,
+                    )
+                    .unwrap_or_else(|()| {
+                        undecided = true;
+                        None
+                    })
+                    .is_some()
+            });
+            if undecided {
+                return Err(());
+            }
         }
-        let yielded = *arguments.first()?;
-        let is_async = crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::AsyncKeyword);
         if !delegates {
-            return if is_async {
-                self.contextual_awaited_type_no_alias(yielded)
-            } else {
-                Some(yielded)
-            };
+            let yielded = self.get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Yield,
+                contextual,
+                is_async,
+            )?;
+            return Ok(
+                yielded.map(|yielded| self.unwrap_contextual_awaited_slot(yielded, is_async))
+            );
         }
+        let types =
+            self.get_iteration_types_of_generator_function_return_type(contextual, is_async)?;
+        let yielded = types.yield_type.unwrap_or_else(|| self.get_silent_never_type());
         let returned =
             self.get_contextual_type(yield_id).unwrap_or_else(|| self.get_silent_never_type());
-        let next = arguments.get(2).copied().unwrap_or(self.intrinsics.unknown);
-        let generator = self.global_type_symbol_with_arity("Generator", 3)?;
-        let sync = self.create_type_reference(generator, vec![yielded, returned, next]);
+        let next = types.next_type.unwrap_or(self.intrinsics.unknown);
+        let sync = self.create_generator_type(yielded, returned, next, false)?;
         if is_async {
-            let generator = self.global_type_symbol_with_arity("AsyncGenerator", 3)?;
-            let asynchronous = self.create_type_reference(generator, vec![yielded, returned, next]);
-            Some(self.get_union_type(&[sync, asynchronous]))
+            let asynchronous = self.create_generator_type(yielded, returned, next, true)?;
+            Ok(Some(self.get_union_type(&[sync, asynchronous])))
         } else {
-            Some(sync)
+            Ok(Some(sync))
         }
     }
 
@@ -2163,7 +2378,20 @@ impl<'a> Checker<'a, '_> {
             PropertyName::Identifier(name) => name.text.to_string(),
             PropertyName::StringLiteral(name) => name.text.to_string(),
             PropertyName::NumericLiteral(name) => name.text.to_string(),
-            PropertyName::ComputedPropertyName(name) => self.late_bound_symbol_member_name(name)?.0,
+            PropertyName::ComputedPropertyName(name) => {
+                if let Some((name, _)) = self.late_bound_symbol_member_name(name) {
+                    name
+                } else {
+                    // A dynamic name has no property to look up; upstream goes
+                    // straight to the index fallback (`checker.go:29946-29955`)
+                    // with `getLiteralTypeFromPropertyName(name)`, which for a
+                    // computed name is the regular type of its expression.
+                    let expression = name.expression?;
+                    let name_type = self.check_expression(expression);
+                    let name_type = self.get_regular_type_of_literal_type(name_type);
+                    return self.contextual_index_value_for_name_type(contextual, name_type);
+                }
+            }
             _ => return None,
         };
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
@@ -2225,6 +2453,31 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(property_type)
+    }
+
+    /// getContextualTypeForObjectLiteralElement's index fallback
+    /// (`checker.go:29946-29955`): `mapTypeEx(t, findApplicableIndexInfo(
+    /// getIndexInfosOfStructuredType(t), nameType).valueType, noReductions)`.
+    fn contextual_index_value_for_name_type(
+        &mut self,
+        contextual: TypeId,
+        name_type: TypeId,
+    ) -> Option<TypeId> {
+        let constituents = match &self.store.get(contextual).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![contextual],
+        };
+        let mut values = Vec::new();
+        for constituent in constituents {
+            if let Some(info) = self.get_applicable_index_info(constituent, name_type) {
+                values.push(info.value);
+            }
+        }
+        match values.as_slice() {
+            [] => None,
+            [value] => Some(*value),
+            _ => Some(self.get_union_type_without_reduction(&values)),
+        }
     }
 
     /// [`Checker::contextual_property_type`] for an object literal's member,
@@ -2492,6 +2745,18 @@ impl<'a> Checker<'a, '_> {
         index: usize,
     ) -> Option<TypeId> {
         let callee_type = self.check_expression(callee);
+        // `getContextualTypeForArgumentAtIndex` (`checker.go:29772`) reads the
+        // call's resolved signature. An untyped call resolves to
+        // `anySignature` (`resolveUntypedCall`, `checker.go:9902`), and an
+        // error callee checks its arguments in `resolveErrorCall` while the
+        // signature is still `resolvingSignature`; both have no parameters, so
+        // `getTypeAtPosition` is `any` at every index (`relater.go:1757`).
+        if callee_type == self.intrinsics.error
+            || self.is_untyped_call_target(callee_type)
+            || self.is_untyped_function_typed_callee(callee_type)
+        {
+            return Some(self.intrinsics.any);
+        }
         if let Some(signature) = self.single_call_signature(callee_type) {
             return self.contextual_argument_type(&signature, index, call.arguments.len());
         }
@@ -3261,9 +3526,9 @@ mod tests {
                     "ordinary",
                 ),
                 ("((observed = 37) => observed)(undefined as undefined);", "observed", "ordinary"),
-                // Global reseeding remains held: the actual supplied argument
-                // is ordinary undefined, unlike native's loose global.
-                ("((observed?) => observed)(undefined);", "observed", "ordinary"),
+                // The loose global is the widening twin (checker.go:1345),
+                // so the supplied argument is too.
+                ("((observed?) => observed)(undefined);", "observed", "active"),
                 ("((observed = 37) => observed)();", "observed", "absent"),
                 ("((observed = 37) => observed)(...([] as []));", "observed", "absent"),
                 ("(function(undefined = 37) { return undefined; })();", "undefined", "absent"),

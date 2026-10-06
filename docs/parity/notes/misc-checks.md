@@ -122,3 +122,280 @@ method signature's name, are declarations, so the scan skips them. Computed
 property names and nested patterns are still scanned (they can hold real
 references). Remaining approximation: any other same-text identifier in the
 signature (e.g. a type reference named like the binding) still suppresses.
+
+## §9 TS2777–TS2781: optional-chain reference targets
+
+`checkReferenceExpression` (`checker.go:13130`) has two arms over
+`SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`: a non-reference
+reports the caller's "must be a variable" message, an access carrying
+`NodeFlagsOptionalChain` the caller's "may not be an optional property access"
+message, both at the unskipped `expr`.
+
+**Forcing constraint.** §181 of `docs/architecture/checker-notes-diag2.md` ported only the first arm and
+declined whenever a syntactic `?.` walk found a chain, because the parser did
+not then set `NodeFlags::OPTIONAL_CHAIN`. It has since §748 of
+`docs/architecture/checker-notes-callres.md`. The walk differed
+from the flag through parentheses: `(a?.b).c = 1` is a plain access upstream
+(the parenthesis ends the chain) but declined here.
+
+**What was ported.** The second arm over the flag, at every caller:
+assignment and compound assignment (TS2779) and `++`/`--` (TS2777) in
+`check_reference_expression`; `for...in` (TS2780) inside
+`check_for_in_variable_type`, because upstream runs it only in the `else` of
+the TS2405 type test, so it sits exactly where that test passes; `for...of`
+(both arms, TS2487/TS2781) and destructuring-assignment leaf targets
+(`checkReferenceAssignment`, `checker.go:12703`: TS2364/TS2779, and
+TS2701/TS2778 under an object rest) in `reference_target.rs`. `delete` keeps
+no optional arm (`checkDeleteExpression` has none; `delete a?.b` is legal).
+
+**Duplicate avoidance.** Upstream's `checkDestructuringAssignment` first runs
+`checkBinaryExpression` on a `target = default`, which checks the same left
+side again, and the diagnostic collection drops the repeat. This port's
+traversal visits that nested `=` as its own node, so the destructuring walk
+skips such targets instead of reporting twice. The rest-element arms mirror
+upstream's early returns: a rest that is not last (TS2462) and an array rest
+with an initializer (TS1186) are not reference-checked.
+
+**Measured.** `propertyAccessChain.3`, `elementAccessChain.3`, `for-of3`,
+`parserPrivateIdentifierInArrayAssignment` converted; partial lines in
+`assignmentLHSIsValue` (2×TS2364) and `objectRestNegative` (TS2701); no
+line lost.
+
+## §10 TS2790 / TS2704: the `delete` operand's resolved symbol
+
+**Forcing constraint.** `checkDeleteExpression` (`checker.go:10814`) reads
+`getResolvedSymbolOrNil(expr)` and, for a read-only symbol, reports TS2704;
+otherwise `checkDeleteExpressionMustBeOptional` (`checker.go:10825`) tests
+`getTypeOfSymbol(symbol)` — the **property's** type. §587–§588 of
+`docs/architecture/checker-notes-diag2.md` tested the operand *expression's*
+type instead, and limited the operand to a syntactic property access. Both
+differ from upstream: an optional chain adds `undefined` to the expression
+type (`delete o1?.b` on `b: string` is TS2790 upstream, silent here —
+`deleteChain`, 13 lines), a flow narrowing does the same
+(`controlFlowDeleteOperator`'s §588 wrong line), parentheses were not skipped,
+and the read-only arm did not exist, so `delete Foo.name` reported TS2790
+where upstream reports TS2704.
+
+**What was ported** (`delete_operand.rs`, replacing
+`check_delete_operand_is_optional`). The symbol is found as
+`checkPropertyAccessExpressionOrQualifiedName` finds it: the receiver's
+non-nullable type (an optional chain's `getOptionalExpressionType` plus
+`checkNonNullType`), its apparent type, then `getPropertyOfType` by the
+identifier name, or by a string / canonical numeric literal argument of an
+element access. A private name uses the same lookup once the access's own
+check has not answered the error type (the lexical private-name scope).
+`isReadonlySymbol` is `is_readonly_symbol` plus the one arm it does not
+cover: a `readonly` modifier on a property signature or parameter property
+(`getDeclarationModifierFlagsFromSymbol` reads any value declaration).
+
+**Declines.** No symbol (computed element index, unresolved member, `any`
+receiver) → nothing, as upstream. `CheckFlagsReadonly` lives on synthetic and
+instantiated property symbols, which this port does not flag, so the TS2790
+arm declines when the symbol is not its own value declaration's symbol (it
+might be read-only and owe TS2704 instead). `exactOptionalPropertyTypes` is
+still not ported.
+
+**Measured.** `deleteChain`, `deleteReadonly`,
+`deleteReadonlyInStrictNullChecks`, `controlFlowDeleteOperator`,
+`deleteOperatorWithEnumType`, `symbolType3` converted; no line lost
+(`privateNamesNoDelete`'s TS2790 was lost by a first draft that resolved no
+private names, and is kept by the private-name arm).
+
+## §11 TS2358: every primitive-flagged left operand
+
+**Forcing constraint.** `checkInstanceOfExpression` (`checker.go:13056`)
+reports when `!IsTypeAny(leftType) && allTypesAssignableToKind(leftType,
+TypeFlagsPrimitive)`. §466 of `docs/architecture/checker-notes-diag2.md`
+ported it as "the widened left type is one of `string`, `number`, `bigint`,
+`boolean`", reusing `is_decidable_primitive`, whose list exists for an
+identity comparison (§865's `any` hazard). This test reads flags, so that
+hazard does not apply: `void`, `null`, `undefined`, `symbol`, literals,
+enums and unions of primitives (`number | string`) all carry a
+`TypeFlagsPrimitive` bit upstream and here.
+
+**What was ported.** `allTypesAssignableToKind`'s union recursion and
+`isTypeAssignableToKind`'s flag arm (`source.flags&kind != 0`). `any` is
+never primitive-flagged, so the `IsTypeAny` conjunct needs no test.
+
+**Declined.** The assignability arm — `isTypeAssignableTo(source, number)`
+and its siblings — answers for a type parameter constrained to a primitive,
+a branded intersection such as `string & { tag: 1 }`, and `never`. None is in
+the lane's failing set; porting it needs the relater on the four primitive
+targets.
+
+**Measured.** `instanceofWithPrimitiveUnion`,
+`instanceofOperatorWithInvalidOperands`, `symbolType1` converted; correct
+lines in `instanceofOperatorWithInvalidOperands.es2015` and `widenedTypes`;
+none lost.
+
+## §12 TS2628–TS2631 / TS2539 in files with parse errors
+
+**Forcing constraint.** `check_identifier_assignment_target`
+(`readonly_target.rs`, `checkIdentifier`'s non-variable assignment arm,
+`checker.go:11077`) declined in any file with parse errors. Upstream has no
+such gate. Every lane case owing these codes is a parser-recovery fixture
+(`assignmentLHSIsValue`, `compoundAssignmentLHSIsValue`,
+`compoundExponentiationAssignmentLHSIsValue`,
+`increment/decrementOperatorWithAnyOtherTypeInvalidOperations`): 44 correct
+lines withheld.
+
+**What changed.** The bail is removed; the rule reads only the identifier,
+its assignment-target position and the symbol it resolves to. Removing it
+alone surfaced one wrong line, `reservedWords2.ts(1,14)` TS2630: recovery
+produced an assignment whose left is a *missing* identifier (empty text),
+which resolved to `function throw() {}`, whose name was also lost.
+Upstream's `getResolvedSymbol` resolves nothing for a missing node
+(`!ast.NodeIsMissing(node)`, `checker.go:13894`); the port now skips an
+identifier with empty text, which is what a missing identifier is here.
+
+**Measured.** `assignmentLHSIsValue` converted, +44 lines over six cases,
+none lost. The other parse-error fixtures still owe codes from other rules.
+
+## §13 TS2806: reading a set-only private accessor
+
+`checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+(`checker.go:11307`) reports `Private accessor was defined without a getter`
+once `getPrivateIdentifierPropertyOfType(leftType, lexicallyScopedSymbol)`
+finds a property with `SetAccessor` and no `GetAccessor`, unless the access is
+a *definite* assignment target (`=` and its destructuring positions;
+`+=` and `++` read first and do report).
+
+**Where it lives.** The faithful home is the property-access worker in
+`members.rs` (another lane's file). The check is a separate rule there,
+after the lookup succeeded, with no decision shared with the type it
+computes, so it is ported as its own dispatch rule
+(`private_setter_read.rs`) beside TS2540's private-accessor sibling
+(`check_private_accessor_is_writable`). It repeats the lookup:
+`lookupSymbolForPrivateIdentifierDeclaration` as the nearest enclosing
+class declaring the name; the receiver's non-nullable apparent type's
+property of that spelling must be declared in that class (otherwise upstream
+finds a different, mangled symbol and reports shadowing instead).
+
+**Declines.** Files with parse errors, JS files and ambient contexts, as the
+sibling private-name rules here do.
+
+**Measured.** `privateNameSetterNoGetter`, `privateWriteOnlyAccessorRead`
+converted; none lost.
+
+## §14 TS2431 and TS2477 / TS2478: enum declaration checks
+
+**TS2431** (`Enum name cannot be '{0}'`): `checkCollisionsForDeclarationName`'s
+enum arm (`checker.go:10459`) calls `checkTypeNameIsReserved` for every enum
+declaration; the port's helper had callers for every other declaration kind
+but not this one. Wired from the enum dispatch arm. `enumErrors` still
+declines: the shared helper `check_type_name_is_reserved` returns early in a
+file with parse errors (port-local; upstream has no such gate). Removing that
+bail measured +3 cases (`enumErrors`, `reservedNamesInAliases`,
+`interfacesWithPredefinedTypesAsNames`) with no line lost; it is a shared
+helper, so it is reported to the integrator rather than changed here.
+
+**TS2477 / TS2478**: `computeConstantEnumMemberValue`'s const arm
+(`checker.go:24001`) reports a `const` enum member whose initializer
+evaluates to a non-finite number (`NaN` has its own message). This port has
+no symbol-aware enum evaluator (§819 of `checker-notes-diag2.md`), so the
+value comes from a numeric-only evaluation covering exactly the shapes that
+can produce a non-finite value without symbols: numeric literals, the global
+`Infinity` / `NaN` (`evaluateEntity`'s first arm, `checker.go:24032`, same
+global-symbol test as `enum_initializer_may_evaluate`), unary `+`/`-` and
+`+ - * / % **`. Anything else — enum member and constant references,
+strings, bitwise operators (always finite) — declines; `constEnumErrors`'
+`F = E * E` overflow (member references) is such a decline.
+
+**Measured.** `enumWithPrimitiveName`, `enumConstantMembers` converted; two
+more correct lines in `constEnumErrors`; none lost.
+
+## §15 TS2651: enum initializers referencing later members
+
+**Forcing constraint.** `evaluateEnumMember` (`checker.go:24077`) reports
+TS2651 when `computeEnumMemberValues` evaluates an initializer (location =
+the member) and `evaluateEntity` resolves an enum member that
+`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) places after the
+location: same file, declared at a later position, usage not ambient.
+
+**What was ported.** `check_enum_member_forward_references` walks the
+initializer in the evaluator's visit order (`evaluator.go`): parentheses, a
+prefix operand, *both* binary operands whatever the operator (the evaluator
+evaluates both before looking at the operator), and the entity forms
+`evaluateEntity` accepts — an identifier, `E.m`, and `E["m"]` on an
+identifier that resolves to an enum. Declaration order is compared by
+start position within one file; another file is always "before"
+(upstream: "order cannot be determined"). A `declare enum` or an ambient
+context is skipped (`isInAmbientOrTypeNode(usage)`).
+
+**Declines.** A template expression's spans after the first: the evaluator
+stops at the first span without a value, which needs values this port does
+not compute. Aliases and longer entity names (`N.E.m`): `resolveEntityName`
+follows them, the binder lookup used here does not. The self-reference arm
+(`declaration == location`, TS2565 with a printed symbol) is not ported.
+The value `0` the arm substitutes is irrelevant to the other enum rules here,
+which decline on member references.
+
+**Measured.** `forwardRefInEnum` converted, `constEnumErrors` +1 line; none
+lost.
+
+## §16 TS2377 / TS17005: constructors of classes that extend `null`
+
+**Forcing constraint.** `checkConstructorDeclaration` (`checker.go:2836`)
+reads `classDeclarationExtendsNull` once: a super call in such a class is
+TS17005 at `findFirstSuperCall`'s result, and a missing super call is *not*
+TS2377. The port's TS2377 rule (`check_derived_constructor_calls_super`)
+tested the base expression for `SyntaxKind::NullKeyword`, but this parser
+spells the `null` of `extends null` as an identifier named `null` (§308 of
+`checker-notes-diag2.md`, already handled by `super_expression.rs`'s
+`class_declaration_extends_null`). So every `extends null` constructor
+without a super call drew a wrong TS2377, and TS17005 did not exist.
+
+**What changed.** The rule reuses `class_declaration_extends_null` (now
+crate-visible) and ports the TS17005 arm with `first_super_call`, the node
+form of the existing `subtree_has_super_call` walk (same function-like
+boundary, child order). `classDeclarationExtendsNull`'s real test is the
+base constructor type being `nullWideningType`; the written-`null` reading
+is §308's and inherits its limits (an `extends` expression that merely
+evaluates to null is not seen).
+
+**Measured.** `classExtendsNull`, `superCallBeforeThisAccessing4`,
+`superCallBeforeThisAccessing5` converted, `classExtendsNull2` +1 line; none
+lost.
+
+## §17 TS17009 / TS17011: `this`/`super` before `super()` without the flow graph
+
+**Forcing constraint.** `checkThisBeforeSuper` (`checker.go:12263`) reports
+when `!isPostSuperFlowNode(node.FlowNode)` (`flow.go:2611`): walking flow
+antecedents back from the use, some path reaches the function start without
+a `super(...)` call node (a branch label needs every antecedent post-super; a
+loop label follows its entry edge only; unreachable is post-super). §307 of
+`checker-notes-diag2.md` approximated it by top-level statement index and
+reported when the use and the `super()` shared a top-level statement, which
+is undecidable by index: `if (c) { super(); this.x }` and
+`let x = { k: super(), j: this._t }` drew wrong TS17009s
+(`checkSuperCallBeforeThisAccess`, `superCallBeforeThisAccessing8`), while
+uses in an `else` branch or a `switch` clause entered by jump were missed.
+
+**What was ported.** `certainly_reached_before_super` walks the use's
+ancestor chain top-down from the constructor body and answers "certainly not
+post-super" only when a super-free completing path to the use is certain:
+- at a statement list (block, case clause) every earlier sibling has a path
+  that completes without `super()` (`super_free_completion`: no `super()`
+  and no jump; an `if` with a super-free condition and a super-free branch
+  or no `else`; a block of such statements);
+- an `if` is entered through the branch on the chain once its condition is
+  super-free; a `switch` clause through the dispatch jump once the
+  discriminant and case labels are super-free (`d2` after a `super()` in the
+  previous clause is reported, as upstream does: the jump bypasses it);
+- any other container is a leaf: every `super()` in it must enclose the use
+  (arguments run before the call's flow node: `super(this)` is an error) or
+  start after it (left-to-right evaluation; a loop's later `super()` is not
+  on the entry edge upstream follows).
+Everything else declines. Parameter initializers keep §307's arm.
+
+**Declines.** A preceding `super()` under a conditional expression,
+`&&`/`||`/`??`, a loop, `try` or `switch` (`e2` after
+`{ w: c ? super() : 0 }` still owes TS17009); never-returning calls and
+other unreachable-code shapes are not modelled, which is why a jump anywhere
+in a "super-free" sibling makes it uncertain.
+
+**Measured.** `superCallBeforeThisAccessing8` converted; +7 correct lines and
+three wrong TS17009/TS17011 lines removed in `checkSuperCallBeforeThisAccess`
+(still owing TS2855 and the declines above); none lost. A first draft with
+the leaf rule "the leaf holds no `super()`" lost 19 lines over 11 cases
+(`super(this)` in `thisInSuperCall*`, `derivedClassSuperCallsWithThisArg`).

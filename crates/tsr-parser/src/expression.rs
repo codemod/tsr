@@ -121,26 +121,6 @@ fn is_left_hand_side_expression(expression: Expression<'_>) -> bool {
     )
 }
 
-/// `isListElement(PCObjectLiteralMembers)` (`parser.go:845`).
-///
-/// `[`, `*`, `...` and `.` are admitted verbatim from upstream — the last is
-/// *not* a member, and upstream's comment says it is there so a trailing dot
-/// does not close the literal. The rest is `isLiteralPropertyName`: an
-/// identifier or keyword, a string, or a number.
-fn starts_object_literal_member(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::OpenBracketToken
-            | SyntaxKind::AsteriskToken
-            | SyntaxKind::DotDotDotToken
-            | SyntaxKind::DotToken
-            | SyntaxKind::StringLiteral
-            | SyntaxKind::NumericLiteral
-            | SyntaxKind::BigIntLiteral
-    ) || kind == SyntaxKind::Identifier
-        || kind.is_keyword()
-}
-
 fn is_assignment_operator(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_ASSIGNMENT as u16..=SyntaxKind::LAST_ASSIGNMENT as u16)
         .contains(&(kind as u16))
@@ -177,14 +157,28 @@ impl<'a> Parser<'a> {
         expression
     }
 
-    /// Parse an assignment, conditional, or binary expression.
+    /// Parse an assignment, conditional, or binary expression —
+    /// typescript-go's `parseAssignmentExpressionOrHigher`, which allows an
+    /// arrow function's return type.
     pub(crate) fn parse_assignment_expression(&mut self) -> Expression<'a> {
+        self.parse_assignment_expression_worker(true)
+    }
+
+    /// typescript-go's `parseAssignmentExpressionOrHigherWorker`
+    /// (`parser.go:4081`). `allow_return_type_in_arrow_function` is false only
+    /// on the true branch of a conditional (and what that branch's arrows
+    /// and assignments pass down), where `a ? (b) : c => d` must not read
+    /// `(b) : c` as an arrow signature with a return type.
+    fn parse_assignment_expression_worker(
+        &mut self,
+        allow_return_type_in_arrow_function: bool,
+    ) -> Expression<'a> {
         let start = self.pos();
 
         if self.at(SyntaxKind::YieldKeyword) {
             return self.parse_yield_expression();
         }
-        if let Some(arrow) = self.try_parse_arrow_function() {
+        if let Some(arrow) = self.try_parse_arrow_function(allow_return_type_in_arrow_function) {
             return arrow;
         }
 
@@ -199,7 +193,8 @@ impl<'a> Parser<'a> {
         // the reporting sink still double-reported, and §193 fixed the sink.
         if is_left_hand_side_expression(left) && is_assignment_operator(self.token.kind) {
             let operator = self.take_token();
-            let right = self.parse_assignment_expression();
+            let right =
+                self.parse_assignment_expression_worker(allow_return_type_in_arrow_function);
             let node = self.finish_node(
                 BinaryExpression::new(&[], Some(left), None, Some(operator), Some(right)),
                 SyntaxKind::BinaryExpression,
@@ -209,15 +204,17 @@ impl<'a> Parser<'a> {
         }
 
         if self.at(SyntaxKind::QuestionToken) {
+            // `parseConditionalExpressionRest` (`parser.go:4552`).
             let question = self.take_token();
-            let when_true = self.parse_assignment_expression();
+            let when_true = self.parse_assignment_expression_worker(false);
             let colon = if self.at(SyntaxKind::ColonToken) {
                 self.take_token()
             } else {
                 self.error_at_current_with(&messages::_0_EXPECTED, &[":"]);
                 self.alloc_token(SyntaxKind::ColonToken, Span::at(self.pos()))
             };
-            let when_false = self.parse_assignment_expression();
+            let when_false =
+                self.parse_assignment_expression_worker(allow_return_type_in_arrow_function);
             let node = self.finish_node(
                 ConditionalExpression::new(
                     Some(left),
@@ -453,6 +450,12 @@ impl<'a> Parser<'a> {
             return Expression::PostfixUnaryExpression(node);
         }
         expression
+    }
+
+    /// typescript-go's `Parser.parseLeftHandSideExpressionOrHigher`
+    /// (`parser.go`), which a heritage clause element starts with.
+    pub(crate) fn parse_left_hand_side_expression_or_higher(&mut self) -> Expression<'a> {
+        self.parse_call_or_member_expression()
     }
 
     /// Parse a primary expression followed by any chain of calls and accesses.
@@ -1227,58 +1230,19 @@ impl<'a> Parser<'a> {
         Expression::ArrayLiteralExpression(node)
     }
 
+    /// typescript-go's `Parser.parseObjectLiteralExpression` (`parser.go:5615`):
+    /// `parseDelimitedList(PCObjectLiteralMembers, parseObjectLiteralElement)`.
+    /// The list machinery reports a stray `,` as "Property assignment
+    /// expected" and skips it, skips a `;` used as a separator after the
+    /// "',' expected", and — unlike the hand loop it replaces — keeps going
+    /// past a token that is not a member unless an enclosing list wants it.
     pub(crate) fn parse_object_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
-        let mut properties = Vec::new();
-        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
-            // §277's object-literal twin: a bare `,` cannot start a member and
-            // mints NOTHING — upstream reports "Property assignment expected"
-            // and skips it. `{ x: 0,, }` synthesized an empty property here
-            // that printed ` : any` AND leaked into the object's own type as
-            // `{ x: number; : any; }` (`parseErrorDoubleCommaInCall`).
-            if self.at(SyntaxKind::CommaToken) {
-                self.error_at_current(&messages::PROPERTY_ASSIGNMENT_EXPECTED);
-                self.next_token();
-                continue;
-            }
-            let before = self.pos();
-            properties.push(self.parse_object_literal_element());
-            if self.eat(SyntaxKind::CommaToken) {
-                if self.pos() == before {
-                    break;
-                }
-                continue;
-            }
-            if self.at(SyntaxKind::CloseBraceToken) || self.at(SyntaxKind::EndOfFile) {
-                break;
-            }
-            // `parseDelimitedList` (`parser.go:664`) reports the missing
-            // separator and continues. **And for object-literal members it then
-            // skips a `;`**, with upstream's own reason at `:678`: *"If the
-            // token was a semicolon, and the caller allows that, then skip it
-            // and continue. This ensures we get back on track and don't result
-            // in tons of parse errors. For example, this can happen when people
-            // do things like use a semicolon to delimit object literal
-            // members."*
-            //
-            // `var v = { foo(); }` is exactly that: one `',' expected` upstream,
-            // and two diagnostics here because this loop left the list. §218.
-            self.expect(SyntaxKind::CommaToken);
-            if self.at(SyntaxKind::SemicolonToken) && !self.token.has_preceding_line_break() {
-                self.next_token();
-            }
-            // `isListElement(PCObjectLiteralMembers)` (`parser.go:845`):
-            // `[`, `*`, `...`, `.`, or a literal property name. Continuing
-            // without it is what §198 measured at −64 parser files — the guard
-            // is what makes "recover by continuing" safe (§200).
-            if !starts_object_literal_member(self.token.kind) {
-                break;
-            }
-            if self.pos() == before {
-                self.next_token();
-            }
-        }
+        let (properties, _) = self.parse_delimited_list(
+            ParsingContext::ObjectLiteralMembers,
+            Self::parse_object_literal_element,
+        );
         self.expect(SyntaxKind::CloseBraceToken);
         let properties = self.arena.alloc_slice(&properties);
         let node = self.finish_node(
@@ -1508,7 +1472,10 @@ impl<'a> Parser<'a> {
     /// they diverge only at the `=>`. Rather than encode a lookahead predicate for
     /// every parameter-list shape, this speculatively parses a parameter list and
     /// rewinds if no arrow follows.
-    fn try_parse_arrow_function(&mut self) -> Option<Expression<'a>> {
+    fn try_parse_arrow_function(
+        &mut self,
+        allow_return_type_in_arrow_function: bool,
+    ) -> Option<Expression<'a>> {
         // **Before the `async`.** Upstream takes `pos := p.nodePos()` at the top
         // of `parseParenthesizedArrowFunctionExpression` and
         // `parseSimpleArrowFunctionExpression` (`parser.go:4541`), so the node's
@@ -1556,8 +1523,9 @@ impl<'a> Parser<'a> {
             // `parseArrowFunctionExpressionBody` sets the await context from
             // `isAsync` (`parser.go:4484`) — the *body*'s context, which is why
             // it is entered after the `=>` rather than around the parameter.
-            let body =
-                self.with_await_context(async_modifier.is_some(), Self::parse_arrow_body_inner);
+            let body = self.with_await_context(async_modifier.is_some(), |p| {
+                p.parse_arrow_body(allow_return_type_in_arrow_function)
+            });
             let parameters = self.arena.alloc_slice(&[parsed]);
             let modifiers = modifier_slice(self.arena, async_modifier);
             let node = self.finish_node(
@@ -1589,13 +1557,44 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let start = modifier_start;
-        let is_async = async_modifier.is_some();
         // `parseParenthesizedArrowFunctionExpression(allowAmbiguity)`: only a
         // definite arrow may have a parameter list that is not one — an
         // ambiguous one is abandoned (and the group reparsed as an
         // expression) at a parameter that starts with no parameter name.
         let allow_ambiguity = tristate == Some(true);
+        // `tryParseParenthesizedArrowFunctionExpression` (`parser.go:4320`)
+        // passes the caller's `allowReturnTypeInArrowFunction` only to the
+        // ambiguous parse; a definite arrow always allows a return type. When
+        // the ambiguous parse may still be refused after its body, the whole
+        // parse is speculative. An `async` already consumed cannot be
+        // rewound here, so an `async` arrow keeps its return type.
+        let allow_return_type =
+            allow_ambiguity || allow_return_type_in_arrow_function || async_modifier.is_some();
+        if allow_return_type {
+            self.parse_parenthesized_arrow_function(
+                modifier_start,
+                async_modifier,
+                allow_ambiguity,
+                true,
+            )
+        } else {
+            self.try_parse(|p| {
+                p.parse_parenthesized_arrow_function(modifier_start, None, allow_ambiguity, false)
+            })
+        }
+    }
+
+    /// typescript-go's `Parser.parseParenthesizedArrowFunctionExpression`
+    /// (`parser.go:4341`) from its type parameters on; `None` is upstream's
+    /// `nil` (rewind).
+    fn parse_parenthesized_arrow_function(
+        &mut self,
+        start: u32,
+        async_modifier: Option<&'a Token<'a>>,
+        allow_ambiguity: bool,
+        allow_return_type_in_arrow_function: bool,
+    ) -> Option<Expression<'a>> {
+        let is_async = async_modifier.is_some();
         let signature = self.try_parse(|parser| {
             let type_parameters = parser.parse_type_parameters();
             // Parameters take the signature's await context (`parser.go:3299`),
@@ -1625,10 +1624,22 @@ impl<'a> Parser<'a> {
             last_token,
             SyntaxKind::EqualsGreaterThanToken | SyntaxKind::OpenBraceToken
         ) {
-            self.with_await_context(is_async, Self::parse_arrow_body_inner)
+            self.with_await_context(is_async, |p| {
+                p.parse_arrow_body(allow_return_type_in_arrow_function)
+            })
         } else {
             ConciseBody::from(Expression::Identifier(self.parse_identifier()))
         };
+        // Given `x ? y => ({ y }) : z => ({ z })`, the first arrow's body
+        // `({ y }) : z => ({ z })` is an arrow with return type `z`; on the
+        // true side of a conditional that colon ends the branch, unless the
+        // arrow is followed by yet another colon (`a ? (x): string => x : null`).
+        if !allow_return_type_in_arrow_function
+            && return_type.is_some()
+            && !self.at(SyntaxKind::ColonToken)
+        {
+            return None;
+        }
         let parameters = self.arena.alloc_slice(&parameters);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let modifiers = modifier_slice(self.arena, async_modifier);
@@ -1991,14 +2002,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// [`Self::parse_arrow_body`]'s body, taken as a function pointer so the
-    /// two call sites can hand it to [`Parser::with_await_context`].
-    fn parse_arrow_body_inner(&mut self) -> ConciseBody<'a> {
-        self.parse_arrow_body()
-    }
-
     /// typescript-go's `Parser.parseArrowFunctionExpressionBody` (`parser.go`).
-    fn parse_arrow_body(&mut self) -> ConciseBody<'a> {
+    fn parse_arrow_body(&mut self, allow_return_type_in_arrow_function: bool) -> ConciseBody<'a> {
         if self.at(SyntaxKind::OpenBraceToken) {
             return ConciseBody::Block(self.parse_block());
         }
@@ -2014,7 +2019,9 @@ impl<'a> Parser<'a> {
         {
             return ConciseBody::Block(self.parse_block_ex(true, None));
         }
-        ConciseBody::from(self.parse_assignment_expression())
+        ConciseBody::from(
+            self.parse_assignment_expression_worker(allow_return_type_in_arrow_function),
+        )
     }
 
     /// typescript-go's `Parser.isStartOfExpressionStatement` (`parser.go`):
@@ -2695,7 +2702,12 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::OpenBracketToken => {
                 self.next_token();
-                let expression = self.parse_assignment_expression();
+                // `parseComputedPropertyName` (`parser.go:3467`) parses any
+                // expression, comma included, with `in` allowed; the grammar
+                // checker reports a comma expression (TS1171).
+                let saved_no_in = std::mem::take(&mut self.no_in);
+                let expression = self.parse_expression();
+                self.no_in = saved_no_in;
                 self.expect(SyntaxKind::CloseBracketToken);
                 let node = self.finish_node(
                     ComputedPropertyName::new(Some(expression)),

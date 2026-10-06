@@ -75,23 +75,12 @@ fn a_program_declaring_its_own_undefined_keeps_its_declaration() {
 }
 
 #[test]
-fn a_let_initialised_with_undefined_records_a_known_divergence() {
-    // **Upstream says `any` here and this port says `undefined`. This test
-    // records a wrong answer, deliberately, and must not be read as pinning
-    // one.**
-    //
-    // Upstream's `undefinedSymbol` carries `undefinedWideningType`, whose whole
-    // purpose is that `getWidenedType` turns it into `any`; `const` keeps
-    // `undefined` and `let`/`var` widen. `crate::intrinsics` has exactly one
-    // `undefined` (`intrinsics.rs:108`) and no widening variant, so the
-    // distinction upstream draws between two types that PRINT ALIKE cannot be
-    // drawn here — the same shape as the enum divergence replaced in `038def4`.
-    //
-    // Measured exposure: 22 `let`/`var` sites in the corpus against ~1,675
-    // lines the symbol makes right. Accepted as a net-positive divergence
-    // rather than hidden, and recorded here so that **adding a widening
-    // `undefined` reddens this test and forces it to be deleted** rather than
-    // leaving the divergence to be rediscovered.
+fn a_let_initialised_with_undefined_widens_only_without_strict_null_checks() {
+    // Upstream's `undefinedSymbol` carries `undefinedWideningType`
+    // (`checker.go:1345`), which in strict mode *is* `undefinedType` and
+    // otherwise is a twin `getWidenedType` turns into `any`. This test used
+    // to record the opposite answer, as a known divergence, until the
+    // widening twin existed (docs/parity/notes/contextual.md §7).
     assert_eq!(type_of_declaration("let x = undefined;", "x"), "undefined");
     assert_eq!(type_of_declaration("var x = undefined;", "x"), "undefined");
 }
@@ -130,18 +119,20 @@ fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 24] {
 fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations() {
     let mut store = tsr_checker::types::TypeStore::new();
     let i = tsr_checker::Intrinsics::create(&mut store);
-    // The loose identity still occupies slot 5; the active strict slot aliases
-    // ordinary undefined. All following intrinsic allocations keep their IDs.
-    assert_eq!(store.len(), 25);
+    // The loose identities occupy slots 5 (undefined) and 8 (null, created
+    // right after nullType as upstream does, checker.go:990); the active
+    // strict slots alias the ordinary types.
+    assert_eq!(store.len(), 26);
     assert_eq!(
         other_intrinsic_indices(&i),
-        [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+        [0, 1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
     );
     assert_eq!(i.undefined_widening, i.undefined);
+    assert_eq!(i.null_widening, i.null);
 }
 
 #[test]
-fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global() {
+fn undefined_slot_reselection_is_allocation_free_and_reseeds_the_global() {
     for apply_options in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, "");
@@ -170,17 +161,22 @@ fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global(
             }
             let i = checker.intrinsics();
             assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
-            assert_eq!(checker.type_count(), 25);
+            assert_eq!(i.null_widening.index(), if strict { 7 } else { 8 });
+            assert_eq!(checker.type_count(), 26);
             assert_eq!(other_intrinsic_indices(i), other_ids);
             assert_eq!(
                 checker.type_of(i.undefined_widening).flags,
                 tsr_checker::TypeFlags::UNDEFINED
             );
+            assert_eq!(checker.type_of(i.null_widening).flags, tsr_checker::TypeFlags::NULL);
         }
-        // Select loose only after the identity/allocation checks, then query:
-        // global reseeding is a separate prerequisite, deliberately not fixed.
+        // Selecting loose re-seeds the global with the widening twin
+        // (`checker.go:1345`); strict puts the ordinary type back.
         checker.set_strict_null_checks(false);
+        let widening = checker.intrinsics().undefined_widening;
+        assert_ne!(widening, ordinary);
+        assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), widening);
+        checker.set_strict_null_checks(true);
         assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), ordinary);
-        assert_ne!(checker.intrinsics().undefined_widening, ordinary);
     }
 }

@@ -180,10 +180,20 @@ impl Checker<'_, '_> {
                 // miss on an apparent primitive or union only through its
                 // noImplicitAny 7053 family, never as this dotted-name TS2339.
                 // Element access keeps the declared-table certification only.
-                if !self.declared_members_are_complete(receiver_type)
-                    || self.get_property_of_type(receiver_type, name_text).is_some()
-                    || self.no_index_signature_admits(receiver_type, name_text) != Some(true)
-                {
+                // An object receiver may also be certified by its captured
+                // member image (`apparent_type_lacks`, §2), the same list a
+                // dotted miss on it trusts; `getPropertyTypeForIndexType`
+                // asks the identical `getPropertyOfType` and index infos.
+                // `docs/parity/notes/property.md` §11.
+                let certified = if self.declared_members_are_complete(receiver_type) {
+                    self.get_property_of_type(receiver_type, name_text).is_none()
+                        && self.no_index_signature_admits(receiver_type, name_text) == Some(true)
+                } else {
+                    self.store.get(receiver_type).flags.intersects(crate::flags::TypeFlags::OBJECT)
+                        && self.anonymous_properties.contains_key(&receiver_type)
+                        && self.apparent_type_lacks(receiver_type, name_text) == Some(true)
+                };
+                if !certified {
                     return;
                 }
                 receiver_type
@@ -289,7 +299,15 @@ impl Checker<'_, '_> {
                 let Some(argument_id) = argument.node_id() else { return };
                 let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
                 let printed = self.type_to_string(receiver_type);
-                if self.is_object_literal_type(receiver_type) {
+                // `checkElementAccess` widens the receiver for an assignment
+                // target or a method access for a call, and
+                // `getWidenedTypeOfObjectLiteral` does not carry
+                // `ObjectFlagsObjectLiteral`, so those reach the TS7052 family
+                // below instead (`noImplicitAnyStringIndexerOnObject`).
+                let widened = self.assignment_target_kind(node)
+                    != crate::expressions::AssignmentTargetKind::None
+                    || self.is_callee_of_call_or_new(node);
+                if !widened && self.is_object_literal_type(receiver_type) {
                     let span = self.error_span(node);
                     self.report(
                         file,
@@ -358,14 +376,11 @@ impl Checker<'_, '_> {
         // the answer only to suppress TS2339. `this.Foo()` on a static `Foo` is
         // upstream's suggestion form, and the instance→static direction is the
         // one the corpus writes. §447.
-        if self.other_side_of_class_has(receiver_type, name_text) {
-            let statically_declared = self.owning_symbol_of(receiver_type).is_some_and(|symbol| {
-                let entry = self.binder.symbols().get(symbol);
-                entry.exports.contains_key(name_text) && !entry.members.contains_key(name_text)
-            });
-            if !statically_declared {
-                return;
-            }
+        // `typeHasStaticProperty` (`checker.go:27215`) asks the class's
+        // `typeof` side through `getPropertyOfType`, so an inherited static
+        // (`c2.bar()` with `class C2 extends A`, `bar` static on `A`) is
+        // TS2576 too, not TS2339 (`classSideInheritance1`).
+        if self.type_has_static_property(name_text, receiver_type) {
             let class_name = self
                 .owning_symbol_of(receiver_type)
                 .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
@@ -955,6 +970,29 @@ impl Checker<'_, '_> {
             if self.nodes.kind(declaration) != SyntaxKind::ObjectLiteralExpression {
                 return false;
             }
+            // A numeric-literal name upstream canonicalizes
+            // (`getPropertyNameForPropertyNameNode`: the literal's numeric
+            // value as a string) is filed by this port's binder under
+            // `canonical_numeric_text`, whose radix parse answers `NaN` for a
+            // literal past `u128` (`jsnum::numeric_value`), so `0B111…1`
+            // (`Infinity` upstream) is not the image's name
+            // (`binaryIntegerLiteralES6`). A literal's value is never NaN.
+            // `docs/parity/notes/property.md` §11.
+            if let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(declaration)
+                && literal.properties.iter().any(|property| {
+                    let name = match property {
+                        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(p) => p.name,
+                        tsr_ast::ObjectLiteralElementLike::MethodDeclaration(m) => m.name,
+                        tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(a) => a.name,
+                        tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(a) => a.name,
+                        _ => return false,
+                    };
+                    matches!(name, tsr_ast::PropertyName::NumericLiteral(numeric)
+                        if tsr_core::jsnum::numeric_value(numeric.text).is_nan())
+                })
+            {
+                return true;
+            }
             let Some(parent) = self.nodes.parent(declaration) else { return false };
             match self.nodes.kind(parent) {
                 SyntaxKind::ParenthesizedExpression => {
@@ -1394,6 +1432,46 @@ impl Checker<'_, '_> {
     pub(crate) fn is_const_enum_object_type(&self, id: TypeId) -> bool {
         matches!(self.store.get(id).data, crate::types::TypeData::Anonymous { symbol, .. }
             if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CONST_ENUM))
+    }
+
+    /// `isMethodAccessForCall` (`checker.go:11466`). A copy of
+    /// `crate::indexed`'s private helper of the same name, which this lane
+    /// does not own.
+    fn is_callee_of_call_or_new(&self, mut node: NodeId) -> bool {
+        while let Some(parent) = self.nodes.parent(node)
+            && self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression
+        {
+            node = parent;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(Node::CallExpression(call)) => {
+                call.expression.and_then(|e| e.node_id()) == Some(node)
+            }
+            Some(Node::NewExpression(new)) => {
+                new.expression.and_then(|e| e.node_id()) == Some(node)
+            }
+            _ => false,
+        }
+    }
+
+    /// `typeHasStaticProperty` (`checker.go:27215`): the receiver's symbol's
+    /// type has a property `name` whose `valueDeclaration` is static.
+    fn type_has_static_property(&mut self, name: &str, receiver: TypeId) -> bool {
+        let Some(symbol) = self.owning_symbol_of(receiver) else { return false };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS) {
+            return false;
+        }
+        let side = self.get_type_of_symbol(symbol);
+        let Some(property) = self.get_property_of_type(side, name) else { return false };
+        let Some(declaration) = self.binder.symbols().get(property).value_declaration else {
+            return false;
+        };
+        self.node_map.get(declaration).and_then(crate::check::modifiers_of).is_some_and(
+            |modifiers| {
+                tsr_ast::has_syntactic_modifier(modifiers, tsr_ast::SyntaxKind::StaticKeyword)
+            },
+        )
     }
 
     /// Is `name` declared on the class's *other* side?

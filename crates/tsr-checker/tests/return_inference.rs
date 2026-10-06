@@ -129,9 +129,11 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
     );
 
     // Async and generator returns wrap in `Promise`/`Generator`, which are
-    // globals this port cannot resolve (`bd tsr-9or.1`).
+    // globals this port cannot resolve (`bd tsr-9or.1`). A generator with
+    // neither `Generator` nor `IterableIterator` declared is upstream's
+    // `createGeneratorType` fallback, `emptyObjectType` (`checker.go:20447`).
     assert_eq!(type_of_declaration("async function f() { return 1; }", "f"), "error");
-    assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "error");
+    assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "() => {}");
 }
 
 /// The printed type of `name`, bound beside a stand-in lib declaring `Promise`.

@@ -902,7 +902,9 @@ impl<'a> Checker<'a, '_> {
             .copied();
         if let Some(base) = base {
             let base_type = self.check_expression(base.expression?);
-            let base_signatures = if base_type == self.intrinsics.null {
+            let base_signatures = if base_type == self.intrinsics.null
+                || base_type == self.intrinsics.null_widening
+            {
                 Vec::new()
             } else {
                 self.signatures_of_type_kind(base_type, SignatureKind::Construct)?
@@ -1577,6 +1579,13 @@ impl<'a> Checker<'a, '_> {
             asterisk,
             may_return_never,
         )?;
+        let r#type = if return_annotation.is_none()
+            && let Some(full) = self.jsdoc_full_signature_return_type(declaration)
+        {
+            full
+        } else {
+            r#type
+        };
 
         let written_return =
             return_annotation.and_then(|annotation| self.written_annotation_text(annotation));
@@ -1665,11 +1674,11 @@ impl<'a> Checker<'a, '_> {
             }
             None => None,
         };
-        let written_text = node.r#type.and_then(|annotation| match annotation {
-            TypeNode::TypeReferenceNode(reference) => {
-                reference.node_id.and_then(|id| self.qualified_written_text.get(&id)).cloned()
-            }
-            _ => None,
+        let written_text = node.r#type.and_then(|annotation| {
+            tsr_ast::Node::from(annotation)
+                .node_id()
+                .and_then(|id| self.qualified_written_text.get(&id))
+                .cloned()
         });
         Some(TypePredicate {
             asserts: node.asserts_modifier.is_some(),
@@ -2567,9 +2576,13 @@ impl<'a> Checker<'a, '_> {
             // witness: §869 made its position showably uncontextual, and this
             // line still refused it, which is why §868's `yield*` arm had
             // nothing to read and measured zero.
+            // CONTEXTUAL-RETURN-GENERATOR-FILTER: the context is now read
+            // through `getContextualReturnType` (contextual.rs), so only a
+            // lookup that port cannot finish declines here.
             if (is_async
                 && generator_expression
                 && !self.declaration_takes_no_contextual_return(declaration, may_return_never)
+                && self.get_contextual_return_type(declaration).is_err()
                 && self
                     .contextual_signature(declaration)
                     .and_then(|signature| {
@@ -3069,12 +3082,18 @@ impl<'a> Checker<'a, '_> {
             // (`generatorReturnTypeFallback.1-4` want
             // `IterableIterator<number, void, unknown>` under
             // `@lib: es5,es2015.iterable`).
+            // CREATE-GENERATOR-TYPE-EMPTY-FALLBACK: with neither global,
+            // `createGeneratorType` answers `emptyObjectType`
+            // (`checker.go:20442-20447`) whatever the three slots are.
             let generator = if is_async {
                 self.global_type_symbol_with_arity("AsyncGenerator", 3)
-                    .or_else(|| self.global_type_symbol_with_arity("AsyncIterableIterator", 3))?
+                    .or_else(|| self.global_type_symbol_with_arity("AsyncIterableIterator", 3))
             } else {
                 self.global_type_symbol_with_arity("Generator", 3)
-                    .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))?
+                    .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))
+            };
+            let Some(generator) = generator else {
+                return Some(self.intrinsics.empty_object);
             };
             // §135 slice 1's R slot: the return aggregate, `void` when empty.
             let return_slot = match return_types.as_slice() {
@@ -3089,12 +3108,20 @@ impl<'a> Checker<'a, '_> {
                 }
             };
             let next_slot = match next_types.as_slice() {
-                [] => self
-                    .contextual_signature(declaration)
-                    .and_then(|signature| {
+                // `getContextualIterationType(Next, fn)` orElse `unknown`
+                // (`checker.go:20251`).
+                // An undecidable lookup keeps the pre-port read of a single
+                // generator-family reference.
+                [] => match self.get_contextual_iteration_type(
+                    crate::iteration::IterationTypeKind::Next,
+                    declaration,
+                ) {
+                    Ok(next) => next,
+                    Err(()) => self.contextual_signature(declaration).and_then(|signature| {
                         self.contextual_generator_iteration_type(signature.r#type, 2)
-                    })
-                    .unwrap_or(self.intrinsics.unknown),
+                    }),
+                }
+                .unwrap_or(self.intrinsics.unknown),
                 [single] => *single,
                 many => self.get_intersection_type(many, None),
             };

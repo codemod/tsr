@@ -56,7 +56,8 @@ pub fn parse(text: &str) -> Vec<BaselineDiagnostic> {
         if line.starts_with("==== ") {
             break;
         }
-        if let Some(diagnostic) = parse_header_line(line) {
+        if let Some(diagnostic) = parse_header_line(line).or_else(|| parse_pretty_header_line(line))
+        {
             out.push(diagnostic);
         }
     }
@@ -84,9 +85,62 @@ fn parse_header_line(line: &str) -> Option<BaselineDiagnostic> {
     })
 }
 
+/// A `// @pretty: true` case's header line, as `formatDiagnosticsWithColorAndContext`
+/// writes it: `file.ts:12:34 - error TS2300: message`, wrapped in ANSI colour
+/// escapes. Only unindented lines are headers; the indented
+/// `file.ts:5:9 - 'x' was also declared here.` lines are related information,
+/// and the source echo under each header carries no `error TS`.
+fn parse_pretty_header_line(line: &str) -> Option<BaselineDiagnostic> {
+    if !line.contains('\u{1b}') {
+        return None;
+    }
+    let plain = strip_ansi(line);
+    if plain.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let (location, rest) = plain.split_once(" - ")?;
+    let rest = rest.strip_prefix("error TS").or_else(|| rest.strip_prefix("warning TS"))?;
+    let code = rest.split(':').next()?;
+    let (file_and_line, column) = location.rsplit_once(':')?;
+    let (file, line_number) = file_and_line.rsplit_once(':')?;
+    Some(BaselineDiagnostic {
+        file: file.to_string(),
+        line: line_number.trim().parse().ok()?,
+        column: column.trim().parse().ok()?,
+        code: code.trim().parse().ok()?,
+    })
+}
+
+/// Remove `ESC [ … letter` colour sequences.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else if ch != '\r' {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pretty_header_line_yields_its_position_and_code() {
+        let text = "\u{1b}[96mfile1.ts\u{1b}[0m:\u{1b}[93m3\u{1b}[0m:\u{1b}[93m9\u{1b}[0m - \u{1b}[91merror\u{1b}[0m\u{1b}[90m TS2300: \u{1b}[0mDuplicate identifier 'a'.\r\n\r\n  \u{1b}[96mfile2.ts\u{1b}[0m:\u{1b}[93m5\u{1b}[0m:\u{1b}[93m9\u{1b}[0m - 'a' was also declared here.\r\n";
+        assert_eq!(
+            parse(text),
+            [BaselineDiagnostic { file: "file1.ts".into(), line: 3, column: 9, code: 2300 }]
+        );
+    }
 
     #[test]
     fn a_header_line_yields_its_position_and_code() {

@@ -435,7 +435,12 @@ impl Checker<'_, '_> {
     /// container and upstream does not report it, so this declines whenever the
     /// walk to the `SourceFile` passes a `ModuleDeclaration` or a function.
     /// §375.
+    ///
+    /// Also the `default` specifier's `checkExternalEmitHelpers` request
+    /// (`checker.go:5383`, `:5571`), which shares this function's call site
+    /// for import and export specifiers alike.
     pub(crate) fn check_export_specifier_is_local(&mut self, node: NodeId) {
+        self.check_specifier_default_emit_helper(node);
         if self.file_has_parse_errors {
             return;
         }

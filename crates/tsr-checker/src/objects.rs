@@ -854,6 +854,56 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// The pseudochecker's `typeFromExpression` (`pseudochecker/lookup.go:262`)
+    /// for a property initializer, narrowed to the arms whose pseudo-type is a
+    /// single-quoted string literal node `serializeTypeForDeclaration` reuses:
+    /// a string literal in a const location, `'x' as const` (via
+    /// `typeFromTypeAssertion`, `lookup.go:510`, which recurses for a const
+    /// assertion) and `e as 'x'` / `<'x'>e` (a direct type node, reused when
+    /// it denotes the member's type).
+    fn reused_single_quoted_literal(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        const_context: bool,
+        member_type: TypeId,
+    ) -> Option<String> {
+        use tsr_ast::{Expression, Node, TokenFlags, TypeNode};
+        let (inner, type_node) = match expression {
+            Expression::ParenthesizedExpression(parenthesized) => {
+                return self.reused_single_quoted_literal(
+                    parenthesized.expression?,
+                    const_context,
+                    member_type,
+                );
+            }
+            Expression::StringLiteral(literal)
+                if const_context && literal.token_flags.contains(TokenFlags::SINGLE_QUOTE) =>
+            {
+                return Some(format!("'{}'", literal.text));
+            }
+            Expression::AsExpression(assertion) => (assertion.expression?, assertion.r#type?),
+            Expression::TypeAssertion(assertion) => (assertion.expression?, assertion.r#type?),
+            _ => return None,
+        };
+        if crate::assertions::is_const_type_reference(type_node) {
+            return self.reused_single_quoted_literal(inner, true, member_type);
+        }
+        let TypeNode::LiteralTypeNode(literal_type) = type_node else { return None };
+        let Some(Node::StringLiteral(literal)) = literal_type.literal else { return None };
+        if !literal.token_flags.contains(TokenFlags::SINGLE_QUOTE) {
+            return None;
+        }
+        // Read-drop-recurse (ADR-0013): the arena node carries the checker's
+        // lifetime that `get_type_from_type_node` needs.
+        let Some(Node::LiteralTypeNode(arena)) = self.node_map.get(literal_type.node_id?) else {
+            return None;
+        };
+        if self.get_type_from_type_node(TypeNode::LiteralTypeNode(arena)) != member_type {
+            return None;
+        }
+        Some(format!("'{}'", literal.text))
+    }
+
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
         let has_spread = node.properties.iter().any(|property| {
             matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
@@ -1068,7 +1118,8 @@ impl Checker<'_, '_> {
                                 };
                                 if unique {
                                     let printed = format!(
-                                        "{name}{}",
+                                        "{}{}",
+                                        classified_method_name(&name),
                                         signature_member_text(self, &signature)
                                     );
                                     upsert_member(&mut members, Member::Method { name, printed });
@@ -1166,11 +1217,7 @@ impl Checker<'_, '_> {
                         Some(reference) => self.signature_member_text_at(&signature, reference),
                         None => signature_member_text(self, &signature),
                     };
-                    let printed = if name == "new" {
-                        format!("\"new\"{member_text}")
-                    } else {
-                        format!("{name}{member_text}")
-                    };
+                    let printed = format!("{}{member_text}", classified_method_name(name));
                     upsert_member(&mut members, Member::Method { name: name.to_owned(), printed });
                     capture_complete &= self.capture_checked_object_member(
                         property,
@@ -1393,7 +1440,8 @@ impl Checker<'_, '_> {
                                     "set {}({}: {})",
                                     name.text,
                                     parameter_name,
-                                    self.type_to_string(setter_type)
+                                    self.written_annotation_text(annotation)
+                                        .unwrap_or_else(|| self.type_to_string(setter_type))
                                 );
                                 members.push(Member::Signature { printed });
                                 capture_complete &= self.capture_checked_object_member(
@@ -1703,39 +1751,6 @@ impl Checker<'_, '_> {
             } else {
                 member_type
             };
-            // §853: the declaration-level `getWidenedType` would turn a
-            // nullable member into `any`, and this port has no call site for
-            // it — **but only when `strictNullChecks` is OFF does upstream
-            // widen at all**. `createWideningType`
-            // (`checker.go:25027`):
-            //
-            // ```go
-            // func (c *Checker) createWideningType(nonWideningType *Type) *Type {
-            //     if c.strictNullChecks {
-            //         return nonWideningType
-            //     }
-            //     t := c.newIntrinsicType(...)
-            //     t.objectFlags |= ObjectFlagsContainsWideningType
-            //     return t
-            // }
-            // ```
-            //
-            // `undefinedWideningType` and `nullWideningType` are what a
-            // `null`/`undefined` expression answers, and under strict they ARE
-            // the plain types with no `ContainsWideningType`.
-            // `getWidenedTypeWithContext` is gated on `RequiresWidening`, so
-            // under strict there is nothing to widen and `{ p: null }` is
-            // `{ p: null; }`.
-            //
-            // Non-strict keeps the refusal for its original reason: there the
-            // port really would need `getWidenedType`, and answering
-            // `{ p: null; }` where upstream answers `{ p: any; }` would be a
-            // confident wrong line in place of an honest gap.
-            if !self.strict_null_checks
-                && self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE)
-            {
-                return error;
-            }
             // §892: record the member's type on its SYMBOL, which is what
             // upstream's `checkObjectLiteral` does through
             // `links.resolvedType` — so `getTypeOfSymbol` for an
@@ -1757,20 +1772,18 @@ impl Checker<'_, '_> {
             // Upsert prevents duplicate members while collecting the literal.
             // Final ordering uses surviving declaration provenance below:
             // `{ ...{ a: 1, b: 2 }, a: "x" }` prints `{ b: number; a: string; }`.
-            let printed = match (const_context, &value) {
-                // SS109: the carried shape is DIRECTLY a single-quoted
-                // string literal - it prints single-quoted inside the
-                // object type while its standalone line stays double
-                // (the SS77.3 name-quote precedent applied to values).
-                // Indirect reaches keep the fresh render.
-                (true, PropertyValue::Initializer(tsr_ast::Expression::StringLiteral(literal)))
-                    if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) =>
-                {
-                    format!("'{}'", literal.text)
+            // SS109: a single-quoted string literal the pseudochecker reuses
+            // prints single-quoted inside the object type while its
+            // standalone line stays double (the SS77.3 name-quote precedent
+            // applied to values). Other reaches keep the fresh render.
+            let reused = match &value {
+                PropertyValue::Initializer(initializer) => {
+                    self.reused_single_quoted_literal(*initializer, const_context, member_type)
                 }
-                // §735 — see [`Checker::member_text_at`].
-                _ => self.member_text_at(member_type, node.node_id),
+                PropertyValue::Shorthand(_) => None,
             };
+            // §735 — see [`Checker::member_text_at`].
+            let printed = reused.unwrap_or_else(|| self.member_text_at(member_type, node.node_id));
             if let Some(id) = property.node_id() {
                 checked_members.push((id, member_type));
             } else {
@@ -1786,6 +1799,7 @@ impl Checker<'_, '_> {
             // PROPERTY assignments collapse to one row
             // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
             // [Symbol.isConcatSpreadable]: 1 }` prints one member).
+            let mut replaced_name = None;
             {
                 let component = if let tsr_ast::PropertyName::ComputedPropertyName(computed) =
                     name_node
@@ -1808,7 +1822,7 @@ impl Checker<'_, '_> {
                         }
                     });
                 if let Some(semantic_name) = semantic_name.filter(|_| !component) {
-                    let property = AnonymousProperty {
+                    let mut property = AnonymousProperty {
                         accessor_write: None,
                         method: false,
                         origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
@@ -1828,6 +1842,23 @@ impl Checker<'_, '_> {
                     if let Some(index) =
                         typed_properties.iter().position(|p| p.name == property.name)
                     {
+                        // checkObjectLiteral's `propertiesTable[member.Name] =
+                        // member` (`checker.go:13331`) keys by the escaped
+                        // name, so `26` and `"26"` are one entry. A computed
+                        // entry carries its own `nameType` (`[+1]` prints `1`,
+                        // `[-1]` prints `[-1]`); a written name prints from the
+                        // binder-merged symbol, whose first spelling wins.
+                        let previous = &typed_properties[index];
+                        if previous.printed_name != name {
+                            if !matches!(name_node, tsr_ast::PropertyName::ComputedPropertyName(_))
+                            {
+                                property.printed_name.clone_from(&previous.printed_name);
+                            }
+                            replaced_name = Some((
+                                previous.printed_name.clone(),
+                                property.printed_name.clone(),
+                            ));
+                        }
                         typed_properties[index] = property;
                     } else {
                         typed_properties.push(property);
@@ -1836,15 +1867,27 @@ impl Checker<'_, '_> {
                     capture_complete = false;
                 }
             }
-            upsert_member(
-                &mut members,
-                Member::Property {
-                    name,
-                    optional: member_optional,
-                    readonly: const_context,
-                    printed,
-                },
-            );
+            match replaced_name {
+                Some((previous, surviving)) => replace_member_named(
+                    &mut members,
+                    &previous,
+                    Member::Property {
+                        name: surviving,
+                        optional: member_optional,
+                        readonly: const_context,
+                        printed,
+                    },
+                ),
+                None => upsert_member(
+                    &mut members,
+                    Member::Property {
+                        name,
+                        optional: member_optional,
+                        readonly: const_context,
+                        printed,
+                    },
+                ),
+            }
         }
         let Some(indexes) = self.object_literal_indexes(&checked_members, const_context) else {
             return error;
@@ -1892,7 +1935,13 @@ impl Checker<'_, '_> {
         // `getPropertyTypeForIndexType`'s failure path answers `any` for
         // (`checker.go:27130` and `:27189` via `isJSLiteralType`,
         // `utilities.go:1753`). Recorded in a side table per ADR-0003.
-        if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+        // Only without a contextual type (`contextualType == nil`,
+        // `checker.go:13206`): a literal under `@type`/`@satisfies` is checked
+        // like a TypeScript one.
+        if node
+            .node_id
+            .is_some_and(|id| self.in_js_file(id) && self.get_contextual_type(id).is_none())
+        {
             self.js_literal_types.insert(minted);
         }
         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
@@ -2457,6 +2506,32 @@ fn upsert_member(members: &mut Vec<Member>, member: Member) {
         return;
     }
     members.push(member);
+}
+
+/// `classifyPropertyName` (`nodebuilderimpl.go:2384`) for a method name this
+/// producer has already spelled: a method named `new` is a string literal (it
+/// would re-parse as a construct signature), and so is a name that is not
+/// identifier text — here only the parser-recovery empty name of `{ *() {} }`,
+/// since every other spelling arrives quoted or numeric already.
+fn classified_method_name(spelled: &str) -> &str {
+    match spelled {
+        "new" => "\"new\"",
+        "" => "\"\"",
+        other => other,
+    }
+}
+
+/// Replace the named member `previous` (a different spelling of the same
+/// escaped name) in place; push when it is absent.
+fn replace_member_named(members: &mut Vec<Member>, previous: &str, member: Member) {
+    if let Some(existing) = members.iter_mut().find(|held| match held {
+        Member::Property { name, .. } | Member::Method { name, .. } => name == previous,
+        _ => false,
+    }) {
+        *existing = member;
+        return;
+    }
+    upsert_member(members, member);
 }
 
 /// Whether a property name can be printed without quotes.

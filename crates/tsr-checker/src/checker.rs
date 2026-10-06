@@ -255,6 +255,21 @@ pub struct Checker<'a, 'n> {
     /// it has no entry and no rebuild — see
     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// ADR-0045's alias attribute, first writer: upstream's `Type.alias`
+    /// (`symbol` + `typeArguments`) for a type built by an alias-accepting
+    /// constructor. Written once, at creation, by
+    /// [`Checker::deferred_alias_reference`](crate::Checker) — the
+    /// `createDeferredTypeReference` arm of `isDeferredTypeReferenceNode`
+    /// (`checker.go:23236`) — and read only by the printer
+    /// ([`Checker::type_to_string_at`]), mirroring the node builder's alias
+    /// arm (`nodebuilderimpl.go:3362`). Relations, members and inference never
+    /// read it. An absent entry means "no alias", a completed answer.
+    pub(crate) alias_of: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// Intern table for those alias-carrying references, keyed by
+    /// `(alias symbol, the reference the alias is put on)`: upstream caches the
+    /// deferred reference per alias-body node, and the body is resolved once
+    /// per alias, so one alias over one reference is one type.
+    pub(crate) deferred_alias_references: FxHashMap<(SymbolId, TypeId), TypeId>,
     /// §136 (printseam §6): the WRITTEN arity of a default-filled reference —
     /// prints show this many leading arguments, matching upstream's
     /// written-annotation reuse (`Iterable<number>` written short prints
@@ -563,6 +578,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) module_kind: tsr_core::ModuleKind,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
+    /// `compilerOptions.ImportHelpers.IsTrue()`, read by
+    /// `checkExternalEmitHelpers` (`crate::emit_helpers`).
+    pub(crate) import_helpers: bool,
+    /// `sourceFileLinks`' `externalHelpersModule` and
+    /// `requestedExternalEmitHelpers`, keyed by source file
+    /// (`crate::emit_helpers` documents ownership).
+    pub(crate) external_helpers: FxHashMap<NodeId, crate::emit_helpers::ExternalHelpersLinks>,
     /// `emitStandardClassFields` — `useDefineForClassFields` with upstream's
     /// `target >= ES2022` default. A derived field shadows its base at
     /// construction time only under `[[Define]]` semantics, which is what
@@ -757,15 +779,25 @@ pub struct Checker<'a, 'n> {
     /// `jsxFactory` (`h` for `h.createElement`), else by `reactNamespace`.
     ///
     /// The per-file `@jsx` pragma, which upstream consults first
-    /// (`getLocalJsxNamespace`), is not ported — see
-    /// [`Checker::jsx_namespace_symbol`].
+    /// (`getLocalJsxNamespace`), comes from the host — see
+    /// [`Checker::jsx_namespace_at`].
     pub(crate) jsx_namespace: String,
+    /// The first identifier of `jsxFragmentFactory`, when that option parses
+    /// as an entity name (`getJsxFragmentFactoryEntity`, `jsx.go:1431`).
+    pub(crate) jsx_fragment_namespace: Option<String>,
+    /// `checkJsxFragment`'s option half (`jsx.go:114`): `Some` when the JSX
+    /// transform is enabled and `jsxFragmentFactory` is unset, carrying
+    /// whether `jsxFactory` is set.
+    pub(crate) jsx_fragment_factory_missing: Option<bool>,
     /// What JSX compiles to. TS2874 is reported **only** under
     /// [`tsr_core::JsxEmit::React`] (`checker.go:28508`). §261.
     pub(crate) jsx_emit: tsr_core::JsxEmit,
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
+    /// `c.languageVersion` (`checker.go:948`, `GetEmitScriptTarget`), read by
+    /// the operators lane's TS2791 (`docs/parity/notes/operators.md` §8).
+    pub(crate) language_version: tsr_core::ScriptTarget,
     /// §82: depth cap for aliased-condition inlining — upstream's
     /// `inlineLevel` (`flow.go`), capped at 5.
     pub(crate) alias_inline_level: u8,
@@ -1264,27 +1296,14 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `get_type_of_variable_or_parameter_or_property` reads it before doing
         // any work, so seeding it is what makes the symbol answer at all.
         //
-        // **A KNOWN DIVERGENCE LIVES ON THIS LINE.** Upstream seeds
-        // `undefinedWideningType`, not `undefinedType` — two types that PRINT
-        // ALIKE and widen differently, so `const x = undefined` is `undefined`
-        // and `let x = undefined` is `any` (`checker.go:955`). This port has
-        // exactly one `undefined` (`crate::intrinsics`) and no widening
-        // variant, so `let` answers `undefined` where upstream answers `any`.
-        //
-        // Accepted deliberately rather than hidden. Gap and wrong both score as
-        // not-right, so the 22 affected sites cost no gradient; what they cost
-        // is diagnostic separability on those 22, against ~1,675 lines the
-        // symbol makes right. The sites are enumerated in
-        // `docs/architecture/checker-notes-enums.md` so the follow-up can
-        // verify it fixed exactly those, and
-        // `tests/globals.rs::a_let_initialised_with_undefined_records_a_known_divergence`
-        // reddens the moment a widening intrinsic lands.
-        //
-        // **This is a missing intrinsic, not a merged identity.** The widening
-        // type does not exist here at all, which is visible to anyone who greps
-        // `intrinsics.rs` and finds one `undefined` where upstream has two —
-        // unlike `038def4`, where both identities existed and one was used for
-        // the other.
+        // Upstream seeds `undefinedWideningType` — the same type as
+        // `undefinedType` in strict mode, a distinct widening twin otherwise
+        // (`createWideningType`, `checker.go:25027`), so `let x = undefined`
+        // is `any` under `strictNullChecks: false`. The checker starts strict,
+        // where the two coincide; `set_strict_null_checks` re-seeds the slot
+        // when a case turns the flag off (`docs/parity/notes/contextual.md`
+        // §7). This line used to record that divergence: the port had no
+        // widening twin at all.
         //
         // See `Binder::declare_synthesised_globals` for the other half.
         let mut symbol_types = FxHashMap::default();
@@ -1333,6 +1352,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             constrained_type_variables: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
+            alias_of: FxHashMap::default(),
+            deferred_alias_references: FxHashMap::default(),
             reference_display_arity: FxHashMap::default(),
             literal_this_types: FxHashMap::default(),
             unresolved_types: rustc_hash::FxHashSet::default(),
@@ -1396,6 +1417,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
             legacy_decorators: false,
+            import_helpers: false,
+            external_helpers: FxHashMap::default(),
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
@@ -1434,8 +1457,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             object_literal_index_infos: rustc_hash::FxHashMap::default(),
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
+            jsx_fragment_namespace: None,
+            jsx_fragment_factory_missing: None,
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
+            language_version: tsr_core::ScriptTarget::ESNext,
             alias_inline_level: 0,
             non_null_refinement_bases: FxHashMap::default(),
             pre_optional_marker: FxHashMap::default(),
@@ -1595,6 +1621,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
+        self.import_helpers = options.import_helpers.is_true();
         // `GetEmitStandardClassFields` — the flag, defaulting to
         // `target >= ES2022`. §751.
         self.standard_class_fields = match options.use_define_for_class_fields {
@@ -1644,13 +1671,30 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         } else {
             // `GetFirstIdentifier(parseIsolatedEntityName(…))`. The entity is a
-            // dotted name and only its root is the namespace.
-            options.jsx_factory.split('.').next().unwrap_or("React").to_string()
+            // dotted name and only its root is the namespace; a factory that
+            // does not parse leaves the default, `React` (`jsx.go:1376`).
+            crate::jsx_factory::isolated_entity_name_root(&options.jsx_factory)
+                .unwrap_or("React")
+                .to_string()
         };
+        // `getJsxFragmentFactoryEntity`'s option arm (`jsx.go:1431`).
+        self.jsx_fragment_namespace =
+            crate::jsx_factory::isolated_entity_name_root(&options.jsx_fragment_factory)
+                .map(str::to_string);
+        // `GetJSXTransformEnabled` (`compileroptions.go`): the three emits that
+        // call a factory.
+        let jsx_transform = matches!(
+            options.jsx,
+            tsr_core::JsxEmit::React | tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev
+        );
+        self.jsx_fragment_factory_missing = (jsx_transform
+            && options.jsx_fragment_factory.is_empty())
+        .then_some(!options.jsx_factory.is_empty());
 
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
         self.exact_optional_property_types = options.exact_optional_property_types.is_true();
+        self.language_version = options.emit_script_target();
 
         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
         // reports nothing at all, which is what confines the unused family to the
@@ -1679,6 +1723,11 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn set_strict_null_checks(&mut self, on: bool) {
         self.strict_null_checks = on;
         self.intrinsics.select_strict_null_checks(on);
+        // `checker.go:1345`: the synthesised `undefined` symbol's type is
+        // `undefinedWideningType`, which the flag just selected.
+        if let Some(undefined) = self.binder.undefined_symbol() {
+            self.symbol_types.insert(undefined, self.intrinsics.undefined_widening);
+        }
     }
 
     /// Set [`Checker::no_unchecked_side_effect_imports`] from a case's compiler
@@ -1980,7 +2029,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                             && self.binder.symbols().get(symbol).flags
                                 .intersects(SymbolFlags::CLASS | SymbolFlags::VALUE_MODULE))
             });
-            if has_clone && self.best_name(original, reference, false).is_none() {
+            if has_clone && self.best_name(original, reference).is_none() {
                 return None;
             }
         }
@@ -2159,6 +2208,20 @@ impl<'a, 'n> Checker<'a, 'n> {
             // printed form IS the symbol's own name — which is every
             // zero-argument reference. Reverted per §515; recorded so the next
             // reader does not re-run it.
+            // ADR-0045 rule 5: the node builder's alias arm
+            // (`nodebuilderimpl.go:3362`) prints `Alias<Args>` from the alias
+            // symbol before any structure, named at the site like any
+            // reference (`reference_text_at`'s chain / rename / qualifier).
+            if let Some((alias, alias_arguments)) = self.alias_of.get(&id).cloned()
+                && !self.rendering_composites.contains(&id)
+            {
+                self.rendering_composites.insert(id);
+                let rebuilt = self.reference_text_at(alias, &alias_arguments, reference);
+                self.rendering_composites.remove(&id);
+                if let Some(out) = rebuilt {
+                    return Some(out);
+                }
+            }
             if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
                 && !arguments.is_empty()
                 && !self.rendering_composites.contains(&id)
@@ -2198,37 +2261,121 @@ impl<'a, 'n> Checker<'a, 'n> {
         // declarations, moduleAugmentationExtend*'s bare-name wants) gate
         // out; FILE modules wait for the relative-specifier half.
         if self.module_alias_at(module, reference, SymbolFlags::VALUE).is_none() {
-            let declarations = &self.binder.symbols().get(module).declarations;
-            if let [declaration] = declarations.as_slice()
-                && let Some(tsr_ast::Node::ModuleDeclaration(node)) =
-                    self.node_map.get(*declaration)
-                && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name
-            {
-                // SS196: escaped, via the shared `quote` — see calls.rs.
-                return Some(format!("typeof import({})", crate::printing::quote(literal.text)));
-            }
-            // §521 — the FILE-module half §143 left waiting: a module whose
-            // one declaration is a SOURCE FILE prints the relative form,
-            // `typeof import("./foo")`. The module symbol's name is the
-            // resolved path with its extension stripped
-            // (`bind_source_file_as_external_module`), so the harness's
-            // rooted `/foo` spells `./foo` by prefixing the dot — the same
-            // shape every baseline in the pool records
-            // (`getSpecifierForModuleSymbol`'s relative half, reduced to the
-            // one directory layout the corpus mounts).
-            if let [declaration] = declarations.as_slice()
-                && self.nodes.kind(*declaration) == SyntaxKind::SourceFile
-            {
-                let name = self.binder.symbols().get(module).name;
-                if let Some(relative) = name.strip_prefix('/')
-                    && !relative.contains('/')
-                    && !relative.is_empty()
-                {
-                    return Some(format!("typeof import(\"./{relative}\")"));
-                }
-            }
+            return self
+                .module_specifier_for_symbol(module, reference)
+                .map(|specifier| format!("typeof import({specifier})"));
         }
         None
+    }
+
+    /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`), quoted, for
+    /// the module forms this port spells: the module's **source file**
+    /// declaration if it has one (`GetDeclarationOfKind(symbol,
+    /// KindSourceFile)`), else its ambient name.
+    ///
+    /// Any declaration, not only a sole one: a module augmented by
+    /// `declare module "x"` carries the augmentation's declarations too
+    /// (`mergeModuleAugmentation`, `docs/parity/notes/names-modules.md` §4),
+    /// and upstream still finds the file, or reads the ambient name off the
+    /// symbol.
+    ///
+    /// - **Ambient** (§143 slice 1, `checker-notes-narrow.md`): `declare module
+    ///   "name"` prints `"name"` verbatim — escaped via the shared `quote`
+    ///   (SS196). Read from the first string-named module declaration.
+    /// - **File** (§521): the relative specifier from the reference's file,
+    ///   `moduleSpecifiers`' relative preference with `index` stripped, for
+    ///   the plain extensions only — `node_modules` package names and the
+    ///   extension-keeping `.mts`/`.cts` forms decline (`None`, a gap). With
+    ///   no host path, the module symbol's name (the path with its extension
+    ///   stripped, `bind_source_file_as_external_module`) is spelled `./name`
+    ///   when it sits at the root, the one directory layout most of the corpus
+    ///   mounts.
+    fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
+        let symbol = self.binder.symbols().get(module);
+        // `tryGetModuleNameFromAmbientModule` (`modulespecifiers/specifiers.go:107`),
+        // which `GetModuleSpecifiersWithInfo` asks before any path: a
+        // string-named module declaration names the module, unless it is an
+        // external augmentation spelled with a relative name.
+        if let Some(name) = symbol.declarations.iter().find_map(|&declaration| {
+            let Some(tsr_ast::Node::ModuleDeclaration(node)) = self.node_map.get(declaration)
+            else {
+                return None;
+            };
+            let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name else { return None };
+            (!(tsr_path::is_external_module_name_relative(literal.text)
+                && self.is_module_augmentation_external(declaration)))
+            .then_some(literal.text)
+        }) {
+            return Some(crate::printing::quote(name));
+        }
+        if let Some(&file) = symbol
+            .declarations
+            .iter()
+            .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+        {
+            let paths = self
+                .module_host
+                .zip(self.source_file_of(reference))
+                .and_then(|(host, from)| Some((host.file_path(from)?, host.file_path(file)?)));
+            let Some((from, to)) = paths else {
+                let relative = symbol.name.strip_prefix('/')?;
+                return (!relative.contains('/') && !relative.is_empty())
+                    .then(|| format!("\"./{relative}\""));
+            };
+            if to.contains("/node_modules/") {
+                return None;
+            }
+            let stem = [".d.ts", ".tsx", ".ts", ".jsx", ".js"]
+                .iter()
+                .find_map(|extension| to.strip_suffix(extension))?;
+            // `moduleSpecifiers`' `index` stripping: `./dir/index` is spelled
+            // `./dir`, and the importing directory's own index `.`.
+            let (stem, index) = match stem.strip_suffix("/index") {
+                Some("") => ("/", true),
+                Some(directory) => (directory, true),
+                None => (stem, false),
+            };
+            let options = tsr_path::ComparePathsOptions {
+                use_case_sensitive_file_names: true,
+                current_directory: String::new(),
+            };
+            let from_directory = tsr_path::get_directory_path(&from);
+            if (tsr_path::get_root_length(from_directory) > 0)
+                != (tsr_path::get_root_length(stem) > 0)
+            {
+                return None;
+            }
+            let relative =
+                tsr_path::get_relative_path_from_directory(from_directory, stem, &options);
+            let relative = if relative.is_empty() && index {
+                ".".to_string()
+            } else if relative.starts_with('.') {
+                relative
+            } else {
+                format!("./{relative}")
+            };
+            return Some(format!("\"{relative}\""));
+        }
+        None
+    }
+
+    /// `ast.IsModuleAugmentationExternal` (`utilities.go:1694`): a module
+    /// declaration at the top level of an external module, or inside a
+    /// top-level ambient module of a script.
+    fn is_module_augmentation_external(&self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        match self.nodes.kind(parent) {
+            SyntaxKind::SourceFile => self.binder.symbol_of(parent).is_some(),
+            SyntaxKind::ModuleBlock => {
+                let Some(outer) = self.nodes.parent(parent) else { return false };
+                let Some(file) = self.nodes.parent(outer) else { return false };
+                matches!(self.node_map.get(outer), Some(tsr_ast::Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+                    && self.nodes.kind(file) == SyntaxKind::SourceFile
+                    && self.binder.symbol_of(file).is_none()
+            }
+            _ => false,
+        }
     }
 
     /// Pinned tsgo 5b1047d shouldWriteTypeOfFunctionSymbol: typeof is admitted
@@ -2306,7 +2453,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
     fn value_symbol_name_at(&mut self, symbol: SymbolId, reference: NodeId) -> String {
         let own = self.binder.symbols().get(symbol).name;
-        if let Some(name) = self.best_name(symbol, reference, false)
+        if let Some(name) = self.best_name(symbol, reference)
             && name != own
         {
             return name;
@@ -2441,7 +2588,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .map(|&symbol| self.binder.symbols().get(symbol).name)
                 .collect::<Vec<_>>()
                 .join(".")
-        } else if let Some(better) = self.best_name(target, reference, false)
+        } else if let Some(better) = self.best_name(target, reference)
             && better != target_name
         {
             better
@@ -2542,7 +2689,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 };
                 if let Some(start) = name_start {
                     let named = self
-                        .best_name(owner, reference, false)
+                        .best_name(owner, reference)
                         .filter(|name| name != owner_name)
                         .unwrap_or_else(|| {
                             match self.symbol_chain(owner, reference, SymbolFlags::TYPE, 0) {
@@ -2560,7 +2707,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     && printed.starts_with(owner_name)
                     && printed.as_bytes()[owner_name.len()] == b'.'
                 {
-                    if let Some(better) = self.best_name(owner, reference, false) {
+                    if let Some(better) = self.best_name(owner, reference) {
                         if better != owner_name {
                             let mut out = String::with_capacity(printed.len() + better.len());
                             out.push_str(&better);
@@ -2605,7 +2752,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // first table that reaches the symbol. Measured over every printed
         // line in the corpus before building: it changes zero of them — its
         // whole population is lines that gap today.
-        if let Some(better) = self.best_name(symbol, reference, false) {
+        if let Some(better) = self.best_name(symbol, reference) {
             if better != name {
                 let mut out = String::with_capacity(printed.len() + better.len());
                 out.push_str(&printed[..suffix_at - name.len()]);
@@ -2633,7 +2780,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             if prefix.len() == parent_name.len() + 1
                 && prefix.starts_with(parent_name)
                 && prefix.ends_with('.')
-                && let Some(better) = self.best_name(parent, reference, false)
+                && let Some(better) = self.best_name(parent, reference)
                 && better != parent_name
             {
                 let mut out = String::with_capacity(printed.len() + better.len());
@@ -2925,7 +3072,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `__React.Component`. Same walk, same `useOnlyExternalAliasing`
         // filter, falling back to the segment's own name.
         let parent_name = self
-            .best_name(parent, reference, true)
+            .best_name(parent, reference)
             .unwrap_or_else(|| self.binder.symbols().get(parent).name.to_string());
         // A multi-segment accessible alias route is already rooted in scope.
         // Recursing on the declared parent would qualify it a second time.
@@ -3259,14 +3406,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// both through `getSpecifierForModuleSymbol`
     /// (`internal/checker/nodebuilderimpl.go:1104`) rather than through a dotted
     /// name, so neither may become a qualifier.
+    ///
+    /// `ast.IsAmbientModuleSymbolName(symbol.Name)`: the binder names a
+    /// string-named module by its quoted specifier (`quoted_module_name`), and
+    /// nothing else has a quoted name. Asking the *declarations* instead stopped
+    /// being equivalent once module augmentations merge
+    /// (`docs/parity/notes/names-modules.md` §4): an augmentation of an
+    /// `export =` function-and-namespace (`moment`) adds a `declare module
+    /// "moment"` declaration to that function, which is not a module.
     pub(crate) fn is_ambient_module(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            matches!(
-                self.node_map.get(declaration),
-                Some(Node::ModuleDeclaration(module))
-                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-            )
-        })
+        let name = self.binder.symbols().get(symbol).name;
+        name.len() >= 2 && name.starts_with('"') && name.ends_with('"')
     }
 
     /// Whether a symbol is a **file's** module symbol.
@@ -3856,20 +4006,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// the symbol. All direct aliases have one-element chains, so native
     /// `trySymbolTable`'s shortest-chain ordering ties on length here.
     /// `None` when no table reaches it.
-    /// `admit_local_import_equals` — whether a **same-file** `import a = b`
-    /// may supply the name. The corpus splits on print position
-    /// (`checker-notes-modobj.md` §10.16): a chain **segment** takes it
-    /// (`typeof m1_im1_private.c1`, the §10.9 residue's own baselines), while
-    /// the **whole printed name** does not (`m1_im1_private :` itself records
-    /// `typeof m1_M1_public`, and admitting the local alias there lost 130
-    /// lines in exactly the four `privacy*` cases — the §10.16 bar's named
-    /// falsifier, fired and honoured).
-    pub(crate) fn best_name(
-        &mut self,
-        symbol: SymbolId,
-        reference: NodeId,
-        admit_local_import_equals: bool,
-    ) -> Option<String> {
+    ///
+    /// A same-file `import a = b` alias competes like any other alias
+    /// (`useOnlyExternalAliasing` is false on the baseline path). Until type-refs
+    /// round 3 it was excluded from the whole printed name, because admitting
+    /// it lost 130 `privacy*` lines (`checker-notes-modobj.md` §10.16). The
+    /// exclusion stood in for the `ExportSymbol` arm of `trySymbolTable`
+    /// (`symbolaccessibility.go:551`), which is ported below: an exported
+    /// declaration's local makes the symbol a CANDIDATE sorted with the
+    /// aliases, not an immediate answer, and the earlier declaration wins
+    /// (`docs/parity/notes/type-refs.md` §3.3).
+    pub(crate) fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<String> {
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
         let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
@@ -3907,18 +4054,27 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
         for table in tables {
-            if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
-                && (self.binder.merged_symbol(hit) == target
-                    || self
-                        .binder
+            let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
+            if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
+                return Some(own.to_string());
+            }
+            // `trySymbolTable` (`symbolaccessibility.go:551`): a local whose
+            // ExportSymbol is the target is NOT a direct hit — it becomes a
+            // one-element candidate chain `[symbol]` that competes with the
+            // table's aliases under `compareSymbolChains`, i.e. by
+            // `compareSymbols` (first declaration's position). This is what
+            // keeps `typeof m1_M1_public` in the `privacy*` baselines: the
+            // exported namespace is declared before the `import x = …` alias
+            // naming it, so the symbol's own name sorts first.
+            let mut found: Option<(&str, SymbolId)> = direct
+                .filter(|&hit| {
+                    self.binder
                         .symbols()
                         .get(hit)
                         .export_symbol
-                        .is_some_and(|exported| self.binder.merged_symbol(exported) == target))
-            {
-                return Some(own.to_string());
-            }
-            let mut found: Option<(&str, SymbolId)> = None;
+                        .is_some_and(|exported| self.binder.merged_symbol(exported) == target)
+                })
+                .map(|_| (own, symbol));
             let mut qualified = Vec::new();
             for (name, candidate) in table {
                 if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
@@ -3946,17 +4102,6 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // (`symbolaccessibility.go:574`, mirroring `resolveName`), and
                 // a namespace re-export (`export * as ns from "m"`) is omitted
                 // on a local-name lookup (`:571`), which every call here is.
-                let excluded = declarations.iter().any(|&declaration| {
-                    !admit_local_import_equals
-                        && matches!(
-                            self.node_map.get(declaration),
-                            Some(Node::ImportEqualsDeclaration(node))
-                                if matches!(
-                                    node.module_reference,
-                                    Some(tsr_ast::ModuleReference::Identifier(_))
-                                )
-                        )
-                });
                 if declarations.iter().any(|&declaration| {
                     matches!(
                         self.node_map.get(declaration),
@@ -3984,7 +4129,6 @@ impl<'a, 'n> Checker<'a, 'n> {
                     }))
                     && !self.alias_targets_module_clone(candidate);
                 if reaches
-                    && !excluded
                     && found.is_none_or(|(_, best)| self.compare_symbols(candidate, best).is_lt())
                 {
                     found = Some((name, candidate));
@@ -4048,10 +4192,17 @@ impl<'a, 'n> Checker<'a, 'n> {
         None
     }
 
-    /// An accessible pure alias with the target's own name stops qualification
+    /// An accessible alias with the target's own name stops qualification
     /// (`symbolaccessibility.go:656-684`). Merged namespace/alias symbols have
     /// their own meaning too: following their entire alias chain would hide a
     /// real shadow, so compare only the immediate target here.
+    ///
+    /// The hit need only CARRY `ALIAS`: upstream's `AliasExcludes` is `Alias`
+    /// alone, so `import Y = X.Y; var Y = 12` is one symbol with both flags,
+    /// and `trySymbolTable`'s alias iteration (`:562`) still takes it
+    /// (`shadowedInternalModule` records `Y`, not `X.Y`). Requiring exactly
+    /// `ALIAS` dropped those merged aliases (`docs/parity/notes/type-refs.md`
+    /// §3.4).
     fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
         let name = self.binder.symbols().get(symbol).name;
         let Some(hit) = self.binder.resolve_name(
@@ -4063,7 +4214,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         ) else {
             return false;
         };
-        self.binder.symbols().get(hit).flags == SymbolFlags::ALIAS
+        self.binder.symbols().get(hit).flags.contains(SymbolFlags::ALIAS)
             && self.resolve_alias(hit).map(|target| self.binder.merged_symbol(target))
                 == Some(self.binder.merged_symbol(symbol))
             && !self.alias_targets_module_clone(hit)

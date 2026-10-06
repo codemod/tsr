@@ -111,40 +111,47 @@ impl Checker<'_, '_> {
         } else {
             self.widened_object_types.insert(id, id);
         }
-        let result = match self.store.get(id).data.clone() {
-            TypeData::Union { types, .. } => {
-                let index = context.unwrap_or_else(|| {
-                    let index = contexts.len();
-                    contexts
-                        .push(WideningContext { siblings: types.clone(), ..Default::default() });
-                    index
-                });
-                let widened: Vec<_> = types
-                    .iter()
-                    .map(|&ty| self.widen_type_with_context(ty, Some(index), contexts))
-                    .collect();
-                if widened == types {
-                    id
-                } else if widened.iter().any(|&ty| {
-                    self.is_empty_anonymous_object_type(ty)
-                        && self.object_literal_members.get(&ty).is_none_or(Vec::is_empty)
-                }) {
-                    self.union_with_subtype_reduction(&widened).unwrap_or(self.intrinsics.error)
-                } else {
-                    self.get_union_type(&widened)
+        // `checker.go:18368`: a `createWideningType` nullable widens to `any`.
+        let result = if self.intrinsics.is_widening_nullable(id) {
+            self.intrinsics.any
+        } else {
+            match self.store.get(id).data.clone() {
+                TypeData::Union { types, .. } => {
+                    let index = context.unwrap_or_else(|| {
+                        let index = contexts.len();
+                        contexts.push(WideningContext {
+                            siblings: types.clone(),
+                            ..Default::default()
+                        });
+                        index
+                    });
+                    let widened: Vec<_> = types
+                        .iter()
+                        .map(|&ty| self.widen_type_with_context(ty, Some(index), contexts))
+                        .collect();
+                    if widened == types {
+                        id
+                    } else if widened.iter().any(|&ty| {
+                        self.is_empty_anonymous_object_type(ty)
+                            && self.object_literal_members.get(&ty).is_none_or(Vec::is_empty)
+                    }) {
+                        self.union_with_subtype_reduction(&widened).unwrap_or(self.intrinsics.error)
+                    } else {
+                        self.get_union_type(&widened)
+                    }
                 }
+                TypeData::Intersection { types, .. } => {
+                    let widened: Vec<_> = types
+                        .iter()
+                        .map(|&ty| self.widen_type_with_context(ty, None, contexts))
+                        .collect();
+                    if widened == types { id } else { self.get_intersection_type(&widened, None) }
+                }
+                _ if self.is_object_literal_type(id) => {
+                    self.widen_object_in_context(id, context, contexts)
+                }
+                _ => self.widen_array_members(id, contexts),
             }
-            TypeData::Intersection { types, .. } => {
-                let widened: Vec<_> = types
-                    .iter()
-                    .map(|&ty| self.widen_type_with_context(ty, None, contexts))
-                    .collect();
-                if widened == types { id } else { self.get_intersection_type(&widened, None) }
-            }
-            _ if self.is_object_literal_type(id) => {
-                self.widen_object_in_context(id, context, contexts)
-            }
-            _ => self.widen_array_members(id, contexts),
         };
         if let Some(index) = context {
             contexts[index].widened.insert(id, result);

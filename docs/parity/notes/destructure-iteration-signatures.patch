@@ -1,0 +1,117 @@
+diff --git a/crates/tsr-checker/src/signature_positions.rs b/crates/tsr-checker/src/signature_positions.rs
+index c42e30a..fdf0883 100644
+--- a/crates/tsr-checker/src/signature_positions.rs
++++ b/crates/tsr-checker/src/signature_positions.rs
+@@ -275,7 +275,10 @@ mod tests {
+             ("(value: any) => 1 as any", false, false, None),
+             ("<T>(...args: any[]) => 1 as any", false, false, None),
+             ("function(this: number, ...args: any[]) { return 1 as any; }", false, false, None),
+-            ("function*(...args: any[]) { yield* []; }", false, true, None),
++            // No `Generator`/`IterableIterator` global in this fixture:
++            // `createGeneratorType` answers `emptyObjectType`
++            // (`checker.go:20442-20447`).
++            ("function*(...args: any[]) { yield* []; }", false, true, Some("{}")),
+         ] {
+             let source = format!(
+                 "interface Array<T> {{ [index: number]: T; }} const object = {{ f: {initializer} }};"
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index d08dca4..dc201d4 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -2562,9 +2562,13 @@ impl<'a> Checker<'a, '_> {
+             // witness: §869 made its position showably uncontextual, and this
+             // line still refused it, which is why §868's `yield*` arm had
+             // nothing to read and measured zero.
++            // CONTEXTUAL-RETURN-GENERATOR-FILTER: the context is now read
++            // through `getContextualReturnType` (contextual.rs), so only a
++            // lookup that port cannot finish declines here.
+             if (is_async
+                 && generator_expression
+                 && !self.declaration_takes_no_contextual_return(declaration, may_return_never)
++                && self.get_contextual_return_type(declaration).is_err()
+                 && self
+                     .contextual_signature(declaration)
+                     .and_then(|signature| {
+@@ -3064,12 +3068,18 @@ impl<'a> Checker<'a, '_> {
+             // (`generatorReturnTypeFallback.1-4` want
+             // `IterableIterator<number, void, unknown>` under
+             // `@lib: es5,es2015.iterable`).
++            // CREATE-GENERATOR-TYPE-EMPTY-FALLBACK: with neither global,
++            // `createGeneratorType` answers `emptyObjectType`
++            // (`checker.go:20442-20447`) whatever the three slots are.
+             let generator = if is_async {
+                 self.global_type_symbol_with_arity("AsyncGenerator", 3)
+-                    .or_else(|| self.global_type_symbol_with_arity("AsyncIterableIterator", 3))?
++                    .or_else(|| self.global_type_symbol_with_arity("AsyncIterableIterator", 3))
+             } else {
+                 self.global_type_symbol_with_arity("Generator", 3)
+-                    .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))?
++                    .or_else(|| self.global_type_symbol_with_arity("IterableIterator", 3))
++            };
++            let Some(generator) = generator else {
++                return Some(self.intrinsics.empty_object);
+             };
+             // §135 slice 1's R slot: the return aggregate, `void` when empty.
+             let return_slot = match return_types.as_slice() {
+@@ -3084,12 +3094,20 @@ impl<'a> Checker<'a, '_> {
+                 }
+             };
+             let next_slot = match next_types.as_slice() {
+-                [] => self
+-                    .contextual_signature(declaration)
+-                    .and_then(|signature| {
++                // `getContextualIterationType(Next, fn)` orElse `unknown`
++                // (`checker.go:20251`).
++                // An undecidable lookup keeps the pre-port read of a single
++                // generator-family reference.
++                [] => match self.get_contextual_iteration_type(
++                    crate::iteration::IterationTypeKind::Next,
++                    declaration,
++                ) {
++                    Ok(next) => next,
++                    Err(()) => self.contextual_signature(declaration).and_then(|signature| {
+                         self.contextual_generator_iteration_type(signature.r#type, 2)
+-                    })
+-                    .unwrap_or(self.intrinsics.unknown),
++                    }),
++                }
++                .unwrap_or(self.intrinsics.unknown),
+                 [single] => *single,
+                 many => self.get_intersection_type(many, None),
+             };
+diff --git a/crates/tsr-checker/tests/return_inference.rs b/crates/tsr-checker/tests/return_inference.rs
+index 6969e69..bc0a7e8 100644
+--- a/crates/tsr-checker/tests/return_inference.rs
++++ b/crates/tsr-checker/tests/return_inference.rs
+@@ -129,9 +129,11 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
+     );
+ 
+     // Async and generator returns wrap in `Promise`/`Generator`, which are
+-    // globals this port cannot resolve (`bd tsr-9or.1`).
++    // globals this port cannot resolve (`bd tsr-9or.1`). A generator with
++    // neither `Generator` nor `IterableIterator` declared is upstream's
++    // `createGeneratorType` fallback, `emptyObjectType` (`checker.go:20447`).
+     assert_eq!(type_of_declaration("async function f() { return 1; }", "f"), "error");
+-    assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "error");
++    assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "() => {}");
+ }
+ 
+ /// The printed type of `name`, bound beside a stand-in lib declaring `Promise`.
+diff --git a/crates/tsr-checker/tests/types.rs b/crates/tsr-checker/tests/types.rs
+index 7508a91..434ef08 100644
+--- a/crates/tsr-checker/tests/types.rs
++++ b/crates/tsr-checker/tests/types.rs
+@@ -1341,9 +1341,11 @@ fn a_void_return_is_inferred_only_where_no_return_statement_exists() {
+     // the `void` arm is reached only by a body with no valued `return` at all.
+     assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "() => number");
+     // Async and generator return types are `Promise<T>` and `Generator<...>`,
+-    // references to globals that do not exist here (`bd tsr-9or.1`).
++    // references to globals that do not exist here (`bd tsr-9or.1`). With
++    // neither `Generator` nor `IterableIterator`, `createGeneratorType`
++    // answers `emptyObjectType` (`checker.go:20447`).
+     assert_eq!(type_of_declaration("async function f() {}", "f"), "error");
+-    assert_eq!(type_of_declaration("function* f() {}", "f"), "error");
++    assert_eq!(type_of_declaration("function* f() {}", "f"), "() => {}");
+     // A `return` inside a *nested* function belongs to that function, so the
+     // outer one still infers `void`. This is `ForEachReturnStatement`'s contract.
+     assert_eq!(

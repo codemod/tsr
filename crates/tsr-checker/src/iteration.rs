@@ -548,7 +548,9 @@ impl Checker<'_, '_> {
     /// A complete table that lists `name` while the property lookup missed it
     /// is an unresolved member, not an absence.
     fn iteration_member_decidably_absent(&mut self, ty: TypeId, name: &str) -> bool {
-        if self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE) {
+        // `never` (and its implicit/silent variants) has no properties:
+        // `getPropertyOfType` on it answers nil for every name.
+        if self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return true;
         }
         match self.declared_property_table(ty) {
@@ -1091,6 +1093,37 @@ impl Checker<'_, '_> {
         let use_ = if is_async { IterationUse::ASYNC_YIELD_STAR } else { IterationUse::YIELD_STAR };
         let operand_type = self.check_expression(operand);
         self.check_iterated_type_or_element_type(use_, operand_type, operand_id);
+    }
+
+    /// The type half of `checkRightHandSideOfForOf` (`checker.go:17678`):
+    /// `checkIteratedTypeOrElementType` (`checker.go:6095`) of the non-null
+    /// operand on the iterable road (`getIteratedTypeOrElementType`,
+    /// `checker.go:6116`) — the yield type, orElse `any` when the operand is
+    /// `never` or not iterable (both reported by
+    /// [`Self::check_for_of_iteration`]). `None` when the global `Iterable`
+    /// is absent (the array-like road, not ported here) or the engine cannot
+    /// decide.
+    pub(crate) fn for_of_iterated_type(&mut self, statement: NodeId) -> Option<TypeId> {
+        let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement) else {
+            return None;
+        };
+        let expression = for_of.expression?;
+        let use_ = if for_of.await_modifier.is_some() {
+            IterationUse::FOR_AWAIT_OF
+        } else {
+            IterationUse::FOR_OF
+        };
+        self.iteration_global("Iterable", 3)?;
+        let checked = self.check_expression(expression);
+        let input = self.check_non_null_type(checked);
+        if input == self.intrinsics.any || input == self.intrinsics.never {
+            return Some(self.intrinsics.any);
+        }
+        if self.is_error(input) {
+            return None;
+        }
+        let types = self.get_iteration_types_of_iterable(input, use_).ok()?;
+        Some(types.yield_type.unwrap_or(self.intrinsics.any))
     }
 
     /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s iteration check.

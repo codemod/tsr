@@ -11,7 +11,7 @@
 //! once per function-like whose JSDoc carries a `@param` tag, which is the only
 //! caller, so there is nothing to share and no cache.
 
-use tsr_ast::{EntityName, JSDocTag, Node, NodeId, SyntaxKind};
+use tsr_ast::{EntityName, JSDocTag, Node, NodeId, SyntaxKind, TypeNode};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -299,12 +299,29 @@ impl<'a> Checker<'a, '_> {
 fn top_level_parameter_tags<'a>(
     tags: &'a [JSDocTag<'a>],
 ) -> Vec<&'a tsr_ast::JSDocParameterOrPropertyTag<'a>> {
+    top_level_tags(tags)
+        .into_iter()
+        .filter_map(|tag| match tag {
+            JSDocTag::JSDocParameterOrPropertyTag(tag)
+                if tag.kind.kind == SyntaxKind::JSDocParameterTag =>
+            {
+                Some(*tag)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The comment's tags as upstream's `JSDoc.Tags` lists them: an `@overload`
+/// signature's run is part of the overload tag, not the comment.
+fn top_level_tags<'a>(tags: &'a [JSDocTag<'a>]) -> Vec<&'a JSDocTag<'a>> {
     let mut top = Vec::new();
     let mut index = 0;
     while let Some(tag) = tags.get(index) {
         index += 1;
         match tag {
             JSDocTag::JSDocOverloadTag(_) => {
+                top.push(tag);
                 while matches!(
                     tags.get(index),
                     Some(
@@ -322,12 +339,7 @@ fn top_level_parameter_tags<'a>(
                     index += 1;
                 }
             }
-            JSDocTag::JSDocParameterOrPropertyTag(tag)
-                if tag.kind.kind == SyntaxKind::JSDocParameterTag =>
-            {
-                top.push(*tag);
-            }
-            _ => {}
+            other => top.push(other),
         }
     }
     top
@@ -343,4 +355,441 @@ fn entity_name_text(name: EntityName<'_>) -> String {
             format!("{left}.{right}")
         }
     }
+}
+
+/// What `reparseHosted` (`parser/reparser.go:342`) would have written onto a
+/// function-like node from its documenting comment — the parts of the
+/// reparsed tree a checker read sees through `param.Type`,
+/// `param.QuestionToken` and `FunctionLikeData().FullSignature`.
+///
+/// This port has no reparser ([ADR-0046](../../../docs/adr/0046-jsdoc-reparse-is-a-checker-query.md)):
+/// JSDoc stays in the `jsdoc_entries` side table and this is the one replay
+/// of the hosted arms over it, so every consumer asks the same question
+/// upstream asks of the mutated node.
+#[derive(Default)]
+pub(crate) struct JSDocReparsedFunction<'a> {
+    /// `FullSignature`: the `@type` the function-like takes as its whole
+    /// signature.
+    pub(crate) full_signature: Option<TypeNode<'a>>,
+    /// One slot per written parameter, in order — or empty when no comment
+    /// is reparsed onto the function (every slot would be default).
+    pub(crate) parameters: Vec<JSDocReparsedParameter<'a>>,
+}
+
+/// One parameter's reparsed half: the `@param` tag `findMatchingParameter`
+/// chose, and whether `makeQuestionIfOptional` gave it a `?`.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct JSDocReparsedParameter<'a> {
+    /// The matched `@param` tag, when it wrote the parameter's type or `?`.
+    pub(crate) tag: Option<&'a tsr_ast::JSDocParameterOrPropertyTag<'a>>,
+    /// A reparsed `?` (`NodeFlagsReparsed`): the tag is bracketed or its type
+    /// is `T=`, and the parameter had no written `?`.
+    pub(crate) question: bool,
+}
+
+impl<'a> Checker<'a, '_> {
+    /// `reparseTags`' hosted half for `function`: the comments whose host
+    /// `getFunctionLikeHost` (`parser/reparser.go:653`) resolves to it,
+    /// each replayed in tag order over its **last** comment only (`isLast`).
+    ///
+    /// No cache: the walk is the function's own parameter list and one or
+    /// two comments' tags, and only in a JS file; a TypeScript file returns
+    /// before any lookup.
+    pub(crate) fn jsdoc_reparsed_function(&self, function: NodeId) -> JSDocReparsedFunction<'a> {
+        let mut out = JSDocReparsedFunction::default();
+        // Hash lookups before anything else: this runs for every parameter
+        // list `checkGrammarParameterList` sees, and almost none has a
+        // comment. `parameters` stays empty (every slot default) unless a
+        // comment is replayed.
+        let hosts = [Some(function), self.jsdoc_function_like_host_of(function)];
+        if !hosts.iter().flatten().any(|host| self.jsdoc_entries.contains_key(host)) {
+            return out;
+        }
+        let Some(parts) = self.function_like_parts(function) else { return out };
+        if !self.in_js_file(function) {
+            return out;
+        }
+        out.parameters = vec![JSDocReparsedParameter::default(); parts.parameters.len()];
+        // A node's comments are reparsed when it is finished, so the
+        // function's own comment precedes its outer host's.
+        let mut state = ReplayState {
+            has_type_parameters: !parts.type_parameters.is_empty(),
+            has_return_type: parts.return_type,
+            typed: parts.parameters.iter().map(|p| p.r#type.is_some()).collect(),
+            this: if parts.parameters.first().is_some_and(|p| {
+                matches!(p.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+            }) {
+                ThisParameter::Written
+            } else {
+                ThisParameter::None
+            },
+            host_takes_type: HostTypeArm::None,
+        };
+        for host in hosts.into_iter().flatten() {
+            let Some(doc) = self.jsdoc_entries.get(&host).and_then(|docs| docs.last()) else {
+                continue;
+            };
+            state.host_takes_type = if host == function {
+                match self.nodes.kind(function) {
+                    SyntaxKind::GetAccessor if !parts.return_type => HostTypeArm::Once,
+                    _ => HostTypeArm::None,
+                }
+            } else {
+                self.host_type_arm(host)
+            };
+            Self::replay_hosted_tags(doc, parts.parameters, &mut state, &mut out);
+        }
+        out
+    }
+
+    /// The written type-parameter list, parameters and return-annotation
+    /// presence of a function-like declaration.
+    fn function_like_parts(&self, node: NodeId) -> Option<FunctionLikeParts<'a>> {
+        let (type_parameters, parameters, return_type) = match self.node_map.get(node)? {
+            Node::FunctionDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::FunctionExpression(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::ArrowFunction(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::MethodDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::ConstructorDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::GetAccessorDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
+            Node::SetAccessorDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
+            _ => return None,
+        };
+        Some(FunctionLikeParts { type_parameters, parameters, return_type: return_type.is_some() })
+    }
+
+    /// The inverse of `getFunctionLikeHost` for a host other than the
+    /// function itself: the variable statement whose *first* declaration it
+    /// initializes, the property it initializes, the export or return it is
+    /// the expression of, or the expression statement whose right-most
+    /// assigned expression it is — through any `satisfies` wrappers
+    /// (`skipSatisfiesExpressions`), but not through parentheses.
+    fn jsdoc_function_like_host_of(&self, function: NodeId) -> Option<NodeId> {
+        let mut child = function;
+        let mut parent = self.nodes.parent(child)?;
+        while self.nodes.kind(parent) == SyntaxKind::SatisfiesExpression {
+            child = parent;
+            parent = self.nodes.parent(child)?;
+        }
+        let is = |expression: Option<tsr_ast::Expression<'_>>| {
+            expression.and_then(|e| e.node_id()) == Some(child)
+        };
+        match self.node_map.get(parent)? {
+            Node::VariableDeclaration(declaration) if is(declaration.initializer) => {
+                let list = self.nodes.parent(parent)?;
+                let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list)
+                else {
+                    return None;
+                };
+                if declarations.declarations.first().and_then(|first| first.node_id) != Some(parent)
+                {
+                    return None;
+                }
+                let statement = self.nodes.parent(list)?;
+                (self.nodes.kind(statement) == SyntaxKind::VariableStatement).then_some(statement)
+            }
+            Node::PropertyAssignment(property) if is(property.initializer) => Some(parent),
+            Node::PropertyDeclaration(property) if is(property.initializer) => Some(parent),
+            Node::ExportAssignment(export) if is(export.expression) => Some(parent),
+            Node::ReturnStatement(statement) if is(statement.expression) => Some(parent),
+            Node::BinaryExpression(_) => {
+                // `GetRightMostAssignedExpression` from the statement's
+                // expression down: climb assignments while `child` is the
+                // right operand.
+                let mut current = child;
+                let mut up = parent;
+                loop {
+                    match self.node_map.get(up)? {
+                        Node::BinaryExpression(binary)
+                            if is_assignment(binary)
+                                && binary.right.and_then(|e| e.node_id()) == Some(current) =>
+                        {
+                            current = up;
+                            up = self.nodes.parent(up)?;
+                        }
+                        Node::ExpressionStatement(statement)
+                            if current != child
+                                && statement.expression.and_then(|e| e.node_id())
+                                    == Some(current) =>
+                        {
+                            return Some(up);
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Which of `reparseHosted`'s `KindJSDocTypeTag` arms ahead of the
+    /// function-like one a `@type` on `host` lands in.
+    fn host_type_arm(&self, host: NodeId) -> HostTypeArm {
+        match self.node_map.get(host) {
+            Some(Node::VariableStatement(statement)) => {
+                let untyped = statement.declaration_list.map_or(0, |list| {
+                    list.declarations.iter().filter(|d| d.r#type.is_none()).count()
+                });
+                HostTypeArm::Times(untyped)
+            }
+            Some(Node::PropertyDeclaration(property)) if property.r#type.is_none() => {
+                HostTypeArm::Once
+            }
+            // Neither carries a written annotation; the reparsed one makes
+            // the next `@type` fall through.
+            Some(Node::PropertyAssignment(_) | Node::ExportAssignment(_)) => HostTypeArm::Once,
+            // `makeNewCast` wraps the expression every time.
+            Some(Node::ReturnStatement(_)) => HostTypeArm::Always,
+            Some(Node::ExpressionStatement(statement)) => {
+                let declares = match statement.expression {
+                    Some(tsr_ast::Expression::BinaryExpression(binary)) => {
+                        self.is_assignment_declaration(binary)
+                    }
+                    _ => false,
+                };
+                if declares { HostTypeArm::Always } else { HostTypeArm::None }
+            }
+            _ => HostTypeArm::None,
+        }
+    }
+
+    /// `ast.GetAssignmentDeclarationKind(bin) != JSDeclarationKindNone` for a
+    /// binary expression in a JS file (`ast/utilities.go:1541`): `=` with an
+    /// access-expression left whose object is `this`, `module.exports`,
+    /// `exports` or an entity name.
+    pub(crate) fn is_assignment_declaration(&self, binary: &tsr_ast::BinaryExpression<'_>) -> bool {
+        if binary.operator_token.map(|t| t.kind) != Some(SyntaxKind::EqualsToken) {
+            return false;
+        }
+        let object = match binary.left {
+            Some(tsr_ast::Expression::PropertyAccessExpression(access)) => {
+                if !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) {
+                    // `this.#x = …`: only the JS arms above the entity-name
+                    // one accept a private name.
+                    return is_this(access.expression);
+                }
+                access.expression
+            }
+            Some(tsr_ast::Expression::ElementAccessExpression(access)) => access.expression,
+            _ => return false,
+        };
+        match object {
+            Some(_) if is_this(object) => true,
+            Some(expression) => {
+                expression.node_id().is_some_and(|id| self.is_entity_name_expression(id))
+            }
+            None => false,
+        }
+    }
+
+    /// The hosted arms that write a function-like's parameters, return type,
+    /// type parameters and full signature, over one comment's tags in order.
+    fn replay_hosted_tags(
+        doc: &'a tsr_ast::JSDoc<'a>,
+        parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
+        state: &mut ReplayState,
+        out: &mut JSDocReparsedFunction<'a>,
+    ) {
+        let tags = top_level_tags(doc.tags);
+        let gathers_type_parameters = !tags
+            .iter()
+            .any(|tag| matches!(tag, JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_)))
+            && tags.iter().any(|tag| {
+                matches!(tag, JSDocTag::JSDocTemplateTag(template)
+                if !template.type_parameters.is_empty())
+            });
+        let mut parameter_tag_index = 0usize;
+        for tag in &tags {
+            match tag {
+                JSDocTag::JSDocTypeTag(type_tag) => {
+                    let annotation = match type_tag.type_expression {
+                        Some(Node::JSDocTypeExpression(expression)) => expression.r#type,
+                        _ => None,
+                    };
+                    if annotation.is_none() {
+                        continue;
+                    }
+                    match state.host_takes_type {
+                        HostTypeArm::Always => continue,
+                        HostTypeArm::Once => {
+                            state.host_takes_type = HostTypeArm::None;
+                            continue;
+                        }
+                        HostTypeArm::Times(n) if n > 0 => {
+                            state.host_takes_type = HostTypeArm::Times(n - 1);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    let untyped = state.this != ThisParameter::Reparsed { typed: true }
+                        && !state.typed.contains(&true);
+                    if !state.has_type_parameters && !state.has_return_type && untyped {
+                        out.full_signature = annotation;
+                    }
+                }
+                JSDocTag::JSDocTemplateTag(_)
+                    if out.full_signature.is_none() && !state.has_type_parameters =>
+                {
+                    state.has_type_parameters = gathers_type_parameters;
+                }
+                JSDocTag::JSDocParameterOrPropertyTag(parameter_tag)
+                    if parameter_tag.kind.kind == SyntaxKind::JSDocParameterTag =>
+                {
+                    let tag_index = parameter_tag_index;
+                    parameter_tag_index += 1;
+                    if out.full_signature.is_some() {
+                        continue;
+                    }
+                    // `findMatchingParameter` indexes `fun.Parameters()`,
+                    // which a reparsed `@this` has already prefixed.
+                    let Some(index) = find_matching_parameter(
+                        parameters,
+                        parameter_tag,
+                        tag_index,
+                        matches!(state.this, ThisParameter::Reparsed { .. }),
+                    ) else {
+                        continue;
+                    };
+                    let parameter = parameters[index];
+                    let slot = &mut out.parameters[index];
+                    if parameter_tag.type_expression.is_some() && !state.typed[index] {
+                        state.typed[index] = true;
+                        slot.tag = Some(parameter_tag);
+                    }
+                    if parameter.question_token.is_none()
+                        && !slot.question
+                        && make_question_if_optional(parameter_tag)
+                    {
+                        slot.question = true;
+                        slot.tag = Some(parameter_tag);
+                    }
+                }
+                JSDocTag::JSDocThisTag(this_tag) => {
+                    // A `this` parameter is prefixed unless the list
+                    // already starts with one; typed when the tag is, which
+                    // disqualifies a later `@type`.
+                    if state.this == ThisParameter::None {
+                        state.this =
+                            ThisParameter::Reparsed { typed: this_tag.type_expression.is_some() };
+                    }
+                }
+                JSDocTag::JSDocReturnTag(return_tag) if out.full_signature.is_none() => {
+                    state.has_return_type |= return_tag.type_expression.is_some();
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// The written shape [`Checker::jsdoc_reparsed_function`] reads.
+struct FunctionLikeParts<'a> {
+    type_parameters: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>],
+    parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
+    return_type: bool,
+}
+
+/// Where a `@type` on a non-function host goes before the function-like arm.
+#[derive(Clone, Copy)]
+enum HostTypeArm {
+    /// Straight to the function-like arm.
+    None,
+    /// The host's own annotation, the first time only.
+    Once,
+    /// One untyped variable declaration per tag.
+    Times(usize),
+    /// Every time (a cast, or an assignment declaration's type).
+    Always,
+}
+
+/// The function-like's reparse state between tags.
+struct ReplayState {
+    has_type_parameters: bool,
+    has_return_type: bool,
+    /// Per written parameter: has a type, written or reparsed.
+    typed: Vec<bool>,
+    this: ThisParameter,
+    host_takes_type: HostTypeArm,
+}
+
+/// Whether the parameter list starts with `this`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ThisParameter {
+    None,
+    Written,
+    /// A `@this` prefixed one; typed when the tag is.
+    Reparsed {
+        typed: bool,
+    },
+}
+
+/// `findMatchingParameter` (`parser/reparser.go:609`): the parameter named
+/// like the tag, or the one at the tag's position among the comment's
+/// `@param` tags when the parameter is a binding pattern or the tag's name is
+/// empty. Indices are upstream's, over a list a reparsed `this` may prefix;
+/// matching that synthetic parameter yields no written one.
+fn find_matching_parameter(
+    parameters: &[&tsr_ast::ParameterDeclaration<'_>],
+    tag: &tsr_ast::JSDocParameterOrPropertyTag<'_>,
+    tag_index: usize,
+    this_prepended: bool,
+) -> Option<usize> {
+    let tag_name = match tag.name {
+        Some(EntityName::Identifier(name)) => Some(name.text),
+        _ => None,
+    };
+    let matches_identifier = |text: &str, index: usize| {
+        tag_name
+            .is_some_and(|tag_text| text == tag_text || (index == tag_index && tag_text.is_empty()))
+    };
+    let offset = usize::from(this_prepended);
+    if this_prepended && matches_identifier("this", 0) {
+        return None;
+    }
+    parameters.iter().enumerate().position(|(written, parameter)| {
+        let index = written + offset;
+        match parameter.name {
+            Some(tsr_ast::BindingName::Identifier(name)) => matches_identifier(name.text, index),
+            _ => index == tag_index,
+        }
+    })
+}
+
+/// `makeQuestionIfOptional` (`parser/reparser.go:597`): a bracketed name or
+/// a `T=` type.
+pub(crate) fn make_question_if_optional(tag: &tsr_ast::JSDocParameterOrPropertyTag<'_>) -> bool {
+    tag.is_bracketed
+        || matches!(tag.type_expression,
+            Some(TypeNode::JSDocTypeExpression(expression))
+                if matches!(expression.r#type, Some(TypeNode::JSDocOptionalType(_))))
+}
+
+fn is_this(expression: Option<tsr_ast::Expression<'_>>) -> bool {
+    matches!(expression, Some(tsr_ast::Expression::KeywordExpression(keyword))
+        if keyword.kind == SyntaxKind::ThisKeyword)
+}
+
+/// `IsAssignmentExpression(node, false)`: any assignment operator.
+fn is_assignment(binary: &tsr_ast::BinaryExpression<'_>) -> bool {
+    binary.operator_token.is_some_and(|token| {
+        matches!(
+            token.kind,
+            SyntaxKind::EqualsToken
+                | SyntaxKind::PlusEqualsToken
+                | SyntaxKind::MinusEqualsToken
+                | SyntaxKind::AsteriskEqualsToken
+                | SyntaxKind::AsteriskAsteriskEqualsToken
+                | SyntaxKind::SlashEqualsToken
+                | SyntaxKind::PercentEqualsToken
+                | SyntaxKind::LessThanLessThanEqualsToken
+                | SyntaxKind::GreaterThanGreaterThanEqualsToken
+                | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+                | SyntaxKind::AmpersandEqualsToken
+                | SyntaxKind::BarEqualsToken
+                | SyntaxKind::CaretEqualsToken
+                | SyntaxKind::BarBarEqualsToken
+                | SyntaxKind::AmpersandAmpersandEqualsToken
+                | SyntaxKind::QuestionQuestionEqualsToken
+        )
+    })
 }

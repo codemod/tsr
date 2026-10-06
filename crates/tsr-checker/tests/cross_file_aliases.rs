@@ -590,7 +590,9 @@ fn a_default_named_import_does_not_select_an_export_equals_property() {
     // `getTargetOfImportSpecifier` sends the name `default` through native's
     // dedicated synthetic-default road before `getExternalModuleMember`. The
     // ordinary target property is `number` here, so this is red if the
-    // export-equals member arm incorrectly handles `default` itself.
+    // export-equals member arm incorrectly handles `default` itself. The
+    // synthetic default is the whole `export =` value
+    // (`getTargetOfModuleDefault`, `checker.go:14578`).
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -599,14 +601,14 @@ fn a_default_named_import_does_not_select_an_export_equals_property() {
             ("a", "import { default as picked } from \"./m\";\n"),
         ],
     );
-    assert_eq!(type_of_alias(&fixture, "picked", true), "error");
+    assert_eq!(type_of_alias(&fixture, "picked", true), "{ default: number; }");
 }
 
 #[test]
 fn a_default_re_export_does_not_select_an_export_equals_property() {
     // The matching `getTargetOfExportSpecifier` control. Returning the target's
-    // numeric `default` property would type `forwarded`; preserving the prior
-    // miss keeps this syntax on its native dedicated-default road.
+    // numeric `default` property would type `forwarded` as `number`; the
+    // native dedicated-default road answers the whole `export =` value.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -615,7 +617,7 @@ fn a_default_re_export_does_not_select_an_export_equals_property() {
             ("a", "export { default as forwarded } from \"./m\";\n"),
         ],
     );
-    assert_eq!(type_of_alias(&fixture, "forwarded", true), "error");
+    assert_eq!(type_of_alias(&fixture, "forwarded", true), "{ default: number; }");
 }
 
 #[test]

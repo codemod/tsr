@@ -97,3 +97,124 @@ a modifier-bearing parameter, as it already did for `<in T>`
 (`jsdocTemplateTag8:0:47`); that road is `signatures.rs` (calls lane). The
 grammar checks TS1273/TS1274/TS1277 on type-parameter modifiers are not
 implemented for any file kind.
+
+## 3. The reparse is a checker query (ADR-0046)
+
+**Forcing constraint.** `tsr-2zk.34` asked for a choice between building
+tsgo's reparsed nodes in the parser and a shared checker query. The decision
+and its evidence are [ADR-0046](../../adr/0046-jsdoc-reparse-is-a-checker-query.md);
+this section is what the lane built on it.
+
+**What was built.** `jsdoc_reparsed_function` (`jsdoc_params.rs`) replays
+`reparseHosted`'s function-like arms over each comment whose host
+`getFunctionLikeHost` resolves to the function — its own, then its outer
+variable statement / property / export / return / expression statement —
+on the **last** comment only, in tag order: `@type` (into the host's own
+annotation first, else `FullSignature` when nothing is typed yet), `@template`,
+`@param` (`findMatchingParameter`: same name, or same position among the
+comment's `@param` tags for a binding pattern or an empty name, counting a
+reparsed `this`), `@this`, `@return`. It returns `FullSignature` and, per
+written parameter, the matched tag and whether `makeQuestionIfOptional` gave
+it a `?`. `@overload` runs are skipped as upstream's `JSDoc.Tags` omits them
+(`top_level_tags`).
+
+Consumers moved onto it:
+
+- `check_grammar_parameter_list` reads a reparsed `?` like a written one
+  (`isOptionalDeclaration` is `HasQuestionToken`, which sees the reparsed
+  token): TS1016 for `@param {T} [b]` followed by a required `c`
+  (`checkJsdocOptionalParamOrder`), and for ``@param {string=} `args` ``
+  followed by `{?number?}` (`jsdocParseBackquotedParamName` — a postfix `?`
+  is `JSDocNullableType`, not optional). TS1047 for a reparsed `?` on a rest
+  parameter reports at the tag (the token's location upstream).
+- `jsdoc_full_signature_node` reads `FullSignature` from it. Its host gate
+  (function and method declarations only) is kept: widening it to arrow and
+  function expressions under a variable `@type` is upstream's behaviour but a
+  separate measured change.
+
+**Not moved (other lanes' files), reported to the integrator.** Three roads
+re-derive JS parameter optionality without the positional match, the
+`FullSignature` gate or the last-comment rule: `signatures.rs:1512`
+(signature `optional`), `symbols.rs:6077` (`jsdoc_parameter_annotation`'s
+symbol type) and `optionality.rs:252` (property tags). Each should call
+`jsdoc_reparsed_function` / `make_question_if_optional`.
+
+**How we would know we were wrong.** A JS case whose TS1016 moves while its
+signature's optionality does not (or the reverse): the grammar check and the
+signature are then reading different roads, which is exactly what the shared
+query exists to prevent.
+
+## 4. `@import` at the end of a comment reports where upstream's does
+
+`importTag10`/`11`/`12` were the last of §1's deferred list. Two causes, both
+parser:
+
+- `parse_module_specifier` (`module.rs`) reported `Expression expected` at the
+  token when no expression can start. Upstream reaches
+  `parseIdentifierWithDiagnostic`, which at end of file reports zero-width at
+  the token's **full start** — the rule `parse_primary_expression` and
+  `report_missing_identifier` already follow. `@import foo` / `@import foo
+  from` closing the comment now report after the last word (`(2,15)`,
+  `(2,20)`), not at the `*/` (`(3,2)`).
+- A bare `@import`: `skipWhitespaceOrAsterisk` leaves the layout token in
+  place when only layout remains, and upstream's `parseImportTag` parses on
+  from that JSDoc token without rescanning — no identifier, no clause, and
+  `parseModuleSpecifier` reports on the newline token itself (`(2,11)`).
+  `parse_import_tag` rewound and rescanned under ordinary rules, skipping the
+  layout to the window's end. It now takes upstream's path when it is still
+  on a layout token.
+
+The §1 note that `expression.rs` held these was half right: that file's
+fallback had been fixed by the parser lane; the remaining report was
+`module.rs`'s own.
+
+## 5. `@type` on an export assignment
+
+`checkExportAssignment` (`checker.go:5662`) checks the expression against
+`node.Type()`, which `reparseHosted` sets from a `@type` tag on the export
+assignment, elaborating at the expression. `check_jsdoc_annotated_initializer`
+gains that arm (`export default` and `export =` alike; both are
+`KindExportAssignment` upstream — `KindJSExportAssignment` is
+`module.exports =`). Converts `checkJsdocTypeTagOnExportAssignment2`.
+
+**Not converted, and why.** `…OnExportAssignment1`/`4`/`6` name a `@typedef`
+declared in the same file, which is a module (it has the `export default`).
+In a JS module file a `@typedef` name does not resolve from the file itself
+here — `/** @typedef {number} Foo */ /** @type {Foo} */ var x = "";` reports
+TS2322 in a script and nothing once any `export` is added. Upstream binds the
+typedef as an implicitly exported declaration
+(`IsImplicitlyExportedJSDocDeclaration`) that still resolves locally. That is
+the binder's / name resolution's, not this check's.
+
+## 6. `@satisfies` — measured patch, not committed (`js-satisfies.diff`)
+
+`reparseHosted`'s `KindJSDocSatisfiesTag` arm (`parser/reparser.go:396`)
+wraps the host's initializer / expression in a `SatisfiesExpression` whose
+type is the tag's. Three upstream behaviours follow, each needing a hunk in a
+file this lane does not own, so the change ships as
+[`js-satisfies.diff`](js-satisfies.diff) for the integrator:
+
+| upstream | where it lands here | file |
+|---|---|---|
+| the tag's type node is bound like any type node | `bind_jsdoc_declarations` gains a `JSDocSatisfiesTag` arm beside `JSDocTypeTag` — without it a type literal in `@satisfies` has no members (`'s' does not exist in type '{ s: boolean; }'`) | `tsr-binder/src/binder.rs` |
+| `getContextualType`'s `KindSatisfiesExpression` arm answers the type for the wrapped expression | one early return calling `jsdoc_satisfies_contextual_type` | `contextual.rs` |
+| `checkSatisfiesExpressionWorker` on the reparsed node, span = tag name (`findOriginatingJSDocSatisfiesTag`, `scanner.go:2625`) | `check_satisfies_expression` split into a shared `check_satisfies_worker`; `check_jsdoc_satisfies_tags` (owned) calls it from the walk's JSDoc hook block | `satisfies.rs`, `check.rs` |
+| `ObjectFlagsJSLiteral` only when `contextualType == nil` (`checker.go:13206`) | `objects.rs` marked every JS object literal, so a satisfies- or `@type`-contextual literal was relation-lenient | `objects.rs` |
+
+The owned half is in `jsdoc_annotations.rs` (`jsdoc_satisfies_tag_of`, the
+inverse of the arm's hosts: parenthesized, return, export, property,
+shorthand, variable declaration / first initialized declaration of a
+statement, assignment-declaration right side; `check_jsdoc_satisfies_tags`).
+
+**Measured** (against the head it applies to, unfiltered): diagnostics +2
+(`checkJsdocSatisfiesTag7`, `13`), 0 diagnostic losses, 0 type losses, 18
+type lines WRONG→RIGHT (`checkJsdocSatisfiesTag13` 9, `5` 5, `15` 4).
+
+**Still wrong after it, with the cause:** `…Tag8` (`Object.<string,
+boolean>` target: the JSDoc index-signature form does not elaborate a
+member), `…Tag9` (nested excess property under a `Record<string, Color>`
+target reports TS2322 on the inner literal instead of TS2353 at `d`), `…Tag10`
+(`Partial<Record<…>>` excess, as for the TypeScript spelling), `…Tag15`
+(parameter contextual typing from a satisfies function type; `@satisfies` on
+a function declaration has no arm upstream either, so `fn7`'s TS7006 is the
+implicit-any rule's).

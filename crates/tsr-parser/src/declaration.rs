@@ -77,83 +77,62 @@ impl<'a> Parser<'a> {
         Statement::ClassDeclaration(node)
     }
 
-    /// `extends B` and `implements I, J`.
+    /// `extends B` and `implements I, J` — typescript-go's
+    /// `Parser.parseHeritageClauses` (`parser.go:1818`):
+    /// `parseList(PCHeritageClauses, parseHeritageClause)`.
     fn parse_heritage_clauses(&mut self) -> Vec<&'a HeritageClause<'a>> {
-        let mut clauses = Vec::new();
-        while matches!(self.token.kind, SyntaxKind::ExtendsKeyword | SyntaxKind::ImplementsKeyword)
-        {
-            let start = self.pos();
-            let token = self.take_token();
-            let mut types = Vec::new();
-            // Upstream reads a trailing comma off the list's span
-            // (`NodeList.HasTrailingComma`); this AST records it as
-            // `NodeFlags::HAS_TRAILING_COMMA` on the clause, for
-            // `checkGrammarHeritageClause`'s TS1009.
-            let mut trailing_comma = false;
-            loop {
-                // `isListElement(PCHeritageClauseElement)` (`parser.go:858`),
-                // tested BEFORE each element including the first, exactly as
-                // `parseDelimitedList` tests it. Every token that fails this
-                // test in the corpus's error-recovery cases also satisfies
-                // `isListTerminator(PCHeritageClauseElement)` — `{`, `extends`,
-                // `implements` (`:923`) — so breaking here and upstream's
-                // three-way decision cannot disagree on them. §194.
-                if !self.is_heritage_clause_element() {
-                    break;
-                }
-                let type_start = self.pos();
-                let expression = self.parse_left_hand_side_for_heritage();
-                let type_arguments = self.parse_type_arguments_opt();
-                let type_arguments = self.arena.alloc_slice(&type_arguments);
-                types.push(self.finish_node(
-                    ExpressionWithTypeArguments::new(Some(expression), type_arguments),
-                    SyntaxKind::ExpressionWithTypeArguments,
-                    type_start,
-                ));
-                trailing_comma = self.eat(SyntaxKind::CommaToken);
-                if !trailing_comma {
-                    break;
-                }
-            }
-            let types = self.arena.alloc_slice(&types);
-            let end = self.node_end();
-            let flags = if trailing_comma {
-                tsr_ast::NodeFlags::HAS_TRAILING_COMMA
-            } else {
-                tsr_ast::NodeFlags::empty()
-            };
-            clauses.push(self.finish_node_with_flags(
-                HeritageClause::new(token, types),
-                SyntaxKind::HeritageClause,
-                start,
-                end,
-                flags,
-            ));
+        if !matches!(self.token.kind, SyntaxKind::ExtendsKeyword | SyntaxKind::ImplementsKeyword) {
+            return Vec::new();
         }
-        clauses
+        self.parse_list(ParsingContext::HeritageClauses, Self::parse_heritage_clause)
     }
 
-    /// Whether a heritage clause element can start at the cursor.
-    ///
-    /// `isListElement`'s `PCHeritageClauseElement` arm (`parser.go:858-870`),
-    /// with `inErrorRecovery` false — the value `parseDelimitedList` passes.
-    ///
-    /// Two subtleties, both upstream's and both load-bearing in the corpus:
-    ///
-    /// - A `{` is an element only when what follows makes it an object literal
-    ///   rather than the class body. `class C extends A, {` must stop at the
-    ///   `{`, or the class body is consumed as a base expression.
-    /// - `extends`/`implements` is not an element even though it is an
-    ///   identifier-shaped token, so `class C extends implements A {}` gives an
-    ///   `extends` clause with **no** types and a separate `implements` clause,
-    ///   which is why upstream records one assertion for it and this port
-    ///   recorded three.
-    fn is_heritage_clause_element(&mut self) -> bool {
-        if self.at(SyntaxKind::OpenBraceToken) {
-            return self.is_valid_heritage_clause_object_literal();
+    /// typescript-go's `Parser.parseHeritageClause` (`parser.go:1827`):
+    /// the keyword, then `parseDelimitedList(PCHeritageClauseElement,
+    /// parseExpressionWithTypeArguments)`.
+    fn parse_heritage_clause(&mut self) -> &'a HeritageClause<'a> {
+        let start = self.pos();
+        let token = self.take_token();
+        // Upstream reads a trailing comma off the list's span
+        // (`NodeList.HasTrailingComma`); this AST records it as
+        // `NodeFlags::HAS_TRAILING_COMMA` on the clause, for
+        // `checkGrammarHeritageClause`'s TS1009.
+        let (types, trailing_comma) = self.parse_delimited_list(
+            ParsingContext::HeritageClauseElement,
+            Self::parse_expression_with_type_arguments,
+        );
+        let types = self.arena.alloc_slice(&types);
+        let end = self.node_end();
+        let flags = if trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        };
+        self.finish_node_with_flags(
+            HeritageClause::new(token, types),
+            SyntaxKind::HeritageClause,
+            start,
+            end,
+            flags,
+        )
+    }
+
+    /// typescript-go's `Parser.parseExpressionWithTypeArguments`
+    /// (`parser.go:1835`): a left-hand-side expression, which is the element
+    /// itself when it already is an instantiation expression (`A<T>,`).
+    fn parse_expression_with_type_arguments(&mut self) -> &'a ExpressionWithTypeArguments<'a> {
+        let start = self.pos();
+        let expression = self.parse_left_hand_side_expression_or_higher();
+        if let Expression::ExpressionWithTypeArguments(node) = expression {
+            return node;
         }
-        self.is_start_of_left_hand_side_expression()
-            && !self.is_heritage_clause_extends_or_implements_keyword()
+        let type_arguments = self.parse_type_arguments_opt();
+        let type_arguments = self.arena.alloc_slice(&type_arguments);
+        self.finish_node(
+            ExpressionWithTypeArguments::new(Some(expression), type_arguments),
+            SyntaxKind::ExpressionWithTypeArguments,
+            start,
+        )
     }
 
     /// `isValidHeritageClauseObjectLiteral` (`parser.go:6278`).
@@ -162,7 +141,7 @@ impl<'a> Parser<'a> {
     /// something that continues the header — `{`, `,`, `extends`, `implements`.
     /// A non-empty `{` is always an element; only the empty one is ambiguous
     /// with the class body.
-    fn is_valid_heritage_clause_object_literal(&mut self) -> bool {
+    pub(crate) fn is_valid_heritage_clause_object_literal(&mut self) -> bool {
         self.look_ahead(|parser| {
             parser.next_token();
             if !parser.at(SyntaxKind::CloseBraceToken) {
@@ -185,114 +164,12 @@ impl<'a> Parser<'a> {
     /// could start with — which is what tells `class C extends implements A`'s
     /// `implements` from a class genuinely extending a variable *named*
     /// `implements`.
-    fn is_heritage_clause_extends_or_implements_keyword(&mut self) -> bool {
+    pub(crate) fn is_heritage_clause_extends_or_implements_keyword(&mut self) -> bool {
         matches!(self.token.kind, SyntaxKind::ExtendsKeyword | SyntaxKind::ImplementsKeyword)
             && self.look_ahead(|parser| {
                 parser.next_token();
                 parser.is_start_of_expression()
             })
-    }
-
-    /// The expression after `extends` or `implements`.
-    ///
-    /// `extends` takes a *left-hand-side* expression, not a full one — mixin
-    /// factories like `extends Configurable(Base)` and `extends class {}` are
-    /// legal, but parsing further would swallow the class body's `{`.
-    fn parse_left_hand_side_for_heritage(&mut self) -> Expression<'a> {
-        let start = self.pos();
-        let mut expression = match self.token.kind {
-            // `class A extends class {} {}` — an anonymous class expression.
-            SyntaxKind::ClassKeyword => self.parse_class_expression(),
-            // `class D extends (await p) {}` — any parenthesised expression.
-            SyntaxKind::OpenParenToken => {
-                let paren_start = self.pos();
-                self.next_token();
-                let inner = self.parse_expression();
-                self.expect(SyntaxKind::CloseParenToken);
-                Expression::ParenthesizedExpression(self.finish_node(
-                    ParenthesizedExpression::new(Some(inner)),
-                    SyntaxKind::ParenthesizedExpression,
-                    paren_start,
-                ))
-            }
-            // The heritage operand is a LeftHandSideExpression, so `extends
-            // null` parses — the fallback reads an identifier NAME, and the
-            // checker owns any complaint (`classExtendingNull`).
-            // **A reserved word that is not a primary cannot open a heritage
-            // expression.** `null`, `this`, `super`, `true` and `false` are
-            // primaries upstream and keep parsing; `void`, `typeof`, `delete`
-            // and the rest reach
-            // `parseIdentifierWithDiagnostic(Expression_expected)`
-            // (`parser.go:5591`) — the same fallback §574 found for `++`.
-            // Contextual keywords are ordinary identifiers and are unaffected.
-            // `docs/architecture/checker-notes-diag2.md` §591.
-            kind if kind >= SyntaxKind::FIRST_RESERVED_WORD
-                && kind <= SyntaxKind::LAST_RESERVED_WORD
-                && !matches!(
-                    kind,
-                    SyntaxKind::NullKeyword
-                        | SyntaxKind::ThisKeyword
-                        | SyntaxKind::SuperKeyword
-                        | SyntaxKind::TrueKeyword
-                        | SyntaxKind::FalseKeyword
-                        | SyntaxKind::ImportKeyword
-                        | SyntaxKind::NewKeyword
-                ) =>
-            {
-                self.error_at_current(&messages::EXPRESSION_EXPECTED);
-                Expression::Identifier(self.parse_identifier_name())
-            }
-            _ => Expression::Identifier(self.parse_identifier_name()),
-        };
-        loop {
-            match self.token.kind {
-                SyntaxKind::DotToken => {
-                    self.next_token();
-                    let name = self.parse_identifier_name();
-                    let node = self.finish_node(
-                        PropertyAccessExpression::new(
-                            Some(expression),
-                            None,
-                            Some(MemberName::Identifier(name)),
-                        ),
-                        SyntaxKind::PropertyAccessExpression,
-                        start,
-                    );
-                    expression = Expression::PropertyAccessExpression(node);
-                }
-                SyntaxKind::OpenParenToken => {
-                    let arguments = self.parse_arguments();
-                    let arguments = self.arena.alloc_slice(&arguments);
-                    let node = self.finish_node(
-                        CallExpression::new(Some(expression), None, &[], arguments),
-                        SyntaxKind::CallExpression,
-                        start,
-                    );
-                    expression = Expression::CallExpression(node);
-                }
-                // `extends Class<A>("A")(…)` — type arguments only continue the
-                // chain when a call follows; otherwise they belong to the clause.
-                SyntaxKind::LessThanToken => {
-                    let Some(type_arguments) = self.try_parse(|p| {
-                        let arguments = p.parse_type_arguments_for_call()?;
-                        p.at(SyntaxKind::OpenParenToken).then_some(arguments)
-                    }) else {
-                        break;
-                    };
-                    let arguments = self.parse_arguments();
-                    let arguments = self.arena.alloc_slice(&arguments);
-                    let type_arguments = self.arena.alloc_slice(&type_arguments);
-                    let node = self.finish_node(
-                        CallExpression::new(Some(expression), None, type_arguments, arguments),
-                        SyntaxKind::CallExpression,
-                        start,
-                    );
-                    expression = Expression::CallExpression(node);
-                }
-                _ => break,
-            }
-        }
-        expression
     }
 
     /// One member of a class body — typescript-go's `Parser.parseClassElement`
@@ -793,23 +670,12 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Type arguments in a heritage clause, which may be absent.
+    /// Type arguments in a heritage clause, which may be absent —
+    /// `parseExpressionWithTypeArguments`' `parseTypeArguments` (`parser.go:1841`).
     fn parse_type_arguments_opt(&mut self) -> Vec<TypeNode<'a>> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
-        self.next_token();
-        let mut arguments = Vec::new();
-        loop {
-            arguments.push(self.parse_type());
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
-        if !self.at(SyntaxKind::GreaterThanToken) {
-            self.rescan_greater_than();
-        }
-        self.expect(SyntaxKind::GreaterThanToken);
-        arguments
+        self.parse_type_arguments()
     }
 }

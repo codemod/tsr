@@ -211,3 +211,210 @@ is removed. The deferral gate that precedes the arms is unchanged.
 `awaitUsingDeclarationsInForAwaitOf.2`, `destructuringObjectBindingPatternAndAssignment4`),
 19 new lines all expected, none unexpected, no losses. Perf bias-corrected
 ≈1.011 / ≈1.006.
+
+## 9. Round 2: the flow walk's tail and its assignment sources (tsr-2zk.40)
+
+Baseline for §9–: branch head `15f1743`, 3,846 RIGHT diagnostics cases,
+467,200 RIGHT type lines.
+
+**`flow.go:111`, the `x!` arm.** `getFlowTypeOfReferenceEx` answers the
+declared type when the reference is the operand of a non-null assertion and the
+flow type, not itself `never`, is only `null`/`undefined`. The port had the
+`unreachableNeverType` half only (three copies, one per entry point); both are
+now `flow_result_or_declared`, called by all three. `typeGuardsAsAssertions`
+read `x!` as `never` after `x = undefined` (15 type lines). The property lane's
+`never`-receiver decline for an `x!` operand (`property.md` §3) no longer has
+a producer; removing it is that lane's change.
+
+**`getInitialOrAssignedType`'s missing arms.** The assignment source returned
+`None` (keep the declared type) for every form but `x = e` and an initialised
+declaration. Ported: `for..in` → `string`, `for..of` →
+`checkRightHandSideOfForOf` (this port's `for_of_statement_element_type`,
+`for await` included), `delete x.p` → `undefined`, for both an uninitialised
+`for` head declaration and an expression target. The destructuring arms
+(`getAssignedTypeOfArrayLiteralElement`, `…PropertyAssignment`,
+`…ShorthandPropertyAssignment`, `…SpreadExpression`, binding elements) remain
+`None`. That is upstream's answer whenever its projection is `errorType`
+(the reduced type of `errorType` keeps every declared constituent), so the
+gap is a missing narrowing and never a wrong one.
+
+**`IsStringLiteralLike`.** `typeof x === \`string\`` compared only a
+`StringLiteral`. The `in` arm read only a written string literal, where
+upstream types the left operand (`getTypeOfExpression`) and asks
+`isTypeUsableAsPropertyName`, so a template literal or a `const` key did not
+narrow. Both now follow upstream; the `in` key goes through
+`property_name_from_index`, which declines unique symbols (no narrowing,
+upstream narrows), a known gap.
+
+**Measured.** 0 diagnostic / 0 type losses; +36 RIGHT type lines
+(`typeGuardsAsAssertions`, `controlFlowWithTemplateLiterals`,
+`controlFlowForOfStatement`, `controlFlowInOperator`,
+`controlFlowForInStatement2`, `controlFlowDeleteOperator`,
+`assignmentTypeNarrowing`); `controlFlowWithTemplateLiterals` diagnostics
+EMPTY_WRONG → EMPTY_RIGHT. Median CPU new/old (21 samples):
+`domain-model` 0.960, `generic-imports` 0.989.
+
+**Union-receiver decline (property lane).** With
+`nonexistent_property.rs`'s union-receiver decline switched off as an
+experiment, the corpus gained 61 expected TS2339/TS2551 lines and 18 false
+ones. The false ones are flow gaps, one per narrowing shape:
+`controlFlowWithTemplateLiterals` (fixed above), `controlFlowForOfStatement`
+(fixed above), `typeGuardNarrowBy[Mutable]UntypedField` (predicate to a mapped
+type over `ArrayLike | Iterable`), `controlFlowWithIncompleteTypes` (loop with
+`typeof`), `inKeywordAndIntersection` (`instanceof` an intersection
+constructor), `controlFlowAliasing` (aliased conditions through a destructured
+`const`), `discriminatedUnionTypes3/4`, `returnTagTypeGuard` (JSDoc `@return`
+predicate), `templateLiteralTypes3`, `typeGuardsWithInstanceOfByConstructorSignature`.
+
+## 10. TS7030: `checkAllCodePathsInNonVoidFunctionReturnOrThrow`'s last arm
+
+§6 left the `noImplicitReturns` arm unported for want of an options field.
+`Checker::no_implicit_returns` (`checker.rs`, `NoImplicitReturns == TSTrue`,
+no `strict` fallback — upstream compares with `core.TSTrue`) now carries it,
+and the arm is ported in `flow.rs::check_all_code_paths_return_or_throw`:
+an annotated type that survives the first three arms reports TS7030; an
+unannotated function reports only when its body has an explicit `return` and
+its inferred return type, unwrapped for `async`, is not `void`/`undefined`/
+any-like. An inferred type this port cannot compute is upstream's `errorType`
+(any-like), so it is silent.
+
+**One reorder.** Upstream asks `functionHasImplicitReturn` before
+`hasExplicitReturn`. Here the unannotated, no-`return` case returns first: the
+reachability query types `never`-returning calls and can re-enter the
+function's inferred return type (§6's `thisTypeInObjectLiterals2` TS7023).
+No answer changes; only which functions pay for the query.
+
+**Error node.** The return annotation, else the function's error span
+(its name, or the node's start for an anonymous function or arrow).
+`FullSignature` (a JSDoc `@type` on the function) is not modelled.
+
+**Harness gap (not owned).** `crates/tsr-conformance/src/trace_case.rs` maps
+`@noImplicitReturns` to nothing, so the corpus never turns the option on.
+Measured with that one line added locally (not committed): 24 TS7030 lines,
+0 extra, 0 losses; `noImplicitReturnsExclusions`, `noImplicitReturnsInAsync2`,
+`reachabilityChecks5/6/7` convert. `noImplicitReturnsWithoutReturnExpression`
+also needs `checkReturnStatement`'s `return;` arm (`checker.go:4123`,
+non-strict only) in `assignreport.rs::check_return_statement` — reported.
+Perf (option off on both bench projects): 1.025 / 0.993 CPU median.
+
+## 11. TS2454: §839.1's "unported narrowing" guard removed
+
+`uninitialized_variable_reads_declared` declined any reference under a
+condition that named it and contained a call, an `instanceof` or a
+`.constructor` access (`reference_is_guarded_by_a_condition_on`,
+`checker-notes-deferred.md` §839.1), because those narrowings were unported
+and left `undefined` in the flow type. All three are ported in `crate::flow`
+now (type predicates, `narrowTypeByInstanceof`, `narrowTypeByConstructor`),
+and the guard had already been weakened to "only when the walk made no
+progress". With it removed, the false branch of `isFoo(value)` keeps
+`undefined` exactly as upstream's does and TS2454 reports there.
+
+**Measured.** 0 diagnostic / 0 type losses (the type road shares the
+predicate; the 67 type losses §839.1 recorded no longer occur); +12 TS2454
+lines, 0 extra; `narrowTypeByInstanceof`, `typeGuardNarrowsPrimitiveIntersection`,
+`typeGuardNarrowsToLiteralType`, `typeGuardNarrowsToLiteralTypeUnion`
+convert, `typeGuardOfFormInstanceOf` +6 lines. The guard's helpers
+(`subtree_has_unported_narrowing`, `subtree_mentions`) had no other caller and
+are deleted. CPU median: 1.001 / 0.988.
+
+**Falsifier.** A new TS2454 extra under a guard naming the variable would
+mean a narrowing arm over-keeps `undefined`; fix the arm, do not restore the
+guard.
+
+## 12. `getControlFlowContainer` skips immediately invoked functions
+
+`check.rs::control_flow_container` stopped at the first enclosing function.
+Upstream's predicate (`checker.go:11438`) is `IsFunctionLike(n) &&
+GetImmediatelyInvokedFunctionExpression(n) == nil`: an IIFE's body belongs to
+its caller's flow (the binder already threads it so). The port now skips a
+function expression or arrow that `immediately_invoked_call` names. Every
+caller (TS2454's `isOuterVariable`, the flow walk's container bound, the
+property-initialisation and readonly-target readers) asks upstream's
+question, so the change is made in the helper rather than at one caller.
+
+**Measured.** `typeGuardsInFunction` converts (TS2454 on a variable of the
+enclosing function read inside `function () { … } (param)` and
+`((p) => { … })(param)`); 0 diagnostic / 0 type losses, no other output
+changes. CPU median: `domain-model` 1.020, `generic-imports` 1.030 at 21
+samples and 1.020 at 41.
+
+## 13. TS2454 for initialised and destructured declarations
+
+Baseline from here: the merge `210b098` (3,881 RIGHT diagnostics cases).
+
+`uninitialized_variable_reads_declared` required a plain `VariableDeclaration`
+with an annotation and **no initialiser** — §8's bound. Upstream has neither
+restriction: `checkIdentifier` starts every strict, not-assumed-initialised
+read at `getOptionalType(t)` and reports when `undefined` survives, which for
+an initialised `var` happens when a path bypasses the initialiser (a `catch`
+after a throwing call, a read before a hoisted `var`'s line). Ported:
+
+- an initialiser no longer exits; only "no annotation *and* no initialiser"
+  does, which is upstream's auto-typed road (a different diagnostic);
+- a `BindingElement` is checked through its root `VariableDeclaration`
+  (`GetRootDeclaration`), with `isSameScopedBindingElement`
+  (`checker.go:11202`) and the element's own `isNeverInitialized == false`;
+- `isNeverInitialized` now also requires no initialiser, as written, so an
+  initialised outer variable is assumed initialised.
+
+**Fast path (exact).** Walking every read of every initialised local cost
+1.056 CPU on `domain-model` (41 samples). For an initialised `let`/`const`/
+`using` read textually after its declaration and not in a `case` clause,
+every flow path to the read passes the initialiser (a block's statements run
+in order, loop back-edges re-enter after the head, exceptions leave the
+scope); only `switch` can enter a block past a statement. Those reads return
+before the walk. Output byte-identical with and without it; CPU median after:
+`domain-model` 0.974, `generic-imports` 1.003 (41 samples).
+
+**Measured.** +22 TS2454 lines, 0 extra, 0 diagnostic / 0 type losses;
+`controlFlowDestructuringVariablesInTryCatch`, `useBeforeDeclaration_destructuring`,
+`classStaticBlockUseBeforeDef3`, `parserS7.2_A1.5_T2`, `scannerS7.2_A1.5_T2`,
+`parserUnicode1` convert; lines gained in `controlFlowFunctionLikeCircular1`,
+`decoratorUsedBeforeDeclaration`, `controlFlowAliasing`, `exportBinding`.
+
+**Falsifier.** A TS2454 extra on an initialised declaration means a path the
+port's flow graph has that upstream's does not (a binder edge), not that the
+bound should return.
+
+## 14. TS2454: `for..in`/`for..of` heads are not assumed initialised
+
+The rule returned early for any `for (… of/in …)` head ("assigns on entry").
+Upstream only removes such a head from `isNeverInitialized`
+(`!ast.IsForInOrOfStatement(immediateDeclaration.Parent.Parent)`,
+`checker.go:11147`); `assumeInitialized` is otherwise unchanged, so a read of
+a hoisted `var v` *before* `for (var v of …)` keeps `undefined` and reports.
+Ported: the head is not auto-typed (it has the iterated type), is not a
+`const`-without-initialiser, and is excluded from `isNeverInitialized` only.
+§13's fast path extends to block-scoped heads for reads past the iterated
+expression (the body runs only after the head's assignment).
+
+**Measured.** `for-of8`, `for-of22` convert; 0 losses against `210b098`.
+CPU median (41 samples): 1.001 / 1.006.
+
+## 15. TS2454: catch variables, and `isNeverInitialized`'s definite assignment
+
+Three upstream facts, one commit because each alone moved the same lines:
+
+- **Catch-clause variables** are typed `any`, `unknown` or `errorType`
+  whatever their annotation (`checker.go:16678`), all of which
+  `assumeInitialized` accepts. The rule read `catch (e: number)`'s annotation
+  as `number` and reported (`catchClauseWithTypeAnnotation`, one extra). Now
+  a catch-clause root declaration exits.
+- **The START arm's outer-variable stand-in** for `assumeInitialized` used
+  "the symbol has *any* assignment". Upstream's `isNeverInitialized` asks
+  for a *definite* one, so an outer `let i: number` touched only by `i++`
+  keeps `undefined` (`unusedLocalsInMethod4`'s `rw`/`createBinder`). The arm
+  now also requires `!is_never_initialized` (new `flow.rs` helper, the
+  `checker.go:11147` predicate).
+- **The definite-assignment record** (`mark_node_assignments`) was gated by
+  `is_parameter_or_mutable_local_variable`, which refuses every file-level
+  `let` (a known approximation the `.types` reader depends on, §42 of
+  `checker-notes-diag2.md`). With the START change that turned module-level
+  `let x2; x2 = "abc"` into "never initialised" and produced 4 false TS2454 in
+  `narrowingPastLastAssignmentInModule`. The definite flag is now gated by
+  upstream's predicate as written (`is_parameter_or_mutable_local_variable_faithful`);
+  the position record keeps the approximate gate, so the `.types` reader is
+  unchanged (0 type-line changes).
+
+**Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
+0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.

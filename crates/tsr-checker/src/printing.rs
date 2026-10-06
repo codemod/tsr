@@ -137,7 +137,7 @@ impl Checker<'_, '_> {
                 .then_some(module)
         })?;
         let enclosing = self.nodes.parent(reference).unwrap_or(reference);
-        if let Some(name) = self.best_name(symbol, enclosing, false) {
+        if let Some(name) = self.best_name(symbol, enclosing) {
             return Some(format!("typeof {name}"));
         }
         let relative = self.binder.symbols().get(module).name.strip_prefix('/')?;

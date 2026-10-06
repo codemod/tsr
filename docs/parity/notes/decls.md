@@ -289,3 +289,141 @@ main's module as the only port and removed this lane's arm; every case either
 side had RIGHT (`callOverloads1`–`5`, `classOverloadForFunction(2)`,
 `funClodule`, `augmentedTypes*`, `nameCollisions`,
 `duplicateIdentifiersAcross*Boundaries`, `staticClassMemberError`) is RIGHT.
+
+## §12 TS2300 on duplicate members: `checkObjectTypeForDuplicateDeclarations` on binder symbols
+
+Duplicate property members were reported by two name-comparison rules
+(`checker-notes-diag2.md` §904/§906/§912/§914): one for type literals and
+interfaces that matched identifier and string names only, one for classes that
+re-normalised numeric spellings itself. Both were gated on the file having no
+parse errors, and neither saw parameter properties or class expressions.
+
+Upstream needs no name comparison: `PropertyExcludes` does not contain
+`Property`, so `declareSymbol` merges two same-named properties into one
+symbol with two declarations, and `checkObjectTypeForDuplicateDeclarations`
+(`checker.go:3142`) walks one declaration's members asking `len(symbol.Declarations) > 1`
+with its property/accessor state machine, then `reportDuplicateMemberErrors`
+reports every member (and parameter property) of that declaration carrying
+the symbol. The port now does exactly that, for classes, class expressions,
+interfaces and type literals (this port's binder does give a type literal its
+`__type` symbol and members table; the old comment saying otherwise was
+stale). The binder already canonicalises numeric names (`1` and `1.0` are
+both `"1"`), so that normalisation is no longer re-derived in the checker.
+
+**No parse-error gate.** Upstream reports these in files with syntax errors
+(`numericNamedPropertyDuplicates` has a TS1005 and four TS2300 pairs).
+
+**Not ported:** the private-name arm (`Duplicate_identifier_0_Static_and_instance_elements_cannot_share_the_same_private_name`).
+Late-bound duplicates (`[Symbol.isConcatSpreadable]` twice, `symbolProperty37`/`44`)
+are `lateBindMember`'s report, not this walk's.
+
+Measured: +6 (`parameterPropertyInConstructor2`, `staticModifierAlreadySeen`,
+`numericNamedPropertyDuplicates`, `objectTypeWithDuplicateNumericProperty`,
+`parser0_004152`, `stringNamedPropertyDuplicates`), no loss.
+
+**Falsifier.** An extra TS2300 on a member whose symbol the binder merged
+where upstream would not (a members-table merge across a conflict) — the
+report trusts the binder's declaration lists.
+
+## §13 TS2411: `checkTypeLiteral`'s index-constraint call
+
+`check_index_constraints` ran for classes and interfaces only; upstream's
+fourth call site is `checkTypeLiteral` (`checker.go:3134`), which checks the
+literal's own type against its index signatures with the `__type` symbol as
+owner. The port's binder gives a type literal that symbol (§12), and
+`declared_in_owner` already reads a member's parent symbol, so the error node
+resolves to the literal's member exactly as for an interface. No new cache:
+the literal's type is `get_type_from_type_node`'s, which is already cached by
+node.
+
+Measured: +4 (`propertiesAndIndexers`, `stringIndexerConstrainsPropertyDeclarations2`,
+`genericCallWithObjectTypeArgsAndIndexersErrors`, `recursiveTypesWithTypeof`),
+no loss, no new extra TS2411.
+
+## §14 Binder: TS2528 is chosen by the declaration, not by the name `default`
+
+`declareSymbolEx` (`binder.go:224-244`) picks
+`A_module_cannot_have_multiple_default_exports` when the conflicting
+declaration `isDefaultExport` (a `default` modifier, or an export specifier
+named `default`) or is a non-`export =` export assignment. The port tested
+`name == "default"` instead, arguing nothing else could be filed under that
+name. Parser recovery can: `import { default } from "m"` and
+`import { yield as default }` bind locals named `default`, which collide with
+each other and upstream reports TS2300 on them. `declare` now records whether
+the declaration it binds is a default export in upstream's sense, and the
+conflict branch reads that.
+
+Measured: +1 (`es6ImportNamedImportIdentifiersParsing`), no loss.
+
+## §15 Binder: the local half of an exported member is tested with the declaration's excludes
+
+`declareModuleMember` (`binder.go:406`) declares an exported member twice:
+a local carrying only `ExportValue` (or nothing, for a type), and the export.
+Both calls pass the declaration's `symbolExcludes`. The port derived the
+local's excludes from its flags — `ExportValue` or empty — so the local half
+collided with nothing, and `class Box {}` followed by `export type Box;`
+(a type alias, `TypeAliasExcludes = Type`) merged silently instead of
+reporting TS2300/TS2567 on both. The local is now declared with
+`flags.excludes()`, the same mask the export half uses.
+
+Measured: +1 (`exportDeclaration_missingBraces`), no loss. Four extra TS2300
+lines appear in `ambientModuleDeclarationWithReservedIdentifierInDottedPath`
+and `…2`, both already WRONG: the parser fails on `namespace chrome.debugger`
+(an extra TS1359), so the namespace's `declare var tabId` lands at file scope
+and does collide with `export const tabId`. Upstream parses the dotted name;
+the conflict disappears with the parser fix (parser lane).
+
+**Falsifier.** A new extra TS2300/TS2451 between an exported declaration and
+a same-named local in a correctly parsed file.
+
+## §16 Binder: the `merged` edge on a conflicting merge stays (measured, refused)
+
+Round 1 asked the binder not to record `merged[source] = target` when the
+excludes forbid a merge (§3), as upstream's `mergeSymbol` never reaches
+`recordMergedSymbol` on that arm. Built and measured at `188e64f`: no verdict
+change, but two line regressions in WRONG cases — `recursiveComplicatedClasses`
+lost its TS2507 at `extends Symbol` (17,31) and
+`controlFlowFunctionLikeCircular1` gained an extra TS2448.
+
+**Why.** Upstream's `resolveName` skips a script's `SourceFile` locals (they
+were merged into `globals`), so `extends Symbol` in a script declaring
+`class Symbol` still reaches `lib.d.ts`'s `var Symbol: SymbolConstructor`.
+This port's resolver reads a script's file locals and relies on the `merged`
+redirect to land on the global; without the edge the reference resolves to
+the conflicting class itself. **Not shipped.** The edge can go once name
+resolution stops consulting script-file locals (reported to the integrator);
+until then §3's check-side test stays.
+
+## §17 TS2564 on an error-typed property: shipped, bounded to a failed reference (supersedes §6)
+
+§6 declined upstream's skip of an `errorType` property in
+`checkPropertyInitialization` because a type-only import failed to resolve
+(`decoratorMetadataWithTypeOnlyImport2`). The names lane has since resolved
+type-only import clause names, and following upstream no longer loses it.
+
+Dropping §324's "computed name only" bound outright, though, lost eight TS2564
+lines in `missingTypeArguments1` and `returnTypeTypeArguments`: `p3: X3[]`
+and `p4: I<X4>` (with `X3`/`X4` missing type arguments) are `Array<errorType>`
+and `I<errorType>` upstream — objects, so TS2564 is reported — but this port
+carries a nested `error` up as a gap (`get_type_from_array_type_node`: "a gap
+in the element is a gap in the array"), so the property's type reads as
+`error` too. The skip therefore applies only when the annotation **is** the
+failed reference — a type reference, `import()` type or `typeof` query whose
+own type arguments all resolved — which is exactly where
+`getTypeFromTypeReference` / `getTypeFromImportTypeNode` /
+`getTypeFromTypeQueryNode` answer `errorType`. A union or other composite
+annotation that contains an error keeps reporting (upstream's union with
+`errorType` is `errorType`, so that is a remaining decline, not a port).
+
+Measured: +10 (`decoratorMetadataNoLibIsolatedModulesTypes`,
+`decoratorMetadataTypeOnlyImport`, `genericReturnTypeFromGetter1`,
+`genericsWithoutTypeParameters1`, `metadataImportType`, `missingTypeArguments1`,
+`returnTypeTypeArguments`,
+`ClassAndModuleThatMergeWithModuleMemberThatUsesClassTypeParameter`,
+`parserRealSource6`, `typeParameterUsedAsTypeParameterConstraint4`), no loss;
+TS2564 extra lines 15 → 1 (`circularIndexedAccessErrors`, a circular
+indexed-access annotation).
+
+**What would remove the bound.** The gap producers answering upstream's types
+(`Array<errorType>`) instead of `error` (§3a, `tsr-2zk.31`); then the test is
+`is_error(declared)` alone.

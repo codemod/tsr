@@ -229,10 +229,20 @@ fn a_yield_inside_an_arrow_inside_a_generator_is_not_the_generators_yield() {
 /// The controls, and the first is the whole point of the arm being narrow.
 #[test]
 fn the_container_widening_stops_at_an_annotation() {
-    // ANNOTATED: the declaration's type node IS the contextual type, so this
-    // still declines. Without this, "a function expression in a variable
-    // always answers `any`" passes the test above.
-    assert_eq!(type_of_first_yield("var v: any = function* () { yield 0; };"), "error");
+    // ANNOTATED: the declaration's type node IS the contextual type, and
+    // the answer comes from it, not from the uncontextualised shortcut. An
+    // `any` context has no call signature, so `getContextualReturnType` is
+    // nil and upstream falls back to `anyType` (`checker.go:11005`); this
+    // used to decline (`error`) before that function was ported. A
+    // `Generator` context answers its NEXT slot, which is what proves the
+    // annotation is read at all.
+    assert_eq!(type_of_first_yield("var v: any = function* () { yield 0; };"), "any");
+    assert_eq!(
+        type_of_first_yield(
+            "interface Generator<T, TReturn, TNext> {}\nvar v: () => Generator<number, void, string> = function* () { yield 0; };"
+        ),
+        "string"
+    );
     // An arrow cannot be a generator, so the widening must not reach it — it
     // keeps taking the not-a-generator arm.
     assert_eq!(type_of_first_yield("var v = () => { yield 1; };"), "any");

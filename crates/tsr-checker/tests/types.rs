@@ -864,11 +864,11 @@ fn a_reference_to_a_generic_type_carries_its_arguments() {
         type_of_declaration("class C<T> {}\ndeclare const x: C<C<string>>;", "x"),
         "C<C<string>>"
     );
-    // A generic alias keeps its name, unlike the transparent non-generic case.
-    assert_eq!(
-        type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"),
-        "A<number>"
-    );
+    // FLIPPED (type-refs round 3): a type-parameter body instantiates to the
+    // mapped argument (`instantiateTypeWithAlias`, `checker.go:22104`, returns
+    // the image of a bare type parameter untouched), so `A<number>` is
+    // `number` — the tree already answered this; the assertion was stale.
+    assert_eq!(type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"), "number");
     // FLIPPED at §282: this asserted `Tree<T>` for a body that IS the bare
     // parameter, which was the port's display shortcut and not upstream's
     // rule — `type Bar1<T extends unknown[][]> = T` records `Bar1 : T` in
@@ -1341,9 +1341,11 @@ fn a_void_return_is_inferred_only_where_no_return_statement_exists() {
     // the `void` arm is reached only by a body with no valued `return` at all.
     assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "() => number");
     // Async and generator return types are `Promise<T>` and `Generator<...>`,
-    // references to globals that do not exist here (`bd tsr-9or.1`).
+    // references to globals that do not exist here (`bd tsr-9or.1`). With
+    // neither `Generator` nor `IterableIterator`, `createGeneratorType`
+    // answers `emptyObjectType` (`checker.go:20447`).
     assert_eq!(type_of_declaration("async function f() {}", "f"), "error");
-    assert_eq!(type_of_declaration("function* f() {}", "f"), "error");
+    assert_eq!(type_of_declaration("function* f() {}", "f"), "() => {}");
     // A `return` inside a *nested* function belongs to that function, so the
     // outer one still infers `void`. This is `ForEachReturnStatement`'s contract.
     assert_eq!(

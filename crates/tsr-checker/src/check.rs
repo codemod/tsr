@@ -46,7 +46,10 @@
 //! the wrong unit, which is the failure mode that looks like a checker bug for a
 //! week.
 
-use tsr_ast::{ClassElement, ModifierLike, ModuleReference, Node, NodeId, SyntaxKind};
+use tsr_ast::{
+    ClassElement, InterfaceDeclaration, ModifierLike, ModuleReference, Node, NodeId, SyntaxKind,
+    TypeLiteralNode,
+};
 use tsr_binder::{NodeFacts, SymbolFlags};
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -283,6 +286,7 @@ impl Checker<'_, '_> {
                 self.check_heritage_conformance(node);
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
+                self.check_object_type_for_duplicate_declarations(node);
                 ambient
             }
             // `declare module "m" { … }` and `declare namespace N { … }` are
@@ -346,8 +350,11 @@ impl Checker<'_, '_> {
                     if let Some(at) = member.node_id {
                         self.check_enum_member_name(at);
                         self.check_computed_enum_member_initializer(at, ambient);
+                        self.check_const_enum_member_value(at);
+                        self.check_enum_member_forward_references(at, ambient);
                     }
                 }
+                self.check_reserved_enum_name(declaration);
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::BreakStatement(statement) => {
@@ -539,6 +546,9 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
                 self.check_assignment_operator(node, binary, ambient);
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
+                    self.check_destructuring_assignment_targets(node);
+                }
                 self.check_private_accessor_is_writable(node);
                 self.check_reference_expression(node);
                 ambient
@@ -593,9 +603,10 @@ impl Checker<'_, '_> {
                 self.check_null_or_undefined_receiver(node);
                 self.check_nonexistent_property(node, ambient);
                 self.check_readonly_assignment_target(node, ambient);
-                self.check_property_used_before_initialization(node);
+                self.check_property_not_used_before_declaration(node);
                 self.check_private_property_access(node, ambient);
                 self.check_private_name_shadowing(node);
+                self.check_private_setter_read(node, ambient);
                 ambient
             }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {
@@ -661,7 +672,7 @@ impl Checker<'_, '_> {
             }
             Node::DeleteExpression(_) => {
                 self.check_reference_expression(node);
-                self.check_delete_operand_is_optional(node, typed);
+                self.check_delete_operand_symbol(node);
                 ambient
             }
             Node::CallExpression(call) => {
@@ -691,8 +702,9 @@ impl Checker<'_, '_> {
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }
-            Node::TypeLiteralNode(literal) => {
-                self.check_duplicate_type_literal_members(literal.members);
+            Node::TypeLiteralNode(_) => {
+                self.check_index_constraints(node);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_private_name_in_object_literal(node);
                 // A type literal carries index signatures exactly as an
                 // interface does, and §69's rule already matches the kind —
@@ -703,6 +715,10 @@ impl Checker<'_, '_> {
             }
             Node::QualifiedName(_) => {
                 self.check_qualified_type_name(node);
+                ambient
+            }
+            Node::TemplateSpan(_) => {
+                self.check_template_span_symbol_conversion(node);
                 ambient
             }
             Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
@@ -772,7 +788,7 @@ impl Checker<'_, '_> {
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(class_declaration) => {
-                self.check_duplicate_class_computed_members(class_declaration.members);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_merged_namespace_prototype(node);
                 self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
@@ -781,7 +797,7 @@ impl Checker<'_, '_> {
             }
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::InterfaceDeclaration(n) => {
-                self.check_duplicate_type_literal_members(n.members);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_illegal_decorator(n.modifiers);
                 self.check_type_parameter_lists_identical(node);
             }
@@ -894,8 +910,13 @@ impl Checker<'_, '_> {
             self.check_grammar_modifier_shapes(node, typed);
         }
         self.check_parser_lane_statement(typed);
+        self.check_grammar_jsx_element(typed);
         self.check_jsx_intrinsic_element(node, typed);
-        self.check_jsx_factory_in_scope(typed);
+        self.check_jsx_intrinsic_tag_exists(node, typed);
+        self.mark_jsx_alias_referenced(node, typed);
+        self.check_jsx_component_bound(node, typed);
+        self.check_jsx_string_literal_tag(node, typed);
+        self.check_jsx_fragment_factory(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
@@ -953,6 +974,7 @@ impl Checker<'_, '_> {
             self.check_for_await_context(node);
             self.check_for_of_iteration(node);
             self.check_for_of_reference_assignment(node, ambient);
+            self.check_for_of_reference_target(node);
         }
         if matches!(typed, Node::ArrowFunction(_)) {
             self.check_arrow_expression_body(node, ambient);
@@ -990,6 +1012,10 @@ impl Checker<'_, '_> {
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
             Node::JsxSpreadAttribute(_) => self.check_jsx_spread_of_non_object_type(node),
+            Node::JsxAttributes(_) => {
+                self.check_jsx_spread_property_overrides(node);
+                self.check_jsx_children_specified_twice(node);
+            }
             Node::JsxExpression(_) => self.check_jsx_expression(node),
             Node::YieldExpression(_) => self.check_yield_star_iteration(node),
             _ => {}
@@ -1005,6 +1031,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
+            self.check_jsdoc_annotated_initializer(node, ambient);
         }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
             self.check_new_on_abstract_class(node);
@@ -1026,6 +1053,7 @@ impl Checker<'_, '_> {
         self.register_for_unused_check(node);
         self.check_jsdoc_link_references(node);
         self.check_unmatched_jsdoc_parameters(node);
+        self.check_jsdoc_satisfies_tags(node, ambient);
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
@@ -1205,13 +1233,11 @@ impl Checker<'_, '_> {
     /// `checkTypeAliasDeclaration`'s `checkSourceElement(node.Type())`
     /// resolves the body's references, which is what reaches
     /// `getDeclaredTypeOfTypeAlias` for an alias nothing else mentions
-    /// (`type T0 = T0`). The report is that getter's failed pop. Only a
-    /// non-generic alias resolves its body through the push/pop frame here.
+    /// (`type T0 = T0`). The report is that getter's failed pop, for generic
+    /// and non-generic aliases alike (`type T1<in in> = T1`).
     fn check_type_alias_circularity(&mut self, node: NodeId) {
         let Some(symbol) = self.binder.symbol_of(node) else { return };
-        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
-            || !self.local_type_parameters_of(symbol).is_empty()
-        {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return;
         }
         self.get_declared_type_of_symbol(symbol);
@@ -1853,9 +1879,14 @@ impl Checker<'_, '_> {
     /// TS2358 — `The left-hand side of an 'instanceof' expression must be of
     /// type 'any', an object type or a type parameter.`
     ///
-    /// The primitive argument's sixth position. A primitive is none of the
-    /// three the message permits, and §459's rule says the position is free
-    /// because it carries those types — a template literal is a string. §466.
+    /// `checkInstanceOfExpression` (`checker.go:13056`):
+    /// `!IsTypeAny(leftType) && allTypesAssignableToKind(leftType, TypeFlagsPrimitive)`.
+    /// §466 of `checker-notes-diag2.md` reported the four widened intrinsic
+    /// primitives only; the flag arm of `isTypeAssignableToKind` is exact for
+    /// every primitive-flagged type (`void`, `null`, `undefined`, `symbol`,
+    /// literals, enums, and unions of them). Its assignability arm (a type
+    /// parameter constrained to a primitive, a branded intersection, `never`)
+    /// declines. `docs/parity/notes/misc-checks.md` §11.
     fn check_instanceof_left_operand(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
@@ -1867,8 +1898,7 @@ impl Checker<'_, '_> {
         let Some(left) = binary.left else { return };
         let Some(id) = left.node_id() else { return };
         let left_type = self.check_expression(left);
-        let widened = self.get_base_type_of_literal_type(left_type);
-        if !self.is_decidable_primitive(widened) {
+        if !self.all_types_primitive_by_flags(left_type) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
@@ -1880,6 +1910,18 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// `allTypesAssignableToKind(t, TypeFlagsPrimitive)` (`checker.go:27628`)
+    /// through its flag arm only: every union constituent carries a
+    /// primitive flag. `false` where only the assignability arm could answer.
+    fn all_types_primitive_by_flags(&self, ty: crate::types::TypeId) -> bool {
+        match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().all(|&member| self.all_types_primitive_by_flags(member))
+            }
+            _ => self.store.get(ty).flags.intersects(crate::flags::TypeFlags::PRIMITIVE),
+        }
     }
 
     /// TS2359 — `The right-hand side of an 'instanceof' expression must be
@@ -2498,20 +2540,17 @@ impl Checker<'_, '_> {
         // Pinned `checkConstructorDeclaration` reports this semantic error
         // even with parse diagnostics; its early decline is a missing body.
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
-        let Some(extends) = class
+        if !class
             .heritage_clauses
             .iter()
-            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-        else {
-            return;
-        };
-        if extends.types.iter().any(|base| {
-            base.expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
-        }) {
+            .any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        {
             return;
         }
+        // `classDeclarationExtendsNull`: this parser spells the `null` of
+        // `extends null` as an identifier, which a `NullKeyword` test missed
+        // (`superCallBeforeThisAccessing5`, `classExtendsNull`).
+        let extends_null = self.class_declaration_extends_null(node);
         for member in class.members {
             let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member else {
                 continue;
@@ -2519,6 +2558,23 @@ impl Checker<'_, '_> {
             let Some(body) = constructor.body.and_then(|body| body.node_id()) else { continue };
             // `ast.NodeIsMissing(node.Body())` includes an empty recovery Block.
             if self.nodes.span(body).is_empty() {
+                continue;
+            }
+            if extends_null {
+                // TS17005 — `A constructor cannot contain a 'super' call when
+                // its class extends null.`, at `findFirstSuperCall`'s result
+                // (`checker.go:2848`).
+                if let Some(call) = self.first_super_call(body) {
+                    let Some(file) = self.source_file_of_for_diagnostics(call) else { continue };
+                    let span = self.error_span(call);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::A_CONSTRUCTOR_CANNOT_CONTAIN_A_SUPER_CALL_WHEN_ITS_CLASS_EXTENDS_NULL,
+                            span,
+                        ),
+                    );
+                }
                 continue;
             }
             if self.subtree_has_super_call(body) {
@@ -2560,6 +2616,26 @@ impl Checker<'_, '_> {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
         children.into_iter().any(|child| self.subtree_has_super_call(child))
+    }
+
+    /// `findFirstSuperCall` (`checker.go:2889`): the first super call in
+    /// child order, not entering function-like nodes — the node form of
+    /// [`Checker::subtree_has_super_call`].
+    fn first_super_call(&self, node: NodeId) -> Option<NodeId> {
+        if matches!(self.node_map.get(node), Some(Node::CallExpression(call))
+            if call.expression.and_then(|e| e.node_id())
+                .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
+        {
+            return Some(node);
+        }
+        if self.is_function_like_or_static_block(node) {
+            return None;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().find_map(|child| self.first_super_call(child))
     }
 
     /// `IsExpressionStatement(s) && isSuperCall(SkipOuterExpressions(…))`. §470.
@@ -3545,7 +3621,7 @@ impl Checker<'_, '_> {
     /// |---|---|
     /// | the specifier resolves to a file | TS2306 `File_0_is_not_a_module`, TS7016, the `node16` mode family — never 2307 |
     /// | a `declare module "x"` names it | resolved; no diagnostic |
-    /// | a **pattern** ambient module could match (`declare module "foo/*"`) | resolved by `FindBestPatternMatch` (`checker.go:15364`), which this port does not implement — so a match is *possible* and silence is the only sound answer |
+    /// | a **pattern** ambient module matches (`declare module "foo/*"`) | resolved by `FindBestPatternMatch` (`checker.go:15364`); names-modules notes §6 |
     /// | a Node core module name (`fs`, `path`, …) | TS2580/TS2591, substituted by `getCannotResolveModuleNameErrorForSpecificModule` (`checker.go:15109`) |
     /// | `@types/…` | TS6137 is emitted *as well*, so the multiset would still differ |
     ///
@@ -3566,6 +3642,9 @@ impl Checker<'_, '_> {
         if !self.external_import_is_positioned_for_resolution(declaration) {
             return;
         }
+        // `checkExternalImportOrExportDeclaration` held: the declaration's
+        // `checkExternalEmitHelpers` requests. names-modules notes §7.
+        self.check_declaration_emit_helpers(declaration);
         if !self.module_specifier_unfindable(specifier) {
             // **The other branch of the load-bearing distinction.** A specifier
             // that resolved to a file which is not in the program is not
@@ -3804,9 +3883,11 @@ impl Checker<'_, '_> {
         if self.ambient_module_for_diagnostics(text).is_some() {
             return false;
         }
-        // A pattern ambient module is unported (`checker.go:15364`); declining
-        // whenever one *exists* is the sound bound, not whenever one matches.
-        if self.has_pattern_ambient_module() {
+        // `resolveExternalModule`'s pattern arm (`checker.go:15364`): a
+        // matching `declare module "prefix*suffix"` resolves the specifier.
+        // Upstream asks it only after the program's resolution misses; a
+        // resolution hit returns `false` below either way.
+        if self.has_pattern_ambient_module() && self.binder.pattern_ambient_module(text).is_some() {
             return false;
         }
         if is_node_core_module(text) {
@@ -3914,16 +3995,16 @@ impl Checker<'_, '_> {
             // (`Checker::unresolved_types`), and `class C { [e]: Type }` with
             // neither name declared is exactly that shape — §43's first wrong
             // line.
-            // §324 — `is_error` conflates two shapes: a property whose *type*
-            // did not resolve, and one whose *name* did not. TS2564 is about
-            // the initialiser, and an unresolved annotation does not make a
-            // property initialised — `public cars: Car[]` with `Car` an
-            // unresolved import-equals is a real miss. §43's wrong line is the
-            // other shape, `class C { [e]: Type }`, which is a **computed**
-            // name; that stays declined.
-            let computed_name =
-                matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_));
-            if (self.is_error(declared) && computed_name)
+            // An error-typed property is skipped as upstream skips
+            // `errorType` — but only when the annotation is itself the
+            // reference that failed. This port also answers `error` for a
+            // *gap* propagated out of a nested node (`X3[]`, `I<X4>` with `X3`
+            // and `X4` missing their type arguments), where upstream's type is
+            // `Array<errorType>` / `I<errorType>` and TS2564 is reported
+            // (`missingTypeArguments1`). `docs/parity/notes/decls.md` §17,
+            // superseding §6's decline and §324's computed-name bound.
+            if (self.is_error(declared)
+                && self.annotation_is_failed_reference(property.r#type.and_then(|t| t.node_id())))
                 || declared == self.intrinsics.any
                 || declared == self.intrinsics.unknown
                 || self.contains_undefined_type(declared)
@@ -5038,7 +5119,7 @@ impl Checker<'_, '_> {
     /// it: `$ERROR` against `Error` is one deletion plus five case differences,
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
+    pub(crate) fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
         let candidates = self.binder.names_in_scope_with_meaning(
             self.nodes,
             self.node_map,
@@ -5660,6 +5741,16 @@ impl Checker<'_, '_> {
         if self.relate_ternary(string, left, crate::relater::Relation::Assignable)
             != crate::relater::Ternary::NotRelated
         {
+            // `else { checkReferenceExpression(...) }` (`checker.go:4013`):
+            // only after the type test passes. Its first arm is
+            // `check_for_in_reference_expression` (TS2406); this is the
+            // optional-chain arm. §9 of `docs/parity/notes/misc-checks.md`.
+            if self.is_optional_chain_reference(at) {
+                self.report_reference_error(
+                    at,
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS,
+                );
+            }
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
@@ -6673,22 +6764,10 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        // §839.1: a reference guarded by a condition that both names it **and**
-        // uses a narrowing this port does not model. Upstream removes
-        // `undefined` there and this port does not, so the arm would fire where
-        // upstream's does not and hand back the declared type.
-        //
-        // Measured, not assumed: without this the type road took
-        // `RIGHT->WRONG 67` — `typeGuardOfFormIsType` 37 (`isC1(c1Orc2) && …`),
-        // `typeGuardOfFormInstanceOf` 10, `parserindenter` 10 — against
-        // `WRONG->RIGHT 126`. Most of the 67 read `want string got any`, which
-        // is the *follow-on*: `c1Orc2.p1` off an un-narrowed `C1 | C2` is an
-        // error, and `errorType` prints `any`.
-        //
-        // The guard costs none of §839's wins because it already requires
-        // `subtree_has_unported_narrowing` — a pure `typeof` condition, which
-        // is every row of that family, does not match.
-        let guarded_by_unported_narrowing = self.reference_is_guarded_by_a_condition_on(node, text);
+        // §839.1's guard — decline a reference under a condition naming it
+        // that used a predicate call, `instanceof` or `.constructor` — is
+        // gone: each of those narrowings is ported in `crate::flow`, and
+        // removing it lost no case (`docs/parity/notes/flow.md` §11).
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
         // flow type at `x` carries `undefined`. `getAssignmentTargetKind`
@@ -6729,36 +6808,63 @@ impl Checker<'_, '_> {
         else {
             return false;
         };
+        // A binding element is checked as its root `VariableDeclaration`
+        // (`GetRootDeclaration`); a parameter root is `isParameter`, assumed
+        // initialized. The element itself is never `isNeverInitialized`
+        // (that wants a `VariableDeclaration`) and carries no `!`.
+        let is_binding_element = self.nodes.kind(declaration) == SyntaxKind::BindingElement;
         let mut root = declaration;
-        while matches!(
-            self.nodes.kind(root),
-            SyntaxKind::BindingElement
-                | SyntaxKind::ObjectBindingPattern
-                | SyntaxKind::ArrayBindingPattern
-        ) {
-            let Some(parent) = self.nodes.parent(root) else { return false };
-            root = parent;
+        while self.nodes.kind(root) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(root) else { return false };
+            let Some(owner) = self.nodes.parent(pattern) else { return false };
+            root = owner;
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(root) else {
             return false;
         };
-        let immediate_variable = (root == declaration).then_some(variable);
-        // `ast.IsVariableDeclaration(declaration) && ExclamationToken != nil`.
-        if immediate_variable.is_some_and(|variable| variable.exclamation_token.is_some()) {
+        // `isSameScopedBindingElement` (`checker.go:11202`): a read inside a
+        // binding element of the same root declaration (`const { a, b = a }`).
+        if is_binding_element
+            && let Some(element) = self
+                .nodes
+                .ancestors(node)
+                .find(|&id| self.nodes.kind(id) == SyntaxKind::BindingElement)
+        {
+            let mut element_root = element;
+            while self.nodes.kind(element_root) == SyntaxKind::BindingElement {
+                let Some(owner) =
+                    self.nodes.parent(element_root).and_then(|pattern| self.nodes.parent(pattern))
+                else {
+                    break;
+                };
+                element_root = owner;
+            }
+            if element_root == root {
+                return false;
+            }
+        }
+        // No `!`, and an annotation or an initialiser — neither is upstream's
+        // auto-typed path (`t == autoType`, a different diagnostic entirely).
+        // An initialised declaration still reports when some path reaches the
+        // read without passing it (a `catch` after a throwing initialiser,
+        // `controlFlowDestructuringVariablesInTryCatch`).
+        let Some(list) = self.nodes.parent(root) else { return false };
+        // A catch-clause variable is typed `any`, `unknown` or `errorType`
+        // whatever its annotation (`getTypeForVariableLikeDeclaration`,
+        // `checker.go:16678`), each of which `assumeInitialized` accepts.
+        if !is_binding_element && self.nodes.kind(list) == SyntaxKind::CatchClause {
             return false;
         }
-        let Some(list) = self.nodes.parent(root) else { return false };
-        let in_for_in_or_of = self.nodes.parent(list).is_some_and(|owner| {
+        // A `for (… of/in …)` head is assigned by the loop, not auto-typed.
+        let for_head = self.nodes.parent(list).filter(|&owner| {
             matches!(
                 self.nodes.kind(owner),
                 SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
             )
         });
-        // A variable with neither annotation nor initializer is auto-typed
-        // (`t == autoType`, a different diagnostic) or `any`; neither reports.
-        if immediate_variable.is_some_and(|variable| {
-            variable.r#type.is_none() && variable.initializer.is_none() && !in_for_in_or_of
-        }) {
+        if variable.exclamation_token.is_some()
+            || (variable.r#type.is_none() && variable.initializer.is_none() && for_head.is_none())
+        {
             return false;
         }
         // A `const` with no initialiser only occurs in an ambient context or
@@ -6767,18 +6873,53 @@ impl Checker<'_, '_> {
         // (`checker.go:11158`). `declare const b: B` supplied **227 of the
         // first measurement's 4,781 wrong lines from one case**
         // (`compiler/genericDefaults`), which is what put both tests here.
-        if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
-            && variable.initializer.is_none()
-            && !in_for_in_or_of
+        if variable.initializer.is_none()
+            && for_head.is_none()
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+        {
+            return false;
+        }
+        // Exact fast path, not a decline: an initialised block-scoped
+        // declaration read *after* it in its own block is assigned on every
+        // path to the read — a block's statements run in order, loops re-enter
+        // past the head, exceptions leave the scope — so the walk below could
+        // only answer "no `undefined`". The one way to enter a block past a
+        // statement is a `switch` jumping to a later `case`, which keeps the
+        // walk. Measured: walking every such read cost ~5% CPU on
+        // `domain-model` (`docs/parity/notes/flow.md` §13). A block-scoped
+        // `for..in`/`for..of` head is assigned before its body runs, so the
+        // same holds past the iterated expression.
+        let assigned_by = if variable.initializer.is_some() {
+            Some(self.nodes.span(root).end)
+        } else {
+            for_head.and_then(|statement| match self.node_map.get(statement) {
+                Some(Node::ForInOrOfStatement(head)) => head
+                    .expression
+                    .and_then(|expression| expression.node_id())
+                    .map(|expression| self.nodes.span(expression).end),
+                _ => None,
+            })
+        };
+        if let Some(assigned_by) = assigned_by
+            && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED)
+            && self.nodes.span(node).start >= assigned_by
+            && !self
+                .nodes
+                .parent(list)
+                .and_then(|statement| self.nodes.parent(statement))
+                .is_some_and(|block| {
+                    matches!(
+                        self.nodes.kind(block),
+                        SyntaxKind::CaseClause | SyntaxKind::DefaultClause
+                    )
+                })
         {
             return false;
         }
         // `declaration.Flags&NodeFlagsAmbient != 0` (`checker.go:11158`): a
         // `declare` on the statement or any container — `var a` inside
         // `declare module "a"` — or a declaration file.
-        if self.declaration_is_in_an_ambient_context(declaration)
-            || self.is_same_scoped_binding_element(node, declaration)
-        {
+        if self.declaration_is_in_an_ambient_context(declaration) {
             return false;
         }
         // `isOuterVariable` (`checker.go:11128`) is a disjunct of
@@ -6787,10 +6928,12 @@ impl Checker<'_, '_> {
         // `let x: T;` that no assignment anywhere targets is reported even from
         // inside a nested function.
         //
-        // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`
-        // (not a binding element), not a `for-in`/`for-of` head, with no
-        // initializer and no `!`, that `isMutableLocalVariableDeclaration`
-        // accepts and `isSymbolAssignedDefinitely` does not.
+        // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`,
+        // not a `for-in`/`for-of` head, with no initializer and no `!` (the
+        // binding-element, initializer and head tests below; `!` exited above)
+        // — that
+        // `isMutableLocalVariableDeclaration` accepts and
+        // `isSymbolAssignedDefinitely` does not.
         //
         // The definite-assignment half is a **per-symbol** record written by
         // `mark_node_assignments`, not a scan for the name: a syntactic
@@ -6799,9 +6942,9 @@ impl Checker<'_, '_> {
         let is_outer_variable =
             self.control_flow_container(node) != self.control_flow_container(declaration);
         if is_outer_variable {
-            let is_never_initialized = immediate_variable
-                .is_some_and(|variable| variable.initializer.is_none())
-                && !in_for_in_or_of
+            let is_never_initialized = !is_binding_element
+                && variable.initializer.is_none()
+                && for_head.is_none()
                 && self.is_mutable_local_variable_declaration(declaration)
                 && !self.is_symbol_assigned_definitely(symbol);
             if !is_never_initialized {
@@ -6812,12 +6955,12 @@ impl Checker<'_, '_> {
         // `get_type_of_symbol`, because a union of *named* types declares
         // `errorType` on the printing road and this rule prints no type —
         // `checker-notes-diag2.md` §76, which is §42.1 one level up. Every
-        // other annotation shape answers identically through both; an
-        // inferred declared type (initializer, binding element, for-in/of
-        // head) is the symbol's type.
-        let declared = match immediate_variable.and_then(|variable| variable.r#type) {
-            Some(annotation) => self.get_type_from_type_node_unprinted(annotation),
-            None => self.get_type_of_symbol(symbol),
+        // other annotation shape answers identically through both.
+        let declared = match variable.r#type {
+            Some(annotation) if !is_binding_element => {
+                self.get_type_from_type_node_unprinted(annotation)
+            }
+            _ => self.get_type_of_symbol(symbol),
         };
         if self.is_error(declared)
             || self.type_of(declared).flags.intersects(
@@ -6860,42 +7003,10 @@ impl Checker<'_, '_> {
             .unwrap_or(symbol);
         let flow =
             self.get_flow_type_of_reference_ex(node, Some(flow_symbol), declared, Some(initial));
-        // The preceding blanket guard predates predicate subtype comparison.
-        // A computed narrowing of the optional initial type can now retain
-        // undefined on a false branch: checkIdentifier must then recover the
-        // declared type. Preserve the guard when that query made no progress.
-        if guarded_by_unported_narrowing && flow == initial {
-            return false;
-        }
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return false;
         }
         true
-    }
-
-    /// `isSameScopedBindingElement` (`checker.go:11202`): a reference inside a
-    /// binding element of the same destructuring declaration as the binding
-    /// element it names (`let { a, b = a } = …`) is assumed initialized.
-    fn is_same_scoped_binding_element(&self, node: NodeId, declaration: NodeId) -> bool {
-        if self.nodes.kind(declaration) != SyntaxKind::BindingElement {
-            return false;
-        }
-        let root_of = |mut at: NodeId| {
-            while matches!(
-                self.nodes.kind(at),
-                SyntaxKind::BindingElement
-                    | SyntaxKind::ObjectBindingPattern
-                    | SyntaxKind::ArrayBindingPattern
-            ) {
-                let Some(parent) = self.nodes.parent(at) else { break };
-                at = parent;
-            }
-            at
-        };
-        self.nodes
-            .ancestors(node)
-            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::BindingElement)
-            .is_some_and(|binding_element| root_of(binding_element) == root_of(declaration))
     }
 
     /// TS2454 — `Variable '{0}' is used before being assigned.`
@@ -6904,14 +7015,6 @@ impl Checker<'_, '_> {
     /// [`Checker::uninitialized_variable_reads_declared`], because
     /// `checkIdentifier` uses one condition for two answers and this port had
     /// split them — see `docs/architecture/checker-notes-deferred.md` §839.
-    ///
-    /// The guard below is why the two roads cannot share a single entry point.
-    /// `reference_is_guarded_by_a_condition_on` stands in for the narrowings
-    /// this port does not model, all of which leave `undefined` in the flow
-    /// type; declining costs a *missing diagnostic*, which is the direction
-    /// this rule may safely fail in. Upstream has no such guard, and it returns
-    /// true for every row in §839's family — so the **type** road must ask the
-    /// structural question without it.
     fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
         if !self.uninitialized_variable_reads_declared(node, text) {
             return;
@@ -6926,125 +7029,6 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
-    }
-
-    /// Is this reference in a position a *condition naming the same identifier*
-    /// dominates?
-    ///
-    /// A syntactic over-approximation of "upstream narrowed this before the
-    /// check", and deliberately one: every narrowing this port does not model —
-    /// user-defined type predicates, `instanceof` on an interface,
-    /// discriminated switches — removes `undefined` upstream and leaves it here,
-    /// and each of them is written as a guard. Declining costs a *missing*
-    /// diagnostic, which is the direction this rule may fail in.
-    ///
-    /// The three guard shapes, all of which put the reference in a subtree the
-    /// condition dominates:
-    ///
-    /// - the right operand of `&&`, `||` or `??` whose left mentions the name;
-    /// - the then/else branch of a conditional expression;
-    /// - the body of an `if`, `while` or `do` whose condition mentions it.
-    fn reference_is_guarded_by_a_condition_on(&self, node: NodeId, text: &str) -> bool {
-        let mut child = node;
-        let mut at = self.nodes.parent(node);
-        let mut depth = 0u32;
-        while let Some(current) = at {
-            depth += 1;
-            if depth > 64 {
-                return false;
-            }
-            let condition = match self.node_map.get(current) {
-                Some(Node::BinaryExpression(binary))
-                    if matches!(
-                        binary.operator_token.map(|token| token.kind),
-                        Some(
-                            SyntaxKind::AmpersandAmpersandToken
-                                | SyntaxKind::BarBarToken
-                                | SyntaxKind::QuestionQuestionToken
-                        )
-                    ) && binary.right.and_then(|right| right.node_id()) == Some(child) =>
-                {
-                    binary.left.and_then(|left| left.node_id())
-                }
-                Some(Node::ConditionalExpression(conditional))
-                    if conditional.condition.and_then(|c| c.node_id()) != Some(child) =>
-                {
-                    conditional.condition.and_then(|c| c.node_id())
-                }
-                Some(Node::IfStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::WhileStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::DoStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                _ => None,
-            };
-            // The condition must both name the reference **and** contain one of
-            // the narrowing mechanisms this port does not model — a call
-            // (a user-defined type predicate), an `instanceof`, or a
-            // `.constructor === C` comparison. Requiring the mechanism as well
-            // as the name is what keeps the guard from declining a TS2454
-            // upstream really does report.
-            if let Some(condition) = condition
-                && self.subtree_mentions(condition, text, 0)
-                && self.subtree_has_unported_narrowing(condition, 0)
-            {
-                return true;
-            }
-            child = current;
-            at = self.nodes.parent(current);
-        }
-        false
-    }
-
-    /// Does the subtree contain one of the narrowing mechanisms `crate::flow`
-    /// does not model — a call, an `instanceof`, or a `.constructor`
-    /// comparison?
-    ///
-    /// The list names *mechanisms* rather than a syntax and is meant to grow:
-    /// `narrowTypeByConstructor` was the third
-    /// (`checker-notes-diag2.md` §58), and it is the whole of TS2454's share of
-    /// `extraonly.rs`'s single-false-positive cases.
-    fn subtree_has_unported_narrowing(&self, node: NodeId, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::CallExpression(_))
-            || matches!(typed, Node::BinaryExpression(binary)
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::InstanceOfKeyword))
-            || matches!(typed, Node::PropertyAccessExpression(access)
-                if matches!(access.name, Some(tsr_ast::MemberName::Identifier(name))
-                    if name.text == "constructor"))
-        {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_has_unported_narrowing(child, depth + 1))
-    }
-
-    /// Does the subtree rooted at `node` contain an identifier spelled `text`?
-    pub(crate) fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::Identifier(identifier) if identifier.text == text) {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
     }
 
     /// TS2428 — `All declarations of '{0}' must have identical type
@@ -7383,25 +7367,6 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span));
     }
 
-    /// TS2300 — `Duplicate identifier '{0}'`, for two property signatures of one
-    /// name in a single type literal.
-    ///
-    /// Upstream reaches this through the binder: each member is `declareSymbol`'d
-    /// into the literal's own members table and the second collides
-    /// (`binder.go:217`). This port's binder gives a type literal no members
-    /// table, so the question is asked here instead.
-    ///
-    /// **Properties only.** Two `MethodSignature`s of one name are a legal
-    /// overload set; call, construct and index signatures have no name to
-    /// collide on.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §904.
-    /// The class-member half of §904, for **literal computed names**:
-    /// `class C { ["a"]: string; ["a"]: string }`. Upstream's
-    /// `GetTextOfPropertyName` folds a literal computed name to its text before
-    /// `declareSymbol` sees it, so the binder collides them exactly as it does
-    /// two plain names. A **non-literal** computed name names no particular
-    /// property and is declined, the bound §52's rule already draws. §906.
     /// TS2300 — `Duplicate identifier 'prototype'`, for a namespace merged with
     /// a class that exports a member of that name.
     ///
@@ -7533,120 +7498,135 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // **Normalise the name and split the table.** `1` and `1.0` are one
-        // property — upstream compares `GetTextOfPropertyName`, which for a
-        // numeric literal is `ToString(value)`, while this port keeps the
-        // written spelling so the printer can reproduce it (§671). And a
-        // `static` member does not collide with an instance member, because
-        // upstream declares them into different tables. §912.
-        let named: Vec<(NodeId, bool, String, bool)> = members
-            .iter()
-            .filter_map(|member| {
-                // **A property collides with an accessor** — upstream's
-                // `PropertyExcludes` includes `Accessor` — while a `get`/`set`
-                // pair is the one shape the members table is built to merge.
-                // So accessors are collected as *accessor* entries and only
-                // ever reported against a property, never against each other.
-                // §914.
-                let (modifiers, name, is_accessor) = match member {
-                    tsr_ast::ClassElement::PropertyDeclaration(property) => {
-                        (property.modifiers, property.name, false)
-                    }
-                    tsr_ast::ClassElement::GetAccessorDeclaration(accessor) => {
-                        (accessor.modifiers, accessor.name, true)
-                    }
-                    tsr_ast::ClassElement::SetAccessorDeclaration(accessor) => {
-                        (accessor.modifiers, accessor.name, true)
-                    }
-                    _ => return None,
-                };
-                let is_static = has_modifier(modifiers, SyntaxKind::StaticKeyword);
-                let (id, text) = match name {
-                    tsr_ast::PropertyName::Identifier(name) => {
-                        (name.node_id?, name.text.to_string())
-                    }
-                    tsr_ast::PropertyName::StringLiteral(name) => {
-                        (name.node_id?, name.text.to_string())
-                    }
-                    tsr_ast::PropertyName::NumericLiteral(name) => (
-                        name.node_id?,
-                        tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(name.text)),
-                    ),
-                    tsr_ast::PropertyName::ComputedPropertyName(computed) => {
-                        let id = computed.node_id?;
-                        match computed.expression? {
-                            tsr_ast::Expression::StringLiteral(literal) => {
-                                (id, literal.text.to_string())
-                            }
-                            tsr_ast::Expression::NumericLiteral(literal) => (
-                                id,
-                                tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(
-                                    literal.text,
-                                )),
-                            ),
-                            _ => return None,
-                        }
-                    }
-                    tsr_ast::PropertyName::PrivateIdentifier(_)
-                    | tsr_ast::PropertyName::BigIntLiteral(_)
-                    | tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(_) => return None,
-                };
-                Some((id, is_static, text, is_accessor))
-            })
-            .collect();
-        for (index, (id, is_static, text, is_accessor)) in named.iter().enumerate() {
-            // Two accessors of one name never report here: a `get`/`set` pair
-            // merges, and a same-kind pair is a different mask (§914's second
-            // falsifier, declined).
-            if !named.iter().enumerate().any(|(other, (_, other_static, name, other_accessor))| {
-                other != index
-                    && other_static == is_static
-                    && name == text
-                    && !(*is_accessor && *other_accessor)
-            }) {
+    /// TS2300 — `Duplicate identifier '{0}'.`, for the members of one class or
+    /// interface declaration.
+    ///
+    /// `checkObjectTypeForDuplicateDeclarations` (`checker.go:3142`) and
+    /// `reportDuplicateMemberErrors` (`:3213`), called from
+    /// `checkClassLikeDeclaration` (`:4306`) and `checkInterfaceDeclaration`
+    /// (`:5016`). `PropertyExcludes` does not contain `Property`, so the
+    /// binder merges `x: number; x: string` into one symbol with two
+    /// declarations; this walk is where upstream reports it. The test is the
+    /// **binder's symbol** — its name (so `1` and `1.0` meet, the binder having
+    /// canonicalised both) and its declaration count — not a re-derived name
+    /// comparison. Parameter properties take part as instance properties.
+    ///
+    /// Not gated on parse errors: upstream reports it in a file with syntax
+    /// errors too (`numericNamedPropertyDuplicates`).
+    /// `docs/parity/notes/decls.md` §12.
+    fn check_object_type_for_duplicate_declarations(&mut self, node: NodeId) {
+        // (member name node, symbol, kind: 1 property / 2 accessor / 0 other, static)
+        let entries = self.object_type_member_entries(node);
+        let mut instance_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+            std::collections::HashMap::new();
+        let mut static_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+            std::collections::HashMap::new();
+        let mut reported: Vec<(tsr_binder::SymbolId, bool)> = Vec::new();
+        for &(_, symbol, kind, is_static) in &entries {
+            if kind == 0 || self.binder.symbols().get(symbol).declarations.len() <= 1 {
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(*id) else { continue };
-            let span = self.error_span(*id);
-            self.report(
-                file,
-                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.clone()]),
-            );
+            let names = if is_static { &mut static_names } else { &mut instance_names };
+            // Upstream keys the table by `symbol.Name`; a members table holds
+            // one symbol per name, so the symbol is the same key.
+            let state = names.get(&symbol).copied().unwrap_or(0);
+            if state == 0 {
+                names.insert(symbol, kind);
+            } else if state == 1 || (state == 2 && kind != 2) {
+                names.insert(symbol, 3);
+                reported.push((symbol, is_static));
+            }
+        }
+        for (symbol, is_static) in reported {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            for &(name_node, member_symbol, _, member_static) in &entries {
+                // `checkStatic` is true for this message: a parameter property
+                // is an instance member, so `isStatic == ast.IsStatic(member)`
+                // holds for it exactly when the duplicate is an instance one.
+                if member_symbol != symbol || member_static != is_static {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(name_node) else { continue };
+                let span = self.error_span(name_node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [name.clone()]),
+                );
+            }
         }
     }
 
-    fn check_duplicate_type_literal_members(&mut self, members: &[tsr_ast::TypeElement<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let named: Vec<(NodeId, &str)> = members
-            .iter()
-            .filter_map(|member| {
-                let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
-                    return None;
-                };
-                match property.name {
-                    tsr_ast::PropertyName::Identifier(name) => Some((name.node_id?, name.text)),
-                    tsr_ast::PropertyName::StringLiteral(name) => Some((name.node_id?, name.text)),
-                    _ => None,
+    /// The members `checkObjectTypeForDuplicateDeclarations` walks, in source
+    /// order: each member's name node, its symbol, its kind for that walk
+    /// (1 property, 2 accessor or auto-accessor, 0 anything else) and whether
+    /// it is static. A constructor contributes its parameter properties whose
+    /// name is not a binding pattern.
+    fn object_type_member_entries(
+        &self,
+        node: NodeId,
+    ) -> Vec<(NodeId, tsr_binder::SymbolId, u8, bool)> {
+        let mut entries = Vec::new();
+        let mut push = |member: NodeId, name: Option<NodeId>, kind: u8, is_static: bool| {
+            let (Some(name), Some(symbol)) = (name, self.binder.symbol_of(member)) else {
+                return;
+            };
+            entries.push((name, self.binder.merged_symbol(symbol), kind, is_static));
+        };
+        let class_members = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            Some(
+                Node::InterfaceDeclaration(InterfaceDeclaration { members, .. })
+                | Node::TypeLiteralNode(TypeLiteralNode { members, .. }),
+            ) => {
+                for member in *members {
+                    let Some(id) = member.node_id() else { continue };
+                    let kind = match member {
+                        tsr_ast::TypeElement::PropertySignatureDeclaration(_) => 1,
+                        tsr_ast::TypeElement::GetAccessorDeclaration(_)
+                        | tsr_ast::TypeElement::SetAccessorDeclaration(_) => 2,
+                        _ => 0,
+                    };
+                    push(id, self.declaration_name_of(id), kind, false);
                 }
-            })
-            .collect();
-        for (index, &(id, text)) in named.iter().enumerate() {
-            if !named.iter().enumerate().any(|(other, &(_, name))| other != index && name == text) {
+                return entries;
+            }
+            _ => return entries,
+        };
+        for member in class_members {
+            let Some(id) = member.node_id() else { continue };
+            if let ClassElement::ConstructorDeclaration(constructor) = member {
+                for parameter in constructor.parameters {
+                    let Some(parameter_id) = parameter.node_id else { continue };
+                    let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
+                        continue;
+                    };
+                    // `ast.IsParameterPropertyDeclaration`: the binder made
+                    // the class property this parameter's symbol.
+                    if self.binder.symbol_of(parameter_id).is_some_and(|symbol| {
+                        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::PROPERTY)
+                    }) {
+                        push(parameter_id, name.node_id, 1, false);
+                    }
+                }
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.error_span(id);
-            self.report(
-                file,
-                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.to_string()]),
-            );
+            let modifiers = self.node_map.get(id).and_then(modifiers_of).unwrap_or(&[]);
+            let is_static = has_modifier(modifiers, SyntaxKind::StaticKeyword);
+            let kind = match member {
+                ClassElement::PropertyDeclaration(_)
+                    if has_modifier(modifiers, SyntaxKind::AccessorKeyword) =>
+                {
+                    2
+                }
+                ClassElement::PropertyDeclaration(_) => 1,
+                ClassElement::GetAccessorDeclaration(_)
+                | ClassElement::SetAccessorDeclaration(_) => 2,
+                _ => 0,
+            };
+            push(id, self.declaration_name_of(id), kind, is_static);
         }
+        entries
     }
 
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
@@ -8498,6 +8478,15 @@ impl Checker<'_, '_> {
         self.check_type_name_is_reserved(name.node_id, name.text, message);
     }
 
+    /// TS2431 — `Enum name cannot be '{0}'.`
+    ///
+    /// `checkCollisionsForDeclarationName`'s enum arm (`checker.go:10459`),
+    /// reached from `checkEnumDeclarationWorker` for every enum declaration.
+    fn check_reserved_enum_name(&mut self, declaration: &tsr_ast::EnumDeclaration<'_>) {
+        let Some(name) = declaration.name else { return };
+        self.check_type_name_is_reserved(name.node_id, name.text, &messages::ENUM_NAME_CANNOT_BE_0);
+    }
+
     /// TS2438 — `Import name cannot be '{0}'.`
     ///
     /// `checkImportEqualsDeclaration` (`checker.go:5479-5489`), and the guards
@@ -9083,33 +9072,6 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
-    /// Does a class this one extends declare a property of this name?
-    ///
-    /// `isPropertyDeclaredInAncestorClass` (`checker.go:11720`), one hop —
-    /// the same resolution §309 uses, and bounded the same way. §317.
-    fn ancestor_class_declares(&mut self, class: NodeId, name: &str) -> bool {
-        // **One hop is not the ancestry.** `class Z extends Y {}` with `Y
-        // extends X` and `x` declared on `X` is `useBeforeDeclaration_superClass`,
-        // and §317 read it as a one-hop test because that fixture's own shape
-        // needed no more. §745's walker follows the chain, qualified bases
-        // included, bounded as every other walk here is. §748.
-        let mut at = self.base_class_declaration_of(class);
-        for _ in 0..MAX_ALIAS_HOPS {
-            let Some(base) = at else { return false };
-            let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(base) else {
-                return false;
-            };
-            let declares = base_class.members.iter().any(|member| {
-                matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
-                    if matches!(property.name, tsr_ast::PropertyName::Identifier(it) if it.text == name))
-            });
-            if declares {
-                return true;
-            }
-            at = self.base_class_declaration_of(base);
-        }
-        false
-    }
     /// The kind a base class or any of its own bases declares `name` as.
     ///
     /// `getPropertiesOfType(baseType)` includes inherited members; this walks
@@ -9288,196 +9250,6 @@ impl Checker<'_, '_> {
                 ),
             );
         }
-    }
-
-    /// TS2729 — `Property '{0}' is used before its initialization.`
-    ///
-    /// `checkPropertyNotUsedBeforeDeclaration` (`checker.go:11709`), sliced to
-    /// the case that needs no symbol resolution: a `this.X` inside a property
-    /// initialiser where `X` is a property of the **same** class declared later
-    /// in the member list. §315.
-    ///
-    /// Declined: an inherited target (upstream's
-    /// `isPropertyDeclaredInAncestorClass`), a nested access `this.a.b`, an
-    /// optional property, and a static method.
-    fn check_property_used_before_initialization(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.file_is_ambient {
-            return;
-        }
-        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
-        // `this.X`, and not `this.a.b` — upstream declines an access whose own
-        // expression is an access.
-        let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return };
-        // **A static initializer names the class, not `this`.**
-        // `isInPropertyInitializerOrClassStaticBlock` does not mention `this` at
-        // all — it asks where the *initializer* is, and ordinary resolution
-        // finds `Test._A` on the static side as it finds `this._a` on the
-        // instance side. §974.
-        // **A JSX tag name is not a property read.** `static a = <C.z></C.z>`
-        // puts a property access in tag position, and upstream does not report
-        // TS2729 there — `useBeforeDeclaration_jsx` was §974's one wrong line.
-        // §975.
-        if self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::JsxOpeningElement
-                    | SyntaxKind::JsxSelfClosingElement
-                    | SyntaxKind::JsxClosingElement
-            )
-        }) {
-            return;
-        }
-        let statics = match self.nodes.kind(receiver) {
-            SyntaxKind::ThisKeyword => false,
-            SyntaxKind::Identifier => true,
-            _ => return,
-        };
-        let Some(parent) = self.nodes.parent(node) else { return };
-        if matches!(
-            self.nodes.kind(parent),
-            SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
-        ) {
-            return;
-        }
-        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return };
-        let Some(name_id) = name.node_id else { return };
-        // `isInPropertyInitializerOrClassStaticBlock`: the nearest enclosing
-        // member must be a property declaration, and the node must be inside
-        // its initialiser.
-        let Some(member) = self.nodes.ancestors(node).find(|&it| {
-            matches!(
-                self.nodes.kind(it),
-                SyntaxKind::PropertyDeclaration | SyntaxKind::ClassStaticBlockDeclaration
-            ) || self.is_function_like_or_static_block(it)
-        }) else {
-            return;
-        };
-        if self.nodes.kind(member) != SyntaxKind::PropertyDeclaration {
-            return;
-        }
-        let Some(class) = self.nodes.parent(member) else { return };
-        let members = match self.node_map.get(class) {
-            Some(Node::ClassDeclaration(c)) => c.members,
-            Some(Node::ClassExpression(c)) => c.members,
-            _ => return,
-        };
-        // The identifier must name **this** class, and the member being
-        // initialised must sit on the same side as the one it reads —
-        // falsifiers 1 and 2 of §974.
-        if statics {
-            let names_this_class = self
-                .declaration_name_of(class)
-                .and_then(|at| self.identifier_text(at))
-                .zip(self.identifier_text(receiver))
-                .is_some_and(|(class_name, written)| class_name == written);
-            if !names_this_class {
-                return;
-            }
-        }
-        if self.member_is_static(member) != statics {
-            return;
-        }
-        // Both ends are in the same ordered list, so "declared before use" is
-        // an index comparison — `isBlockScopedNameDeclaredBeforeUse` without a
-        // symbol.
-        let mut using_at = None;
-        let mut target_at = None;
-        // **A parameter property is not decided by position.** §976.
-        let mut from_parameter_property = false;
-        for (index, element) in members.iter().enumerate() {
-            let Some(id) = element.node_id() else { continue };
-            if id == member {
-                using_at = Some(index);
-            }
-            // **A parameter property is declared where its constructor is.**
-            // `constructor(public a: number)` declares `a` on the class, and
-            // `class.members` does not contain it — it is a parameter of a
-            // constructor that is. §708 made the same correction to TS2610's
-            // base member set. §748.
-            if let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = element {
-                let declares = constructor.parameters.iter().any(|parameter| {
-                    let modifiers = parameter.modifiers;
-                    let is_parameter_property =
-                        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PublicKeyword)
-                            || tsr_ast::has_syntactic_modifier(
-                                modifiers,
-                                SyntaxKind::PrivateKeyword,
-                            )
-                            || tsr_ast::has_syntactic_modifier(
-                                modifiers,
-                                SyntaxKind::ProtectedKeyword,
-                            )
-                            || tsr_ast::has_syntactic_modifier(
-                                modifiers,
-                                SyntaxKind::ReadonlyKeyword,
-                            );
-                    is_parameter_property
-                        && matches!(
-                            parameter.name,
-                            Some(tsr_ast::BindingName::Identifier(written))
-                                if written.text == name.text
-                        )
-                });
-                if declares && target_at.is_none() {
-                    target_at = Some(index);
-                    from_parameter_property = true;
-                }
-                continue;
-            }
-            let tsr_ast::ClassElement::PropertyDeclaration(property) = element else { continue };
-            let tsr_ast::PropertyName::Identifier(declared) = property.name else { continue };
-            if declared.text != name.text || target_at.is_some() {
-                continue;
-            }
-            if tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::StaticKeyword)
-                != statics
-            {
-                continue;
-            }
-            // `isOptionalPropertyDeclaration` — the `?` is the postfix token.
-            if property.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken) {
-                continue;
-            }
-            target_at = Some(index);
-        }
-        let (Some(using_at), Some(target_at)) = (using_at, target_at) else { return };
-        // **For a parameter property the flag decides, not the order.** With
-        // `useDefineForClassFields` every field initializer runs before the
-        // constructor body assigns any parameter property, so *every* use in an
-        // initializer is early whatever the source order; without it the
-        // parameter is assigned first and none of them are. Comparing indices
-        // answered both halves wrongly, in opposite directions — §975's standing
-        // defect and this row's remaining cases are the same mechanism. §976.
-        if from_parameter_property {
-            if !self.standard_class_fields {
-                return;
-            }
-        } else if target_at < using_at {
-            return;
-        }
-        // `!c.isPropertyDeclaredInAncestorClass(prop)` — the sixth conjunct,
-        // and a **negative** guard: leaving it out adds output rather than
-        // withholding it. `useBeforeDeclaration_superClass` was both of §316's
-        // wrong lines, and §309's base-class resolution is the machinery. §317.
-        // **The guard is `emitStandardClassFields`'s question.** An ancestor
-        // declaring the name makes the use safe only when the derived field
-        // does *not* shadow at construction time — under `[[Define]]`
-        // semantics it does, and the base's value is gone. §317 measured this
-        // against a fixture whose flag is off and read the result as the
-        // general rule. §751.
-        if !self.standard_class_fields && self.ancestor_class_declares(class, name.text) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-        let span = self.nodes.span(name_id);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
-                span,
-                [name.text.to_string()],
-            ),
-        );
     }
 
     /// Does this subtree contain a `super(...)` call, not descending into a
@@ -9728,17 +9500,26 @@ impl Checker<'_, '_> {
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
+        // A JS function's `@param [x]` / `{T=}` is a reparsed `?` upstream
+        // (`makeQuestionIfOptional`), which this loop reads like a written
+        // one; ADR-0046.
+        let reparsed = self.jsdoc_reparsed_function(owner).parameters;
         let mut seen_optional = false;
         for (index, parameter) in parameters.into_iter().enumerate() {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
             let name = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id);
+            // The reparsed token's location is its `@param` tag's.
+            let question = declaration.question_token.map(|token| token.node_id).or_else(|| {
+                let slot = reparsed.get(index).filter(|slot| slot.question)?;
+                Some(slot.tag?.node_id)
+            });
             if let Some(rest) = declaration.dot_dot_dot_token {
                 let (at, message) = if index != count - 1 {
                     (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
-                } else if let Some(question) = declaration.question_token {
-                    (question.node_id, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
+                } else if let Some(question) = question {
+                    (question, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
                 } else if declaration.initializer.is_some() {
                     (name, &messages::A_REST_PARAMETER_CANNOT_HAVE_AN_INITIALIZER)
                 } else {
@@ -9752,7 +9533,7 @@ impl Checker<'_, '_> {
             // parameter optional for this loop, so `f(a = 1, b: number)` is
             // legal. Reading it as "`?` or initialiser" was six wrong TS1016
             // lines, every one of them a defaulted parameter. §288.
-            if declaration.question_token.is_some() {
+            if question.is_some() {
                 seen_optional = true;
                 // TS1015 is §103's, reported once per list from its own arm.
                 continue;
@@ -9782,10 +9563,19 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `checkGrammarAccessor`'s parameter arms (`grammarchecks.go:1332`,
-    /// `:1345`, `:1349`).
+    /// `checkGrammarAccessor`'s body arms (`grammarchecks.go:1309`, `:1315`)
+    /// and parameter arms (`:1332`, `:1345`, `:1349`).
+    ///
+    /// The body arms sit behind `checkGrammarFunctionLikeDeclaration`'s
+    /// `checkGrammarModifiers` upstream, so they wait on
+    /// `modifier_chain_reported`; a report returns, as upstream's does.
     fn check_grammar_accessor(&mut self, node: NodeId, typed: Node<'_>) {
         if self.file_has_parse_errors {
+            return;
+        }
+        if !self.modifier_chain_reported.contains(&node)
+            && self.check_grammar_accessor_body(node, typed)
+        {
             return;
         }
         let is_set = matches!(typed, Node::SetAccessorDeclaration(_));
@@ -9823,6 +9613,56 @@ impl Checker<'_, '_> {
                 &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
             );
         }
+    }
+
+    /// `checkGrammarAccessor`'s first two arms: outside an ambient context,
+    /// a type literal or an interface, a body-less accessor that is not
+    /// `abstract` is "'{' expected" on its last character
+    /// (`grammarErrorAtPos(accessor, accessor.End()-1, len(";"), …)`), and an
+    /// `abstract` accessor with a body is TS1318. The interface/type-literal
+    /// body arm (TS1183) is `check_grammar_statement_in_ambient_context`'s
+    /// report here and is not repeated.
+    fn check_grammar_accessor_body(&mut self, node: NodeId, typed: Node<'_>) -> bool {
+        let (modifiers, has_body) = match typed {
+            Node::GetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
+            Node::SetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
+            _ => return false,
+        };
+        let is_abstract = has_modifier(modifiers, SyntaxKind::AbstractKeyword);
+        if has_body {
+            if is_abstract {
+                self.report_grammar(
+                    node,
+                    &messages::AN_ABSTRACT_ACCESSOR_CANNOT_HAVE_AN_IMPLEMENTATION,
+                );
+                return true;
+            }
+            return false;
+        }
+        let in_type = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::TypeLiteral | SyntaxKind::InterfaceDeclaration
+            )
+        });
+        if is_abstract
+            || in_type
+            || self.file_is_ambient
+            || self.declaration_is_in_an_ambient_context(node)
+        {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
+        let end = self.nodes.span(node).end;
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::_0_EXPECTED,
+                tsr_core::Span::new(end - 1, end),
+                ["{".to_string()],
+            ),
+        );
+        true
     }
 
     /// `grammarErrorOnNode` at an optional node id.
@@ -10240,7 +10080,7 @@ impl Checker<'_, '_> {
         if self.in_js_file(node) {
             return;
         }
-        let (target, message, skip_assertions) = match self.node_map.get(node) {
+        let (target, message, optional_message, skip_assertions) = match self.node_map.get(node) {
             // **Every assignment operator, not just `=`.** Upstream's
             // `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
             // any `isAssignmentOperator`, and `1 >>= 2` is four of this rule's
@@ -10273,6 +10113,7 @@ impl Checker<'_, '_> {
                 (
                     left,
                     &messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_LEFT_HAND_SIDE_OF_AN_ASSIGNMENT_EXPRESSION_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10289,6 +10130,7 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10302,6 +10144,7 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MUST_BE_A_VARIABLE_OR_A_PROPERTY_ACCESS,
+                    Some(&messages::THE_OPERAND_OF_AN_INCREMENT_OR_DECREMENT_OPERATOR_MAY_NOT_BE_AN_OPTIONAL_PROPERTY_ACCESS),
                     true,
                 )
             }
@@ -10310,21 +10153,13 @@ impl Checker<'_, '_> {
                 (
                     operand,
                     &messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_A_PROPERTY_REFERENCE,
+                    None,
                     false,
                 )
             }
             _ => return,
         };
         let spine = self.skip_reference_spine(target, skip_assertions);
-        // `node.Flags&ast.NodeFlagsOptionalChain != 0` is upstream's *second*
-        // arm and carries its own code (TS2779). When §181 wrote this the
-        // parser did not set `NodeFlags::OPTIONAL_CHAIN`, so the syntax the
-        // flag is derived from stood in for it and the rule declines rather
-        // than emitting the wrong code. The flag IS set since §748; porting
-        // the TS2779 arm over it is that section's named follow-up.
-        if self.spine_has_optional_chain(target) {
-            return;
-        }
         let kind = self.nodes.kind(spine);
         let is_reference = kind == SyntaxKind::Identifier
             || matches!(
@@ -10342,6 +10177,17 @@ impl Checker<'_, '_> {
             )
         };
         if acceptable {
+            // `node.Flags&ast.NodeFlagsOptionalChain != 0`, upstream's second
+            // arm (`checker.go:13137`), reported at the unskipped `expr`.
+            // `checkDeleteExpression` has no such arm: `delete a?.b` is legal.
+            // §181 declined here on a syntactic `?.` walk while the parser
+            // did not set the flag (`checker-notes-callres.md` §748 sets it).
+            // `docs/parity/notes/misc-checks.md` §9.
+            if let Some(optional_message) = optional_message
+                && self.is_optional_chain_reference(target)
+            {
+                self.report_reference_error(target, optional_message);
+            }
             return;
         }
         // **The two report at different nodes, and the difference is one
@@ -10956,29 +10802,33 @@ impl Checker<'_, '_> {
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
-    /// function-like node that is not an immediately invoked function or
-    /// arrow expression (whose body continues its caller's flow), module
-    /// block, source file or property declaration.
+    /// function that is not immediately invoked, module block, source file or
+    /// property declaration. An IIFE's body is part of its caller's flow.
     pub(crate) fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
-            match self.nodes.kind(id) {
-                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => {
-                    if self.immediately_invoked_call(id).is_none() {
-                        return Some(id);
-                    }
-                }
-                SyntaxKind::ModuleBlock
-                | SyntaxKind::SourceFile
-                | SyntaxKind::PropertyDeclaration => return Some(id),
-                // `ast.IsFunctionLike`: every function-like but a class
-                // static block.
-                kind if kind != SyntaxKind::ClassStaticBlockDeclaration
-                    && self.is_function_like_or_static_block(id) =>
-                {
-                    return Some(id);
-                }
-                _ => {}
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+            ) && self.immediately_invoked_call(id).is_some()
+            {
+                current = self.nodes.parent(id);
+                continue;
+            }
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::ModuleBlock
+                    | SyntaxKind::SourceFile
+                    | SyntaxKind::PropertyDeclaration
+            ) {
+                return Some(id);
             }
             current = self.nodes.parent(id);
         }
@@ -11847,51 +11697,6 @@ impl Checker<'_, '_> {
             None => Diagnostic::new(message, span),
         };
         self.report(file, diagnostic);
-    }
-
-    /// TS2790 — `The operand of a 'delete' operator must be optional.`
-    ///
-    /// `checkDeleteExpressionMustBeOptional` (`checker.go:10825`). Under
-    /// `strictNullChecks`, a property whose type cannot be `undefined` may not
-    /// be deleted. `hasTypeFacts(t, TypeFactsIsUndefined)` is
-    /// [`Checker::nullish_facts`]'s second bit, ported at §-nullable for
-    /// TS2532 and union-aware.
-    ///
-    /// The `exactOptionalPropertyTypes` arm — which reads `SymbolFlagsOptional`
-    /// instead — is **not ported**; the option is off for every corpus case
-    /// this row has. §501.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §587.
-    fn check_delete_operand_is_optional(&mut self, node: NodeId, typed: Node<'_>) {
-        if !self.strict_null_checks || self.file_has_parse_errors || self.in_js_file(node) {
-            return;
-        }
-        let Node::DeleteExpression(delete) = typed else { return };
-        let Some(operand) = delete.expression else { return };
-        let Some(operand_id) = operand.node_id() else { return };
-        // Upstream reaches this function only for an operand that resolved to a
-        // property symbol; a bare identifier is TS1102/TS2703's row (§552).
-        if self.nodes.kind(operand_id) != SyntaxKind::PropertyAccessExpression {
-            return;
-        }
-        let operand_type = self.check_expression(operand);
-        let flags = self.type_of(operand_type).flags;
-        if self.is_error(operand_type)
-            || flags.intersects(
-                crate::flags::TypeFlags::ANY_OR_UNKNOWN | crate::flags::TypeFlags::NEVER,
-            )
-        {
-            return;
-        }
-        if self.nullish_facts(operand_type).1 {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(operand_id) else { return };
-        let span = self.error_span(operand_id);
-        self.report(
-            file,
-            Diagnostic::new(&messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_OPTIONAL, span),
-        );
     }
 
     /// TS2462 — `A rest element must be last in a destructuring pattern.`
@@ -12992,7 +12797,7 @@ impl Checker<'_, '_> {
         // class's constructor members in source order, and the dedup
         // `function_symbol_checked` gives a symbol is given here by running
         // only for the first of them.
-        let declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
+        let mut declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
             let symbol = self.binder.merged_symbol(symbol);
             if !self.function_symbol_checked.insert(symbol) {
                 return;
@@ -13005,7 +12810,36 @@ impl Checker<'_, '_> {
             }
             siblings
         };
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(mut file) = self.source_file_of_for_diagnostics(node) else { return };
+        let mut ambient = ambient;
+        // A module augmentation (`mergeModuleAugmentation`,
+        // `docs/parity/notes/names-modules.md` §4) adds ambient declarations
+        // from another file. In the loop below an ambient declaration only
+        // resets the adjacency chain and is never the implementation or the
+        // last non-ambient one, so when the declarations span files the
+        // ambient ones are dropped and the rest are checked in their own file.
+        if declarations
+            .iter()
+            .any(|&declaration| self.source_file_of_for_diagnostics(declaration) != Some(file))
+        {
+            let remaining: Vec<NodeId> = declarations
+                .iter()
+                .copied()
+                .filter(|&declaration| !self.is_ambient_declaration(declaration))
+                .collect();
+            if let Some(&first) = remaining.first()
+                && remaining.len() < declarations.len()
+                && let Some(remaining_file) = self.source_file_of_for_diagnostics(first)
+            {
+                if remaining_file != file {
+                    ambient = self
+                        .module_host
+                        .is_some_and(|host| host.is_declaration_file(remaining_file));
+                    file = remaining_file;
+                }
+                declarations = remaining;
+            }
+        }
         // The single-file bound: anything else and the per-declaration ambient
         // context is unavailable, so nothing is said.
         if declarations
@@ -14493,7 +14327,7 @@ fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Mess
     })
 }
 
-fn suggested_lib_for(name: &str) -> Option<&'static str> {
+pub(crate) fn suggested_lib_for(name: &str) -> Option<&'static str> {
     LIB_FEATURE_NAMES
         .binary_search_by_key(&name, |(feature, _)| *feature)
         .ok()
@@ -14938,4 +14772,28 @@ enum AliasBodyKind {
 struct AliasFrame {
     bindings: Vec<(NodeId, NodeId, usize)>,
     parent: Option<usize>,
+}
+
+impl Checker<'_, '_> {
+    /// Whether a property's written annotation is a reference (type
+    /// reference, `import()` type or `typeof` query) whose own resolution
+    /// failed — its type arguments, if any, all resolved —
+    /// so that the property's `error` type is upstream's `errorType` from
+    /// `getTypeFromTypeReference` rather than a gap carried up from a nested
+    /// node. `docs/parity/notes/decls.md` §17.
+    pub(crate) fn annotation_is_failed_reference(&mut self, annotation: Option<NodeId>) -> bool {
+        // `getTypeFromTypeReference`, `getTypeFromImportTypeNode` and
+        // `getTypeFromTypeQueryNode` each answer `errorType` when the entity
+        // they name does not resolve.
+        let arguments = match annotation.and_then(|id| self.node_map.get(id)) {
+            Some(Node::TypeReferenceNode(reference)) => reference.type_arguments,
+            Some(Node::ImportTypeNode(import)) => import.type_arguments,
+            Some(Node::TypeQueryNode(query)) => query.type_arguments,
+            _ => return false,
+        };
+        arguments.iter().all(|&argument| {
+            let argument = self.get_type_from_type_node(argument);
+            !self.is_error(argument)
+        })
+    }
 }

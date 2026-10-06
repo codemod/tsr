@@ -757,6 +757,24 @@ pub fn type_id_at_location_tracking<'a>(
         return declared_type_of_symbol(checker, binder, binder.merged_symbol(symbol));
     }
 
+    // The same `IsTypeDeclaration` arm for a type-only import clause's own
+    // name (`case KindImportClause: return node.IsTypeOnly()`):
+    // `import type d from "m"` answers `getDeclaredTypeOfSymbol(alias)`,
+    // which is the error type when the target has no declared type — a
+    // module (`importEquals1`'s `types : any`). Unlike the specifier arm
+    // above, the error answer is upstream's own and is returned.
+    // `docs/parity/notes/names-modules.md` §3.
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(parent) = nodes.parent(id)
+        && let Some(Node::ImportClause(clause)) = map.get(parent)
+        && clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
+        && clause.name.and_then(|name| name.node_id) == Some(id)
+        && let Some(symbol) = binder.symbol_of(parent)
+    {
+        let target = checker.resolve_alias(symbol).unwrap_or(symbol);
+        return checker.get_declared_type_of_symbol(target);
+    }
+
     // A declaration name resolves through its parent's symbol.
     if let Some(parent) = nodes.parent(id)
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)

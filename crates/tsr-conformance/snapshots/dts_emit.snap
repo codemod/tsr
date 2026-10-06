@@ -8,8 +8,8 @@ Unsupported    : 2
 Skipped        : 12066 (excluded from the denominator)
 
   2  printer: JSDocAllType
-  632  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  15  skipped: a unit of this case does not parse cleanly
+  633  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  14  skipped: a unit of this case does not parse cleanly
   8325  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case

@@ -1,0 +1,393 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 9d76b87..557ff4a 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -1261,27 +1261,14 @@ impl<'a, 'n> Checker<'a, 'n> {
+         // `get_type_of_variable_or_parameter_or_property` reads it before doing
+         // any work, so seeding it is what makes the symbol answer at all.
+         //
+-        // **A KNOWN DIVERGENCE LIVES ON THIS LINE.** Upstream seeds
+-        // `undefinedWideningType`, not `undefinedType` — two types that PRINT
+-        // ALIKE and widen differently, so `const x = undefined` is `undefined`
+-        // and `let x = undefined` is `any` (`checker.go:955`). This port has
+-        // exactly one `undefined` (`crate::intrinsics`) and no widening
+-        // variant, so `let` answers `undefined` where upstream answers `any`.
+-        //
+-        // Accepted deliberately rather than hidden. Gap and wrong both score as
+-        // not-right, so the 22 affected sites cost no gradient; what they cost
+-        // is diagnostic separability on those 22, against ~1,675 lines the
+-        // symbol makes right. The sites are enumerated in
+-        // `docs/architecture/checker-notes-enums.md` so the follow-up can
+-        // verify it fixed exactly those, and
+-        // `tests/globals.rs::a_let_initialised_with_undefined_records_a_known_divergence`
+-        // reddens the moment a widening intrinsic lands.
+-        //
+-        // **This is a missing intrinsic, not a merged identity.** The widening
+-        // type does not exist here at all, which is visible to anyone who greps
+-        // `intrinsics.rs` and finds one `undefined` where upstream has two —
+-        // unlike `038def4`, where both identities existed and one was used for
+-        // the other.
++        // Upstream seeds `undefinedWideningType` — the same type as
++        // `undefinedType` in strict mode, a distinct widening twin otherwise
++        // (`createWideningType`, `checker.go:25027`), so `let x = undefined`
++        // is `any` under `strictNullChecks: false`. The checker starts strict,
++        // where the two coincide; `set_strict_null_checks` re-seeds the slot
++        // when a case turns the flag off (`docs/parity/notes/contextual.md`
++        // §7). This line used to record that divergence: the port had no
++        // widening twin at all.
+         //
+         // See `Binder::declare_synthesised_globals` for the other half.
+         let mut symbol_types = FxHashMap::default();
+@@ -1675,6 +1662,11 @@ impl<'a, 'n> Checker<'a, 'n> {
+     pub fn set_strict_null_checks(&mut self, on: bool) {
+         self.strict_null_checks = on;
+         self.intrinsics.select_strict_null_checks(on);
++        // `checker.go:1345`: the synthesised `undefined` symbol's type is
++        // `undefinedWideningType`, which the flag just selected.
++        if let Some(undefined) = self.binder.undefined_symbol() {
++            self.symbol_types.insert(undefined, self.intrinsics.undefined_widening);
++        }
+     }
+ 
+     /// Set [`Checker::no_unchecked_side_effect_imports`] from a case's compiler
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index 4e4cb4b..9939e38 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -3272,9 +3272,9 @@ mod tests {
+                     "ordinary",
+                 ),
+                 ("((observed = 37) => observed)(undefined as undefined);", "observed", "ordinary"),
+-                // Global reseeding remains held: the actual supplied argument
+-                // is ordinary undefined, unlike native's loose global.
+-                ("((observed?) => observed)(undefined);", "observed", "ordinary"),
++                // The loose global is the widening twin (checker.go:1345),
++                // so the supplied argument is too.
++                ("((observed?) => observed)(undefined);", "observed", "active"),
+                 ("((observed = 37) => observed)();", "observed", "absent"),
+                 ("((observed = 37) => observed)(...([] as []));", "observed", "absent"),
+                 ("(function(undefined = 37) { return undefined; })();", "undefined", "absent"),
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index f2fee78..f9a52c6 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -528,6 +528,12 @@ impl<'a> Checker<'a, '_> {
+                 // same alias. Anything that is not an expression we can type is
+                 // an unported form.
+                 let Some(node) = literal.literal else { return self.intrinsics.error };
++                // `checker.go` getTypeFromLiteralTypeNode: a `null` literal type
++                // is `nullType`, not the expression's `nullWideningType`.
++                if matches!(node, Node::KeywordExpression(keyword) if keyword.kind == SyntaxKind::NullKeyword)
++                {
++                    return self.intrinsics.null;
++                }
+                 let Ok(expression) = Expression::try_from(node) else {
+                     return self.intrinsics.error;
+                 };
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 2633487..7bae0b8 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -654,7 +654,8 @@ impl Checker<'_, '_> {
+                 }
+                 SyntaxKind::TrueKeyword => self.intrinsics.true_type,
+                 SyntaxKind::FalseKeyword => self.intrinsics.false_type,
+-                SyntaxKind::NullKeyword => self.intrinsics.null,
++                // `checker.go:7742`: a `null` expression is `nullWideningType`.
++                SyntaxKind::NullKeyword => self.intrinsics.null_widening,
+                 // `undefined` is an identifier rather than a keyword in the
+                 // grammar, so it does not arrive here.
+                 _ => self.intrinsics.error,
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index d629ccc..8fb7222 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -7111,9 +7111,13 @@ const value = First.A;"#;
+         // six right lines in `conformance/strictNullChecksNoWidening` and
+         // `compiler/undefinedInferentialTyping` into gaps; that is how the
+         // bar's second leg found the defect.
++        //
++        // Since `nullWideningType` exists (docs/parity/notes/contextual.md §7)
++        // the non-strict candidate is the widening twin and widens to `any`,
++        // as upstream's does.
+         let source = "declare function f<T>(x: T): T;\nvar a = f(null);";
+         assert_eq!(generic_call_with_strictness(source, "f", true), "null");
+-        assert_eq!(generic_call_with_strictness(source, "f", false), "error");
++        assert_eq!(generic_call_with_strictness(source, "f", false), "any");
+     }
+ }
+ 
+diff --git a/crates/tsr-checker/src/jsdoc_full_signature.rs b/crates/tsr-checker/src/jsdoc_full_signature.rs
+index 1cb59f8..b20482d 100644
+--- a/crates/tsr-checker/src/jsdoc_full_signature.rs
++++ b/crates/tsr-checker/src/jsdoc_full_signature.rs
+@@ -140,4 +140,14 @@ impl<'a> Checker<'a, '_> {
+             self.signature_type_at_position(&signature, position).unwrap_or(self.intrinsics.any)
+         })
+     }
++
++    /// `getReturnTypeOfFullSignature` (`checker/checker.go:20089`), the last
++    /// arm of `getReturnTypeFromAnnotation`: a JS function whose `@type` tag
++    /// is its full signature returns that signature's return type.
++    pub(crate) fn jsdoc_full_signature_return_type(&mut self, function: NodeId) -> Option<TypeId> {
++        let annotation = self.jsdoc_full_signature_node(function)?;
++        let ty = self.get_type_from_type_node(annotation);
++        let signature = self.single_call_signature(ty)?;
++        self.get_return_type_of_signature(&signature)
++    }
+ }
+diff --git a/crates/tsr-checker/src/objects.rs b/crates/tsr-checker/src/objects.rs
+index 21ace7f..fd24a1b 100644
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -1751,39 +1751,6 @@ impl Checker<'_, '_> {
+             } else {
+                 member_type
+             };
+-            // §853: the declaration-level `getWidenedType` would turn a
+-            // nullable member into `any`, and this port has no call site for
+-            // it — **but only when `strictNullChecks` is OFF does upstream
+-            // widen at all**. `createWideningType`
+-            // (`checker.go:25027`):
+-            //
+-            // ```go
+-            // func (c *Checker) createWideningType(nonWideningType *Type) *Type {
+-            //     if c.strictNullChecks {
+-            //         return nonWideningType
+-            //     }
+-            //     t := c.newIntrinsicType(...)
+-            //     t.objectFlags |= ObjectFlagsContainsWideningType
+-            //     return t
+-            // }
+-            // ```
+-            //
+-            // `undefinedWideningType` and `nullWideningType` are what a
+-            // `null`/`undefined` expression answers, and under strict they ARE
+-            // the plain types with no `ContainsWideningType`.
+-            // `getWidenedTypeWithContext` is gated on `RequiresWidening`, so
+-            // under strict there is nothing to widen and `{ p: null }` is
+-            // `{ p: null; }`.
+-            //
+-            // Non-strict keeps the refusal for its original reason: there the
+-            // port really would need `getWidenedType`, and answering
+-            // `{ p: null; }` where upstream answers `{ p: any; }` would be a
+-            // confident wrong line in place of an honest gap.
+-            if !self.strict_null_checks
+-                && self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE)
+-            {
+-                return error;
+-            }
+             // §892: record the member's type on its SYMBOL, which is what
+             // upstream's `checkObjectLiteral` does through
+             // `links.resolvedType` — so `getTypeOfSymbol` for an
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index f7d339c..a2a5bdf 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -897,7 +897,9 @@ impl<'a> Checker<'a, '_> {
+             .copied();
+         if let Some(base) = base {
+             let base_type = self.check_expression(base.expression?);
+-            let base_signatures = if base_type == self.intrinsics.null {
++            let base_signatures = if base_type == self.intrinsics.null
++                || base_type == self.intrinsics.null_widening
++            {
+                 Vec::new()
+             } else {
+                 self.signatures_of_type_kind(base_type, SignatureKind::Construct)?
+@@ -1572,6 +1574,13 @@ impl<'a> Checker<'a, '_> {
+             asterisk,
+             may_return_never,
+         )?;
++        let r#type = if return_annotation.is_none()
++            && let Some(full) = self.jsdoc_full_signature_return_type(declaration)
++        {
++            full
++        } else {
++            r#type
++        };
+ 
+         let written_return =
+             return_annotation.and_then(|annotation| self.written_annotation_text(annotation));
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index e8eb92c..d306ff0 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -5101,6 +5101,7 @@ impl<'a> Checker<'a, '_> {
+             if !self.strict_null_checks
+                 && self.type_annotation_of(declaration).is_none()
+                 && (id == self.intrinsics.null
++                    || id == self.intrinsics.null_widening
+                     || id == self.intrinsics.undefined
+                     || id == self.intrinsics.undefined_widening)
+             {
+diff --git a/crates/tsr-checker/src/widening.rs b/crates/tsr-checker/src/widening.rs
+index 8942b2e..16a858c 100644
+--- a/crates/tsr-checker/src/widening.rs
++++ b/crates/tsr-checker/src/widening.rs
+@@ -111,40 +111,47 @@ impl Checker<'_, '_> {
+         } else {
+             self.widened_object_types.insert(id, id);
+         }
+-        let result = match self.store.get(id).data.clone() {
+-            TypeData::Union { types, .. } => {
+-                let index = context.unwrap_or_else(|| {
+-                    let index = contexts.len();
+-                    contexts
+-                        .push(WideningContext { siblings: types.clone(), ..Default::default() });
+-                    index
+-                });
+-                let widened: Vec<_> = types
+-                    .iter()
+-                    .map(|&ty| self.widen_type_with_context(ty, Some(index), contexts))
+-                    .collect();
+-                if widened == types {
+-                    id
+-                } else if widened.iter().any(|&ty| {
+-                    self.is_empty_anonymous_object_type(ty)
+-                        && self.object_literal_members.get(&ty).is_none_or(Vec::is_empty)
+-                }) {
+-                    self.union_with_subtype_reduction(&widened).unwrap_or(self.intrinsics.error)
+-                } else {
+-                    self.get_union_type(&widened)
++        // `checker.go:18368`: a `createWideningType` nullable widens to `any`.
++        let result = if self.intrinsics.is_widening_nullable(id) {
++            self.intrinsics.any
++        } else {
++            match self.store.get(id).data.clone() {
++                TypeData::Union { types, .. } => {
++                    let index = context.unwrap_or_else(|| {
++                        let index = contexts.len();
++                        contexts.push(WideningContext {
++                            siblings: types.clone(),
++                            ..Default::default()
++                        });
++                        index
++                    });
++                    let widened: Vec<_> = types
++                        .iter()
++                        .map(|&ty| self.widen_type_with_context(ty, Some(index), contexts))
++                        .collect();
++                    if widened == types {
++                        id
++                    } else if widened.iter().any(|&ty| {
++                        self.is_empty_anonymous_object_type(ty)
++                            && self.object_literal_members.get(&ty).is_none_or(Vec::is_empty)
++                    }) {
++                        self.union_with_subtype_reduction(&widened).unwrap_or(self.intrinsics.error)
++                    } else {
++                        self.get_union_type(&widened)
++                    }
+                 }
++                TypeData::Intersection { types, .. } => {
++                    let widened: Vec<_> = types
++                        .iter()
++                        .map(|&ty| self.widen_type_with_context(ty, None, contexts))
++                        .collect();
++                    if widened == types { id } else { self.get_intersection_type(&widened, None) }
++                }
++                _ if self.is_object_literal_type(id) => {
++                    self.widen_object_in_context(id, context, contexts)
++                }
++                _ => self.widen_array_members(id, contexts),
+             }
+-            TypeData::Intersection { types, .. } => {
+-                let widened: Vec<_> = types
+-                    .iter()
+-                    .map(|&ty| self.widen_type_with_context(ty, None, contexts))
+-                    .collect();
+-                if widened == types { id } else { self.get_intersection_type(&widened, None) }
+-            }
+-            _ if self.is_object_literal_type(id) => {
+-                self.widen_object_in_context(id, context, contexts)
+-            }
+-            _ => self.widen_array_members(id, contexts),
+         };
+         if let Some(index) = context {
+             contexts[index].widened.insert(id, result);
+diff --git a/crates/tsr-checker/tests/globals.rs b/crates/tsr-checker/tests/globals.rs
+index 2a2c4e6..84620ef 100644
+--- a/crates/tsr-checker/tests/globals.rs
++++ b/crates/tsr-checker/tests/globals.rs
+@@ -75,23 +75,12 @@ fn a_program_declaring_its_own_undefined_keeps_its_declaration() {
+ }
+ 
+ #[test]
+-fn a_let_initialised_with_undefined_records_a_known_divergence() {
+-    // **Upstream says `any` here and this port says `undefined`. This test
+-    // records a wrong answer, deliberately, and must not be read as pinning
+-    // one.**
+-    //
+-    // Upstream's `undefinedSymbol` carries `undefinedWideningType`, whose whole
+-    // purpose is that `getWidenedType` turns it into `any`; `const` keeps
+-    // `undefined` and `let`/`var` widen. `crate::intrinsics` has exactly one
+-    // `undefined` (`intrinsics.rs:108`) and no widening variant, so the
+-    // distinction upstream draws between two types that PRINT ALIKE cannot be
+-    // drawn here — the same shape as the enum divergence replaced in `038def4`.
+-    //
+-    // Measured exposure: 22 `let`/`var` sites in the corpus against ~1,675
+-    // lines the symbol makes right. Accepted as a net-positive divergence
+-    // rather than hidden, and recorded here so that **adding a widening
+-    // `undefined` reddens this test and forces it to be deleted** rather than
+-    // leaving the divergence to be rediscovered.
++fn a_let_initialised_with_undefined_widens_only_without_strict_null_checks() {
++    // Upstream's `undefinedSymbol` carries `undefinedWideningType`
++    // (`checker.go:1345`), which in strict mode *is* `undefinedType` and
++    // otherwise is a twin `getWidenedType` turns into `any`. This test used
++    // to record the opposite answer, as a known divergence, until the
++    // widening twin existed (docs/parity/notes/contextual.md §7).
+     assert_eq!(type_of_declaration("let x = undefined;", "x"), "undefined");
+     assert_eq!(type_of_declaration("var x = undefined;", "x"), "undefined");
+ }
+@@ -143,7 +132,7 @@ fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations()
+ }
+ 
+ #[test]
+-fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global() {
++fn undefined_slot_reselection_is_allocation_free_and_reseeds_the_global() {
+     for apply_options in [false, true] {
+         let arena = Arena::new();
+         let parsed = tsr_parser::parse(&arena, "");
+@@ -181,10 +170,13 @@ fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global(
+             );
+             assert_eq!(checker.type_of(i.null_widening).flags, tsr_checker::TypeFlags::NULL);
+         }
+-        // Select loose only after the identity/allocation checks, then query:
+-        // global reseeding is a separate prerequisite, deliberately not fixed.
++        // Selecting loose re-seeds the global with the widening twin
++        // (`checker.go:1345`); strict puts the ordinary type back.
+         checker.set_strict_null_checks(false);
++        let widening = checker.intrinsics().undefined_widening;
++        assert_ne!(widening, ordinary);
++        assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), widening);
++        checker.set_strict_null_checks(true);
+         assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), ordinary);
+-        assert_ne!(checker.intrinsics().undefined_widening, ordinary);
+     }
+ }
+diff --git a/crates/tsr-conformance/tests/undefined_widening_modes.rs b/crates/tsr-conformance/tests/undefined_widening_modes.rs
+index 5757411..c38523d 100644
+--- a/crates/tsr-conformance/tests/undefined_widening_modes.rs
++++ b/crates/tsr-conformance/tests/undefined_widening_modes.rs
+@@ -25,16 +25,17 @@ fn real_program_options_select_the_slot_without_changing_global_or_shadowed_bind
+         let i = *checker.intrinsics();
+         assert_eq!(i.undefined_widening == i.undefined, strict, "{directives}");
+         assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
+-        assert_eq!(checker.type_count(), 25);
++        // 26: `nullWideningType`'s loose twin occupies slot 8.
++        assert_eq!(checker.type_count(), 26);
+         assert_eq!(checker.type_of(i.undefined_widening).flags, tsr_checker::TypeFlags::UNDEFINED);
+         for other in [i.any, i.error, i.missing, i.null, i.never] {
+             assert_ne!(i.undefined_widening, other);
+         }
+ 
+         let global = program.binder().undefined_symbol().unwrap();
+-        // The loose synthetic global still has the ordinary identity. Native
+-        // seeds the active widening identity; reseeding remains a separate unit.
+-        assert_eq!(checker.get_type_of_symbol(global), i.undefined);
++        // The synthetic global carries the active widening identity
++        // (`checker.go:1345`), which in strict mode is the ordinary type.
++        assert_eq!(checker.get_type_of_symbol(global), i.undefined_widening);
+         let file = program.source_file("mode.ts").unwrap();
+         let root = tsr_ast::Node::SourceFile(file.source_file()).node_id().unwrap();
+         let ordinary = program.binder().lookup_local(root, "ordinary").unwrap();

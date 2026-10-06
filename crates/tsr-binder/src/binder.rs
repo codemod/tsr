@@ -270,6 +270,11 @@ pub(crate) struct Binder<'a, 'n> {
     merged: rustc_hash::FxHashMap<SymbolId, SymbolId>,
     /// Merges the excludes masks forbade; see [`BindResult::merge_conflicts`].
     merge_conflicts: Vec<(SymbolId, SymbolId)>,
+    /// The declaration [`Self::declare`] is binding, when it is a default
+    /// export in `declareSymbolEx`'s sense — `isDefaultExport`, or an
+    /// `export default` assignment — which is what selects TS2528 over TS2300
+    /// on a conflict (`binder.go:224-244`). `docs/parity/notes/decls.md` §14.
+    default_export_declaration: Option<NodeId>,
     globals: SymbolTable<'a>,
     /// The synthesised `undefined` symbol, if this bind created one.
     undefined_symbol: Option<SymbolId>,
@@ -314,6 +319,17 @@ pub(crate) struct Binder<'a, 'n> {
     ///
     /// [`merge_globals`]: Binder::merge_globals
     global_augmentations: Vec<SymbolId>,
+    /// Every file's non-global external module augmentations, in file then
+    /// source order: upstream's `SourceFile.ModuleAugmentations` minus the
+    /// `declare global` entries, which [`Binder::global_augmentations`]
+    /// handles per file. Carried across files, because the merge
+    /// ([`crate::BindResult::merge_module_augmentations`]) needs every file
+    /// bound and module resolution, exactly as `initializeChecker`'s last
+    /// loop (`checker.go:1384-1391`) runs after everything else.
+    module_augmentations: Vec<crate::ModuleAugmentation<'a>>,
+    /// Carried through for [`crate::BindResult::pattern_ambient_module`];
+    /// filled only by the augmentation merge.
+    pattern_ambient_module_augmentations: rustc_hash::FxHashMap<&'a str, SymbolId>,
     in_assignment_pattern: bool,
     seen_this_keyword: bool,
 
@@ -370,6 +386,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals,
             merged,
             merge_conflicts,
+            module_augmentations,
+            pattern_ambient_module_augmentations,
             undefined_symbol,
             computed_names,
             diagnostics,
@@ -434,6 +452,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals,
             merged,
             merge_conflicts,
+            default_export_declaration: None,
             flow,
             node_flow,
             current_flow: unreachable,
@@ -451,6 +470,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             export_context: false,
             in_ambient_module: false,
             global_augmentations: Vec::new(),
+            module_augmentations,
+            pattern_ambient_module_augmentations,
             in_assignment_pattern: false,
             seen_this_keyword: false,
             facts,
@@ -557,7 +578,11 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         self.merge_globals(root_id);
         self.declare_synthesised_globals();
+        self.into_result()
+    }
 
+    /// The fields that survive into the next file, or into the checker.
+    fn into_result(self) -> BindResult<'a> {
         BindResult {
             max_depth: self.max_depth,
             computed_names: self.computed_names,
@@ -565,6 +590,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             globals: self.globals,
             merged: self.merged,
             merge_conflicts: self.merge_conflicts,
+            module_augmentations: self.module_augmentations,
+            pattern_ambient_module_augmentations: self.pattern_ambient_module_augmentations,
             undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
@@ -800,8 +827,11 @@ impl<'a, 'n> Binder<'a, 'n> {
     ///   (`checker.go:14147`). Upstream reports a diagnostic and does not merge;
     ///   this does not merge, and has no diagnostics to report
     ///   (`bd tsr-5e7.6`).
-    /// - **Module augmentation** (`mergeModuleAugmentation`), which needs module
-    ///   resolution.
+    /// - **Module augmentation** (`mergeModuleAugmentation`) is not merged
+    ///   *here*: it needs module resolution, so it runs once the program is
+    ///   bound, through [`crate::BindResult::merge_module_augmentations`],
+    ///   which calls back into this function
+    ///   (`docs/parity/notes/names-modules.md` §4).
     ///
     /// # Members and exports recurse
     ///
@@ -905,6 +935,27 @@ impl<'a, 'n> Binder<'a, 'n> {
                 }
             }
         }
+    }
+
+    /// Run `merges` — `(target, source)` pairs, in order — through
+    /// [`Binder::merge_symbol`], and hand the result back.
+    ///
+    /// The executing half of [`crate::BindResult::merge_module_augmentations`]:
+    /// that function decides each pair with the program's module resolution,
+    /// and this applies `mergeSymbol`'s in-place union to it.
+    pub(crate) fn merge_pairs(mut self, merges: &[(SymbolId, SymbolId)]) -> BindResult<'a> {
+        for &(target, source) in merges {
+            self.merge_symbol(target, source, 0);
+            // A refused top-level merge records no redirect upstream:
+            // `recordMergedSymbol` runs only on the union path, and the
+            // refusal reports TS2649 or the duplicate (`checker.go`
+            // `mergeSymbol`). [`Binder::merge_symbol`] records first for the
+            // globals' sake, so the augmentation's redirect is taken back.
+            if self.merge_conflicts.last() == Some(&(target, source)) {
+                self.merged.remove(&source);
+            }
+        }
+        self.into_result()
     }
 
     /// Bind `node` and everything under it.
@@ -1081,6 +1132,25 @@ impl<'a, 'n> Binder<'a, 'n> {
             {
                 self.global_augmentations.push(symbol);
             }
+            if let Some(symbol) = declared
+                && let Some(name) = self.external_module_augmentation_name(module)
+                && !self.module_augmentations.iter().any(|recorded| recorded.symbol == symbol)
+            {
+                // `moduleAugmentation.Symbol.Declarations[0] != moduleNode`
+                // (`checker.go:1399`): a second `declare module "x"` in the same
+                // file shares the first one's symbol, which already carries
+                // both, so only the first is recorded.
+                self.module_augmentations.push(crate::ModuleAugmentation {
+                    symbol,
+                    file: self.file_node,
+                    name: name.node_id.expect("a module name is registered"),
+                    text: name.text,
+                    nested: matches!(
+                        self.ancestors.iter().rev().nth(1),
+                        Some((_, Node::ModuleBlock(_)))
+                    ),
+                });
+            }
             // An ambient module exports everything it declares — unless it uses
             // `export` explicitly somewhere, in which case only what it names.
             // **A declaration file is ambient throughout.** Upstream's parser
@@ -1173,6 +1243,36 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.is_module_augmentation_external(
             self.ancestors.iter().rev().skip(1).map(|(_, node)| *node),
         )
+    }
+
+    /// The string-literal name of a **non-global** module augmentation that
+    /// upstream's parser collects into `SourceFile.ModuleAugmentations`, or
+    /// `None` for every other module declaration.
+    ///
+    /// `collectModuleReferences` (`internal/parser/references.go:47-69`)
+    /// collects a string-named module declaration in an ambient context when
+    /// the file is an external module, or when it is nested in a top-level
+    /// ambient module under a non-relative name. Those two placements are
+    /// [`Binder::is_module_augmentation_external`]; the ambient-context gate
+    /// is the same one [`Binder::is_merged_global_augmentation`] keeps.
+    ///
+    /// The relative-name exclusion of the nested form is left to the merge:
+    /// the binder has no `tspath`, so the record carries
+    /// [`crate::ModuleAugmentation::nested`] and the resolver callback
+    /// (`tsr_compiler`) declines a nested relative name with the real
+    /// `IsExternalModuleNameRelative`.
+    fn external_module_augmentation_name(
+        &self,
+        module: &'a tsr_ast::ModuleDeclaration<'a>,
+    ) -> Option<&'a tsr_ast::StringLiteral<'a>> {
+        let Some(tsr_ast::ModuleName::StringLiteral(name)) = module.name else { return None };
+        if !(self.in_ambient_module || has_declare(module.modifiers) || self.in_declaration_file) {
+            return None;
+        }
+        self.is_module_augmentation_external(
+            self.ancestors.iter().rev().skip(1).map(|(_, node)| *node),
+        )
+        .then_some(name)
     }
 
     /// `ast.IsModuleAugmentationExternal` (`utilities.go:1694`), read from a
@@ -3169,6 +3269,13 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(expression);
                             }
                         }
+                        // The reparsed `SatisfiesExpression`'s type node
+                        // (`reparseHosted`, `parser/reparser.go:396`).
+                        JSDocTag::JSDocSatisfiesTag(satisfies) => {
+                            if let Some(expression) = satisfies.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                        }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
                             if let Some(symbol) = self.node_symbols[host.index()] {
@@ -3700,6 +3807,9 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        self.default_export_declaration = (Self::is_default_export(node)
+            || matches!(node, Node::ExportAssignment(assignment) if !assignment.is_export_equals))
+        .then_some(id);
         // **Here, not at the one `declare_into` call that used to record it.**
         // `GetNameOfDeclaration` (`binder.go:245`) is what every redeclaration
         // diagnostic is positioned at, and `declare` reaches `declare_into`
@@ -3874,12 +3984,20 @@ impl<'a, 'n> Binder<'a, 'n> {
                 } else {
                     SymbolFlags::empty()
                 };
-                Some(self.declare_into(
+                // `declareSymbol(GetLocals(container), nil, node, exportKind,
+                // symbolExcludes)` (`binder.go:406`): the local carries only
+                // `ExportValue`, but it is tested with the *declaration's*
+                // excludes, so `class Box {}` then `export type Box;` collides
+                // in the locals table. Deriving excludes from `exportKind`
+                // made the local half collide with nothing.
+                // `docs/parity/notes/decls.md` §15.
+                Some(self.declare_into_with_excludes(
                     Destination::Locals,
                     local_owner,
                     self.owner,
                     name,
                     export_value,
+                    flags.excludes(),
                     id,
                 ))
             } else {
@@ -4160,20 +4278,23 @@ impl<'a, 'n> Binder<'a, 'n> {
                 // and separately an `ExportAssignment` that is not `export =` (so
                 // that `export default { }` after `export default class` is caught,
                 // since that form carries no `default` *modifier* to test). Both are
-                // detected here as `name == INTERNAL_DEFAULT`, which is equivalent
-                // rather than a shortcut: `getDeclarationName` maps a non-`export =`
-                // export assignment to `InternalSymbolNameDefault` (`binder.go:302`)
-                // and `declareSymbolEx` names the export half of any default export
-                // `default` (`binder.go:158`). Nothing else in the language can be
-                // filed under that name — it is not a spellable binding — so the two
-                // upstream branches and this one test cover the same set.
+                // properties of the *declaration*, recorded by `declare` in
+                // `default_export_declaration`. This used to test
+                // `name == INTERNAL_DEFAULT` on the claim that nothing else is
+                // filed under that name; parser recovery spells it —
+                // `import { default } from "m"` binds a local named `default`,
+                // and upstream reports TS2300 there, not TS2528
+                // (`es6ImportNamedImportIdentifiersParsing`,
+                // `docs/parity/notes/decls.md` §14).
                 //
                 // The related-info chain upstream attaches (`binder.go:265-275`:
                 // `Another_export_default_is_here`, `and_here`,
                 // `The_first_export_default_is_here`) is **not** ported: `Diagnostic`
                 // carries no related information yet, and the `diagnostics` suite
                 // compares codes and positions only. Tracked in bd tsr-y4u.23.
-                if name == INTERNAL_DEFAULT && !self.symbols.get(existing).declarations.is_empty() {
+                if self.default_export_declaration == Some(declaration)
+                    && !self.symbols.get(existing).declarations.is_empty()
+                {
                     message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
                     message_needs_name = false;
                 }
