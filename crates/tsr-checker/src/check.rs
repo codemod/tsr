@@ -601,6 +601,10 @@ impl Checker<'_, '_> {
                 self.check_new_target_meta_property(node);
                 ambient
             }
+            Node::SatisfiesExpression(_) => {
+                self.check_satisfies_expression(node, ambient);
+                ambient
+            }
             Node::BinaryExpression(_) => {
                 self.check_instanceof_left_operand(node);
                 self.check_instanceof_right_operand(node);
