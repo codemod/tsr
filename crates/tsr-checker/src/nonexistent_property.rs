@@ -465,7 +465,19 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
         let span = self.error_span(name_id);
-        let printed = self.type_to_string(receiver_type);
+        // typeToString (TypeFormatFlagsNoTypeReduction unset) prints
+        // getReducedType of the containing type: a never-reduced
+        // intersection, whose certified apparent type is `never`, is 'never'.
+        // elaborateNeverIntersection's chain (checker.go:21868) is message
+        // text this diagnostic model does not carry.
+        let shown = if apparent_receiver == self.intrinsics.never
+            && self.store.get(receiver_type).flags.contains(crate::flags::TypeFlags::INTERSECTION)
+        {
+            apparent_receiver
+        } else {
+            receiver_type
+        };
+        let printed = self.type_to_string(shown);
         self.report(
             file,
             Diagnostic::with_args(
@@ -540,6 +552,15 @@ impl Checker<'_, '_> {
             let silent = self.silent_never_type == Some(receiver)
                 || receiver == self.intrinsics.unreachable_never;
             return (!silent).then_some(receiver);
+        }
+        // getPropertyOfTypeEx (checker.go:18899) starts from
+        // getReducedApparentType: an intersection getReducedType reduces to
+        // `never` (a never-typed discriminant or a conflicting private
+        // property, checker.go:21830) has no properties and no index infos.
+        if matches!(self.store.get(receiver).data, crate::types::TypeData::Intersection { .. })
+            && self.intersection_has_never_discriminant(receiver)
+        {
+            return Some(self.intrinsics.never);
         }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
