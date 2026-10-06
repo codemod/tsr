@@ -1061,7 +1061,7 @@ impl<'a> Checker<'a, '_> {
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
             // `getTargetOfExportAssignment` (`checker.go:14889`) — `export = X`
-            // where `X` is an identifier, resolved where it is written. Every
+            // where `X` is an identifier or a class expression. Every
             // other expression shape declines (upstream's
             // `getTargetOfAliasLikeExpression` handles more; each unported
             // shape is a miss, never a wrong target).
@@ -1405,13 +1405,17 @@ impl<'a> Checker<'a, '_> {
                             }))
                 }
                 // `KindExportAssignment` needs `ExpressionIsAlias`
-                // (`ast/utilities.go:2631`); the shape this port resolves is an
-                // identifier, and testing it here rather than answering by kind
-                // keeps the predicate honest — see the doc above.
+                // (`ast/utilities.go:1872`); the shapes this port resolves are
+                // an identifier and a class expression, and testing them here
+                // rather than answering by kind keeps the predicate honest —
+                // see the doc above.
                 SyntaxKind::ExportAssignment => matches!(
                     self.node_map.get(declaration),
                     Some(Node::ExportAssignment(node))
-                        if matches!(node.expression, Some(tsr_ast::Expression::Identifier(_)))
+                        if matches!(
+                            node.expression,
+                            Some(tsr_ast::Expression::Identifier(_) | tsr_ast::Expression::ClassExpression(_))
+                        )
                 ),
                 // `KindImportClause` needs `Name() != nil` — a bare
                 // `import "m"` declares nothing.
@@ -1803,14 +1807,25 @@ impl<'a> Checker<'a, '_> {
         Some(default)
     }
 
-    /// `getTargetOfExportAssignment` (`checker.go:14889`) for the identifier
-    /// shape: resolve `X` of `export = X` where it is written, with the full
-    /// alias meaning (`SymbolFlagsValue | Type | Namespace`,
-    /// `checker.go:15751`).
+    /// `getTargetOfExportAssignment` (`checker.go:14889`) through
+    /// `getTargetOfAliasLikeExpression` (`checker.go:14996`) for the class
+    /// expression and identifier shapes: `export = class {}` answers
+    /// `checkExpressionCached(expression).symbol`, and `X` of `export = X` is
+    /// resolved where it is written, with the full alias meaning
+    /// (`SymbolFlagsValue | Type | Namespace`, `checker.go:15751`).
     fn export_assignment_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
         let Node::ExportAssignment(node) = self.node_map.get(declaration)? else {
             return None;
         };
+        if let Some(expression @ tsr_ast::Expression::ClassExpression(class)) = node.expression {
+            // `checkClassExpression` answers `getTypeOfSymbol` of the class's
+            // own symbol, so the checked type's symbol is that symbol.
+            self.check_expression(expression);
+            return self
+                .binder
+                .symbol_of(class.node_id?)
+                .map(|symbol| self.binder.merged_symbol(symbol));
+        }
         let Some(tsr_ast::Expression::Identifier(name)) = node.expression else {
             return None;
         };
