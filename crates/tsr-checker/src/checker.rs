@@ -682,6 +682,11 @@ pub struct Checker<'a, 'n> {
     /// cached and what would have to land first.
     pub(crate) exhaustive_switches: rustc_hash::FxHashSet<NodeId>,
     pub(crate) no_implicit_any: bool,
+    /// `slices.Contains(c.compilerOptions.Lib, "lib.dom.d.ts")`, read by
+    /// `containerSeemsToBeEmptyDomElement` (`checker.go:11654`): the explicit
+    /// `lib` list names the DOM lib (`"dom"` maps to `lib.dom.d.ts` in
+    /// `tsoptions.LibMap`; both spellings, case-insensitively).
+    pub(crate) lib_includes_dom: bool,
     /// Object-literal types created in a JS file — upstream's
     /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
@@ -1436,6 +1441,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
+            lib_includes_dom: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
@@ -1657,6 +1663,10 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+        self.lib_includes_dom = options
+            .lib
+            .iter()
+            .any(|lib| lib.eq_ignore_ascii_case("dom") || lib.eq_ignore_ascii_case("lib.dom.d.ts"));
 
         // `getJsxNamespace`'s three-way default (`jsx.go:1372-1382`): `React`,
         // unless `jsxFactory` names an entity — in which case its **first**

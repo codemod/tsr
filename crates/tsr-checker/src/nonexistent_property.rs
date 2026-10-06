@@ -478,14 +478,108 @@ impl Checker<'_, '_> {
             receiver_type
         };
         let printed = self.type_to_string(shown);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
-                span,
-                [name_text.to_string(), printed],
-            ),
-        );
+        // reportNonexistentProperty's last arm (checker.go:11580); the
+        // element-access fallthrough to here is getPropertyTypeForIndexType's
+        // plain TS2339, not this report.
+        let dom = if matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_))) {
+            let Some(dom) = self.container_seems_to_be_empty_dom_element(receiver_type) else {
+                return;
+            };
+            dom
+        } else {
+            false
+        };
+        let message = if dom {
+            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_INCLUDE_DOM
+        } else {
+            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1
+        };
+        self.report(file, Diagnostic::with_args(message, span, [name_text.to_string(), printed]));
+    }
+
+    /// `containerSeemsToBeEmptyDomElement` (`checker.go:11654`): the explicit
+    /// `lib` list does not name `lib.dom.d.ts`, every contained type
+    /// (`everyContainedType`: each union or intersection constituent, else
+    /// the type) has a common DOM type name (`hasCommonDomTypeName`), and the
+    /// type `isEmptyObjectType`. `None` when the emptiness of a DOM-named
+    /// container cannot be certified.
+    fn container_seems_to_be_empty_dom_element(&mut self, containing: TypeId) -> Option<bool> {
+        if self.lib_includes_dom {
+            return Some(false);
+        }
+        let contained = match &self.store.get(containing).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => types.clone(),
+            _ => vec![containing],
+        };
+        if !contained.iter().all(|&t| self.has_common_dom_type_name(t)) {
+            return Some(false);
+        }
+        self.is_empty_object_type(containing)
+    }
+
+    /// `hasCommonDomTypeName` (`checker.go:11658`), by the type's symbol.
+    fn has_common_dom_type_name(&self, t: TypeId) -> bool {
+        let symbol = match &self.store.get(t).data {
+            crate::types::TypeData::Named { members: Some(owner), .. } => *owner,
+            crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => return false,
+        };
+        let name = self.binder.symbols().get(symbol).name;
+        name == "EventTarget"
+            || name == "Node"
+            || name == "Element"
+            || name.starts_with("HTML") && name.ends_with("Element")
+    }
+
+    /// `isEmptyObjectType` (`checker.go:26485`) for the containers
+    /// [`Checker::container_seems_to_be_empty_dom_element`] admits: an object
+    /// type is empty when its resolved members have no properties, index
+    /// infos or signatures (`isEmptyResolvedType`). A DOM-named object is an
+    /// interface, class or `typeof` object, never a generic mapped type.
+    /// `None` when a table cannot be read.
+    fn is_empty_object_type(&mut self, t: TypeId) -> Option<bool> {
+        use crate::flags::TypeFlags;
+        let flags = self.store.get(t).flags;
+        if flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return Some(true);
+        }
+        match &self.store.get(t).data {
+            crate::types::TypeData::Union { types, .. } => {
+                let types = types.clone();
+                let mut any = false;
+                for part in types {
+                    any |= self.is_empty_object_type(part)?;
+                }
+                return Some(any);
+            }
+            crate::types::TypeData::Intersection { types, .. } => {
+                let types = types.clone();
+                let mut all = true;
+                for part in types {
+                    all &= self.is_empty_object_type(part)?;
+                }
+                return Some(all);
+            }
+            crate::types::TypeData::Named { .. } | crate::types::TypeData::Anonymous { .. } => {}
+            _ => return Some(false),
+        }
+        if !flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        if !self.get_property_names_of_type(t)?.is_empty()
+            || !self.get_index_infos_of_type(t)?.is_empty()
+        {
+            return Some(false);
+        }
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            if !self.signatures_of_type_kind(t, kind)?.is_empty() {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// Is `name` certainly absent from `getPropertyOfType(getApparentType(
