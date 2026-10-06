@@ -10959,24 +10959,29 @@ impl Checker<'_, '_> {
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
-    /// function, module block, source file or property declaration.
+    /// function-like node that is not an immediately invoked function or
+    /// arrow expression (whose body continues its caller's flow), module
+    /// block, source file or property declaration.
     pub(crate) fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
-            if matches!(
-                self.nodes.kind(id),
-                SyntaxKind::FunctionDeclaration
-                    | SyntaxKind::FunctionExpression
-                    | SyntaxKind::ArrowFunction
-                    | SyntaxKind::MethodDeclaration
-                    | SyntaxKind::Constructor
-                    | SyntaxKind::GetAccessor
-                    | SyntaxKind::SetAccessor
-                    | SyntaxKind::ModuleBlock
-                    | SyntaxKind::SourceFile
-                    | SyntaxKind::PropertyDeclaration
-            ) {
-                return Some(id);
+            match self.nodes.kind(id) {
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => {
+                    if self.immediately_invoked_call(id).is_none() {
+                        return Some(id);
+                    }
+                }
+                SyntaxKind::ModuleBlock
+                | SyntaxKind::SourceFile
+                | SyntaxKind::PropertyDeclaration => return Some(id),
+                // `ast.IsFunctionLike`: every function-like but a class
+                // static block.
+                kind if kind != SyntaxKind::ClassStaticBlockDeclaration
+                    && self.is_function_like_or_static_block(id) =>
+                {
+                    return Some(id);
+                }
+                _ => {}
             }
             current = self.nodes.parent(id);
         }
