@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Late-bound copy attribution (`tsr-1yb.16.2.3`), frozen `48e300a4` / native
+`5b1047d`: 104 baseline and 78 candidate controls preserve complete output and
+1,397 actual Next.js checks. The lookup prototype `.7.5.1.1` removes exactly
+25.34MB / 843,476 allocations default and 17.31MB / 597,299 single, but its
+ordinary public wall gate fails: savings 1.38/-9.16ms against baseline, below
+the required 20ms. CPU/RSS pass; 187 candidate library tests pass. All 674
+baseline files and the ordinary CLI hash are restored. No runtime change,
+full-corpus qualification or retained speedup. The reported PR #5 slowdown
+(`.34`) remains unreproduced; its exact failing invocation is still needed.
+[Evidence and rejected prototype](docs/architecture/checker-late-bound-copy.md).
+
 Intersection admission (`tsr-1yb.16.3.6`), frozen `4cfe2340`: 56 ordinary/probe
 controls preserve output; exact clone traffic repeats at 2.20M allocations /
 176.69MB default and 1.03M / 70.37MB single on Next.js. The `.16.3.7` ordinary
@@ -3044,6 +3055,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The `48e300a4` late-bound observer/prototype is archived evidence only. No
+checker API migration is retained. Real recursive-marker and unsupported-key
+controls qualify state attribution; stored-empty results are not native
+completed member images. Existing public diagnostic gaps remain `tsr-6.55`,
+`tsr-6.72` and `tsr-6.73`; no new coverage or RIGHT-preservation score is claimed.
+
 The intersection-admission payload candidate remains an archived rejection.
 Selecting the variant before cloning does not add reuse or change publication;
 its required ordinary benefit is unconfirmed, so production is unchanged.
@@ -3282,6 +3299,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Late-bound lookup measurement `.16.2.3` supplies a material allocation site,
+but prototype `.7.5.1.1` is rejected by its unchanged public timing policy.
+Do not repeat it without new workload evidence or a separately settled policy
+(`tsr-1yb.13.1`). Broader member publication/receiver lanes retain their
+prerequisites. Regression `.34` still needs the reported failing invocation;
+computed accessor-write and circular-key diagnostic follow-ups are `tsr-6.72`
+and `tsr-6.73`. [Bounded handoff](docs/architecture/checker-late-bound-copy.md).
 
 After the restored `.16.3.7` rejection, `.16.3.8` attributes anonymous property
 copies to actual existing cache outcomes. Keep mapper/print context gates and
@@ -6780,6 +6805,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Late-bound borrowed instance lookup (`tsr-1yb.7.5.1.1`, frozen `48e300a4`):
+default public median0.555741s versus base0.557122s/A-A0.564955s saves only
+1.38/9.21ms; single1.291063s versus1.281903s/1.292044s saves -9.16/0.98ms.
+Both fail the required20ms wall gate; CPU/RSS pass. All36 ordinary children
+complete with identical output. No app candidate ordinary timing, second
+round or full-corpus audit after this refusal. All674 baseline files and
+ordinary binary hash restored; allocation reduction is not retained speed
+success. [Receipt](docs/architecture/checker-late-bound-copy.md).
 
 Intersection payload candidate `.16.3.7`, frozen `4cfe2340`, fails first public
 confirmation: default candidate1.124708s misses base1.109090s/A-A0.889130s by
@@ -13455,6 +13489,15 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-06 — `tsr-1yb.16.2.3` / `.7.5.1.1`, frozen `48e300a4`:104 baseline
+controls,78 candidate controls and22 public native runs finish. Exact lookup
+copy removal is25.34MB/default17.31MB/single; retained capacity and actual
+1,397 app checks stay unchanged.187 candidate library tests pass; public
+five-pair wall gate fails in both modes despite passing CPU/RSS. All674 files
+and ordinary CLI hash restored. No runtime/corpus/speed gain. Follow-ups
+`tsr-6.72`/`.73`; PR #5 regression `.34` still awaits its failing command.
+[Evidence](docs/architecture/checker-late-bound-copy.md).
 
 2026-10-05/06 — `tsr-2zk` cloud integration round 1, `06f25e0` → merged
 with `main`: offline cargo/tsgo bootstrap, box protocol, 20 cloud boxes on
