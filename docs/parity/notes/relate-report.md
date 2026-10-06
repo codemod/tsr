@@ -308,3 +308,157 @@ Needed outside this lane's files (each verified on a minimized probe):
   augmentation is not merged into lib's `Number` for `declare var a: Number`
   (`assignFromNumberInterface2`, `assignFromBooleanInterface2`: false TS2322 on
   `b = a`).
+
+## 14. Round 2: TS2352 is checked in files with parse errors
+
+`check_assertion_overlap` returned early when the file had parse errors.
+`checkAssertionDeferred` (`checker.go:12317`) has no such gate: upstream
+compares the assertion's operand and type in any file it checks, and the
+corpus baselines carry TS2352 next to TS1005 (`typeAssertions`: four
+class-to-class conversions in a file whose `<numOrStr is string>` lines do not
+parse). The gate was a decline with no upstream counterpart; removing it is
+narrowing toward upstream. The JS-file and ambient declines stay (JS type
+assertions are JSDoc casts, a different path).
+
+Measured at `15f1743`: TS2352 matched lines 88 → 92, extra lines unchanged
+(10), no case changes verdict (`typeAssertions` still misses TS2558/TS2693/
+TS2322 owned elsewhere). Both zero-loss checks empty.
+
+## 15. Round 2: comparability between type parameters
+
+`structuredTypeRelatedToWorker`'s type-parameter target arm (`relater.go:3423`)
+carves comparability out of the source-constraint rule: under
+`comparableRelation`, a type-parameter source against a type-parameter target
+relates only through a source constraint that itself mentions a type
+parameter (`someType(constraint, isTypeParameter)`), and is otherwise
+**false** — "forbid comparing a type parameter with another type parameter
+unless one extends the other". The port had no arm, so `U` against `T` fell to
+the source's constraint (`unknown`, or `Date` for `<T extends Date, U extends
+Date>`) and answered `Unknown`; TS2352 (`<T>u`), TS2367 (`t === u`) and TS2365
+(`t < u`) were never reported.
+
+`Relater::comparable_type_parameter_pair` ports the carve-out for declared
+parameters on both sides (the synthetic polymorphic `this` keeps its existing
+path). A source with no written constraint is not comparable; a written
+constraint the port cannot read leaves the pair `Unknown` rather than guessing.
+The arm sits after the union/intersection decomposition and before the
+source-variable arms, as upstream's switch does.
+
+Converted: `compiler/genericTypeAssertions6`,
+`conformance/comparisonOperatorWithNoRelationshipTypeParameter`,
+`conformance/comparisonOperatorWithTypeParameter` (requested by the
+flow/operators lanes). Lines at `15f1743` + §14: TS2352 92 → 95, TS2365
+355 → 375, TS2367 355 → 375, no extra lines. Zero-loss checks empty.
+
+Would be wrong if: a pair of type parameters upstream relates under
+comparability without one constraining the other. The rejected alternative —
+relating through the constraint as assignability does — is what produced the
+silent `Unknown`.
+
+## 16. Round 2: a tuple target against a plain object source
+
+`propertiesRelatedTo` (`relater.go:4100`) takes its arity arm only for an
+array or tuple source; any other object source meets the tuple target's
+properties one by one — its leading fixed elements (`"0"`, `"1"`, …, optional
+where the element is), `length` (the literal union of the possible lengths for
+a plain tuple), and every member inherited from `Array`/`ReadonlyArray`. The
+port had no arm: `StrNum` (an interface extending `Array<string | number>`)
+and `{ 0: string; 1: number; length: 2 }` against `[number, number, number]`
+fell through every gate to `Unknown`.
+
+`Relater::non_array_source_tuple_target` takes only the definite failures of
+that walk: a required name absent from the source's complete name table and
+not supplied by the Object augmentation (`getPropertyOfType`), a fixed
+element's property type that is not related, or a `length` that is not
+related. Method types are never compared, so the arm never answers `Related`;
+a pair that passes stays `Unknown`. `Checker::tuple_target_properties` is the
+shared property list, in upstream's order; symbol-named array members
+(`[Symbol.iterator]`) are left out of it.
+
+`unmatched_property_report` reads the same list for a tuple target and a
+non-array source, so one missing element is TS2741 (`Property '2' is missing
+in type 'StrNum'…`) and several are left to TS2322 —
+`tryElaborateArrayLikeErrors` elaborates a tuple target only for an array
+source.
+
+Converted: `compiler/assigningFunctionToTupleIssuesError`,
+`conformance/arityAndOrderCompatibility01`, `conformance/iterableArrayPattern10`,
+`conformance/iterableArrayPattern13`; +11 `checker_types` lines. Two new
+TS2345 lines in the already-wrong `destructuringParameterDeclaration3ES5/ES6`
+(`a10([1, 2, 3, false, true])`: `3` against `[[any]]` is now decided, and the
+argument path did not elaborate) are fixed by §17.
+
+Would be wrong if: a plain object source upstream relates to a tuple target
+while lacking one of the listed names. Zero-loss checks empty.
+
+## 17. Round 2: argument failures are elaborated
+
+`getSignatureApplicabilityError` checks each argument with
+`checkTypeRelatedToAndOptionallyElaborate(argType, paramType, relation,
+arg, arg, headMessage)`: a pair that is not related is first handed to
+`elaborateError`, and the TS2345 head is issued only when the elaboration
+says nothing. `report_argument_failure` (the TS2345 reporter every argument
+check in `call_arity.rs`/`calls.rs` calls) went straight to TS2345, so an
+array-literal or arrow argument reported at the argument instead of at the
+offending element or returned expression. It now elaborates a `NotRelated`
+pair after the port's reportability gate (kept in front, as for TS2322).
+
+Two pieces the elaboration needed, ported with it:
+
+- **The head message reaches the did-you-mean-to-call arm.**
+  `elaborateDidYouMeanToCallOrConstruct` reports with
+  `checkTypeRelatedTo(…, headMessage, …)`, so in an argument it is TS2345 at
+  the argument, not TS2322 (`elaborationForPossiblyCallableTypeStillReferencesArgumentAtTopLevel`,
+  `parser536727` were losses without this). `elaborate_error_with` carries
+  the head; member elaborations still report without one, as upstream.
+- **Variadic tuple targets in `elaborateArrayLiteral`.**
+  `generateLimitedTupleElements` skips an index the tuple-like target has no
+  property for; a variadic tuple's properties are its leading fixed elements,
+  so `[1, 2, 3, false, true]` against `[any, any, [[any]], ...any[]]`
+  elaborates `3` against `[[any]]` (TS2322 at the element). The port declined
+  every variadic target.
+- **`NoInfer<T>` in the missing-property messages.** `getNormalizedType`
+  unwraps the substitution before the relation, so `() => new Animal()`
+  against `() => NoInfer<Dog>` is TS2741 naming `Dog`. The missing-property
+  helpers now read the unwrapped target (`noInfer`'s line 47 was a new TS2322
+  extra without this).
+
+Converted: `compiler/assignmentCompatBug5`, `compiler/contextualTyping30`,
+`compiler/contextualTyping33`, `compiler/mapUpsert`,
+`compiler/overloadResolutionOverCTLambda`,
+`compiler/trailingCommaInHeterogenousArrayLiteral1`,
+`conformance/destructuringParameterDeclaration3ES5`,
+`conformance/destructuringParameterDeclaration3ES6`,
+`conformance/destructuringParameterDeclaration4`,
+`conformance/destructuringParameterProperties2`. TS2345 extra lines 64 → 39.
+Three lines change from a wrong TS2345 at the argument to a wrong TS2322 at
+the member (`es2020IntlAPIs` 32/33, `contextualTypeBasedOnIntersectionWithAnyInTheMix4`
+43): the argument type reaching the reporter is widened (`{ type: string }`
+for `{ type: 'region' }`) — the argument's contextual literal type is the
+calls lane's (`checkExpressionWithContextualType`).
+
+**Merge note (same session).** `main` landed the same argument elaboration
+independently (`45236ee`, relate-4: `report_argument_failure` →
+`elaborate_error(…, Some(TS2345 head))`). The merge keeps `main`'s
+`assignreport.rs`, which carries the head as a message rather than this
+section's boolean; the variadic-tuple and `NoInfer` pieces, which `main` does
+not have, are re-applied on top of it in §18.
+
+## 18. Round 2: variadic tuple targets in `elaborateArrayLiteral`, and `NoInfer` in the missing-property messages
+
+Re-applied on `main`'s `assignreport.rs` after the §17 merge (the two pieces
+`main`'s relate-4 port does not have):
+
+- `generateLimitedTupleElements` skips an index the tuple-like target has no
+  property for; a variadic tuple's properties are its leading fixed elements.
+  `elaborate_array_literal` declined every variadic target, so
+  `a10([1, 2, 3, false, true])` against `[any, any, [[any]], ...any[]]`
+  reported TS2345 at the argument instead of TS2322 at `3`.
+- `getNormalizedType` (`relater.go:2619`) unwraps `NoInfer<T>` before the
+  relation reports; the missing-property helpers now read the unwrapped
+  target in both the TS2322 and the TS2345 reporter (`noInfer`: TS2741 naming
+  `Dog` for `() => new Animal()` against `() => NoInfer<Dog>`).
+
+Converted at `2114e6a`: `conformance/destructuringParameterDeclaration3ES5`,
+`conformance/destructuringParameterDeclaration3ES6`; TS2741 matched
+149 → 150. Zero-loss checks empty.

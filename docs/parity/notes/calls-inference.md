@@ -239,3 +239,30 @@ NoInfer cases.
 call upstream resolves identically; a new false positive inside a callback
 body after merging names a call whose type road answers differently from
 upstream, not a reason to restore the stateless road.
+
+## 6. Object-callee TS2349 in the head (tsr-2zk.45)
+
+Round 1's `check_callee_without_signatures` (§4) was superseded at
+integration by main's `check_call_expression_head` (calls.rs). Its three
+lost cases decline at the head's `is_untyped_signatureless_call` for two
+different reasons, measured round 2:
+
+- **`neverIntersectionNotCallable` — ported.** `isUntypedFunctionCall`
+  (`checker.go:9937`) excludes a callee whose
+  `getReducedType(apparentFuncType)` is `never`; the port tested only the raw
+  `NEVER` flag, so `{ (x: string): number, a: "" } & { a: number }` (a
+  never-reduced discriminant, `getReducedType` `checker.go:21830`) related to
+  `Function` and read as an untyped call. The arm now also asks the shared
+  `intersection_has_never_discriminant` (flow.rs, read not edited).
+  +1 case, 0 losses.
+- **`esModuleInteropDefaultImports` (6 lines), `valuesMergingAcrossModules`
+  (1) — blocked, relate lane.** The callee is a module or namespace object
+  (`typeof /mod`, `typeof A`). Relating it to the global `Function` answers
+  `Unknown` with `reasons` mask `0b100` (row 3, `NoMembersTable`): the
+  relater has no structural arm for an anonymous `typeof <namespace>` source.
+  Upstream resolves such a type's members to its exports
+  (`resolveAnonymousTypeMembers`) and answers NotRelated (no `apply`/`call`/
+  `bind`). Round 1 read `Unknown` as "not assignable"; re-deriving the
+  missing-property verdict in calls.rs is the §3a "side pass" pattern, so the
+  faithful home is the relater's row-3 arm (`relater.rs`). A plain
+  `namespace N { export const x = 1 } N();` shows the same miss.
