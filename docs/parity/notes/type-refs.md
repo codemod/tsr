@@ -400,3 +400,14 @@ diagnostics 4,050 RIGHT / 4,958 EMPTY_RIGHT): +4 type lines, 1 case
 (`moduleSharesNameWithImportDeclarationInsideIt4`; `shadowedInternalModule`
 line 26 turns RIGHT, the case has other gaps), 0 R→W in either dump. No new
 state.
+
+### 3.5 A type-literal method named `new` prints quoted (contextual lane's ask)
+
+`classifyPropertyName` (`nodebuilderimpl.go:2384`) answers a string literal
+for a METHOD named `new`, so it cannot read back as a construct signature:
+`var c: { new?(): any }` records `{ "new"?(): any; }`. `build_type_literal`
+(declared.rs) carries the printed name on the member tuple only (the same
+channel as the optional `?`), so the quote changes printing and nothing
+else. Only the type-literal method half is here; object-literal and class
+methods are printed by other lanes' code. +2 lines, 2 cases (`vardecl`,
+`parser645484`), 0 R→W.
