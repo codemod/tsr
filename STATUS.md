@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Actual private-member experiment (`tsr-1yb.33`), frozen `88a0d3ce` / native
+`5b1047d`, compiles but is rejected: scalar Merged/Merged/Single differs from
+native Single/Merged/Single, and distinct-self fails three apparent-read
+projections. The candidate library has 188 passes/two qualification failures;
+five mutants are detected by previously passing controls. All 54 full-output
+pairs agree across 162 ordinary CLI invocations. All 650 baseline Rust files
+restore exactly; 185 baseline library tests pass. A fresh three-order native
+constructor trace preserves the native history and isolates missing raw/reduced/
+apparent preparation. No runtime, corpus or speed gain. `.33.1` owns that repair
+before concrete builder reuse. [Rejection and replay](docs/architecture/checker-private-member-publication.md).
+
 Published-member contract (`tsr-1yb.32`), inventory frozen `abbaa1d9` / native
 `5b1047d`: 58 source anchors and 69 fresh parsed native controls bind actual
 symbol publication, scalar Single/Merged/Single history, first accessor write
@@ -3339,11 +3350,13 @@ The existing builder `tsr-1yb.4.2.1`, receiver repair `tsr-6.69.2` and signature
 admission `.27`/`.28` retain their production gates and owners. This architectural
 handoff assigns no new reachability score or measured performance benefit.
 Contract `tsr-1yb.32` now binds the actual writer/read seam at `abbaa1d9`.
-Compiling consumer `tsr-1yb.33` must implement and qualify the proposed private
-links and active-frame/revision protocol; the concrete builder depends on that
-consumer and current expensive construction counts. Native's 69 replayed
-controls establish semantics, not a saved-wall ceiling.
+The compiling private-symbol attempt `tsr-1yb.33` is now rejected at `88a0d3ce`:
+actual handles and retained clone history are insufficient without native
+raw/reduced/apparent construction paths. `tsr-1yb.33.1` owns the next repair;
+the concrete builder depends on it and current expensive construction counts.
+Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
+[Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
 
 Parity round 2 (`tsr-2zk`): cross-lane blockers named by round-1 boxes come
 first because each unblocks several lanes — module-augmentation merge
@@ -6818,6 +6831,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The actual private-symbol prototype (`tsr-1yb.33`, frozen `88a0d3ce`) remains
+refused: Merged/Merged/Single versus native Single/Merged/Single, and three
+distinct-self apparent-read mismatches among 21 fixture projections. Its 188
+library passes, five detected mutants and 54 identical ordinary output pairs
+cannot waive two failing qualification tests. Property-only `done` is not
+native MembersResolved; synthetic frame/reset controls do not qualify natural
+outer-worker continuation. All 650 Rust files restore and 185 baseline tests
+pass. No production cache, full-corpus or speed qualification.
+[Source-bound rejection](docs/architecture/checker-private-member-publication.md).
 
 Member identity reconstruction remains refused: `.32` replays the native
 Single/Merged/Single scalar sequence across three orders, whereas rejected
@@ -14636,3 +14659,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-03 | `19677867` | **95.93%** | **7,147/9,538** | **Third eight-orb integration plus preserved upstream work: +909 assertions and +63 complete cases vs exact 8a65762e.** 459,381/478,855; aligned 474,251 total, 459,381 RIGHT, 2,198 GAP, 12,672 WRONG. 690 W→R, 219 G→R, zero RIGHT losses/new/removed rows, 19 G→W and 76 changed-WRONG payloads. Eight units alone add 873 matches against preserved 25007101; the other 36 are independently verified generic-alias keyof work. Diagnostics 2,808/5,488 (+8); parser, binder and declaration suites unchanged. All 2,630 release workspace tests/229 result blocks, three worker-diagnostic controls, nine performance-script tests, strict clippy, fmt, 3,400 anchors and 16,633 section citations pass. The 197 historical issue-ID failures and unconfigured Dolt remote remain explicit. 14,686 matches remain to 99%; review refusals and semantic follow-ups are recorded in §§4–5. |
 
 | 2026-10-06 | `abbaa1d9` (Rust inventory) / native `5b1047d` | — | — | **Published-member contract, tsr-1yb.32:** 58 source anchors and 69 fresh native parsed controls preserve actual scalar Single/Merged/Single history, clone target/flag/parent/first mapper/write, active prefixes and both natural reset completion paths. Both native archives restore exactly. Private member links and active-frame/revision protocol are proposed, not implemented; .33 owns compiling qualification and .4.2.1 requires current expensive builder attribution. No runtime, new corpus or speed claim. [Contract](docs/architecture/checker-published-members.md). |
+
+| 2026-10-06 | `88a0d3ce` / native `5b1047d` | — | — | **Actual private-member prototype, tsr-1yb.33: compiled and rejected.** 188 library passes/two qualification failures; scalar Merged/Merged/Single and three distinct-self apparent-read mismatches. Five mutants detected; 162 ordinary invocations preserve all 54 baseline/prototype full-output pairs. Three fresh native constructor orders preserve Single/Merged/Single and isolate missing raw/reduced/apparent preparation. All 650 baseline Rust files restore; 185 baseline library tests pass. Native touched files restore and three qualified hashes match; no new full-archive hash claim. .33.1 gates builder4.2.1; no runtime, corpus or speed gain. [Evidence](docs/architecture/checker-private-member-publication.md). |

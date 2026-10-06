@@ -1,0 +1,47 @@
+diff --git a/internal/checker/checker.go b/internal/checker/checker.go
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -6,6 +6,7 @@
+ 	"iter"
+ 	"maps"
+ 	"math"
++	"runtime"
+ 	"slices"
+ 	"strconv"
+ 	"strings"
+@@ -20751,6 +20752,18 @@
+ }
+ 
+ func (c *Checker) instantiateSymbol(symbol *ast.Symbol, m *TypeMapper) *ast.Symbol {
++
++    if symbol != nil && symbol.Name == "value" && symbol.Parent != nil && symbol.Parent.Name == "Base" {
++        var pcs [16]uintptr
++        n := runtime.Callers(2, pcs[:])
++        frames := runtime.CallersFrames(pcs[:n])
++        var names []string
++        for { frame, more := frames.Next(); names = append(names, frame.Function); if !more { break } }
++        links := c.valueSymbolLinks.TryGet(symbol)
++        var read, write *Type
++        if links != nil { read=links.resolvedType; write=links.writeType }
++        fmt.Printf("NATIVE_INSTANTIATE checker=%d symbol=%p checkFlags=%d mapper=%p read=%p write=%p stack=%s\n", c.id, symbol, symbol.CheckFlags, m, read, write, strings.Join(names," > "))
++    }
+ 	if symbol == nil {
+ 		return nil
+ 	}
+diff --git a/internal/checker/shared_property_contract_test.go b/internal/checker/shared_property_contract_test.go
+--- a/internal/checker/shared_property_contract_test.go
++++ b/internal/checker/shared_property_contract_test.go
+@@ -74,10 +74,13 @@
+ 				if receiver == nil || expression == nil {
+ 					t.Fatal("fixture node missing")
+ 				}
++				t.Logf("TRACE_PHASE before-receiver order=%s", order)
+ 				container := c.GetTypeAtLocation(receiver)
++				t.Logf("TRACE_PHASE after-receiver order=%s", order)
+ 				if order == "expression-first" {
+ 					c.GetTypeAtLocation(expression)
+ 				}
++				t.Logf("TRACE_PHASE before-adapter order=%s", order)
+ 				first := c.NativeSharedProperty(container, tc.Property)
+ 				read := c.NativeSharedType(c.GetTypeAtLocation(expression))
+ 				second := c.NativeSharedProperty(container, tc.Property)

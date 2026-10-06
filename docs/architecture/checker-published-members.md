@@ -9,6 +9,12 @@ implemented member store, cache rollout or slowdown repair. No new throughput
 or coverage result is claimed; equivalent complete-work TSR/native median
 wall <=0.50 remains unverified.
 
+The subsequent [compiling attempt](checker-private-member-publication.md) at
+`88a0d3ce` allocates actual private symbols but is rejected on scalar history
+and distinct-self apparent reads. It does not qualify the proposed completion
+protocol below. Follow-up `tsr-1yb.33.1` owns native raw/reduced/apparent
+publication before the concrete builder can retain reuse.
+
 The [source inventory and replay receipt](checker-published-members.json)
 binds operations to exact bytes and records fresh replays of the existing
 [shared-property producer](checker-native-shared-property.md) (39 controls)

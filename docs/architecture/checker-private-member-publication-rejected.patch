@@ -1,0 +1,514 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -52,6 +52,7 @@
+ )]
+ pub struct Checker<'a, 'n> {
+     pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
++    pub(crate) member_publication: crate::member_publication::MemberPublication,
+     pub(crate) store: TypeStore,
+     pub(crate) intrinsics: Intrinsics,
+     pub(crate) nodes: &'n NodeTable,
+@@ -1521,6 +1522,7 @@
+             template_literal_cache: FxHashMap::default(),
+             mapped_apparent_types: FxHashMap::default(),
+             base_type_links: crate::base_types::BaseTypeLinks::default(),
++            member_publication: crate::member_publication::MemberPublication::default(),
+             type_parameter_default_cache: FxHashMap::default(),
+             type_parameter_constraint_cache: FxHashMap::default(),
+             reverse_mapped_cache: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1848,6 +1848,9 @@
+             if self.intersection_has_never_discriminant(id) {
+                 return None;
+             }
++            if let crate::member_publication::MemberQuery::Published { symbol, active:false, .. } = self.publication_property(id, id, name) {
++                return Some(self.publication_read(&symbol));
++            }
+             for skip_augment in [true, false] {
+                 if !skip_augment && skip_object_function_augment {
+                     break;
+@@ -1940,7 +1943,7 @@
+         self.instantiate_for_reference_with_this(receiver, declared, receiver)
+     }
+ 
+-    fn instantiate_for_reference_with_this(
++    pub(crate) fn instantiate_for_reference_with_this(
+         &mut self,
+         receiver: TypeId,
+         declared: TypeId,
+@@ -3708,6 +3711,160 @@
+ 
+ #[cfg(test)]
+ mod property_name_tests {
++
++    #[test]
++    fn published_member_read_invariance_does_not_certify_setter_write() {
++        for (body,want_write) in [("Left<string>&Right<number>","string"),("Right<number>&Left<string>","number")] {
++            let source=format!("class Base<T> {{ get value():number {{ return 0; }} set value(v:T) {{}} }} class Left<U> extends Base<U> {{}} class Right<V> extends Base<V> {{}} type Both={body}; declare const receiver:Both;");
++            with_checker(&source, |checker,root| {
++                let base=checker.binder.lookup_local(root,"Base").unwrap();
++                let property=checker.binder.symbols().get(base).members.as_ref().unwrap()["value"];
++                let read=checker.get_type_of_symbol(property);
++                assert_eq!(checker.type_to_string(read),"number");
++                let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++                let receiver=checker.get_type_of_symbol(receiver_symbol);
++                let clone=publication(checker,receiver,"value");
++                assert!(checker.symbols.view(&clone).unwrap().flags().contains(tsr_binder::SymbolFlags::TRANSIENT));
++                assert_eq!(checker.publication_target(&clone),clone);
++                let write=checker.publication_write(&clone);
++                assert_eq!(checker.type_to_string(write),want_write);
++                for _ in 0..3 { assert_eq!(publication(checker,receiver,"value"),clone); }
++            });
++        }
++    }
++
++
++    #[test]
++    fn published_member_native_fixture_matrix() {
++        use crate::symbol_access::CheckFlags;
++        let generic = "interface Base<T> { value:T } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V }";
++        let accessor = "class Base<T> { get value():number { return 0; } set value(v:T) {} } class Left<U> extends Base<U> { declare left:U } class Right<V> extends Base<V> { declare right:V }";
++        let rows = [
++            ("shared-self", "interface Base { self:this } interface Left extends Base { left:number } interface Right extends Base { right:string } type Both=Left&Right;".to_owned(), "self", "single", "Both", "Both"),
++            ("distinct-self", "interface Left { self:this;left:number } interface Right { self:this;right:string } type Both=Left&Right;".to_owned(), "self", "synthesized", "Both", "Both"),
++            ("equal-generic", format!("{generic} type Both=Left<string>&Right<string>;"), "value", "single", "string", "string"),
++            ("unequal-generic", format!("{generic} type Both=Left<string>&Right<number>;"), "value", "synthesized", "never", "never"),
++            ("distinct-value", "interface Left { value:string;left:number } interface Right { value:string;right:number } type Both=Left&Right;".to_owned(), "value", "synthesized", "string", "string"),
++            ("accessor", format!("{accessor} type Both=Left<string>&Right<number>;"), "value", "merged", "number", "string"),
++            ("accessor-reverse", format!("{accessor} type Both=Right<number>&Left<string>;"), "value", "merged", "number", "number"),
++        ];
++        let mut failures=Vec::new();
++        for (case,body,property,want_kind,want_read,want_write) in rows {
++            let source=format!("{body} declare const receiver:Both; const probe=receiver.{property};");
++            for order in 0..3 {
++                with_checker(&source, |checker, root| {
++                    if order==2 { checker.check_source_file(root, crate::check::FileContext {ambient:false,has_parse_errors:false}); }
++                    let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++                    let receiver=checker.get_type_of_symbol(receiver_symbol);
++                    if order==1 { let probe=checker.binder.lookup_local(root,"probe").unwrap(); checker.get_type_of_symbol(probe); }
++                    let first=publication(checker,receiver,property);
++                    let check=checker.symbols.view(&first).unwrap().check_flags();
++                    let kind=if check.contains(CheckFlags::SYNTHETIC_PROPERTY) {"synthesized"}
++                        else if checker.member_publication.links.get(&first).is_some_and(|l| l.containing.is_some()) {"merged"}
++                        else {"single"};
++                    let read=checker.publication_read(&first);
++                    let write=checker.publication_write(&first);
++                    let read_text=checker.type_to_string(read);
++                    let write_text=checker.type_to_string(write);
++                    let probe=checker.binder.lookup_local(root,"probe").unwrap();
++                    let expression=checker.get_type_of_symbol(probe);
++                    let expression_text=checker.type_to_string(expression);
++                    println!("PUBLISHED_MATRIX case={case} order={order} kind={kind} read={read_text:?} write={write_text:?} expression={expression_text:?}");
++                    if (kind,read_text.as_str(),write_text.as_str())!=(want_kind,want_read,want_write) {
++                        failures.push(format!("{case}/{order}: {kind} {read_text} {write_text}"));
++                    }
++                    // Native's distinct origins have equal apparent reads but
++                    // preserve the original expression receiver's Left & Right.
++                    if case=="distinct-self" && expression_text!="Left & Right" { failures.push(format!("{case}/{order} expression={expression_text}")); }
++                    for _ in 0..3 { assert_eq!(publication(checker,receiver,property),first); }
++                });
++            }
++        }
++        assert!(failures.is_empty(), "native mismatches: {failures:?}");
++    }
++
++    #[test]
++    fn published_member_clone_retains_links_without_merge_redirect() {
++        use crate::symbol_access::CheckFlags;
++        with_checker("interface Base<T> { value:number } interface Left<U> extends Base<U> {} interface Right<V> extends Base<V> {} type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;", |checker,root| {
++            let probe=checker.binder.lookup_local(root,"probe").unwrap();
++            checker.get_type_of_symbol(probe);
++            let receiver_symbol=checker.binder.lookup_local(root,"receiver").unwrap();
++            let receiver=checker.get_type_of_symbol(receiver_symbol);
++            let clone=publication(checker,receiver,"value");
++            assert_eq!(checker.publication_target(&clone),clone);
++            assert!(!checker.symbols.view(&clone).unwrap().check_flags().contains(CheckFlags::INSTANTIATED));
++            let links=checker.member_publication.links[&clone].clone();
++            let first=links.target.unwrap();
++            assert_ne!(clone,first);
++            assert!(checker.symbols.view(&first).unwrap().check_flags().contains(CheckFlags::INSTANTIATED));
++            assert_eq!(links.mapper,checker.member_publication.links[&first].mapper);
++            assert_eq!(links.containing,Some(receiver));
++            let write=checker.publication_write(&first);
++            assert_eq!(links.write,Some(write));
++            let root_symbol=checker.publication_target(&first);
++            assert_eq!(checker.symbols.merged_symbol(&root_symbol).unwrap(),root_symbol);
++            let parent=checker.symbols.view(&clone).unwrap().parent().unwrap();
++            assert_eq!(checker.symbols.view(&parent).unwrap().name(),"Base");
++            assert_eq!(checker.symbols.view(&clone).unwrap().declarations(),checker.symbols.view(&root_symbol).unwrap().declarations());
++            let base=checker.binder.lookup_local(root,"Base").unwrap();
++            // Deliberate reset notification, distinct from natural TS2310.
++            checker.publication_reset_target(base);
++            assert_eq!(publication(checker,receiver,"value"),clone);
++        });
++    }
++
++    #[test]
++    fn published_member_active_prefix_is_not_complete() {
++        use crate::resolution::{PropertyName,ResolutionTarget};
++        with_checker("interface Root { root:number } interface A extends Root { own:string }", |checker,root| {
++            let a=checker.binder.lookup_local(root,"A").unwrap();
++            let ty=checker.get_declared_type_of_symbol(a);
++            assert!(checker.resolutions.push(ResolutionTarget::Symbol(a),PropertyName::ResolvedBaseTypes));
++            let view=checker.publication_property(ty,ty,"own");
++            assert!(matches!(view,crate::member_publication::MemberQuery::Published {active:true,..}), "active observation is not a completed negative/member image: {view:?}");
++            checker.resolutions.pop();
++        });
++    }
++
++
++    // Red adapter: the current production getter only publishes bound IDs.
++    fn publication(checker: &mut Checker<'_, '_>, receiver: crate::TypeId, name: &str) -> crate::symbol_access::SymbolRef {
++        match checker.publication_property(receiver, receiver, name) {
++            crate::member_publication::MemberQuery::Published { symbol, .. } => symbol,
++            other => panic!("publication unavailable: {other:?}"),
++        }
++    }
++
++    #[test]
++    fn published_member_scalar_history_uses_actual_handles() {
++        let source = "interface Base<T> { value:number } interface Left<U> extends Base<U> { left:U } interface Right<V> extends Base<V> { right:V } type Both=Left<string>&Right<number>; declare const receiver:Both; const probe=receiver.value;";
++        let mut observed = Vec::new();
++        for order in 0..3 {
++            with_checker(source, |checker, root| {
++                if order == 2 {
++                    checker.check_source_file(root, crate::check::FileContext { ambient:false, has_parse_errors:false });
++                }
++                let receiver_symbol = checker.binder.lookup_local(root, "receiver").unwrap();
++                let receiver = checker.get_type_of_symbol(receiver_symbol);
++                if order == 1 {
++                    let probe = checker.binder.lookup_local(root, "probe").unwrap();
++                    checker.get_type_of_symbol(probe);
++                }
++                let first = publication(checker, receiver, "value");
++                let view = checker.symbols.view(&first).unwrap();
++                let private = view.flags().contains(tsr_binder::SymbolFlags::TRANSIENT);
++                assert!(!view.check_flags().contains(crate::symbol_access::CheckFlags::INSTANTIATED), "composite clone is not an instantiation");
++                println!("PUBLISHED_SCALAR order={order} private={private} symbol={first:?}");
++                observed.push(private);
++                for _ in 0..3 {
++                    assert_eq!(publication(checker, receiver, "value"), first, "warm lookup must retain actual published handle");
++                }
++            });
++        }
++        assert_eq!(observed, [false,true,false], "native Single/Merged/Single history");
++    }
++
+     use tsr_ast::{HasNodeId, NodeId};
+     use tsr_core::Arena;
+ 
+diff --git a/crates/tsr-checker/src/base_types.rs b/crates/tsr-checker/src/base_types.rs
+--- a/crates/tsr-checker/src/base_types.rs
++++ b/crates/tsr-checker/src/base_types.rs
+@@ -240,9 +240,14 @@
+             self.resolve_base_types_of_interface(symbol);
+         }
+         let _ = self.resolutions.pop();
++        self.publication_reset_target(symbol);
+         let entry = self.base_type_links.base_types.entry(symbol).or_default();
+         entry.resolved = true;
+         entry.types.clone()
++    }
++
++    pub(crate) fn publication_bases_complete(&self, symbol: SymbolId) -> bool {
++        self.base_type_links.base_types.get(&self.binder.merged_symbol(symbol)).is_some_and(|entry| entry.resolved)
+     }
+ 
+     /// `resolveBaseTypesOfClass` (`checker.go:19220`): the class's single base
+diff --git a/crates/tsr-checker/src/symbol_access.rs b/crates/tsr-checker/src/symbol_access.rs
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -334,6 +334,28 @@
+         Ok(SymbolRef(Identity::Bound(self.program.identity().clone(), id)))
+     }
+ 
++
++    /// A validated bound adapter; a private handle is never a binder index.
++    pub(crate) fn bound_id(&self, symbol: &SymbolRef) -> Result<Option<SymbolId>, SymbolAccessError> {
++        self.view(symbol)?;
++        Ok(match symbol.0 { Identity::Bound(_, id) => Some(id), Identity::Private(_, _) => None })
++    }
++
++    /// Member construction copies declaration metadata without a merge redirect.
++    pub(crate) fn new_member_from(&mut self, source: &SymbolRef, check_flags: CheckFlags) -> Result<SymbolRef, SymbolAccessError> {
++        let view = self.view(source)?;
++        let flags = view.flags();
++        let name = Cow::Owned(view.name().to_owned());
++        let declarations = view.declarations().to_vec();
++        let value_declaration = view.value_declaration();
++        let parent = view.parent();
++        Ok(self.add(PrivateSymbol {
++            flags: flags | SymbolFlags::TRANSIENT, check_flags, name, declarations,
++            value_declaration, parent, export_symbol:None, members:None, exports:None,
++            origin:Some(source.clone()), declared_type:None,
++        }))
++    }
++
+     /// Validate the domain before indexing either store.
+     pub fn view(&self, symbol: &SymbolRef) -> Result<SymbolView<'_, 'a>, SymbolAccessError> {
+         match &symbol.0 {
+diff --git a/crates/tsr-checker/src/member_publication.rs b/crates/tsr-checker/src/member_publication.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/src/member_publication.rs
+@@ -0,0 +1,246 @@
++//! Isolated property-publication experiment. No native field-complete certificate.
++use crate::{Checker, TypeId};
++use crate::flags::TypeFlags;
++use crate::types::TypeData;
++use crate::symbol_access::{CheckFlags, SymbolRef};
++use rustc_hash::FxHashMap;
++use tsr_binder::{SymbolFlags, SymbolId};
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) enum MemberQuery {
++    Published { symbol:SymbolRef, revision:u64, active:bool },
++    Absent { revision:u64, active:bool },
++    Unsupported,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++struct ImageKey { ty:TypeId, receiver:TypeId }
++
++#[derive(Default)]
++struct PropertyImage {
++    members:FxHashMap<String,SymbolRef>,
++    frames:Vec<u64>,
++    revision:u64,
++    done:bool,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct MapperId(pub(crate) usize);
++
++#[derive(Clone)]
++struct MapperOperation {
++    owner:TypeId,
++    receiver:TypeId,
++    prior:Option<MapperId>,
++}
++
++#[derive(Clone, Default)]
++pub(crate) struct MemberLinks {
++    pub(crate) target:Option<SymbolRef>,
++    pub(crate) mapper:Option<MapperId>,
++    pub(crate) read:Option<TypeId>,
++    pub(crate) write:Option<TypeId>,
++    pub(crate) containing:Option<TypeId>,
++}
++
++#[derive(Default)]
++pub(crate) struct MemberPublication {
++    images:FxHashMap<ImageKey,PropertyImage>,
++    pub(crate) links:FxHashMap<SymbolRef,MemberLinks>,
++    mappers:Vec<MapperOperation>,
++    composites:FxHashMap<(TypeId,TypeId,String),SymbolRef>,
++}
++
++impl Checker<'_, '_> {
++    // Eligibility is a no-force observation. Object metadata needed by the
++    // complete native couldContainTypeVariables worker remains unsupported.
++    fn publication_invariant(&self, ty:TypeId) -> bool {
++        let value = self.store.get(ty);
++        if value.flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::OBJECT) { return false; }
++        match &value.data {
++            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types.iter().all(|&t| self.publication_invariant(t)),
++            _ => true,
++        }
++    }
++
++    fn publication_cached_read(&self, symbol:&SymbolRef) -> Option<TypeId> {
++        match self.symbols.bound_id(symbol).expect("private ownership") {
++            Some(id) => self.symbol_types.get(&id).copied(),
++            None => self.member_publication.links.get(symbol).and_then(|l| l.read),
++        }
++    }
++
++    fn publication_instantiate(&mut self, original:SymbolRef, mapper:MapperId) -> SymbolRef {
++        let flags = self.symbols.view(&original).unwrap().flags();
++        if self.publication_cached_read(&original).is_some_and(|t| self.publication_invariant(t))
++            && (!flags.contains(SymbolFlags::SET_ACCESSOR)
++                || self.member_publication.links.get(&original).and_then(|l| l.write).is_some_and(|t| self.publication_invariant(t))) {
++            return original;
++        }
++        let check = self.symbols.view(&original).unwrap().check_flags();
++        let (target, mapper) = if check.contains(CheckFlags::INSTANTIATED) {
++            let previous = self.member_publication.links[&original].clone();
++            let mut operation = self.member_publication.mappers[mapper.0].clone();
++            operation.prior = previous.mapper;
++            let composed = MapperId(self.member_publication.mappers.len());
++            self.member_publication.mappers.push(operation);
++            (previous.target.unwrap(), composed)
++        } else { (original, mapper) };
++        let flags = CheckFlags::INSTANTIATED | (check & (CheckFlags::READONLY | CheckFlags::LATE | CheckFlags::OPTIONAL_PARAMETER | CheckFlags::REST_PARAMETER));
++        let result = self.symbols.new_member_from(&target, flags).unwrap();
++        self.member_publication.links.insert(result.clone(), MemberLinks { target:Some(target), mapper:Some(mapper), ..MemberLinks::default() });
++        result
++    }
++
++    fn publication_apply(&mut self, mapper:MapperId, ty:TypeId) -> TypeId {
++        let operation = self.member_publication.mappers[mapper.0].clone();
++        let ty = if let Some(prior) = operation.prior { self.publication_apply(prior,ty) } else { ty };
++        self.instantiate_for_reference_with_this(operation.owner,ty,operation.receiver)
++    }
++
++    pub(crate) fn publication_read(&mut self, symbol:&SymbolRef) -> TypeId {
++        if let Some(read) = self.publication_cached_read(symbol) { return read; }
++        if let Some(bound) = self.symbols.bound_id(symbol).unwrap() { return self.get_type_of_symbol(bound); }
++        let links = self.member_publication.links[symbol].clone();
++        let mut read = self.publication_read(&links.target.expect("lazy target"));
++        if let Some(mapper) = links.mapper { read = self.publication_apply(mapper,read); }
++        self.member_publication.links.get_mut(symbol).unwrap().read = Some(read);
++        read
++    }
++
++    pub(crate) fn publication_write(&mut self, symbol:&SymbolRef) -> TypeId {
++        if let Some(write) = self.member_publication.links.get(symbol).and_then(|l| l.write) { return write; }
++        let write = if let Some(bound) = self.symbols.bound_id(symbol).unwrap() {
++            self.accessor_write_parameter(bound).map(|p| p.r#type).unwrap_or_else(|| self.get_type_of_symbol(bound))
++        } else {
++            let links = self.member_publication.links[symbol].clone();
++            let ty = self.publication_write(&links.target.expect("lazy target"));
++            if let Some(mapper) = links.mapper { self.publication_apply(mapper,ty) } else { ty }
++        };
++        self.member_publication.links.entry(symbol.clone()).or_default().write = Some(write);
++        write
++    }
++
++    pub(crate) fn publication_target(&self, symbol:&SymbolRef) -> SymbolRef {
++        if self.symbols.view(symbol).unwrap().check_flags().contains(CheckFlags::INSTANTIATED) {
++            self.member_publication.links[symbol].target.clone().unwrap()
++        } else { symbol.clone() }
++    }
++
++    pub(crate) fn publication_reset_target(&mut self, target:SymbolId) {
++        // Reset the declaration's target image only; escaped symbols and positive
++        // composite histories remain valid. This port has no native flag writer.
++        let Some(ty) = self.declared_types.get(&target).copied() else { return };
++        for (key,image) in &mut self.member_publication.images {
++            if key.ty==ty && key.receiver==ty {
++                image.revision+=1;
++                image.done=false;
++                for frame in &mut image.frames { *frame=image.revision; }
++            }
++        }
++    }
++
++    fn publication_image(&mut self, key:ImageKey) -> bool {
++        if let Some(image) = self.member_publication.images.get(&key)
++            && (image.done || !image.frames.is_empty()) { return true; }
++        let Some(owner) = (match self.store.get(key.ty).data {
++            TypeData::Named { members:Some(owner), .. } => Some(owner),
++            _ => None,
++        }) else { return false; };
++        if !self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) { return false; }
++        let target = self.get_declared_type_of_symbol(owner);
++        let own:Vec<(String,SymbolId)> = self.binder.symbols().get(owner).members.as_ref().map(|m| m.iter().map(|(n,&s)| (n.to_string(),s)).collect()).unwrap_or_default();
++        let image = self.member_publication.images.entry(key).or_default();
++        image.frames.push(image.revision);
++        let mapper = MapperId(self.member_publication.mappers.len());
++        self.member_publication.mappers.push(MapperOperation { owner:key.ty, receiver:key.receiver, prior:None });
++        let mut members = FxHashMap::default();
++        for (name,id) in own {
++            let original = self.symbols.bound(id).unwrap();
++            let property = if key.ty==target && key.receiver==key.ty { original } else { self.publication_instantiate(original,mapper) };
++            members.insert(name,property);
++        }
++        self.member_publication.images.get_mut(&key).unwrap().members = members;
++        let bases = self.get_base_types(owner);
++        let bases_done = self.publication_bases_complete(owner);
++        let mut inherited_done = bases_done;
++        for base in bases {
++            let base = self.instantiate_for_reference(key.ty,base);
++            let inherited = ImageKey { ty:base, receiver:key.receiver };
++            if !self.publication_image(inherited) { inherited_done=false; continue; }
++            let base_image = &self.member_publication.images[&inherited];
++            inherited_done &= base_image.done;
++            let members = base_image.members.clone();
++            let own = &mut self.member_publication.images.get_mut(&key).unwrap().members;
++            for (name,symbol) in members { own.entry(name).or_insert(symbol); }
++        }
++        let image = self.member_publication.images.get_mut(&key).unwrap();
++        image.frames.pop();
++        image.done = inherited_done && image.frames.is_empty();
++        true
++    }
++
++    pub(crate) fn publication_property(&mut self, ty:TypeId, receiver:TypeId, name:&str) -> MemberQuery {
++        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
++            let cache_key = (ty,receiver,name.to_owned());
++            if let Some(symbol) = self.member_publication.composites.get(&cache_key) { return MemberQuery::Published { symbol:symbol.clone(), revision:0, active:false }; }
++            // Deferred >2, union/index/augmentation need separate native owners.
++            if types.len()>2 { return MemberQuery::Unsupported; }
++            let mut suppliers = Vec::new();
++            for part in types {
++                match self.publication_property(part,receiver,name) {
++                    MemberQuery::Published { symbol,active:false,.. } => suppliers.push(symbol),
++                    MemberQuery::Absent { active:false,.. } => {},
++                    _ => return MemberQuery::Unsupported,
++                }
++            }
++            let Some(first) = suppliers.first().cloned() else { return MemberQuery::Absent { revision:0,active:false }; };
++            let mut different = false;
++            let mut merged = false;
++            for supplier in suppliers.iter().skip(1) {
++                if *supplier==first { continue; }
++                let left = self.publication_target(&first);
++                let right = self.publication_target(supplier);
++                let bound_left = self.symbols.bound_id(&left).unwrap();
++                let bound_right = self.symbols.bound_id(&right).unwrap();
++                let metadata = bound_left.zip(bound_right).is_some_and(|(l,r)| {
++                    self.property_is_optional(l)==self.property_is_optional(r)
++                        && self.is_readonly_property(l)==self.is_readonly_property(r)
++                        && self.is_non_public_member(l)==self.is_non_public_member(r)
++                });
++                let same = left==right && metadata && self.publication_read(&first)==self.publication_read(supplier);
++                if same {
++                    let parent = self.symbols.view(&first).unwrap().parent();
++                    merged |= parent.and_then(|p| self.symbols.bound_id(&p).unwrap()).is_some_and(|p| !self.local_type_parameters_of(p).is_empty());
++                } else { different=true; }
++            }
++            let result = if different {
++                let mut reads=Vec::new(); let mut writes=Vec::new();
++                for symbol in &suppliers { reads.push(self.publication_read(symbol)); writes.push(self.publication_write(symbol)); }
++                let read = self.get_intersection_type(&reads,None);
++                let write = self.get_intersection_type(&writes,None);
++                let result = self.symbols.new_member_from(&first,CheckFlags::SYNTHETIC_PROPERTY).unwrap();
++                self.member_publication.links.insert(result.clone(),MemberLinks { read:Some(read),write:Some(write),containing:Some(ty),..MemberLinks::default() });
++                result
++            } else if merged {
++                let read = self.publication_cached_read(&first);
++                let write = self.publication_write(&first);
++                let check = self.symbols.view(&first).unwrap().check_flags() & CheckFlags::READONLY;
++                let result = self.symbols.new_member_from(&first,check).unwrap();
++                let mapper = self.member_publication.links.get(&first).and_then(|l| l.mapper);
++                self.member_publication.links.insert(result.clone(),MemberLinks { target:Some(first),mapper,read,write:Some(write),containing:Some(ty) });
++                result
++            } else { first };
++            self.member_publication.composites.insert(cache_key,result.clone());
++            return MemberQuery::Published { symbol:result,revision:0,active:false };
++        }
++        let key = ImageKey { ty,receiver };
++        if !self.publication_image(key) { return MemberQuery::Unsupported; }
++        let image = &self.member_publication.images[&key];
++        let active = !image.done;
++        match image.members.get(name) {
++            Some(symbol) => MemberQuery::Published { symbol:symbol.clone(),revision:image.revision,active },
++            None => MemberQuery::Absent { revision:image.revision,active },
++        }
++    }
++}
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -104,6 +104,7 @@
+ mod assignment_declarations;
+ pub mod assignreport;
+ mod base_types;
++mod member_publication;
+ pub mod binary;
+ mod binding_patterns;
+ pub mod call_arity;
