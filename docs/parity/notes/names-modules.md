@@ -428,6 +428,7 @@ belongs in the baseline parser (not this lane's file).
 - **Pattern ambient targets** (`declare module "*.foo"`): upstream merges the
   pattern *into* the augmentation unidirectionally and keeps the result in
   `patternAmbientModuleAugmentations`. This port has no such table.
+  *(Landed in round 3, §6.)*
 - **`export =` through anything but a local name**: the binder cannot resolve
   `export = require(…)` or a qualified name; such an augmentation is skipped.
 - **Re-exported aliases**: `mergeSymbol` resolves an alias target
@@ -466,3 +467,74 @@ under `node16`+). Both stay on the uncloned road.
 
 Converted: `nodeNextCjsNamespaceImportDefault1`/`2` fully RIGHT (16 lines
 each), counted in §3's measurement.
+
+## §6. Pattern ambient modules resolve, and augmentations of them merge one way
+
+Cases: `ambientDeclarationsPatterns_merging1`/`2`/`3` (false TS2664, missing
+TS2305/TS2339).
+
+### The forcing constraint
+
+`resolveExternalModule` (`checker.go:15364-15372`) ends, after the ambient
+lookup and the program's file resolution both miss, with
+`core.FindBestPatternMatch` over the program's `declare module "prefix*suffix"`
+declarations. This port stopped at the file resolution: every import of
+`"a.foo"` answered `None` (types `errorType`; TS2307 suppressed by
+`has_pattern_ambient_module`'s silence), and a module augmentation
+`declare module "a.foo" { … }` in a module file reported TS2664 `cannot be
+found`, because `check_module_augmentation_name` asks the same resolver.
+
+And when the augmentation's name does resolve to a pattern,
+`mergeModuleAugmentation` (`checker.go:1422-1432`) merges the other way
+round: `mergeSymbol(augmentation, pattern, unidirectional = true)`, then
+records the result under the augmentation's *name* in
+`patternAmbientModuleAugmentations`. An import of `"a.foo"` then sees the
+pattern's exports plus the augmentation's; an import of `"b.foo"` sees only
+the pattern's.
+
+### What was built
+
+- `BindResult::pattern_ambient_module` (`crates/tsr-binder/src/lib.rs`):
+  `FindBestPatternMatch` over the quoted single-`*` `ValueModule` globals
+  (upstream's `patternAmbientModules` list is per declaration in file order;
+  the globals are a hash table, so ties on prefix length go to the earliest
+  first declaration), then the recorded augmentation for that exact name.
+  No cache: it runs only for a specifier the ambient table and the program
+  both failed to resolve, and only in programs that declare a pattern
+  (`has_pattern_ambient_modules`).
+- The checker's `resolve_external_module_name` and the compiler's
+  augmentation-resolution callback (`Program::merge_module_augmentations`)
+  call it after their file resolution misses, which is upstream's order.
+- `merge_module_augmentations` takes the pattern arm before the ordinary
+  merge: `merge_pairs(&[(augmentation, pattern)])`, then restores the
+  `merged` redirect table to what it was before the call. `merge_symbol`
+  records `source → target` at every level as it unions, and a
+  unidirectional merge records none (`recordMergedSymbol` is skipped when
+  `unidirectional`), so restoring the whole table is exactly upstream's
+  effect without a new flag through the decls box's `merge_symbol`. A second
+  augmentation of the same name then resolves (through the table) to the
+  first one and merges into it bidirectionally, as upstream does
+  (`ambientDeclarationsPatterns_merging2`).
+- The table rides `Binder` across `resuming`/`into_result`
+  (`pattern_ambient_module_augmentations`), like every other `BindResult`
+  field.
+
+In place rather than upstream's clone: upstream's unidirectional merge clones
+the (non-transient) augmentation and records `augmentation → clone`. Here the
+augmentation symbol itself receives the pattern's exports, and a same-named
+export of both is unioned into the *augmentation's* export (`merging3`'s
+`OhNo`). Nothing but the augmentation reaches those symbols, so the in-place
+union is observably the same; the pattern's own symbols are only read.
+
+### Measured
+
+Unfiltered, against the box baseline re-frozen at `8297e51` (§3 plus an
+integration-branch merge): diagnostics **+3 cases**
+(`ambientDeclarationsPatterns_merging1`/`2`/`3`), `checker_types` **+21
+aligned RIGHT lines** (`ambientDeclarationsPatterns` 13, the three merging
+cases 8), **0 lost** in either.
+
+The TS2307 rule (`module_specifier_unfindable`, `check.rs`) declined whenever
+*any* pattern module existed, because a match was possible and could not be
+tested. It now declines only when a pattern matches. Measured with the rest of
+this section: no diagnostics verdict moved from it alone.

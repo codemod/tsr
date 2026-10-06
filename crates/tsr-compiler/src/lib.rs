@@ -437,9 +437,9 @@ impl<'a> Program<'a> {
     /// decides and applies each merge
     /// ([`BindResult::merge_module_augmentations`]); this supplies the module
     /// resolution it needs: `resolveExternalModuleNameWorker` reduced to
-    /// `tryFindAmbientModule` (`checker.go:15533`) and then this program's
-    /// resolved module in the usage's mode, the same two steps
-    /// `tsr_checker`'s `resolve_external_module_name` takes.
+    /// `tryFindAmbientModule` (`checker.go:15533`), this program's resolved
+    /// module in the usage's mode, and then the pattern ambient modules — the
+    /// same three steps `tsr_checker`'s `resolve_external_module_name` takes.
     fn merge_module_augmentations(&mut self, arena: &'a Arena) {
         let bound = std::mem::replace(&mut self.binder, BindResult::empty());
         let program = &*self;
@@ -464,8 +464,12 @@ impl<'a> Program<'a> {
                     return Some(ambient);
                 }
                 let mode = program.mode_for_usage_location(importing_file, usage);
-                let target = program.resolved_module_in_mode(importing_file, specifier, mode)?;
-                bound.symbol_of(target)
+                match program.resolved_module_in_mode(importing_file, specifier, mode) {
+                    Some(target) => bound.symbol_of(target),
+                    // `resolveExternalModule`'s pattern-ambient arm
+                    // (`checker.go:15364`), after a failed file resolution.
+                    None => bound.pattern_ambient_module(specifier),
+                }
             },
         );
         self.binder = merged;

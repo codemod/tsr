@@ -3544,7 +3544,7 @@ impl Checker<'_, '_> {
     /// |---|---|
     /// | the specifier resolves to a file | TS2306 `File_0_is_not_a_module`, TS7016, the `node16` mode family — never 2307 |
     /// | a `declare module "x"` names it | resolved; no diagnostic |
-    /// | a **pattern** ambient module could match (`declare module "foo/*"`) | resolved by `FindBestPatternMatch` (`checker.go:15364`), which this port does not implement — so a match is *possible* and silence is the only sound answer |
+    /// | a **pattern** ambient module matches (`declare module "foo/*"`) | resolved by `FindBestPatternMatch` (`checker.go:15364`); names-modules notes §6 |
     /// | a Node core module name (`fs`, `path`, …) | TS2580/TS2591, substituted by `getCannotResolveModuleNameErrorForSpecificModule` (`checker.go:15109`) |
     /// | `@types/…` | TS6137 is emitted *as well*, so the multiset would still differ |
     ///
@@ -3803,9 +3803,11 @@ impl Checker<'_, '_> {
         if self.ambient_module_for_diagnostics(text).is_some() {
             return false;
         }
-        // A pattern ambient module is unported (`checker.go:15364`); declining
-        // whenever one *exists* is the sound bound, not whenever one matches.
-        if self.has_pattern_ambient_module() {
+        // `resolveExternalModule`'s pattern arm (`checker.go:15364`): a
+        // matching `declare module "prefix*suffix"` resolves the specifier.
+        // Upstream asks it only after the program's resolution misses; a
+        // resolution hit returns `false` below either way.
+        if self.has_pattern_ambient_module() && self.binder.pattern_ambient_module(text).is_some() {
             return false;
         }
         if is_node_core_module(text) {

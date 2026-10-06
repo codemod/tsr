@@ -3017,7 +3017,14 @@ impl<'a> Checker<'a, '_> {
         let importing_file = self.source_file_of(location)?;
         let host = self.module_host?;
         let mode = self.module_resolution_mode(host, importing_file, location);
-        let target = host.resolved_module_in_mode(importing_file, text, mode)?;
+        let Some(target) = host.resolved_module_in_mode(importing_file, text, mode) else {
+            // `resolveExternalModule`'s pattern-ambient arm (`checker.go:15364`):
+            // only after the file resolution failed. names-modules notes §6.
+            if !self.has_pattern_ambient_modules {
+                return None;
+            }
+            return self.binder.pattern_ambient_module(text);
+        };
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
         // that is not an external module — upstream's `File_0_is_not_a_module` —
         // and it is the reason the host answers a *file* rather than a symbol:
