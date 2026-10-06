@@ -952,7 +952,10 @@ impl Relater<'_, '_, '_> {
         // structuredTypeRelatedTo compares primitive sources through their
         // apparent wrapper type (internal/checker/relater.go). Indexed targets
         // still need sourceIsPrimitive rules for an acceptance, but a failed
-        // required-property comparison already proves a rejection.
+        // required-property comparison already proves a rejection under every
+        // relation: `propertiesRelatedTo` runs before `indexSignaturesRelatedTo`
+        // in structuredTypeRelatedToWorker (relater.go), so `number -> any[]`
+        // fails on the missing `length` whatever the index infos say.
         if s.intersects(TypeFlags::PRIMITIVE)
             && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
             && t.intersects(TypeFlags::OBJECT)
@@ -964,8 +967,7 @@ impl Relater<'_, '_, '_> {
                     .get_index_infos_of_type(target)
                     .is_some_and(|infos| !infos.is_empty())
                 {
-                    return if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
-                        && self.has_members(apparent)
+                    return if self.has_members(apparent)
                         && self.has_members(target)
                         && self.properties_related_to(apparent, target)
                             == RelationResult::NotRelated
@@ -1391,6 +1393,20 @@ impl Relater<'_, '_, '_> {
         matches!(self.checker.type_of(id).data, TypeData::Named { members: Some(symbol), .. }
             if self.checker.binder.symbols().get(symbol).flags
                 .intersects(tsr_binder::SymbolFlags::TYPE_ALIAS))
+    }
+
+    /// Whether a type parameter's declaration writes an `extends` clause, so
+    /// an absent `type_parameter_constraint` means unread rather than none.
+    fn declares_written_constraint(&self, id: TypeId) -> bool {
+        self.checker.type_parameter_symbols.get(&id).is_some_and(|&symbol| {
+            self.checker.binder.symbols().get(symbol).declarations.iter().any(|&node| {
+                matches!(
+                    self.checker.node_map.get(node),
+                    Some(tsr_ast::Node::TypeParameterDeclaration(parameter))
+                        if parameter.constraint.is_some()
+                )
+            })
+        })
     }
 
     /// Whether `id` is a class instance whose declaration has an `extends` or
@@ -2580,6 +2596,47 @@ impl Relater<'_, '_, '_> {
             if direct == Some(RelationResult::Unknown) {
                 return RelationResult::Unknown;
             }
+        }
+        // structuredTypeRelatedToWorker's type-parameter target arm
+        // (relater.go:3435): comparability forbids relating two type
+        // parameters unless one extends the other, so a type-parameter source
+        // relates only through a constraint that itself mentions a type
+        // parameter (`someType`), and otherwise is False.
+        if self.relation == Relation::Comparable
+            && self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+        {
+            let Some(constraint) = self.checker.type_parameter_constraint(source) else {
+                // An unreadable written constraint is not native's absent one.
+                return if self.declares_written_constraint(source) {
+                    RelationResult::Unknown
+                } else {
+                    RelationResult::NotRelated
+                };
+            };
+            // getConstraintOfTypeParameter answers nil for a circular
+            // constraint (hasNonCircularBaseConstraint).
+            let mut seen = vec![source];
+            let mut link = constraint;
+            while self.checker.type_of(link).flags.contains(TypeFlags::TYPE_PARAMETER) {
+                if seen.contains(&link) {
+                    return RelationResult::NotRelated;
+                }
+                seen.push(link);
+                let Some(next) = self.checker.type_parameter_constraint(link) else { break };
+                link = next;
+            }
+            let mentions_parameter = match self.union_constituents(constraint) {
+                Some(types) => types
+                    .iter()
+                    .any(|&ty| self.checker.type_of(ty).flags.contains(TypeFlags::TYPE_PARAMETER)),
+                None => self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER),
+            };
+            return if mentions_parameter {
+                self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+            } else {
+                RelationResult::NotRelated
+            };
         }
         if let Some(result) = self.generic_mapped_target_related_to(source, target)
             && result != RelationResult::NotRelated
