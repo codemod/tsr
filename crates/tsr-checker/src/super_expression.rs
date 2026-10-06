@@ -104,14 +104,13 @@ impl Checker<'_, '_> {
     /// whose container is `constructor`.
     ///
     /// Upstream's test is `!isPostSuperFlowNode(node.FlowNode)`
-    /// (`flow.go:2611`): some flow path reaches the use without passing a
-    /// `super(...)` call. This port answers it without the flow graph where
-    /// the answer is certain in the reporting direction: a **parameter
-    /// initializer** (evaluated before the body), and otherwise
-    /// [`Checker::certainly_reached_before_super`]. §307; the structured walk
-    /// replaced its statement-index test, which reported a use sharing a
-    /// top-level statement with a `super()` before it
-    /// (`docs/parity/notes/misc-checks.md` §17).
+    /// ([`Checker::is_post_super_flow_node`]): some flow path reaches the use
+    /// without passing a `super(...)` call node. The binder records a flow
+    /// node for every `this` and `super` keyword and a `FlowFlags::CALL` node
+    /// after every `super(...)` call, so the walk runs on the graph itself; a
+    /// keyword with no flow node is in unreachable code, which upstream
+    /// treats as post-super. This replaced §307's statement-index test and
+    /// §17's structural walk (`docs/parity/notes/misc-checks.md` §21).
     pub(crate) fn check_this_before_super_in(
         &mut self,
         node: NodeId,
@@ -122,176 +121,11 @@ impl Checker<'_, '_> {
         if self.extends_clause_base(class).is_none() || self.class_declaration_extends_null(class) {
             return;
         }
-        let Some(Node::ConstructorDeclaration(declaration)) = self.node_map.get(constructor) else {
-            return;
-        };
-        let Some(body) = declaration.body.and_then(|body| body.node_id()) else { return };
-        let Some(Node::Block(_)) = self.node_map.get(body) else { return };
-        let in_parameter =
-            self.nodes.ancestors(node).take_while(|&it| it != constructor).any(|it| {
-                self.nodes.kind(it) == SyntaxKind::Parameter
-                    && self.nodes.parent(it) == Some(constructor)
-            });
-        if !in_parameter && !self.certainly_reached_before_super(node, body) {
+        let Some(flow) = self.binder.flow_of(node) else { return };
+        if self.is_post_super_flow_node(flow) {
             return;
         }
         self.report_super_error(node, message);
-    }
-
-    /// Is there certainly a flow path from the constructor body's start to
-    /// `node` that completes every statement before it without a `super()`
-    /// call? Walks the ancestor chain top-down. At a statement list (block,
-    /// case clause) every earlier sibling must have such a path
-    /// ([`Checker::super_free_completion`]); an `if` is entered through a
-    /// branch once its condition holds no `super()`; a `switch` clause is
-    /// entered by the dispatch jump once the discriminant and the case labels
-    /// hold none. Any other container is a leaf, certain when each of its
-    /// `super()` calls is evaluated after the use
-    /// ([`Checker::super_calls_follow`]).
-    /// `false` means "not certain", never "post-super".
-    fn certainly_reached_before_super(&self, node: NodeId, body: NodeId) -> bool {
-        let mut chain: Vec<NodeId> =
-            self.nodes.ancestors(node).take_while(|&it| it != body).collect();
-        chain.reverse();
-        if chain.iter().any(|&it| self.is_function_like_declaration(it)) {
-            return false;
-        }
-        let mut container = body;
-        for &child in chain.iter().chain(std::iter::once(&node)) {
-            match self.node_map.get(container) {
-                Some(Node::Block(_) | Node::CaseOrDefaultClause(_)) => {
-                    let mut earlier = Vec::new();
-                    if let Some(typed) = self.node_map.get(container) {
-                        tsr_ast::for_each_child_id(typed, |it| earlier.push(it));
-                    }
-                    for sibling in earlier.into_iter().take_while(|&it| it != child) {
-                        if !self.super_free_completion(sibling) {
-                            return false;
-                        }
-                    }
-                }
-                Some(Node::IfStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    if statement
-                        .expression
-                        .and_then(|e| e.node_id())
-                        .is_some_and(|condition| self.subtree_calls_super(condition))
-                    {
-                        return false;
-                    }
-                }
-                Some(Node::SwitchStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    if statement
-                        .expression
-                        .and_then(|e| e.node_id())
-                        .is_some_and(|discriminant| self.subtree_calls_super(discriminant))
-                    {
-                        return false;
-                    }
-                }
-                Some(Node::CaseBlock(block)) => {
-                    if block.clauses.iter().any(|clause| {
-                        clause
-                            .expression
-                            .and_then(|e| e.node_id())
-                            .is_some_and(|label| self.subtree_calls_super(label))
-                    }) {
-                        return false;
-                    }
-                }
-                _ => return self.super_calls_follow(container, node),
-            }
-            container = child;
-        }
-        true
-    }
-
-    /// Every `super()` call in `container` (outside nested functions) is
-    /// evaluated after `node`: it encloses `node` (arguments are evaluated
-    /// before the call's flow node) or starts after `node` ends (expressions
-    /// evaluate left to right; a loop is entered through its entry edge,
-    /// which `isPostSuperFlowNode` follows alone at a loop label).
-    fn super_calls_follow(&self, container: NodeId, node: NodeId) -> bool {
-        let end = self.nodes.span(node).end;
-        let mut stack = vec![container];
-        while let Some(at) = stack.pop() {
-            if matches!(self.node_map.get(at), Some(Node::CallExpression(call))
-                if call.expression.and_then(|e| e.node_id())
-                    .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
-                && !self.nodes.ancestors(node).any(|it| it == at)
-                && self.nodes.span(at).start < end
-            {
-                return false;
-            }
-            if let Some(typed) = self.node_map.get(at) {
-                tsr_ast::for_each_child_id(typed, |child| {
-                    if !self.is_function_like_or_static_block(child) {
-                        stack.push(child);
-                    }
-                });
-            }
-        }
-        true
-    }
-
-    /// Does `node` certainly have a path that completes normally without a
-    /// `super()` call? Holds for a subtree with no `super()` call and no
-    /// `return`/`throw`/`break`/`continue` (outside nested functions), an
-    /// `if` whose condition holds no `super()` and one of whose branches
-    /// (a missing `else` counts) has such a path, and a block whose
-    /// statements all do. Anything else is uncertain.
-    fn super_free_completion(&self, node: NodeId) -> bool {
-        if !self.subtree_calls_super(node) {
-            return !self.subtree_has_jump(node);
-        }
-        match self.node_map.get(node) {
-            Some(Node::IfStatement(statement)) => {
-                let condition = statement.expression.and_then(|e| e.node_id());
-                if condition.is_some_and(|condition| self.subtree_calls_super(condition)) {
-                    return false;
-                }
-                let branch = |branch: Option<tsr_ast::Statement<'_>>| {
-                    branch.and_then(|b| b.node_id()).is_none_or(|b| self.super_free_completion(b))
-                };
-                branch(statement.else_statement)
-                    || statement
-                        .then_statement
-                        .and_then(|b| b.node_id())
-                        .is_some_and(|b| self.super_free_completion(b))
-            }
-            Some(Node::Block(_)) => {
-                let mut statements = Vec::new();
-                if let Some(typed) = self.node_map.get(node) {
-                    tsr_ast::for_each_child_id(typed, |it| statements.push(it));
-                }
-                statements.into_iter().all(|it| self.super_free_completion(it))
-            }
-            _ => false,
-        }
-    }
-
-    /// A `return`, `throw`, `break` or `continue` in the subtree, not
-    /// counting nested functions.
-    fn subtree_has_jump(&self, node: NodeId) -> bool {
-        if matches!(
-            self.nodes.kind(node),
-            SyntaxKind::ReturnStatement
-                | SyntaxKind::ThrowStatement
-                | SyntaxKind::BreakStatement
-                | SyntaxKind::ContinueStatement
-        ) {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(node) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| {
-            !self.is_function_like_or_static_block(child) && self.subtree_has_jump(child)
-        })
     }
 
     /// `ast.GetSuperContainer` (`ast/utilities.go:1825`).

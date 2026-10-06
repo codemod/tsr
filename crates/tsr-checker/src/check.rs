@@ -9249,26 +9249,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// Does this subtree contain a `super(...)` call, not descending into a
-    /// nested function-like?
-    pub(crate) fn subtree_calls_super(&self, node: NodeId) -> bool {
-        if let Some(Node::CallExpression(call)) = self.node_map.get(node)
-            && call
-                .expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SuperKeyword)
-        {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(node) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| {
-            !self.is_function_like_or_static_block(child) && self.subtree_calls_super(child)
-        })
-    }
-
     /// TS2481 — `Cannot initialize outer scoped variable '{0}' in the same
     /// scope as block scoped declaration '{1}'.`
     ///

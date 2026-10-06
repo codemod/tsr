@@ -498,3 +498,28 @@ still asked for); not ported.
 `ambientExternalModuleInsideNonAmbientExternalModule` converted; every TS1147,
 TS2435 and TS2668 line of `privacyImportParseErrors` (+42 lines, 10 wrong
 TS2664 removed) and `privacyGloImportParseErrors` (+13) is right; none lost.
+
+## §21 TS17009 / TS17011 on the flow graph: `isPostSuperFlowNode` ported
+
+**Supersedes §17's structural walk.** The binder already records a flow node
+for every `this` and `super` keyword and a `FlowFlags::CALL` node after every
+`super(...)` call (`bind_call_expression_flow`), so `checkThisBeforeSuper`'s
+real test, `!isPostSuperFlowNode(node.FlowNode)` (`flow.go:2604`), is ported
+arm for arm as `Checker::is_post_super_flow_node` in `flow.rs`: assignment,
+condition, array-mutation and switch-clause nodes pass through; a call node
+whose callee is `super` answers post-super; a branch label needs every
+(reduce-label-aware) antecedent post-super; a loop label follows its entry
+edge; anything else is post-super only when unreachable. A keyword with no
+flow node is in unreachable code (silence, as upstream).
+
+**Cache.** Upstream's `c.flowNodePostSuper` lives for the checker; this one is
+per query (a local map keyed by shared `FlowId`, published when its worker
+returns). It keeps one walk linear; a checker-lifetime cache would need a new
+`Checker` field for a rare diagnostic. Falsifier: a profile showing repeated
+walks of one large constructor graph.
+
+**Measured.** The `?:`, `&&`/`||` and loop declines §17 listed are gone:
+`checkSuperCallBeforeThisAccess`'s last TS17009 (line 39) is right (the case
+still owes five TS2855 lines); none lost in the diagnostics dump.
+§17's helpers (`super_free_completion`, `subtree_has_jump`,
+`super_calls_follow`, `subtree_calls_super`) are deleted.
