@@ -1,0 +1,65 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index 4e4cb4b..56df203 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -628,7 +628,23 @@ impl<'a> Checker<'a, '_> {
+             return None;
+         }
+         let literal = parent;
+-        let contextual = self.get_contextual_type(literal)?;
++        // `checker.go:12049-12054`: with no contextual type for the containing
++        // literal, `this` is `getWidenedType(checkExpressionCached(literal))` —
++        // the literal's own type.
++        let Some(contextual) = self.get_contextual_type(literal) else {
++            if !self.node_types.contains_key(&literal)
++                && self.object_literal_member_return_is_resolving(literal)
++            {
++                // This port's literal check prints member signatures eagerly,
++                // so checking an uncached literal while one of its members'
++                // return type resolves re-enters that member; upstream's
++                // literal check never asks for a return type. Decline to the
++                // pre-existing receiver (docs/parity/notes/contextual.md §6).
++                return None;
++            }
++            let own = self.check_expression_at_node(literal);
++            return Some(self.widen_object_literal_freshness(own));
++        };
+         let contextual = self.instantiate_contextual_inference_type(contextual, literal);
+         let contextual = self.apparent_contextual_type(contextual);
+         // getThisTypeOfObjectLiteralFromContextualType also checks directly
+@@ -676,6 +692,35 @@ impl<'a> Checker<'a, '_> {
+         Some(self.widen_object_literal_freshness(contextual))
+     }
+ 
++    /// Whether a function-valued member of `literal` (a method, an accessor or
++    /// a property's function expression) has its return type on the
++    /// resolution stack. No upstream counterpart: upstream resolves those
++    /// return types lazily, after `checkObjectLiteral` has cached the literal.
++    fn object_literal_member_return_is_resolving(&mut self, literal: NodeId) -> bool {
++        use tsr_ast::{Expression, Node, ObjectLiteralElementLike};
++        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
++            return false;
++        };
++        object.properties.iter().any(|property| {
++            let member = match property {
++                ObjectLiteralElementLike::MethodDeclaration(method) => method.node_id,
++                ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => accessor.node_id,
++                ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => accessor.node_id,
++                ObjectLiteralElementLike::PropertyAssignment(assignment) => {
++                    match assignment.initializer {
++                        Some(Expression::FunctionExpression(function)) => function.node_id,
++                        Some(Expression::ArrowFunction(function)) => function.node_id,
++                        _ => None,
++                    }
++                }
++                _ => None,
++            };
++            member.is_some_and(|member| {
++                self.resolutions.active_signature_keys(member).next().is_some()
++            })
++        })
++    }
++
+     /// getContextualThisParameterType's assignment arm (checker.go).
+     /// The receiver of `obj.member = function () {}` supplies the contextual
+     /// this type when no signature or containing literal supplied one.
