@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7659/9538 (80.30%)
-Assertion lines: 467667/478855 (97.66%)  — a gradient, not a pass rate
-Failed         : 1879
+Passed         : 7698/9538 (80.71%)
+Assertion lines: 467948/478855 (97.72%)  — a gradient, not a pass rate
+Failed         : 1840
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1879 failures:
+First 100 of 1840 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -53,8 +53,6 @@ compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
 compiler/ambientExportDefaultErrors
   foo.d.ts: >Foo : typeof Foo — expected >Foo : typeof import("./foo")
-compiler/ambientExternalModuleReopen
-  ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
 compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: unknown) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
@@ -63,8 +61,6 @@ compiler/arguments
   arguments.ts: >method : any — expected >method : (args: typeof arguments) => void
 compiler/argumentsAsPropertyName2
   argumentsAsPropertyName2.ts: >[].forEach : (callbackfn: (value: undefined, index: number, array: undefined[]) => void, thisArg?: any) => void — expected >[].forEach : (callbackfn: (value: any, index: number, array: any[]) => void, thisArg?: any) => void
-compiler/argumentsReferenceInFunction1_Js
-  index.js: >debuglog : () => any — expected >debuglog : () => string
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
@@ -118,7 +114,7 @@ compiler/awaitedTypeJQuery
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
 compiler/awaitedTypeStrictNull
-  awaitedTypeStrictNull.ts: >T13 : _Expect<string | number | null, string | number | null> — expected >T13 : string | number | null
+  awaitedTypeStrictNull.ts: >MaybePromise : MaybePromise — expected >MaybePromise : MaybePromise<T>
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseClassImprovedMismatchErrors
@@ -213,3 +209,7 @@ compiler/classDeclarationMergedInModuleWithContinuation
   classDeclarationMergedInModuleWithContinuation.ts: >M.N : M.N — expected >M.N : N
 compiler/classDeclaredBeforeClassFactory
   classDeclaredBeforeClassFactory.ts: >makeBaseClass() : typeof Base — expected >makeBaseClass() : Base
+compiler/classExpressionNames
+  ts.ts: >({ B: undefined }) : { B: undefined; } — expected >({ B: undefined }) : { B?: undefined; }
+compiler/classExpressionWithStaticProperties1
+  classExpressionWithStaticProperties1.ts: >c : any — expected >c : number

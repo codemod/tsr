@@ -2414,6 +2414,14 @@ fn a_bare_reference_to_an_all_defaulted_generic_fills_from_its_defaults() {
 }
 
 #[test]
+fn a_circular_generic_default_recovers_to_unknown() {
+    let source = "interface Cycle<T=keyof Cycle> { own:number; value:T }\n\
+                  declare const x:Cycle; declare const explicit:Cycle<string>;";
+    assert_eq!(type_of_declaration(source, "x"), "Cycle<unknown>");
+    assert_eq!(type_of_declaration(source, "explicit"), "Cycle<string>");
+}
+
+#[test]
 fn a_bare_reference_prints_every_filled_argument_not_an_empty_list() {
     // The first build passed `Some(0)` as the display arity — §136's written-arity
     // model — and printed `I<>`, which is a spelling no TypeScript emits. The
@@ -3220,4 +3228,97 @@ fn an_empty_rest_expansion_leaves_no_trailing_separator() {
     );
     assert!(!printed.contains(", )"), "stray separator in {printed}");
     assert!(!printed.contains("( "), "stray leading separator in {printed}");
+}
+
+/// Full default diagnostics and repeated value queries share one Checker.
+fn default_diagnostics_and_queries(
+    source: &str,
+    names: &[&str],
+) -> (Vec<(String, String, String)>, Vec<String>) {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.check_source_file(
+        root,
+        tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+    );
+    let mut types = Vec::new();
+    for name in names {
+        let symbol = bound.lookup_local(root, name).expect("declared variable");
+        let ty = checker.get_type_of_symbol(symbol);
+        types.push(checker.type_to_string(ty));
+    }
+    let diagnostics = checker
+        .diagnostics()
+        .iter()
+        .map(|(_, d)| {
+            (d.code(), source[d.span.start as usize..d.span.end as usize].to_string(), d.text())
+        })
+        .collect();
+    (diagnostics, types)
+}
+
+#[test]
+fn a_circular_default_reports_once_and_preserves_later_query_answers() {
+    let source = "interface Cycle<T=keyof Cycle> { own:number; value:T }\n\
+                  declare const x:Cycle; declare const explicit:Cycle<string>;\n\
+                  interface V<T=number> { value:T } declare const valid:V;";
+    let (diagnostics, types) = default_diagnostics_and_queries(
+        source,
+        &["x", "explicit", "valid", "valid", "explicit", "x"],
+    );
+    assert_eq!(
+        diagnostics,
+        vec![(
+            "TS2716".into(),
+            "keyof Cycle".into(),
+            "Type parameter 'T' has a circular default.".into()
+        )]
+    );
+    assert_eq!(
+        types,
+        [
+            "Cycle<unknown>",
+            "Cycle<string>",
+            "V<number>",
+            "V<number>",
+            "Cycle<string>",
+            "Cycle<unknown>"
+        ]
+    );
+}
+
+#[test]
+fn mutual_defaults_report_the_native_reentered_parameter_only() {
+    // Native checks the written default before asking for this parameter's
+    // resolved default. Reversing that order wrongly reports T instead of U.
+    let source =
+        "interface A<T=keyof B> { a:T }\ninterface B<U=keyof A> { b:U }\ndeclare const x:A;";
+    let (diagnostics, _) = default_diagnostics_and_queries(source, &[]);
+    assert_eq!(
+        diagnostics,
+        vec![(
+            "TS2716".into(),
+            "keyof A".into(),
+            "Type parameter 'U' has a circular default.".into()
+        )]
+    );
+}
+
+#[test]
+fn unrelated_same_spelled_default_parameters_do_not_share_completion() {
+    let source = "interface Left<T=number> { value:T } interface Right<T=string> { value:T }\n\
+                  declare const left:Left; declare const right:Right;";
+    let (diagnostics, types) =
+        default_diagnostics_and_queries(source, &["left", "right", "left", "right"]);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(types, ["Left<number>", "Right<string>", "Left<number>", "Right<string>"]);
 }

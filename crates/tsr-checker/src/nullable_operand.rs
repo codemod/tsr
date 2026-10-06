@@ -210,10 +210,26 @@ impl Checker<'_, '_> {
             // `docs/parity/notes/operators.md`.
             return self.intrinsics.error;
         }
-        if self.strict_null_checks {
-            self.report_nullable_operand_of_type(operand, ty);
+        // The reporter runs on `getTypeFacts(t, IsUndefinedOrNull)` whatever
+        // `strictNullChecks` says: `null` and `undefined` keep `IsNull` /
+        // `IsUndefined` in the non-strict fact sets (`checker.go:471-472`), so
+        // `+null` is TS18050 under `@strict: false` too
+        // (`docs/parity/notes/operators.md` §10).
+        self.report_nullable_operand_of_type(operand, ty);
+        let non_null = self.check_non_null_type(ty);
+        // Non-strict `GetNonNullableType` is the identity, and upstream's tail
+        // (`checker.go:7429`) still answers `errorType` for a nullable or
+        // never result; `check_non_null_type` returns the type unchanged there.
+        if !self.strict_null_checks
+            && non_null == ty
+            && self.type_of(ty).flags.intersects(TypeFlags::NULLABLE | TypeFlags::NEVER)
+            && self
+                .get_type_facts(ty)
+                .intersects(crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL)
+        {
+            return self.intrinsics.error;
         }
-        self.check_non_null_type(ty)
+        non_null
     }
 
     /// `getTypeFacts(t, TypeFactsIsUndefinedOrNull)` reduced to the two bits

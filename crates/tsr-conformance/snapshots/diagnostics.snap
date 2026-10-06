@@ -2,16 +2,16 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3906/5488 (71.17%)
-Failed         : 1582
-Skipped        : 6956 (excluded from the denominator)
+Passed         : 4026/5502 (73.17%)
+Failed         : 1476
+Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
-  5082  skipped: the case expects no diagnostics (see parser_typescript)
+  5068  skipped: the case expects no diagnostics (see parser_typescript)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1582 failures:
+First 100 of 1476 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -54,36 +54,14 @@ compiler/arrayConcatMap
   1 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
-compiler/arraySigChecking
-  2 missing (first TS2322 at arraySigChecking.ts(22,13))
 compiler/arrowExpressionBodyJSDoc
   2 missing (first TS2322 at mytest.js(6,44))
 compiler/arrowFunctionErrorSpan
   1 missing (first TS1200 at arrowFunctionErrorSpan.ts(18,5))
 compiler/arrowFunctionsMissingTokens
   1 unexpected (first TS2304 at arrowFunctionsMissingTokens.ts(6,14)), 0 missing
-compiler/assigningFunctionToTupleIssuesError
-  1 missing (first TS2322 at assigningFunctionToTupleIssuesError.ts(2,5))
 compiler/assignmentCompat1
   2 missing (first TS2322 at assignmentCompat1.ts(8,1))
-compiler/assignmentCompatBug5
-  1 unexpected (first TS2345 at assignmentCompatBug5.ts(5,6)), 2 missing
-compiler/assignmentCompatability16
-  1 missing (first TS2322 at assignmentCompatability16.ts(9,1))
-compiler/assignmentCompatability18
-  1 missing (first TS2322 at assignmentCompatability18.ts(9,1))
-compiler/assignmentCompatability20
-  1 missing (first TS2322 at assignmentCompatability20.ts(9,1))
-compiler/assignmentCompatability22
-  1 missing (first TS2322 at assignmentCompatability22.ts(9,1))
-compiler/assignmentCompatability29
-  1 missing (first TS2322 at assignmentCompatability29.ts(9,1))
-compiler/assignmentCompatability30
-  1 missing (first TS2322 at assignmentCompatability30.ts(9,1))
-compiler/assignmentCompatability31
-  1 missing (first TS2322 at assignmentCompatability31.ts(9,1))
-compiler/assignmentCompatability32
-  1 missing (first TS2322 at assignmentCompatability32.ts(9,1))
 compiler/assignmentCompatability40
   1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
 compiler/assignmentToAnyArrayRestParameters
@@ -98,8 +76,6 @@ compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
 compiler/augmentExportEquals5
   1 missing (first TS2454 at consumer.ts(4,11))
-compiler/augmentExportEquals7
-  1 missing (first TS2649 at /node_modules/@types/lib-extender/index.d.ts(2,16))
 compiler/autoLift2
   2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/awaitCallExpressionInSyncFunction
@@ -122,8 +98,6 @@ compiler/bases
   3 missing (first TS2693 at bases.ts(7,17))
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
-compiler/bigIntWithTargetLessThanES2016
-  2 missing (first TS2791 at bigIntWithTargetLessThanES2016.ts(1,1))
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 1 missing
 compiler/bigintIndex
@@ -137,7 +111,7 @@ compiler/bindingPatternCannotBeOnlyInferenceSource
 compiler/bluebirdStaticThis
   1 unexpected (first TS2724 at bluebirdStaticThis.ts(22,51)), 2 missing
 compiler/builtinIterator
-  1 unexpected (first TS2345 at builtinIterator.ts(73,29)), 6 missing
+  5 missing (first TS2511 at builtinIterator.ts(38,1))
 compiler/cannotIndexGenericWritingError
   2 missing (first TS2862 at cannotIndexGenericWritingError.ts(4,5))
 compiler/capturedParametersInInitializers1
@@ -167,7 +141,7 @@ compiler/checkJsxNotSetError
 compiler/checkMergedGlobalUMDSymbol
   2 missing (first TS2451 at global.d.ts(3,21))
 compiler/checkSuperCallBeforeThisAccess
-  3 unexpected (first TS17009 at checkSuperCallBeforeThisAccess.ts(15,22)), 10 missing
+  6 missing (first TS2855 at checkSuperCallBeforeThisAccess.ts(9,24))
 compiler/checkerInitializationCrash
   2 missing (first TS2300 at /node_modules/@fullcalendar/core/index.d.ts(4,10))
 compiler/checkingObjectWithThisInNamePositionNoCrash
@@ -200,10 +174,8 @@ compiler/classExpressionWithDecorator1
   1 unexpected (first TS2304 at classExpressionWithDecorator1.ts(1,10)), 0 missing
 compiler/classExtendsInterfaceInExpression
   1 missing (first TS2693 at classExtendsInterfaceInExpression.ts(7,25))
-compiler/classExtendsNull
-  1 missing (first TS17005 at classExtendsNull.ts(3,9))
 compiler/classExtendsNull2
-  2 missing (first TS2417 at classExtendsNull2.ts(5,7))
+  1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
   1 missing (first TS2565 at index.js(9,23))
 compiler/classFieldSuperNotAccessible
@@ -212,3 +184,31 @@ compiler/classFieldSuperNotAccessibleJs
   2 missing (first TS2855 at index.js(20,22))
 compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
+compiler/classImplementsClass6
+  1 unexpected (first TS2339 at classImplementsClass6.ts(21,4)), 1 missing
+compiler/classMemberWithMissingIdentifier2
+  1 missing (first TS2693 at classMemberWithMissingIdentifier2.ts(2,19))
+compiler/classSideInheritance1
+  1 unexpected (first TS2339 at classSideInheritance1.ts(13,3)), 1 missing
+compiler/classTypeParametersInStatics
+  2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
+compiler/classUpdateTests
+  2 missing (first TS2415 at classUpdateTests.ts(63,7))
+compiler/classWithEmptyTypeParameter
+  1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
+compiler/classWithMultipleBaseClasses
+  1 missing (first TS2420 at classWithMultipleBaseClasses.ts(18,7))
+compiler/cloduleTest2
+  4 missing (first TS2576 at cloduleTest2.ts(18,7))
+compiler/clodulesDerivedClasses
+  1 missing (first TS2417 at clodulesDerivedClasses.ts(9,7))
+compiler/coAndContraVariantInferences5
+  1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))
+compiler/coAndContraVariantInferences6
+  1 unexpected (first TS2345 at coAndContraVariantInferences6.ts(34,23)), 1 missing
+compiler/collisionExportsRequireAndAlias
+  2 missing (first TS2441 at collisionExportsRequireAndAlias_file2.ts(1,8))
+compiler/commonMissingSemicolons
+  1 missing (first TS1003 at commonMissingSemicolons.ts(26,18))
+compiler/commonSourceDirectory_dts
+  1 missing (first TS5011 at /app/tsconfig.json(3,9))

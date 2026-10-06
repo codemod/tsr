@@ -75,6 +75,11 @@ and reports nothing. **Falsifier / reopening condition:** when the calls /
 inference owner stops publishing the speculative parameter type, wiring the
 report should convert the lane's TS18046 lines (17 missing) with no loss.
 
+**Re-measured on `b935784`** (calls-4 merged): wiring TS18046/TS2571 here
+gives MISSING TS18046 22 → 17 but 7 extras and three EMPTY_RIGHT →
+EMPTY_WRONG losses — `mapGroupBy`, `nonInferrableTypePropagation2`, and now
+`neverInference`. Still not shipped.
+
 ## 3. The arithmetic arm is a port (TS2362, TS2363, TS2447, TS2365, TS18050)
 
 **Forcing constraint.** At `590ac64` the lane missed 83 TS2362 and 48 TS2363.
@@ -185,6 +190,10 @@ the patch, refreshed to apply on that head, is +10 cases (the nine above plus
 `noImplicitSymbolToString`, which also needed §7) with the same single loss;
 lane MISSING TS2365 55 → 5.
 
+**Re-measured on `d394fe7`** (after §8 and §10): same +10 / −1; with §10
+the patch also takes MISSING TS18050 17 → 7. The patch now reuses
+`assignment_operand_type` for the left operand.
+
 **Reopening condition.** When the calls/contextual owner types that arrow's
 parameter as `number` (or as `any`, which silences TS2365 the way upstream's
 `IsTypeAny` does), `git apply docs/parity/notes/operators-plus.diff` should
@@ -234,3 +243,74 @@ template counterpart of `+`'s `checkForDisallowedESSymbolOperand`.
 **Measured** (against §6's tree): MISSING TS2731 7 → 0, extra 0, zero
 losses; no case converts alone — `noImplicitSymbolToString` also needs the
 five `+`/`+=` TS2469 lines of the held §5 port.
+
+## 8. TS2791 — `**` on bigint below ES2016
+
+The arithmetic arm's `bothAreBigIntLike` branch (`checker.go:12390`) reports
+TS2791 on the binary expression for `**`/`**=` when `c.languageVersion <
+ES2016`. The checker did not hold the target; `Checker::language_version` is
+that field, set from `CompilerOptions::emit_script_target()` exactly as
+upstream sets `languageVersion` from `GetEmitScriptTarget()`. It is a plain
+option read, not a cache. Default `ESNext` for a checker built without
+options, which reports nothing.
+
+**Measured** (against `e749442`): +1 case (`bigIntWithTargetLessThanES2016`,
+WRONG → RIGHT), zero losses; MISSING TS2791 2 → 0.
+
+## 9. `||` / `??` generic gate (types cluster `LOGICAL-OR-COALESCE-GENERIC-GATE`) — blocked, not shipped
+
+`check_logical_or_coalescing` (`binary.rs`) returns `errorType` when either
+side of the reduced pair is a type parameter or `unknown` (or a reference
+with such arguments) instead of running `removeSubtypes`. Deleting that gate
+and letting `union_with_subtype_reduction` decide measured, on the cluster's
+five cases:
+
+- `nonNullableTypes1`, `nullishCoalescingOperator_not_strict`: all lines RIGHT.
+- `nullishCoalescingOperator2`, `nullishCoalescingOperator_es2020`: still a
+  gap on `a7 ?? 'whatever'` (want `{}`). `GetNonNullableType(unknown)` is
+  already `{}`; the subtype reducer cannot decide `"whatever"` against `{}`
+  and returns `None` (`unions.rs` / relater — not this lane).
+- `discriminatedUnionJsxElement`: **stack overflow** in the type dump. With
+  `data.menuItemsVariant ?? ListItemVariant.OneLine` now generic,
+  `narrowable_type_for_reference` asks for the contextual type of
+  `listItemVariant` in `<ListItem variant={listItemVariant} />`, JSX
+  discrimination (`jsx_intrinsic.rs` `jsx_discriminant_value_type`) calls
+  `check_expression` on that same attribute expression, which asks for its
+  narrowable type again. Upstream breaks the cycle with
+  `getContextFreeTypeOfExpression` (`checker.go:7542`): push an `any`
+  contextual type, check with `CheckModeSkipContextSensitive`, cache in
+  `contextFreeTypes`. That function belongs in the JSX lane's file.
+
+So the gate stays until `jsx_discriminant_value_type` reads the
+context-free type; then removing the type-parameter half should convert the
+first two cases with no crash. Narrowing only the `unknown` half converts
+nothing on its own (the reducer gap above), so it was not committed either.
+
+## 10. `checkNonNullType`'s reporter is not a strict-mode rule (TS18050, TS2531)
+
+Round 1's `check_non_null_type_reporting` reported only under
+`strictNullChecks`. Upstream's gate is `getTypeFacts(t, IsUndefinedOrNull)`
+(`checker.go:7425`), and the **non-strict** fact sets of `undefined` and
+`null` still carry `IsUndefined` / `IsNull` (`TypeFactsUndefinedFacts`,
+`TypeFactsNullFacts`, `checker.go:471-472`) — only the other primitives'
+non-strict sets differ. So `+null`, `~undefined` are TS18050 under
+`@strict: false` (`plusOperatorWithAnyOtherType`,
+`bitwiseNotOperatorWithAnyOtherType`). `3 + null` stays TS2365 there,
+because non-strict `null` is assignable to `string` and the `+` arm skips
+`checkNonNullType` — that is the `+` arm's own test, not this one's.
+
+The tail is upstream's too: non-strict `GetNonNullableType` is the identity,
+and a nullable or never result is `errorType` (`checker.go:7429`).
+`check_non_null_type` (`members.rs`, not this lane's) returns the operand
+unchanged in that case, so the wrapper applies the tail itself.
+
+Wiring that exposed a second gap: `++undefined` is TS2539 in
+`checkIdentifier`, which then returns `errorType` (`checker.go:11093`), so
+no TS18050 follows. The binary arm modelled that `errorType` for a compound
+assignment's left operand; the unary arm did not, and reported four extra
+TS18050 on `++undefined`/`undefined++`. Both now share
+`assignment_operand_type` (`getAssignmentTargetKind != None`: the left of a
+compound assignment, the operand of `++`/`--`).
+
+**Measured** (against `30f8d0a`): +2 cases (WRONG → RIGHT), zero losses;
+MISSING TS18050 27 → 17, TS2531 2 → 0; no new extras.
