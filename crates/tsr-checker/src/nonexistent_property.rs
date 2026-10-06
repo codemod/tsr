@@ -138,6 +138,32 @@ impl Checker<'_, '_> {
         if self.global_this_member_is_not_reported(receiver_type, name_text) {
             return;
         }
+        // `typeof globalThis` lists only its non-block-scoped exports
+        // (resolveAnonymousTypeMembers), and both access forms report a
+        // block-scoped global's name directly: at the name for a property
+        // access (checkPropertyAccessExpressionOrQualifiedName,
+        // checker.go:11337), at the whole access for an element access
+        // (getPropertyTypeForIndexType, checker.go:27145).
+        if Some(receiver_type) == self.global_this_type {
+            let report_node =
+                if matches!(self.node_map.get(node), Some(Node::ElementAccessExpression(_))) {
+                    node
+                } else {
+                    name_id
+                };
+            let Some(file) = self.source_file_of_for_diagnostics(report_node) else { return };
+            let span = self.error_span(report_node);
+            let printed = self.type_to_string(receiver_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                    span,
+                    [name_text.to_string(), printed],
+                ),
+            );
+            return;
+        }
         if !self.receiver_type_is_the_declared_one(receiver_id, receiver_type) {
             return;
         }
@@ -1047,21 +1073,15 @@ impl Checker<'_, '_> {
     /// and reporting it from this file would put an implicit-any diagnostic in
     /// the nonexistent-property rule. What this function owes is the silence.
     ///
-    /// # The block-scoped branch is unreachable today, and is kept anyway
+    /// # The block-scoped branch reports directly
     ///
-    /// Measured: `let blockScoped = 1` in a script, then
-    /// `globalThis.blockScoped` from a module, reports **nothing** — with this
-    /// guard and without it. §33 of `checker-notes-narrow.md` mints
-    /// `typeof globalThis` when the *name* fails to resolve, and a minted type
-    /// carries no members table, so `declared_members_are_complete` declines
-    /// before this function is consulted.
-    ///
-    /// So the `TS2339`-for-a-block-scoped-global arm below cannot fire. It is
-    /// kept because it is upstream's rule and because it becomes live the
-    /// moment §33's mint grows members — writing the silence without it would
-    /// make a future members table silently wrong. The divergence is pinned by
-    /// `a_block_scoped_globalthis_member_records_a_known_divergence` in
-    /// `tests/real_repo_regressions.rs`, whose assertion flips when it closes.
+    /// §33 of `checker-notes-narrow.md` mints `typeof globalThis` when the
+    /// *name* fails to resolve, and a minted type carries no members table,
+    /// so `declared_members_are_complete` cannot certify it. A block-scoped
+    /// global therefore passes this guard and is reported by upstream's own
+    /// arm in [`Checker::check_nonexistent_property`], not through the
+    /// members table; `a_block_scoped_globalthis_member_still_reports` in
+    /// `tests/real_repo_regressions.rs` pins it.
     fn global_this_member_is_not_reported(
         &mut self,
         receiver_type: crate::types::TypeId,

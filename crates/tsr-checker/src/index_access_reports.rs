@@ -147,6 +147,109 @@ impl Checker<'_, '_> {
         let object_type = self.get_type_from_type_node(object_node);
         let index_type = self.get_type_from_type_node(index_node);
         self.report_invalid_index_types(object_type, index_type, index_id);
+        // getConditionalFlowTypeOfType (checker.go) intersects an object type
+        // written in a conditional's true branch with the extends type when
+        // it is the check type (getImpliedConstraint); this port's type-node
+        // road has no such substitution, so that object is not certified.
+        if let Some(object_id) = object_node.node_id()
+            && self.type_has_implied_constraint(object_id, object_type)
+        {
+            return;
+        }
+        self.report_indexed_access_type_misses(object_type, index_type, index_id);
+    }
+
+    /// Is `node` (of type `ty`) inside the true branch of an enclosing
+    /// conditional type node whose check type is `ty`? The walk is the
+    /// node's ancestor chain, run only for a checked indexed access type.
+    fn type_has_implied_constraint(&mut self, node: NodeId, ty: TypeId) -> bool {
+        let mut child = node;
+        while let Some(parent) = self.nodes.parent(child) {
+            if let Some(Node::ConditionalTypeNode(conditional)) = self.node_map.get(parent)
+                && conditional.true_type.and_then(|true_type| true_type.node_id()) == Some(child)
+                && let Some(check) = conditional.check_type
+                && self.get_type_from_type_node(check) == ty
+            {
+                return true;
+            }
+            child = parent;
+        }
+        false
+    }
+
+    /// `getIndexedAccessTypeOrUndefined` (`checker.go:26975`) into
+    /// `getPropertyTypeForIndexType`'s final arm (`checker.go:27001`) for an
+    /// indexed access type node: no access expression, so a string or number
+    /// literal key (each constituent of a non-boolean union key) that names
+    /// no property and no applicable index signature of the reduced apparent
+    /// object type reports TS2339 at the index node. A generic object or
+    /// index is deferred (`shouldDeferIndexedAccessType`) and reports
+    /// nothing; a tuple's numeric key has its own arm. `typeof globalThis`
+    /// lists only its non-block-scoped globals (`resolveAnonymousTypeMembers`).
+    /// No cache: one certified lookup per literal key of a checked node.
+    fn report_indexed_access_type_misses(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+        index_node: NodeId,
+    ) {
+        if self.is_error(object_type)
+            || self.is_error(index_type)
+            || self.has_instantiable_constituent(object_type)
+            || self.has_instantiable_constituent(index_type)
+            || self.indexed_access_index_is_generic(index_type)
+            || self.mentions_registered_type_parameter(object_type)
+            || self.mentions_registered_type_parameter(index_type)
+            || self.tuple_element_lists.contains_key(&object_type)
+        {
+            return;
+        }
+        let constituents = match &self.store.get(index_type).data {
+            TypeData::Union { types, .. }
+                if !self.store.get(index_type).flags.intersects(TypeFlags::BOOLEAN) =>
+            {
+                types.clone()
+            }
+            _ => vec![index_type],
+        };
+        for part in constituents {
+            let Some(name) = literal_key_name(&self.store.get(part).data) else { continue };
+            let printed_type = if Some(object_type) == self.global_this_type {
+                // `globals["globalThis"]` is the `globalThis` module symbol
+                // itself (`initializeChecker`), which this binder does not
+                // declare.
+                let present = name == "globalThis"
+                    || self.binder.global(&name).is_some_and(|symbol| {
+                        !self.binder.symbols().get(symbol).flags.intersects(
+                            tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE
+                                | tsr_binder::SymbolFlags::CLASS
+                                | tsr_binder::SymbolFlags::ENUM,
+                        )
+                    });
+                if present {
+                    continue;
+                }
+                object_type
+            } else {
+                let Some(apparent) =
+                    self.destructured_property_is_absent(None, object_type, &name, false)
+                else {
+                    continue;
+                };
+                apparent
+            };
+            let Some(file) = self.source_file_of_for_diagnostics(index_node) else { return };
+            let span = self.error_span(index_node);
+            let printed = self.type_to_string(printed_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                    span,
+                    [name, printed],
+                ),
+            );
+        }
     }
 
     /// TS2537 for a non-literal `string`/`number` key (`checker.go:27216`):
