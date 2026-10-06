@@ -78,7 +78,10 @@ impl Checker<'_, '_> {
             .next()
             .and_then(|entry| self.base_symbol_of_heritage_entry(entry, false))
             .is_some_and(|base| self.has_single_type_declaration(base));
-        if base_is_single && let Some(base) = self.first_base_type_of_class_symbol(symbol) {
+        // `checkClassLikeDeclaration` (`checker.go:4293`) relates against
+        // `getBaseTypes(t)[0]` (`checker.go:19167`) and skips the arm when
+        // that list is empty — a circular or otherwise invalid base.
+        if base_is_single && let Some(&base) = self.get_base_types(symbol).first() {
             self.check_class_heritage_entry(
                 node,
                 source,
