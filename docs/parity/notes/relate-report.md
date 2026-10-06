@@ -323,3 +323,34 @@ assertions are JSDoc casts, a different path).
 Measured at `15f1743`: TS2352 matched lines 88 → 92, extra lines unchanged
 (10), no case changes verdict (`typeAssertions` still misses TS2558/TS2693/
 TS2322 owned elsewhere). Both zero-loss checks empty.
+
+## 15. Round 2: comparability between type parameters
+
+`structuredTypeRelatedToWorker`'s type-parameter target arm (`relater.go:3423`)
+carves comparability out of the source-constraint rule: under
+`comparableRelation`, a type-parameter source against a type-parameter target
+relates only through a source constraint that itself mentions a type
+parameter (`someType(constraint, isTypeParameter)`), and is otherwise
+**false** — "forbid comparing a type parameter with another type parameter
+unless one extends the other". The port had no arm, so `U` against `T` fell to
+the source's constraint (`unknown`, or `Date` for `<T extends Date, U extends
+Date>`) and answered `Unknown`; TS2352 (`<T>u`), TS2367 (`t === u`) and TS2365
+(`t < u`) were never reported.
+
+`Relater::comparable_type_parameter_pair` ports the carve-out for declared
+parameters on both sides (the synthetic polymorphic `this` keeps its existing
+path). A source with no written constraint is not comparable; a written
+constraint the port cannot read leaves the pair `Unknown` rather than guessing.
+The arm sits after the union/intersection decomposition and before the
+source-variable arms, as upstream's switch does.
+
+Converted: `compiler/genericTypeAssertions6`,
+`conformance/comparisonOperatorWithNoRelationshipTypeParameter`,
+`conformance/comparisonOperatorWithTypeParameter` (requested by the
+flow/operators lanes). Lines at `15f1743` + §14: TS2352 92 → 95, TS2365
+355 → 375, TS2367 355 → 375, no extra lines. Zero-loss checks empty.
+
+Would be wrong if: a pair of type parameters upstream relates under
+comparability without one constraining the other. The rejected alternative —
+relating through the constraint as assignability does — is what produced the
+silent `Unknown`.

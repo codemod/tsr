@@ -1271,6 +1271,45 @@ impl Relater<'_, '_, '_> {
     /// constraint and no `as` clause on both sides — because
     /// `is_generic_mapped_target` over-approximates, and a non-generic mapped
     /// type is resolved structurally upstream instead.
+    /// The comparable carve-out of the type-parameter target arm
+    /// (relater.go:3434): `None` outside it.
+    fn comparable_type_parameter_pair(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        if self.relation != Relation::Comparable
+            || !self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || !self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || !self.checker.type_parameter_symbols.contains_key(&target)
+        {
+            return None;
+        }
+        let &symbol = self.checker.type_parameter_symbols.get(&source)?;
+        let declarations = self.checker.binder.symbols().get(symbol).declarations.clone();
+        let [declaration] = declarations.as_slice() else { return None };
+        let Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) =
+            self.checker.node_map.get(*declaration)
+        else {
+            return None;
+        };
+        if parameter.constraint.is_none() {
+            return Some(RelationResult::NotRelated);
+        }
+        let Some(constraint) = self.checker.type_parameter_constraint(source) else {
+            return Some(RelationResult::Unknown);
+        };
+        let mentions_parameter = self
+            .union_constituents(constraint)
+            .unwrap_or_else(|| vec![constraint])
+            .into_iter()
+            .any(|part| self.checker.type_of(part).flags.contains(TypeFlags::TYPE_PARAMETER));
+        if !mentions_parameter {
+            return Some(RelationResult::NotRelated);
+        }
+        Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE))
+    }
+
     fn mapped_modifiers_reject(&mut self, source: TypeId, target: TypeId) -> bool {
         if matches!(self.relation, Relation::Comparable) {
             return false;
@@ -2549,6 +2588,16 @@ impl Relater<'_, '_, '_> {
         }
         if self.mapped_modifiers_reject(source, target) {
             return RelationResult::NotRelated;
+        }
+        // structuredTypeRelatedToWorker's type-parameter target arm
+        // (relater.go:3423): comparability forbids relating two type
+        // parameters unless one extends the other — a source parameter whose
+        // constraint mentions a type parameter relates through that
+        // constraint, any other source parameter is not comparable. Both
+        // sides must be declared parameters; an unreadable written
+        // constraint keeps the pair undecided.
+        if let Some(result) = self.comparable_type_parameter_pair(source, target) {
+            return result;
         }
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the
