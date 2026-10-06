@@ -276,8 +276,8 @@ carry the convention records in §12.
 
 **Corpus check, C1+C2+C3 together:** the unfiltered `diagverdictdump` is
 `cmp`-identical to the `8b24e49` baseline (both §5 loss checks trivially
-empty); the type dump was still running at wrap-up and is reported in the
-integrator message, not here. **C5 and C6 have not had a corpus run**; they
+empty), and so is the unfiltered `verdictdump` (477,917 rows: 467,950
+RIGHT, 1,175 GAP, 8,792 WRONG; zero RIGHT losses). **C5 and C6 have not had a corpus run**; they
 must pass both §5 loss checks at integration before merging.
 
 C3 is smaller than the round-1 probe (−3.94% then) because the shippable form
