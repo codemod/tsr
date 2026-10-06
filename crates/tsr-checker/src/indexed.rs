@@ -107,8 +107,7 @@ impl Checker<'_, '_> {
             }
             let readonly_target = self
                 .property_name_from_index(index_type)
-                .and_then(|name| self.get_property_of_type(object_type, &name))
-                .is_some_and(|property| self.is_readonly_symbol(property));
+                .is_some_and(|name| self.is_readonly_property_of_type(object_type, &name));
             let constructor_field_write = matches!(
                 receiver,
                 tsr_ast::Expression::KeywordExpression(keyword)
@@ -167,8 +166,7 @@ impl Checker<'_, '_> {
                 let object_type = self.check_expression(receiver);
                 let index_type = self.check_expression(index);
                 self.property_name_from_index(index_type)
-                    .and_then(|name| self.get_property_of_type(object_type, &name))
-                    .and_then(|property| self.write_type_of_accessors(property))
+                    .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
                     .unwrap_or(computed)
             } else {
                 computed

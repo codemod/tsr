@@ -134,9 +134,7 @@ impl<'a> Checker<'a, '_> {
         {
             let receiver = self.check_expression(receiver);
             let receiver = self.check_non_null_type(receiver);
-            if let Some(property) = self.get_property_of_type(receiver, name.text)
-                && let Some(written) = self.write_type_of_accessors(property)
-            {
+            if let Some(written) = self.write_type_of_property_of_type(receiver, name.text) {
                 target = written;
             }
         }

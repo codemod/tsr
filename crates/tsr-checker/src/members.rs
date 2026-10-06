@@ -34,6 +34,44 @@ enum Owner {
     Anonymous(SymbolId),
 }
 
+/// The property `createUnionOrIntersectionProperty` (`checker.go:21452`)
+/// answers for a union or intersection receiver.
+///
+/// # No synthetic symbol
+///
+/// Upstream answers `singleProp` itself when every constituent holds the same
+/// property (or instantiations of it, which share one [`SymbolId`] here),
+/// and otherwise mints a transient synthetic symbol carrying the combined
+/// `CheckFlags`, type and write type. This port mints no synthetic symbols
+/// (`get_property_of_type` answers a binder [`SymbolId`]), so for a minted
+/// one `get_property_of_type` answers `single`, the first constituent's
+/// property, as its stand-in: presence is upstream's exactly, and the
+/// synthetic's own facts are read off [`SyntheticProperty`] by the
+/// receiver-and-name readers instead of the stand-in —
+/// `get_type_of_property_with_this_argument` (the union projection and
+/// `property_type_via_shape`), `is_readonly_property_of_type` and
+/// `write_type_of_property_of_type`. Recomputed per ask, never published.
+struct UnionOrIntersectionProperty {
+    /// `singleProp`.
+    single: SymbolId,
+    /// What upstream's minted symbol records, when it mints one.
+    synthetic: Option<SyntheticProperty>,
+}
+
+/// The facts of `createUnionOrIntersectionProperty`'s minted symbol.
+struct SyntheticProperty {
+    /// `links.containingType`.
+    containing_type: TypeId,
+    is_union: bool,
+    /// `propSet` in constituent order, each with the apparent constituent
+    /// it was found in.
+    properties: Vec<(SymbolId, TypeId)>,
+    /// A union constituent lacking the name answered by a readonly index
+    /// signature (part of `CheckFlagsReadonly`; the properties' part is read
+    /// per ask).
+    index_readonly: bool,
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkPropertyAccessExpression` into
     /// `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11244`,
@@ -311,9 +349,7 @@ impl Checker<'_, '_> {
                 flags.intersects(tsr_binder::SymbolFlags::GET_ACCESSOR)
                     && !flags.intersects(tsr_binder::SymbolFlags::SET_ACCESSOR)
             }))
-            && self
-                .get_property_of_type(stripped, name)
-                .is_some_and(|property| self.is_readonly_symbol(property))
+            && self.is_readonly_property_of_type(stripped, name)
         {
             return self.intrinsics.any;
         }
@@ -364,8 +400,7 @@ impl Checker<'_, '_> {
             self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
         });
         let result = if is_definite_write
-            && let Some(property) = self.get_property_of_type(stripped, name)
-            && let Some(written) = self.write_type_of_accessors(property)
+            && let Some(written) = self.write_type_of_property_of_type(stripped, name)
         {
             written
         } else {
@@ -1518,6 +1553,13 @@ impl Checker<'_, '_> {
                 .collect();
             return Some(self.get_union_type(&lengths));
         }
+        // An intersection's property is synthetic upstream, typed as the
+        // intersection of its constituents' property types; the symbol road
+        // below holds only a constituent's stand-in
+        // (`get_property_of_union_or_intersection_type`).
+        if matches!(self.store.get(id).data, TypeData::Intersection { .. }) {
+            return self.property_type_via_shape(id, name, skip_object_function_augment);
+        }
         if let Some(property) = self.get_property_of_type_ex(id, name, skip_object_function_augment)
         {
             let declared = self.get_type_of_symbol(property);
@@ -1968,6 +2010,211 @@ impl Checker<'_, '_> {
         self.instantiate_type(declared, &map, &types, &names)
     }
 
+    /// `getPropertyOfTypeEx`'s union and intersection arms
+    /// (`checker.go:18899`) as [`UnionOrIntersectionProperty`]: an
+    /// intersection's property without the Object/Function augment first,
+    /// then with it. A union receiver is not yet routed here (its consumers
+    /// keep their constituent walks), so it answers `None` like any other
+    /// non-composite receiver.
+    fn composite_property_of_type(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        skip_object_function_augment: bool,
+    ) -> Option<UnionOrIntersectionProperty> {
+        if !matches!(self.store.get(id).data, TypeData::Intersection { .. }) {
+            return None;
+        }
+        self.get_property_of_union_or_intersection_type(id, name, true).or_else(|| {
+            (!skip_object_function_augment)
+                .then(|| self.get_property_of_union_or_intersection_type(id, name, false))
+                .flatten()
+        })
+    }
+
+    /// `getPropertyOfUnionOrIntersectionType` (`checker.go:21414`) through
+    /// `getUnionOrIntersectionProperty` (`checker.go:21428`) and
+    /// `createUnionOrIntersectionProperty` (`checker.go:21452`): each
+    /// constituent's apparent type is asked (error and `never` constituents
+    /// skipped); no hit is no property. In a union a constituent without the
+    /// name makes the property write-partial when an applicable index
+    /// signature or a spread-free object literal answers the read, and
+    /// read-partial otherwise, which this answers `None`; a union property
+    /// that is partial or held by distinct symbols, one of them private or
+    /// protected, with no declaration common to all, is no property either.
+    ///
+    /// No cache: upstream's `propertyCache` memoizes the minted symbol; this
+    /// port mints none (see [`UnionOrIntersectionProperty`]), so the work is
+    /// one lookup per constituent, each the members subsystem's own.
+    fn get_property_of_union_or_intersection_type(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        skip_object_function_augment: bool,
+    ) -> Option<UnionOrIntersectionProperty> {
+        let (constituents, is_union) = match &self.store.get(id).data {
+            TypeData::Union { types, .. } => (types.clone(), true),
+            TypeData::Intersection { types, .. } => (types.clone(), false),
+            _ => return None,
+        };
+        // getReducedApparentType: an intersection getReducedType turns into
+        // `never` has no properties.
+        if !is_union && self.intersection_has_never_discriminant(id) {
+            return None;
+        }
+        let mut single: Option<SymbolId> = None;
+        let mut properties: Vec<(SymbolId, TypeId)> = Vec::new();
+        let mut partial = false;
+        let mut read_partial = false;
+        let mut contains_non_public = false;
+        // A union constituent's readonly index signature sets the union
+        // property's CheckFlagsReadonly.
+        let mut index_readonly = false;
+        for current in constituents {
+            let t = self.apparent_type(current);
+            if self.is_error(t) || self.store.get(t).flags.contains(TypeFlags::NEVER) {
+                continue;
+            }
+            if let Some(property) =
+                self.get_property_of_type_ex(t, name, skip_object_function_augment)
+            {
+                single.get_or_insert(property);
+                if !properties.iter().any(|&(known, _)| known == property) {
+                    properties.push((property, t));
+                }
+                if is_union {
+                    contains_non_public |= self.property_is_non_public(property);
+                }
+            } else if is_union {
+                partial = true;
+                // isLateBoundName: a `[Symbol.x]` key is asked of the symbol
+                // index, which no identifier text reaches.
+                let index = if name.starts_with('[') {
+                    None
+                } else {
+                    let key = self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(name.to_string()),
+                        false,
+                    );
+                    self.get_applicable_index_info(t, key)
+                };
+                if let Some(index) = index {
+                    index_readonly |= index.readonly;
+                } else if self.object_literal_spread_flags.get(&t) != Some(&false) {
+                    read_partial = true;
+                }
+            }
+        }
+        let single = single?;
+        let distinct = properties.len() > 1;
+        if is_union
+            && (distinct || partial)
+            && contains_non_public
+            && !(distinct && self.properties_have_common_declaration(&properties))
+        {
+            return None;
+        }
+        // getPropertyOfUnionOrIntersectionType filters read-partial properties.
+        if read_partial {
+            return None;
+        }
+        Some(UnionOrIntersectionProperty {
+            single,
+            synthetic: (distinct || partial).then_some(SyntheticProperty {
+                containing_type: id,
+                is_union,
+                properties,
+                index_readonly,
+            }),
+        })
+    }
+
+    /// `isReadonlySymbol(getPropertyOfType(receiver, name))`
+    /// (`checker.go:13849`): for the synthetic property
+    /// `createUnionOrIntersectionProperty` mints, its `CheckFlagsReadonly`
+    /// (this port mints no synthetic symbol; see
+    /// [`UnionOrIntersectionProperty`]); otherwise the found symbol's own
+    /// answer.
+    pub(crate) fn is_readonly_property_of_type(&mut self, receiver: TypeId, name: &str) -> bool {
+        if let Some(composite) = self.composite_property_of_type(receiver, name, false)
+            && let Some(synthetic) = composite.synthetic
+        {
+            // CheckFlagsReadonly: a union's when any constituent's property
+            // or index signature is readonly, an intersection's only when
+            // every constituent's property is.
+            if synthetic.index_readonly {
+                return true;
+            }
+            let mut readonly = synthetic.properties.iter().map(|&(property, _)| property);
+            let mut is_readonly = |property| {
+                self.is_readonly_symbol(property) || self.property_signature_is_readonly(property)
+            };
+            return if synthetic.is_union {
+                readonly.any(&mut is_readonly)
+            } else {
+                readonly.all(&mut is_readonly)
+            };
+        }
+        self.get_property_of_type(receiver, name)
+            .is_some_and(|property| self.is_readonly_symbol(property))
+    }
+
+    /// `getWriteTypeOfSymbol(getPropertyOfType(receiver, name))`
+    /// (`checker.go`) where it differs from the read type. For the synthetic
+    /// property `createUnionOrIntersectionProperty` mints (this port mints no
+    /// synthetic symbol; see [`UnionOrIntersectionProperty`]) that is
+    /// `links.writeType`: once any constituent property's write type differs
+    /// from its type, the union (intersection) of every constituent
+    /// property's write type. Otherwise the found symbol's divergent setter
+    /// ([`Checker::write_type_of_accessors`]). `None` keeps the read type.
+    pub(crate) fn write_type_of_property_of_type(
+        &mut self,
+        receiver: TypeId,
+        name: &str,
+    ) -> Option<TypeId> {
+        if let Some(composite) = self.composite_property_of_type(receiver, name, false)
+            && let Some(synthetic) = composite.synthetic
+        {
+            let mut divergent = false;
+            let mut write_types = Vec::with_capacity(synthetic.properties.len());
+            for (property, constituent) in synthetic.properties {
+                if let Some(written) = self.write_type_of_accessors(property) {
+                    divergent = true;
+                    write_types.push(written);
+                } else {
+                    write_types.push(self.get_type_of_property_with_this_argument(
+                        constituent,
+                        name,
+                        synthetic.containing_type,
+                        false,
+                    )?);
+                }
+            }
+            if !divergent {
+                return None;
+            }
+            return Some(if synthetic.is_union {
+                self.get_union_type(&write_types)
+            } else {
+                self.get_intersection_type(&write_types, None)
+            });
+        }
+        let property = self.get_property_of_type(receiver, name)?;
+        self.write_type_of_accessors(property)
+    }
+
+    /// `hasCommonDeclaration` (`checker.go:21679`): some declaration of the
+    /// first property is a declaration of every other.
+    fn properties_have_common_declaration(&self, properties: &[(SymbolId, TypeId)]) -> bool {
+        let symbols = self.binder.symbols();
+        symbols.get(properties[0].0).declarations.iter().any(|declaration| {
+            properties[1..]
+                .iter()
+                .all(|&(property, _)| symbols.get(property).declarations.contains(declaration))
+        })
+    }
+
     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through
     /// `getPropertyOfObjectType` (`:21403`).
     ///
@@ -2037,6 +2284,12 @@ impl Checker<'_, '_> {
             {
                 return property.origin;
             }
+        }
+        // getPropertyOfTypeEx's intersection arm (`checker.go:18899`).
+        if matches!(self.store.get(id).data, TypeData::Intersection { .. }) {
+            return self
+                .composite_property_of_type(id, name, skip_object_function_augment)
+                .map(|property| property.single);
         }
         // The borrow of `self.store` has to end before the recursion below, which
         // takes `&mut self`. Both bindings are `Copy`, so this statement copies

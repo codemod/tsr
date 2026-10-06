@@ -543,7 +543,7 @@ impl Checker<'_, '_> {
     /// `getDeclarationModifierFlagsFromSymbol(symbol)&ModifierFlagsReadonly`
     /// for the declaration kinds `is_readonly_symbol` does not read: a
     /// property signature and a `readonly` parameter property.
-    fn property_signature_is_readonly(&self, symbol: SymbolId) -> bool {
+    pub(crate) fn property_signature_is_readonly(&self, symbol: SymbolId) -> bool {
         let is_readonly = |modifiers: &[tsr_ast::ModifierLike<'_>]| {
             modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(token)

@@ -1674,9 +1674,7 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self
-                    .get_property_of_type(receiver_type, name.text)
-                    .is_some_and(|property| self.is_readonly_symbol(property));
+                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
@@ -1694,9 +1692,7 @@ impl Checker<'_, '_> {
                 };
                 let Some(expression) = access.expression else { return false };
                 let receiver_type = self.check_expression(expression);
-                let readonly = self
-                    .get_property_of_type(receiver_type, key.text)
-                    .is_some_and(|property| self.is_readonly_symbol(property));
+                let readonly = self.is_readonly_property_of_type(receiver_type, key.text);
                 readonly && self.is_constant_reference(receiver)
             }
             _ => {
