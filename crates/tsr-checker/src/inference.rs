@@ -1365,8 +1365,12 @@ impl<'a> Checker<'a, '_> {
                     // overload selection (calls.rs) with no memo present - the
                     // cached answers of its whole subtree are pre-context and
                     // must not survive into this contextual re-check (the
-                    // summit's freeze pattern, third recurrence).
-                    if let Some(id) = arguments[index].node_id() {
+                    // summit's freeze pattern, third recurrence). An argument
+                    // an earlier overload candidate already context-checked
+                    // keeps its types (`NodeCheckFlagsContextChecked`).
+                    if let Some(id) = arguments[index].node_id()
+                        && !self.context_checked_arguments.contains(&id)
+                    {
                         self.evict_subtree(id);
                     }
                     let checked = self.check_expression(arguments[index]);

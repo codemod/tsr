@@ -412,6 +412,17 @@ pub struct Checker<'a, 'n> {
     /// stack when return inference joined that road. A call node present here
     /// answers `any` on re-entry rather than resolving again.
     pub(crate) resolving_signature_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// `NodeCheckFlagsContextChecked` (`checker.go:10155`,
+    /// `contextuallyCheckFunctionExpressionOrObjectLiteralMethod`) for the
+    /// context-sensitive arguments of the overload walk in progress: an
+    /// argument here was already checked under an earlier candidate of its
+    /// call, so its parameter and return types are fixed and inference reads
+    /// its published type instead of evicting and re-checking it. Keyed by
+    /// the argument node; owner `calls.rs` `transcribed_generic_set_walk`,
+    /// which inserts after a generic candidate's inference checked the
+    /// argument and removes its arguments when the walk ends. No work happens
+    /// on publication.
+    pub(crate) context_checked_arguments: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// Active synchronous iterable resolution, guarding recursive protocols.
     pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
     /// `getResolvedMembersOrExportsOfSymbol` / `lateBindMember`: semantic names,
@@ -1375,6 +1386,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
+            context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),

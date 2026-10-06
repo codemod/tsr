@@ -4594,6 +4594,11 @@ impl Checker<'_, '_> {
             }
         }
         let result = self.transcribed_generic_set_walk_worker(candidates, arguments, call);
+        for argument in arguments {
+            if let Some(id) = argument.node_id() {
+                self.context_checked_arguments.remove(&id);
+            }
+        }
         if result.is_none() {
             for (id, ty, signature, symbol) in cached {
                 self.node_types.remove(&id);
@@ -4882,9 +4887,13 @@ impl Checker<'_, '_> {
             let contextual =
                 arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
             if contextual {
+                // A context-sensitive argument is checked under a candidate
+                // once (`NodeCheckFlagsContextChecked`, `checker.go:10155`);
+                // only an argument no candidate has checked yet loses its
+                // context-free answer.
                 for (index, argument) in arguments.iter().enumerate() {
                     if self.is_context_sensitive_argument(argument)
-                        && (!retain_context || checked_contexts[index].is_none())
+                        && checked_contexts[index].is_none()
                         && let Some(id) = argument.node_id()
                     {
                         self.evict_subtree(id);
@@ -4955,12 +4964,12 @@ impl Checker<'_, '_> {
                     arguments,
                     Some(&mut instantiated),
                 );
-                match instantiated {
-                    Some(signature) => signature,
+                let Some(signature) = instantiated else {
                     // Inference could not decide this candidate, so no later
                     // candidate may be trusted against it.
-                    None => return OverloadPass::Undecidable,
-                }
+                    return OverloadPass::Undecidable;
+                };
+                signature
             };
             // chooseOverload rechecks arity after instantiating a non-array
             // rest parameter (checker.go:9067).
@@ -5023,13 +5032,27 @@ impl Checker<'_, '_> {
                 })
                 .collect();
             let contextual = contextual_arguments.iter().any(|&needed| needed);
-            // SkipContextSensitive: reject a candidate from ordinary arguments
-            // before assigning callback parameter types. Generic inference has
-            // its own staged checks; this retained context is the non-generic
-            // NodeCheckFlagsContextChecked path (checker.go:10155).
-            if retain_context && contextual && checked_contexts.iter().all(Option::is_none) {
+            // SkipContextSensitive (`chooseOverload`'s `argCheckMode`,
+            // `checker.go:9025`): while no context-sensitive argument has been
+            // checked under a candidate, a candidate is rejected from its
+            // ordinary arguments before any callback parameter types are
+            // assigned; the first candidate that passes switches the walk to
+            // the normal mode and its context check is retained
+            // (NodeCheckFlagsContextChecked, checker.go:10155). A generic
+            // candidate's skipped arguments are `anyFunctionType`, which
+            // relates; its instantiation is the full inference's.
+            let skip_mode = checked_contexts.iter().all(Option::is_none)
+                && if candidate.type_parameters.is_empty() {
+                    contextual
+                } else {
+                    arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                };
+            if skip_mode {
                 for (index, &argument) in argument_types.iter().enumerate() {
                     let argument = if self.is_context_sensitive_argument(&arguments[index]) {
+                        if !candidate.type_parameters.is_empty() {
+                            continue;
+                        }
                         let Some(skipped) =
                             self.context_free_object_inference_type(arguments[index])
                         else {
@@ -5053,6 +5076,22 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            if skip_mode && !candidate.type_parameters.is_empty() {
+                // The candidate passed the skipped check, so inference's
+                // context check of its context-sensitive arguments is the
+                // one later candidates and the next relation reuse rather
+                // than re-assigning parameter types
+                // (`contextuallyCheckFunctionExpressionOrObjectLiteralMethod`).
+                for (index, argument) in arguments.iter().enumerate() {
+                    if self.is_context_sensitive_argument(argument)
+                        && let Some(id) = argument.node_id()
+                        && let Some(&checked) = self.node_types.get(&id)
+                    {
+                        checked_contexts[index] = Some(checked);
+                        self.context_checked_arguments.insert(id);
+                    }
+                }
+            }
             let mut checked_arguments = argument_types.to_vec();
             if contextual {
                 let Some(call) = call else { return OverloadPass::Undecidable };
@@ -5065,10 +5104,12 @@ impl Checker<'_, '_> {
                         // Literal-only objects lack NodeCheckFlagsContextChecked
                         // (5b1047d checker.go:10155). Their literal context can
                         // differ between candidates, so only the existing
-                        // context-sensitive/array retention may reuse a result.
-                        let retain_argument_context = retain_context
-                            && (!matches!(argument, Expression::ObjectLiteralExpression(_))
-                                || self.is_context_sensitive_argument(argument));
+                        // context-sensitive/array retention may reuse a result;
+                        // a context-sensitive argument keeps its first check
+                        // under every candidate, generic or not.
+                        let retain_argument_context = self.is_context_sensitive_argument(argument)
+                            || (retain_context
+                                && !matches!(argument, Expression::ObjectLiteralExpression(_)));
                         if retain_argument_context && let Some(checked) = checked_contexts[index] {
                             checked_arguments[index] = checked;
                             continue;
@@ -5086,6 +5127,11 @@ impl Checker<'_, '_> {
                         checked_arguments[index] = checked;
                         if retain_argument_context {
                             checked_contexts[index] = Some(checked);
+                            if self.is_context_sensitive_argument(argument)
+                                && let Some(id) = argument.node_id()
+                            {
+                                self.context_checked_arguments.insert(id);
+                            }
                         }
                     }
                 }
