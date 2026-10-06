@@ -147,6 +147,7 @@ mod jsdoc_full_signature;
 mod jsdoc_links;
 mod jsdoc_modifiers;
 mod jsdoc_params;
+mod jsx_attributes;
 mod jsx_factory;
 pub mod jsx_intrinsic;
 pub mod literals;

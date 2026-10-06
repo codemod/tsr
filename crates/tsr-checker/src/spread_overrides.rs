@@ -94,7 +94,7 @@ impl Checker<'_, '_> {
     /// `SymbolFlagsOptional` nor `CheckFlagsPartial`: a union property is
     /// partial unless every constituent declares it, and optional when any
     /// constituent's is. `None` when a constituent's members are unresolved.
-    fn spread_required_property_names(&mut self, ty: TypeId) -> Option<Vec<String>> {
+    pub(crate) fn spread_required_property_names(&mut self, ty: TypeId) -> Option<Vec<String>> {
         if self.store.get(ty).flags.intersects(TypeFlags::ANY) {
             return None;
         }

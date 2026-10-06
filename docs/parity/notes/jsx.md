@@ -194,3 +194,21 @@ naming a different root than the baseline, is a divergence in
 `jsx_namespace_at`; an EXTRA TS6133 under `jsx: react-jsx` with an unresolved
 runtime module is the decline above.
 
+## 4. JSX `checkSpreadPropOverrides` reports from the attributes walk
+
+`createJsxAttributesTypeFromAttributesProperty` (`jsx.go:709`) keeps, under
+`strictNullChecks`, an `allAttributesTable` of every attribute so far (a later
+attribute of the same name replaces the earlier) and runs
+`checkSpreadPropOverrides` (`checker.go:13371`) for each valid spread: TS2783
+on the overwritten attribute. It is a type function upstream; here it is
+`check_jsx_spread_property_overrides`, the per-node walk's `JsxAttributes` arm
+(§2's split). Differences from the object-literal arm in
+`crate::spread_overrides`, all upstream's: no
+`tryMergeUnionOfObjectTypeAndEmptyObject`, no assignment-target exemption, and
+the spread's properties are read from its **apparent** type, because
+`getPropertiesOfType` reduces to it — `{...props}` with `props: T extends { x:
+number }` overwrites `x` (`tsxGenericAttributesType1`). `getReducedType` is not
+ported; it only turns a disjoint-discriminant intersection into `never`, which
+`isValidSpreadType` rejects in either form. Two spreads overwriting one
+attribute are one line, as the baseline folds upstream's two diagnostics that
+differ only in related information.
