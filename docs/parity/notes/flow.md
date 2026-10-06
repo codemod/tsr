@@ -211,3 +211,57 @@ is removed. The deferral gate that precedes the arms is unchanged.
 `awaitUsingDeclarationsInForAwaitOf.2`, `destructuringObjectBindingPatternAndAssignment4`),
 19 new lines all expected, none unexpected, no losses. Perf bias-corrected
 ≈1.011 / ≈1.006.
+
+## 9. Round 2: the flow walk's tail and its assignment sources (tsr-2zk.40)
+
+Baseline for §9–: branch head `15f1743`, 3,846 RIGHT diagnostics cases,
+467,200 RIGHT type lines.
+
+**`flow.go:111`, the `x!` arm.** `getFlowTypeOfReferenceEx` answers the
+declared type when the reference is the operand of a non-null assertion and the
+flow type, not itself `never`, is only `null`/`undefined`. The port had the
+`unreachableNeverType` half only (three copies, one per entry point); both are
+now `flow_result_or_declared`, called by all three. `typeGuardsAsAssertions`
+read `x!` as `never` after `x = undefined` (15 type lines). The property lane's
+`never`-receiver decline for an `x!` operand (`property.md` §3) no longer has
+a producer; removing it is that lane's change.
+
+**`getInitialOrAssignedType`'s missing arms.** The assignment source returned
+`None` (keep the declared type) for every form but `x = e` and an initialised
+declaration. Ported: `for..in` → `string`, `for..of` →
+`checkRightHandSideOfForOf` (this port's `for_of_statement_element_type`,
+`for await` included), `delete x.p` → `undefined`, for both an uninitialised
+`for` head declaration and an expression target. The destructuring arms
+(`getAssignedTypeOfArrayLiteralElement`, `…PropertyAssignment`,
+`…ShorthandPropertyAssignment`, `…SpreadExpression`, binding elements) remain
+`None`. That is upstream's answer whenever its projection is `errorType`
+(the reduced type of `errorType` keeps every declared constituent), so the
+gap is a missing narrowing and never a wrong one.
+
+**`IsStringLiteralLike`.** `typeof x === \`string\`` compared only a
+`StringLiteral`. The `in` arm read only a written string literal, where
+upstream types the left operand (`getTypeOfExpression`) and asks
+`isTypeUsableAsPropertyName`, so a template literal or a `const` key did not
+narrow. Both now follow upstream; the `in` key goes through
+`property_name_from_index`, which declines unique symbols (no narrowing,
+upstream narrows), a known gap.
+
+**Measured.** 0 diagnostic / 0 type losses; +36 RIGHT type lines
+(`typeGuardsAsAssertions`, `controlFlowWithTemplateLiterals`,
+`controlFlowForOfStatement`, `controlFlowInOperator`,
+`controlFlowForInStatement2`, `controlFlowDeleteOperator`,
+`assignmentTypeNarrowing`); `controlFlowWithTemplateLiterals` diagnostics
+EMPTY_WRONG → EMPTY_RIGHT. Median CPU new/old (21 samples):
+`domain-model` 0.960, `generic-imports` 0.989.
+
+**Union-receiver decline (property lane).** With
+`nonexistent_property.rs`'s union-receiver decline switched off as an
+experiment, the corpus gained 61 expected TS2339/TS2551 lines and 18 false
+ones. The false ones are flow gaps, one per narrowing shape:
+`controlFlowWithTemplateLiterals` (fixed above), `controlFlowForOfStatement`
+(fixed above), `typeGuardNarrowBy[Mutable]UntypedField` (predicate to a mapped
+type over `ArrayLike | Iterable`), `controlFlowWithIncompleteTypes` (loop with
+`typeof`), `inKeywordAndIntersection` (`instanceof` an intersection
+constructor), `controlFlowAliasing` (aliased conditions through a destructured
+`const`), `discriminatedUnionTypes3/4`, `returnTagTypeGuard` (JSDoc `@return`
+predicate), `templateLiteralTypes3`, `typeGuardsWithInstanceOfByConstructorSignature`.

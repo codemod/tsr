@@ -286,10 +286,10 @@ impl Checker<'_, '_> {
     ///   that reason. What is missing is `addEvolvingArrayElementType` at each
     ///   `x.push(e)` / `x[i] = e` plus `finalizeEvolvingArrayType` at the
     ///   reference.
-    /// - **The `unreachableNeverType` and non-null-assertion fallbacks** at the
-    ///   end of `getFlowTypeOfReferenceEx`. Neither can fire: this port produces
-    ///   no `unreachableNeverType`, because `isReachableFlowNode` — the only
-    ///   thing that produces one — is not ported either.
+    /// - *(Ported since; kept as a correction of the record.)* This list named
+    ///   the `unreachableNeverType` and non-null-assertion fallbacks at the end
+    ///   of `getFlowTypeOfReferenceEx` as unported. Both are now
+    ///   [`Checker::flow_result_or_declared`].
     /// - **`flowContainer`**, so the `Start` arm does not continue outward into
     ///   an enclosing function's flow.
     pub(crate) fn get_flow_type_of_reference(
@@ -369,8 +369,7 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        // `resultType == c.unreachableNeverType → declaredType` (`flow.go:111`).
-        if result == self.intrinsics.unreachable_never { parent_union } else { result }
+        self.flow_result_or_declared(reference, result, parent_union)
     }
 
     /// `getFlowTypeOfReferenceEx`'s explicit `initialType` parameter.
@@ -544,8 +543,35 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        // `resultType == c.unreachableNeverType → declaredType` (`flow.go:111`).
-        if result == self.intrinsics.unreachable_never { declared_type } else { result }
+        self.flow_result_or_declared(reference, result, declared_type)
+    }
+
+    /// The tail of `getFlowTypeOfReferenceEx` (`flow.go:111`): the declared
+    /// type replaces the flow answer when the walk ended unreachable, or when
+    /// the reference is the operand of `x!` and narrowing left nothing but
+    /// `null`/`undefined` — `x = undefined; x!` reads the declared type, not
+    /// `never` (`typeGuardsAsAssertions`).
+    fn flow_result_or_declared(
+        &mut self,
+        reference: NodeId,
+        result: TypeId,
+        declared_type: TypeId,
+    ) -> TypeId {
+        if result == self.intrinsics.unreachable_never {
+            return declared_type;
+        }
+        if self
+            .nodes
+            .parent(reference)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::NonNullExpression)
+            && !self.type_of(result).flags.intersects(TypeFlags::NEVER)
+        {
+            let non_null = self.get_type_with_facts(result, TypeFacts::NE_UNDEFINED_OR_NULL);
+            if self.type_of(non_null).flags.intersects(TypeFlags::NEVER) {
+                return declared_type;
+            }
+        }
+        result
     }
 
     /// `getFlowTypeOfProperty` (`checker.go:11444`): an access-expression
@@ -591,7 +617,7 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        if result == self.intrinsics.unreachable_never { any } else { result }
+        self.flow_result_or_declared(reference, result, any)
     }
 
     /// `getUnionOrEvolvingArrayType` (`flow.go:1314`), the junction rule:
@@ -2433,21 +2459,34 @@ impl Checker<'_, '_> {
     /// `getInitialType` (`flow.go:2234`) and `getAssignedType` (`flow.go:2288`)
     /// reduced to the forms that binder produces.
     ///
-    /// `None` for every other form: `for..in` (upstream `string`), `for..of`,
-    /// destructuring targets, `delete`. Each needs a parent walk this module
-    /// does not do, or machinery — iteration protocol resolution — the checker
-    /// does not have.
+    /// `None` for the destructuring forms (binding elements, array/object
+    /// literal targets), whose element projection is not reproduced here.
+    /// (This said `for..in`, `for..of` and `delete` were `None` too; they are
+    /// ported since — a correction of the record.)
     fn get_initial_or_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
         if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) {
-            // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`). The
-            // `for..in` / `for..of` arms below it are the unported ones.
-            let initializer = declaration.initializer?;
-            return Some(self.check_expression(initializer));
+            // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`).
+            if let Some(initializer) = declaration.initializer {
+                return Some(self.check_expression(initializer));
+            }
+            let statement = self.nodes.parent(node).and_then(|list| self.nodes.parent(list))?;
+            return self.for_in_or_of_assigned_type(statement);
+        }
+        let parent = self.nodes.parent(node)?;
+        // `getAssignedType` (`flow.go:2288`): the `for..in`, `for..of` and
+        // `delete` arms. The destructuring arms (array/object literal
+        // elements, spreads, property assignments) stay unported and answer
+        // `None` — the declared type, as upstream's `errorType` reduces to.
+        match self.nodes.kind(parent) {
+            SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement => {
+                return self.for_in_or_of_assigned_type(parent);
+            }
+            SyntaxKind::DeleteExpression => return Some(self.intrinsics.undefined),
+            _ => {}
         }
         // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`), restricted to a
         // plain `x = e`. A destructuring default (`[x = 1] = y`) reaches the same
         // upstream function by a different route and is not handled.
-        let parent = self.nodes.parent(node)?;
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
         if binary.operator_token?.kind != SyntaxKind::EqualsToken {
             return None;
@@ -2456,6 +2495,24 @@ impl Checker<'_, '_> {
             return None;
         }
         Some(self.check_expression(binary.right?))
+    }
+
+    /// The `for..in` / `for..of` arms of `getInitialTypeOfVariableDeclaration`
+    /// and `getAssignedType` (`flow.go:2244`, `:2288`): `string` for `for..in`,
+    /// `checkRightHandSideOfForOf` for `for..of`. `None` when this port cannot
+    /// decide the iterated element (upstream's `errorType`).
+    fn for_in_or_of_assigned_type(&mut self, statement: NodeId) -> Option<TypeId> {
+        match self.nodes.kind(statement) {
+            SyntaxKind::ForInStatement => Some(self.intrinsics.string),
+            SyntaxKind::ForOfStatement => {
+                let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement) else {
+                    return None;
+                };
+                let expression = for_of.expression?;
+                self.for_of_statement_element_type(expression, for_of.await_modifier.is_some())
+            }
+            _ => None,
+        }
     }
 
     /// Keep the constituents of a union declared type that the assigned type
@@ -5078,8 +5135,7 @@ impl Checker<'_, '_> {
                 // The missing-property arm below reads the semantic key only
                 // after matching the accessed property's receiver.
                 if operator.kind == SyntaxKind::InKeyword {
-                    let (Some(left_node), Some(right_node)) = (left.node_id(), right.node_id())
-                    else {
+                    let Some(right_node) = right.node_id() else {
                         return t;
                     };
                     let right_node = self.get_reference_candidate(right_node);
@@ -5112,10 +5168,14 @@ impl Checker<'_, '_> {
                             return self.get_type_with_facts(t, facts);
                         }
                     }
-                    if let Some(Node::StringLiteral(literal)) = self.node_map.get(left_node)
-                        && self.is_matching_reference(state, right_node)
-                    {
-                        return self.narrow_type_by_in_keyword(t, literal.text, assume_true);
+                    // `flow.go:531`: the key is `getTypeOfExpression(left)`,
+                    // usable as a property name — a literal, a template
+                    // without substitutions, or a constant naming either.
+                    if self.is_matching_reference(state, right_node) {
+                        let key = self.check_expression(left);
+                        if let Some(name) = self.property_name_from_index(key) {
+                            return self.narrow_type_by_in_keyword(t, &name, assume_true);
+                        }
                     }
                     return t;
                 }
@@ -5426,15 +5486,13 @@ impl Checker<'_, '_> {
                 // of its three halves — the matching-reference half (SS-era)
                 // and the optional-chain half (SS152) were already here; the
                 // DISCRIMINANT half now goes through the pair.
+                // `ast.IsStringLiteralLike` (`flow.go:477`): a template
+                // without substitutions spells the same operand.
                 let typeof_pair = match (self.node_map.get(left), self.node_map.get(right)) {
-                    (
-                        Some(Node::TypeOfExpression(typeof_expr)),
-                        Some(Node::StringLiteral(literal)),
-                    )
-                    | (
-                        Some(Node::StringLiteral(literal)),
-                        Some(Node::TypeOfExpression(typeof_expr)),
-                    ) => Some((typeof_expr, literal.text)),
+                    (Some(Node::TypeOfExpression(typeof_expr)), Some(other))
+                    | (Some(other), Some(Node::TypeOfExpression(typeof_expr))) => {
+                        string_literal_like_text(other).map(|text| (typeof_expr, text))
+                    }
                     _ => None,
                 };
                 if let Some((typeof_expr, literal)) = typeof_pair {
@@ -8233,6 +8291,16 @@ impl Checker<'_, '_> {
 /// **string-literal** argument, because `a[i]` names a property only when `i`
 /// is constant, and this port cannot prove that (see
 /// [`Checker::references_match`]).
+/// `ast.IsStringLiteralLike`'s text: a string literal or a template literal
+/// without substitutions.
+fn string_literal_like_text(node: Node<'_>) -> Option<&str> {
+    match node {
+        Node::StringLiteral(literal) => Some(literal.text),
+        Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
+        _ => None,
+    }
+}
+
 fn accessed_property_name(node: Node<'_>) -> Option<String> {
     match node {
         Node::PropertyAccessExpression(access) => match access.name? {
