@@ -7206,7 +7206,29 @@ impl Checker<'_, '_> {
     /// span is `SkipTrivia(range.Pos())` to `range.End()`, so it covers the
     /// type parameters **themselves** and not the surrounding `<>`; this port's
     /// slice gives first and last directly. §823.
+    ///
+    /// An empty `<>` list ([`tsr_ast::NodeFlags::EMPTY_TYPE_LIST`]) has
+    /// `Pos() == End()`, so the report is zero-width just after the `<`.
     fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
+        if node.type_parameters.is_empty()
+            && let Some(id) = node.node_id
+            && self.nodes.flags(id).contains(tsr_ast::NodeFlags::EMPTY_TYPE_LIST)
+        {
+            let Some((open, _)) =
+                self.empty_type_list_brackets(id, Node::ConstructorDeclaration(node))
+            else {
+                return;
+            };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    tsr_core::Span::at(open + 1),
+                ),
+            );
+            return;
+        }
         let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
         else {
             return;

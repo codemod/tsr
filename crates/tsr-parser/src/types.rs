@@ -1305,36 +1305,52 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }
+        let open = self.token.span.start;
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
         let before = self.diagnostics.len();
         let mut arguments = Vec::new();
         let mut missing_slots: Vec<u32> = Vec::new();
-        loop {
-            // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
-            // deferred "Type expected", not a disambiguation failure:
-            // upstream's parseDelimitedList reports and the list still
-            // succeeds (`callExpressionWithMissingTypeArgument1`). The
-            // diagnostic is emitted only once the `>` confirms the list, so
-            // the complaint gate below keeps rejecting real less-than chains.
-            if self.at(SyntaxKind::CommaToken) {
-                missing_slots.push(self.pos());
-                let missing = self.missing_identifier();
-                let reference = self.finish_node(
-                    tsr_ast::TypeReferenceNode::new(
-                        Some(tsr_ast::EntityName::Identifier(missing)),
-                        &[],
-                    ),
-                    SyntaxKind::TypeReference,
-                    self.pos(),
-                );
-                arguments.push(TypeNode::TypeReferenceNode(reference));
-            } else {
-                arguments.push(self.parse_type());
-            }
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
+        // `parseDelimitedList(PCTypeArguments, …)` ends at once on a token
+        // that is not `,` and cannot start a type, so `f<>()` is a call with
+        // an empty list (`tryParseTypeArgumentsInExpression`, `parser.go:5242`);
+        // the checker's TS1099 reports it.
+        let empty = matches!(
+            self.token.kind,
+            SyntaxKind::GreaterThanToken
+                | SyntaxKind::GreaterThanGreaterThanToken
+                | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+                | SyntaxKind::GreaterThanEqualsToken
+                | SyntaxKind::GreaterThanGreaterThanEqualsToken
+                | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+        );
+        if !empty {
+            loop {
+                // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
+                // deferred "Type expected", not a disambiguation failure:
+                // upstream's parseDelimitedList reports and the list still
+                // succeeds (`callExpressionWithMissingTypeArgument1`). The
+                // diagnostic is emitted only once the `>` confirms the list, so
+                // the complaint gate below keeps rejecting real less-than chains.
+                if self.at(SyntaxKind::CommaToken) {
+                    missing_slots.push(self.pos());
+                    let missing = self.missing_identifier();
+                    let reference = self.finish_node(
+                        tsr_ast::TypeReferenceNode::new(
+                            Some(tsr_ast::EntityName::Identifier(missing)),
+                            &[],
+                        ),
+                        SyntaxKind::TypeReference,
+                        self.pos(),
+                    );
+                    arguments.push(TypeNode::TypeReferenceNode(reference));
+                } else {
+                    arguments.push(self.parse_type());
+                }
+                if !self.eat(SyntaxKind::CommaToken) {
+                    break;
+                }
             }
         }
         if !self.at(SyntaxKind::GreaterThanToken) {
@@ -1348,6 +1364,9 @@ impl<'a> Parser<'a> {
             self.error_at(&messages::TYPE_EXPECTED, tsr_core::Span::at(slot));
         }
         self.next_token();
+        if empty {
+            self.note_empty_type_list(open);
+        }
         Some(arguments)
     }
 
@@ -1364,10 +1383,14 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.token.span.start;
         self.next_token();
         // `parseBracketedList(PCTypeArguments, parseType, <, >)` (`parser.go:3014`).
         let (arguments, _) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
+        if arguments.is_empty() {
+            self.note_empty_type_list(open);
+        }
         // `List<List<T>>` lexes the close as `>>`; split it.
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
@@ -1388,9 +1411,13 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.token.span.start;
         self.next_token();
         let (parameters, _) =
             self.parse_delimited_list(ParsingContext::TypeParameters, Self::parse_type_parameter);
+        if parameters.is_empty() {
+            self.note_empty_type_list(open);
+        }
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }

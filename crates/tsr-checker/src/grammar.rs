@@ -322,7 +322,12 @@ impl Checker<'_, '_> {
                 }
                 None
             }
-            _ => None,
+            _ => {
+                if self.nodes.flags(node).contains(NodeFlags::EMPTY_TYPE_LIST) {
+                    self.check_grammar_empty_type_list(node, typed);
+                }
+                None
+            }
         };
         if let Some(list) = list
             && self.nodes.kind(list) == SyntaxKind::VariableDeclarationList
@@ -733,6 +738,85 @@ impl Checker<'_, '_> {
 
     /// `Checker.grammarErrorOnNode` with no arguments: the node's error span.
     /// Callers have already checked the file's parse diagnostics.
+    /// `Checker.checkGrammarTypeParameterList` (`grammarchecks.go:678`,
+    /// TS1098) and `checkGrammarForAtLeastOneTypeArgument` (`:845`, TS1099):
+    /// a list written `<>` is reported from its `<` through its `>`.
+    ///
+    /// Upstream's callers are `checkGrammarFunctionLikeDeclaration` and
+    /// `checkGrammarClassLikeDeclaration` for type parameters, and
+    /// `checkGrammarTypeArguments` (type references, `typeof` queries,
+    /// expressions with type arguments, calls, `new`, tagged templates, JSX
+    /// elements) for type arguments; the owner kinds the parser stamps
+    /// [`NodeFlags::EMPTY_TYPE_LIST`] on are exactly those. Not ported: the
+    /// short-circuits in front of it in those callers (heritage-clause and
+    /// trailing-comma reports), which no corpus case combines with `<>`.
+    fn check_grammar_empty_type_list(&mut self, node: NodeId, typed: Node<'_>) {
+        let Some((open, close)) = self.empty_type_list_brackets(node, typed) else { return };
+        let message = if is_type_argument_owner(self.nodes.kind(node)) {
+            &messages::TYPE_ARGUMENT_LIST_CANNOT_BE_EMPTY
+        } else {
+            &messages::TYPE_PARAMETER_LIST_CANNOT_BE_EMPTY
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(open, close + 1)));
+    }
+
+    /// The `<` and `>` of a node's empty type list (see
+    /// [`NodeFlags::EMPTY_TYPE_LIST`]), read from the source text.
+    ///
+    /// Upstream has them as the list's `Pos() - 1` and
+    /// `SkipTrivia(text, End())`. This AST keeps no span for the list, so the
+    /// `<` is the first token of the owner's own that is not inside one of its
+    /// children: everything before the list is either a child (decorators,
+    /// modifiers, names, the callee) or a keyword token, and no keyword
+    /// spells `<`. A JSX element opens with its own `<`, so its scan starts
+    /// after the tag name. `None` when the host has no source text.
+    pub(crate) fn empty_type_list_brackets(
+        &self,
+        node: NodeId,
+        typed: Node<'_>,
+    ) -> Option<(u32, u32)> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let text = self.module_host?.source_text(file, self.nodes)?;
+        let span = self.nodes.span(node);
+        let mut from = span.start;
+        let tag_name = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name.and_then(|t| t.node_id()),
+            Node::JsxSelfClosingElement(element) => element.tag_name.and_then(|t| t.node_id()),
+            _ => None,
+        };
+        if let Some(tag_name) = tag_name {
+            from = self.nodes.span(tag_name).end;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(self.nodes.span(child)));
+        let mut scanner = tsr_scanner::Scanner::new(text);
+        scanner.set_range(from, span.end);
+        let open = loop {
+            let token = scanner.scan();
+            // A token inside a child is skipped with the whole child.
+            if let Some(child_end) = children
+                .iter()
+                .filter(|child| child.start <= token.span.start && token.span.start < child.end)
+                .map(|child| child.end)
+                .max()
+            {
+                scanner.set_range(child_end, span.end);
+                continue;
+            }
+            match token.kind {
+                SyntaxKind::LessThanToken | SyntaxKind::LessThanLessThanToken => {
+                    break token.span.start;
+                }
+                SyntaxKind::EndOfFile => return None,
+                _ => {}
+            }
+        };
+        scanner.set_range(open + 1, span.end);
+        let close = scanner.scan();
+        (close.kind != SyntaxKind::EndOfFile).then_some((open, close.span.start))
+    }
+
     pub(crate) fn grammar_error_on_node(
         &mut self,
         node: NodeId,
@@ -1044,4 +1128,22 @@ impl Checker<'_, '_> {
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [token.to_string(), printed]));
     }
+}
+
+/// The owners of a type *argument* list among the kinds
+/// [`NodeFlags::EMPTY_TYPE_LIST`] is stamped on; the rest own type
+/// parameters.
+fn is_type_argument_owner(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::CallExpression
+            | SyntaxKind::NewExpression
+            | SyntaxKind::TaggedTemplateExpression
+            | SyntaxKind::ExpressionWithTypeArguments
+            | SyntaxKind::TypeReference
+            | SyntaxKind::TypeQuery
+            | SyntaxKind::ImportType
+            | SyntaxKind::JsxOpeningElement
+            | SyntaxKind::JsxSelfClosingElement
+    )
 }

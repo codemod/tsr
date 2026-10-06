@@ -220,6 +220,10 @@ pub struct Parser<'a> {
     /// Parse errors inside JSDoc comments — upstream's `Parser.jsdocDiagnostics`.
     /// Like upstream's, not rewound by speculation; `finish` drops repeats.
     pub(crate) jsdoc_diagnostics: Vec<Diagnostic>,
+    /// Where the last empty `<>` list opened, until the node that owns it is
+    /// finished ([`NO_EMPTY_TYPE_LIST`] when none is pending). See
+    /// [`Self::note_empty_type_list`].
+    pending_empty_type_list: u32,
     /// Whether to parse JSDoc; see [`ParseOptions::jsdoc`].
     pub(crate) parse_jsdoc: bool,
     /// Whether to record parents as nodes are finished.
@@ -330,10 +334,25 @@ impl<'a> Parser<'a> {
             parsing_contexts: 0,
             jsdoc: Vec::new(),
             jsdoc_diagnostics: Vec::new(),
+            pending_empty_type_list: NO_EMPTY_TYPE_LIST,
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,
             depth: 0,
         }
+    }
+
+    /// Record that a type parameter or type argument list opening at `open`
+    /// was written `<>`.
+    ///
+    /// Upstream keeps the fact on the list (a non-nil `NodeList` with no
+    /// nodes); here the owner carries [`tsr_ast::NodeFlags::EMPTY_TYPE_LIST`].
+    /// The list is parsed before its owner is finished, and every node
+    /// finished in between is a later child of that owner, so it starts
+    /// after `open`: the first type-list owner finished at or before `open`
+    /// is the list's own. Speculative parses rewind it with the rest of the
+    /// state.
+    pub(crate) fn note_empty_type_list(&mut self, open: u32) {
+        self.pending_empty_type_list = open;
     }
 
     /// Consume the parser, returning its diagnostics and node table.
@@ -539,6 +558,7 @@ impl<'a> Parser<'a> {
             token_value: self.token_value.clone(),
             diagnostics: self.diagnostics.len(),
             nodes: self.nodes.len(),
+            pending_empty_type_list: self.pending_empty_type_list,
         }
     }
 
@@ -547,6 +567,7 @@ impl<'a> Parser<'a> {
         self.token = saved.token;
         self.token_value = saved.token_value;
         self.diagnostics.truncate(saved.diagnostics);
+        self.pending_empty_type_list = saved.pending_empty_type_list;
         // Nodes registered during the abandoned attempt stay in the table but
         // are unreachable from the tree. Truncating is safe only because ids are
         // handed out sequentially and nothing else holds one yet.
@@ -686,6 +707,15 @@ impl<'a> Parser<'a> {
         T: HasNodeId,
         &'a T: Into<tsr_ast::Node<'a>>,
     {
+        let flags = if self.pending_empty_type_list != NO_EMPTY_TYPE_LIST
+            && start <= self.pending_empty_type_list
+            && owns_type_list(kind)
+        {
+            self.pending_empty_type_list = NO_EMPTY_TYPE_LIST;
+            flags | tsr_ast::NodeFlags::EMPTY_TYPE_LIST
+        } else {
+            flags
+        };
         let id = self.nodes.push(kind, Span::new(start, end), flags);
         // `alloc` hands back `&mut` for a block nothing else can reference yet, so
         // the id is written before any shared reference exists. That is why nodes
@@ -773,7 +803,11 @@ struct ParserState {
     token_value: Option<String>,
     diagnostics: usize,
     nodes: usize,
+    pending_empty_type_list: u32,
 }
+
+/// [`Parser::pending_empty_type_list`]'s "none".
+const NO_EMPTY_TYPE_LIST: u32 = u32::MAX;
 
 /// Capture the scanner's decoded value, if it differs from the raw text.
 fn capture_value(scanner: &Scanner<'_>) -> Option<String> {
@@ -806,4 +840,38 @@ pub(crate) fn token_to_text(kind: SyntaxKind) -> &'static str {
         SyntaxKind::FromKeyword => "from",
         other => other.name(),
     }
+}
+
+/// Node kinds that carry a type parameter or type argument list, the owners
+/// [`Parser::note_empty_type_list`] stamps.
+fn owns_type_list(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::CallExpression
+            | SyntaxKind::NewExpression
+            | SyntaxKind::TaggedTemplateExpression
+            | SyntaxKind::ExpressionWithTypeArguments
+            | SyntaxKind::TypeReference
+            | SyntaxKind::TypeQuery
+            | SyntaxKind::ImportType
+            | SyntaxKind::JsxOpeningElement
+            | SyntaxKind::JsxSelfClosingElement
+            | SyntaxKind::ClassDeclaration
+            | SyntaxKind::ClassExpression
+            | SyntaxKind::InterfaceDeclaration
+            | SyntaxKind::TypeAliasDeclaration
+            | SyntaxKind::FunctionDeclaration
+            | SyntaxKind::FunctionExpression
+            | SyntaxKind::ArrowFunction
+            | SyntaxKind::MethodDeclaration
+            | SyntaxKind::MethodSignature
+            | SyntaxKind::Constructor
+            | SyntaxKind::GetAccessor
+            | SyntaxKind::SetAccessor
+            | SyntaxKind::CallSignature
+            | SyntaxKind::ConstructSignature
+            | SyntaxKind::IndexSignature
+            | SyntaxKind::FunctionType
+            | SyntaxKind::ConstructorType
+    )
 }

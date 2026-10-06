@@ -89,6 +89,16 @@ bitflags! {
         /// `isDefaultLib` bit, which the node builder consults when choosing
         /// reference spellings (printseam §7's missing key).
         const DEFAULT_LIBRARY = 1 << 30;
+        /// The node's type parameter or type argument list was written as
+        /// empty brackets, `<>`.
+        ///
+        /// Upstream tells `class C<>` from `class C` by the list being a
+        /// non-nil `NodeList` with no nodes (`checkGrammarTypeParameterList`,
+        /// `checkGrammarForAtLeastOneTypeArgument`); this AST keeps the list as
+        /// a plain slice, so the owner carries the fact. No owner kind has both
+        /// a type parameter and a type argument list, so one bit serves both.
+        /// The brackets' positions are recovered from the source text.
+        const EMPTY_TYPE_LIST = 1 << 31;
 
         /// Any block-scoped declaration form.
         const BLOCK_SCOPED = Self::LET.bits() | Self::CONST.bits() | Self::USING.bits();

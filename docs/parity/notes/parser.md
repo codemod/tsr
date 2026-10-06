@@ -461,3 +461,54 @@ token's *full* start when the token is `EndOfFile`. Both sites now call one
 helper, `missing_expression` (`expression.rs`). In `importTag11` the moved
 TS1109 also stops sharing a start with the `'from' expected` at the `*/`, so
 `finish`'s same-position dedup no longer drops it.
+
+### Empty `<>`: a node flag, brackets from the source text
+
+**Forcing constraint.** `checkGrammarTypeParameterList` (TS1098,
+`grammarchecks.go:678`) and `checkGrammarForAtLeastOneTypeArgument` (TS1099,
+`:845`) test for a non-nil list with no nodes, and report from `Pos() - 1`
+to `SkipTrivia(End()) + 1`. This AST keeps type lists as plain slices, so
+`class C<>` and `class C` were the same tree. Worse, `f<>()` did not parse as
+a call: `parse_type_arguments_for_call` always parsed one type, so the
+missing type's complaint rejected the list and `<`/`>` became comparisons
+(two TS1109). Upstream's `parseDelimitedList(PCTypeArguments)` ends at once
+on `>` (`tryParseTypeArgumentsInExpression`, `parser.go:5242`).
+
+**What was built.**
+
+- `NodeFlags::EMPTY_TYPE_LIST` (bit 31) on the owner. No node kind owns both a
+  type parameter and a type argument list, so one bit serves both.
+- The parser notes the `<` of an empty list (`note_empty_type_list`) and
+  `finish_node_with_flags` stamps the first type-list owner it finishes whose
+  start is at or before that `<`. Between the list and its owner only later
+  children of the owner are finished, and they start after the `<`, so the
+  first such owner is the list's. The pending position is part of the
+  speculation state (`save_state`/`restore_state`). Cost on the hot path: one
+  compare against a sentinel per finished node.
+- The checker recovers the bracket positions from the source text
+  (`empty_type_list_brackets`, `grammar.rs`): the `<` is the owner's first
+  token that is not inside one of its children (decorators, modifiers, names
+  and the callee are children; the keywords in between are never `<`); a JSX
+  element's scan starts after its tag name, since the element opens with `<`.
+  The `>` is the next token. TS1092 on an empty constructor list is zero-width
+  after the `<`, as upstream's `Pos() == End()` arm is.
+
+**Alternatives.** A span per list in the generated AST (`NodeList.Loc`) is
+upstream's shape but changes every consumer of every type list; a parser side
+table of bracket spans needs plumbing through the compiler's `ModuleHost`,
+which this lane does not own. The flag-plus-text route needs neither and
+costs nothing for the lists that are not empty. If a second consumer needs
+list positions for non-empty lists (TS1009 on a type-argument trailing comma
+in `jsxIntrinsicElementsTypeArgumentErrors`, TS1025), that is the point to
+move to a real list span.
+
+**Not ported:** the reports that short-circuit in front of these in upstream's
+callers (`checkGrammarClassDeclarationHeritageClauses`, the trailing-comma
+half of `checkGrammarTypeArguments`); TS1098 on a class sits behind the
+modifier chain here, where upstream's class check does not.
+
+Cases converted: `classWithEmptyTypeParameter`, `emptyGenericParamList`,
+`emptyTypeArgumentList`, `emptyTypeArgumentListWithNew`,
+`parserConstructorDeclaration11`, `parserConstructorDeclaration12`;
+`jsxIntrinsicElementsTypeArgumentErrors` gains its two TS1099 (its TS2558 and
+TS1009 rows remain).

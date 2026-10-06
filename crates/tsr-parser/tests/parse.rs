@@ -2111,3 +2111,40 @@ fn optional_chain_flag_follows_upstreams_reparse() {
         assert_eq!(chain_spine(&parsed), *expected, "spine of {source:?}");
     }
 }
+
+/// `<>` parses as an empty list, without a parse diagnostic, and the owner
+/// carries `NodeFlags::EMPTY_TYPE_LIST` (the checker's TS1098 / TS1099). A
+/// node whose list was absent, and an inner owner's flag, stay apart.
+#[test]
+fn an_empty_type_list_is_flagged_on_its_owner() {
+    let arena = Arena::new();
+    for (source, owner) in [
+        ("class C<> {}", SyntaxKind::ClassDeclaration),
+        ("function f<>() {}", SyntaxKind::FunctionDeclaration),
+        ("f<>();", SyntaxKind::CallExpression),
+        ("new C<>();", SyntaxKind::NewExpression),
+        ("let x: A<>;", SyntaxKind::TypeReference),
+        ("class C { constructor< >() {} }", SyntaxKind::Constructor),
+    ] {
+        let parsed = parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source:?}: {:?}", parsed.diagnostics);
+        let flagged: Vec<SyntaxKind> = (0..parsed.nodes.len())
+            .map(|i| tsr_ast::NodeId::new(u32::try_from(i).unwrap()))
+            .filter(|&id| parsed.nodes.flags(id).contains(tsr_ast::NodeFlags::EMPTY_TYPE_LIST))
+            .map(|id| parsed.nodes.kind(id))
+            .collect();
+        assert_eq!(flagged, vec![owner], "{source:?}");
+    }
+    for source in ["class C {}", "f();", "let x: A<B<>>;"] {
+        let parsed = parse(&arena, source);
+        let count = (0..parsed.nodes.len())
+            .filter(|&i| {
+                parsed
+                    .nodes
+                    .flags(tsr_ast::NodeId::new(u32::try_from(i).unwrap()))
+                    .contains(tsr_ast::NodeFlags::EMPTY_TYPE_LIST)
+            })
+            .count();
+        assert_eq!(count, usize::from(source.contains("<>")), "{source:?}");
+    }
+}
