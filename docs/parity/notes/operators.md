@@ -75,6 +75,11 @@ and reports nothing. **Falsifier / reopening condition:** when the calls /
 inference owner stops publishing the speculative parameter type, wiring the
 report should convert the lane's TS18046 lines (17 missing) with no loss.
 
+**Re-measured on `b935784`** (calls-4 merged): wiring TS18046/TS2571 here
+gives MISSING TS18046 22 → 17 but 7 extras and three EMPTY_RIGHT →
+EMPTY_WRONG losses — `mapGroupBy`, `nonInferrableTypePropagation2`, and now
+`neverInference`. Still not shipped.
+
 ## 3. The arithmetic arm is a port (TS2362, TS2363, TS2447, TS2365, TS18050)
 
 **Forcing constraint.** At `590ac64` the lane missed 83 TS2362 and 48 TS2363.
