@@ -7,9 +7,10 @@
 //! `checkClassLikeDeclaration` (`:4298`), `checkInterfaceDeclaration` (`:5000`),
 //! `checkEnumDeclaration` (`:5073`), `checkModuleDeclaration` (`:5161`),
 //! `checkVariableLikeDeclaration` (`:5941`) and `checkTypeAliasDeclaration`
-//! (`:6883`). Hooking it on functions as well cost twelve wrong lines and three
-//! `extraonly` cases — overload sets have their *own* diagnostics, TS2383 and
-//! TS2384, at exactly the positions TS2395 was landing on. §961.
+//! (`:6883`), all six hooked here. Hooking it on functions as well cost
+//! twelve wrong lines and three `extraonly` cases — overload sets have their
+//! *own* diagnostics, TS2383 and TS2384, at exactly the positions TS2395 was
+//! landing on. §961.
 //!
 //! `docs/architecture/checker-notes-diag2.md` §960.
 
@@ -26,6 +27,7 @@ impl Spaces {
     const NONE: Self = Self(0);
     const TYPE: Self = Self(1);
     const VALUE: Self = Self(2);
+    const NAMESPACE: Self = Self(4);
 
     fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -45,15 +47,13 @@ impl Spaces {
 }
 
 impl Checker<'_, '_> {
-    /// One declaration that may be part of a merge.
+    /// One declaration that may be part of a merge. No parse-error gate:
+    /// upstream checks a file with syntax errors too (`innerModExport2`).
     pub(crate) fn check_exports_on_merged_declarations(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(name) = self.declaration_name_of(node) else { return };
         let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
+        let Some(symbol) = self.export_merge_local_symbol(node, symbol, &text) else { return };
         // Once per symbol. Upstream runs once per *kind*, which repeats the
         // whole report for a symbol whose declarations differ in kind; §953's
         // set is the shape used here instead. §960.
@@ -110,6 +110,41 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// The symbol `checkExportsOnMergedDeclarations` walks (`checker.go:6912`):
+    /// `node.LocalSymbol()` for an exported declaration, else
+    /// `getSymbolOfDeclaration(node)` when it has an `ExportSymbol`; `None`
+    /// for a purely local symbol, which upstream returns on.
+    ///
+    /// Both are the **local** half `declareModuleMember` (`binder.go:406`)
+    /// creates in the container's locals, so only the declarations of one
+    /// container (one namespace block, one module file) take part. The
+    /// merged export symbol would join blocks that upstream never compares —
+    /// `declare module "foo"` in a script against a `module "foo"` exported
+    /// from another ambient module (`module_augmentUninstantiatedModule`).
+    ///
+    /// This port's binder records the export symbol as the node's symbol and
+    /// links the local to it (`Symbol::export_symbol`) without a node → local
+    /// edge, so an exported declaration's local is found by name in the
+    /// enclosing locals tables: the entry whose export link is the node's
+    /// symbol and whose declarations include the node.
+    fn export_merge_local_symbol(
+        &self,
+        node: NodeId,
+        symbol: tsr_binder::SymbolId,
+        name: &str,
+    ) -> Option<tsr_binder::SymbolId> {
+        let symbols = self.binder.symbols();
+        if symbols.get(symbol).export_symbol.is_some() {
+            return Some(symbol);
+        }
+        self.nodes.ancestors(node).find_map(|ancestor| {
+            let &local = self.binder.locals(ancestor)?.get(name)?;
+            let entry = symbols.get(local);
+            (entry.export_symbol == Some(symbol) && entry.declarations.contains(&node))
+                .then_some(local)
+        })
     }
 
     /// The ambient arm of `getEffectiveDeclarationFlags` (`checker.go:3701`):
@@ -209,17 +244,31 @@ impl Checker<'_, '_> {
         self.module_host.is_some_and(|host| host.is_declaration_file(file))
     }
 
-    /// `getDeclarationSpaces` (`checker.go:6961`), the syntactic arms only.
+    /// `getDeclarationSpaces` (`checker.go:6961`), minus the alias arms.
     ///
-    /// A module declaration needs `GetModuleInstanceState` and every alias form
-    /// needs `resolveAlias`; both answer `NONE` here, which can only shrink the
-    /// intersection and so under-reports rather than mis-reports. §960.
+    /// Every alias form (`ImportEqualsDeclaration`, `NamespaceImport`,
+    /// `ImportClause`, an entity-name export assignment) needs `resolveAlias`
+    /// and answers `NONE` here, which can only shrink the intersection and so
+    /// under-reports rather than mis-reports. §960.
     fn declaration_spaces(&self, declaration: NodeId) -> Spaces {
         match self.nodes.kind(declaration) {
             SyntaxKind::InterfaceDeclaration
             | SyntaxKind::TypeAliasDeclaration
             | SyntaxKind::MethodSignature
             | SyntaxKind::PropertySignature => Spaces::TYPE,
+            // `IsAmbientModule(node) || GetModuleInstanceState(node) !=
+            // ModuleInstanceStateNonInstantiated` — the unadjusted state, so a
+            // `const enum`-only namespace counts as a value here.
+            SyntaxKind::ModuleDeclaration => {
+                if self.is_ambient_module_declaration(declaration)
+                    || self.module_instance_state_of(declaration)
+                        != tsr_ast::ModuleInstanceState::NonInstantiated
+                {
+                    Spaces::NAMESPACE.union(Spaces::VALUE)
+                } else {
+                    Spaces::NAMESPACE
+                }
+            }
             SyntaxKind::ClassDeclaration | SyntaxKind::EnumDeclaration | SyntaxKind::EnumMember => {
                 Spaces::TYPE.union(Spaces::VALUE)
             }
@@ -229,6 +278,21 @@ impl Checker<'_, '_> {
             | SyntaxKind::ImportSpecifier => Spaces::VALUE,
             _ => Spaces::NONE,
         }
+    }
+
+    /// `ast.GetModuleInstanceState` (`ast/utilities.go:2322`) for a module
+    /// declaration of any file, through its ancestor chain.
+    fn module_instance_state_of(&self, declaration: NodeId) -> tsr_ast::ModuleInstanceState {
+        let Some(typed) = self.node_map.get(declaration) else {
+            return tsr_ast::ModuleInstanceState::Instantiated;
+        };
+        let mut parents: Vec<_> = self
+            .nodes
+            .ancestors(declaration)
+            .filter_map(|ancestor| self.node_map.get(ancestor))
+            .collect();
+        parents.reverse();
+        tsr_ast::module_instance_state(typed, &parents)
     }
 
     /// `getEffectiveDeclarationFlags`, restricted to the declaration's own

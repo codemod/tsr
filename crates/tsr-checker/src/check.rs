@@ -316,6 +316,20 @@ impl Checker<'_, '_> {
                 if let Some(name) = declaration.name.and_then(|n| n.node_id()) {
                     self.check_module_augmentation_name(node, name);
                 }
+                // `checkModuleDeclaration` (`checker.go:5161`), reached only
+                // past `checkGrammarModuleElementContext`'s bail-out
+                // (`:5146`): a module declaration in an illegal context is not
+                // checked further.
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::SourceFile
+                            | SyntaxKind::ModuleBlock
+                            | SyntaxKind::ModuleDeclaration
+                    )
+                }) {
+                    self.check_exports_on_merged_declarations(node);
+                }
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     || self.is_ambient_module_node(node)
