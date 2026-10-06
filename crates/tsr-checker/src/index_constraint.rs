@@ -119,10 +119,11 @@ impl<'a> Checker<'a, '_> {
         Some((kind, at))
     }
 
-    /// `checkIndexConstraints`' three call sites (`checker.go:4786`):
+    /// `checkIndexConstraints`' four call sites (`checker.go:4786`):
     /// `checkClassLikeDeclaration` runs it on the instance type and on the
     /// static side (`checker.go:4387`), `checkInterfaceDeclaration` once per
-    /// symbol on the declared type (`checker.go:5013`).
+    /// symbol on the declared type (`checker.go:5013`), `checkTypeLiteral` on
+    /// the literal's type (`checker.go:3137`).
     ///
     /// The interface arm is guarded by `links.interfaceChecked`, a once-per-
     /// symbol flag set by whichever declaration is checked first; this runs on
@@ -150,6 +151,28 @@ impl<'a> Checker<'a, '_> {
                 }
                 let declared = self.get_declared_type_of_class_or_interface(symbol);
                 self.check_index_constraints_of_type(declared, symbol, false);
+            }
+            // `checkTypeLiteral` (`checker.go:3134`): the literal's own type,
+            // owned by its `__type` symbol.
+            SyntaxKind::TypeLiteral => {
+                let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(node) else { return };
+                // `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` runs
+                // unconditionally upstream; resolving it is where a circular
+                // `typeof` member reports TS2502 (`recursiveTypesWithTypeof`).
+                let ty = self.get_type_from_type_node(tsr_ast::TypeNode::TypeLiteralNode(literal));
+                // A literal has no base types, so its index infos come only
+                // from its own index signatures and non-bindable computed
+                // members; without either there is nothing to check, and its
+                // properties need not be enumerated.
+                if !literal.members.iter().any(|member| {
+                    matches!(member, tsr_ast::TypeElement::IndexSignatureDeclaration(_))
+                        || member.node_id().and_then(|id| self.declaration_name_of(id)).is_some_and(
+                            |name| self.nodes.kind(name) == SyntaxKind::ComputedPropertyName,
+                        )
+                }) {
+                    return;
+                }
+                self.check_index_constraints_of_type(ty, symbol, false);
             }
             _ => {}
         }
