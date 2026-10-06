@@ -622,14 +622,38 @@ pub fn type_id_at_location_tracking<'a>(
             _ => false,
         };
         if is_property_name {
-            let computed = checker.get_type_of_symbol(specifier_symbol);
-            // An any/error target falls through to the older roads — the
-            // globalThis re-export printed `typeof globalThis` there and this
-            // branch overrode it with the alias road's `any`
-            // (`globalThisGlobalExportAsGlobal`, the draft's one R→W).
-            if computed != error && computed != checker.intrinsics().any {
-                return computed;
+            // `IsDeclarationNameOrImportPropertyName` (`ast/utilities.go:1311`)
+            // takes a specifier's property name, and `getSymbolAtLocation`
+            // answers it with `getImmediateAliasedSymbol` of the specifier
+            // (`checker.go:31594`) — `resolve_alias`, which is the one-step
+            // `getTargetOfAliasDeclaration`. A miss is `errorType`, which
+            // the writer's import/export-statement-name guard prints `any`.
+            //
+            // One miss is this port's, not upstream's: a local `export { x
+            // as y }` resolves `x` in scope (`getTargetOfExportSpecifier`),
+            // and upstream's globals hold `globalThisSymbol` and
+            // `undefinedSymbol` (`checker.go:963`), which this binder has no
+            // entry for — the checker mints their types in
+            // `checkIdentifier`'s unresolved arm instead (§33). Typing the
+            // name as that identifier reads the same stand-in;
+            // any other unresolved name answers `errorType` there too.
+            // `globalThisGlobalExportAsGlobal` pins it.
+            let local_export = matches!(map.get(parent), Some(Node::ExportSpecifier(_)))
+                && matches!(
+                    nodes.parent(parent).and_then(|clause| nodes.parent(clause)).and_then(|d| map.get(d)),
+                    Some(Node::ExportDeclaration(declaration)) if declaration.module_specifier.is_none()
+                );
+            let computed = match checker.resolve_alias(specifier_symbol) {
+                Some(target) => checker.get_type_of_symbol(binder.merged_symbol(target)),
+                None if local_export => tsr_ast::Expression::try_from(node)
+                    .map_or(error, |expression| checker.check_expression(expression)),
+                None => error,
+            };
+            if computed == error {
+                *saw_checker_error = true;
+                return checker.intrinsics().any;
             }
+            return computed;
         }
     }
 
@@ -921,12 +945,16 @@ pub fn type_id_at_location_tracking<'a>(
     // Upstream does not share that namespace, so the line is ours to be wrong
     // about either way — but converting it would be an unmeasured change riding
     // along with a measured one, and the 209 lines never included it.
+    //
+    // **The precondition is gone with the expression-node gate below.** A
+    // label is never an expression node (`IsInExpressionContext` has no
+    // labeled/break/continue parent arm), so `getTypeOfNode` answers
+    // `errorType` for it whatever this port's `check_expression` would find
+    // — the `const outer = 1;` shape above included — and the writer's
+    // `IsLabelName` guard prints `any`.
     if is_label_name(id, nodes, map) {
-        let label = tsr_ast::Expression::try_from(node)
-            .map_or(error, |expression| checker.check_expression(expression));
-        if label == error {
-            return checker.intrinsics().any;
-        }
+        *saw_checker_error = true;
+        return checker.intrinsics().any;
     }
 
     // **An intrinsic JSX tag name prints `any`, and the checker is not what
@@ -1094,20 +1122,15 @@ pub fn type_id_at_location_tracking<'a>(
         }
     }
 
-    // `getTypeOfNode` evaluates an identifier as a value only when
-    // `ast.IsExpressionNode` holds (`checker.go:31955`). Neither part of a
-    // `JsxNamespacedName` (`<a:b>`) is one — `isInExpressionContext` has no
-    // `JsxNamespacedName` parent arm — so both fall through to `errorType`,
+    // `getTypeOfNode` evaluates a node as a value only when
+    // `ast.IsExpressionNode` holds (`checker.go:31955`); every other node
+    // that no arm above claims falls off its end to `errorType`. Neither
+    // part of a `JsxNamespacedName` (`<a:b>`) is one — `isInExpressionContext`
+    // has no `JsxNamespacedName` parent arm — so both answer `errorType`
     // even when a `var a` is in scope (`jsxNamespacePrefixInName`).
-    if nodes.kind(id) == SyntaxKind::Identifier
-        && nodes
-            .parent(id)
-            .is_some_and(|parent| nodes.kind(parent) == SyntaxKind::JsxNamespacedName)
+    if predicates::is_expression_node(id, Tree { nodes, map })
+        && let Ok(expression) = tsr_ast::Expression::try_from(node)
     {
-        return error;
-    }
-
-    if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let computed = checker.check_expression(expression);
         return computed;
     }
@@ -2227,21 +2250,17 @@ mod tests {
     }
 
     #[test]
-    fn a_label_shadowing_a_value_keeps_the_type_we_computed() {
-        // Upstream's `IsTypeAny` precondition, and the case that separates a port
-        // of the guard from "a label position prints `any`". A label shares no
-        // namespace with a value upstream, but *this* checker resolves the
-        // identifier to the variable and answers `1` — so the precondition is not
-        // satisfied and the guard must not fire.
-        //
-        // The plausible wrong implementation — convert every label position
-        // unconditionally — prints `any` on the label lines below. Those are
-        // lines the 209-line measurement never claimed, so converting them would
-        // ship an unmeasured change under a measured one.
+    fn a_label_shadowing_a_value_still_prints_any() {
+        // A label shares no namespace with a value upstream. This checker
+        // resolves the identifier to the variable and answers `1`, but
+        // `getTypeOfNode` never asks it: a label is not an expression node
+        // (`IsInExpressionContext` has no labeled/jump parent arm), so the
+        // label answers `errorType` and the writer prints `any`. The
+        // declaration and the expression statement keep their `1`.
         let out = typed("const outer = 1;\nouter: while (true) { outer; }");
         let labels: Vec<_> =
             out.iter().filter(|(text, _)| text == "outer").map(|(_, ty)| ty.as_str()).collect();
-        assert_eq!(labels, ["1", "1", "1"], "in {out:?}");
+        assert_eq!(labels, ["1", "any", "1"], "in {out:?}");
     }
 
     #[test]
