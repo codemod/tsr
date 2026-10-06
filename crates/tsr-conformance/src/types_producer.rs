@@ -720,25 +720,12 @@ pub fn type_id_at_location_tracking<'a>(
         }
         && let Some(symbol) = binder.symbol_of(parent)
     {
-        // `tryGetDeclaredTypeOfSymbol` (`checker.go:23678`) tests the type
-        // meanings before the alias arm, so an alias merged with a local type
-        // declaration answers that declaration's type.
-        let symbol = binder.merged_symbol(symbol);
-        let flags = binder.symbols().get(symbol).flags;
-        if flags.intersects(
-            SymbolFlags::CLASS
-                | SymbolFlags::INTERFACE
-                | SymbolFlags::TYPE_PARAMETER
-                | SymbolFlags::TYPE_ALIAS
-                | SymbolFlags::ENUM
-                | SymbolFlags::ENUM_MEMBER,
-        ) {
-            return checker.get_declared_type_of_symbol(symbol);
-        }
-        return match checker.resolve_alias(symbol) {
-            Some(target) => checker.get_declared_type_of_symbol(target),
-            None => error,
-        };
+        // `getDeclaredTypeOfSymbol` in `tryGetDeclaredTypeOfSymbol`'s order
+        // (`checker.go:23678`): the type meanings before the alias arm, so an
+        // alias merged with a local type declaration answers that
+        // declaration's type, and an alias answers `getDeclaredTypeOfAlias`
+        // — the declared type at the END of its chain (`resolveAlias`).
+        return declared_type_of_symbol(checker, binder, binder.merged_symbol(symbol));
     }
 
     // A declaration name resolves through its parent's symbol.
