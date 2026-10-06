@@ -61,26 +61,39 @@ impl<'a> Checker<'a, '_> {
         // actually bites — is still declined. §970.
         let explicit_type_arguments = !call.type_arguments.is_empty();
         let arguments = call.arguments.len();
+        // `chooseOverload` (`checker.go`) filters candidates by
+        // `hasCorrectArity` before `getSignatureApplicabilityError` checks
+        // argument types, and with no arity-compatible candidate
+        // `resolveCall` reports `getArgumentArityError` alone. So a count
+        // error here preempts the argument-type half.
+        if syntactic_arity
+            && let Some((minimum, maximum)) = (if explicit_type_arguments {
+                self.overload_set_arity_filtered(callee, true)
+            } else {
+                self.sole_signature_arity(callee).or_else(|| self.overload_set_arity(callee))
+            })
+            && !(arguments >= minimum && maximum.is_none_or(|maximum| arguments <= maximum))
+        {
+            self.report_call_arity(call, callee, arguments, minimum, maximum);
+            return;
+        }
         // The argument *types* are checked at the same gate as the count,
         // because both need the same thing: exactly one signature, known from
-        // the declaration. `checkApplicableSignature` (`checker.go`) runs after
-        // arity and only for a candidate that survived it, so the ordering here
-        // is upstream's too.
+        // the declaration.
         self.check_argument_types(call, callee);
-        if !syntactic_arity {
-            return;
-        }
-        let Some((minimum, maximum)) = (if explicit_type_arguments {
-            self.overload_set_arity_filtered(callee, true)
-        } else {
-            self.sole_signature_arity(callee).or_else(|| self.overload_set_arity(callee))
-        }) else {
-            return;
-        };
+    }
+
+    /// `getArgumentArityError` (`checker.go:9715`): TS2554/TS2555 for a call
+    /// whose argument count no candidate accepts.
+    fn report_call_arity(
+        &mut self,
+        call: &tsr_ast::CallExpression<'_>,
+        callee: NodeId,
+        arguments: usize,
+        minimum: usize,
+        maximum: Option<usize>,
+    ) {
         let unbounded = maximum.is_none();
-        if arguments >= minimum && maximum.is_none_or(|maximum| arguments <= maximum) {
-            return;
-        }
         let message = if unbounded {
             &messages::EXPECTED_AT_LEAST_0_ARGUMENTS_BUT_GOT_1
         } else {

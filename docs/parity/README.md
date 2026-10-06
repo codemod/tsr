@@ -31,11 +31,25 @@ judged RIGHT cases only, EMPTY cases are excluded by the suite):
 | misc-2 (local) `8f64006d` | 7,493 | 3,444 | 0.99 |
 | js-3 (local) `ab3bb035` | 7,493 | 3,459 | 1.08 |
 | cycles (local) `8731aa41` | 7,493 | 3,462 | 1.09 |
-| calls + calls-2 (local) `675c4501` | 7,513 (78.77%) | 3,535 (64.41%) | 1.18 |
+| calls + calls-2 (local) `675c4501` | 7,513 | 3,535 | 1.18 |
+| flow (local) `d9f5b9f4` | 7,513 | 3,569 | 1.14 |
+| calls-3 (local) `a13f5083` | 7,513 | 3,592 | 1.17 |
+| cloud round 1 (`#4`, other integrator) `d5b4fe56` | 7,602 | 3,846 | — |
+| relate-3 (local) `2fbd279f` | 7,603 (79.71%) | 3,854 (70.23%) | 1.17 |
 
 From 2026-10-05 ~09:45 PDT the Box service stopped answering (`Not connected`;
 new machines did not start), so lanes continued as local workers. Smoke ratios
 after that point were taken with load average ~60 on 16 cores and are noise.
+
+Two integrators now merge into `main`: this local one (worktree
+`tsr-integ`, lanes run as local workers while the Box service is down) and the
+cloud round-1 integrator (`docs/parity/box-protocol.md`). Local lanes in flight
+at `2fbd279f`, so the cloud round does not duplicate them: `flow-2` (rebasing
+TS7030/2355/2366, getExplicitThisType, TS2448/2449, TS2454 assumeInitialized,
+TS2872/2873 onto main), `calls-4` (overload sets `tsr-2zk.9.6`, call-site
+TS2344 `tsr-2zk.9.4`/`tsr-2zk.33`, TS2684), `relate-4` (checkAssignmentOperator
+and missing elaboration sites, union-target elaboration, weak types TS2559,
+TS4104). Beads issues from both integrators are merged in `031d801d`.
 
 The smoke ratio is `perf-project` on `benches/projects/generic-imports`, 9
 samples, observed (not verified). `benches/projects/domain-model` reads 1.42 on
