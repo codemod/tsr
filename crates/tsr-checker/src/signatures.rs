@@ -5988,19 +5988,30 @@ impl<'a> Checker<'a, '_> {
             // function-like declaration like any other — upstream's
             // `getSignatureFromDeclaration` switches on
             // `declaration.Parameters()` (`checker.go:19836`), not on the
-            // kind. Its type parameters are the CLASS's (filled by the
-            // caller through `type_parameter_types`'s constructor arm) and
-            // its return type is the class's declared type
-            // (`getReturnTypeFromAnnotation`, `checker.go:20059`), which is
-            // why the annotation slot is None here.
+            // kind. Its type parameters are the CLASS's: `classType :=
+            // getDeclaredTypeOfClassOrInterface(getMergedSymbol(
+            // declaration.Parent.Symbol()))` and its `LocalTypeParameters()`
+            // (`checker.go:19891-19895`), every declaration of a merged
+            // class/interface included. Its return type is the class's
+            // declared type (`getReturnTypeFromAnnotation`,
+            // `checker.go:20059`), which is why the annotation slot is None
+            // here.
             Node::ConstructorDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: false,
-                type_parameters: match self.nodes.parent(id).and_then(|p| self.node_map.get(p)) {
-                    Some(Node::ClassDeclaration(class)) => class.type_parameters.to_vec(),
-                    Some(Node::ClassExpression(class)) => class.type_parameters.to_vec(),
-                    _ => Vec::new(),
-                },
+                type_parameters: self
+                    .nodes
+                    .parent(id)
+                    .filter(|&class| {
+                        matches!(
+                            self.nodes.kind(class),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+                    .and_then(|class| self.binder.symbol_of(class))
+                    .map_or_else(Vec::new, |class| {
+                        self.local_type_parameters_of(self.binder.merged_symbol(class)).to_vec()
+                    }),
                 parameters: node.parameters,
                 return_annotation: None,
                 body: node.body.and_then(|body| body.node_id()).map(Body::Block),
