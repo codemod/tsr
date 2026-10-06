@@ -333,3 +333,27 @@ short-circuit needs.
 
 Measured at the commit: diagnostics 3852 RIGHT (+1), checker_types 7627,
 `parser_reachable_target` 5031; CPU self-ratio 1.004 / 0.983.
+
+### `allowReturnTypeInArrowFunction`
+
+This parser had no counterpart of the flag upstream threads through
+`parseAssignmentExpressionOrHigherWorker` (`parser.go:4081`). The true
+branch of a conditional parses with it off (`parseConditionalExpressionRest`,
+`:4562`), so in `b ? (c) : d => e` the ambiguous `(c) : d => e` — a valid
+arrow signature with return type `d` — is refused once its body is parsed
+unless another `:` follows it (`:4422`), and the group reparses as the
+parenthesised true branch. Ported as `parse_assignment_expression_worker`
+with the flag passed to the simple-arrow body, the assignment right operand,
+the conditional's false branch and `parse_arrow_body`, as upstream passes it.
+A definite arrow (`isParenthesizedArrowFunctionExpression` answering true)
+always allows the return type, as `tryParseParenthesizedArrowFunctionExpression`
+does.
+
+The refusal comes after the body, so the ambiguous parse with the flag off
+runs inside one `try_parse` (upstream's rewind). One deviation: when an
+`async` was already consumed before the decision, this port cannot rewind it,
+so an `async` arrow keeps its return type there. No corpus case reaches it.
+
+Cases converted: `parserArrowFunctionExpression8`, `9`, `11`, `12`; `10`'s
+parse now matches and its remaining row is a checker TS2304 on the arrow's
+return type in the `.ts` file.
