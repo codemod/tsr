@@ -5070,6 +5070,25 @@ impl<'a> Checker<'a, '_> {
     fn report_circularity_error(&mut self, symbol: SymbolId, declaration: NodeId) -> TypeId {
         use tsr_diagnostics::{Diagnostic, messages};
         if self.type_annotation_of(declaration).is_none() {
+            // `reportCircularityError` (`checker.go:18822`): an unannotated
+            // variable whose initializer circularly references the variable
+            // itself reports TS7022 under noImplicitAny (`checker.go:18831`).
+            if self.no_implicit_any
+                && (self.nodes.kind(declaration) != SyntaxKind::Parameter
+                    || self.initializer_of(declaration).is_some())
+                && let Some(file) = self.source_file_of_for_diagnostics(declaration)
+                && self.circularity_reported.insert(declaration)
+            {
+                let name = self.binder.symbols().get(symbol).name.to_string();
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION_AND_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_INITIALIZER,
+                        self.error_span(declaration),
+                        [name],
+                    ),
+                );
+            }
             return self.intrinsics.any;
         }
         if let Some(file) = self.source_file_of_for_diagnostics(declaration)
