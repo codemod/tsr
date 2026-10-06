@@ -280,14 +280,24 @@ impl Checker<'_, '_> {
     ///
     /// Upstream's `isInJSFile && ValueModule` exemption is unreachable — §197
     /// excludes `allowJs` cases from this suite.
+    ///
+    /// Runs in files with parse errors, as upstream's `checkIdentifier` does:
+    /// the rule reads only the identifier and what it resolves to, which
+    /// recovery preserves (`docs/parity/notes/misc-checks.md` §12).
     pub(crate) fn check_identifier_assignment_target(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
+        // `getResolvedSymbol` resolves nothing for a missing identifier
+        // (`!ast.NodeIsMissing(node)`, `checker.go:13894`): parser recovery's
+        // empty name must not find a declaration whose name was also lost.
+        if identifier.text.is_empty() {
+            return;
+        }
         let Some(flags) = self.assignment_target_meaning(node, identifier.text) else { return };
         let message = if flags.intersects(SymbolFlags::ENUM) {
             &messages::CANNOT_ASSIGN_TO_0_BECAUSE_IT_IS_AN_ENUM

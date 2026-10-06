@@ -120,6 +120,7 @@ mod context_sensitive;
 pub mod contextual;
 pub mod declared;
 mod decorators;
+mod delete_operand;
 pub mod destructure;
 mod enum_initializer;
 pub mod enum_member_name;

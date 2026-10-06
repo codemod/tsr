@@ -160,3 +160,93 @@ with an initializer (TS1186) are not reference-checked.
 `parserPrivateIdentifierInArrayAssignment` converted; partial lines in
 `assignmentLHSIsValue` (2×TS2364) and `objectRestNegative` (TS2701); no
 line lost.
+
+## §10 TS2790 / TS2704: the `delete` operand's resolved symbol
+
+**Forcing constraint.** `checkDeleteExpression` (`checker.go:10814`) reads
+`getResolvedSymbolOrNil(expr)` and, for a read-only symbol, reports TS2704;
+otherwise `checkDeleteExpressionMustBeOptional` (`checker.go:10825`) tests
+`getTypeOfSymbol(symbol)` — the **property's** type. §587–§588 of
+`docs/architecture/checker-notes-diag2.md` tested the operand *expression's*
+type instead, and limited the operand to a syntactic property access. Both
+differ from upstream: an optional chain adds `undefined` to the expression
+type (`delete o1?.b` on `b: string` is TS2790 upstream, silent here —
+`deleteChain`, 13 lines), a flow narrowing does the same
+(`controlFlowDeleteOperator`'s §588 wrong line), parentheses were not skipped,
+and the read-only arm did not exist, so `delete Foo.name` reported TS2790
+where upstream reports TS2704.
+
+**What was ported** (`delete_operand.rs`, replacing
+`check_delete_operand_is_optional`). The symbol is found as
+`checkPropertyAccessExpressionOrQualifiedName` finds it: the receiver's
+non-nullable type (an optional chain's `getOptionalExpressionType` plus
+`checkNonNullType`), its apparent type, then `getPropertyOfType` by the
+identifier name, or by a string / canonical numeric literal argument of an
+element access. A private name uses the same lookup once the access's own
+check has not answered the error type (the lexical private-name scope).
+`isReadonlySymbol` is `is_readonly_symbol` plus the one arm it does not
+cover: a `readonly` modifier on a property signature or parameter property
+(`getDeclarationModifierFlagsFromSymbol` reads any value declaration).
+
+**Declines.** No symbol (computed element index, unresolved member, `any`
+receiver) → nothing, as upstream. `CheckFlagsReadonly` lives on synthetic and
+instantiated property symbols, which this port does not flag, so the TS2790
+arm declines when the symbol is not its own value declaration's symbol (it
+might be read-only and owe TS2704 instead). `exactOptionalPropertyTypes` is
+still not ported.
+
+**Measured.** `deleteChain`, `deleteReadonly`,
+`deleteReadonlyInStrictNullChecks`, `controlFlowDeleteOperator`,
+`deleteOperatorWithEnumType`, `symbolType3` converted; no line lost
+(`privateNamesNoDelete`'s TS2790 was lost by a first draft that resolved no
+private names, and is kept by the private-name arm).
+
+## §11 TS2358: every primitive-flagged left operand
+
+**Forcing constraint.** `checkInstanceOfExpression` (`checker.go:13056`)
+reports when `!IsTypeAny(leftType) && allTypesAssignableToKind(leftType,
+TypeFlagsPrimitive)`. §466 of `docs/architecture/checker-notes-diag2.md`
+ported it as "the widened left type is one of `string`, `number`, `bigint`,
+`boolean`", reusing `is_decidable_primitive`, whose list exists for an
+identity comparison (§865's `any` hazard). This test reads flags, so that
+hazard does not apply: `void`, `null`, `undefined`, `symbol`, literals,
+enums and unions of primitives (`number | string`) all carry a
+`TypeFlagsPrimitive` bit upstream and here.
+
+**What was ported.** `allTypesAssignableToKind`'s union recursion and
+`isTypeAssignableToKind`'s flag arm (`source.flags&kind != 0`). `any` is
+never primitive-flagged, so the `IsTypeAny` conjunct needs no test.
+
+**Declined.** The assignability arm — `isTypeAssignableTo(source, number)`
+and its siblings — answers for a type parameter constrained to a primitive,
+a branded intersection such as `string & { tag: 1 }`, and `never`. None is in
+the lane's failing set; porting it needs the relater on the four primitive
+targets.
+
+**Measured.** `instanceofWithPrimitiveUnion`,
+`instanceofOperatorWithInvalidOperands`, `symbolType1` converted; correct
+lines in `instanceofOperatorWithInvalidOperands.es2015` and `widenedTypes`;
+none lost.
+
+## §12 TS2628–TS2631 / TS2539 in files with parse errors
+
+**Forcing constraint.** `check_identifier_assignment_target`
+(`readonly_target.rs`, `checkIdentifier`'s non-variable assignment arm,
+`checker.go:11077`) declined in any file with parse errors. Upstream has no
+such gate. Every lane case owing these codes is a parser-recovery fixture
+(`assignmentLHSIsValue`, `compoundAssignmentLHSIsValue`,
+`compoundExponentiationAssignmentLHSIsValue`,
+`increment/decrementOperatorWithAnyOtherTypeInvalidOperations`): 44 correct
+lines withheld.
+
+**What changed.** The bail is removed; the rule reads only the identifier,
+its assignment-target position and the symbol it resolves to. Removing it
+alone surfaced one wrong line, `reservedWords2.ts(1,14)` TS2630: recovery
+produced an assignment whose left is a *missing* identifier (empty text),
+which resolved to `function throw() {}`, whose name was also lost.
+Upstream's `getResolvedSymbol` resolves nothing for a missing node
+(`!ast.NodeIsMissing(node)`, `checker.go:13894`); the port now skips an
+identifier with empty text, which is what a missing identifier is here.
+
+**Measured.** `assignmentLHSIsValue` converted, +44 lines over six cases,
+none lost. The other parse-error fixtures still owe codes from other rules.
