@@ -276,3 +276,30 @@ sibling private-name rules here do.
 
 **Measured.** `privateNameSetterNoGetter`, `privateWriteOnlyAccessorRead`
 converted; none lost.
+
+## §14 TS2431 and TS2477 / TS2478: enum declaration checks
+
+**TS2431** (`Enum name cannot be '{0}'`): `checkCollisionsForDeclarationName`'s
+enum arm (`checker.go:10459`) calls `checkTypeNameIsReserved` for every enum
+declaration; the port's helper had callers for every other declaration kind
+but not this one. Wired from the enum dispatch arm. `enumErrors` still
+declines: the shared helper `check_type_name_is_reserved` returns early in a
+file with parse errors (port-local; upstream has no such gate). Removing that
+bail measured +3 cases (`enumErrors`, `reservedNamesInAliases`,
+`interfacesWithPredefinedTypesAsNames`) with no line lost; it is a shared
+helper, so it is reported to the integrator rather than changed here.
+
+**TS2477 / TS2478**: `computeConstantEnumMemberValue`'s const arm
+(`checker.go:24001`) reports a `const` enum member whose initializer
+evaluates to a non-finite number (`NaN` has its own message). This port has
+no symbol-aware enum evaluator (§819 of `checker-notes-diag2.md`), so the
+value comes from a numeric-only evaluation covering exactly the shapes that
+can produce a non-finite value without symbols: numeric literals, the global
+`Infinity` / `NaN` (`evaluateEntity`'s first arm, `checker.go:24032`, same
+global-symbol test as `enum_initializer_may_evaluate`), unary `+`/`-` and
+`+ - * / % **`. Anything else — enum member and constant references,
+strings, bitwise operators (always finite) — declines; `constEnumErrors`'
+`F = E * E` overflow (member references) is such a decline.
+
+**Measured.** `enumWithPrimitiveName`, `enumConstantMembers` converted; two
+more correct lines in `constEnumErrors`; none lost.

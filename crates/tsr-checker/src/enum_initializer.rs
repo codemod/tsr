@@ -162,4 +162,89 @@ impl Checker<'_, '_> {
             _ => false,
         }
     }
+
+    /// TS2477 / TS2478 — `computeConstantEnumMemberValue`'s const arm
+    /// (`checker.go:24001`): a `const` enum member whose initializer evaluates
+    /// to a non-finite number reports at the initializer, `NaN` with its own
+    /// message. Evaluated by [`Checker::const_enum_numeric_value`]; an
+    /// initializer it cannot fold declines (it may still evaluate upstream
+    /// through an enum member or constant).
+    pub(crate) fn check_const_enum_member_value(&mut self, node: NodeId) {
+        let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
+        let Some(at) = member.initializer.and_then(|initializer| initializer.node_id()) else {
+            return;
+        };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent) else { return };
+        if !declaration.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::ConstKeyword)
+        }) {
+            return;
+        }
+        let Some(value) = self.const_enum_numeric_value(at, 0) else { return };
+        let message = if value.is_nan() {
+            &messages::CONST_ENUM_MEMBER_INITIALIZER_WAS_EVALUATED_TO_DISALLOWED_VALUE_NAN
+        } else if value.is_infinite() {
+            &messages::CONST_ENUM_MEMBER_INITIALIZER_WAS_EVALUATED_TO_A_NON_FINITE_VALUE
+        } else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `evaluate` (`evaluator.go`) restricted to the numeric arms that can
+    /// produce a non-finite value: numeric literals, the global `Infinity`
+    /// and `NaN` (`evaluateEntity`'s first arm, `checker.go:24032`), unary
+    /// `+`/`-`, and the arithmetic binary operators. Any other shape —
+    /// enum members, constants, strings, bitwise operators (always finite)
+    /// — answers `None`.
+    fn const_enum_numeric_value(&self, node: NodeId, depth: u32) -> Option<f64> {
+        if depth > 64 {
+            return None;
+        }
+        match self.node_map.get(node)? {
+            Node::ParenthesizedExpression(wrapper) => {
+                self.const_enum_numeric_value(wrapper.expression?.node_id()?, depth + 1)
+            }
+            Node::NumericLiteral(literal) => Some(tsr_core::jsnum::numeric_value(literal.text)),
+            Node::Identifier(identifier) if matches!(identifier.text, "Infinity" | "NaN") => {
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    node,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                )?;
+                (self.binder.globals().get(identifier.text) == Some(&symbol))
+                    .then(|| if identifier.text == "NaN" { f64::NAN } else { f64::INFINITY })
+            }
+            Node::PrefixUnaryExpression(unary) => {
+                let operand =
+                    self.const_enum_numeric_value(unary.operand?.node_id()?, depth + 1)?;
+                match unary.operator.kind {
+                    SyntaxKind::PlusToken => Some(operand),
+                    SyntaxKind::MinusToken => Some(-operand),
+                    _ => None,
+                }
+            }
+            Node::BinaryExpression(binary) => {
+                let operator = binary.operator_token?.kind;
+                let left = self.const_enum_numeric_value(binary.left?.node_id()?, depth + 1)?;
+                let right = self.const_enum_numeric_value(binary.right?.node_id()?, depth + 1)?;
+                match operator {
+                    SyntaxKind::PlusToken => Some(left + right),
+                    SyntaxKind::MinusToken => Some(left - right),
+                    SyntaxKind::AsteriskToken => Some(left * right),
+                    SyntaxKind::SlashToken => Some(left / right),
+                    SyntaxKind::PercentToken => Some(left % right),
+                    SyntaxKind::AsteriskAsteriskToken => Some(left.powf(right)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }

@@ -346,8 +346,10 @@ impl Checker<'_, '_> {
                     if let Some(at) = member.node_id {
                         self.check_enum_member_name(at);
                         self.check_computed_enum_member_initializer(at, ambient);
+                        self.check_const_enum_member_value(at);
                     }
                 }
+                self.check_reserved_enum_name(declaration);
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::BreakStatement(statement) => {
@@ -8438,6 +8440,15 @@ impl Checker<'_, '_> {
         };
         let Some(name) = name else { return };
         self.check_type_name_is_reserved(name.node_id, name.text, message);
+    }
+
+    /// TS2431 — `Enum name cannot be '{0}'.`
+    ///
+    /// `checkCollisionsForDeclarationName`'s enum arm (`checker.go:10459`),
+    /// reached from `checkEnumDeclarationWorker` for every enum declaration.
+    fn check_reserved_enum_name(&mut self, declaration: &tsr_ast::EnumDeclaration<'_>) {
+        let Some(name) = declaration.name else { return };
+        self.check_type_name_is_reserved(name.node_id, name.text, &messages::ENUM_NAME_CANNOT_BE_0);
     }
 
     /// TS2438 — `Import name cannot be '{0}'.`
