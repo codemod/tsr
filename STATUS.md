@@ -138,21 +138,29 @@ Mixed native4/TSR0 still rejects equivalent-work throughput. Setup caching/API
 churn is not retained; lazy query ownership9.2.1 and deferral parent remainopen.
 [Disjoint costs, ownership and source-qualified limits](docs/architecture/jsdoc-setup.md).
 
-Parity epic (`tsr-2zk`), cloud integration round 1, measured at `db58fb60`
-against native `5b1047d` (integration branch `claude/beautiful-shannon-ar5gh0`):
-`checker_types` **7,526/9,538** (78.91%, lines 465,947/478,855 = 97.30%),
-`diagnostics` **3,563/5,488** (64.92%), up from 7,488 / 3,427 at `06f25e0`.
-Every merge passed both zero-loss checks (no RIGHT/EMPTY_RIGHT diagnostic case
-and no RIGHT type line changed verdict) and a self-relative CPU-median perf
-gate. Ten parallel cloud boxes work disjoint lanes under
-[docs/parity/box-protocol.md](docs/parity/box-protocol.md); crates.io, the Rust
-1.96 channel and the Go module proxy are blocked in that environment, so
+Parity epic (`tsr-2zk`), cloud integration round 1 merged with `main`
+(`b8cbb92a`), measured on the integration head against native `5b1047d`:
+`checker_types` **7,602/9,538** (79.70%, lines 467,200/478,855 = 97.57%),
+`diagnostics` **3,822/5,488** (69.64%) — from 7,488 / 3,427 at `06f25e0`
+and 7,493 / 3,462 on `main` before the merge. Against `main`'s own binary the
+merged CLI is not slower (median child CPU 0.965 / 0.969 / 1.007 on
+domain-model-large / domain-model / generic-imports, 31 samples, diagnostics
+identical). One case regresses against `main`: `contextuallyTypedJsxChildren2`
+(TSR has no NoInfer intrinsic; main's single-candidate argument check now
+relates `NoInfer<any>` — `tsr-2zk.44`). Three TS2349 object-callee cases the
+integration branch had RIGHT stay WRONG as on `main` (`tsr-2zk.45`). Every
+lane merge before the `main` merge passed both zero-loss checks and a CPU-median
+perf gate. Twenty cloud boxes worked disjoint lanes under
+[docs/parity/box-protocol.md](docs/parity/box-protocol.md); crates.io, the
+Rust 1.96 channel and the Go module proxy are blocked in that environment, so
 [scripts/offline-cargo](scripts/offline-cargo/README.md) rebuilds the locked
-crates and native tsgo from GitHub sources (toolchain: stable 1.97, not the
-pinned 1.96). Observed TSR/tsgo wall at `f286fc70` on a 4-core cloud box:
-domain-model 0.82, generic-imports 0.89 (15 samples, observed, not verified);
-the <=0.50 target is unmet. `bd` cannot be installed there; issue state is
-recorded directly in `.beads/issues.jsonl` (new: `tsr-2zk.31`–`.42`).
+crates and native tsgo from GitHub sources (toolchain: stable 1.97, whose
+clippy flags two pre-existing `question_mark` sites in `signatures.rs`).
+Observed TSR/tsgo wall, 15 samples, 4-core cloud box: domain-model 0.84,
+generic-imports 0.98, domain-model-large 1.27 — the <=0.50 target is unmet;
+the perf box's attribution (single checker ~2.6x tsgo's on equal work) is in
+[docs/parity/notes/perf.md](docs/parity/notes/perf.md). `bd` cannot be installed there; issue state is
+recorded directly in `.beads/issues.jsonl` (new: `tsr-2zk.31`–`.45`).
 
 Parity epic (`tsr-2zk`), measured at `586c2ec0` against native `5b1047d`:
 `checker_types` 7,365/9,538 (77.22%, lines 464,069/478,855 = 96.91%),
@@ -13351,11 +13359,14 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 
 ## 7. Session log
 
-2026-10-05 — `tsr-2zk` cloud integration round 1, `06f25e0`→`db58fb60`:
-offline cargo/tsgo bootstrap, box protocol, 10 cloud boxes on disjoint lanes,
-13 merges (flow ×3, relate ×2, property ×2, names ×2, decls, js, misc,
-type-refs), checker_types 7,488→7,526, diagnostics 3,427→3,563, zero losses,
-two box commits refused (§5), twelve follow-ups filed (`tsr-2zk.31`–`.42`).
+2026-10-05/06 — `tsr-2zk` cloud integration round 1, `06f25e0` → merged
+with `main`: offline cargo/tsgo bootstrap, box protocol, 20 cloud boxes on
+disjoint lanes (two rounds), lane merges each gated on zero losses and CPU
+perf, checker_types 7,488→7,602, diagnostics 3,427→3,822. Refused: calls
+`48ce04a1`, misc `5a517c22` (§5); reverted at integration: jsx `1da6e97`
+(one EMPTY_RIGHT loss, `tsr-2zk.43`). Main merge reconciled duplicate
+TS2813/2814 ports (kept main's) and TS2313/TS2349 (kept main's); follow-ups
+`tsr-2zk.31`–`.45`.
 
 2026-10-05 — `tsr-1yb.9.2.2`, frozen a0fa106e/native5b1047d: archive-only
 JSDoc parse/attachment/binder/private-map attribution and1/2/4owner overlap.
