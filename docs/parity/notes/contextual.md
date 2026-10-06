@@ -87,7 +87,29 @@ empty-named method symbol's own type in `symbols.rs`
 
 Converted: `emitMethodCalledNew`; 6 lines of `FunctionPropertyAssignments{2,3,6}_es6`.
 
-## 4. `this` of an uncontextualised object literal — not landed
+## 4. Pseudo-type reuse: the single-quoted literal arms only
+
+`serializeTypeForDeclaration` prints an object-literal property from the
+pseudochecker's `typeFromExpression` (`pseudochecker/lookup.go:262`) when that
+pseudo-type is equivalent to the property's type. The port already reused a
+single-quoted string literal written directly in a const context. It now also
+follows `typeFromTypeAssertion` (`lookup.go:510`): `'x' as const` recurses
+into the operand in a const location (and parentheses unwrap), and `e as 'x'`
+is the asserted type node itself, reused when `getTypeFromTypeNode` of it is
+the member's type.
+
+Not ported: general type-node reuse (`{} as IThing<typeof foo>` printing the
+written node where the semantic type is `IThing<any>`,
+`noUsedBeforeDefinedErrorInTypeContext`) and the accessor annotation
+(`GetTypeOfAccessor`, `objectLiteralGettersAndSetters`). Both need a printer
+for a reused type node, and the literal arms do not: a single-quoted string
+literal prints the same way as a node or as text.
+
+Converted: `discriminatedUnionWithIndexSignature`,
+`objectLiteralComputedNameNoDeclarationError` (and 5 lines of
+`narrowingNoInfer1`, still blocked on NOINFER-SUBSTITUTION).
+
+## 5. `this` of an uncontextualised object literal — not landed
 
 `getContextualThisParameterType`'s object-literal arm (`checker.go:12049`)
 answers `getWidenedType(checkExpressionCached(literal))` when the containing
