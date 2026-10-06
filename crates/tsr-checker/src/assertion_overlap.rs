@@ -27,7 +27,7 @@ use crate::{checker::Checker, relater::Relation, relater::Ternary};
 impl Checker<'_, '_> {
     /// The overlap check for one `as` or `<T>` assertion.
     pub(crate) fn check_assertion_overlap(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.in_js_file(node) {
             return;
         }
         let (expression, annotation) = match self.node_map.get(node) {

@@ -308,3 +308,18 @@ Needed outside this lane's files (each verified on a minimized probe):
   augmentation is not merged into lib's `Number` for `declare var a: Number`
   (`assignFromNumberInterface2`, `assignFromBooleanInterface2`: false TS2322 on
   `b = a`).
+
+## 14. Round 2: TS2352 is checked in files with parse errors
+
+`check_assertion_overlap` returned early when the file had parse errors.
+`checkAssertionDeferred` (`checker.go:12317`) has no such gate: upstream
+compares the assertion's operand and type in any file it checks, and the
+corpus baselines carry TS2352 next to TS1005 (`typeAssertions`: four
+class-to-class conversions in a file whose `<numOrStr is string>` lines do not
+parse). The gate was a decline with no upstream counterpart; removing it is
+narrowing toward upstream. The JS-file and ambient declines stay (JS type
+assertions are JSDoc casts, a different path).
+
+Measured at `15f1743`: TS2352 matched lines 88 → 92, extra lines unchanged
+(10), no case changes verdict (`typeAssertions` still misses TS2558/TS2693/
+TS2322 owned elsewhere). Both zero-loss checks empty.
