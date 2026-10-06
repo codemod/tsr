@@ -38,7 +38,35 @@ Converted: `computedPropertyNamesContextualType{1,2,3}_ES6` (36 lines).
 *property* (not index) would mean a dynamic name was usable as a property name
 after all — `late_bound_symbol_member_name` declining a usable name.
 
-## 2. `this` of an uncontextualised object literal — not landed
+## 2. The rendered member list is keyed by the escaped name
+
+`checkObjectLiteral` stores each member in `propertiesTable[member.Name]`
+(`checker.go:13331`), so `{ 0b11010: "hi", 26: "Hello", "26": "world" }` and
+`{ "1": 1, [+1]: 0 }` each have one property. The port already keyed
+`typed_properties` by the semantic name but upserted the printed `members`
+list by its *spelling*, so `26` and `"26"` survived as two rows.
+
+The property arm now replaces the earlier spelling's row in place when the
+semantic name repeats. The surviving spelling follows the node builder:
+
+- a **computed** entry carries its own `nameType` (checkObjectLiteral sets it
+  from the computed name's literal type), so `[+1]` prints `1` and `[-1]`
+  prints `[-1]`, replacing the earlier `"1"` / `"-1"`;
+- a **written** name prints from the binder-merged symbol, whose first
+  declaration's spelling wins: `26`, not the later `"26"`.
+
+Alternative rejected: keying `upsert_member` itself by a name normalised from
+the printed text (strip quotes, unwrap `[n]`). That re-derives the escaped
+name from display text the producer already has semantically, and it would
+also have to know which bracketed names are symbols.
+
+Not changed: the method and accessor arms still upsert by spelling. No corpus
+case mixes a method with a differently spelled property of the same name.
+
+Converted: `duplicateObjectLiteralProperty_computedName1`,
+`binaryIntegerLiteralError`, `octalIntegerLiteralError` (8 lines).
+
+## 3. `this` of an uncontextualised object literal — not landed
 
 `getContextualThisParameterType`'s object-literal arm (`checker.go:12049`)
 answers `getWidenedType(checkExpressionCached(literal))` when the containing

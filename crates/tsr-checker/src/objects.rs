@@ -1786,6 +1786,7 @@ impl Checker<'_, '_> {
             // PROPERTY assignments collapse to one row
             // (`symbolProperty36`'s `{ [Symbol.isConcatSpreadable]: 0,
             // [Symbol.isConcatSpreadable]: 1 }` prints one member).
+            let mut replaced_name = None;
             {
                 let component = if let tsr_ast::PropertyName::ComputedPropertyName(computed) =
                     name_node
@@ -1808,7 +1809,7 @@ impl Checker<'_, '_> {
                         }
                     });
                 if let Some(semantic_name) = semantic_name.filter(|_| !component) {
-                    let property = AnonymousProperty {
+                    let mut property = AnonymousProperty {
                         accessor_write: None,
                         method: false,
                         origin: property.node_id().and_then(|id| self.binder.symbol_of(id)),
@@ -1828,6 +1829,23 @@ impl Checker<'_, '_> {
                     if let Some(index) =
                         typed_properties.iter().position(|p| p.name == property.name)
                     {
+                        // checkObjectLiteral's `propertiesTable[member.Name] =
+                        // member` (`checker.go:13331`) keys by the escaped
+                        // name, so `26` and `"26"` are one entry. A computed
+                        // entry carries its own `nameType` (`[+1]` prints `1`,
+                        // `[-1]` prints `[-1]`); a written name prints from the
+                        // binder-merged symbol, whose first spelling wins.
+                        let previous = &typed_properties[index];
+                        if previous.printed_name != name {
+                            if !matches!(name_node, tsr_ast::PropertyName::ComputedPropertyName(_))
+                            {
+                                property.printed_name.clone_from(&previous.printed_name);
+                            }
+                            replaced_name = Some((
+                                previous.printed_name.clone(),
+                                property.printed_name.clone(),
+                            ));
+                        }
                         typed_properties[index] = property;
                     } else {
                         typed_properties.push(property);
@@ -1836,15 +1854,27 @@ impl Checker<'_, '_> {
                     capture_complete = false;
                 }
             }
-            upsert_member(
-                &mut members,
-                Member::Property {
-                    name,
-                    optional: member_optional,
-                    readonly: const_context,
-                    printed,
-                },
-            );
+            match replaced_name {
+                Some((previous, surviving)) => replace_member_named(
+                    &mut members,
+                    &previous,
+                    Member::Property {
+                        name: surviving,
+                        optional: member_optional,
+                        readonly: const_context,
+                        printed,
+                    },
+                ),
+                None => upsert_member(
+                    &mut members,
+                    Member::Property {
+                        name,
+                        optional: member_optional,
+                        readonly: const_context,
+                        printed,
+                    },
+                ),
+            }
         }
         let Some(indexes) = self.object_literal_indexes(&checked_members, const_context) else {
             return error;
@@ -2457,6 +2487,19 @@ fn upsert_member(members: &mut Vec<Member>, member: Member) {
         return;
     }
     members.push(member);
+}
+
+/// Replace the named member `previous` (a different spelling of the same
+/// escaped name) in place; push when it is absent.
+fn replace_member_named(members: &mut Vec<Member>, previous: &str, member: Member) {
+    if let Some(existing) = members.iter_mut().find(|held| match held {
+        Member::Property { name, .. } | Member::Method { name, .. } => name == previous,
+        _ => false,
+    }) {
+        *existing = member;
+        return;
+    }
+    upsert_member(members, member);
 }
 
 /// Whether a property name can be printed without quotes.
