@@ -289,3 +289,38 @@ main's module as the only port and removed this lane's arm; every case either
 side had RIGHT (`callOverloads1`–`5`, `classOverloadForFunction(2)`,
 `funClodule`, `augmentedTypes*`, `nameCollisions`,
 `duplicateIdentifiersAcross*Boundaries`, `staticClassMemberError`) is RIGHT.
+
+## §12 TS2300 on duplicate members: `checkObjectTypeForDuplicateDeclarations` on binder symbols
+
+Duplicate property members were reported by two name-comparison rules
+(`checker-notes-diag2.md` §904/§906/§912/§914): one for type literals and
+interfaces that matched identifier and string names only, one for classes that
+re-normalised numeric spellings itself. Both were gated on the file having no
+parse errors, and neither saw parameter properties or class expressions.
+
+Upstream needs no name comparison: `PropertyExcludes` does not contain
+`Property`, so `declareSymbol` merges two same-named properties into one
+symbol with two declarations, and `checkObjectTypeForDuplicateDeclarations`
+(`checker.go:3142`) walks one declaration's members asking `len(symbol.Declarations) > 1`
+with its property/accessor state machine, then `reportDuplicateMemberErrors`
+reports every member (and parameter property) of that declaration carrying
+the symbol. The port now does exactly that, for classes, class expressions,
+interfaces and type literals (this port's binder does give a type literal its
+`__type` symbol and members table; the old comment saying otherwise was
+stale). The binder already canonicalises numeric names (`1` and `1.0` are
+both `"1"`), so that normalisation is no longer re-derived in the checker.
+
+**No parse-error gate.** Upstream reports these in files with syntax errors
+(`numericNamedPropertyDuplicates` has a TS1005 and four TS2300 pairs).
+
+**Not ported:** the private-name arm (`Duplicate_identifier_0_Static_and_instance_elements_cannot_share_the_same_private_name`).
+Late-bound duplicates (`[Symbol.isConcatSpreadable]` twice, `symbolProperty37`/`44`)
+are `lateBindMember`'s report, not this walk's.
+
+Measured: +6 (`parameterPropertyInConstructor2`, `staticModifierAlreadySeen`,
+`numericNamedPropertyDuplicates`, `objectTypeWithDuplicateNumericProperty`,
+`parser0_004152`, `stringNamedPropertyDuplicates`), no loss.
+
+**Falsifier.** An extra TS2300 on a member whose symbol the binder merged
+where upstream would not (a members-table merge across a conflict) — the
+report trusts the binder's declaration lists.
