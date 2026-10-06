@@ -408,11 +408,23 @@ pub struct Resolutions<K> {
     /// while they are active. Such a re-entry is not a native cycle: it must
     /// not fail any frame. See [`Resolutions::deferred_since`].
     deferrals: Vec<usize>,
+    /// `Checker.resolutionStart` (`checker.go:788`): the lowest frame
+    /// `findResolutionCycleStartIndex` (`checker.go:18783`) searches. Raised
+    /// to the stack's depth by [`Resolutions::reset_start`] while variances
+    /// are measured (`getVariancesWorker`, `relater.go:1358`), so a frame
+    /// pushed outside that scope is not a cycle participant inside it. Native
+    /// also raises it while a call is first resolved (`getResolvedSignature`,
+    /// `checker.go:8417`); that scope is not wired here: this port's call
+    /// re-entry guards (`resolving_signature_calls`) answer before the
+    /// re-entered symbol's cycle closes, so the reset measured 15 RIGHT lines
+    /// lost (`circularReferenceInReturnType`,
+    /// `propertyAccessOnTypeParameterWithConstraints4/5`).
+    start: usize,
 }
 
 impl<K> Default for Resolutions<K> {
     fn default() -> Self {
-        Self { stack: Vec::new(), deferrals: Vec::new() }
+        Self { stack: Vec::new(), deferrals: Vec::new(), start: 0 }
     }
 }
 
@@ -489,6 +501,8 @@ impl<K: Clone + PartialEq> Resolutions<K> {
     /// Native findResolutionCycleStartIndex / typeResolutionHasProperty
     /// (5b1047d1, checker.go:18786). Check publication before matching a frame;
     /// a resolved property stops the search, even if it is the requested pair.
+    /// Frames below `resolutionStart` ([`Resolutions::reset_start`]) are not
+    /// searched.
     pub(crate) fn push_with(
         &mut self,
         target: impl Into<K>,
@@ -497,12 +511,13 @@ impl<K: Clone + PartialEq> Resolutions<K> {
     ) -> bool {
         let target = target.into();
         let mut cycle = None;
-        for (index, frame) in self.stack.iter().enumerate().rev() {
+        let start = self.start.min(self.stack.len());
+        for (offset, frame) in self.stack[start..].iter().enumerate().rev() {
             if has_property(&frame.target, frame.property) {
                 break;
             }
             if frame.target == target && frame.property == property {
-                cycle = Some(index);
+                cycle = Some(start + offset);
                 break;
             }
         }
@@ -514,6 +529,20 @@ impl<K: Clone + PartialEq> Resolutions<K> {
         }
         self.stack.push(Resolution { target, property, succeeded: true });
         true
+    }
+
+    /// Begin a scope whose cycle search starts at the current depth
+    /// (`c.resolutionStart = len(c.typeResolutions)`, `checker.go:8425`,
+    /// `relater.go:1361`); answers the saved start for
+    /// [`Resolutions::restore_start`].
+    pub(crate) fn reset_start(&mut self) -> usize {
+        std::mem::replace(&mut self.start, self.stack.len())
+    }
+
+    /// End a [`Resolutions::reset_start`] scope (`c.resolutionStart =
+    /// saveResolutionStart`, `checker.go:8429`, `relater.go:1406`).
+    pub(crate) fn restore_start(&mut self, saved: usize) {
+        self.start = saved;
     }
 
     /// Finish the innermost resolution, reporting whether it was cycle-free.
@@ -558,6 +587,18 @@ mod tests {
         assert!(r.push(0u32, PropertyName::Type));
         assert!(r.pop());
         assert_eq!(r.depth(), 0, "the stack must be left balanced");
+    }
+
+    #[test]
+    fn frames_below_the_resolution_start_are_not_cycle_participants() {
+        let mut r: Resolutions<u32> = Resolutions::new();
+        assert!(r.push(0u32, PropertyName::Type));
+        let saved = r.reset_start();
+        assert!(r.push(0u32, PropertyName::Type), "the outer frame is below the start");
+        assert!(!r.push(0u32, PropertyName::Type), "a frame inside the scope still cycles");
+        assert!(!r.pop());
+        r.restore_start(saved);
+        assert!(r.pop(), "the inner cycle did not fail the outer frame");
     }
 
     #[test]

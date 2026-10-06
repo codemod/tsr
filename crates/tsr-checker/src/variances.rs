@@ -63,6 +63,10 @@ impl Checker<'_, '_> {
             self.variance_markers = Some(markers);
             markers
         };
+        // getVariancesWorker (`relater.go:1358`): the outermost variance
+        // computation searches resolution cycles only from its own depth.
+        let saved_resolution_start =
+            self.variance_in_progress.is_empty().then(|| self.resolutions.reset_start());
         self.variance_in_progress.insert(symbol);
         let mut result = Some(Vec::with_capacity(parameters.len()));
         for (index, declaration) in declarations.iter().enumerate() {
@@ -131,6 +135,9 @@ impl Checker<'_, '_> {
             result.as_mut().unwrap().push(variance);
         }
         self.variance_in_progress.remove(&symbol);
+        if let Some(saved) = saved_resolution_start {
+            self.resolutions.restore_start(saved);
+        }
         self.variance_cache.insert(symbol, result.clone());
         result
     }
