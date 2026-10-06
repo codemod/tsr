@@ -46,7 +46,10 @@
 //! the wrong unit, which is the failure mode that looks like a checker bug for a
 //! week.
 
-use tsr_ast::{ClassElement, ModifierLike, ModuleReference, Node, NodeId, SyntaxKind};
+use tsr_ast::{
+    ClassElement, InterfaceDeclaration, ModifierLike, ModuleReference, Node, NodeId, SyntaxKind,
+    TypeLiteralNode,
+};
 use tsr_binder::{NodeFacts, SymbolFlags};
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -283,6 +286,7 @@ impl Checker<'_, '_> {
                 self.check_heritage_conformance(node);
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
+                self.check_object_type_for_duplicate_declarations(node);
                 ambient
             }
             // `declare module "m" { … }` and `declare namespace N { … }` are
@@ -695,8 +699,9 @@ impl Checker<'_, '_> {
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }
-            Node::TypeLiteralNode(literal) => {
-                self.check_duplicate_type_literal_members(literal.members);
+            Node::TypeLiteralNode(_) => {
+                self.check_index_constraints(node);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_private_name_in_object_literal(node);
                 // A type literal carries index signatures exactly as an
                 // interface does, and §69's rule already matches the kind —
@@ -780,7 +785,7 @@ impl Checker<'_, '_> {
             // `NodeCanBeDecorated` rejects every one of these outright.
             Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(class_declaration) => {
-                self.check_duplicate_class_computed_members(class_declaration.members);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_merged_namespace_prototype(node);
                 self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
@@ -789,7 +794,7 @@ impl Checker<'_, '_> {
             }
             Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::InterfaceDeclaration(n) => {
-                self.check_duplicate_type_literal_members(n.members);
+                self.check_object_type_for_duplicate_declarations(node);
                 self.check_illegal_decorator(n.modifiers);
                 self.check_type_parameter_lists_identical(node);
             }
@@ -902,8 +907,13 @@ impl Checker<'_, '_> {
             self.check_grammar_modifier_shapes(node, typed);
         }
         self.check_parser_lane_statement(typed);
+        self.check_grammar_jsx_element(typed);
         self.check_jsx_intrinsic_element(node, typed);
-        self.check_jsx_factory_in_scope(typed);
+        self.check_jsx_intrinsic_tag_exists(node, typed);
+        self.mark_jsx_alias_referenced(node, typed);
+        self.check_jsx_component_bound(node, typed);
+        self.check_jsx_string_literal_tag(node, typed);
+        self.check_jsx_fragment_factory(node, typed);
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
@@ -999,6 +1009,10 @@ impl Checker<'_, '_> {
             }
             Node::SpreadElement(_) => self.check_spread_element_iteration(node),
             Node::JsxSpreadAttribute(_) => self.check_jsx_spread_of_non_object_type(node),
+            Node::JsxAttributes(_) => {
+                self.check_jsx_spread_property_overrides(node);
+                self.check_jsx_children_specified_twice(node);
+            }
             Node::JsxExpression(_) => self.check_jsx_expression(node),
             Node::YieldExpression(_) => self.check_yield_star_iteration(node),
             _ => {}
@@ -3971,16 +3985,16 @@ impl Checker<'_, '_> {
             // (`Checker::unresolved_types`), and `class C { [e]: Type }` with
             // neither name declared is exactly that shape — §43's first wrong
             // line.
-            // §324 — `is_error` conflates two shapes: a property whose *type*
-            // did not resolve, and one whose *name* did not. TS2564 is about
-            // the initialiser, and an unresolved annotation does not make a
-            // property initialised — `public cars: Car[]` with `Car` an
-            // unresolved import-equals is a real miss. §43's wrong line is the
-            // other shape, `class C { [e]: Type }`, which is a **computed**
-            // name; that stays declined.
-            let computed_name =
-                matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_));
-            if (self.is_error(declared) && computed_name)
+            // An error-typed property is skipped as upstream skips
+            // `errorType` — but only when the annotation is itself the
+            // reference that failed. This port also answers `error` for a
+            // *gap* propagated out of a nested node (`X3[]`, `I<X4>` with `X3`
+            // and `X4` missing their type arguments), where upstream's type is
+            // `Array<errorType>` / `I<errorType>` and TS2564 is reported
+            // (`missingTypeArguments1`). `docs/parity/notes/decls.md` §17,
+            // superseding §6's decline and §324's computed-name bound.
+            if (self.is_error(declared)
+                && self.annotation_is_failed_reference(property.r#type.and_then(|t| t.node_id())))
                 || declared == self.intrinsics.any
                 || declared == self.intrinsics.unknown
                 || self.contains_undefined_type(declared)
@@ -5095,7 +5109,7 @@ impl Checker<'_, '_> {
     /// it: `$ERROR` against `Error` is one deletion plus five case differences,
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
+    pub(crate) fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
         let candidates = self.binder.names_in_scope_with_meaning(
             self.nodes,
             self.node_map,
@@ -7343,25 +7357,6 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span));
     }
 
-    /// TS2300 — `Duplicate identifier '{0}'`, for two property signatures of one
-    /// name in a single type literal.
-    ///
-    /// Upstream reaches this through the binder: each member is `declareSymbol`'d
-    /// into the literal's own members table and the second collides
-    /// (`binder.go:217`). This port's binder gives a type literal no members
-    /// table, so the question is asked here instead.
-    ///
-    /// **Properties only.** Two `MethodSignature`s of one name are a legal
-    /// overload set; call, construct and index signatures have no name to
-    /// collide on.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §904.
-    /// The class-member half of §904, for **literal computed names**:
-    /// `class C { ["a"]: string; ["a"]: string }`. Upstream's
-    /// `GetTextOfPropertyName` folds a literal computed name to its text before
-    /// `declareSymbol` sees it, so the binder collides them exactly as it does
-    /// two plain names. A **non-literal** computed name names no particular
-    /// property and is declined, the bound §52's rule already draws. §906.
     /// TS2300 — `Duplicate identifier 'prototype'`, for a namespace merged with
     /// a class that exports a member of that name.
     ///
@@ -7493,120 +7488,135 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn check_duplicate_class_computed_members(&mut self, members: &[tsr_ast::ClassElement<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // **Normalise the name and split the table.** `1` and `1.0` are one
-        // property — upstream compares `GetTextOfPropertyName`, which for a
-        // numeric literal is `ToString(value)`, while this port keeps the
-        // written spelling so the printer can reproduce it (§671). And a
-        // `static` member does not collide with an instance member, because
-        // upstream declares them into different tables. §912.
-        let named: Vec<(NodeId, bool, String, bool)> = members
-            .iter()
-            .filter_map(|member| {
-                // **A property collides with an accessor** — upstream's
-                // `PropertyExcludes` includes `Accessor` — while a `get`/`set`
-                // pair is the one shape the members table is built to merge.
-                // So accessors are collected as *accessor* entries and only
-                // ever reported against a property, never against each other.
-                // §914.
-                let (modifiers, name, is_accessor) = match member {
-                    tsr_ast::ClassElement::PropertyDeclaration(property) => {
-                        (property.modifiers, property.name, false)
-                    }
-                    tsr_ast::ClassElement::GetAccessorDeclaration(accessor) => {
-                        (accessor.modifiers, accessor.name, true)
-                    }
-                    tsr_ast::ClassElement::SetAccessorDeclaration(accessor) => {
-                        (accessor.modifiers, accessor.name, true)
-                    }
-                    _ => return None,
-                };
-                let is_static = has_modifier(modifiers, SyntaxKind::StaticKeyword);
-                let (id, text) = match name {
-                    tsr_ast::PropertyName::Identifier(name) => {
-                        (name.node_id?, name.text.to_string())
-                    }
-                    tsr_ast::PropertyName::StringLiteral(name) => {
-                        (name.node_id?, name.text.to_string())
-                    }
-                    tsr_ast::PropertyName::NumericLiteral(name) => (
-                        name.node_id?,
-                        tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(name.text)),
-                    ),
-                    tsr_ast::PropertyName::ComputedPropertyName(computed) => {
-                        let id = computed.node_id?;
-                        match computed.expression? {
-                            tsr_ast::Expression::StringLiteral(literal) => {
-                                (id, literal.text.to_string())
-                            }
-                            tsr_ast::Expression::NumericLiteral(literal) => (
-                                id,
-                                tsr_core::jsnum::format_number(tsr_core::jsnum::numeric_value(
-                                    literal.text,
-                                )),
-                            ),
-                            _ => return None,
-                        }
-                    }
-                    tsr_ast::PropertyName::PrivateIdentifier(_)
-                    | tsr_ast::PropertyName::BigIntLiteral(_)
-                    | tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(_) => return None,
-                };
-                Some((id, is_static, text, is_accessor))
-            })
-            .collect();
-        for (index, (id, is_static, text, is_accessor)) in named.iter().enumerate() {
-            // Two accessors of one name never report here: a `get`/`set` pair
-            // merges, and a same-kind pair is a different mask (§914's second
-            // falsifier, declined).
-            if !named.iter().enumerate().any(|(other, (_, other_static, name, other_accessor))| {
-                other != index
-                    && other_static == is_static
-                    && name == text
-                    && !(*is_accessor && *other_accessor)
-            }) {
+    /// TS2300 — `Duplicate identifier '{0}'.`, for the members of one class or
+    /// interface declaration.
+    ///
+    /// `checkObjectTypeForDuplicateDeclarations` (`checker.go:3142`) and
+    /// `reportDuplicateMemberErrors` (`:3213`), called from
+    /// `checkClassLikeDeclaration` (`:4306`) and `checkInterfaceDeclaration`
+    /// (`:5016`). `PropertyExcludes` does not contain `Property`, so the
+    /// binder merges `x: number; x: string` into one symbol with two
+    /// declarations; this walk is where upstream reports it. The test is the
+    /// **binder's symbol** — its name (so `1` and `1.0` meet, the binder having
+    /// canonicalised both) and its declaration count — not a re-derived name
+    /// comparison. Parameter properties take part as instance properties.
+    ///
+    /// Not gated on parse errors: upstream reports it in a file with syntax
+    /// errors too (`numericNamedPropertyDuplicates`).
+    /// `docs/parity/notes/decls.md` §12.
+    fn check_object_type_for_duplicate_declarations(&mut self, node: NodeId) {
+        // (member name node, symbol, kind: 1 property / 2 accessor / 0 other, static)
+        let entries = self.object_type_member_entries(node);
+        let mut instance_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+            std::collections::HashMap::new();
+        let mut static_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+            std::collections::HashMap::new();
+        let mut reported: Vec<(tsr_binder::SymbolId, bool)> = Vec::new();
+        for &(_, symbol, kind, is_static) in &entries {
+            if kind == 0 || self.binder.symbols().get(symbol).declarations.len() <= 1 {
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(*id) else { continue };
-            let span = self.error_span(*id);
-            self.report(
-                file,
-                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.clone()]),
-            );
+            let names = if is_static { &mut static_names } else { &mut instance_names };
+            // Upstream keys the table by `symbol.Name`; a members table holds
+            // one symbol per name, so the symbol is the same key.
+            let state = names.get(&symbol).copied().unwrap_or(0);
+            if state == 0 {
+                names.insert(symbol, kind);
+            } else if state == 1 || (state == 2 && kind != 2) {
+                names.insert(symbol, 3);
+                reported.push((symbol, is_static));
+            }
+        }
+        for (symbol, is_static) in reported {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            for &(name_node, member_symbol, _, member_static) in &entries {
+                // `checkStatic` is true for this message: a parameter property
+                // is an instance member, so `isStatic == ast.IsStatic(member)`
+                // holds for it exactly when the duplicate is an instance one.
+                if member_symbol != symbol || member_static != is_static {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(name_node) else { continue };
+                let span = self.error_span(name_node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [name.clone()]),
+                );
+            }
         }
     }
 
-    fn check_duplicate_type_literal_members(&mut self, members: &[tsr_ast::TypeElement<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let named: Vec<(NodeId, &str)> = members
-            .iter()
-            .filter_map(|member| {
-                let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
-                    return None;
-                };
-                match property.name {
-                    tsr_ast::PropertyName::Identifier(name) => Some((name.node_id?, name.text)),
-                    tsr_ast::PropertyName::StringLiteral(name) => Some((name.node_id?, name.text)),
-                    _ => None,
+    /// The members `checkObjectTypeForDuplicateDeclarations` walks, in source
+    /// order: each member's name node, its symbol, its kind for that walk
+    /// (1 property, 2 accessor or auto-accessor, 0 anything else) and whether
+    /// it is static. A constructor contributes its parameter properties whose
+    /// name is not a binding pattern.
+    fn object_type_member_entries(
+        &self,
+        node: NodeId,
+    ) -> Vec<(NodeId, tsr_binder::SymbolId, u8, bool)> {
+        let mut entries = Vec::new();
+        let mut push = |member: NodeId, name: Option<NodeId>, kind: u8, is_static: bool| {
+            let (Some(name), Some(symbol)) = (name, self.binder.symbol_of(member)) else {
+                return;
+            };
+            entries.push((name, self.binder.merged_symbol(symbol), kind, is_static));
+        };
+        let class_members = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            Some(
+                Node::InterfaceDeclaration(InterfaceDeclaration { members, .. })
+                | Node::TypeLiteralNode(TypeLiteralNode { members, .. }),
+            ) => {
+                for member in *members {
+                    let Some(id) = member.node_id() else { continue };
+                    let kind = match member {
+                        tsr_ast::TypeElement::PropertySignatureDeclaration(_) => 1,
+                        tsr_ast::TypeElement::GetAccessorDeclaration(_)
+                        | tsr_ast::TypeElement::SetAccessorDeclaration(_) => 2,
+                        _ => 0,
+                    };
+                    push(id, self.declaration_name_of(id), kind, false);
                 }
-            })
-            .collect();
-        for (index, &(id, text)) in named.iter().enumerate() {
-            if !named.iter().enumerate().any(|(other, &(_, name))| other != index && name == text) {
+                return entries;
+            }
+            _ => return entries,
+        };
+        for member in class_members {
+            let Some(id) = member.node_id() else { continue };
+            if let ClassElement::ConstructorDeclaration(constructor) = member {
+                for parameter in constructor.parameters {
+                    let Some(parameter_id) = parameter.node_id else { continue };
+                    let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
+                        continue;
+                    };
+                    // `ast.IsParameterPropertyDeclaration`: the binder made
+                    // the class property this parameter's symbol.
+                    if self.binder.symbol_of(parameter_id).is_some_and(|symbol| {
+                        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::PROPERTY)
+                    }) {
+                        push(parameter_id, name.node_id, 1, false);
+                    }
+                }
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.error_span(id);
-            self.report(
-                file,
-                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [text.to_string()]),
-            );
+            let modifiers = self.node_map.get(id).and_then(modifiers_of).unwrap_or(&[]);
+            let is_static = has_modifier(modifiers, SyntaxKind::StaticKeyword);
+            let kind = match member {
+                ClassElement::PropertyDeclaration(_)
+                    if has_modifier(modifiers, SyntaxKind::AccessorKeyword) =>
+                {
+                    2
+                }
+                ClassElement::PropertyDeclaration(_) => 1,
+                ClassElement::GetAccessorDeclaration(_)
+                | ClassElement::SetAccessorDeclaration(_) => 2,
+                _ => 0,
+            };
+            push(id, self.declaration_name_of(id), kind, is_static);
         }
+        entries
     }
 
     fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
@@ -14295,7 +14305,7 @@ fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Mess
     })
 }
 
-fn suggested_lib_for(name: &str) -> Option<&'static str> {
+pub(crate) fn suggested_lib_for(name: &str) -> Option<&'static str> {
     LIB_FEATURE_NAMES
         .binary_search_by_key(&name, |(feature, _)| *feature)
         .ok()
@@ -14740,4 +14750,28 @@ enum AliasBodyKind {
 struct AliasFrame {
     bindings: Vec<(NodeId, NodeId, usize)>,
     parent: Option<usize>,
+}
+
+impl Checker<'_, '_> {
+    /// Whether a property's written annotation is a reference (type
+    /// reference, `import()` type or `typeof` query) whose own resolution
+    /// failed — its type arguments, if any, all resolved —
+    /// so that the property's `error` type is upstream's `errorType` from
+    /// `getTypeFromTypeReference` rather than a gap carried up from a nested
+    /// node. `docs/parity/notes/decls.md` §17.
+    pub(crate) fn annotation_is_failed_reference(&mut self, annotation: Option<NodeId>) -> bool {
+        // `getTypeFromTypeReference`, `getTypeFromImportTypeNode` and
+        // `getTypeFromTypeQueryNode` each answer `errorType` when the entity
+        // they name does not resolve.
+        let arguments = match annotation.and_then(|id| self.node_map.get(id)) {
+            Some(Node::TypeReferenceNode(reference)) => reference.type_arguments,
+            Some(Node::ImportTypeNode(import)) => import.type_arguments,
+            Some(Node::TypeQueryNode(query)) => query.type_arguments,
+            _ => return false,
+        };
+        arguments.iter().all(|&argument| {
+            let argument = self.get_type_from_type_node(argument);
+            !self.is_error(argument)
+        })
+    }
 }

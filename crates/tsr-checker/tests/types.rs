@@ -864,11 +864,11 @@ fn a_reference_to_a_generic_type_carries_its_arguments() {
         type_of_declaration("class C<T> {}\ndeclare const x: C<C<string>>;", "x"),
         "C<C<string>>"
     );
-    // A generic alias keeps its name, unlike the transparent non-generic case.
-    assert_eq!(
-        type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"),
-        "A<number>"
-    );
+    // FLIPPED (type-refs round 3): a type-parameter body instantiates to the
+    // mapped argument (`instantiateTypeWithAlias`, `checker.go:22104`, returns
+    // the image of a bare type parameter untouched), so `A<number>` is
+    // `number` — the tree already answered this; the assertion was stale.
+    assert_eq!(type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"), "number");
     // FLIPPED at §282: this asserted `Tree<T>` for a body that IS the bare
     // parameter, which was the port's display shortcut and not upstream's
     // rule — `type Bar1<T extends unknown[][]> = T` records `Bar1 : T` in

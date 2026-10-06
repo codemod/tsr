@@ -238,23 +238,15 @@ Measured (on top of 2.1/2.2): +158 type lines, 11 cases
 `destructuringParameterDeclaration3ES5/ES6`, `destructuringParameterDeclaration4`,
 `directDependenceBetweenTypeAliases`,
 `objectTypeWithStringAndNumberIndexSignatureToAny`, `readonlyArraysAndTuples2`).
-Losses, which is why it is held:
+Losses at round 2, which is why it was held (both now resolved — §3.1):
 
 1. `recursiveTypeReferences1` (2 lines, `children.length` → `any`):
    `members.rs` `completed_array_placeholder_length_body` requires
    `instantiations[key] == declared_types[owner]`, which the alias copy is not.
-   The patch includes the one-line fix (`self.without_alias(...)` on the
-   declared body), measured to remove both losses — but `members.rs` is the
-   property lane's file.
+   Fixed by `self.without_alias(...)` on the declared body.
 2. `spreadBooleanRespectsFreshness` (1 line): `c ? fa : [fb]` with
-   `fa: FooArray` now prints `FooArray`; upstream prints `FooBase[]`. With two
-   distinct but structurally identical constituents `removeSubtypes`
-   (`checker.go:25934`) removes whichever sorts LAST, so upstream's answer says
-   either the fresh array-literal reference is not a strict subtype of the
-   deferred alias reference, or it sorts earlier. Not diagnosed: the decision
-   is in the relater (strict-subtype over a fresh array literal) or in type-id
-   creation order, neither of which this box owns. Falsifier for any fix: the
-   case's line 10 turns RIGHT and no other line moves.
+   `fa: FooArray` printed `FooArray`; upstream prints `FooBase[]`. Diagnosed in
+   round 3 (§3.1): a union-sort defect, not the relater.
 
 ### 2.5 Generic aliases run the declared-type push/pop frame (TS2456)
 
@@ -297,3 +289,114 @@ TS2637 and TS1359, not this item).
 
 Re-measured with the branch boundary: zero moved lines in either dump,
 workspace tests pass, and the scratch-merge result above still holds.
+
+## 3. Round 3 (baseline frozen at `d109b0c`: types 467,948 RIGHT / 1,175 GAP / 8,794 WRONG; diagnostics 4,010 RIGHT / 4,957 EMPTY_RIGHT)
+
+### 3.1 Held patch B's last loss is `CompareTypes`, not the relater
+
+`spreadBooleanRespectsFreshness` line 10 is the conditional
+`Array.isArray(foo2) ? foo2 : [foo2]`, whose type is
+`getUnionTypeEx([FooArray, FooBase[]], UnionReductionSubtype)`. The two
+constituents are mutually strict subtypes (same `Array` target, same
+argument), so `removeSubtypes` (`checker.go:25934`) removes whichever sorts
+LAST — it walks the sorted list from the end and deletes the first source it
+finds related to another member. The order is `CompareTypes`
+(`utilities.go:415`), whose second key is `compareTypeNames` (`:589`), and
+`getTypeNameSymbol` (`:607`) answers **the alias symbol first**: the deferred
+reference carrying `FooArray` sorts under "FooArray", the fresh array literal
+under its target's "Array". "Array" < "FooArray", so upstream's list is
+`[FooBase[], FooArray]`, `FooArray` is removed, and the line prints
+`FooBase[]`.
+
+This port's `compare_type_names` (`unions.rs`) saw two entries of
+`type_reference_targets` with the same target, compared their argument lists
+(equal), and fell through to the type-id tiebreak — creation order, which put
+the alias copy (created when `Foo` resolved) first. The fix reads
+`alias_of` before the reference arm: two types carrying the same alias
+compare by alias arguments (`:593`); otherwise an aliased side is named by
+its alias. It is upstream's rule, not a tiebreak chosen to make the case
+pass: the falsifier stated in round 2 ("line 10 turns RIGHT and no other
+line moves") held — the full dumps move only gains.
+
+`unions.rs` belongs to the contextual box this round, so patch B stays held,
+now including that hunk, the `members.rs` `without_alias` wrap this box owns,
+and the matching update of that function's unit test (it asserted the
+declared type, which is now the alias copy; the function answers the
+canonical reference).
+
+Measured against this round's baseline (patch applied to `d109b0c`): **+161
+type lines, 12 cases fully RIGHT** (round 2's 11 plus
+`spreadBooleanRespectsFreshness`), **0 R→W in either dump**, diagnostics
+unchanged (4,010 RIGHT / 4,957 EMPTY_RIGHT). Perf, median child CPU over 21
+samples against the baseline binary: domain-model 1.019, generic-imports
+1.023 (both ≤ 1.03; `diagnostics_match: true`). Workspace tests pass with the
+patch.
+
+### 3.2 A stale unit test
+
+`tests/types.rs` `a_reference_to_a_generic_type_carries_its_arguments`
+asserted `type A<T> = T; declare const x: A<number>` prints `A<number>`. The
+tree at `d109b0c` already prints `number`, which is upstream's answer
+(`instantiateTypeWithAlias`, `checker.go:22104`, returns a bare type
+parameter's image), so the test failed at the baseline and its expectation
+is flipped.
+
+### 3.3 `trySymbolTable`'s ExportSymbol candidate replaces the import-equals exclusion (`tsr-2zk.39`, `tsr-2zk.16.20`)
+
+`best_name` (checker.rs) is this port's whole-name and segment-name walk
+over `getAccessibleSymbolChain`'s scope tables. Two deviations from
+`trySymbolTable` (`symbolaccessibility.go:535`) compensated for each other:
+
+- A table entry whose **ExportSymbol** is the target answered the symbol's
+  own name immediately. Upstream (`:551`) only appends `[symbol]` to the
+  candidate chains, which then sort with the alias candidates by
+  `compareSymbolChains` (length, then `compareSymbols`: first declaration's
+  file and position).
+- Because the export hit never competed, admitting a same-file
+  `import a = B` alias let it win in tables where upstream's exported
+  declaration wins, so the alias was excluded from whole-name prints (`admit_local_import_equals = false`) after admitting it lost 130
+  `privacy*` lines (`checker-notes-modobj.md` §10.16–17).
+
+Ported: the ExportSymbol hit seeds the alias competition as candidate
+`(own name, symbol)`; the exclusion and the parameter are deleted, so every
+caller runs the same walk. In the `privacy*` shape the exported namespace is
+declared before the alias, so its own name still wins; in
+`namespace B { import O = Outer; … }` (`constEnumOnlyModuleMerging`) the
+table holds the alias and no local of `Outer`, so `O` is printed, as
+upstream does.
+
+Measured against `d109b0c` (without patch B): **+94 type lines, 11 cases
+fully RIGHT** (`circularReferenceInImport`, `constEnumOnlyModuleMerging`,
+`importInTypePosition`, `importedModuleAddToGlobal`, `innerAliases2`,
+`moduleAliasInterface`, `moduleCrashBug1`, `moduleVisibilityTest3`,
+`unusedImports10`, `importStatements`, `tsxElementResolution7`), **0 R→W in
+either dump**.
+
+Checker port convention: no cache, side table or traversal is added; the
+same per-print scope walk runs with one more candidate per table. Work
+boundary unchanged (one `compare_symbols` per ExportSymbol hit).
+
+Not ported here (remaining `tsr-2zk.39`): `isAccessible`'s
+`canQualifySymbol` test on the direct and ExportSymbol arms (the walk
+assumes every hit is qualifiable), `getCandidateListForSymbol` recursion
+deeper than one export level, and `getWithAlternativeContainers`
+(`SYMBOL-CHAIN-EXPORT-EQUALS-CONTAINER`). `own_name_alias_at` still
+requires `flags == ALIAS` exactly (`shadowedInternalModule`'s merged
+alias+var), which belongs to the same walk.
+
+### 3.4 A merged alias still names its target (`tsr-2zk.16.20`)
+
+`own_name_alias_at` stops qualification when the bare name resolves at the
+site to an alias of the target. It required the hit's flags to be exactly
+`ALIAS`. Upstream's binder excludes only `Alias` from an alias declaration
+(`AliasExcludes`), so `import Y = X.Y; var Y = 12` is one symbol carrying
+`Alias | FunctionScopedVariable` (the conflict is a checker diagnostic, not a
+binder split), and `trySymbolTable` iterates it as an alias (`:562`). The
+test is now `contains(ALIAS)`; the immediate-target comparison that guards
+merged namespace/alias symbols is unchanged.
+
+Measured against the merged baseline (`246056c`: types 468,044 RIGHT,
+diagnostics 4,050 RIGHT / 4,958 EMPTY_RIGHT): +4 type lines, 1 case
+(`moduleSharesNameWithImportDeclarationInsideIt4`; `shadowedInternalModule`
+line 26 turns RIGHT, the case has other gaps), 0 R→W in either dump. No new
+state.
