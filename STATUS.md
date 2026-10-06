@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Current construction-cost selection (`tsr-1yb.4.2.1`), frozen `3cf33564`:
+the existing class/interface reference cache serves 3,566,827 of 3,666,301
+requests; 99,474 actual final mints have distinct private ordered keys and zero
+repeats. Root intervals total 0.412486s across four owners; declared mint body
+0.001384s. Thirty fixed CLI controls preserve complete output. Natural
+single-mode observation stops on app input drift; failed gate retained. No
+second cache, canonical runtime or speed win. Broader native member builder,
+PR #5 regression `tsr-1yb.34` and 2x target remain unfinished.
+[Cost selection and exact limits](docs/architecture/checker-concrete-builder-cost.md).
+
 Mapped contextual prerequisite (`tsr-1yb.33.1`), frozen `0b18d357` / native
 `5b1047d`: private member-plus-signature replay now preserves all prior passing
 477,970 type rows and 10,570 diagnostic cases, improving 49 type rows and six
@@ -3392,6 +3402,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Construction-cost follow-through (`tsr-1yb.4.2.1`): frozen `3cf33564` excludes
+a second class/interface reference cache (97.29% existing hits, zero repeated
+actual mints). Next family must measure actual completed member-field
+population/consumers and retain native active/reset and broader `.33.1` gates.
+Live Next.js input drift prevents the remaining natural-mode comparisons; do
+not reuse earlier counts as native completion misses.
+[Evidence](docs/architecture/checker-concrete-builder-cost.md).
 
 At frozen `0b18d357`, member-plus-signature `.33.1` no longer loses prior
 passing corpus rows. Builder `tsr-1yb.4.2.1` should consume the exact private
@@ -6940,6 +6958,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `3cf33564`: no added class/interface reference memo under
+`tsr-1yb.4.2.1`. Actual 99,474 minted keys are unique; the existing owner already
+serves 3,566,827 hits. Timed root interval is 0.412486s across workers, declared
+body 0.001384s. The single/off app child fails the physical-input stability gate
+despite identical diagnostics; it supplies no qualified counter/timing
+comparison. Broader member builder remains open.
+[Qualified refusal](docs/architecture/checker-concrete-builder-cost.md).
 
 New frozen `0b18d357` runs supersede the old no-RIGHT-loss failure as a current
 gate: zero losses over 477,970/10,570 rows, while historical eighteen/one remains
@@ -13690,6 +13716,16 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-06, frozen `3cf33564`: concrete-reference cost locator under
+`tsr-1yb.4.2.1`. Four normal full checks, four failed sandbox attach children,
+one successful unsandbox profile and one exited-child attach, three qualified
+default observer children plus one retained input-drift failure, and 30 fixed
+controls. Two release builds and two-file replay qualify the private observer;
+count-partition mutation detected. No canonical runtime, full-corpus or speed
+claim. This family has a no-change decision; broader `.4.2.1`/`.4.2` and PR #5
+regression `.34` remain unfinished.
+[Receipt](docs/architecture/checker-concrete-builder-cost.md).
 
 2026-10-06 — `tsr-1yb.16.2.3` / `.7.5.1.1`, frozen `48e300a4`:104 baseline
 controls,78 candidate controls and22 public native runs finish. Exact lookup
