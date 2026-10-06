@@ -528,6 +528,12 @@ impl<'a> Checker<'a, '_> {
                 // same alias. Anything that is not an expression we can type is
                 // an unported form.
                 let Some(node) = literal.literal else { return self.intrinsics.error };
+                // `checker.go` getTypeFromLiteralTypeNode: a `null` literal type
+                // is `nullType`, not the expression's `nullWideningType`.
+                if matches!(node, Node::KeywordExpression(keyword) if keyword.kind == SyntaxKind::NullKeyword)
+                {
+                    return self.intrinsics.null;
+                }
                 let Ok(expression) = Expression::try_from(node) else {
                     return self.intrinsics.error;
                 };

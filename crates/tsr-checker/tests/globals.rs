@@ -75,23 +75,12 @@ fn a_program_declaring_its_own_undefined_keeps_its_declaration() {
 }
 
 #[test]
-fn a_let_initialised_with_undefined_records_a_known_divergence() {
-    // **Upstream says `any` here and this port says `undefined`. This test
-    // records a wrong answer, deliberately, and must not be read as pinning
-    // one.**
-    //
-    // Upstream's `undefinedSymbol` carries `undefinedWideningType`, whose whole
-    // purpose is that `getWidenedType` turns it into `any`; `const` keeps
-    // `undefined` and `let`/`var` widen. `crate::intrinsics` has exactly one
-    // `undefined` (`intrinsics.rs:108`) and no widening variant, so the
-    // distinction upstream draws between two types that PRINT ALIKE cannot be
-    // drawn here — the same shape as the enum divergence replaced in `038def4`.
-    //
-    // Measured exposure: 22 `let`/`var` sites in the corpus against ~1,675
-    // lines the symbol makes right. Accepted as a net-positive divergence
-    // rather than hidden, and recorded here so that **adding a widening
-    // `undefined` reddens this test and forces it to be deleted** rather than
-    // leaving the divergence to be rediscovered.
+fn a_let_initialised_with_undefined_widens_only_without_strict_null_checks() {
+    // Upstream's `undefinedSymbol` carries `undefinedWideningType`
+    // (`checker.go:1345`), which in strict mode *is* `undefinedType` and
+    // otherwise is a twin `getWidenedType` turns into `any`. This test used
+    // to record the opposite answer, as a known divergence, until the
+    // widening twin existed (docs/parity/notes/contextual.md §7).
     assert_eq!(type_of_declaration("let x = undefined;", "x"), "undefined");
     assert_eq!(type_of_declaration("var x = undefined;", "x"), "undefined");
 }
@@ -143,7 +132,7 @@ fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations() 
 }
 
 #[test]
-fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global() {
+fn undefined_slot_reselection_is_allocation_free_and_reseeds_the_global() {
     for apply_options in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, "");
@@ -181,10 +170,13 @@ fn undefined_slot_reselection_is_allocation_free_and_does_not_reseed_the_global(
             );
             assert_eq!(checker.type_of(i.null_widening).flags, tsr_checker::TypeFlags::NULL);
         }
-        // Select loose only after the identity/allocation checks, then query:
-        // global reseeding is a separate prerequisite, deliberately not fixed.
+        // Selecting loose re-seeds the global with the widening twin
+        // (`checker.go:1345`); strict puts the ordinary type back.
         checker.set_strict_null_checks(false);
+        let widening = checker.intrinsics().undefined_widening;
+        assert_ne!(widening, ordinary);
+        assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), widening);
+        checker.set_strict_null_checks(true);
         assert_eq!(checker.get_type_of_symbol(bound.undefined_symbol().unwrap()), ordinary);
-        assert_ne!(checker.intrinsics().undefined_widening, ordinary);
     }
 }

@@ -5101,6 +5101,7 @@ impl<'a> Checker<'a, '_> {
             if !self.strict_null_checks
                 && self.type_annotation_of(declaration).is_none()
                 && (id == self.intrinsics.null
+                    || id == self.intrinsics.null_widening
                     || id == self.intrinsics.undefined
                     || id == self.intrinsics.undefined_widening)
             {

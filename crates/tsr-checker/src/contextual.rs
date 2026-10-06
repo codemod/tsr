@@ -3272,9 +3272,9 @@ mod tests {
                     "ordinary",
                 ),
                 ("((observed = 37) => observed)(undefined as undefined);", "observed", "ordinary"),
-                // Global reseeding remains held: the actual supplied argument
-                // is ordinary undefined, unlike native's loose global.
-                ("((observed?) => observed)(undefined);", "observed", "ordinary"),
+                // The loose global is the widening twin (checker.go:1345),
+                // so the supplied argument is too.
+                ("((observed?) => observed)(undefined);", "observed", "active"),
                 ("((observed = 37) => observed)();", "observed", "absent"),
                 ("((observed = 37) => observed)(...([] as []));", "observed", "absent"),
                 ("(function(undefined = 37) { return undefined; })();", "undefined", "absent"),

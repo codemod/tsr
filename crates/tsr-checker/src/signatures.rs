@@ -897,7 +897,9 @@ impl<'a> Checker<'a, '_> {
             .copied();
         if let Some(base) = base {
             let base_type = self.check_expression(base.expression?);
-            let base_signatures = if base_type == self.intrinsics.null {
+            let base_signatures = if base_type == self.intrinsics.null
+                || base_type == self.intrinsics.null_widening
+            {
                 Vec::new()
             } else {
                 self.signatures_of_type_kind(base_type, SignatureKind::Construct)?
@@ -1572,6 +1574,13 @@ impl<'a> Checker<'a, '_> {
             asterisk,
             may_return_never,
         )?;
+        let r#type = if return_annotation.is_none()
+            && let Some(full) = self.jsdoc_full_signature_return_type(declaration)
+        {
+            full
+        } else {
+            r#type
+        };
 
         let written_return =
             return_annotation.and_then(|annotation| self.written_annotation_text(annotation));

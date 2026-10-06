@@ -654,7 +654,8 @@ impl Checker<'_, '_> {
                 }
                 SyntaxKind::TrueKeyword => self.intrinsics.true_type,
                 SyntaxKind::FalseKeyword => self.intrinsics.false_type,
-                SyntaxKind::NullKeyword => self.intrinsics.null,
+                // `checker.go:7742`: a `null` expression is `nullWideningType`.
+                SyntaxKind::NullKeyword => self.intrinsics.null_widening,
                 // `undefined` is an identifier rather than a keyword in the
                 // grammar, so it does not arrive here.
                 _ => self.intrinsics.error,

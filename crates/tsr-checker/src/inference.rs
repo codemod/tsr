@@ -7111,9 +7111,13 @@ const value = First.A;"#;
         // six right lines in `conformance/strictNullChecksNoWidening` and
         // `compiler/undefinedInferentialTyping` into gaps; that is how the
         // bar's second leg found the defect.
+        //
+        // Since `nullWideningType` exists (docs/parity/notes/contextual.md §7)
+        // the non-strict candidate is the widening twin and widens to `any`,
+        // as upstream's does.
         let source = "declare function f<T>(x: T): T;\nvar a = f(null);";
         assert_eq!(generic_call_with_strictness(source, "f", true), "null");
-        assert_eq!(generic_call_with_strictness(source, "f", false), "error");
+        assert_eq!(generic_call_with_strictness(source, "f", false), "any");
     }
 }
 

@@ -140,4 +140,14 @@ impl<'a> Checker<'a, '_> {
             self.signature_type_at_position(&signature, position).unwrap_or(self.intrinsics.any)
         })
     }
+
+    /// `getReturnTypeOfFullSignature` (`checker/checker.go:20089`), the last
+    /// arm of `getReturnTypeFromAnnotation`: a JS function whose `@type` tag
+    /// is its full signature returns that signature's return type.
+    pub(crate) fn jsdoc_full_signature_return_type(&mut self, function: NodeId) -> Option<TypeId> {
+        let annotation = self.jsdoc_full_signature_node(function)?;
+        let ty = self.get_type_from_type_node(annotation);
+        let signature = self.single_call_signature(ty)?;
+        self.get_return_type_of_signature(&signature)
+    }
 }

@@ -1751,39 +1751,6 @@ impl Checker<'_, '_> {
             } else {
                 member_type
             };
-            // §853: the declaration-level `getWidenedType` would turn a
-            // nullable member into `any`, and this port has no call site for
-            // it — **but only when `strictNullChecks` is OFF does upstream
-            // widen at all**. `createWideningType`
-            // (`checker.go:25027`):
-            //
-            // ```go
-            // func (c *Checker) createWideningType(nonWideningType *Type) *Type {
-            //     if c.strictNullChecks {
-            //         return nonWideningType
-            //     }
-            //     t := c.newIntrinsicType(...)
-            //     t.objectFlags |= ObjectFlagsContainsWideningType
-            //     return t
-            // }
-            // ```
-            //
-            // `undefinedWideningType` and `nullWideningType` are what a
-            // `null`/`undefined` expression answers, and under strict they ARE
-            // the plain types with no `ContainsWideningType`.
-            // `getWidenedTypeWithContext` is gated on `RequiresWidening`, so
-            // under strict there is nothing to widen and `{ p: null }` is
-            // `{ p: null; }`.
-            //
-            // Non-strict keeps the refusal for its original reason: there the
-            // port really would need `getWidenedType`, and answering
-            // `{ p: null; }` where upstream answers `{ p: any; }` would be a
-            // confident wrong line in place of an honest gap.
-            if !self.strict_null_checks
-                && self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE)
-            {
-                return error;
-            }
             // §892: record the member's type on its SYMBOL, which is what
             // upstream's `checkObjectLiteral` does through
             // `links.resolvedType` — so `getTypeOfSymbol` for an

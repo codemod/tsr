@@ -1286,27 +1286,14 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `get_type_of_variable_or_parameter_or_property` reads it before doing
         // any work, so seeding it is what makes the symbol answer at all.
         //
-        // **A KNOWN DIVERGENCE LIVES ON THIS LINE.** Upstream seeds
-        // `undefinedWideningType`, not `undefinedType` — two types that PRINT
-        // ALIKE and widen differently, so `const x = undefined` is `undefined`
-        // and `let x = undefined` is `any` (`checker.go:955`). This port has
-        // exactly one `undefined` (`crate::intrinsics`) and no widening
-        // variant, so `let` answers `undefined` where upstream answers `any`.
-        //
-        // Accepted deliberately rather than hidden. Gap and wrong both score as
-        // not-right, so the 22 affected sites cost no gradient; what they cost
-        // is diagnostic separability on those 22, against ~1,675 lines the
-        // symbol makes right. The sites are enumerated in
-        // `docs/architecture/checker-notes-enums.md` so the follow-up can
-        // verify it fixed exactly those, and
-        // `tests/globals.rs::a_let_initialised_with_undefined_records_a_known_divergence`
-        // reddens the moment a widening intrinsic lands.
-        //
-        // **This is a missing intrinsic, not a merged identity.** The widening
-        // type does not exist here at all, which is visible to anyone who greps
-        // `intrinsics.rs` and finds one `undefined` where upstream has two —
-        // unlike `038def4`, where both identities existed and one was used for
-        // the other.
+        // Upstream seeds `undefinedWideningType` — the same type as
+        // `undefinedType` in strict mode, a distinct widening twin otherwise
+        // (`createWideningType`, `checker.go:25027`), so `let x = undefined`
+        // is `any` under `strictNullChecks: false`. The checker starts strict,
+        // where the two coincide; `set_strict_null_checks` re-seeds the slot
+        // when a case turns the flag off (`docs/parity/notes/contextual.md`
+        // §7). This line used to record that divergence: the port had no
+        // widening twin at all.
         //
         // See `Binder::declare_synthesised_globals` for the other half.
         let mut symbol_types = FxHashMap::default();
@@ -1722,6 +1709,11 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn set_strict_null_checks(&mut self, on: bool) {
         self.strict_null_checks = on;
         self.intrinsics.select_strict_null_checks(on);
+        // `checker.go:1345`: the synthesised `undefined` symbol's type is
+        // `undefinedWideningType`, which the flag just selected.
+        if let Some(undefined) = self.binder.undefined_symbol() {
+            self.symbol_types.insert(undefined, self.intrinsics.undefined_widening);
+        }
     }
 
     /// Set [`Checker::no_unchecked_side_effect_imports`] from a case's compiler

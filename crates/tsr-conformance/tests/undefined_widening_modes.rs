@@ -25,16 +25,17 @@ fn real_program_options_select_the_slot_without_changing_global_or_shadowed_bind
         let i = *checker.intrinsics();
         assert_eq!(i.undefined_widening == i.undefined, strict, "{directives}");
         assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
-        assert_eq!(checker.type_count(), 25);
+        // 26: `nullWideningType`'s loose twin occupies slot 8.
+        assert_eq!(checker.type_count(), 26);
         assert_eq!(checker.type_of(i.undefined_widening).flags, tsr_checker::TypeFlags::UNDEFINED);
         for other in [i.any, i.error, i.missing, i.null, i.never] {
             assert_ne!(i.undefined_widening, other);
         }
 
         let global = program.binder().undefined_symbol().unwrap();
-        // The loose synthetic global still has the ordinary identity. Native
-        // seeds the active widening identity; reseeding remains a separate unit.
-        assert_eq!(checker.get_type_of_symbol(global), i.undefined);
+        // The synthetic global carries the active widening identity
+        // (`checker.go:1345`), which in strict mode is the ordinary type.
+        assert_eq!(checker.get_type_of_symbol(global), i.undefined_widening);
         let file = program.source_file("mode.ts").unwrap();
         let root = tsr_ast::Node::SourceFile(file.source_file()).node_id().unwrap();
         let ordinary = program.binder().lookup_local(root, "ordinary").unwrap();
