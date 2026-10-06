@@ -132,3 +132,11 @@ The private run times overlap builds and other fidelity runs. They lack CPU/RSS
 and equivalent performed-work qualification, so they establish no speed ratio.
 The reported PR #5 slowdown remains unresolved; the separate investigation is
 `tsr-1yb.34`. Equivalent complete-work TSR/native median wall <=0.50 is unmet.
+
+## Declared-reference continuation at `0fd93183`
+
+The [current private continuation](checker-declared-member-references.md) repairs
+class and inherited-interface formal-this admission, with 198 library passes,
+six fresh native observations and full corpus gates. It still loses 49 previous
+RIGHT types and four passing diagnostic cases. Its current baseline is separate;
+the historical `d417a8c9` counts, receipt and replay above remain unchanged.

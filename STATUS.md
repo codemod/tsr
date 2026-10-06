@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Declared-reference continuation (`tsr-1yb.33.1`), frozen `0fd93183` / native
+`5b1047d`: actual declared-class and inherited-interface formal-this admission
+repair collection inference and derived receiver projections privately. Two
+red/green controls, six fresh native orders and two final compiling mutations
+qualify these paths; all 198 library tests pass after exact restoration. Wider
+retention remains **refused**: 49 previously RIGHT type losses /477,970 rows and
+four passing diagnostic losses /10,570 cases. `subtypesOfUnion` is a new diagnostic
+loss relative to the class-only version (62 type/six diagnostic losses).
+Two CLI batches total 384 terminal children; final 54/66 full output pairs equal,
+ten changed pairs match native and two remain wrong. False derived-interface
+TS2430 remains on both baseline and candidate. No main runtime, coverage or speed
+gain; `.33.1` stays in progress. [Current replay and limits](docs/architecture/checker-declared-member-references.md).
+
 Natural structured-member progress (`tsr-1yb.33.1`), frozen `d417a8c9` / native
 `5b1047d`: the previously pending circular-default control now reproduces own
 publication, reset, fresh/outer completion and exactly one TS2310 in three orders.
@@ -3389,6 +3402,13 @@ focused nonempty fields. Raw/reference classification and late-bound suppliers
 are repaired privately. Broader retention still fails on 63 type/eight diagnostic
 RIGHT losses; those exact corpus rows are the next repair, preserving existing
 receiver/signature owners. No production builder or speed improvement lands.
+The current `0fd93183` continuation repairs declared-class and inherited-interface
+this admission with 198 library passes and six fresh native observations. Its
+remaining 49 type/four diagnostic losses replace the older source's counts as the
+current repair gate, including a new `subtypesOfUnion` diagnostic loss. Derived
+public inheritance still has false TS2430; stored interface call/construct this
+mapping remains unqualified. Preserve receiver/signature owners and qualify the
+actual writer before builder reuse. [Current source-bound handoff](docs/architecture/checker-declared-member-references.md).
 Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
 [Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
@@ -6866,6 +6886,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `0fd93183`, the private declared-reference continuation is refused
+for production retention on **49 previous RIGHT type losses and four passing
+diagnostic losses**, despite 198 library passes and two final detected compiling
+mutations. Class-only 62/six losses become 49/four after inherited-this admission;
+`subtypesOfUnion` adds a new diagnostic loss. All 101 type and 12 diagnostic changed
+rows, including already-WRONG cases, are preserved. The public derived-interface
+positive retains false TS2430 on baseline and candidate; two changed negative
+pairs remain wrong. No runtime or speed gain. [Current rejection](docs/architecture/checker-declared-member-references.md).
 
 At frozen `d417a8c9`, the natural structured-member candidate is refused for
 production retention on **63 previous RIGHT type assertion losses and eight
@@ -14718,3 +14747,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `55ed1a2a` / native `5b1047d` | — | — | **Prepared reference progress, tsr-1yb.33.1, still in progress.** Concrete final original-this arguments and raw/reduced/apparent forcing preserve Single/Merged/Single; exact-optional declaration flags and ordinary writes are repaired privately. Fresh native 39 controls correct the previous false distinct-self and clone-containing assertions. Final library 192 passes/one ignored; the ignored natural-default test is also executed and misses TS2310 in all three matched-option orders. A real unresolved base re-entry exposes [Root] before completed [Root, Later]. Three compiling mutations are detected, restored, then 192 passes repeat. Two CLI batches total 324 completed invocations; each preserves all 54 baseline/prototype output pairs and the same 11 existing native mismatch families. No canonical runtime retention, full corpus or speed claim; natural field-complete completion/reset remains the prerequisite for builder4.2.1. [Replay and limits](docs/architecture/checker-private-member-publication.md#prepared-reference-progress-at-55ed1a2a). |
 
 | 2026-10-06 | `d417a8c9` / native `5b1047d` | — | — | **Natural structured-member progress, tsr-1yb.33.1; retention refused.** Actual own-field publication/reset and fresh-or-outer completion reproduce exactly one TS2310 across three matched orders. Fresh native 30 recursive controls,39 shared controls plus6 enumeration projections,3 nonempty-field controls and42 resolved-member controls qualify bounded behavior. Raw declaration/reference classification and late-bound suppliers correct genuine broader failures. Final196 library passes after6 compiling mutants detect faults and exact restoration. Two CLI batches336 terminal children: final46/56 full output pairs equal,10 changed pairs improve to native, no bounded native agreement loss. Unfiltered477970 type rows still lose63 previously RIGHT assertions(initial611);10570 diagnostic cases lose8. Full changed rows include already-WRONG cases. No canonical runtime retention, coverage or speed gain; task remains in progress and builder4.2.1 gated. [Replay and limits](docs/architecture/checker-natural-member-publication.md). |
+
+| 2026-10-06 | `0fd93183` / native `5b1047d` | — | — | **Declared-reference progress, tsr-1yb.33.1; retention refused.** Class and inherited-interface formal-this admission repaired privately; two red/green controls, six fresh native orders, two final compiling mutants detected and exact restoration then 198 library passes. Two CLI batches total 384 terminal children; final 54/66 output pairs equal, ten changed pairs native-aligned, two derived negative pairs still wrong; no bounded native agreement loss. Unfiltered 477970 type rows lose 49 previously RIGHT, 10570 diagnostic cases lose four, including new subtypesOfUnion relative to class-only 62/six. All 101/12 changed rows retained. False public derived TS2430 and stored interface signature-this mapping remain unqualified. No main runtime retention, coverage or speed gain; builder 4.2.1 gated. [Replay and limits](docs/architecture/checker-declared-member-references.md). |
