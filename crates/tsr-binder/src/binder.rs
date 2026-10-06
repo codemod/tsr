@@ -905,6 +905,27 @@ impl<'a, 'n> Binder<'a, 'n> {
         let exports: Vec<(&'a str, SymbolId)> =
             self.symbols.get(source).exports.iter().map(|(n, s)| (*n, *s)).collect();
 
+        // `binder.SetValueDeclaration(target, source.ValueDeclaration)`
+        // (`binder/binder.go:2531`): a non-assignment declaration displaces an
+        // assignment one (`ExpandoMerge.p8 = false` yields to a namespace's
+        // `export var p8 = 6`), and a non-namespace declaration displaces a
+        // namespace; otherwise the target keeps its first one.
+        let replace_value_declaration = value_declaration.is_some_and(|node| {
+            match self.symbols.get(target).value_declaration {
+                None => true,
+                Some(current) => {
+                    let (current_kind, node_kind) =
+                        (self.nodes.kind(current), self.nodes.kind(node));
+                    (is_assignment_declaration_kind(current_kind)
+                        && !is_assignment_declaration_kind(node_kind))
+                        || (current_kind != node_kind
+                            && matches!(
+                                current_kind,
+                                SyntaxKind::ModuleDeclaration | SyntaxKind::Identifier
+                            ))
+                }
+            }
+        });
         {
             let entry = self.symbols.get_mut(target);
             entry.flags |= source_flags;
@@ -915,9 +936,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 entry.exports.initialize();
             }
             entry.declarations.extend(declarations);
-            // `SetValueDeclaration` keeps the first one; upstream only replaces
-            // when the target has none.
-            if entry.value_declaration.is_none() {
+            if replace_value_declaration {
                 entry.value_declaration = value_declaration;
             }
         }
@@ -4422,6 +4441,19 @@ fn this_property_table<'s, 'a>(
     exports: bool,
 ) -> &'s mut SymbolTable<'a> {
     if exports { symbol.exports.initialize() } else { symbol.members.initialize() }
+}
+
+/// `isAssignmentDeclaration` (`binder/binder.go:2767`), on a declaration's
+/// kind.
+fn is_assignment_declaration_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::BinaryExpression
+            | SyntaxKind::PropertyAccessExpression
+            | SyntaxKind::ElementAccessExpression
+            | SyntaxKind::Identifier
+            | SyntaxKind::CallExpression
+    )
 }
 
 /// Whether `child` is the condition of `parent` (`isStatementCondition`).

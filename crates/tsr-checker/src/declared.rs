@@ -1591,6 +1591,77 @@ impl<'a> Checker<'a, '_> {
         .is_some()
     }
 
+    /// `getIntendedTypeFromJSDocTypeReference` (`checker.go:23020`): inside
+    /// JSDoc, `String`/`Number`/`BigInt`/`Boolean`/`Void`/`Undefined`/`Null`
+    /// name the primitives, `Function`/`function` the global `Function` type,
+    /// and (without `noImplicitAny`) bare `array`/`promise`/`Object` are
+    /// `any[]`/`Promise<any>`/`any`. `None` everywhere else, including
+    /// outside JSDoc. Upstream's `NodeFlagsJSDoc` is a parse flag this
+    /// parser does not set; a JSDoc type is the one with a JSDoc ancestor,
+    /// asked only after the name gate so ordinary references pay nothing.
+    ///
+    /// Not ported: the `Object.<K, V>` arm, which answers
+    /// `getTypeAliasInstantiation(Record, [K, V])`. This port has no alias
+    /// instantiation by type list, so that arm declines and the reference
+    /// resolves as written, as it did before this function existed.
+    fn get_intended_type_from_jsdoc_type_reference(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        name: &str,
+        id: NodeId,
+    ) -> Option<TypeId> {
+        let arguments = node.type_arguments.len();
+        let intended = match name {
+            "String" | "Number" | "BigInt" | "Boolean" | "Void" | "Undefined" | "Null"
+            | "Function" | "function" => true,
+            "array" | "promise" => arguments == 0 && !self.no_implicit_any,
+            "Object" => arguments != 2 && !self.no_implicit_any,
+            _ => false,
+        };
+        if !intended {
+            return None;
+        }
+        let mut current = self.nodes.parent(id);
+        loop {
+            let ancestor = current?;
+            let kind = self.nodes.kind(ancestor);
+            if (SyntaxKind::JSDocTypeExpression..=SyntaxKind::JSDocImportTag).contains(&kind) {
+                break;
+            }
+            if kind == SyntaxKind::SourceFile {
+                return None;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        // `checkNoTypeArguments` on the primitive arms reports TS2315 and
+        // still answers the primitive; the diagnostic is not reported here.
+        let intrinsics = &self.intrinsics;
+        Some(match name {
+            "String" => intrinsics.string,
+            "Number" => intrinsics.number,
+            "BigInt" => intrinsics.bigint,
+            "Boolean" => intrinsics.boolean,
+            "Void" => intrinsics.void,
+            "Undefined" => intrinsics.undefined,
+            "Null" => intrinsics.null,
+            "Function" | "function" => {
+                let function = self.global_type_symbol_with_arity("Function", 0)?;
+                self.get_declared_type_of_symbol(function)
+            }
+            "array" => {
+                let array = self.global_type_symbol_with_arity("Array", 1)?;
+                let any = self.intrinsics.any;
+                self.create_type_reference(array, vec![any])
+            }
+            "promise" => {
+                let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+                let any = self.intrinsics.any;
+                self.create_type_reference(promise, vec![any])
+            }
+            _ => self.intrinsics.any,
+        })
+    }
+
     /// Ported from `Checker.getTypeFromTypeReference` into
     /// `getTypeReferenceType` (`checker.go:23146`).
     ///
@@ -1648,6 +1719,13 @@ impl<'a> Checker<'a, '_> {
             None => return error,
         };
         let Some(id) = name.node_id else { return error };
+        // `getTypeFromTypeReference` (`checker.go:23003`) asks
+        // `getIntendedTypeFromJSDocTypeReference` before resolving the name.
+        if let Some(intended) =
+            self.get_intended_type_from_jsdoc_type_reference(node, name.text, id)
+        {
+            return intended;
+        }
         // `SymbolFlags::TYPE` is upstream's meaning for a type reference
         // (`resolveTypeReferenceName`). It is what lets the resolver consult an
         // enclosing class's or interface's `members` for a type parameter — see
@@ -4455,7 +4533,24 @@ impl<'a> Checker<'a, '_> {
         // partially-written list has to choose which position the default fills
         // and that choice is visible in print; a bare list fills every position
         // and has no choice to get wrong.
-        let fillable = partially_written || bare_and_fully_defaulted;
+        // `getTypeFromClassOrInterfaceReference` (`checker.go:23169`): in a
+        // JavaScript file a class or interface reference short of its
+        // arguments still instantiates — the arity error is reported and
+        // `fillMissingTypeArguments(…, isJs)` fills the tail with `any`
+        // (`@type {Array}` is `any[]`). An alias reference has no such arm.
+        let js_fill = node.type_arguments.len() < parameters
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
+            // `ast.IsInJSFile(node)`: the file flag, reached through the
+            // JSDoc host edge for a reference written in a JSDoc comment.
+            && node.node_id.and_then(|id| self.source_file_of(id)).is_some_and(|file| {
+                self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+            });
+        let fillable = partially_written || bare_and_fully_defaulted || js_fill;
         if node.type_arguments.len() != parameters && !fillable {
             return error;
         }
@@ -4528,9 +4623,28 @@ impl<'a> Checker<'a, '_> {
             let written = arguments.len();
             for index in written..parameters {
                 let frames = std::mem::take(&mut self.alias_evaluation_bindings);
-                let declared = self
-                    .get_default_from_type_parameter(types[index])
-                    .unwrap_or(self.intrinsics.unknown);
+                let mut declared = self.get_default_from_type_parameter(types[index]);
+                // `fillMissingTypeArguments`' JavaScript arm: a default
+                // identical to `unknown` or `{}` is `any`, and an absent one is
+                // `getDefaultTypeArgumentType(true)` = `any`.
+                if js_fill
+                    && let Some(default) = declared
+                    && default != error
+                {
+                    let (unknown, empty) = (self.intrinsics.unknown, self.intrinsics.empty_object);
+                    if self.is_type_identical_to(default, unknown)
+                        == crate::relater::Ternary::Related
+                        || self.is_type_identical_to(default, empty)
+                            == crate::relater::Ternary::Related
+                    {
+                        declared = Some(self.intrinsics.any);
+                    }
+                }
+                let declared = declared.unwrap_or(if js_fill {
+                    self.intrinsics.any
+                } else {
+                    self.intrinsics.unknown
+                });
                 self.alias_evaluation_bindings = frames;
                 if declared == error {
                     return error;
@@ -4541,9 +4655,12 @@ impl<'a> Checker<'a, '_> {
                     filled.resize(parameters, self.intrinsics.any);
                     (declared, types.iter().copied().zip(filled).collect::<Vec<_>>())
                 } else {
-                    let resolved = self
-                        .get_default_from_type_parameter(types[index])
-                        .unwrap_or(self.intrinsics.unknown);
+                    let resolved = if js_fill {
+                        declared
+                    } else {
+                        self.get_default_from_type_parameter(types[index])
+                            .unwrap_or(self.intrinsics.unknown)
+                    };
                     if resolved == error {
                         return error;
                     }
