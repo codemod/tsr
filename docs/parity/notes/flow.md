@@ -375,3 +375,18 @@ before the walk. Output byte-identical with and without it; CPU median after:
 **Falsifier.** A TS2454 extra on an initialised declaration means a path the
 port's flow graph has that upstream's does not (a binder edge), not that the
 bound should return.
+
+## 14. TS2454: `for..in`/`for..of` heads are not assumed initialised
+
+The rule returned early for any `for (… of/in …)` head ("assigns on entry").
+Upstream only removes such a head from `isNeverInitialized`
+(`!ast.IsForInOrOfStatement(immediateDeclaration.Parent.Parent)`,
+`checker.go:11147`); `assumeInitialized` is otherwise unchanged, so a read of
+a hoisted `var v` *before* `for (var v of …)` keeps `undefined` and reports.
+Ported: the head is not auto-typed (it has the iterated type), is not a
+`const`-without-initialiser, and is excluded from `isNeverInitialized` only.
+§13's fast path extends to block-scoped heads for reads past the iterated
+expression (the body runs only after the head's assignment).
+
+**Measured.** `for-of8`, `for-of22` convert; 0 losses against `210b098`.
+CPU median (41 samples): 1.001 / 1.006.

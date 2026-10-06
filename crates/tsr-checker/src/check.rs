@@ -6715,8 +6715,16 @@ impl Checker<'_, '_> {
         // An initialised declaration still reports when some path reaches the
         // read without passing it (a `catch` after a throwing initialiser,
         // `controlFlowDestructuringVariablesInTryCatch`).
+        let Some(list) = self.nodes.parent(root) else { return false };
+        // A `for (… of/in …)` head is assigned by the loop, not auto-typed.
+        let for_head = self.nodes.parent(list).filter(|&owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+            )
+        });
         if variable.exclamation_token.is_some()
-            || (variable.r#type.is_none() && variable.initializer.is_none())
+            || (variable.r#type.is_none() && variable.initializer.is_none() && for_head.is_none())
         {
             return false;
         }
@@ -6726,8 +6734,8 @@ impl Checker<'_, '_> {
         // (`checker.go:11158`). `declare const b: B` supplied **227 of the
         // first measurement's 4,781 wrong lines from one case**
         // (`compiler/genericDefaults`), which is what put both tests here.
-        let Some(list) = self.nodes.parent(root) else { return false };
         if variable.initializer.is_none()
+            && for_head.is_none()
             && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
         {
             return false;
@@ -6739,10 +6747,23 @@ impl Checker<'_, '_> {
         // only answer "no `undefined`". The one way to enter a block past a
         // statement is a `switch` jumping to a later `case`, which keeps the
         // walk. Measured: walking every such read cost ~5% CPU on
-        // `domain-model` (`docs/parity/notes/flow.md` §13).
-        if variable.initializer.is_some()
+        // `domain-model` (`docs/parity/notes/flow.md` §13). A block-scoped
+        // `for..in`/`for..of` head is assigned before its body runs, so the
+        // same holds past the iterated expression.
+        let assigned_by = if variable.initializer.is_some() {
+            Some(self.nodes.span(root).end)
+        } else {
+            for_head.and_then(|statement| match self.node_map.get(statement) {
+                Some(Node::ForInOrOfStatement(head)) => head
+                    .expression
+                    .and_then(|expression| expression.node_id())
+                    .map(|expression| self.nodes.span(expression).end),
+                _ => None,
+            })
+        };
+        if let Some(assigned_by) = assigned_by
             && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED)
-            && self.nodes.span(node).start >= self.nodes.span(root).end
+            && self.nodes.span(node).start >= assigned_by
             && !self
                 .nodes
                 .parent(list)
@@ -6762,15 +6783,6 @@ impl Checker<'_, '_> {
         if self.declaration_is_in_an_ambient_context(declaration) {
             return false;
         }
-        // `for (x of …)` and `for (x in …)` assign on entry.
-        if self.nodes.parent(list).is_some_and(|owner| {
-            matches!(
-                self.nodes.kind(owner),
-                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
-            )
-        }) {
-            return false;
-        }
         // `isOuterVariable` (`checker.go:11128`) is a disjunct of
         // `assumeInitialized` **only when the variable is not never-initialized**:
         // `(isOuterVariable && !isNeverInitialized)` (`checker.go:11152`). A
@@ -6779,8 +6791,9 @@ impl Checker<'_, '_> {
         // gave up.
         //
         // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`,
-        // not a `for-in`/`for-of` head, with no initializer and no `!` — all
-        // four already established above — that
+        // not a `for-in`/`for-of` head, with no initializer and no `!` (the
+        // binding-element, initializer and head tests below; `!` exited above)
+        // — that
         // `isMutableLocalVariableDeclaration` accepts and
         // `isSymbolAssignedDefinitely` does not.
         //
@@ -6793,6 +6806,7 @@ impl Checker<'_, '_> {
         if is_outer_variable {
             let is_never_initialized = !is_binding_element
                 && variable.initializer.is_none()
+                && for_head.is_none()
                 && self.is_mutable_local_variable_declaration(declaration)
                 && !self.is_symbol_assigned_definitely(symbol);
             if !is_never_initialized {
