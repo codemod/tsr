@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3822/5488 (69.64%)
-Failed         : 1666
+Passed         : 3846/5488 (70.08%)
+Failed         : 1642
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1666 failures:
+First 100 of 1642 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -139,7 +139,7 @@ compiler/bindingPatternCannotBeOnlyInferenceSource
 compiler/bluebirdStaticThis
   1 unexpected (first TS2724 at bluebirdStaticThis.ts(22,51)), 2 missing
 compiler/builtinIterator
-  7 missing (first TS2511 at builtinIterator.ts(38,1))
+  1 unexpected (first TS2345 at builtinIterator.ts(73,29)), 6 missing
 compiler/cannotIndexGenericWritingError
   2 missing (first TS2862 at cannotIndexGenericWritingError.ts(4,5))
 compiler/capturedParametersInInitializers1

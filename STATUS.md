@@ -141,8 +141,8 @@ churn is not retained; lazy query ownership9.2.1 and deferral parent remainopen.
 Parity epic (`tsr-2zk`), cloud integration round 1 merged with `main`
 (`b8cbb92a`), measured on the integration head against native `5b1047d`:
 `checker_types` **7,602/9,538** (79.70%, lines 467,200/478,855 = 97.57%),
-`diagnostics` **3,822/5,488** (69.64%) — from 7,488 / 3,427 at `06f25e0`
-and 7,493 / 3,462 on `main` before the merge. Against `main`'s own binary the
+`diagnostics` **3,846/5,488** (70.08%) — from 7,488 / 3,427 at `06f25e0`
+and 7,493 / 3,462 on `main` before the first merge (3,592 at `0b69aaf8`, merged second). Against `main`'s own binary the
 merged CLI is not slower (median child CPU 0.965 / 0.969 / 1.007 on
 domain-model-large / domain-model / generic-imports, 31 samples, diagnostics
 identical). One case regresses against `main`: `contextuallyTypedJsxChildren2`
@@ -13362,7 +13362,7 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 2026-10-05/06 — `tsr-2zk` cloud integration round 1, `06f25e0` → merged
 with `main`: offline cargo/tsgo bootstrap, box protocol, 20 cloud boxes on
 disjoint lanes (two rounds), lane merges each gated on zero losses and CPU
-perf, checker_types 7,488→7,602, diagnostics 3,427→3,822. Refused: calls
+perf, checker_types 7,488→7,602, diagnostics 3,427→3,846. Refused: calls
 `48ce04a1`, misc `5a517c22` (§5); reverted at integration: jsx `1da6e97`
 (one EMPTY_RIGHT loss, `tsr-2zk.43`). Main merge reconciled duplicate
 TS2813/2814 ports (kept main's) and TS2313/TS2349 (kept main's); follow-ups
