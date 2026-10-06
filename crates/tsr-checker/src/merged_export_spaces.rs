@@ -68,7 +68,9 @@ impl Checker<'_, '_> {
             (Spaces::NONE, Spaces::NONE, Spaces::NONE);
         for &declaration in &declarations {
             let spaces = self.declaration_spaces(declaration);
-            if self.declaration_has_modifier(declaration, SyntaxKind::ExportKeyword) {
+            if self.declaration_has_modifier(declaration, SyntaxKind::ExportKeyword)
+                || self.is_exported_by_ambient_export_context(declaration)
+            {
                 if self.declaration_has_modifier(declaration, SyntaxKind::DefaultKeyword) {
                     default_exported = default_exported.union(spaces);
                 } else {
@@ -108,6 +110,103 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// The ambient arm of `getEffectiveDeclarationFlags` (`checker.go:3701`):
+    /// a declaration in an ambient **export context** — a `.d.ts` or ambient
+    /// module with no `export` declaration or assignment
+    /// (`setExportContextFlag`, `binder.go`) — is exported without the
+    /// keyword, unless it writes its own `declare`, is a class or interface
+    /// member, or sits directly in a `declare global` block.
+    ///
+    /// Reached once module augmentations merge across files
+    /// (`docs/parity/notes/names-modules.md` §4): `declare module "./o" {
+    /// interface O<T> { … } }` adds an implicitly exported declaration to the
+    /// `export declare class O<T>` it augments, and without this arm the pair
+    /// read as one exported and one local declaration (TS2395, wrongly, in
+    /// `moduleAugmentationExtendFileModule1`/`2`).
+    ///
+    /// The parser sets no ambient flag (`bd tsr-o9tl`), so ambience is an
+    /// ancestor walk to a `declare` or ambient module, and the declaration's
+    /// own file is asked of the host.
+    fn is_exported_by_ambient_export_context(&self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::ClassExpression
+        ) {
+            return false;
+        }
+        // `flags&ast.ModifierFlagsAmbient == 0`: the declaration's own
+        // `declare`.
+        if self.declaration_has_modifier(declaration, SyntaxKind::DeclareKeyword) {
+            return false;
+        }
+        // `getEnclosingContainer`: the nearest container ancestor. Only a
+        // module declaration or the source file can be an export context.
+        let Some(container) = self.nodes.ancestors(declaration).find(|&ancestor| {
+            tsr_binder::container_flags(
+                self.node_map.get(ancestor).expect("an ancestor is registered"),
+                self.nodes,
+            )
+            .contains(tsr_binder::ContainerFlags::IS_CONTAINER)
+        }) else {
+            return false;
+        };
+        let statements = match self.node_map.get(container) {
+            Some(Node::SourceFile(file)) => {
+                // A script declares into `Locals` (`declareSymbol`, not
+                // `declareModuleMember`), so nothing in it has an
+                // `ExportSymbol` and upstream's check returns before it
+                // starts (`checker.go:6913-6920`).
+                if self.binder.symbol_of(container).is_none()
+                    || !self.is_declaration_file_node(container)
+                {
+                    return false;
+                }
+                file.statements
+            }
+            Some(Node::ModuleDeclaration(module)) => {
+                // `IsModuleBlock(n.Parent) && IsGlobalScopeAugmentation(n.Parent.Parent)`.
+                if module.keyword.kind == SyntaxKind::GlobalKeyword {
+                    return false;
+                }
+                if !self.is_ambient_declaration(container) {
+                    return false;
+                }
+                match module.body {
+                    Some(tsr_ast::ModuleBody::ModuleBlock(block)) => block.statements,
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        };
+        // `hasExportDeclarations`.
+        !statements.iter().any(|statement| {
+            matches!(
+                statement,
+                tsr_ast::Statement::ExportDeclaration(_) | tsr_ast::Statement::ExportAssignment(_)
+            )
+        })
+    }
+
+    /// `node.Flags & ast.NodeFlagsAmbient` for a node in any file: a `.d.ts`,
+    /// or under a `declare` or string-named module declaration.
+    pub(crate) fn is_ambient_declaration(&self, node: NodeId) -> bool {
+        std::iter::once(node).chain(self.nodes.ancestors(node)).any(|current| {
+            self.is_ambient_module_declaration(current)
+                || self.declaration_has_modifier(current, SyntaxKind::DeclareKeyword)
+                || (self.nodes.kind(current) == SyntaxKind::SourceFile
+                    && self.is_declaration_file_node(current))
+        })
+    }
+
+    /// Whether `file` is a declaration file, asked of the host: the
+    /// declaration may be in any file of the program.
+    fn is_declaration_file_node(&self, file: NodeId) -> bool {
+        self.module_host.is_some_and(|host| host.is_declaration_file(file))
     }
 
     /// `getDeclarationSpaces` (`checker.go:6961`), the syntactic arms only.
