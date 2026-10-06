@@ -3521,7 +3521,7 @@ impl<'a> Checker<'a, '_> {
                 constraint,
             };
             let (members, index) = self.reverse_mapped_member_plan(&pending);
-            if index.is_none() && self.property_names_of(source).is_empty() {
+            if index.is_none() && self.inference_property_names(source).is_empty() {
                 None
             } else {
                 let placeholder = Self::reverse_mapped_text(&members, index.as_ref(), None);
@@ -3550,6 +3550,21 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// getPropertiesOfType's names as inferToMappedType, createReverseMappedType
+    /// and resolveReverseMappedTypeMembers (inference.go:948,1014,1099) read
+    /// them: an intersection or union source enumerates its combined
+    /// properties (getPropertiesOfUnionOrIntersectionType), other sources
+    /// their own and inherited members.
+    fn inference_property_names(&mut self, source: TypeId) -> Vec<String> {
+        if matches!(
+            self.store.get(source).data,
+            TypeData::Intersection { .. } | TypeData::Union { .. }
+        ) {
+            return self.get_property_names_of_type(source).unwrap_or_default();
+        }
+        self.property_names_of(source)
+    }
+
     /// The property names, modifiers and source types that
     /// resolveReverseMappedTypeMembers (inference.go:1099) gives a reverse
     /// mapped object, after getLimitedConstraint filtering.
@@ -3559,7 +3574,7 @@ impl<'a> Checker<'a, '_> {
     ) -> (Vec<crate::objects::AnonymousProperty>, Option<crate::index_signatures::IndexInfo>) {
         let source = pending.source;
         let info = &pending.info;
-        let names = self.property_names_of(source);
+        let names = self.inference_property_names(source);
         let index = self
             .get_index_infos_of_type(source)
             .and_then(|infos| infos.into_iter().find(|info| info.key == self.intrinsics.string));
@@ -3963,7 +3978,7 @@ impl<'a> Checker<'a, '_> {
                 return true;
             }
             let mut values = Vec::new();
-            for name in self.property_names_of(source) {
+            for name in self.inference_property_names(source) {
                 if let Some(value) = self.get_type_of_property_of_type(source, &name) {
                     values.push(value);
                 }
