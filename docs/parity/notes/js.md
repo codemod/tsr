@@ -97,3 +97,49 @@ a modifier-bearing parameter, as it already did for `<in T>`
 (`jsdocTemplateTag8:0:47`); that road is `signatures.rs` (calls lane). The
 grammar checks TS1273/TS1274/TS1277 on type-parameter modifiers are not
 implemented for any file kind.
+
+## 3. The reparse is a checker query (ADR-0046)
+
+**Forcing constraint.** `tsr-2zk.34` asked for a choice between building
+tsgo's reparsed nodes in the parser and a shared checker query. The decision
+and its evidence are [ADR-0046](../../adr/0046-jsdoc-reparse-is-a-checker-query.md);
+this section is what the lane built on it.
+
+**What was built.** `jsdoc_reparsed_function` (`jsdoc_params.rs`) replays
+`reparseHosted`'s function-like arms over each comment whose host
+`getFunctionLikeHost` resolves to the function — its own, then its outer
+variable statement / property / export / return / expression statement —
+on the **last** comment only, in tag order: `@type` (into the host's own
+annotation first, else `FullSignature` when nothing is typed yet), `@template`,
+`@param` (`findMatchingParameter`: same name, or same position among the
+comment's `@param` tags for a binding pattern or an empty name, counting a
+reparsed `this`), `@this`, `@return`. It returns `FullSignature` and, per
+written parameter, the matched tag and whether `makeQuestionIfOptional` gave
+it a `?`. `@overload` runs are skipped as upstream's `JSDoc.Tags` omits them
+(`top_level_tags`).
+
+Consumers moved onto it:
+
+- `check_grammar_parameter_list` reads a reparsed `?` like a written one
+  (`isOptionalDeclaration` is `HasQuestionToken`, which sees the reparsed
+  token): TS1016 for `@param {T} [b]` followed by a required `c`
+  (`checkJsdocOptionalParamOrder`), and for ``@param {string=} `args` ``
+  followed by `{?number?}` (`jsdocParseBackquotedParamName` — a postfix `?`
+  is `JSDocNullableType`, not optional). TS1047 for a reparsed `?` on a rest
+  parameter reports at the tag (the token's location upstream).
+- `jsdoc_full_signature_node` reads `FullSignature` from it. Its host gate
+  (function and method declarations only) is kept: widening it to arrow and
+  function expressions under a variable `@type` is upstream's behaviour but a
+  separate measured change.
+
+**Not moved (other lanes' files), reported to the integrator.** Three roads
+re-derive JS parameter optionality without the positional match, the
+`FullSignature` gate or the last-comment rule: `signatures.rs:1512`
+(signature `optional`), `symbols.rs:6077` (`jsdoc_parameter_annotation`'s
+symbol type) and `optionality.rs:252` (property tags). Each should call
+`jsdoc_reparsed_function` / `make_question_if_optional`.
+
+**How we would know we were wrong.** A JS case whose TS1016 moves while its
+signature's optionality does not (or the reverse): the grammar check and the
+signature are then reading different roads, which is exactly what the shared
+query exists to prevent.
