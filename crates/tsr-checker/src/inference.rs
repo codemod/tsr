@@ -1056,17 +1056,25 @@ impl<'a> Checker<'a, '_> {
         // position contributes nothing — which leaves its type parameter
         // unmapped, and an unmapped mention is what makes the answer below
         // `errorType` rather than a guess.
-        // `hasCorrectArity` (`checker.go:8710`), the half a default can meet: a
-        // call missing an argument for a *required* parameter is an error
-        // upstream before inference starts. Without this, `pick(1)` against
-        // `<T, U>(a: T, b: U): T` would answer `1` — the loop below no longer
-        // fails on an unsupplied bare position, because an unsupplied
-        // *optional* position (`p.then()`) is exactly what the default fill
-        // exists for.
+        // `hasCorrectArity` (`checker.go:9107`), the half a default can meet:
+        // a call missing an argument for a *required* parameter fails
+        // chooseOverload before inference starts. The call then resolves to
+        // getCandidateForOverloadFailure (`checker.go:9498`): for this
+        // candidate, pickLongestCandidateSignature's
+        // inferSignatureInstantiationForOverloadFailure (`checker.go:9575`),
+        // a fresh inference with SkipContextSensitive|SkipGenericFunctions
+        // whose uninferred parameters take their default, else `unknown`,
+        // else the constraint (`new D()` on `D<T extends Date>` is `D<Date>`).
         let required =
             signature.parameters.iter().filter(|parameter| !parameter.optional && !parameter.rest);
-        if argument_types.len() < required.count() {
-            return decline;
+        if !overload_failure && argument_types.len() < required.count() {
+            return self.check_generic_call_with_mode(
+                signature,
+                call,
+                arguments,
+                instantiated,
+                true,
+            );
         }
         // `inferTypes` (`inference.go:53`): every supplied argument walked
         // against its parameter's type, accumulating `(type parameter,
