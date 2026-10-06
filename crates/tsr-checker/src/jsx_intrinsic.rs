@@ -935,8 +935,9 @@ impl Checker<'_, '_> {
     /// `getJsxNamespaceAt` (`internal/checker/jsx.go:1306`) is three roads:
     ///
     /// 1. the **implicit-import container** — `react/jsx-runtime` via
-    ///    `jsxImportSource`, under `jsx: react-jsx` (`:1451`). Not ported; see
-    ///    the note on direction below;
+    ///    `jsxImportSource`, under `jsx: react-jsx` (`:1451`) —
+    ///    [`Checker::jsx_implicit_import_container`], resolved through the
+    ///    host's record of the loader's synthetic runtime import;
     /// 2. **`getJsxNamespace(location)` resolved as a namespace, then its `JSX`
     ///    export** (`:1317-1321`);
     /// 3. the **global `JSX`** (`:1334`), and only then.
@@ -956,11 +957,11 @@ impl Checker<'_, '_> {
     /// rule reported **1,642 TS7026 against `tsc`'s zero**, one per JSX
     /// element. `checker-notes-diag2.md` §221.
     ///
-    /// # Road 1 is not ported, and the direction of that is the safety argument
+    /// # The direction of every decline is the safety argument
     ///
-    /// It needs a module resolution with no specifier node to hang it on —
-    /// upstream synthesises the reference from the first JSX tag in the file.
-    /// Every road here is a **lookup** and the rule fires only when all of them
+    /// Road 1 resolves by specifier *text* (the loader records the synthetic
+    /// runtime import; a runtime named only by an `@jsxImportSource` pragma is
+    /// not loaded and so does not resolve here). Every road here is a **lookup** and the rule fires only when all of them
     /// miss, so an unported road can make this rule *report where upstream is
     /// silent*, never the reverse. The same holds for a qualified
     /// `export = A.B` and for a module with a real `default` export.
@@ -972,29 +973,48 @@ impl Checker<'_, '_> {
         // falls back on *namespace resolution* failing, not on the member
         // lookup failing, so a `React` that exports a `JSX` without
         // `IntrinsicElements` is answered from there and not from the global.
-        let Some(namespace) =
-            self.binder.resolve_name(self.nodes, self.node_map, location, JSX, SymbolFlags::MODULE)
-        else {
+        //
+        // The fallback is `getGlobalSymbol(JSX, Namespace)` (`jsx.go:1334`):
+        // the **globals** table, not a scoped lookup from the tag. A module
+        // that declares its own `namespace JSX` is not seen here, which is
+        // why upstream reports TS7026 in `jsxPropsAsIdentifierNames`.
+        let Some(&namespace) = self.binder.globals().get(JSX) else { return false };
+        let namespace = self.binder.merged_symbol(namespace);
+        if !self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::NAMESPACE) {
             return false;
-        };
+        }
         self.exports_intrinsic_elements(namespace)
     }
 
     /// Road 2: the JSX namespace hanging off `getJsxNamespace`'s name.
     fn jsx_namespace_symbol(&mut self, location: NodeId) -> Option<SymbolId> {
-        let name = self.jsx_namespace_name(location)?;
-        let container = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            location,
-            &name,
-            SymbolFlags::MODULE | SymbolFlags::ALIAS,
-        )?;
-        let container = self.binder.merged_symbol(container);
-        // `c.resolveSymbol(resolvedNamespace)` before `getExportsOfSymbol`.
-        let container = self.resolve_jsx_namespace_container(container);
+        // Road 1 (`jsx.go:1315`): the automatic runtime's module, when it
+        // resolves. Only when it does not is road 2's name looked up.
+        let container = if let Some(container) = self.jsx_implicit_import_container(location) {
+            container
+        } else {
+            let name = self.jsx_namespace_name(location)?;
+            let container = self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                location,
+                &name,
+                SymbolFlags::MODULE | SymbolFlags::ALIAS,
+            )?;
+            let container = self.binder.merged_symbol(container);
+            // `c.resolveSymbol(resolvedNamespace)` before `getExportsOfSymbol`.
+            self.resolve_jsx_namespace_container(container)
+        };
         let container = self.follow_export_assignment(container);
-        self.binder.symbols().get(container).exports.get(JSX).copied()
+        let candidate = self.binder.symbols().get(container).exports.get(JSX).copied()?;
+        // The outer `c.resolveSymbol(...)` (`jsx.go:1321`): preact's runtime
+        // writes `export import JSX = JSXInternal`.
+        let candidate = self.binder.merged_symbol(candidate);
+        if self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+            let target = self.resolve_alias_fully(candidate);
+            return Some(self.binder.merged_symbol(target));
+        }
+        Some(candidate)
     }
 
     /// `getJsxNamespace(location)` (`jsx.go:1341`): the file's `@jsx` pragma,

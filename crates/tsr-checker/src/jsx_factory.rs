@@ -11,7 +11,7 @@
 //! [`Checker::apply_compiler_options`]. See `docs/parity/notes/jsx.md` §3.
 
 use tsr_ast::{Node, NodeId};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -210,5 +210,30 @@ impl Checker<'_, '_> {
         };
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `getJsxNamespaceContainerForImplicitImport` (`jsx.go:1451`): the module
+    /// the automatic runtime imports — `GetJSXRuntimeImport`
+    /// (`utilities.go:2794`), `<base>/jsx-runtime` or `/jsx-dev-runtime` —
+    /// resolved from the file, merged, past its `export =`.
+    ///
+    /// `None` when the classic runtime is selected or the module does not
+    /// resolve. Upstream reports TS2875 at the file's first JSX tag in the
+    /// second case; that report is not ported, so an unresolved runtime is
+    /// silent here.
+    pub(crate) fn jsx_implicit_import_container(&mut self, location: NodeId) -> Option<SymbolId> {
+        let file = self.source_file_of_for_diagnostics(location)?;
+        let host = self.module_host?;
+        let base = host.jsx_implicit_import_base(file)?;
+        let runtime = if self.jsx_emit == tsr_core::JsxEmit::ReactJsxDev {
+            "jsx-dev-runtime"
+        } else {
+            "jsx-runtime"
+        };
+        let specifier = format!("{base}/{runtime}");
+        let module = self.ambient_module(&specifier).or_else(|| {
+            host.resolved_module(file, &specifier).and_then(|target| self.binder.symbol_of(target))
+        })?;
+        Some(self.resolve_external_module_symbol(self.binder.merged_symbol(module)))
     }
 }

@@ -212,3 +212,33 @@ ported; it only turns a disjoint-discriminant intersection into `never`, which
 `isValidSpreadType` rejects in either form. Two spreads overwriting one
 attribute are one line, as the baseline folds upstream's two diagnostics that
 differ only in related information.
+
+## 5. `getJsxNamespaceAt`'s first and last roads
+
+Road 1, `getJsxNamespaceContainerForImplicitImport` (`jsx.go:1451`), is now
+`jsx_implicit_import_container`: `GetJSXRuntimeImport` of the host's
+`GetJSXImplicitImportBase`, resolved as an ambient module or through the
+host's record of the loader's synthetic runtime import, then past its
+`export =`. When it resolves, road 2's name is not consulted, as upstream.
+The loader records only the option-level runtime, so a runtime named only by
+an `@jsxImportSource` pragma does not resolve here and falls through to road
+2 — the one-sided failure the TS7026 rule already documents.
+
+The `JSX` export found on either road is resolved through aliases
+(`resolveSymbol`, `jsx.go:1321`), so `export import JSX = …` works when
+`resolve_alias` follows it. Preact's runtime (`export import JSX =
+JSXInternal`, where `JSXInternal` is itself a named import from `'..'`) is
+still declined by `resolve_alias`, which is why
+`jsxNamespaceImplicitImportJSXNamespace` keeps its EXTRA TS7026 — reported
+to the integrator, not worked around.
+
+Road 3, the global fallback, is `getGlobalSymbol(JSX, Namespace)`
+(`jsx.go:1334`): the globals table, not a scoped lookup from the tag. A
+module declaring its own `namespace JSX` is invisible to it, which is why
+upstream reports TS7026 in `jsxPropsAsIdentifierNames`. The old scoped
+lookup was not upstream's and found it.
+
+`markJsxAliasReferenced`'s early return stays keyed on the implicit-import
+*base* (§3's decline), not on road 1 resolving: with a pragma-only runtime
+the container cannot resolve here, and falling through would start marking
+and reporting `React` where upstream resolved the runtime and returned.
