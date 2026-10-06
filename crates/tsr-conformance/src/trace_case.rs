@@ -465,6 +465,7 @@ pub fn apply_test_directives(
             base.use_define_for_class_fields,
         ),
         no_implicit_override: tristate("noimplicitoverride", base.no_implicit_override),
+        no_implicit_returns: tristate("noimplicitreturns", base.no_implicit_returns),
         allow_unused_labels: tristate("allowunusedlabels", base.allow_unused_labels),
         // The rest of what the checker reads. These land in `CompilerOptions`
         // **unresolved** — as the `Tristate` the directive wrote, not as the

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4026/5502 (73.17%)
-Failed         : 1476
+Passed         : 4050/5502 (73.61%)
+Failed         : 1452
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1476 failures:
+First 100 of 1452 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -147,7 +147,7 @@ compiler/checkerInitializationCrash
 compiler/checkingObjectWithThisInNamePositionNoCrash
   1 missing (first TS2339 at checkingObjectWithThisInNamePositionNoCrash.ts(4,19))
 compiler/circularAccessorAnnotations
-  2 missing (first TS2502 at circularAccessorAnnotations.ts(6,9))
+  1 unexpected (first TS2502 at circularAccessorAnnotations.ts(1,15)), 2 missing
 compiler/circularBaseTypes
   4 missing (first TS2310 at circularBaseTypes.ts(4,11))
 compiler/circularConstraintYieldsAppropriateError
@@ -184,12 +184,8 @@ compiler/classFieldSuperNotAccessibleJs
   2 missing (first TS2855 at index.js(20,22))
 compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
-compiler/classImplementsClass6
-  1 unexpected (first TS2339 at classImplementsClass6.ts(21,4)), 1 missing
 compiler/classMemberWithMissingIdentifier2
   1 missing (first TS2693 at classMemberWithMissingIdentifier2.ts(2,19))
-compiler/classSideInheritance1
-  1 unexpected (first TS2339 at classSideInheritance1.ts(13,3)), 1 missing
 compiler/classTypeParametersInStatics
   2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
 compiler/classUpdateTests
@@ -198,8 +194,6 @@ compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
 compiler/classWithMultipleBaseClasses
   1 missing (first TS2420 at classWithMultipleBaseClasses.ts(18,7))
-compiler/cloduleTest2
-  4 missing (first TS2576 at cloduleTest2.ts(18,7))
 compiler/clodulesDerivedClasses
   1 missing (first TS2417 at clodulesDerivedClasses.ts(9,7))
 compiler/coAndContraVariantInferences5
@@ -212,3 +206,9 @@ compiler/commonMissingSemicolons
   1 missing (first TS1003 at commonMissingSemicolons.ts(26,18))
 compiler/commonSourceDirectory_dts
   1 missing (first TS5011 at /app/tsconfig.json(3,9))
+compiler/commonjsAccessExports
+  1 missing (first TS7009 at /a.js(12,18))
+compiler/compareTypeParameterConstrainedByLiteralToLiteral
+  1 missing (first TS2367 at compareTypeParameterConstrainedByLiteralToLiteral.ts(5,5))
+compiler/complexRecursiveCollections
+  8 missing (first TS2344 at immutable.ts(261,76))

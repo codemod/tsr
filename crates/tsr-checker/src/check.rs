@@ -487,6 +487,11 @@ impl Checker<'_, '_> {
                 self.check_grammar_statement_in_ambient_context(node, ambient);
                 self.check_return_container(node, ambient);
                 self.check_return_statement(node, ambient);
+                self.check_return_statement_implicit_returns(
+                    node,
+                    statement.expression.is_some(),
+                    ambient,
+                );
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -728,8 +733,10 @@ impl Checker<'_, '_> {
                 self.check_type_reference_name(node, identifier.text);
                 self.check_await_as_binding_name(node);
                 self.check_umd_global_reference(node, identifier.text);
-                self.check_used_before_assigned(node, identifier.text);
+                // `checkResolvedBlockScopedVariable` runs during name
+                // resolution, before `checkIdentifier`'s flow section.
                 self.check_used_before_its_declaration(node, identifier.text);
+                self.check_used_before_assigned(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
                 ambient
             }
@@ -1590,6 +1597,57 @@ impl Checker<'_, '_> {
                 [printed],
             ),
         );
+    }
+
+    /// `checkReturnStatement`'s `noImplicitReturns` arm (`checker.go:4123`):
+    /// outside `strictNullChecks`, a bare `return;` in a function other than a
+    /// constructor whose return type (`getReturnTypeOfSignature`, annotated or
+    /// inferred) is not `never` and does not unwrap to `undefined`, `void` or
+    /// `any` (`isUnwrappedReturnTypeUndefinedVoidOrAny`, `checker.go:3780`) is
+    /// TS7030 at the statement. A static block or a missing container is
+    /// reported by `check_return_container` and ends upstream's check; a
+    /// return type this port cannot compute ends this one.
+    fn check_return_statement_implicit_returns(
+        &mut self,
+        node: NodeId,
+        has_expression: bool,
+        ambient: bool,
+    ) {
+        if !self.no_implicit_returns
+            || self.strict_null_checks
+            || has_expression
+            || ambient
+            || self.file_has_parse_errors
+        {
+            return;
+        }
+        let Some(container) =
+            self.nodes.ancestors(node).find(|&a| self.is_function_like_or_static_block(a))
+        else {
+            return;
+        };
+        let (generator, modifiers) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token.is_some(), f.modifiers),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token.is_some(), f.modifiers),
+            Some(Node::MethodDeclaration(m)) => (m.asterisk_token.is_some(), m.modifiers),
+            Some(Node::ArrowFunction(f)) => (false, f.modifiers),
+            Some(Node::GetAccessorDeclaration(g)) => (false, g.modifiers),
+            Some(Node::SetAccessorDeclaration(s)) => (false, s.modifiers),
+            _ => return,
+        };
+        let Some(signature) = self.get_signature_from_declaration(container) else { return };
+        let Some(return_type) = self.get_return_type_of_signature(&signature) else { return };
+        if self.type_of(return_type).flags.contains(TypeFlags::NEVER) {
+            return;
+        }
+        let is_async = has_modifier(modifiers, SyntaxKind::AsyncKeyword);
+        let unwrapped = self.unwrap_return_type_for_code_paths(return_type, generator, is_async);
+        if self.is_unwrapped_return_type_undefined_void_or_any(unwrapped) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(&messages::NOT_ALL_CODE_PATHS_RETURN_A_VALUE, span));
     }
 
     /// TS2397 — `Declaration name conflicts with built-in global identifier '{0}'.`
@@ -6247,64 +6305,6 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
-        // **A temporal dead zone is also an unassigned read.** Upstream reports
-        // TS2454 at the same column when the flow type at the use is
-        // unassigned, which for a block-scoped variable read before its own
-        // declaration it always is — *unless the declared type is `any`*, where
-        // an unassigned read is not an error. `let l1;` is `any` and gets
-        // TS2448 alone; `let v1 = 0` is `number` and gets both. §867.
-        // **TS2454 is about *reading* an unassigned variable.**
-        // `classStaticBlock16` writes to one in its temporal dead zone —
-        // `getX = (obj) => …` before `let getX` — and upstream reports TS2448
-        // alone. Measured: without this, one more case lost. §867.
-        let is_write = self.nodes.parent(node).is_some_and(|parent| {
-            matches!(self.node_map.get(parent), Some(Node::BinaryExpression(binary))
-                if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
-                    && binary.left.and_then(|left| left.node_id()) == Some(node))
-        });
-        // **The companion TS2454 does not follow the self-initializer arm.**
-        // `exportedBlockScopedDeclarations` wants TS2448 alone on every one of
-        // its eight lines, and letting *used before being assigned* ride along
-        // was §964's first measurement: −3 cases and `extraonly` 75 → 80. §965.
-        if !inside_own_initializer
-            && !is_write
-            && message.code()
-                == messages::BLOCK_SCOPED_VARIABLE_0_USED_BEFORE_ITS_DECLARATION.code()
-            && self.declaration_has_a_decidable_type(declaration)
-        {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::VARIABLE_0_IS_USED_BEFORE_BEING_ASSIGNED,
-                    span,
-                    [text.to_string()],
-                ),
-            );
-        }
-    }
-
-    /// Does this variable declaration give its symbol something better than
-    /// `any`? An initializer or an annotation does; a bare `let x;` does not,
-    /// and an unassigned read of an `any` is not TS2454. §867.
-    fn declaration_has_a_decidable_type(&mut self, declaration: NodeId) -> bool {
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
-            return false;
-        };
-        if variable.initializer.is_none() && variable.r#type.is_none() {
-            return false;
-        }
-        // **A `const` is TS2448 alone.** `{ c1; const c1 = 0; }` is
-        // `constDeclarations-useBeforeDefinition`, which expects the temporal
-        // dead zone and nothing else — a `const` cannot be read unassigned in
-        // any other way, so the second message adds nothing upstream chooses to
-        // say. Measured: without this, two cases lost. §867.
-        let list = self.nodes.parent(declaration);
-        if list.is_some_and(|list| self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)) {
-            return false;
-        }
-        let declared = self.get_widened_type_for_variable_like_declaration(declaration);
-        !self.is_error(declared)
-            && !self.type_of(declared).flags.intersects(crate::flags::TypeFlags::ANY)
     }
 
     /// The member a property access names, when its receiver resolves to a
@@ -6777,7 +6777,12 @@ impl Checker<'_, '_> {
         else {
             return false;
         };
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        // `localOrExportSymbol.ValueDeclaration`; only variables are narrowed
+        // (`checker.go:11108`), and a parameter (`GetRootDeclaration` is a
+        // `Parameter`) is assumed initialized.
+        let symbol_data = self.binder.symbols().get(symbol);
+        let Some(declaration) =
+            symbol_data.value_declaration.or_else(|| symbol_data.declarations.first().copied())
         else {
             return false;
         };
@@ -6899,8 +6904,7 @@ impl Checker<'_, '_> {
         // `assumeInitialized` **only when the variable is not never-initialized**:
         // `(isOuterVariable && !isNeverInitialized)` (`checker.go:11152`). A
         // `let x: T;` that no assignment anywhere targets is reported even from
-        // inside a nested function, and that is the whole of what §8's bound
-        // gave up.
+        // inside a nested function.
         //
         // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`,
         // not a `for-in`/`for-of` head, with no initializer and no `!` (the
@@ -6925,7 +6929,7 @@ impl Checker<'_, '_> {
                 return false;
             }
         }
-        // The annotation is read directly rather than through
+        // An annotation is read directly rather than through
         // `get_type_of_symbol`, because a union of *named* types declares
         // `errorType` on the printing road and this rule prints no type —
         // `checker-notes-diag2.md` §76, which is §42.1 one level up. Every
@@ -6936,10 +6940,12 @@ impl Checker<'_, '_> {
             }
             _ => self.get_type_of_symbol(symbol),
         };
-        if declared == self.intrinsics.error
-            || declared == self.intrinsics.any
-            || declared == self.intrinsics.unknown
-            || declared == self.intrinsics.void
+        if self.is_error(declared)
+            || self.type_of(declared).flags.intersects(
+                crate::flags::TypeFlags::ANY
+                    .union(crate::flags::TypeFlags::UNKNOWN)
+                    .union(crate::flags::TypeFlags::VOID),
+            )
             || self.contains_undefined_type(declared)
         {
             return false;
