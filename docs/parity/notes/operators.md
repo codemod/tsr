@@ -180,6 +180,11 @@ type is wrong. Probes: `h<T>(x: T, f: (x: T) => any)` and
 relational arm already shows the same (`g(42, x => x < 1)` is TS2365 on `T`);
 no corpus case reaches it.
 
+**Re-measured after merging `origin/main` (`dda74f5`, calls-4 included):**
+the patch, refreshed to apply on that head, is +10 cases (the nine above plus
+`noImplicitSymbolToString`, which also needed §7) with the same single loss;
+lane MISSING TS2365 55 → 5.
+
 **Reopening condition.** When the calls/contextual owner types that arrow's
 parameter as `number` (or as `any`, which silences TS2365 the way upstream's
 `IsTypeAny` does), `git apply docs/parity/notes/operators-plus.diff` should

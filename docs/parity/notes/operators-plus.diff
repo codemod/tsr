@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
-index 17b138f..9f92215 100644
+index 313a9b2..723cf0a 100644
 --- a/crates/tsr-checker/src/check.rs
 +++ b/crates/tsr-checker/src/check.rs
 @@ -489,9 +489,10 @@ impl Checker<'_, '_> {
@@ -16,7 +16,7 @@ index 17b138f..9f92215 100644
                  // **A `match` is exclusive and this arm comes first.**
                  // `is_numeric_binary_operator` includes the compound arithmetic
                  // assignments (`-=`, `*=`, `/=`, `%=`, …), so those never reach
-@@ -14491,6 +14492,7 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
+@@ -14499,6 +14500,7 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
              | SyntaxKind::BarToken
              | SyntaxKind::CaretToken
              | SyntaxKind::PlusToken
@@ -143,13 +143,13 @@ index fd7d850..8692ee1 100644
 -    kind == SyntaxKind::PlusToken
  }
 diff --git a/crates/tsr-checker/src/operator_operands.rs b/crates/tsr-checker/src/operator_operands.rs
-index e700270..022030e 100644
+index b853173..5b83e92 100644
 --- a/crates/tsr-checker/src/operator_operands.rs
 +++ b/crates/tsr-checker/src/operator_operands.rs
-@@ -30,188 +30,148 @@ use crate::{
- 
+@@ -31,19 +31,22 @@ use crate::{
  impl Checker<'_, '_> {
-     /// The operand check for one `+`, `+=`, `<`, `>`, `<=` or `>=`.
+     /// The operand check for one `+`, `+=`, `<`, `>`, `<=`, `>=` or equality
+     /// operator.
 -    pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
 +    ///
 +    /// Returns whether upstream goes on to `checkAssignmentOperator` — `false`
@@ -164,12 +164,33 @@ index e700270..022030e 100644
 -        // −1/+13 and closed it; this is one rule, measured on its own, which is
 -        // the route it left open. §896.
 +        // emitted the parse error*. §896.
-         if ambient || self.in_js_file(node) {
+         if ambient {
 -            return;
 +            return true;
          }
 -        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
 -        let Some(operator) = binary.operator_token.map(|token| token.kind) else { return };
++        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
++        let Some(operator) = binary.operator_token.map(|token| token.kind) else { return true };
++        let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
+         // The equality arm's literal and NaN rules run in JS too (TS2839 only
+         // for `===`/`!==` there), so they precede the JS gate.
+         if matches!(
+@@ -53,183 +56,140 @@ impl Checker<'_, '_> {
+                 | SyntaxKind::EqualsEqualsEqualsToken
+                 | SyntaxKind::ExclamationEqualsEqualsToken
+         ) {
+-            if let (Some(left), Some(right)) = (binary.left, binary.right) {
+-                self.check_equality_operator(node, operator, left, right);
+-            }
+-            return;
++            self.check_equality_operator(node, operator, left, right);
++            return true;
+         }
+         if self.in_js_file(node) {
+-            return;
++            return true;
+         }
 -        // `+=` is upstream's arm too, and it is declined here with a named
 -        // owner. A compound assignment's left operand goes through the
 -        // assignment-target checks first, and those answer `errorType` when
@@ -181,9 +202,6 @@ index e700270..022030e 100644
 -        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
 -        if matches!(
 -            operator,
-+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
-+        let Some(operator) = binary.operator_token.map(|token| token.kind) else { return true };
-+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
 +        match operator {
              SyntaxKind::LessThanToken
 -                | SyntaxKind::GreaterThanToken
@@ -394,8 +412,10 @@ index e700270..022030e 100644
 -        {
 -            return false;
 +        for side in [left, right] {
-+            answer =
-+                ternary_or(answer, self.is_type_assignable_to_kind(side, TypeFlags::STRING_LIKE, true));
++            answer = ternary_or(
++                answer,
++                self.is_type_assignable_to_kind(side, TypeFlags::STRING_LIKE, true),
++            );
 +            if answer == Ternary::Related {
 +                return answer;
 +            }
@@ -457,7 +477,7 @@ index e700270..022030e 100644
  impl Checker<'_, '_> {
      /// The arithmetic, shift and bitwise arm of
      /// `checkBinaryLikeExpressionWorker` (`checker.go:12358`), diagnostics
-@@ -244,20 +204,7 @@ impl Checker<'_, '_> {
+@@ -262,20 +222,7 @@ impl Checker<'_, '_> {
              return true;
          }
          let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
@@ -479,7 +499,7 @@ index e700270..022030e 100644
          let right_type = self.check_expression(right);
          let left_type = self.check_non_null_type_reporting(left_type, left);
          let right_type = self.check_non_null_type_reporting(right_type, right);
-@@ -538,6 +485,10 @@ pub(crate) enum OperatorRelation {
+@@ -556,6 +503,10 @@ pub(crate) enum OperatorRelation {
      BothBigIntLike,
      /// The relational arm's closure (`checker.go:12469`).
      Relational,
@@ -490,7 +510,7 @@ index e700270..022030e 100644
  }
  
  /// Kleene conjunction over the port's three-valued relation answers.
-@@ -626,6 +577,17 @@ impl Checker<'_, '_> {
+@@ -644,6 +595,17 @@ impl Checker<'_, '_> {
          match relation {
              OperatorRelation::None => Ternary::NotRelated,
              OperatorRelation::BothBigIntLike => self.both_are_bigint_like(left, right),
