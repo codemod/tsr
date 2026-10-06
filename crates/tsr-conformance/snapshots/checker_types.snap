@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 7988/9538 (83.75%)
-Assertion lines: 469353/478855 (98.02%)  — a gradient, not a pass rate
-Failed         : 1550
+Passed         : 8035/9538 (84.24%)
+Assertion lines: 469732/478855 (98.09%)  — a gradient, not a pass rate
+Failed         : 1503
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1550 failures:
+First 100 of 1503 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -124,9 +124,7 @@ compiler/bigintIndex
 compiler/bigintPropertyName
   a.ts: >({1n: 123}) : any — expected >({1n: 123}) : {}
 compiler/bindingPatternCannotBeOnlyInferenceSource
-  bindingPatternCannotBeOnlyInferenceSource.ts: >useReduxDispatch1 : <T extends IDestructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }>>(destructuring: Destructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }, T>) => T — expected >useReduxDispatch1 : <T extends IDestructuring<TFuncs1>>(destructuring: Destructuring<TFuncs1, T>) => T
-compiler/bluebirdStaticThis
-  bluebirdStaticThis.ts: >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R>[]>; } — expected >settle : { <R>(dit: typeof Promise, values: Promise.Thenable<Promise.Thenable<R>[]>): Promise<Promise.Inspection<R>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1[]>): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: Promise.Thenable<R_1>[]): Promise<Promise.Inspection<R_1>[]>; <R_1>(dit: typeof Promise, values: R_1[]): Promise<Promise.Inspection<R_1>[]>; }
+  bindingPatternCannotBeOnlyInferenceSource.ts: >useReduxDispatch1 : <T extends IDestructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }>>(destructuring: Destructuring<TFuncs1, T>) => T — expected >useReduxDispatch1 : <T extends IDestructuring<TFuncs1>>(destructuring: Destructuring<TFuncs1, T>) => T
 compiler/booleanFilterAnyArray
   booleanFilterAnyArray.ts: >anys.filter(Bullean) : error — expected >anys.filter(Bullean) : Ari<any>
 compiler/builtinIterator
@@ -179,8 +177,6 @@ compiler/circularReferenceInReturnType
   circularReferenceInReturnType.ts: >res3 : any — expected >res3 : (a: unknown) => void
 compiler/circularReferenceInReturnType2
   circularReferenceInReturnType2.ts: >object<Something>()({  name: "A",  fields: () => ({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }),}) : any — expected >object<Something>()({  name: "A",  fields: () => ({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }),}) : ObjectType<Something>
-compiler/circularResolvedSignature
-  circularResolvedSignature.ts: >useState : <S>(initialState: () => S) => [S, (s: S) => void] — expected >useState : <S>(initialState: (() => S)) => [S, (s: S) => void]
 compiler/circularTypeArgumentsLocalAndOuterNoCrash1
   circularTypeArgumentsLocalAndOuterNoCrash1.ts: >X : NumArray<X extends {} ? number : number> — expected >X : f.NumArray<any>
 compiler/circularlyReferentialInterfaceAccessNoCrash
@@ -201,8 +197,6 @@ compiler/classPropInitializationInferenceWithElementAccess
   classPropInitializationInferenceWithElementAccess.ts: >x : any — expected >x : number[]
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
   classReferencedInContextualParameterWithinItsOwnBaseExpression.ts: >Class<A>("A") : <Fields>(fields: Fields, annotations?: Schema<A>) => Class<OutputFrom<Fields>> — expected >Class<A>("A") : <Fields>(fields: Fields, annotations?: Schema<A> | undefined) => Class<OutputFrom<Fields>>
-compiler/coAndContraVariantInferences
-  coAndContraVariantInferences.ts: >printFn : (action: Action<"ACTION_A", string> | Action<"ACTION_B", boolean>) => void — expected >printFn : (action: typeof actionA | typeof actionB) => void
 compiler/coAndContraVariantInferences3
   coAndContraVariantInferences3.ts: >args : OverloadParameters<T> — expected >args : Parameters<{ [P in Extract<keyof T, number>]: T[P]; }[Extract<keyof T, number>]>
 compiler/coAndContraVariantInferences6
@@ -213,3 +207,9 @@ compiler/commentsOnObjectLiteral2
   commentsOnObjectLiteral2.ts: >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : any — expected >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : { initialize: (name: any) => void; }
 compiler/commonJsImportClassExpression
   use.ts: >Chunk : typeof (Anonymous class) — expected >Chunk : typeof Chunk
+compiler/complexRecursiveCollections
+  complex.ts: >reduce : { <R>(reducer: (reduction: R, value: V, key: K, iter: this) => R, initialReduction: R, context?: any): R; <R_1>(reducer: (reduction: R_1 | V, value: V, key: K, iter: this) => R_1): R_1; } — expected >reduce : { <R>(reducer: (reduction: R, value: V, key: K, iter: this) => R, initialReduction: R, context?: any): R; <R_1>(reducer: (reduction: V | R_1, value: V, key: K, iter: this) => R_1): R_1; }
+compiler/complicatedGenericRecursiveBaseClassReference
+  complicatedGenericRecursiveBaseClassReference.ts: >(new S18(123)) : any — expected >(new S18(123)) : S18<unknown, unknown, unknown>
+compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
+  complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts: >ChannelType : Channel extends { type: infer R; } ? R : never — expected >ChannelType : "email" | "text"
