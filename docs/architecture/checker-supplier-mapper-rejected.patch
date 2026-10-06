@@ -1,0 +1,277 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..31829266 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1512,9 +1512,26 @@ impl Checker<'_, '_> {
+         }
+         if let Some(property) = self.get_property_of_type_ex(id, name, skip_object_function_augment)
+         {
+-            let declared = self.get_type_of_symbol(property);
+-            let instantiated =
+-                self.instantiate_for_reference_with_this(id, declared, this_argument);
++            // A symbol found through nongeneric heritage still belongs to
++            // the supplying base. Mapping it under the receiving owner loses
++            // that base's formal this and any enclosing generic substitutions.
++            let inherited = match self.store.get(id).data {
++                TypeData::Named { members: Some(owner), .. } => {
++                    self.binder.symbols().get(property).parent.is_some_and(|supplier| {
++                        self.binder.merged_symbol(supplier) != self.binder.merged_symbol(owner)
++                    })
++                }
++                _ => false,
++            };
++            let instantiated = if inherited
++                && let Some(member) =
++                    self.inherited_member_type(id, name, this_argument, &mut Vec::new())
++            {
++                member
++            } else {
++                let declared = self.get_type_of_symbol(property);
++                self.instantiate_for_reference_with_this(id, declared, this_argument)
++            };
+             // §92: a property the symbol road FINDS but cannot type may
+             // still answer through the shape road (chain1's low reads — the
+             // alias symbol's table hands back a symbol whose declared type
+@@ -1533,10 +1550,10 @@ impl Checker<'_, '_> {
+         // (`superCallArgsMustMatch`). The symbol road above cannot see it:
+         // `base_symbols_of` refuses type-argument heritage for exactly this
+         // reason (§202 — a member table cannot be instantiated), and the
+-        // instantiation goes through §226's `base_type_of_heritage_entry`
+-        // plus the reference road's own member typing instead. Cycles are
+-        // guarded by the walk's visited set.
+-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
++        // instantiation uses the native-aligned declared base types, followed
++        // by the receiver mapper and supplying member mapper. Cycles are
++        // guarded by the query-local path.
++        if let Some(member) = self.inherited_member_type(id, name, this_argument, &mut Vec::new()) {
+             return Some(member);
+         }
+         // §770: a TUPLE's non-numeric members come from `Array<T>`.
+@@ -1670,90 +1687,62 @@ impl Checker<'_, '_> {
+         .then_some(body)
+     }
+ 
+-    /// Resolve inherited members through each instantiated base, guarded by
+-    /// symbol identity against cyclic heritage.
+-    fn generic_heritage_member(
++    /// Query-local counterpart of resolveObjectTypeMembers (native
++    /// checker.go:19138): apply the receiver mapper to each declared base,
++    /// then read the supplying member with the original this argument. The
++    /// existing base-type links own lazy publication; this walk publishes no
++    /// member image and its path guard does not certify absent members.
++    fn inherited_member_type(
+         &mut self,
+         id: TypeId,
+         name: &str,
++        this_argument: TypeId,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<TypeId> {
+         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+             return None;
+         };
+-        if visiting.contains(&owner) {
++        let owner = self.binder.merged_symbol(owner);
++        if !self
++            .binder
++            .symbols()
++            .get(owner)
++            .flags
++            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++            || visiting.contains(&owner)
++        {
+             return None;
+         }
+         visiting.push(owner);
+-        let declarations: Vec<tsr_ast::NodeId> =
+-            self.binder.symbols().get(owner).declarations.iter().copied().collect();
+-        for declaration in declarations {
+-            let clauses = match self.node_map.get(declaration) {
+-                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+-                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+-                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+-                _ => continue,
+-            };
+-            for clause in clauses {
+-                if clause.token.kind != tsr_ast::SyntaxKind::ExtendsKeyword {
++        let member = (|| {
++            for base in self.get_base_types(owner) {
++                let base = self.instantiate_for_reference_with_this(id, base, this_argument);
++                if base == self.intrinsics.error {
+                     continue;
+                 }
+-                for entry in clause.types {
+-                    let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+-                        continue;
+-                    };
+-                    if visiting.contains(&base) {
+-                        continue;
+-                    }
+-                    let Some(base_type) =
+-                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
+-                    else {
+-                        continue;
+-                    };
+-                    // The ordinary found-path pair (symbol, then the
+-                    // reference's instantiation), with the DEEPER generic
+-                    // heritage recursing through THIS walk so the visited
+-                    // set holds across levels — a fresh set would spin on
+-                    // mutually-generic bases.
+-                    if let Some(property) = self.get_property_of_type(base_type, name) {
+-                        let declared = self.get_type_of_symbol(property);
+-                        let instantiated = self.instantiate_for_reference(base_type, declared);
+-                        if instantiated != self.intrinsics.error {
+-                            // §923: the SECOND substitution. The step above maps
+-                            // the base's parameters onto the heritage entry's
+-                            // arguments — for `interface D<T> extends C<T>` that
+-                            // is `C`'s `U := T`, which leaves `T`. The
+-                            // REFERENCE's own arguments (`D<string>`) are a
+-                            // separate map and nothing applied them, so
+-                            // `d.m` answered `(x: T) => T`.
+-                            //
+-                            // `extends C<string>` worked and hid it: a concrete
+-                            // heritage argument needs no second step, so the
+-                            // road looked complete.
+-                            //
+-                            // Instantiating for `id` composes the two. A
+-                            // non-generic reference maps nothing and the result
+-                            // is unchanged, so this cannot disturb the shapes
+-                            // that already worked.
+-                            let composed = self.instantiate_for_reference(id, instantiated);
+-                            if composed != self.intrinsics.error {
+-                                return Some(composed);
+-                            }
+-                            return Some(instantiated);
+-                        }
+-                    }
+-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
+-                        // Resolve inherited members under every enclosing
+-                        // reference mapper, including indirect generic bases.
+-                        let member = self.instantiate_for_reference(id, member);
+-                        if member != self.intrinsics.error {
+-                            return Some(member);
+-                        }
+-                    }
++                if let TypeData::Named { members: Some(base_owner), .. } = self.store.get(base).data
++                    && let Some(property) = self.get_property_of_type(base, name)
++                    && self.binder.symbols().get(property).parent.is_some_and(|supplier| {
++                        self.binder.merged_symbol(supplier) == self.binder.merged_symbol(base_owner)
++                    })
++                {
++                    let declared = self.get_type_of_symbol(property);
++                    return Some(self.instantiate_for_reference_with_this(
++                        base,
++                        declared,
++                        this_argument,
++                    ));
++                }
++                if let Some(member) =
++                    self.inherited_member_type(base, name, this_argument, visiting)
++                {
++                    return Some(member);
+                 }
+             }
+-        }
+-        None
++            None
++        })();
++        visiting.pop();
++        member
+     }
+ 
+     /// Root declarations contributing an intersection property, corresponding
+@@ -3457,6 +3446,63 @@ mod property_name_tests {
+         test(&mut checker, root)
+     }
+ 
++    #[test]
++    fn inherited_member_this_uses_the_original_receiver_and_supplying_base_mapper() {
++        with_checker(
++            "interface A { self: this } interface B extends A { own: number; ownThis: this } interface C extends B { extra: string; ownThis: this }",
++            |checker, root| {
++                for name in ["B", "C", "B", "A", "C"] {
++                    let symbol = checker.binder.lookup_local(root, name).unwrap();
++                    let receiver = checker.get_declared_type_of_symbol(symbol);
++                    assert_eq!(
++                        checker.get_type_of_property_of_type(receiver, "self"),
++                        Some(receiver),
++                        "the member supplied by A must keep the {name} receiver",
++                    );
++                    let own_name = if name == "A" { "self" } else { "ownThis" };
++                    let own = checker.get_property_of_type(receiver, own_name).unwrap();
++                    let formal_this = checker.get_type_of_symbol(own);
++                    assert_eq!(
++                        checker.get_type_of_property_with_this_argument(
++                            receiver,
++                            "self",
++                            formal_this,
++                            false,
++                        ),
++                        Some(formal_this),
++                        "the supplying base must also map to {name}'s explicit formal this",
++                    );
++                }
++            },
++        );
++    }
++
++    #[test]
++    fn inherited_member_this_composes_each_outer_generic_mapper() {
++        with_checker(
++            "interface A<T> { value: T; self: this } interface B<U> extends A<U> { own: U } interface C<V> extends B<V> { extra: V } type S = C<string>; type N = C<number>;",
++            |checker, root| {
++                for (name, value) in [
++                    ("S", checker.intrinsics.string),
++                    ("N", checker.intrinsics.number),
++                    ("S", checker.intrinsics.string),
++                ] {
++                    let symbol = checker.binder.lookup_local(root, name).unwrap();
++                    let receiver = checker.get_declared_type_of_symbol(symbol);
++                    assert_eq!(
++                        checker.get_type_of_property_of_type(receiver, "self"),
++                        Some(receiver),
++                        "the supplying base must retain the concrete {name} receiver",
++                    );
++                    assert_eq!(
++                        checker.get_type_of_property_of_type(receiver, "value"),
++                        Some(value)
++                    );
++                }
++            },
++        );
++    }
++
+     #[test]
+     fn canonical_empty_objects_augment_only_when_allowed_and_keep_the_global_member_identity() {
+         with_checker("interface Object { toString(): string }", |checker, root| {
+@@ -3911,15 +3957,22 @@ static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
+                 assert_eq!(receiver_names, ["left", "right", "self"]);
+             },
+         );
+-        // The existing supplier maps direct owners, but not a base owner's
+-        // minted this through a derived non-generic receiver. Do not certify
+-        // the previously observed wrong Base result as a completed property.
+-        assert_eq!(
+-            names(
+-                "interface Base { self: this } interface Left extends Base { left: number } interface Right extends Base { right: string } type Both = Left & Right;",
+-                "Both",
+-            ),
+-            None
++        // Inherited suppliers must carry the whole composite receiver too;
++        // a readable list is safe only once self has the correct member type.
++        with_checker(
++            "interface Base { self: this } interface Left extends Base { left: number } interface Right extends Base { right: string } type Both = Left & Right;",
++            |checker, root| {
++                let owner = checker.binder.lookup_local(root, "Both").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(owner);
++                assert_eq!(
++                    checker
++                        .get_type_of_property_with_this_argument(receiver, "self", receiver, true),
++                    Some(receiver),
++                );
++                let mut names = checker.get_property_names_of_type(receiver).unwrap();
++                names.sort();
++                assert_eq!(names, ["left", "right", "self"]);
++            },
+         );
+     }
+ 
