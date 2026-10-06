@@ -2,9 +2,15 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
+<<<<<<< HEAD
 Passed         : 7699/9538 (80.72%)
 Assertion lines: 467950/478855 (97.72%)  — a gradient, not a pass rate
 Failed         : 1839
+=======
+Passed         : 7679/9538 (80.51%)
+Assertion lines: 467431/478855 (97.61%)  — a gradient, not a pass rate
+Failed         : 1859
+>>>>>>> origin/main
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +18,11 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
+<<<<<<< HEAD
 First 100 of 1839 failures:
+=======
+First 100 of 1859 failures:
+>>>>>>> origin/main
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -122,7 +132,7 @@ compiler/baseClassImprovedMismatchErrors
 compiler/baseConstraintOfDecorator
   baseConstraintOfDecorator.ts: >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : typeof decoratorFunc — expected >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : { new (...args: any[]): decoratorFunc; prototype: classExtender2.decoratorFunc; } & TFunction
 compiler/baseExpressionTypeParameters
-  baseExpressionTypeParameters.ts: >base<T>() : typeof Base — expected >base<T>() : base.Base
+  baseExpressionTypeParameters.ts: >base<T>() : Base — expected >base<T>() : base.Base
 compiler/bestChoiceType
   bestChoiceType.ts: >(''.match(/ /) || []) : never[] | RegExpMatchArray — expected >(''.match(/ /) || []) : RegExpMatchArray | []
 compiler/bigintArbirtraryIdentifier
@@ -138,7 +148,7 @@ compiler/bluebirdStaticThis
 compiler/booleanFilterAnyArray
   booleanFilterAnyArray.ts: >anys.filter(Bullean) : error — expected >anys.filter(Bullean) : Ari<any>
 compiler/builtinIterator
-  builtinIterator.ts: >Iterator : Iterator<number> — expected >Iterator : Iterator<number, undefined, unknown>
+  builtinIterator.ts: >Iterator : IteratorConstructor — expected >Iterator : Iterator<number, undefined, unknown>
 compiler/callOfConditionalTypeWithConcreteBranches
   callOfConditionalTypeWithConcreteBranches.ts: >arg => useT(arg) : (arg: number) => void — expected >arg => useT(arg) : (arg: T & number) => void
 compiler/callbacksDontShareTypes
@@ -157,8 +167,6 @@ compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
   chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts: >(new Chain(t)).then(tt => s).then : <S extends S>(cb: (x: S) => S) => Chain<S> — expected >(new Chain(t)).then(tt => s).then : <S extends S_1>(cb: (x: S_1) => S) => Chain<S>
 compiler/chainedImportAlias
   chainedImportAlias_file1.ts: >y : any — expected >y : typeof x
-compiler/checkInheritedProperty
-  checkInheritedProperty.ts: >BaseFactory : new () => Base & { c: string; } — expected >BaseFactory : Base & { c: string; }
 compiler/checkJsdocTypeTagOnExportAssignment1
   b.js: >a : any — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment2
@@ -179,8 +187,6 @@ compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularAccessorAnnotations
   circularAccessorAnnotations.ts: >c1 : any — expected >c1 : { readonly foo: typeof c1.foo; }
-compiler/circularConstraintYieldsAppropriateError
-  circularConstraintYieldsAppropriateError.ts: >NextType : NextType<Foo> — expected >NextType : NextType<Foo, { test: true; }>
 compiler/circularContextualReturnType
   circularContextualReturnType.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
@@ -205,11 +211,21 @@ compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
 compiler/classBlockScoping
   classBlockScoping.ts: >y : any — expected >y : Foo
+<<<<<<< HEAD
 compiler/classDeclarationMergedInModuleWithContinuation
   classDeclarationMergedInModuleWithContinuation.ts: >M.N : M.N — expected >M.N : N
 compiler/classDeclaredBeforeClassFactory
   classDeclaredBeforeClassFactory.ts: >makeBaseClass() : typeof Base — expected >makeBaseClass() : Base
+=======
+>>>>>>> origin/main
 compiler/classExpressionNames
   ts.ts: >({ B: undefined }) : { B: undefined; } — expected >({ B: undefined }) : { B?: undefined; }
 compiler/classExpressionWithStaticProperties1
   classExpressionWithStaticProperties1.ts: >c : any — expected >c : number
+<<<<<<< HEAD
+=======
+compiler/classExpressionWithStaticPropertiesES61
+  classExpressionWithStaticPropertiesES61.ts: >c : any — expected >c : number
+compiler/classExpressionWithStaticPropertiesES62
+  classExpressionWithStaticPropertiesES62.ts: >C.c.x : any — expected >C.c.x : string
+>>>>>>> origin/main

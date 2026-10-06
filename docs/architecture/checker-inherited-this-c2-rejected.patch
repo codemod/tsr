@@ -1,0 +1,287 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ae76d032..bdf95a86 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8314,10 +8314,9 @@ impl<'a> Checker<'a, '_> {
+         // so getLiteralTypeFromProperty spells a written numeric name as its
+         // string name. Computed names keep their name types.
+         let reverse_mapped = self.reverse_placeholder_texts.contains_key(&apparent);
+-        let names = self.resolved_keyof_property_names(apparent)?;
+-        let mut keys = Vec::with_capacity(names.len());
+-        for name in names {
+-            let property = self.get_property_of_type(apparent, &name)?;
++        let properties = self.resolved_keyof_properties(apparent)?;
++        let mut keys = Vec::with_capacity(properties.len());
++        for (name, property) in properties {
+             if !self.binder.symbols().get(property).flags.intersects(SymbolFlags::VALUE) {
+                 continue;
+             }
+@@ -8401,7 +8400,7 @@ impl<'a> Checker<'a, '_> {
+         })
+     }
+ 
+-    fn resolved_keyof_property_names(&mut self, target: TypeId) -> Option<Vec<String>> {
++    fn resolved_keyof_properties(&mut self, target: TypeId) -> Option<Vec<(String, SymbolId)>> {
+         match self.store.get(target).data {
+             crate::types::TypeData::Anonymous { symbol, .. } => {
+                 let mut named: Vec<_> = self
+@@ -8421,23 +8420,32 @@ impl<'a> Checker<'a, '_> {
+                     })
+                     .collect();
+                 named.sort();
+-                Some(named.into_iter().map(|(_, name)| name).collect())
++                named
++                    .into_iter()
++                    .map(|(_, name)| {
++                        self.get_property_of_type(target, &name).map(|member| (name, member))
++                    })
++                    .collect()
+             }
+             crate::types::TypeData::Named { members: Some(owner), .. }
+                 if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS) =>
+             {
+-                let mut names = Vec::new();
+-                self.collect_keyof_property_names(owner, &mut names, &mut Vec::new())?;
+-                Some(names)
++                let mut properties = Vec::new();
++                self.collect_keyof_properties(owner, &mut properties, &mut Vec::new())?;
++                Some(properties)
+             }
+-            _ => self.keys_of(target),
++            _ => self
++                .keys_of(target)?
++                .into_iter()
++                .map(|name| self.get_property_of_type(target, &name).map(|member| (name, member)))
++                .collect(),
+         }
+     }
+ 
+-    fn collect_keyof_property_names(
++    fn collect_keyof_properties(
+         &mut self,
+         owner: SymbolId,
+-        names: &mut Vec<String>,
++        properties: &mut Vec<(String, SymbolId)>,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<()> {
+         if visiting.len() > 32 || visiting.contains(&owner) {
+@@ -8457,17 +8465,22 @@ impl<'a> Checker<'a, '_> {
+                 (
+                     self.binder.symbols().get(member).declarations.first().copied(),
+                     (*name).to_string(),
++                    member,
+                 )
+             })
+             .collect();
+         own.sort();
+-        for (_, name) in own {
+-            if !names.contains(&name) {
+-                names.push(name);
++        for (_, name, member) in own {
++            if !properties.iter().any(|(present, _)| present == &name) {
++                properties.push((name, member));
+             }
+         }
+-        for base in self.base_symbols_of(owner)? {
+-            self.collect_keyof_property_names(base, names, visiting)?;
++        // getLiteralTypeFromProperties (checker.go:26717) projects keys from
++        // resolved property symbols. Generic arguments affect member types,
++        // but not this declaration metadata; retain each winning symbol so
++        // numeric names and nonpublic modifiers come from the right owner.
++        for base in self.base_symbols_of_ex(owner, false)? {
++            self.collect_keyof_properties(base, properties, visiting)?;
+         }
+         visiting.pop();
+         Some(())
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..7cc6629b 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1536,7 +1536,8 @@ impl Checker<'_, '_> {
+         // instantiation goes through §226's `base_type_of_heritage_entry`
+         // plus the reference road's own member typing instead. Cycles are
+         // guarded by the walk's visited set.
+-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
++        if let Some(member) = self.generic_heritage_member(id, name, this_argument, &mut Vec::new())
++        {
+             return Some(member);
+         }
+         // §770: a TUPLE's non-numeric members come from `Array<T>`.
+@@ -1676,6 +1677,7 @@ impl Checker<'_, '_> {
+         &mut self,
+         id: TypeId,
+         name: &str,
++        this_argument: TypeId,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<TypeId> {
+         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+@@ -1717,7 +1719,15 @@ impl Checker<'_, '_> {
+                     // mutually-generic bases.
+                     if let Some(property) = self.get_property_of_type(base_type, name) {
+                         let declared = self.get_type_of_symbol(property);
+-                        let instantiated = self.instantiate_for_reference(base_type, declared);
++                        // resolveObjectTypeMembers (checker.go:19138) gives each
++                        // instantiated base the original receiver's this argument.
++                        // Binding this to the base here would consume it before
++                        // the enclosing reference's type arguments are composed.
++                        let instantiated = self.instantiate_for_reference_with_this(
++                            base_type,
++                            declared,
++                            this_argument,
++                        );
+                         if instantiated != self.intrinsics.error {
+                             // §923: the SECOND substitution. The step above maps
+                             // the base's parameters onto the heritage entry's
+@@ -1735,17 +1745,24 @@ impl Checker<'_, '_> {
+                             // non-generic reference maps nothing and the result
+                             // is unchanged, so this cannot disturb the shapes
+                             // that already worked.
+-                            let composed = self.instantiate_for_reference(id, instantiated);
++                            let composed = self.instantiate_for_reference_with_this(
++                                id,
++                                instantiated,
++                                this_argument,
++                            );
+                             if composed != self.intrinsics.error {
+                                 return Some(composed);
+                             }
+                             return Some(instantiated);
+                         }
+                     }
+-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
++                    if let Some(member) =
++                        self.generic_heritage_member(base_type, name, this_argument, visiting)
++                    {
+                         // Resolve inherited members under every enclosing
+                         // reference mapper, including indirect generic bases.
+-                        let member = self.instantiate_for_reference(id, member);
++                        let member =
++                            self.instantiate_for_reference_with_this(id, member, this_argument);
+                         if member != self.intrinsics.error {
+                             return Some(member);
+                         }
+@@ -3608,6 +3625,88 @@ mod property_name_tests {
+         );
+     }
+ 
++    #[test]
++    fn generic_inherited_this_member_keeps_the_original_receiver() {
++        with_checker(
++            "class Base<T> { declare value: T; declare self: this; } class Middle<T> extends Base<T> { declare middle: boolean; } class Derived<T> extends Middle<T> { declare own: number; } declare const text: Derived<string>; declare const number: Derived<number>; text.self; number.self; text.self;",
++            |checker, _| {
++                let mut expected =
++                    ["Derived<string>", "Derived<number>", "Derived<string>"].into_iter();
++                for raw in 0..u32::try_from(checker.nodes.len()).unwrap() {
++                    let id = NodeId::new(raw);
++                    if checker.nodes.kind(id) != tsr_ast::SyntaxKind::PropertyAccessExpression {
++                        continue;
++                    }
++                    let expression =
++                        tsr_ast::Expression::try_from(checker.node_map.get(id).unwrap()).unwrap();
++                    let ty = checker.check_expression(expression);
++                    assert_eq!(checker.type_to_string(ty), expected.next().unwrap());
++                }
++                assert_eq!(expected.next(), None);
++            },
++        );
++    }
++
++    #[test]
++    fn inherited_this_indexed_method_keeps_erased_conditional_inference() {
++        with_checker(
++            "interface Base<T1, T2> { set<K extends keyof this>(key: K, value: this[K]): this[K]; useT1(c: T1): void; useT2(r?: T2): void; unrelated(r?: any): void; } interface Inherited extends Base<number, boolean> { useT1(_: number): void; } interface Structural { set<K extends keyof this>(key: K, value: this[K]): this[K]; useT1(c: number): void; useT2(r?: boolean): void; unrelated(r?: any): void; } type GetT1<T> = T extends Base<infer U, any> ? U : never; type Inferred = GetT1<Inherited>; type Control = GetT1<Structural>;",
++            |checker, root| {
++                checker.set_strict_null_checks(true);
++                for name in ["Inferred", "Control"] {
++                    let symbol = checker.binder.lookup_local(root, name).unwrap();
++                    let ty = checker.get_declared_type_of_symbol(symbol);
++                    assert_eq!(checker.type_to_string(ty), "number", "{name}");
++                }
++            },
++        );
++    }
++
++    #[test]
++    fn inherited_generic_keyof_keeps_numeric_shadowed_and_nonpublic_metadata() {
++        use crate::{
++            flags::TypeFlags,
++            relater::{Relation, Ternary},
++            types::TypeData,
++        };
++
++        with_checker(
++            "class Base<T> { declare 7: T; declare shared: string | number; private secret!: T; protected hidden!: T; } class Derived<T> extends Base<T> { declare own: boolean; declare shared: string; } declare const x: Derived<number>;",
++            |checker, root| {
++                let symbol = checker.binder.lookup_local(root, "x").unwrap();
++                let receiver = checker.get_type_of_symbol(symbol);
++                let keys = checker.resolved_keyof_type(receiver).expect("inherited keys resolve");
++                let numeric = checker.store.intern_literal(
++                    TypeFlags::NUMBER_LITERAL,
++                    TypeData::NumberLiteral("7".into()),
++                    false,
++                );
++                assert_eq!(
++                    checker.relate_ternary(numeric, keys, Relation::Assignable),
++                    Ternary::Related
++                );
++                for (name, expected) in [
++                    ("shared", Ternary::Related),
++                    ("own", Ternary::Related),
++                    ("7", Ternary::NotRelated),
++                    ("secret", Ternary::NotRelated),
++                    ("hidden", Ternary::NotRelated),
++                ] {
++                    let key = checker.store.intern_literal(
++                        TypeFlags::STRING_LITERAL,
++                        TypeData::StringLiteral(name.into()),
++                        false,
++                    );
++                    assert_eq!(
++                        checker.relate_ternary(key, keys, Relation::Assignable),
++                        expected,
++                        "{name}"
++                    );
++                }
++            },
++        );
++    }
++
+     #[test]
+     fn anonymous_spread_names_come_from_the_semantic_overlay() {
+         with_checker(
+diff --git a/crates/tsr-execute/tests/checker_ownership.rs b/crates/tsr-execute/tests/checker_ownership.rs
+index 590a92ae..d329dbda 100644
+--- a/crates/tsr-execute/tests/checker_ownership.rs
++++ b/crates/tsr-execute/tests/checker_ownership.rs
+@@ -311,6 +311,31 @@ fn recursive_cross_file_generics_can_be_queried_after_checking() {
+     );
+ }
+ 
++#[test]
++fn inherited_generic_this_keeps_the_derived_receiver_after_checking() {
++    compare_fixture(
++        &[
++            (
++                "model.ts",
++                "export class Base<T> { declare value: T; declare self: this; } export class Middle<T> extends Base<T> { declare middle: boolean; } export class Derived<T> extends Middle<T> { declare own: number; }",
++            ),
++            (
++                "use.ts",
++                "import { Derived } from './model'; declare const d: Derived<string>; export const probe = d.self; const good: Derived<string> = probe; const bad: number = probe.value;",
++            ),
++        ],
++        &["--noLib", "--target", "es2020"],
++        |_, _, workers, diagnostics| {
++            assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
++            assert!(
++                diagnostics[0]
++                    .ends_with("error TS2322: Type 'string' is not assignable to type 'number'.")
++            );
++            assert_eq!(queries(workers), [("/project/use.ts".into(), "Derived<string>".into())]);
++        },
++    );
++}
++
+ #[test]
+ fn generic_object_literal_members_keep_concrete_types_and_literal_context() {
+     compare_fixture(

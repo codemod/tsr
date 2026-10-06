@@ -1,0 +1,743 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ae76d032..f8b13456 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -3774,6 +3774,154 @@ impl<'a> Checker<'a, '_> {
+         (self.local_type_parameters_of(symbol).len() == arity).then_some(symbol)
+     }
+ 
++    /// getTypeArguments / resolveTypeReferenceMembers (checker.go:19095).
++    /// Class/interface references can carry an explicit final this argument.
++    /// It remains in the existing checker-private ordered instantiation key.
++    pub(crate) fn reference_this_argument(&self, reference: TypeId) -> Option<TypeId> {
++        let (symbol, arguments) = self.type_reference_targets.get(&reference)?;
++        (self
++            .binder
++            .symbols()
++            .get(*symbol)
++            .flags
++            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++            && arguments.len() == self.local_type_parameters_of(*symbol).len() + 1)
++            .then(|| arguments.last().copied())
++            .flatten()
++    }
++
++    /// getDeclaredTypeOfClassOrInterface (checker.go:17319). Reuse the
++    /// existing class-symbol/interface-declaration this identities. No new
++    /// cache or shared-store identity is introduced; ordinary thisless
++    /// interfaces retain their original non-reference representation.
++    pub(crate) fn polymorphic_this_type_of_symbol(&mut self, symbol: SymbolId) -> Option<TypeId> {
++        let symbol = self.binder.merged_symbol(symbol);
++        let declarations = self.binder.symbols().get(symbol).declarations.clone();
++        if let Some(this_type) = self.this_types.get(&symbol).copied().or_else(|| {
++            declarations.iter().find_map(|node| self.this_type_nodes.get(node).copied())
++        }) {
++            return Some(this_type);
++        }
++        let class = self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS);
++        if !class
++            && self.local_type_parameters_of(symbol).is_empty()
++            && self.is_thisless_interface(symbol, &mut Vec::new())
++        {
++            return None;
++        }
++        let interface = declarations
++            .into_iter()
++            .find(|&node| self.nodes.kind(node) == SyntaxKind::InterfaceDeclaration);
++        if !class && interface.is_none() {
++            return None;
++        }
++        let this_type =
++            self.store.new_named(TypeFlags::TYPE_PARAMETER, "this".into(), Some(symbol));
++        if class {
++            self.this_types.insert(symbol, this_type);
++        } else {
++            self.this_type_nodes.insert(interface.unwrap(), this_type);
++        }
++        Some(this_type)
++    }
++
++    /// isThislessInterface (checker.go:17356). The binder's existing
++    /// ContainsThis fact substitutes for the native parser flag. A local
++    /// active declaration is still unpublished, matching the native initial
++    /// declared type; completed base this identities are consulted first.
++    fn is_thisless_interface(&mut self, symbol: SymbolId, active: &mut Vec<SymbolId>) -> bool {
++        if active.contains(&symbol) {
++            return true;
++        }
++        active.push(symbol);
++        let declarations = self.binder.symbols().get(symbol).declarations.clone();
++        let result = declarations.into_iter().all(|node| {
++            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else {
++                return true;
++            };
++            if self.binder.facts(node).contains(tsr_binder::NodeFacts::CONTAINS_THIS) {
++                return false;
++            }
++            for clause in interface.heritage_clauses {
++                if clause.token.kind != SyntaxKind::ExtendsKeyword {
++                    continue;
++                }
++                for entry in clause.types {
++                    let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
++                        return false;
++                    };
++                    let base = self.binder.merged_symbol(base);
++                    if !self.binder.symbols().get(base).flags.contains(SymbolFlags::INTERFACE)
++                        || !self.local_type_parameters_of(base).is_empty()
++                        || self.this_types.contains_key(&base)
++                        || self
++                            .binder
++                            .symbols()
++                            .get(base)
++                            .declarations
++                            .iter()
++                            .any(|node| self.this_type_nodes.contains_key(node))
++                        || !self.is_thisless_interface(base, active)
++                    {
++                        return false;
++                    }
++                }
++            }
++            true
++        });
++        active.pop();
++        result
++    }
++
++    /// getTypeWithThisArgument (checker.go:19573), without apparent widening.
++    /// Preserve the full ordered argument key, with presentation arity kept
++    /// separate by the existing reference display metadata. Already explicit
++    /// views are stable even when a caller supplies a different argument.
++    pub(crate) fn get_type_with_this_argument(
++        &mut self,
++        ty: TypeId,
++        argument: Option<TypeId>,
++    ) -> TypeId {
++        if let crate::types::TypeData::Intersection { types, .. } = self.store.get(ty).data.clone()
++        {
++            let mapped: Vec<_> = types
++                .iter()
++                .map(|&part| self.get_type_with_this_argument(part, argument))
++                .collect();
++            return if mapped == types { ty } else { self.get_intersection_type(&mapped, None) };
++        }
++        let (symbol, arguments) =
++            if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty) {
++                (*symbol, Some(arguments.clone()))
++            } else if self.store.get(ty).flags.contains(TypeFlags::OBJECT)
++                && let crate::types::TypeData::Named { members: Some(symbol), .. } =
++                    self.store.get(ty).data
++            {
++                (symbol, None)
++            } else {
++                return ty;
++            };
++        if !self
++            .binder
++            .symbols()
++            .get(symbol)
++            .flags
++            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++        {
++            return ty;
++        }
++        let Some(parameters) = self.local_type_parameter_types_of(symbol) else { return ty };
++        let mut arguments =
++            arguments.unwrap_or_else(|| parameters.iter().map(|(id, _)| *id).collect());
++        if arguments.len() != parameters.len() {
++            return ty;
++        }
++        let Some(this_type) = self.polymorphic_this_type_of_symbol(symbol) else { return ty };
++        let shown = self.reference_display_arity.get(&ty).copied().unwrap_or(arguments.len());
++        arguments.push(argument.unwrap_or(this_type));
++        self.create_type_reference_with_display(symbol, arguments, Some(shown))
++    }
++
+     /// getThisType and getThisContainer (checker.go:22908, ast/utilities.go:1790).
+     /// Arrows are transparent; other function and member containers stop the
+     /// walk. A class annotation shares the identity used by this expressions.
+@@ -3857,29 +4005,8 @@ impl<'a> Checker<'a, '_> {
+                 {
+                     return error;
+                 }
+-                if self.nodes.kind(owner) == SyntaxKind::InterfaceDeclaration {
+-                    if let Some(&existing) = self.this_type_nodes.get(&owner) {
+-                        return existing;
+-                    }
+-                    let minted = self.store.new_named(
+-                        TypeFlags::TYPE_PARAMETER,
+-                        "this".to_string(),
+-                        self.binder.symbol_of(owner),
+-                    );
+-                    self.this_type_nodes.insert(owner, minted);
+-                    return minted;
+-                }
+                 let Some(symbol) = self.binder.symbol_of(owner) else { return error };
+-                if let Some(&existing) = self.this_types.get(&symbol) {
+-                    return existing;
+-                }
+-                let minted = self.store.new_named(
+-                    TypeFlags::TYPE_PARAMETER,
+-                    "this".to_string(),
+-                    Some(symbol),
+-                );
+-                self.this_types.insert(symbol, minted);
+-                return minted;
++                return self.polymorphic_this_type_of_symbol(symbol).unwrap_or(error);
+             }
+             current = self.nodes.parent(container);
+         }
+@@ -8314,10 +8441,9 @@ impl<'a> Checker<'a, '_> {
+         // so getLiteralTypeFromProperty spells a written numeric name as its
+         // string name. Computed names keep their name types.
+         let reverse_mapped = self.reverse_placeholder_texts.contains_key(&apparent);
+-        let names = self.resolved_keyof_property_names(apparent)?;
+-        let mut keys = Vec::with_capacity(names.len());
+-        for name in names {
+-            let property = self.get_property_of_type(apparent, &name)?;
++        let properties = self.resolved_keyof_properties(apparent)?;
++        let mut keys = Vec::with_capacity(properties.len());
++        for (name, property) in properties {
+             if !self.binder.symbols().get(property).flags.intersects(SymbolFlags::VALUE) {
+                 continue;
+             }
+@@ -8401,7 +8527,7 @@ impl<'a> Checker<'a, '_> {
+         })
+     }
+ 
+-    fn resolved_keyof_property_names(&mut self, target: TypeId) -> Option<Vec<String>> {
++    fn resolved_keyof_properties(&mut self, target: TypeId) -> Option<Vec<(String, SymbolId)>> {
+         match self.store.get(target).data {
+             crate::types::TypeData::Anonymous { symbol, .. } => {
+                 let mut named: Vec<_> = self
+@@ -8421,23 +8547,32 @@ impl<'a> Checker<'a, '_> {
+                     })
+                     .collect();
+                 named.sort();
+-                Some(named.into_iter().map(|(_, name)| name).collect())
++                named
++                    .into_iter()
++                    .map(|(_, name)| {
++                        self.get_property_of_type(target, &name).map(|member| (name, member))
++                    })
++                    .collect()
+             }
+             crate::types::TypeData::Named { members: Some(owner), .. }
+                 if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS) =>
+             {
+-                let mut names = Vec::new();
+-                self.collect_keyof_property_names(owner, &mut names, &mut Vec::new())?;
+-                Some(names)
++                let mut properties = Vec::new();
++                self.collect_keyof_properties(owner, &mut properties, &mut Vec::new())?;
++                Some(properties)
+             }
+-            _ => self.keys_of(target),
++            _ => self
++                .keys_of(target)?
++                .into_iter()
++                .map(|name| self.get_property_of_type(target, &name).map(|member| (name, member)))
++                .collect(),
+         }
+     }
+ 
+-    fn collect_keyof_property_names(
++    fn collect_keyof_properties(
+         &mut self,
+         owner: SymbolId,
+-        names: &mut Vec<String>,
++        properties: &mut Vec<(String, SymbolId)>,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<()> {
+         if visiting.len() > 32 || visiting.contains(&owner) {
+@@ -8457,17 +8592,22 @@ impl<'a> Checker<'a, '_> {
+                 (
+                     self.binder.symbols().get(member).declarations.first().copied(),
+                     (*name).to_string(),
++                    member,
+                 )
+             })
+             .collect();
+         own.sort();
+-        for (_, name) in own {
+-            if !names.contains(&name) {
+-                names.push(name);
++        for (_, name, member) in own {
++            if !properties.iter().any(|(present, _)| present == &name) {
++                properties.push((name, member));
+             }
+         }
+-        for base in self.base_symbols_of(owner)? {
+-            self.collect_keyof_property_names(base, names, visiting)?;
++        // getLiteralTypeFromProperties (checker.go:26717) projects keys from
++        // resolved property symbols. Generic arguments affect member types,
++        // but not this declaration metadata; retain each winning symbol so
++        // numeric names and nonpublic modifiers come from the right owner.
++        for base in self.base_symbols_of_ex(owner, false)? {
++            self.collect_keyof_properties(base, properties, visiting)?;
+         }
+         visiting.pop();
+         Some(())
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index f43a2a91..7db8ce57 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -543,13 +543,17 @@ impl Checker<'_, '_> {
+         // declarations, and upstream's merge is not this port's for private
+         // and inherited members (`mergedInterfacesWithInheritedPrivates3`).
+         if self.binder.symbols().get(symbol).declarations.len() == 1 {
++            let type_with_this = self.get_type_with_this_argument(source, None);
++            let this_type = self.polymorphic_this_type_of_symbol(symbol);
+             for (base, target) in bases.into_iter().flatten() {
+                 if !self.has_single_type_declaration(base)
+                     || !self.pair_is_reportable(source, target)
+                 {
+                     continue;
+                 }
+-                if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
++                let target = self.get_type_with_this_argument(target, this_type);
++                if self.relate_ternary(type_with_this, target, Relation::Assignable)
++                    != Ternary::NotRelated
+                 {
+                     continue;
+                 }
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 3bc92b25..fb135dd4 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5840,7 +5840,10 @@ impl Checker<'_, '_> {
+         let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
+             return Some(signature);
+         };
+-        let parameters = self.local_type_parameter_types_of(symbol)?;
++        let mut parameters = self.local_type_parameter_types_of(symbol)?;
++        if self.reference_this_argument(receiver).is_some() {
++            parameters.push((self.polymorphic_this_type_of_symbol(symbol)?, "this".into()));
++        }
+         if parameters.len() != arguments.len() {
+             return None;
+         }
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 22292576..582cddb3 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1202,7 +1202,8 @@ impl Checker<'_, '_> {
+     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
+     #[must_use]
+     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+-        self.get_type_of_property_with_this_argument(id, name, id, false)
++        let this_argument = self.reference_this_argument(id).unwrap_or(id);
++        self.get_type_of_property_with_this_argument(id, name, this_argument, false)
+     }
+ 
+     /// Source optionality follows the ordinary supplier, not the reused symbol's flags.
+@@ -1536,7 +1537,8 @@ impl Checker<'_, '_> {
+         // instantiation goes through §226's `base_type_of_heritage_entry`
+         // plus the reference road's own member typing instead. Cycles are
+         // guarded by the walk's visited set.
+-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
++        if let Some(member) = self.generic_heritage_member(id, name, this_argument, &mut Vec::new())
++        {
+             return Some(member);
+         }
+         // §770: a TUPLE's non-numeric members come from `Array<T>`.
+@@ -1676,6 +1678,7 @@ impl Checker<'_, '_> {
+         &mut self,
+         id: TypeId,
+         name: &str,
++        this_argument: TypeId,
+         visiting: &mut Vec<SymbolId>,
+     ) -> Option<TypeId> {
+         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+@@ -1717,7 +1720,15 @@ impl Checker<'_, '_> {
+                     // mutually-generic bases.
+                     if let Some(property) = self.get_property_of_type(base_type, name) {
+                         let declared = self.get_type_of_symbol(property);
+-                        let instantiated = self.instantiate_for_reference(base_type, declared);
++                        // resolveObjectTypeMembers (checker.go:19138) gives each
++                        // instantiated base the original receiver's this argument.
++                        // Binding this to the base here would consume it before
++                        // the enclosing reference's type arguments are composed.
++                        let instantiated = self.instantiate_for_reference_with_this(
++                            base_type,
++                            declared,
++                            this_argument,
++                        );
+                         if instantiated != self.intrinsics.error {
+                             // §923: the SECOND substitution. The step above maps
+                             // the base's parameters onto the heritage entry's
+@@ -1735,17 +1746,24 @@ impl Checker<'_, '_> {
+                             // non-generic reference maps nothing and the result
+                             // is unchanged, so this cannot disturb the shapes
+                             // that already worked.
+-                            let composed = self.instantiate_for_reference(id, instantiated);
++                            let composed = self.instantiate_for_reference_with_this(
++                                id,
++                                instantiated,
++                                this_argument,
++                            );
+                             if composed != self.intrinsics.error {
+                                 return Some(composed);
+                             }
+                             return Some(instantiated);
+                         }
+                     }
+-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
++                    if let Some(member) =
++                        self.generic_heritage_member(base_type, name, this_argument, visiting)
++                    {
+                         // Resolve inherited members under every enclosing
+                         // reference mapper, including indirect generic bases.
+-                        let member = self.instantiate_for_reference(id, member);
++                        let member =
++                            self.instantiate_for_reference_with_this(id, member, this_argument);
+                         if member != self.intrinsics.error {
+                             return Some(member);
+                         }
+@@ -1919,8 +1937,14 @@ impl Checker<'_, '_> {
+         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+             return error;
+         };
+-        let arguments = arguments
++        let mut arguments = arguments
+             .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
++        let this_argument = if let Some(argument) = self.reference_this_argument(receiver) {
++            arguments.pop();
++            argument
++        } else {
++            this_argument
++        };
+         if parameters.len() != arguments.len() {
+             return error;
+         }
+@@ -3457,6 +3481,161 @@ mod property_name_tests {
+         test(&mut checker, root)
+     }
+ 
++    #[test]
++    fn explicit_this_reference_maps_members_without_printing_its_hidden_argument() {
++        with_checker(
++            "interface Base<T> { value:T; self:this } interface Left { left:number } interface Right { right:string }",
++            |checker, root| {
++                let base = checker.binder.lookup_local(root, "Base").unwrap();
++                let left = checker.binder.lookup_local(root, "Left").unwrap();
++                let right = checker.binder.lookup_local(root, "Right").unwrap();
++                let left = checker.get_declared_type_of_symbol(left);
++                let right = checker.get_declared_type_of_symbol(right);
++                let number = checker.intrinsics.number;
++                let view =
++                    checker.create_type_reference_with_display(base, vec![number, left], Some(1));
++                let other =
++                    checker.create_type_reference_with_display(base, vec![number, right], Some(1));
++                assert_ne!(view, other, "different receivers must retain different reference keys");
++                assert_eq!(
++                    checker.create_type_reference_with_display(base, vec![number, left], Some(1)),
++                    view
++                );
++                assert_eq!(checker.type_to_string(view), "Base<number>");
++                assert_eq!(checker.get_type_of_property_of_type(view, "value"), Some(number));
++                assert_eq!(checker.get_type_of_property_of_type(view, "self"), Some(left));
++                assert_eq!(checker.get_type_of_property_of_type(other, "self"), Some(right));
++            },
++        );
++    }
++
++    #[test]
++    fn explicit_this_reference_keeps_the_measured_variance_prefix() {
++        use crate::relater::{Relation, Ternary};
++        with_checker(
++            "interface Sink<T> { consume:(value:T)=>void; self:this } interface Receiver { own:number }",
++            |checker, root| {
++                checker.strict_function_types = true;
++                let sink = checker.binder.lookup_local(root, "Sink").unwrap();
++                let receiver = checker.binder.lookup_local(root, "Receiver").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(receiver);
++                let string = checker.intrinsics.string;
++                let literal = checker.store.intern_literal(
++                    crate::flags::TypeFlags::STRING_LITERAL,
++                    crate::types::TypeData::StringLiteral("a".into()),
++                    false,
++                );
++                let wide = checker.create_type_reference_with_display(
++                    sink,
++                    vec![string, receiver],
++                    Some(1),
++                );
++                let narrow = checker.create_type_reference_with_display(
++                    sink,
++                    vec![literal, receiver],
++                    Some(1),
++                );
++                assert_eq!(
++                    checker.inference_variances(sink),
++                    Some(vec![crate::variances::Variance::Contravariant])
++                );
++                assert_eq!(
++                    checker.relate_ternary(wide, narrow, Relation::Assignable),
++                    Ternary::Related
++                );
++                assert_eq!(
++                    checker.relate_ternary(narrow, wide, Relation::Assignable),
++                    Ternary::NotRelated
++                );
++            },
++        );
++    }
++
++    #[test]
++    fn explicit_this_reference_rebuild_maps_both_regular_and_hidden_arguments() {
++        with_checker(
++            "interface Box<T> { value:T; self:this } interface Receiver { own:number }",
++            |checker, root| {
++                let owner = checker.binder.lookup_local(root, "Box").unwrap();
++                let receiver = checker.binder.lookup_local(root, "Receiver").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(receiver);
++                let parameter = checker.local_type_parameter_types_of(owner).unwrap()[0].0;
++                let hidden = checker.store.new_named(
++                    crate::flags::TypeFlags::TYPE_PARAMETER,
++                    "R".into(),
++                    None,
++                );
++                let ordinary = checker.create_type_reference(owner, vec![parameter]);
++                let view = checker.get_type_with_this_argument(ordinary, Some(hidden));
++                assert_eq!(checker.reference_this_argument(view), Some(hidden));
++                assert_eq!(checker.get_type_with_this_argument(view, Some(receiver)), view);
++                let number = checker.intrinsics.number;
++                let rebuilt = checker.instantiate_type(
++                    view,
++                    &[(parameter, number), (hidden, receiver)],
++                    &[parameter, hidden],
++                    &["T", "R"],
++                );
++                assert_eq!(
++                    checker.type_reference_targets[&rebuilt],
++                    (owner, vec![number, receiver])
++                );
++                assert_eq!(checker.type_to_string(rebuilt), "Box<number>");
++                assert_eq!(checker.get_type_of_property_of_type(rebuilt, "value"), Some(number));
++                assert_eq!(checker.get_type_of_property_of_type(rebuilt, "self"), Some(receiver));
++            },
++        );
++    }
++
++    #[test]
++    fn explicit_this_reference_default_is_stable_and_thisless_interfaces_stay_bare() {
++        with_checker(
++            "interface Plain { own:number } interface Empty extends Plain {} interface Merged { first:this } interface Merged { second:this }",
++            |checker, root| {
++                let plain = checker.binder.lookup_local(root, "Plain").unwrap();
++                let empty = checker.binder.lookup_local(root, "Empty").unwrap();
++                let merged = checker.binder.lookup_local(root, "Merged").unwrap();
++                let plain = checker.get_declared_type_of_symbol(plain);
++                let empty = checker.get_declared_type_of_symbol(empty);
++                let merged = checker.get_declared_type_of_symbol(merged);
++                assert_eq!(checker.get_type_with_this_argument(plain, None), plain);
++                assert_eq!(checker.get_type_with_this_argument(empty, Some(plain)), empty);
++                let default = checker.get_type_with_this_argument(merged, None);
++                let this_type = checker.reference_this_argument(default).unwrap();
++                assert_eq!(checker.get_type_of_property_of_type(default, "first"), Some(this_type));
++                assert_eq!(
++                    checker.get_type_of_property_of_type(default, "second"),
++                    Some(this_type)
++                );
++                assert_eq!(checker.get_type_with_this_argument(merged, None), default);
++                let concrete = checker.get_type_with_this_argument(merged, Some(plain));
++                assert_ne!(concrete, default);
++                assert_eq!(checker.get_type_of_property_of_type(concrete, "first"), Some(plain));
++                assert_eq!(checker.get_type_of_property_of_type(concrete, "second"), Some(plain));
++            },
++        );
++    }
++
++    #[test]
++    fn explicit_this_reference_maps_call_signature_parameters_and_return() {
++        with_checker(
++            "interface Callable<T> { (value:T, iter:this):this } interface Receiver { own:number }",
++            |checker, root| {
++                let callable = checker.binder.lookup_local(root, "Callable").unwrap();
++                let receiver = checker.binder.lookup_local(root, "Receiver").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(receiver);
++                let number = checker.intrinsics.number;
++                let ordinary = checker.create_type_reference(callable, vec![number]);
++                let view = checker.get_type_with_this_argument(ordinary, Some(receiver));
++                let signatures = checker.call_signatures_of_type(view).unwrap();
++                assert_eq!(signatures.len(), 1);
++                assert_eq!(signatures[0].parameters[0].r#type, number);
++                assert_eq!(signatures[0].parameters[1].r#type, receiver);
++                assert_eq!(signatures[0].r#type, receiver);
++            },
++        );
++    }
++
+     #[test]
+     fn canonical_empty_objects_augment_only_when_allowed_and_keep_the_global_member_identity() {
+         with_checker("interface Object { toString(): string }", |checker, root| {
+@@ -3608,6 +3787,88 @@ mod property_name_tests {
+         );
+     }
+ 
++    #[test]
++    fn generic_inherited_this_member_keeps_the_original_receiver() {
++        with_checker(
++            "class Base<T> { declare value: T; declare self: this; } class Middle<T> extends Base<T> { declare middle: boolean; } class Derived<T> extends Middle<T> { declare own: number; } declare const text: Derived<string>; declare const number: Derived<number>; text.self; number.self; text.self;",
++            |checker, _| {
++                let mut expected =
++                    ["Derived<string>", "Derived<number>", "Derived<string>"].into_iter();
++                for raw in 0..u32::try_from(checker.nodes.len()).unwrap() {
++                    let id = NodeId::new(raw);
++                    if checker.nodes.kind(id) != tsr_ast::SyntaxKind::PropertyAccessExpression {
++                        continue;
++                    }
++                    let expression =
++                        tsr_ast::Expression::try_from(checker.node_map.get(id).unwrap()).unwrap();
++                    let ty = checker.check_expression(expression);
++                    assert_eq!(checker.type_to_string(ty), expected.next().unwrap());
++                }
++                assert_eq!(expected.next(), None);
++            },
++        );
++    }
++
++    #[test]
++    fn inherited_this_indexed_method_keeps_erased_conditional_inference() {
++        with_checker(
++            "interface Base<T1, T2> { set<K extends keyof this>(key: K, value: this[K]): this[K]; useT1(c: T1): void; useT2(r?: T2): void; unrelated(r?: any): void; } interface Inherited extends Base<number, boolean> { useT1(_: number): void; } interface Structural { set<K extends keyof this>(key: K, value: this[K]): this[K]; useT1(c: number): void; useT2(r?: boolean): void; unrelated(r?: any): void; } type GetT1<T> = T extends Base<infer U, any> ? U : never; type Inferred = GetT1<Inherited>; type Control = GetT1<Structural>;",
++            |checker, root| {
++                checker.set_strict_null_checks(true);
++                for name in ["Inferred", "Control"] {
++                    let symbol = checker.binder.lookup_local(root, name).unwrap();
++                    let ty = checker.get_declared_type_of_symbol(symbol);
++                    assert_eq!(checker.type_to_string(ty), "number", "{name}");
++                }
++            },
++        );
++    }
++
++    #[test]
++    fn inherited_generic_keyof_keeps_numeric_shadowed_and_nonpublic_metadata() {
++        use crate::{
++            flags::TypeFlags,
++            relater::{Relation, Ternary},
++            types::TypeData,
++        };
++
++        with_checker(
++            "class Base<T> { declare 7: T; declare shared: string | number; private secret!: T; protected hidden!: T; } class Derived<T> extends Base<T> { declare own: boolean; declare shared: string; } declare const x: Derived<number>;",
++            |checker, root| {
++                let symbol = checker.binder.lookup_local(root, "x").unwrap();
++                let receiver = checker.get_type_of_symbol(symbol);
++                let keys = checker.resolved_keyof_type(receiver).expect("inherited keys resolve");
++                let numeric = checker.store.intern_literal(
++                    TypeFlags::NUMBER_LITERAL,
++                    TypeData::NumberLiteral("7".into()),
++                    false,
++                );
++                assert_eq!(
++                    checker.relate_ternary(numeric, keys, Relation::Assignable),
++                    Ternary::Related
++                );
++                for (name, expected) in [
++                    ("shared", Ternary::Related),
++                    ("own", Ternary::Related),
++                    ("7", Ternary::NotRelated),
++                    ("secret", Ternary::NotRelated),
++                    ("hidden", Ternary::NotRelated),
++                ] {
++                    let key = checker.store.intern_literal(
++                        TypeFlags::STRING_LITERAL,
++                        TypeData::StringLiteral(name.into()),
++                        false,
++                    );
++                    assert_eq!(
++                        checker.relate_ternary(key, keys, Relation::Assignable),
++                        expected,
++                        "{name}"
++                    );
++                }
++            },
++        );
++    }
++
+     #[test]
+     fn anonymous_spread_names_come_from_the_semantic_overlay() {
+         with_checker(
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index a1441d82..a1259080 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -2833,10 +2833,10 @@ impl Relater<'_, '_, '_> {
+                 self.checker.type_reference_targets.get(&target).cloned(),
+             )
+             && source_symbol == target_symbol
+-            && source_arguments.len() == target_arguments.len()
+         {
++            let argument_count = source_arguments.len().min(target_arguments.len());
+             let measured = self.checker.inference_variances(source_symbol);
+-            let variances = match measured {
++            let mut variances = match measured {
+                 Some(variances)
+                     if variances.is_empty()
+                         && !source_arguments.is_empty()
+@@ -2847,18 +2847,22 @@ impl Relater<'_, '_, '_> {
+                     // here would measure the same recursive occurrences again.
+                     return RelationResult::CircularVariance;
+                 }
+-                Some(variances) if variances.len() == source_arguments.len() => variances,
++                Some(variances) => variances,
+                 None if !self.checker.variance_in_progress.is_empty() => {
+                     return RelationResult::Unknown;
+                 }
+                 _ if self.checker.variance_in_progress.is_empty() => {
+                     // Until Unmeasurable/Unreliable flags are represented, keep
+                     // the existing default covariance for unmeasured targets.
+-                    vec![crate::variances::Variance::Covariant; source_arguments.len()]
++                    vec![crate::variances::Variance::Covariant; argument_count]
+                 }
+                 _ => Vec::new(),
+             };
+-            if variances.len() == source_arguments.len() {
++            if variances.len() <= argument_count {
++                // typeArgumentsRelatedTo (relater.go:3903) defaults only
++                // unmeasured trailing slots, including explicit this, to
++                // covariance. Keep the measured ordinary-parameter prefix.
++                variances.resize(argument_count, crate::variances::Variance::Covariant);
+                 let allows_covariant_void =
+                     target_arguments.iter().zip(&variances).any(|(&target, variance)| {
+                         *variance == crate::variances::Variance::Covariant
+diff --git a/crates/tsr-execute/tests/checker_ownership.rs b/crates/tsr-execute/tests/checker_ownership.rs
+index 590a92ae..d329dbda 100644
+--- a/crates/tsr-execute/tests/checker_ownership.rs
++++ b/crates/tsr-execute/tests/checker_ownership.rs
+@@ -311,6 +311,31 @@ fn recursive_cross_file_generics_can_be_queried_after_checking() {
+     );
+ }
+ 
++#[test]
++fn inherited_generic_this_keeps_the_derived_receiver_after_checking() {
++    compare_fixture(
++        &[
++            (
++                "model.ts",
++                "export class Base<T> { declare value: T; declare self: this; } export class Middle<T> extends Base<T> { declare middle: boolean; } export class Derived<T> extends Middle<T> { declare own: number; }",
++            ),
++            (
++                "use.ts",
++                "import { Derived } from './model'; declare const d: Derived<string>; export const probe = d.self; const good: Derived<string> = probe; const bad: number = probe.value;",
++            ),
++        ],
++        &["--noLib", "--target", "es2020"],
++        |_, _, workers, diagnostics| {
++            assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
++            assert!(
++                diagnostics[0]
++                    .ends_with("error TS2322: Type 'string' is not assignable to type 'number'.")
++            );
++            assert_eq!(queries(workers), [("/project/use.ts".into(), "Derived<string>".into())]);
++        },
++    );
++}
++
+ #[test]
+ fn generic_object_literal_members_keep_concrete_types_and_literal_context() {
+     compare_fixture(

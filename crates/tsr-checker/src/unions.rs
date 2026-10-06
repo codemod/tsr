@@ -1821,7 +1821,7 @@ impl crate::checker::Checker<'_, '_> {
     }
 
     /// isExcessPropertyCheckTarget (relater.go:749).
-    fn is_excess_property_check_target(&self, target: crate::types::TypeId) -> bool {
+    pub(crate) fn is_excess_property_check_target(&self, target: crate::types::TypeId) -> bool {
         use crate::{flags::TypeFlags, types::TypeData};
         let ty = self.store.get(target);
         match &ty.data {

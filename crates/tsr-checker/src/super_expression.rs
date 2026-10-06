@@ -369,7 +369,11 @@ impl Checker<'_, '_> {
     }
 
     /// `isInConstructorArgumentInitializer` (`checker.go:7964`).
-    fn is_in_constructor_argument_initializer(&self, node: NodeId, constructor: NodeId) -> bool {
+    pub(crate) fn is_in_constructor_argument_initializer(
+        &self,
+        node: NodeId,
+        constructor: NodeId,
+    ) -> bool {
         for ancestor in self.nodes.ancestors(node) {
             if self.is_function_like_declaration(ancestor) {
                 return false;

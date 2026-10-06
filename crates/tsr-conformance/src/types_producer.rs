@@ -249,153 +249,6 @@ fn is_import_or_export_statement_name(id: NodeId, nodes: &NodeTable, map: &NodeM
     }
 }
 
-/// The symbol a **heritage entry's expression** names, following aliases.
-///
-/// §247's resolution half. A heritage expression is an `Identifier` or a
-/// `PropertyAccessExpression` — the same idea as an `EntityName` in a different
-/// node shape, which is why this cannot call [`entity_name_symbol`]. Aliases are
-/// followed because the head case is `import React = require('react')`, where
-/// the root is an alias and the export table lives on its target.
-///
-/// Confirmed to answer `Some` on **all twelve** witnesses before checker-1 wrote
-/// the instantiation half — see conventions corollary 27 for why that
-/// confirmation was worth its own step.
-fn heritage_base_symbol(
-    id: NodeId,
-    nodes: &NodeTable,
-    map: &NodeMap<'_>,
-    binder: &tsr_binder::BindResult<'_>,
-    checker: &mut tsr_checker::Checker<'_, '_>,
-) -> Option<tsr_binder::SymbolId> {
-    let symbol = match map.get(id)? {
-        Node::Identifier(name) => {
-            let namespace =
-                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)?;
-            // §479: the heritage expression is an ordinary EXPRESSION, so a
-            // VALUE binding that shadows the namespace is what upstream
-            // binds — `var M1 = 0; class B extends M1.A<string>` records
-            // `>M1.A : any` (`typeValueConflict2`'s own comment). SS194's
-            // rule, at this second resolution site.
-            if matches!(
-                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE),
-                Some(value) if value != namespace
-            ) {
-                return None;
-            }
-            namespace
-        }
-        Node::PropertyAccessExpression(access) => {
-            let left = access.expression.and_then(|left| left.node_id())?;
-            let container = heritage_base_symbol(left, nodes, map, binder, checker)?;
-            let name = access.name.and_then(|name| match map.get(name.node_id()?)? {
-                Node::Identifier(identifier) => Some(identifier.text),
-                _ => None,
-            })?;
-            *binder.symbols().get(container).exports.get(name)?
-        }
-        _ => return None,
-    };
-    Some(checker.resolve_alias(symbol).unwrap_or(symbol))
-}
-
-/// §837: whether `from`'s heritage chain reaches `target` at any depth.
-///
-/// The self-extension decline this supports was one hop deep — the identifier arm
-/// compared names (direct self-extension) and §60's qualified arm added a single
-/// further step, with its comment saying *"one hop is what the corpus exercises"*.
-/// `classExtendsItselfIndirectly`'s three-hop cycle (`C extends E`, `D extends C`,
-/// `E extends D`) walks past both, so the compensation fired on a cycle and
-/// answered `E` where upstream answers `typeof E`.
-///
-/// Bounded by a visited set and a depth cap; a cycle is the thing being looked
-/// for, so the set is what makes the walk terminate at all.
-fn heritage_reaches<'a>(
-    binder: &tsr_binder::BindResult<'a>,
-    nodes: &NodeTable,
-    map: &NodeMap<'a>,
-    checker: &mut tsr_checker::Checker<'a, '_>,
-    from: tsr_binder::SymbolId,
-    target: tsr_binder::SymbolId,
-) -> bool {
-    let target = binder.symbols().get(target).export_symbol.unwrap_or(target);
-    let target = binder.merged_symbol(target);
-    let mut seen: std::collections::HashSet<tsr_binder::SymbolId> =
-        std::collections::HashSet::new();
-    let mut stack = vec![from];
-    let mut steps = 0usize;
-    while let Some(current) = stack.pop() {
-        steps += 1;
-        if steps > 64 {
-            return false;
-        }
-        let current = binder.symbols().get(current).export_symbol.unwrap_or(current);
-        let current = binder.merged_symbol(current);
-        if current == target {
-            return true;
-        }
-        if !seen.insert(current) {
-            continue;
-        }
-        // Import-equals links can occur inside the base chain too. A pure
-        // alias has no class declaration to walk; follow its target using the
-        // same visited/depth bound rather than silently stopping the cycle.
-        if binder.symbols().get(current).flags == SymbolFlags::ALIAS {
-            if let Some(resolved) = checker.resolve_alias(current) {
-                stack.push(resolved);
-            }
-            continue;
-        }
-        let Some(declaration) = binder.symbols().get(current).declarations.first().copied() else {
-            continue;
-        };
-        let clauses = match map.get(declaration) {
-            Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
-            Some(Node::ClassExpression(class)) => class.heritage_clauses,
-            // CLASSES only. An interface's heritage was in the first cut and cost
-            // one line: `dynamicNames:21`'s base `T1` reaches the extending
-            // declaration through an INTERFACE chain that upstream still resolves,
-            // so the compensation belongs there and the walk must not see it.
-            // Upstream's fallback (SS195) is about a class with no resolvable
-            // base, which is what `extends` on a class means.
-            _ => continue,
-        };
-        for clause in clauses {
-            // EXTENDS only. The first cut walked every heritage clause and cost
-            // one line: `dynamicNames` has `class T1 implements T2` beside
-            // `class T2 extends T1`, a cycle that runs through an IMPLEMENTS
-            // clause — and upstream's self-extension fallback (SS195) is about a
-            // class with no resolvable BASE, which `implements` is not.
-            if clause.token.kind != SyntaxKind::ExtendsKeyword {
-                continue;
-            }
-            for entry in clause.types {
-                let Some(expression) = entry.expression else { continue };
-                let Some(node) = expression.node_id() else { continue };
-                let name = match expression {
-                    tsr_ast::Expression::Identifier(identifier) => identifier.text,
-                    tsr_ast::Expression::PropertyAccessExpression(access) => match access.name {
-                        Some(tsr_ast::MemberName::Identifier(member)) => member.text,
-                        _ => continue,
-                    },
-                    _ => continue,
-                };
-                let resolved = binder
-                    .resolve_name(nodes, map, node, name, tsr_binder::SymbolFlags::TYPE)
-                    .or_else(|| {
-                        binder.resolve_name(nodes, map, node, name, tsr_binder::SymbolFlags::VALUE)
-                    });
-                if let Some(base) = resolved {
-                    if base == target {
-                        return true;
-                    }
-                    stack.push(base);
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Whether `id` is an `ExpressionWithTypeArguments` in a class's `extends`
 /// clause — upstream's `TryGetClassImplementingOrExtendingExpressionWithTypeArguments`
 /// (`ast/utilities.go:1438`) with its `!isImplements` half applied.
@@ -623,6 +476,35 @@ pub fn type_id_at_location_tracking<'a>(
     let error = checker.intrinsics().error;
     let Some(node) = map.get(id) else { return error };
 
+    // The writer's base-class workaround, `type_symbol_baseline.go:370-374`:
+    //
+    // ```go
+    // // Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
+    // if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
+    //     t = fileChecker.GetTypeAtLocation(node.Parent)
+    // }
+    // if t == nil || checker.IsTypeAny(t) { t = fileChecker.GetTypeAtLocation(node) }
+    // ```
+    //
+    // `GetTypeAtLocation(EWTA)` lands in `getTypeOfNode`'s class-extends arm
+    // (`checker.go:31927`): an extends-clause EWTA is neither part of a type
+    // node nor an expression node, so it answers
+    // `getTypeWithThisArgument(getBaseTypes(classType)[0], thisType)`, or
+    // errorType when the class has no base type. This port's references carry
+    // no `this` argument, so `getTypeWithThisArgument` prints the base itself.
+    // A missing or any-flagged base falls through to the node's own type.
+    if let Some(parent) = nodes.parent(id)
+        && is_ewta_in_class_extends_clause(parent, nodes, map)
+        && let Some(Node::ExpressionWithTypeArguments(entry)) = map.get(parent)
+        && entry.expression.and_then(|e| e.node_id()) == Some(id)
+        && let Some(class) = nodes.parent(parent).and_then(|clause| nodes.parent(clause))
+        && let Some(class_symbol) = binder.symbol_of(class)
+        && let Some(&base) = checker.get_base_types(class_symbol).first()
+        && !checker.type_of(base).flags.contains(tsr_checker::flags::TypeFlags::ANY)
+    {
+        return base;
+    }
+
     // `IsTypeDeclarationName` (`ast/utilities.go:3598`): an identifier naming a
     // class, interface, type alias, enum or type parameter. Upstream tests this
     // *before* the general declaration-name branch below.
@@ -724,62 +606,6 @@ pub fn type_id_at_location_tracking<'a>(
         }
     }
 
-    // §247, both lanes. `type_symbol_baseline.go:370-374`:
-    //
-    // ```go
-    // // Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
-    // if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
-    //     t = fileChecker.GetTypeAtLocation(node.Parent)
-    // }
-    // ```
-    //
-    // The line belongs to the node whose PARENT is the extends entry, not to
-    // the entry itself. Measured: a heritage `ExpressionWithTypeArguments` is
-    // never visited by this walk — 29 EWTA nodes reached corpus-wide, none in
-    // a heritage clause — and *making* it visited costs **458 cases**
-    // (5,083 → 4,625), because upstream emits no line for it either.
-    //
-    // ```text
-    // class Poisoned extends React.Component<{}, {}> { }
-    // >React.Component : React.Component<{}, {}>   <- this node
-    // >React : typeof React                        <- already right
-    // >Component : typeof React.Component          <- already right
-    // ```
-    //
-    // Upstream's fallthrough is what makes the split safe: nil OR any falls
-    // back to `GetTypeAtLocation(node)`, so a `None` from either half
-    // reproduces today's answer rather than a gap.
-    if let Some(parent) = nodes.parent(id)
-        && is_ewta_in_class_extends_clause(parent, nodes, map)
-        && let Some(Node::ExpressionWithTypeArguments(entry)) = map.get(parent)
-        && entry.expression.and_then(|e| e.node_id()) == Some(id)
-        && let Some(base) = heritage_base_symbol(id, nodes, map, binder, checker)
-        // Upstream reads `getBaseTypes(classType)` — the base types of the
-        // DERIVING class — not the type of the entry. A class whose `extends`
-        // names something that is not a class has no base types, so upstream
-        // returns `errorType` and the writer falls back to
-        // `GetTypeAtLocation(node)`. Resolving the entry directly would answer
-        // where upstream declines. Measured: without this the call site costs
-        // two right lines (`classExtendsInterfaceInModule`,
-        // `unusedInvalidTypeArguments`).
-        && binder
-            .symbols()
-            .get(base)
-            .declarations
-            .iter()
-            .any(|&declaration| {
-                matches!(
-                    nodes.kind(declaration),
-                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                )
-            })
-        && let Some(computed) = checker.base_type_of_heritage_entry(base, entry.type_arguments)
-        && computed != error
-        && computed != checker.intrinsics().any
-    {
-        return computed;
-    }
-
     // §244, checker-1's handoff, and **the placement is the whole build**.
     //
     // `IsTypeDeclaration` (`ast/utilities.go:3585`):
@@ -813,29 +639,55 @@ pub fn type_id_at_location_tracking<'a>(
     // wrong, which is why the zero looked like a missing capability. Ordering
     // is upstream's rule here in the same way it is in `getTypeOfNode`.
     //
-    // A specifier's own symbol is an alias, so the target is what carries the
-    // declared type; upstream folds that into `getSymbolAtLocation`.
+    // `IsTypeDeclarationName` (`ast/utilities.go:3598`) covers the name of a
+    // type-only `ImportClause` too (`IsTypeDeclaration`'s `KindImportClause`
+    // arm), and only the declaration's NAME (`GetNameOfDeclaration`), not a
+    // specifier's property name. The answer is `getDeclaredTypeOfSymbol` of
+    // the alias, i.e. `getDeclaredTypeOfAlias` (`checker.go:24094`): the
+    // declared type of the resolved target, errorType when it declares no
+    // type — there is no fallthrough to the value type.
     if nodes.kind(id) == SyntaxKind::Identifier
         && let Some(parent) = nodes.parent(id)
-        && matches!(nodes.kind(parent), SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier)
-        && let Some(grandparent) = nodes.parent(parent).and_then(|p| nodes.parent(p))
-        && match map.get(grandparent) {
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && match map.get(parent) {
             // An import clause spells type-only with its PHASE MODIFIER token,
             // not a bool — `import defer` is a different phase and must not
             // qualify.
             Some(Node::ImportClause(clause)) => {
                 clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
             }
-            Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
+            Some(Node::ImportSpecifier(_) | Node::ExportSpecifier(_)) => {
+                match nodes.parent(parent).and_then(|p| nodes.parent(p)).and_then(|g| map.get(g)) {
+                    Some(Node::ImportClause(clause)) => clause
+                        .phase_modifier
+                        .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword),
+                    Some(Node::ExportDeclaration(declaration)) => declaration.is_type_only,
+                    _ => false,
+                }
+            }
             _ => false,
         }
         && let Some(symbol) = binder.symbol_of(parent)
     {
-        let target = checker.resolve_alias(symbol).unwrap_or(symbol);
-        let declared = checker.get_declared_type_of_symbol(target);
-        if declared != error {
-            return declared;
+        // `tryGetDeclaredTypeOfSymbol` (`checker.go:23678`) tests the type
+        // meanings before the alias arm, so an alias merged with a local type
+        // declaration answers that declaration's type.
+        let symbol = binder.merged_symbol(symbol);
+        let flags = binder.symbols().get(symbol).flags;
+        if flags.intersects(
+            SymbolFlags::CLASS
+                | SymbolFlags::INTERFACE
+                | SymbolFlags::TYPE_PARAMETER
+                | SymbolFlags::TYPE_ALIAS
+                | SymbolFlags::ENUM
+                | SymbolFlags::ENUM_MEMBER,
+        ) {
+            return checker.get_declared_type_of_symbol(symbol);
         }
+        return match checker.resolve_alias(symbol) {
+            Some(target) => checker.get_declared_type_of_symbol(target),
+            None => error,
+        };
     }
 
     // The same `IsTypeDeclaration` arm for a type-only import clause's own
@@ -863,296 +715,6 @@ pub fn type_id_at_location_tracking<'a>(
     {
         let computed = checker.get_type_of_symbol(symbol);
         return computed;
-    }
-
-    // **A base class expression prints the base's instance type, not `typeof`**,
-    // and this is a property of the *baseline writer* rather than of the checker.
-    //
-    // `class B extends A` puts `A` in an expression position, so
-    // `IsInExpressionContext` is true and `getTypeOfNode` answers `typeof A` —
-    // which is what upstream's checker answers too, correctly. Upstream
-    // compensates in the writer, at `type_symbol_baseline.go:371`, and labels it
-    // a workaround in those words:
-    //
-    // ```go
-    // // Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
-    // if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
-    //     t = fileChecker.GetTypeAtLocation(node.Parent)
-    // }
-    // if t == nil || checker.IsTypeAny(t) { t = fileChecker.GetTypeAtLocation(node) }
-    // ```
-    //
-    // **`getTypeOfNode`'s own heritage branch (`checker.go:31959`) does not fix
-    // this and porting it would be dead code.** `IsExpressionNode` of an
-    // `ExpressionWithTypeArguments` is `!IsHeritageClause(node.Parent)`, so the
-    // walker never selects the `EWTA` itself and that branch is unreachable from
-    // a baseline — it exists for the language service. This function fuses
-    // upstream's walker and `getTypeOfNode`, so the compensation belongs *here*,
-    // keyed on the identifier's parent.
-    //
-    // `extends` only: `TryGetClassExtendingExpressionWithTypeArguments`
-    // (`ast/utilities.go:1430`) rejects the `implements` case, and the two halves
-    // of a class header are already asymmetric in the walker for the same reason.
-    //
-    // Worth 1,086 corpus lines, found by bucketing wrong answers by the parent
-    // kind of the node that produced them.
-    if let Some(parent) = nodes.parent(id)
-        && nodes.kind(parent) == SyntaxKind::ExpressionWithTypeArguments
-        && let Some(clause) = nodes.parent(parent)
-        && let Some(Node::HeritageClause(heritage)) = map.get(clause)
-        && heritage.token.kind == SyntaxKind::ExtendsKeyword
-        && matches!(
-            nodes.parent(clause).map(|owner| nodes.kind(owner)),
-            Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
-        )
-        && let Some(symbol_and_text) = (match map.get(id) {
-            // SS194: the heritage expression is an ORDINARY EXPRESSION, so
-            // the name resolves in VALUE meaning and an inner value binding
-            // SHADOWS an outer class — `class A {}` beside
-            // `namespace Foo { var A = 1; class B extends A {} }` records
-            // `>A : number` (the fixture is literally named
-            // `classExtendsClauseClassNotReferringConstructor`). Resolving
-            // with TYPE meaning skipped the shadowing binding and found the
-            // outer class. VALUE first, TYPE as the fallback so every
-            // previously-answered heritage name keeps its answer.
-            // SS195: upstream's workaround is `t = GetTypeAtLocation(EWTA)`
-            // and then **`if t == nil || IsTypeAny(t) { t = GetTypeAtLocation
-            // (node) }`** — the fallback matters. A SELF-EXTENDING class
-            // (`class A extends A {}`) has no resolvable base, so upstream
-            // falls back to the identifier's own value type and records
-            // `>A : typeof A`, while `class B extends A` records `>A : A`.
-            // Both spellings sit in `classInheritence` two lines apart. The
-            // shortcut below answers the instance type unconditionally, so
-            // declining it for self-extension lets the ordinary identifier
-            // road answer.
-            Some(Node::Identifier(name))
-                if nodes.kind(id) == SyntaxKind::Identifier
-                    && nodes
-                        .parent(clause)
-                        .and_then(|owner| map.get(owner))
-                        .and_then(|owner| match owner {
-                            Node::ClassDeclaration(class) => class.name.map(|n| n.text),
-                            Node::ClassExpression(class) => class.name.map(|n| n.text),
-                            _ => None,
-                        })
-                        .is_none_or(|owner_name| owner_name != name.text) =>
-            {
-                binder
-                    .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE)
-                    .or_else(|| {
-                        binder.resolve_name(
-                            nodes,
-                            map,
-                            id,
-                            name.text,
-                            tsr_binder::SymbolFlags::TYPE,
-                        )
-                    })
-                    // getTypeOfNode(EWTA) reads the instance base, not the
-                    // alias's value type. Resolve nongeneric CLASS targets
-                    // before the declared-type and cycle checks. A type-only
-                    // target has no constructor base; generic targets still
-                    // need argument/default validation, so keep their existing
-                    // expression fallback rather than leaking free parameters.
-                    .map(|base| {
-                        let alias = binder.symbols().get(base);
-                        // Namespace imports may denote cloned module types,
-                        // not constructors. This recovery is for import-equals.
-                        if alias.flags != SymbolFlags::ALIAS
-                            || !alias.declarations.iter().any(|&declaration| {
-                                nodes.kind(declaration) == SyntaxKind::ImportEqualsDeclaration
-                            })
-                        {
-                            return base;
-                        }
-                        checker
-                            .resolve_alias(base)
-                            .filter(|&target| {
-                                let symbol = binder.symbols().get(target);
-                                symbol.flags.contains(SymbolFlags::CLASS)
-                                    && symbol.declarations.iter().all(|&declaration| {
-                                        match map.get(declaration) {
-                                            Some(Node::ClassDeclaration(class)) => {
-                                                class.type_parameters.is_empty()
-                                            }
-                                            Some(Node::ClassExpression(class)) => {
-                                                class.type_parameters.is_empty()
-                                            }
-                                            Some(Node::InterfaceDeclaration(interface)) => {
-                                                interface.type_parameters.is_empty()
-                                            }
-                                            _ => true,
-                                        }
-                                    })
-                            })
-                            .unwrap_or(base)
-                    })
-                    // §837: decline a self-extension CYCLE at any depth, not
-                    // just the direct one this arm's name test catches.
-                    .filter(|&base| {
-                        match nodes.parent(clause).and_then(|owner| binder.symbol_of(owner)) {
-                            Some(extending) => {
-                                !heritage_reaches(binder, nodes, map, checker, base, extending)
-                            }
-                            None => true,
-                        }
-                    })
-                    // §475: `extends T` where T is a TYPE PARAMETER never
-                    // reaches this compensation — upstream's base-type
-                    // resolution fails, the writer falls back to
-                    // `GetTypeAtLocation(node)`, and the identifier road
-                    // answers TS2693's errorType, printed `any`
-                    // (`typeParameterAsBaseClass`). Declining here is what
-                    // lets the expression road answer.
-                    .filter(|&s| {
-                        !binder
-                            .symbols()
-                            .get(s)
-                            .flags
-                            .contains(tsr_binder::SymbolFlags::TYPE_PARAMETER)
-                    })
-                    .map(|s| (s, None))
-            }
-            // §60: a QUALIFIED base (`extends N.C<...>`) resolves through
-            // the namespace and prints the qualified spelling — the newly
-            // un-gated §41 road's heritage-expression twin.
-            Some(Node::PropertyAccessExpression(access)) => (|| {
-                let tsr_ast::Expression::Identifier(receiver) = access.expression? else {
-                    return None;
-                };
-                let receiver_id = receiver.node_id?;
-                let namespace = binder.resolve_name(
-                    nodes,
-                    map,
-                    receiver_id,
-                    receiver.text,
-                    tsr_binder::SymbolFlags::NAMESPACE,
-                )?;
-                // §479: the heritage expression is an ORDINARY EXPRESSION
-                // (SS194's rule, at the qualified receiver): a VALUE binding
-                // that SHADOWS the namespace is what upstream binds, so
-                // `var M1 = 0; class B extends M1.A` reads `A` off `number`,
-                // errors, and records `>M1.A : any`
-                // (`typeValueConflict1/2`'s own comment says "M1 should bind
-                // to the variable, not to the module"). A VALUE resolution
-                // reaching a DIFFERENT symbol declines the compensation and
-                // lets the expression road answer.
-                if matches!(
-                    binder.resolve_name(
-                        nodes,
-                        map,
-                        receiver_id,
-                        receiver.text,
-                        tsr_binder::SymbolFlags::VALUE,
-                    ),
-                    Some(value) if value != namespace
-                ) {
-                    return None;
-                }
-                let tsr_ast::MemberName::Identifier(member) = access.name? else { return None };
-                // §819: follow an import-equals ALIAS to the module it names.
-                // `import Backbone = require("./backbone")` binds `Backbone` to
-                // an alias symbol that carries no `exports` of its own, so the
-                // member lookup below answered `None` and the whole
-                // compensation declined — which is why the `aliasUsageIn*`
-                // family recorded `typeof Backbone.Model` where upstream
-                // records `Backbone.Model`. Every one of §60's guards below
-                // (CLASS-only, self-extension, the base's own heritage cycle)
-                // runs AFTER this lookup and is therefore unaffected by the
-                // hop: it changes which table is consulted, not which bases are
-                // admitted.
-                let namespace = checker.resolve_alias(namespace).unwrap_or(namespace);
-                let exports = &binder.symbols().get(namespace).exports;
-                let found = exports.get(member.text).copied()?;
-                // §60's two fired legs: a base that is (or merges with) the
-                // EXTENDING class itself re-enters resolution upstream
-                // detects as a cycle (`recursiveBaseCheck`,
-                // `classExtendsItselfIndirectly2`); and a VALUE-only export
-                // is not a heritage TYPE (`typeValueConflict*`). Both
-                // decline to the pre-§60 answer.
-                // CLASS only: `extends Interface` is upstream's error case
-                // (`classExtendsInterfaceInModule`) and prints error-side.
-                if !binder.symbols().get(found).flags.contains(tsr_binder::SymbolFlags::CLASS) {
-                    return None;
-                }
-                // Self-extension DIRECT or through the base's own heritage
-                // (`recursiveBaseCheck`'s A->N.B->A): decline when the found
-                // class's extends clause names the extending class back —
-                // one hop is what the corpus exercises.
-                let extending = nodes.parent(clause).and_then(|owner| binder.symbol_of(owner));
-                if extending == Some(found) {
-                    return None;
-                }
-                if let Some(base_declaration) =
-                    binder.symbols().get(found).declarations.first().copied()
-                    && let Some(Node::ClassDeclaration(base)) = map.get(base_declaration)
-                    && base.heritage_clauses.iter().any(|h| {
-                        h.types.iter().any(|e| {
-                            e.expression.and_then(|x| x.node_id()).and_then(|x| {
-                                if nodes.kind(x) == SyntaxKind::Identifier {
-                                    if let Some(Node::Identifier(n)) = map.get(x) {
-                                        return binder.resolve_name(
-                                            nodes,
-                                            map,
-                                            x,
-                                            n.text,
-                                            tsr_binder::SymbolFlags::TYPE,
-                                        );
-                                    }
-                                }
-                                None
-                            }) == extending
-                        })
-                    })
-                {
-                    return None;
-                }
-                Some((found, Some(format!("{}.{}", receiver.text, member.text))))
-            })(),
-            _ => None,
-        })
-    {
-        let (symbol, qualified_text) = symbol_and_text;
-        // With WRITTEN type arguments the heritage records the INSTANTIATED
-        // reference — `class B extends A<Base>` records `>A : A<Base>`
-        // (`subtypingWithNumericIndexer.types:50`; the `A<Base> → A<T>` W2
-        // row, ninth session). An argument that does not resolve falls
-        // through to the declared answer exactly as before — the bar's
-        // lost-leg guard (`checker-notes-jsx.md`, the ts-slice bar).
-        if let Some(Node::ExpressionWithTypeArguments(entry)) = map.get(parent)
-            && !entry.type_arguments.is_empty()
-        {
-            let mut arguments = Vec::with_capacity(entry.type_arguments.len());
-            for argument in entry.type_arguments {
-                let argument_type = checker.get_type_from_type_node(*argument);
-                if argument_type == error {
-                    arguments.clear();
-                    break;
-                }
-                arguments.push(argument_type);
-            }
-            if !arguments.is_empty() {
-                let instantiated = match &qualified_text {
-                    Some(text) => {
-                        checker.qualified_heritage_reference(text.clone(), symbol, arguments)
-                    }
-                    None => checker.create_type_reference_public(symbol, arguments),
-                };
-                if instantiated != error {
-                    return instantiated;
-                }
-            }
-        }
-        if let Some(text) = qualified_text {
-            return checker.qualified_heritage_reference(text, symbol, Vec::new());
-        }
-        let declared = checker.get_declared_type_of_symbol(symbol);
-        // Upstream's `t == nil || IsTypeAny(t)` fallback: when the base's
-        // declared type is not available, the expression's own answer is used
-        // rather than a gap being invented here.
-        if declared != error {
-            return declared;
-        }
     }
 
     // **An export-assignment's exported NAME records its declared type** —
