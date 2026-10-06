@@ -476,3 +476,10 @@ reports TS2415 instead: this port's binder names private members by their
 text, so `B.#foo: string` and `A.#foo: number` are one property to the
 relater. The fix is `getSymbolNameForPrivateIdentifier` in the binder *and*
 every private-name lookup in the members code; reported, not built.
+
+Measured and **refused** at `bfde6d8`: the same lift on the other two arms.
+The class-`extends` arm gained `tsxGenericAttributesType5`/`6` but lost
+`classFieldSuperAccessible`, `subclassUint8Array` and
+`classExtendingBuiltinType` (lib builtins such as `Uint8Array` merged across
+lib files, where the `this`-argument gap above also bites). The
+interface-`extends` arm gained nothing and added three extra TS2430 lines.
