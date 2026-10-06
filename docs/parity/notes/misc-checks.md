@@ -287,7 +287,8 @@ declines: the shared helper `check_type_name_is_reserved` returns early in a
 file with parse errors (port-local; upstream has no such gate). Removing that
 bail measured +3 cases (`enumErrors`, `reservedNamesInAliases`,
 `interfacesWithPredefinedTypesAsNames`) with no line lost; it is a shared
-helper, so it is reported to the integrator rather than changed here.
+helper, so it was reported to the integrator rather than changed here.
+Round 3 was assigned the change: the bail is removed (§18).
 
 **TS2477 / TS2478**: `computeConstantEnumMemberValue`'s const arm
 (`checker.go:24001`) reports a `const` enum member whose initializer
@@ -399,3 +400,16 @@ three wrong TS17009/TS17011 lines removed in `checkSuperCallBeforeThisAccess`
 (still owing TS2855 and the declines above); none lost. A first draft with
 the leaf rule "the leaf holds no `super()`" lost 19 lines over 11 cases
 (`super(this)` in `thisInSuperCall*`, `derivedClassSuperCallsWithThisArg`).
+
+
+## §18 TS2414/TS2427/TS2431/TS2457: reserved type names in files with parse errors
+
+`checkTypeNameIsReserved` (`checker.go:6901`) has no parse-error gate; the
+port's `check_type_name_is_reserved` returned early when the file had parse
+errors, which withheld the diagnostic from every recovery fixture. The rule
+reads only the declaration's name text, which the parser produces the same way
+in a recovered file, so there is nothing for the gate to protect. Removed.
+
+**Measured** (round 3, re-measured on the integration branch at `8b24e49`):
+`enumErrors`, `reservedNamesInAliases`, `interfacesWithPredefinedTypesAsNames`
+converted; none lost.

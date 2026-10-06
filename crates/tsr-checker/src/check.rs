@@ -8419,9 +8419,6 @@ impl Checker<'_, '_> {
         text: &str,
         message: &'static tsr_diagnostics::Message,
     ) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if !matches!(
             text,
             "any"
