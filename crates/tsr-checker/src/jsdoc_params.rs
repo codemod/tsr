@@ -557,7 +557,7 @@ impl<'a> Checker<'a, '_> {
     /// binary expression in a JS file (`ast/utilities.go:1541`): `=` with an
     /// access-expression left whose object is `this`, `module.exports`,
     /// `exports` or an entity name.
-    fn is_assignment_declaration(&self, binary: &tsr_ast::BinaryExpression<'_>) -> bool {
+    pub(crate) fn is_assignment_declaration(&self, binary: &tsr_ast::BinaryExpression<'_>) -> bool {
         if binary.operator_token.map(|t| t.kind) != Some(SyntaxKind::EqualsToken) {
             return false;
         }

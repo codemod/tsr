@@ -3263,6 +3263,13 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(expression);
                             }
                         }
+                        // The reparsed `SatisfiesExpression`'s type node
+                        // (`reparseHosted`, `parser/reparser.go:396`).
+                        JSDocTag::JSDocSatisfiesTag(satisfies) => {
+                            if let Some(expression) = satisfies.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                        }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
                             if let Some(symbol) = self.node_symbols[host.index()] {

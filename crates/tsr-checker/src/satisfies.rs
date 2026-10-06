@@ -16,7 +16,7 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The assignability check of one `expression satisfies Type`.
     pub(crate) fn check_satisfies_expression(&mut self, node: NodeId, ambient: bool) {
         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
@@ -26,6 +26,22 @@ impl Checker<'_, '_> {
         let (Some(expression), Some(annotation)) = (satisfies.expression, satisfies.r#type) else {
             return;
         };
+        let Some(expression_id) = expression.node_id() else { return };
+        let span = self.satisfies_keyword_span(node, expression_id);
+        self.check_satisfies_worker(node, expression, annotation, span);
+    }
+
+    /// `checkSatisfiesExpressionWorker` proper: `expression` against
+    /// `annotation`, the head message at `span`. Shared with a JS file's
+    /// reparsed `@satisfies` cast (`jsdoc_annotations.rs`), whose span is the
+    /// tag name.
+    pub(crate) fn check_satisfies_worker(
+        &mut self,
+        node: NodeId,
+        expression: tsr_ast::Expression<'a>,
+        annotation: tsr_ast::TypeNode<'a>,
+        span: tsr_core::Span,
+    ) {
         let Some(expression_id) = expression.node_id() else { return };
         let source = self.check_expression(expression);
         let target = self.get_type_from_type_node(annotation);
@@ -52,7 +68,6 @@ impl Checker<'_, '_> {
             self.report_first_excess_property(expression_id, target);
             return;
         }
-        let span = self.satisfies_keyword_span(node, expression_id);
         self.report_relation_failure(
             node,
             span,

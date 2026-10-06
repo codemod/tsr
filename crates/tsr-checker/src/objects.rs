@@ -1935,7 +1935,13 @@ impl Checker<'_, '_> {
         // `getPropertyTypeForIndexType`'s failure path answers `any` for
         // (`checker.go:27130` and `:27189` via `isJSLiteralType`,
         // `utilities.go:1753`). Recorded in a side table per ADR-0003.
-        if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+        // Only without a contextual type (`contextualType == nil`,
+        // `checker.go:13206`): a literal under `@type`/`@satisfies` is checked
+        // like a TypeScript one.
+        if node
+            .node_id
+            .is_some_and(|id| self.in_js_file(id) && self.get_contextual_type(id).is_none())
+        {
             self.js_literal_types.insert(minted);
         }
         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
