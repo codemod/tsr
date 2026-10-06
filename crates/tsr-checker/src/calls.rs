@@ -1718,20 +1718,6 @@ impl Checker<'_, '_> {
             if keyword.kind == tsr_ast::SyntaxKind::AnyKeyword)
     }
 
-    /// `entityNameToString` for an `EntityNameExpression` callee: an
-    /// identifier or a dotted chain of identifiers.
-    fn entity_name_expression_text(&self, node: tsr_ast::NodeId) -> Option<String> {
-        match self.node_map.get(node)? {
-            tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
-            tsr_ast::Node::PropertyAccessExpression(access) => {
-                let left = self.entity_name_expression_text(access.expression?.node_id()?)?;
-                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
-                Some(format!("{left}.{}", name.text))
-            }
-            _ => None,
-        }
-    }
-
     fn report_at_node(&mut self, node: tsr_ast::NodeId, diagnostic: Diagnostic) {
         if let Some(file) = self.source_file_of_for_diagnostics(node) {
             self.report(file, diagnostic);
@@ -1988,30 +1974,11 @@ impl Checker<'_, '_> {
         // Other targets use the existing relation answer; unsupported
         // applicability never recovers the original function's signature.
         if self.module_value_clones.contains_key(&callee_type) {
-            let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
-                return error;
+            return if self.is_assignable_to_global_function(callee_type) {
+                self.intrinsics.any
+            } else {
+                error
             };
-            if !self
-                .binder
-                .symbols()
-                .get(function)
-                .flags
-                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            {
-                return error;
-            }
-            let function = self.get_declared_type_of_symbol(function);
-            if function != error
-                && (self.is_empty_spread_object_type(function)
-                    || self.relate_ternary(
-                        callee_type,
-                        function,
-                        crate::relater::Relation::Assignable,
-                    ) == crate::relater::Ternary::Related)
-            {
-                return self.intrinsics.any;
-            }
-            return error;
         }
         // Split the largest bucket in the funnel by *why* the callee has no
         // object type. Done here rather than in `resolve_call_signature`
@@ -2036,6 +2003,10 @@ impl Checker<'_, '_> {
         // from those two adjacent upstream lines.
         if self.is_untyped_call_target(callee_type) {
             bump(&COUNTERS.untyped_call);
+            return self.intrinsics.any;
+        }
+        // isUntypedFunctionCall's third disjunct: a `Function`-typed callee.
+        if self.is_untyped_function_typed_callee(callee_type) {
             return self.intrinsics.any;
         }
         let resolved = self.resolve_call_signature_at(
@@ -2549,6 +2520,9 @@ impl Checker<'_, '_> {
         if self.is_untyped_call_target(tag_type) {
             return self.intrinsics.any;
         }
+        if self.is_untyped_function_typed_callee(tag_type) {
+            return self.intrinsics.any;
+        }
         // §914: an OVERLOADED tag is selected by ARITY, which a tagged template
         // has even though this port cannot build its argument *expressions*.
         //
@@ -2874,6 +2848,7 @@ impl Checker<'_, '_> {
                     self.signature_candidates_of_named_type(callee, SignatureKind::Call)
                 && !candidates.is_empty()
             {
+                let candidates = self.reorder_candidates(candidates);
                 let clean = Self::clean_candidate_prefix_len(&candidates);
                 if clean > 0
                     && let Some(signature) =
@@ -3046,17 +3021,18 @@ impl Checker<'_, '_> {
         {
             return Some(picked);
         }
-        self.choose_overload(candidates, arguments, has_type_arguments, call)
+        self.choose_ordered_overload(candidates, arguments, has_type_arguments, call)
     }
 
     /// The first candidate every argument is assignable to, or `None`.
     ///
     /// Ported from `Checker.chooseOverload` (`checker.go:9025`), which walks the
-    /// candidate list in declaration order, keeps the ones `hasCorrectArity`
+    /// candidate list in `reorderCandidates` order, keeps the ones `hasCorrectArity`
     /// (`checker.go:9107`) admits, and returns the first whose parameters every
-    /// argument satisfies under the assignable relation. Declaration order is
-    /// load-bearing — it is the whole tie-break — and
-    /// [`Checker::get_signatures_of_symbol`] preserves it.
+    /// argument satisfies under the assignable relation. Order is
+    /// load-bearing — it is the whole tie-break — so this entry applies
+    /// [`Checker::reorder_candidates`] to the declaration-order list
+    /// [`Checker::get_signatures_of_symbol`] produces.
     ///
     /// # What is reduced away, each answering `None` so the call is `errorType`
     ///
@@ -3080,6 +3056,25 @@ impl Checker<'_, '_> {
     ///   without it, taking the first is a guess. Where every match returns the
     ///   *same* type the pass could not have changed the answer, so it is taken.
     pub(crate) fn choose_overload(
+        &mut self,
+        candidates: &[Signature],
+        arguments: &[Expression<'_>],
+        has_type_arguments: bool,
+        call: Option<tsr_ast::NodeId>,
+    ) -> Option<Signature> {
+        // `resolveCall` reorders once before any pass (`checker.go:8843` ->
+        // `reorderCandidates`, `:8957`); every first-match walk below assumes
+        // that order. Construct candidates arrive reordered and enter at
+        // `choose_ordered_overload` directly — the reorder is not idempotent
+        // (a second pass splices merged groups back).
+        if candidates.len() > 1 {
+            let reordered = self.reorder_candidates(candidates.to_vec());
+            return self.choose_ordered_overload(&reordered, arguments, has_type_arguments, call);
+        }
+        self.choose_ordered_overload(candidates, arguments, has_type_arguments, call)
+    }
+
+    fn choose_ordered_overload(
         &mut self,
         candidates: &[Signature],
         arguments: &[Expression<'_>],
@@ -3131,7 +3126,15 @@ impl Checker<'_, '_> {
                 // `compiler/functionOverloads`). A born-single candidate
                 // keeps the unguarded return; an UNDECIDABLE pair keeps the
                 // survivor, which is this path's pre-§359 behaviour.
-                if candidates.len() > 1 {
+                // A GENERIC survivor is not argument-checked here: upstream
+                // infers before `isSignatureApplicable` (`chooseOverload`,
+                // `checker.go:9040-9080`), and relating arguments to its
+                // uninstantiated parameters answered NotRelated for
+                // `proxy<T, U>(fn: (options: T) => U)` given `oneArg`, which
+                // then fell to the order-sensitive longest-candidate pick.
+                // It flows to the caller's `check_generic_call` like a single
+                // generic does. `docs/parity/notes/calls-inference.md` §3.
+                if candidates.len() > 1 && survivor.type_parameters.is_empty() {
                     let mut verdict = Ternary::Related;
                     for (index, &argument) in arguments.iter().enumerate() {
                         let Some(parameter) = survivor.parameters.get(index) else { break };
@@ -3463,6 +3466,57 @@ impl Checker<'_, '_> {
             && self.store.get(callee_type).flags.intersects(TypeFlags::ANY)
     }
 
+    /// `isUntypedFunctionCall`'s third disjunct (`checker.go:9936`): a callee
+    /// whose apparent type is not a union, does not reduce to `never`, has
+    /// **no** call and **no** construct signatures, and is assignable to the
+    /// global `Function` interface — a value typed `Function` — is an untyped
+    /// call answering `any`.
+    ///
+    /// Both signature lists must come from a complete query: an unresolved
+    /// list (`None`) is not "zero", so the arm declines rather than reading an
+    /// incomplete list as empty.
+    pub(crate) fn is_untyped_function_typed_callee(&mut self, callee_type: TypeId) -> bool {
+        let apparent = self.apparent_type(callee_type);
+        let flags = self.store.get(apparent).flags;
+        if flags.intersects(TypeFlags::UNION | TypeFlags::NEVER | TypeFlags::ANY)
+            || self.intersection_has_never_discriminant(apparent)
+        {
+            return false;
+        }
+        if !self
+            .signatures_of_type_kind(apparent, SignatureKind::Call)
+            .is_some_and(|s| s.is_empty())
+            || !self
+                .signatures_of_type_kind(apparent, SignatureKind::Construct)
+                .is_some_and(|s| s.is_empty())
+        {
+            return false;
+        }
+        self.is_assignable_to_global_function(callee_type)
+    }
+
+    /// `isTypeAssignableTo(t, globalFunctionType)`, declining (false) when the
+    /// global `Function` interface is missing or unreadable.
+    fn is_assignable_to_global_function(&mut self, ty: TypeId) -> bool {
+        let Some(function) = self.global_type_symbol_with_arity("Function", 0) else {
+            return false;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(function)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return false;
+        }
+        let function = self.get_declared_type_of_symbol(function);
+        function != self.intrinsics.error
+            && (self.is_empty_spread_object_type(function)
+                || self.relate_ternary(ty, function, crate::relater::Relation::Assignable)
+                    == crate::relater::Ternary::Related)
+    }
+
     /// Whether the callee's `any` was **written** in the source, rather than
     /// produced by an unported mechanism. See [`Checker::is_untyped_call_target`].
     ///
@@ -3674,23 +3728,13 @@ impl Checker<'_, '_> {
         clean_len: usize,
         arguments: &[Expression<'_>],
     ) -> SubtypePassOutcome {
-        // Upstream REORDERS candidates before any pass — `reorderCandidates`
-        // (`checker.go:8957`) splices every specialized signature (one with a
-        // literal-typed parameter, GH#1133) ahead of the non-specialized
-        // ones. This port keeps declaration order, so a first-match walk is
-        // only sound when the set — the WHOLE set, tail included, since the
-        // splice hoists from anywhere — holds no specialized candidate:
-        // `inheritedOverloadedSpecializedSignatures` lost a passing
-        // diagnostics case to exactly this before the guard (the pick took a
-        // general overload upstream had spliced behind `(x: 'B1')`).
-        // signatureHasLiteralTypes is set from literal type syntax, not
-        // semantic flags: an enum-member reference is not specialized.
-        if candidates
-            .iter()
-            .any(|candidate| self.signature_has_literal_types(candidate.declaration))
-        {
-            return SubtypePassOutcome::Undecidable;
-        }
+        // Callers pass candidates in `reorderCandidates` order
+        // (`checker.go:8957`, [`Checker::reorder_candidates`]): specialized
+        // (literal-typed) signatures first, later merged declaration groups
+        // ahead of earlier ones. So the first-match walk here is upstream's,
+        // and the old declaration-order guard that declined every set with a
+        // specialized candidate is gone (`docs/parity/notes/calls-inference.md`
+        // §3).
         let prefix = &candidates[..clean_len];
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {

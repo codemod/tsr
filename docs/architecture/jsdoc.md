@@ -79,24 +79,30 @@ Leading `*` is suppressed for the duration, via a *counter*
 whose decoration is not part of it. A counter rather than a flag because the
 regions nest.
 
-## Diagnostics are discarded
+## Diagnostics are set aside, and reported only for checked JavaScript
 
-Everything the parser objects to inside a comment is dropped:
+*Corrected 2026-10-05 (`tsr-2zk.5`): this section used to say the diagnostics
+were dropped with `self.diagnostics.truncate(saved_diagnostics)`, because
+nothing consumed upstream's separate list. They are now collected.*
+
+Everything the parser objects to inside a comment is moved out of the file's
+parse diagnostics into `JSDocTable::diagnostics` — upstream's
+`SourceFile.JSDocDiagnostics()`:
 
 ```rust
-self.diagnostics.truncate(saved_diagnostics);
+self.jsdoc_diagnostics.extend(self.diagnostics.drain(saved_diagnostics..));
 ```
 
 In a `.ts` file the comment is not part of the program's syntax, so reporting on
-its contents would turn a malformed comment into a compile error. Upstream routes
-them into a separate `jsdocDiagnostics` list consumed only for `.js` files; we have
-no consumer for that list yet, so they are dropped rather than collected. When the
-`.js` path arrives, they should be collected instead of discarded — that is the
-same line of code either way.
+its contents would turn a malformed comment into a compile error. Upstream keeps
+the list only for `.js` files and reports it only when checkJs is on
+(`program.go:1366`). This parser has no JavaScript script kind, so it collects
+the list for every file and `bind_and_check_diagnostics` (tsr-compiler) applies
+upstream's gate. Reasoning, the grammar fixes surfacing required, and what is
+still deferred: [lane notes §1](../parity/notes/js.md).
 
-The cost of this is that JSDoc bugs are silent, which is exactly how the off-by-one
-above survived. Tests here must assert against the parsed tree, not against the
-absence of diagnostics.
+The off-by-one above survived because the diagnostics were discarded; tests here
+must still assert against the parsed tree, since a `.ts` file never reports them.
 
 ## Attachment
 
@@ -189,8 +195,12 @@ be asserting documentation rather than behaviour. The test says so explicitly.
   **`@overload`** still parses flat — its reparse is an overload declaration
   of the host function, which needs the checker's overload-signature arm
   before its children can move into it.
-- **JSDoc-only type syntax**: `*` (`JSDocAllType`), `?T`, `!T`, `T=`, `...T`. These
-  are `.js` conveniences; the nodes are generated and unused.
+- ~~**JSDoc-only type syntax**: `*` (`JSDocAllType`), `?T`, `!T`, `T=`, `...T`. These
+  are `.js` conveniences; the nodes are generated and unused.~~ **BUILT
+  (`tsr-2zk.5`)**: `*`, `*=`, `?T`, `??T`, `!T`, postfix `T!`/`T?` and
+  `Object.<K, V>` parse as upstream's type grammar does, in every file
+  ([lane notes §1](../parity/notes/js.md)); `T=` and `...T` were already built
+  inside `{…}`. Not built: the checker's `TS8020` for these outside a comment.
 
 ## What to check when it breaks
 

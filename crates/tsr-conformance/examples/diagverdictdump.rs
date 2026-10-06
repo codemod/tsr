@@ -18,8 +18,18 @@ fn main() {
         .build_global()
         .expect("sizing the corpus thread pool");
     let cases = Corpus::from_repo_root(&repo_root()).discover().expect("corpus");
+    // `TSR_FILTER` (comma-separated case-name substrings), as `verdictdump`
+    // takes it, for the inner loop; scoring runs stay unfiltered.
+    let filter: Option<Vec<String>> = std::env::var("TSR_FILTER").ok().map(|value| {
+        value.split(',').filter(|part| !part.is_empty()).map(str::to_string).collect()
+    });
     let mut rows: Vec<_> = cases
         .par_iter()
+        .filter(|case| {
+            filter
+                .as_ref()
+                .is_none_or(|parts| parts.iter().any(|part| case.name.contains(part.as_str())))
+        })
         .filter(|case| {
             !case.has_varied_errors() && !case.has_known_divergence() && case.has_any_baseline()
         })

@@ -42,9 +42,20 @@
 //! `ReturnStatement` one, corrected in the same build.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{check::has_modifier, checker::Checker};
+use crate::{check::has_modifier, checker::Checker, contextual::ContextualSignature};
+
+/// See [`Checker::implicit_any_parameter_owner`].
+enum ParameterOwner {
+    /// Parameters are never contextually typed.
+    Uncontextual,
+    /// Each parameter asks the function's context.
+    Contextual,
+    /// Not a parameter owner this rule walks.
+    Other,
+}
 
 impl Checker<'_, '_> {
     /// Does the enclosing class's constructor assign `this.<name>`? §796.
@@ -63,6 +74,28 @@ impl Checker<'_, '_> {
                 .body
                 .and_then(|body| body.node_id())
                 .is_some_and(|body| self.subtree_assigns_this_member(body, text, 0))
+        })
+    }
+
+    /// Does a class static block assign `this.<name>`?
+    ///
+    /// `getFlowTypeInStaticBlocks` (`flow.go:2488`) — the static twin of
+    /// [`Checker::constructor_assigns_this_member`], reached from the static
+    /// arm of `getTypeForVariableLikeDeclaration` (`checker.go:16768`). In a
+    /// static block `this` is the class, so `static x; static { this.x = 1 }`
+    /// types `x` (`classStaticBlockUseBeforeDef1`).
+    fn static_block_assigns_this_member(&mut self, member: NodeId, text: &str) -> bool {
+        let Some(class) = self.nodes.parent(member) else { return false };
+        let members = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            _ => return false,
+        };
+        members.iter().any(|each| {
+            let tsr_ast::ClassElement::ClassStaticBlockDeclaration(block) = each else {
+                return false;
+            };
+            block.node_id.is_some_and(|block| self.subtree_assigns_this_member(block, text, 0))
         })
     }
 
@@ -91,11 +124,19 @@ impl Checker<'_, '_> {
         // answer.** `ambient` is *is it ambient*; upstream exempts *ambient
         // **and** private*. §582 fixed the identical defect in the parameter
         // rule and this comment used to assert the guard was sufficient. §664.
+        // `IsPrivateIdentifierClassElementDeclaration` is the other half of
+        // `isPrivateWithinAmbient` (`utilities.go:343`): `declare class A {
+        // #prop; }` is private without the keyword
+        // (`privateNameAmbientNoImplicitAny`).
         let is_private =
             self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|m| {
                 tsr_ast::has_syntactic_modifier(m, tsr_ast::SyntaxKind::PrivateKeyword)
-            });
-        if !self.no_implicit_any || self.file_has_parse_errors || (ambient && is_private) {
+            }) || matches!(
+                self.node_map.get(node),
+                Some(Node::PropertyDeclaration(property))
+                    if matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+            );
+        if !self.no_implicit_any || (ambient && is_private) {
             return;
         }
         if self.in_js_file(node) {
@@ -141,6 +182,9 @@ impl Checker<'_, '_> {
         if !is_static && self.constructor_assigns_this_member(node, text) {
             return;
         }
+        if is_static && self.static_block_assigns_this_member(node, text) {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(
@@ -160,12 +204,14 @@ impl Checker<'_, '_> {
             self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
                 tsr_ast::has_syntactic_modifier(modifiers, tsr_ast::SyntaxKind::PrivateKeyword)
             });
-        if !self.no_implicit_any || self.file_has_parse_errors {
+        if !self.no_implicit_any {
             return;
         }
-        if !self.parameters_cannot_be_contextually_typed(node) {
-            return;
-        }
+        let contextual = match self.implicit_any_parameter_owner(node) {
+            ParameterOwner::Uncontextual => false,
+            ParameterOwner::Contextual => true,
+            ParameterOwner::Other => return,
+        };
         // `reportImplicitAny` (`checker.go:18276`) already declines a `.js` file
         // without `checkJs`; this declines **every** `.js` file, and the reason
         // is JSDoc. A `@param {string} x` supplies the type upstream reads and
@@ -177,11 +223,14 @@ impl Checker<'_, '_> {
             return;
         }
         let parameters: Vec<NodeId> = self.implicit_any_candidates(node);
-        for parameter in parameters {
+        for (index, parameter) in parameters.into_iter().enumerate() {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
             if declaration.r#type.is_some() || declaration.initializer.is_some() {
+                continue;
+            }
+            if contextual && !self.contextual_parameter_type_is_absent(node, parameter) {
                 continue;
             }
             // A binding pattern parameter reports TS7031 **per element**, at
@@ -219,16 +268,31 @@ impl Checker<'_, '_> {
                 continue;
             }
             let rest = declaration.dot_dot_dot_token.is_some();
-            let message = if rest {
-                &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE
-            } else {
-                &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE
-            };
             let Some(file) = self.source_file_of_for_diagnostics(parameter) else { continue };
             // The position is the **parameter declaration**, modifiers included:
             // `ParameterList4.ts(1,12)` for `function F(public A)` is the
             // `public`, not the `A`.
             let span = self.error_span(parameter);
+            if self.parameter_name_is_probably_a_type(node, parameter, name.text) {
+                // TS7051 — `reportImplicitAny`'s parameter arm
+                // (`checker.go:18290`): the name is spelled like a type, so the
+                // author most likely wrote `(string) => void` meaning a type.
+                let type_name = format!("{}{}", name.text, if rest { "[]" } else { "" });
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::PARAMETER_HAS_A_NAME_BUT_NO_TYPE_DID_YOU_MEAN_0_COLON_1,
+                        span,
+                        [format!("arg{index}"), type_name],
+                    ),
+                );
+                continue;
+            }
+            let message = if rest {
+                &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE
+            } else {
+                &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE
+            };
             let text = name.text.to_string();
             let diagnostic = if rest {
                 Diagnostic::with_args(message, span, [text])
@@ -239,24 +303,66 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// Can this declaration's parameters get their types from a contextual
-    /// signature?
+    /// The TS7051 condition of `reportImplicitAny`'s parameter arm
+    /// (`checker.go:18290`): the parameter belongs to a call signature, a
+    /// method signature or a function type, and its name is either a
+    /// type keyword (`ast.IsTypeNodeKind(scanner.IdentifierToKeywordKind(name))`)
+    /// or resolves with the `Type` meaning from the parameter
+    /// (`resolveName(declaration, name, SymbolFlagsType, …, excludeGlobals=false)`).
     ///
-    /// `getContextualSignatureForFunctionLikeDeclaration` (`checker.go:20464`)
-    /// answers for the shapes that *can*; the shapes below are the ones for
-    /// which it structurally cannot, and they are the whole of what this rule
-    /// admits.
+    /// A construct signature and a constructor type are deliberately absent:
+    /// upstream's kind test names exactly the three kinds above.
+    fn parameter_name_is_probably_a_type(
+        &self,
+        owner: NodeId,
+        parameter: NodeId,
+        name: &str,
+    ) -> bool {
+        if !matches!(
+            self.nodes.kind(owner),
+            SyntaxKind::CallSignature | SyntaxKind::MethodSignature | SyntaxKind::FunctionType
+        ) {
+            return false;
+        }
+        // `IsTypeNodeKind` also admits the type-node range and the JSDoc type
+        // kinds; `IdentifierToKeywordKind` can only answer a keyword, so the
+        // keyword list is the whole of what can match here.
+        let keyword_is_a_type = tsr_scanner::keyword_kind(name).is_some_and(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::AnyKeyword
+                    | SyntaxKind::UnknownKeyword
+                    | SyntaxKind::NumberKeyword
+                    | SyntaxKind::BigIntKeyword
+                    | SyntaxKind::ObjectKeyword
+                    | SyntaxKind::BooleanKeyword
+                    | SyntaxKind::StringKeyword
+                    | SyntaxKind::SymbolKeyword
+                    | SyntaxKind::VoidKeyword
+                    | SyntaxKind::UndefinedKeyword
+                    | SyntaxKind::NeverKeyword
+                    | SyntaxKind::IntrinsicKeyword
+            )
+        });
+        keyword_is_a_type
+            || self
+                .binder
+                .resolve_name(self.nodes, self.node_map, parameter, name, SymbolFlags::TYPE)
+                .is_some()
+    }
+
+    /// Which road a declaration's unannotated parameters take to their type.
     ///
-    /// A method written inside an **object literal** is contextually typed by
-    /// the literal's contextual type, so it is excluded even though it shares a
-    /// node kind with a class method. An accessor is excluded because a `set`
-    /// accessor's parameter type comes from its `get` counterpart.
-    fn parameters_cannot_be_contextually_typed(&self, node: NodeId) -> bool {
+    /// `getContextuallyTypedParameterType` (`checker.go:29458`) answers nil
+    /// outright unless the function is
+    /// `isContextSensitiveFunctionOrObjectLiteralMethod` — a function
+    /// expression, an arrow, or an object-literal method. Every other
+    /// function-like's unannotated parameter falls straight to the implicit
+    /// `any` of `widenTypeForVariableLikeDeclaration` (`checker.go:18264`).
+    /// The three context-sensitive forms ask the context, per parameter:
+    /// [`Checker::contextual_parameter_type_is_absent`].
+    fn implicit_any_parameter_owner(&self, node: NodeId) -> ParameterOwner {
         match self.node_map.get(node) {
-            // §333 — a *signature*'s parameters are declarations, not
-            // expressions, so nothing can supply them a contextual type. The
-            // kinds this predicate knew all have **bodies**; the signatures do
-            // not, and they answer the same way a function declaration does.
             Some(
                 Node::FunctionDeclaration(_)
                 | Node::ConstructorDeclaration(_)
@@ -265,38 +371,149 @@ impl Checker<'_, '_> {
                 | Node::CallSignatureDeclaration(_)
                 | Node::ConstructSignatureDeclaration(_)
                 | Node::MethodSignatureDeclaration(_),
-            ) => true,
-            Some(Node::MethodDeclaration(_)) => self.nodes.parent(node).is_some_and(|parent| {
-                self.nodes.kind(parent) != SyntaxKind::ObjectLiteralExpression
-            }),
-            // A function expression or arrow **can** be contextually typed, so
-            // it is admitted only in the two positions where nothing can supply
-            // a signature: an initialiser with no annotation on the variable,
-            // and a bare expression statement. Every other position — an
-            // argument, an annotated declaration, a property assignment, a
-            // return, a JSX attribute, an `as` — has a contextual type this port
-            // computes only partially, and that partiality is a *wrong* TS7006.
-            Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => {
-                match self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)) {
-                    Some(Node::VariableDeclaration(declaration)) => declaration.r#type.is_none(),
-                    Some(Node::ExpressionStatement(_)) => true,
-                    // A `return` was admitted unconditionally on the theory
-                    // that nothing there supplies a signature. **The enclosing
-                    // function's written return-type annotation does** —
-                    // `function <T>(…): React.StatelessComponent<T> { return
-                    // (props) => … }` contextually types `props`, and
-                    // `tsxGenericAttributesType1` was 3 of §80's wrong lines.
-                    // Only a return inside a function with no return annotation
-                    // is uncontextual.
-                    Some(Node::ReturnStatement(_)) => {
-                        !self.enclosing_function_has_a_return_annotation(node)
-                    }
-                    Some(Node::PropertyDeclaration(property)) => property.r#type.is_none(),
-                    _ => false,
+            ) => ParameterOwner::Uncontextual,
+            Some(Node::MethodDeclaration(_)) => {
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                }) {
+                    ParameterOwner::Contextual
+                } else {
+                    ParameterOwner::Uncontextual
                 }
             }
-            _ => false,
+            Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => {
+                ParameterOwner::Contextual
+            }
+            _ => ParameterOwner::Other,
         }
+    }
+
+    /// Does `getTypeForVariableLikeDeclaration` (`checker.go:16652`) answer nil
+    /// for this unannotated, initializer-less parameter of a context-sensitive
+    /// function — i.e. does `getContextuallyTypedParameterType`
+    /// (`checker.go:29458`) answer nil?
+    ///
+    /// Upstream's nil has three sources, and each is asked here of the data
+    /// upstream reads, never of the syntax around the function:
+    ///
+    /// 1. `getContextualSignature` is nil because the function has **no
+    ///    contextual type** — [`Checker::has_no_contextual_type`], the walk
+    ///    over `getContextualType`'s nil-answering arms;
+    /// 2. it is nil because the contextual type has **no usable signature**
+    ///    (none, or a union whose members' signatures differ) —
+    ///    [`ContextualSignature::Absent`];
+    /// 3. the signature is present but **too short**: `tryGetTypeAtPosition`
+    ///    answers nil past the last parameter when there is no rest.
+    ///
+    /// A port answer of "unknown" (the contextual machinery returns its outer
+    /// `None`) is not upstream's nil and reports nothing. That decline is a
+    /// gap in `crate::contextual`, recorded in
+    /// `docs/parity/notes/implicit-any-widening.md` §3, not a judgement that
+    /// the parameter is typed.
+    fn contextual_parameter_type_is_absent(&mut self, function: NodeId, parameter: NodeId) -> bool {
+        // The IIFE arm (`checker.go:29463`) answers from the call's arguments
+        // before any contextual signature is consulted; whatever the port
+        // answers there, it is not `getContextualSignature`'s nil.
+        if self.immediately_invoked_call(function).is_some() {
+            return false;
+        }
+        // Asked FIRST, in upstream's order: with no contextual type,
+        // `getContextualSignature` is nil and so is the parameter's contextual
+        // type, whatever this port's contextual machinery would answer.
+        if self.has_no_contextual_type(function) {
+            return !self.returned_from_an_iife(function);
+        }
+        if self.retained_return_position_report(function) {
+            return true;
+        }
+        if self.get_contextually_typed_parameter_type(parameter).is_some() {
+            return false;
+        }
+        // `ContextualSignature::Absent` is NOT trusted as upstream's nil: it
+        // lost twelve right cases when admitted (§3), so only the present,
+        // too-short signature is read.
+        let Some(ContextualSignature::Present(signature)) =
+            self.contextual_signature_result(function)
+        else {
+            return false;
+        };
+        // `slices.Index(fn.Parameters(), parameter)`, less one for a `this`
+        // parameter (`checker.go:29489`).
+        let parameters = self.implicit_any_candidates(function);
+        let Some(mut index) = parameters.iter().position(|&each| each == parameter) else {
+            return false;
+        };
+        if parameters.first().is_some_and(|&first| self.is_this_parameter_node(first)) {
+            index -= 1;
+        }
+        // An own rest parameter reads `getRestTypeAtPosition`, which always
+        // answers.
+        let own_rest = matches!(
+            self.node_map.get(parameter),
+            Some(Node::ParameterDeclaration(declaration)) if declaration.dot_dot_dot_token.is_some()
+        );
+        !own_rest && self.signature_type_at_position(&signature, index).is_none()
+    }
+
+    /// Is `function` inside the return expression of an immediately invoked
+    /// function?
+    ///
+    /// `getContextualReturnType` (`checker.go:29665`) ends with
+    /// `if iife != nil { return c.getContextualType(iife, contextFlags) }`:
+    /// a `return` inside an IIFE is contextually typed by the IIFE call's own
+    /// context. [`Checker::has_no_contextual_type`]'s `ReturnStatement` arm
+    /// stops at the owner's position instead (the owner is the call's callee,
+    /// which has no context), so it answers "no context" where upstream may
+    /// have one — `contextualReturnTypeOfIIFE3`, where
+    /// `app.foo.bar = (function () { return { someFun(arg) {} }; })()` types
+    /// `arg` from `app.foo.bar`. Until that arm is ported there, the absence
+    /// proof is declined for every function under a return of an IIFE. The
+    /// test is wider than the climb (it does not stop where the climb would),
+    /// which can only withhold a report, never add one.
+    fn returned_from_an_iife(&self, function: NodeId) -> bool {
+        self.nodes.ancestors(function).any(|ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::ReturnStatement
+                && self
+                    .containing_function(ancestor)
+                    .is_some_and(|owner| self.immediately_invoked_call(owner).is_some())
+        })
+    }
+
+    /// **Retained, not ported** — the `ReturnStatement` arm of the allow-list
+    /// this rule used before it asked the context (§3).
+    ///
+    /// It reports a function returned from a function with no return-type
+    /// annotation. Upstream's reason is different: the owner's contextual
+    /// signature yields no contextual signature for the returned function. In
+    /// `subtypeReductionWithAnyFunctionType` (`return x => x.length > 0` inside
+    /// the argument of `useMemo<T>(func: () => T)`) tsgo has none, while
+    /// `get_contextually_typed_parameter_type` answers `any` — a producer
+    /// defect in `crate::contextual` (tsr-2zk.31), and dropping this arm loses
+    /// that RIGHT case. The arm stays until that producer is fixed; it is
+    /// also what keeps five lane cases' TS7006 extra (§3 lists them).
+    fn retained_return_position_report(&self, function: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(function) else { return false };
+        self.nodes.kind(parent) == SyntaxKind::ReturnStatement
+            && !self
+                .nodes
+                .ancestors(function)
+                .find_map(|ancestor| match self.node_map.get(ancestor) {
+                    Some(Node::FunctionDeclaration(n)) => Some(n.r#type.is_some()),
+                    Some(Node::FunctionExpression(n)) => Some(n.r#type.is_some()),
+                    Some(Node::ArrowFunction(n)) => Some(n.r#type.is_some()),
+                    Some(Node::MethodDeclaration(n)) => Some(n.r#type.is_some()),
+                    Some(Node::GetAccessorDeclaration(n)) => Some(n.r#type.is_some()),
+                    _ => None,
+                })
+                .unwrap_or(false)
+    }
+
+    fn is_this_parameter_node(&self, parameter: NodeId) -> bool {
+        matches!(
+            self.node_map.get(parameter),
+            Some(Node::ParameterDeclaration(declaration))
+                if matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        )
     }
 
     /// TS7010 — `'{0}', which lacks return-type annotation, implicitly has an
@@ -321,9 +538,8 @@ impl Checker<'_, '_> {
     ///
     /// # No contextual-typing question, unlike the arm beside it
     ///
-    /// [`Checker::parameters_cannot_be_contextually_typed`] is a fenced
-    /// allow-list because a contextual signature can supply a *parameter's*
-    /// type. A **bodiless** declaration has no inferred return type for anything
+    /// [`Checker::contextual_parameter_type_is_absent`] asks the context
+    /// because a contextual signature can supply a *parameter's* type. A **bodiless** declaration has no inferred return type for anything
     /// to supply: upstream reaches `reportImplicitAny` at this site with no
     /// `shouldReportErrorsFromWideningWithContextualSignature` in the path. This
     /// arm is simpler than its neighbour, which is worth saying because the
@@ -343,7 +559,7 @@ impl Checker<'_, '_> {
     /// own code, in their own function, and neither is the function-expression
     /// form `check_implicit_any_return`'s closing comment names. §438.
     pub(crate) fn check_implicit_any_signature_return(&mut self, node: NodeId, ambient: bool) {
-        if ambient || !self.no_implicit_any || self.file_has_parse_errors {
+        if ambient || !self.no_implicit_any {
             return;
         }
         if self.in_js_file(node) {
@@ -369,7 +585,7 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_implicit_any_return(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+        if !self.no_implicit_any || self.in_js_file(node) {
             return;
         }
         let private_name = |name: tsr_ast::PropertyName<'_>| {
@@ -451,31 +667,9 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// Does the function-like enclosing this node write a return-type
-    /// annotation?
-    ///
-    /// `getContextualReturnType` (`checker.go:20315`) reads exactly that
-    /// annotation, so its presence is what makes a `return`'s expression a
-    /// contextually typed position — see
-    /// [`Checker::parameters_cannot_be_contextually_typed`]'s `ReturnStatement`
-    /// arm.
-    fn enclosing_function_has_a_return_annotation(&self, node: NodeId) -> bool {
-        self.nodes
-            .ancestors(node)
-            .find_map(|ancestor| match self.node_map.get(ancestor) {
-                Some(Node::FunctionDeclaration(n)) => Some(n.r#type.is_some()),
-                Some(Node::FunctionExpression(n)) => Some(n.r#type.is_some()),
-                Some(Node::ArrowFunction(n)) => Some(n.r#type.is_some()),
-                Some(Node::MethodDeclaration(n)) => Some(n.r#type.is_some()),
-                Some(Node::GetAccessorDeclaration(n)) => Some(n.r#type.is_some()),
-                _ => None,
-            })
-            .unwrap_or(false)
-    }
-
     /// TS7031 for a `var`/`let`/`const` whose name is a binding pattern. §730.
     pub(crate) fn check_implicit_any_binding_pattern(&mut self, node: NodeId) {
-        if !self.no_implicit_any || self.file_has_parse_errors {
+        if !self.no_implicit_any {
             return;
         }
         self.report_binding_pattern_elements(node);
@@ -584,7 +778,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §978.
     pub(crate) fn check_implicit_any_variable(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+        if !self.no_implicit_any || self.in_js_file(node) {
             return;
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };

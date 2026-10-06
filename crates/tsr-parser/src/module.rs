@@ -39,8 +39,20 @@ impl<'a> Parser<'a> {
         let phase = if has_phase { Some(self.take_token()) } else { None };
         let is_type_only = phase.is_some_and(|phase| phase.kind == SyntaxKind::TypeKeyword);
 
-        // `import x = require("m")` and `import x = A.B`.
-        if self.at_binding_identifier() && self.next_is_equals() {
+        // `import x = require("m")` and `import x = A.B`. Upstream decides on
+        // the token *after* the identifier: anything but `,` or `from`
+        // (`tokenAfterImportedIdentifierDefinitelyProducesImportDeclaration`)
+        // makes an import-equals declaration, which then expects its `=`
+        // (`parseImportDeclarationOrImportEqualsDeclaration`, `parser.go:2263`;
+        // not after `defer`). `import abstract class D {}` is TS1005 `'='
+        // expected` there, with an entity-name reference, not an import clause
+        // whose specifier is a class expression.
+        let is_defer = phase.is_some_and(|phase| phase.kind == SyntaxKind::DeferKeyword);
+        if self.at_binding_identifier()
+            && !is_defer
+            && self
+                .peek_kind(|kind| !matches!(kind, SyntaxKind::CommaToken | SyntaxKind::FromKeyword))
+        {
             let name = self.parse_identifier();
             self.expect(SyntaxKind::EqualsToken);
             let reference = self.parse_module_reference();
@@ -225,7 +237,11 @@ impl<'a> Parser<'a> {
     /// `require("m")` or a dotted entity name.
     fn parse_module_reference(&mut self) -> ModuleReference<'a> {
         let start = self.pos();
-        if self.at(SyntaxKind::RequireKeyword) {
+        // `parseModuleReference` (`parser.go:2303`): `require` names an
+        // external module only when `(` follows.
+        if self.at(SyntaxKind::RequireKeyword)
+            && self.peek_kind(|kind| kind == SyntaxKind::OpenParenToken)
+        {
             self.next_token();
             self.expect(SyntaxKind::OpenParenToken);
             let specifier = self.parse_module_specifier();
@@ -237,7 +253,23 @@ impl<'a> Parser<'a> {
             );
             return ModuleReference::ExternalModuleReference(node);
         }
-        ModuleReference::from(self.parse_entity_name())
+        // `parseEntityName(allowReservedWords: false)`: a reserved word is not
+        // a name here (`import x = class` reports at `class` and leaves the
+        // class to the next statement), unlike a type reference's entity name.
+        let mut name = tsr_ast::EntityName::Identifier(self.parse_identifier());
+        while self.eat(SyntaxKind::DotToken) {
+            if self.at(SyntaxKind::LessThanToken) {
+                break;
+            }
+            let right = self.parse_right_side_of_dot_identifier();
+            let node = self.finish_node(
+                tsr_ast::QualifiedName::new(Some(name), Some(right)),
+                SyntaxKind::QualifiedName,
+                start,
+            );
+            name = tsr_ast::EntityName::QualifiedName(node);
+        }
+        ModuleReference::from(name)
     }
 
     /// `export …` in all its forms.
@@ -695,9 +727,5 @@ impl<'a> Parser<'a> {
         self.peek_kind(|kind| {
             matches!(kind, SyntaxKind::OpenBraceToken | SyntaxKind::AsteriskToken)
         })
-    }
-
-    fn next_is_equals(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::EqualsToken)
     }
 }

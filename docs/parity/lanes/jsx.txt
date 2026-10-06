@@ -1,4 +1,4 @@
-# lane jsx (tsr-2zk.8): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane jsx (tsr-2zk.8): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 conformance/checkJsxChildrenCanBeTupleType	TD
 conformance/checkJsxChildrenProperty12	T
 conformance/checkJsxChildrenProperty13	TD
@@ -14,8 +14,6 @@ conformance/checkJsxIntersectionElementPropsType	T
 conformance/checkJsxNamespaceNamesQuestionableForms	D
 conformance/checkJsxSubtleSkipContextSensitiveBug	T
 conformance/checkJsxUnionSFXContextualTypeInferredCorrectly	T
-conformance/correctlyMarkAliasAsReferences1	D
-conformance/correctlyMarkAliasAsReferences3	D
 conformance/inlineJsxAndJsxFragPragma	D
 conformance/inlineJsxAndJsxFragPragmaOverridesCompilerOptions	T
 conformance/inlineJsxFactoryDeclarationsLocalTypes	TD
@@ -27,7 +25,6 @@ conformance/jsxEsprimaFbTestSuite	D
 conformance/jsxInvalidEsprimaTestSuite	TD
 conformance/jsxParsingError1	D
 conformance/jsxParsingError2	D
-conformance/jsxParsingError3	D
 conformance/jsxParsingErrorImmediateSpreadInAttributeValue	D
 conformance/jsxReactTestSuite	D
 conformance/jsxSpreadOverwritesAttributeStrict	D
@@ -42,7 +39,6 @@ conformance/tsxAttributeResolution14	D
 conformance/tsxAttributeResolution15	TD
 conformance/tsxAttributeResolution2	TD
 conformance/tsxAttributeResolution3	D
-conformance/tsxAttributeResolution4	D
 conformance/tsxAttributeResolution5	D
 conformance/tsxAttributeResolution6	D
 conformance/tsxAttributeResolution7	D
@@ -66,10 +62,10 @@ conformance/tsxElementResolution8	D
 conformance/tsxElementResolution9	D
 conformance/tsxEmit1	D
 conformance/tsxErrorRecovery1	D
-conformance/tsxErrorRecovery2	TD
-conformance/tsxErrorRecovery3	TD
+conformance/tsxErrorRecovery2	D
+conformance/tsxErrorRecovery3	D
 conformance/tsxFragmentErrors	D
-conformance/tsxGenericArrowFunctionParsing	TD
+conformance/tsxGenericArrowFunctionParsing	D
 conformance/tsxGenericAttributesType1	TD
 conformance/tsxGenericAttributesType2	T
 conformance/tsxGenericAttributesType3	T
@@ -94,10 +90,9 @@ conformance/tsxSpreadAttributesResolution14	D
 conformance/tsxSpreadAttributesResolution16	D
 conformance/tsxSpreadAttributesResolution17	D
 conformance/tsxSpreadAttributesResolution2	D
-conformance/tsxSpreadAttributesResolution4	TD
+conformance/tsxSpreadAttributesResolution4	T
 conformance/tsxSpreadAttributesResolution5	D
 conformance/tsxSpreadAttributesResolution6	D
-conformance/tsxSpreadInvalidType	D
 conformance/tsxStatelessFunctionComponentOverload4	D
 conformance/tsxStatelessFunctionComponentOverload5	TD
 conformance/tsxStatelessFunctionComponentOverload6	T

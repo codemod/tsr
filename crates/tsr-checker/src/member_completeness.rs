@@ -138,6 +138,108 @@ impl Checker<'_, '_> {
         self.declared_property_table_worker(id, 0, false)
     }
 
+    /// The property table the relation reporters (TS2741/TS2739/TS2353) read:
+    /// [`Checker::declared_property_table`], or for a *widened, regular*
+    /// object-literal type — `var a = { x: 1, y: 2 }`'s declared type — the
+    /// literal's own written member list.
+    ///
+    /// Deliberately a separate entry from the shared predicates: TS2339
+    /// (`crate::nonexistent_property`) must not read an object-literal
+    /// constituent as complete, because upstream's union property lookup
+    /// (`createUnionOrIntersectionProperty`) treats a member an object literal
+    /// lacks as `undefined` rather than absent (`nonPrimitiveAndEmptyObject`).
+    pub(crate) fn relation_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
+        self.declared_property_table(id).or_else(|| self.object_literal_property_table(id))
+    }
+
+    /// [`Checker::declared_members_are_complete`] widened the same way, for
+    /// the excess-property check's "every name is known" question. An object
+    /// literal declares no index signature.
+    pub(crate) fn relation_members_are_complete(&mut self, id: TypeId) -> bool {
+        self.declared_members_are_complete(id) || self.object_literal_property_table(id).is_some()
+    }
+
+    /// A regular object-literal type's written member list, in source order.
+    /// Complete exactly when every element has a literal name: a spread
+    /// contributes properties that live only in the checked type
+    /// (`getSpreadType`), and a computed name is late-bound or becomes an index
+    /// signature (`checkObjectLiteral`). JavaScript literals are declined:
+    /// assignment declarations can add expando members to the literal's symbol.
+    /// A fresh literal is read from its captured list by
+    /// `declared_property_table` and never reaches here.
+    fn object_literal_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        let &[declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        // The initializer of an object binding pattern: the declared type is
+        // `getWidenedTypeForVariableLikeDeclaration` with the pattern included
+        // (`getTypeFromBindingPattern` merged in), so it can carry members the
+        // literal never wrote — `function f5({ x, y = 0 } = { x: 0 })` is
+        // `{ x: number; y?: number }` while its literal symbol names only `x`
+        // (`destructuringWithLiteralInitializers`). The written list is not
+        // the type's property list there.
+        if self.nodes.parent(declaration).is_some_and(|parent| match self.node_map.get(parent) {
+            Some(Node::ParameterDeclaration(parameter)) => {
+                matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            }
+            Some(Node::VariableDeclaration(variable)) => {
+                matches!(variable.name, Some(tsr_ast::BindingName::BindingPattern(_)))
+            }
+            Some(Node::BindingElement(_)) => true,
+            _ => false,
+        }) {
+            return None;
+        }
+        if self.in_js_file(declaration)
+            || !literal.properties.iter().all(|property| match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    self.name_is_written(assignment.name)
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_) => true,
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    self.name_is_written(method.name)
+                }
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    self.name_is_written(accessor.name)
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    self.name_is_written(accessor.name)
+                }
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => false,
+            })
+        {
+            return None;
+        }
+        let mut members: Vec<(u32, String)> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .filter(|(_, id)| self.binder.symbols().get(**id).flags.intersects(SymbolFlags::VALUE))
+            .map(|(name, id)| {
+                let start = self
+                    .binder
+                    .symbols()
+                    .get(*id)
+                    .declarations
+                    .iter()
+                    .map(|&member| self.nodes.span(member).start)
+                    .min()
+                    .unwrap_or(u32::MAX);
+                (start, (*name).to_string())
+            })
+            .collect();
+        members.sort_unstable();
+        Some(members.into_iter().map(|(_, name)| (name, false)).collect())
+    }
+
     fn declared_property_table_worker(
         &mut self,
         id: TypeId,

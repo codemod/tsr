@@ -46779,6 +46779,10 @@ does not re-derive that it is cheap and then discover it is worth nothing.
 
 ## §955 — TS2303: circular import aliases
 
+> **Superseded (parity lane `tsr-2zk.6`):** the syntactic shapes below were
+> replaced by a walk of `resolveAlias`'s recursion; see
+> `docs/parity/notes/names-modules.md` §2.
+
 §950's list: **9 sole-obstacle cases, 32 lines**. Unlike the rows above it,
 `resolveAlias` (`checker.go:16272`-`:16291`) is not the relation's — it is a
 resolution-stack cycle check, and the port has the binder it needs.

@@ -695,9 +695,14 @@ impl Checker<'_, '_> {
         if !self.pair_is_reportable(source_type, target_type) {
             return None;
         }
-        let forward = self.relate_ternary(source_type, target_type, Relation::Assignable);
-        let backward = self.relate_ternary(target_type, source_type, Relation::Assignable);
-        (forward == Ternary::NotRelated || backward == Ternary::NotRelated).then_some(false)
+        // `compareTypesIdentical` — the identity relation
+        // (`crate::identity`). Both operands are declared member types, the
+        // written kind §2 of `docs/parity/notes/decls.md` trusts structurally.
+        match self.is_type_identical_to(source_type, target_type) {
+            Ternary::Related => Some(true),
+            Ternary::NotRelated => Some(false),
+            Ternary::Unknown => None,
+        }
     }
 
     /// One class or interface declaration among the symbol's declarations; a

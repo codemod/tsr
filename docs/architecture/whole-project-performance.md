@@ -36,6 +36,14 @@ diagnostics differ is not equivalent work. The first generator draft exposed a
 TSR false positive (an object literal against an interface that extends an
 instantiated generic base with an optional member) and avoids that shape.
 
+`benches/projects/domain-model-large` is the same generator at
+`--modules 200` (~35,000 lines in 202 files), committed so that a public ratio
+measures checking rather than startup and library parsing: on the two smaller
+projects checking is 1–40% of the run. Both CLIs report exactly its one
+intentional TS2322. Its first measurements, the cross-tool wall attribution
+and the per-work checker comparison are in
+[the perf lane notes](../parity/notes/perf.md).
+
 The harness runs one warmup per tool and alternates process order across measured
 pairs. Every check is a fresh process with `noEmit`, `incremental false`,
 `composite false`, and plain diagnostics. It does **not** flush the OS file cache:

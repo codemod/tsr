@@ -752,13 +752,14 @@ impl<'a> Checker<'a, '_> {
         signatures
     }
 
-    /// Ported from reorderCandidates (checker.go:8957) for construct candidates.
+    /// Ported from reorderCandidates (checker.go:8957), applied once per
+    /// resolution on both the construct road and the call road
+    /// (`choose_overload`). Not idempotent: never apply it to an already
+    /// reordered list. The optional-call clone (`callChainFlags`) is not
+    /// applied here; optional chains keep their existing handling.
     /// Default class signatures carry a class node here, but no declaration
     /// upstream; treat their parent and symbol as absent during ordering.
-    pub(crate) fn reorder_construct_candidates(
-        &self,
-        signatures: Vec<Signature>,
-    ) -> Vec<Signature> {
+    pub(crate) fn reorder_candidates(&self, signatures: Vec<Signature>) -> Vec<Signature> {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum DeclarationSymbol {
             Bound(SymbolId),

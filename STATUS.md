@@ -138,6 +138,30 @@ Mixed native4/TSR0 still rejects equivalent-work throughput. Setup caching/API
 churn is not retained; lazy query ownership9.2.1 and deferral parent remainopen.
 [Disjoint costs, ownership and source-qualified limits](docs/architecture/jsdoc-setup.md).
 
+Parity epic (`tsr-2zk`), cloud integration round 1 merged with `main`
+(`b8cbb92a`), measured on the integration head against native `5b1047d`:
+`checker_types` **7,602/9,538** (79.70%, lines 467,200/478,855 = 97.57%),
+`diagnostics` **3,846/5,488** (70.08%) — from 7,488 / 3,427 at `06f25e0`
+and 7,493 / 3,462 on `main` before the first merge (3,592 at `0b69aaf8`, merged second). Against `main`'s own binary the
+merged CLI is not slower (median child CPU 0.965 / 0.969 / 1.007 on
+domain-model-large / domain-model / generic-imports, 31 samples, diagnostics
+identical). One case regresses against `main`: `contextuallyTypedJsxChildren2`
+(TSR has no NoInfer intrinsic; main's single-candidate argument check now
+relates `NoInfer<any>` — `tsr-2zk.44`). Three TS2349 object-callee cases the
+integration branch had RIGHT stay WRONG as on `main` (`tsr-2zk.45`). Every
+lane merge before the `main` merge passed both zero-loss checks and a CPU-median
+perf gate. Twenty cloud boxes worked disjoint lanes under
+[docs/parity/box-protocol.md](docs/parity/box-protocol.md); crates.io, the
+Rust 1.96 channel and the Go module proxy are blocked in that environment, so
+[scripts/offline-cargo](scripts/offline-cargo/README.md) rebuilds the locked
+crates and native tsgo from GitHub sources (toolchain: stable 1.97, whose
+clippy flags two pre-existing `question_mark` sites in `signatures.rs`).
+Observed TSR/tsgo wall, 15 samples, 4-core cloud box: domain-model 0.84,
+generic-imports 0.98, domain-model-large 1.27 — the <=0.50 target is unmet;
+the perf box's attribution (single checker ~2.6x tsgo's on equal work) is in
+[docs/parity/notes/perf.md](docs/parity/notes/perf.md). `bd` cannot be installed there; issue state is
+recorded directly in `.beads/issues.jsonl` (new: `tsr-2zk.31`–`.45`).
+
 Parity epic (`tsr-2zk`), measured at `586c2ec0` against native `5b1047d`:
 `checker_types` 7,365/9,538 (77.22%, lines 464,069/478,855 = 96.91%),
 `diagnostics` 2,880/5,488 (52.48%); about 3,994 distinct failing cases. Target is
@@ -3210,6 +3234,13 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Parity round 2 (`tsr-2zk`): cross-lane blockers named by round-1 boxes come
+first because each unblocks several lanes — module-augmentation merge
+`tsr-2zk.38` (property, type-refs, misc), spurious `any` producers
+`tsr-2zk.31` (calls, decls, implicit-any), the symbol-chain printer
+`tsr-2zk.39` (QUALIFIED and the proposed alias attribute, ADR-0045), and the
+JSDoc reparser design `tsr-2zk.34`. Each is serialized through one owner box.
 
 JSDoc `.9.2` now has a measured conservative plain-body slice. Settle private
 lazy query/arena/borrowed-result ownership in `.9.2.1`. Current-source `.9.2.2`
@@ -6677,6 +6708,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Parity round 1 (`tsr-2zk`, 2026-10-05) refused two box commits on fidelity,
+not on numbers: calls `48ce04a1` (claimed +38 RIGHT lines, 0 WRONG) decided
+`isUntypedFunctionCall` by inspecting the callee's declaration syntax to guess
+whether TSR's `any` is upstream's, where upstream asks `IsTypeAny(t)`;
+misc `5a517c22` (+4 lane cases, ~18 lines) re-derived `chooseOverload`'s
+candidate selection in a side pass for call-site TS2344. Both are routed to
+real ports (`tsr-2zk.31`, `tsr-2zk.33`). Bench self-perf wall ratios are not a
+gate: identical binaries read 0.71–1.75 per pair; the gate uses median child CPU.
 
 At frozen `a0fa106e`, JSDoc observer off/on wall differences range from
 -0.905 to+0.665s; do not score them as a production speed win. The observed
@@ -13318,6 +13358,15 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-05/06 — `tsr-2zk` cloud integration round 1, `06f25e0` → merged
+with `main`: offline cargo/tsgo bootstrap, box protocol, 20 cloud boxes on
+disjoint lanes (two rounds), lane merges each gated on zero losses and CPU
+perf, checker_types 7,488→7,602, diagnostics 3,427→3,846. Refused: calls
+`48ce04a1`, misc `5a517c22` (§5); reverted at integration: jsx `1da6e97`
+(one EMPTY_RIGHT loss, `tsr-2zk.43`). Main merge reconciled duplicate
+TS2813/2814 ports (kept main's) and TS2313/TS2349 (kept main's); follow-ups
+`tsr-2zk.31`–`.45`.
 
 2026-10-05 — `tsr-1yb.9.2.2`, frozen a0fa106e/native5b1047d: archive-only
 JSDoc parse/attachment/binder/private-map attribution and1/2/4owner overlap.

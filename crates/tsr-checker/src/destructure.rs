@@ -167,38 +167,60 @@ impl Checker<'_, '_> {
                     }
                     return self.object_rest_type(parent_type, pattern_id, declaration);
                 }
+                // `AccessFlagsAllowMissing` when the element has a default
+                // (`checker.go:17736`).
+                let allow_missing = element.initializer.is_some();
                 if let Some(key) = computed_key {
                     if key == error {
                         return error;
                     }
-                    // Literal computed defaults project the named property and
-                    // consume the same default strip/union as ordinary keys.
-                    if element.initializer.is_some()
-                        && let Some(name) = self.property_name_from_index(key)
-                    {
+                    // `getLiteralTypeFromPropertyName` of a computed name is
+                    // its checked (regular) type, indexed like any other name
+                    // through `getIndexedAccessTypeEx` (`checker.go:17741`).
+                    // A literal key names a property exactly as `{ a: x }`
+                    // does.
+                    if let Some(name) = self.property_name_from_index(key) {
                         let numeric =
                             self.store.get(key).flags.intersects(TypeFlags::NUMBER_LITERAL);
-                        self.destructuring_property_lookup(parent_type, &name, numeric)
+                        self.destructuring_property_lookup(
+                            parent_type,
+                            &name,
+                            numeric,
+                            allow_missing,
+                        )
+                    } else if self.indexed_access_index_is_generic(key) {
+                        // A generic key defers: `{ [k]: a } = obj` with
+                        // `k: K extends keyof T` is `T[K]`. Only the index
+                        // decides here — in expression position a generic
+                        // OBJECT with a concrete key is not deferred.
+                        self.resolved_indexed_access_type(
+                            parent_type,
+                            key,
+                            self.no_unchecked_indexed_access,
+                        )
+                        .unwrap_or(error)
                     } else {
                         // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
                         // adds undefined to an index-signature result
-                        // (`checker.go:26947`, `:27117`).
-                        let Some(info) = self.get_applicable_index_info(parent_type, key) else {
-                            return error;
-                        };
-                        let include = self.no_unchecked_indexed_access;
-                        return self.include_unchecked_undefined(
-                            info.value,
-                            include,
-                            parent_type,
-                            key,
-                        );
+                        // (`checker.go:26947`, `:27117`). A miss under
+                        // AllowMissing on an object-literal type is `undefined`
+                        // (`checker.go:27187`).
+                        if let Some(info) = self.get_applicable_index_info(parent_type, key) {
+                            let include = self.no_unchecked_indexed_access;
+                            self.include_unchecked_undefined(info.value, include, parent_type, key)
+                        } else {
+                            let apparent = self.apparent_type(parent_type);
+                            if !(allow_missing && self.is_object_literal_type(apparent)) {
+                                return error;
+                            }
+                            self.intrinsics.undefined
+                        }
                     }
                 } else {
                     let Some((name, numeric)) = Self::binding_element_property_name(element) else {
                         return error;
                     };
-                    self.destructuring_property_lookup(parent_type, &name, numeric)
+                    self.destructuring_property_lookup(parent_type, &name, numeric, allow_missing)
                 }
             }
             SyntaxKind::ArrayBindingPattern => {
@@ -494,6 +516,14 @@ impl Checker<'_, '_> {
                 // `for_of_element_type` the plain-name arm has had since §38.
                 // `for await` takes the async-first resolver
                 // (FOR-AWAIT-OF-BINDING-PARENT); undecidable iterables gap.
+                // The for-in arm precedes it (`checker.go:16700`): a pattern
+                // there is a grammar error, but its type is still the key type.
+                if let Some(list) = self.nodes.parent(holder)
+                    && let Some(statement) = self.nodes.parent(list)
+                    && self.nodes.kind(statement) == SyntaxKind::ForInStatement
+                {
+                    return self.for_in_variable_type(statement);
+                }
                 if let Some(list) = self.nodes.parent(holder)
                     && let Some(statement) = self.nodes.parent(list)
                     && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
@@ -551,6 +581,19 @@ impl Checker<'_, '_> {
                         return error;
                     }
                     return self.widen_type_inferred_from_initializer(holder, initializer_type);
+                }
+                // `getTypeForVariableLikeDeclaration`'s last arm
+                // (`checker.go:16790`): a pattern-named declaration with no
+                // annotation and no initializer — `declare var [a, b];` —
+                // reads `getTypeFromBindingPattern(name, false, true)`, the
+                // pattern's implied type (`[any, any]`, `{ a: any }`). The
+                // parent read goes through `getTypeForBindingElementParent`,
+                // which takes this type unwidened. A pattern the builder cannot
+                // spell stays a gap.
+                if let Some(Node::VariableDeclaration(variable)) = self.node_map.get(holder)
+                    && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = variable.name
+                {
+                    return self.binding_pattern_implied_type(pattern).unwrap_or(error);
                 }
                 error
             }
@@ -837,9 +880,30 @@ impl Checker<'_, '_> {
         let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
             return error;
         };
+        // `getLiteralTypeFromPropertyName` of every sibling name (`:17802`):
+        // a written name is its literal; a computed name is its checked
+        // regular type, which may be generic (`[k1]: a1` with `k1: K1`) or a
+        // unique symbol. `bound` keeps the names a concrete rest can drop;
+        // `computed_keys` keeps the computed key types for the `Omit` road.
         let mut bound: Vec<String> = Vec::new();
+        let mut computed_keys: Vec<TypeId> = Vec::new();
+        let mut unnamed_key = false;
         for sibling in pattern.elements {
             if sibling.node_id == Some(declaration) {
+                continue;
+            }
+            if let Some(PropertyName::ComputedPropertyName(computed)) = sibling.property_name {
+                let Some(expression) = computed.expression else { return error };
+                let key = self.check_expression(expression);
+                if key == error {
+                    return error;
+                }
+                let key = self.get_regular_type_of_literal_type(key);
+                match self.property_name_from_index(key) {
+                    Some(name) => bound.push(name),
+                    None => unnamed_key = true,
+                }
+                computed_keys.push(key);
                 continue;
             }
             let Some((name, _)) = Self::binding_element_property_name(sibling) else {
@@ -847,6 +911,8 @@ impl Checker<'_, '_> {
             };
             bound.push(name);
         }
+        let generic_key =
+            computed_keys.iter().any(|&key| self.indexed_access_index_is_generic(key));
         // §776 (`checker.go:17813`-`:17827`): a GENERIC source cannot be spread
         // into a member list — upstream mints `Omit<source, omitKeyType>`
         // through the global `Omit` alias, and the baselines print exactly that
@@ -854,10 +920,10 @@ impl Checker<'_, '_> {
         //
         // `isGenericObjectType` is reduced to a bare TYPE PARAMETER, the shape
         // the corpus's generic rests have; a mapped or indexed-access source
-        // keeps the gap. The `isGenericIndexType(omitKeyType)` half is not
-        // ported: a computed key declines above, at
-        // `binding_element_property_name`.
-        if self.store.get(parent_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
+        // keeps the gap. The `isGenericIndexType(omitKeyType)` half is the
+        // `generic_key` test: a generic computed key mints `Omit` over a
+        // concrete source too (`Omit<Item, K1 | K2>`).
+        if self.store.get(parent_type).flags.intersects(TypeFlags::TYPE_PARAMETER) || generic_key {
             let mut keys: Vec<TypeId> = Vec::new();
             let push_key = |checker: &mut Self, name: &str, keys: &mut Vec<TypeId>| {
                 let key = checker.store.intern_literal(
@@ -871,8 +937,21 @@ impl Checker<'_, '_> {
             };
             // `getUnionType(map(properties, getLiteralTypeFromPropertyName))`
             // (`:17802`) — the names BOUND by the sibling elements.
-            for name in &bound {
-                push_key(self, name, &mut keys);
+            for element in pattern.elements {
+                if element.node_id == Some(declaration) {
+                    continue;
+                }
+                if matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_))) {
+                    continue;
+                }
+                if let Some((name, _)) = Self::binding_element_property_name(element) {
+                    push_key(self, &name, &mut keys);
+                }
+            }
+            for &key in &computed_keys {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
             }
             // `unspreadableToRestKeys` (`:17806`-`:17818`): every property that
             // CANNOT be spread is omitted too — a method or accessor declared
@@ -919,6 +998,11 @@ impl Checker<'_, '_> {
             };
             let omit_key = self.get_union_type(&keys);
             return self.create_type_reference(omit, vec![parent_type, omit_key]);
+        }
+        // A concrete source drops properties by name; a unique-symbol key
+        // names a late-bound member this road cannot match by name.
+        if unnamed_key {
+            return error;
         }
         self.concrete_rest_type(parent_type, &bound)
     }
@@ -995,12 +1079,16 @@ impl Checker<'_, '_> {
     /// reverse index without an arm of its own here.
     ///
     /// A miss on both is a gap: upstream reports TS2339/TS2493 and answers
-    /// `errorType`, the same text by a different route.
+    /// `errorType`, the same text by a different route — except under
+    /// `allow_missing` (`AccessFlagsAllowMissing`, a defaulted element), where
+    /// `getPropertyTypeForIndexType` answers `undefined` for an object-literal
+    /// object type (`checker.go:27187`) and the default supplies the type.
     fn destructuring_property_lookup(
         &mut self,
         parent_type: TypeId,
         name: &str,
         numeric: bool,
+        allow_missing: bool,
     ) -> TypeId {
         if let Some(property_type) = self.get_type_of_property_of_type(parent_type, name) {
             return property_type;
@@ -1051,6 +1139,9 @@ impl Checker<'_, '_> {
         // result exactly as an element access read does (`checker.go:26947`,
         // `getPropertyTypeForIndexType` `:27117`).
         let Some(info) = self.get_applicable_index_info(parent_type, key) else {
+            if allow_missing && self.is_object_literal_type(apparent) {
+                return self.intrinsics.undefined;
+            }
             return self.intrinsics.error;
         };
         let include = self.no_unchecked_indexed_access;

@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
     /// `src/compiler/parser.ts`: a conditional-type restriction applies to an
     /// immediately nested `infer`, but ordinary nested type references restore
     /// conditional types inside their own type arguments.
-    fn parse_type_operator_or_higher(&mut self) -> TypeNode<'a> {
+    pub(crate) fn parse_type_operator_or_higher(&mut self) -> TypeNode<'a> {
         if matches!(
             self.token.kind,
             SyntaxKind::InferKeyword
@@ -248,7 +248,18 @@ impl<'a> Parser<'a> {
         let mut type_node = self.parse_primary_type();
 
         // A line break ends the type: `let x: T\n[1]` is not an array type.
-        while self.at(SyntaxKind::OpenBracketToken) && !self.token.has_preceding_line_break() {
+        loop {
+            if self.token.has_preceding_line_break() {
+                break;
+            }
+            // `parsePostfixTypeOrHigher`'s JSDoc arms: `T!` and `T?`.
+            if let Some(jsdoc) = self.parse_jsdoc_postfix_type(start, type_node) {
+                type_node = jsdoc;
+                continue;
+            }
+            if !self.at(SyntaxKind::OpenBracketToken) {
+                break;
+            }
             self.next_token();
             if self.eat(SyntaxKind::CloseBracketToken) {
                 let node = self.finish_node(
@@ -488,6 +499,29 @@ impl<'a> Parser<'a> {
             }
             // A contextual keyword can name a type: `require.I`, `type`, `module`.
             kind if crate::statement::is_contextual_keyword(kind) => {
+                let name = self.parse_entity_name();
+                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let type_arguments = self.arena.alloc_slice(&type_arguments);
+                let node = self.finish_node(
+                    TypeReferenceNode::new(Some(name), type_arguments),
+                    SyntaxKind::TypeReference,
+                    start,
+                );
+                TypeNode::TypeReferenceNode(node)
+            }
+            // `parseNonArrayType`'s JSDoc arms: `*`, `?T`, `!T`.
+            SyntaxKind::AsteriskToken
+            | SyntaxKind::AsteriskEqualsToken
+            | SyntaxKind::QuestionToken
+            | SyntaxKind::QuestionQuestionToken
+            | SyntaxKind::ExclamationToken => self.parse_jsdoc_prefix_type(),
+            // `parseNonArrayType`'s default is `parseTypeReference`, whose entity
+            // name admits reserved words (`@param {function} f`). Only
+            // `function` — the reserved word `isStartOfType` names — is taken
+            // so far: the others also reach here from `parse_type_parameters`'
+            // missing list recovery (`type T<in in>`), where upstream never
+            // asks for a type. docs/parity/notes/js.md.
+            SyntaxKind::FunctionKeyword => {
                 let name = self.parse_entity_name();
                 let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
@@ -798,6 +832,18 @@ impl<'a> Parser<'a> {
         }
 
         let inner = self.parse_type();
+        // `parseTupleElementType` (`parser.go:3645`): a postfix `T?` the type
+        // grammar read as a JSDoc nullable is the tuple's optional element.
+        if let TypeNode::JSDocNullableType(nullable) = inner
+            && let Some(element) = nullable.r#type
+            && element.node_id().map(|id| self.nodes.span(id).start) == Some(start)
+        {
+            return TypeNode::OptionalTypeNode(self.finish_node(
+                OptionalTypeNode::new(Some(element)),
+                SyntaxKind::OptionalType,
+                start,
+            ));
+        }
         // `T?`
         if self.at(SyntaxKind::QuestionToken) {
             self.next_token();
@@ -1247,6 +1293,11 @@ impl<'a> Parser<'a> {
         let mut name = EntityName::Identifier(self.parse_identifier_name());
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
+            // `Object.<K, V>`: the entity is part of a JSDoc-style generic
+            // (`parseEntityName`, `parser.go:2910`).
+            if self.at(SyntaxKind::LessThanToken) {
+                break;
+            }
             let right = self.parse_identifier_name();
             let node = self.finish_node(
                 QualifiedName::new(Some(name), Some(right)),

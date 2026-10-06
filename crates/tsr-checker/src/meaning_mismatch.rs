@@ -170,6 +170,130 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `checkAndReportErrorForExtendingInterface` (`checker.go:11666`): the
+    /// second arm of `onFailedToResolveSymbol`. A value name that failed to
+    /// resolve inside `class C extends X` is TS2689 when the heritage
+    /// expression resolves with `Interface` meaning.
+    ///
+    /// Reachable since the locals lookup applies `getSymbol`'s alias arm
+    /// (`docs/parity/notes/names-modules.md` §1): `import type { I }` naming an
+    /// interface no longer answers a value lookup, so `class C extends I`
+    /// fails resolution and lands here, as it does upstream. The expression's
+    /// text is its identifiers joined by `.`, which is `GetTextOfNode` for
+    /// every entity name written without interior trivia.
+    ///
+    /// **Class `extends` only.** Upstream reaches this arm from a *value*
+    /// resolution, and only a class's `extends` expression is resolved as a
+    /// value. This port's `is_value_reference` also admits the names of
+    /// `interface I extends A` and `class C implements I` so TS2304 fires
+    /// there (`report_meaning_mismatch_in_value_position` explains why);
+    /// those positions never reach upstream's cascade, so they decline here.
+    pub(crate) fn check_and_report_error_for_extending_interface(&mut self, node: NodeId) -> bool {
+        let Some(expression) = self.entity_name_for_extending_interface(node) else {
+            return false;
+        };
+        let in_class_extends = self
+            .nodes
+            .parent(expression)
+            .and_then(|with_arguments| self.nodes.parent(with_arguments))
+            .is_some_and(|clause| {
+                matches!(self.node_map.get(clause), Some(Node::HeritageClause(heritage))
+                    if heritage.token.kind == SyntaxKind::ExtendsKeyword)
+                    && self.nodes.parent(clause).is_some_and(|owner| {
+                        matches!(
+                            self.nodes.kind(owner),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+            });
+        if !in_class_extends {
+            return false;
+        }
+        if self.resolve_entity_name_expression(expression, SymbolFlags::INTERFACE).is_none() {
+            return false;
+        }
+        let Some(text) = self.entity_name_expression_text(expression) else { return false };
+        self.report_at(
+            node,
+            &messages::CANNOT_EXTEND_AN_INTERFACE_0_DID_YOU_MEAN_IMPLEMENTS,
+            &text,
+        );
+        true
+    }
+
+    /// `getEntityNameForExtendingInterface` (`checker.go:11679`): climb
+    /// identifiers and property accesses to an `ExpressionWithTypeArguments`
+    /// and answer its expression when that is an entity name expression.
+    fn entity_name_for_extending_interface(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = node;
+        loop {
+            match self.node_map.get(current)? {
+                Node::Identifier(_) | Node::PropertyAccessExpression(_) => {
+                    current = self.nodes.parent(current)?;
+                }
+                Node::ExpressionWithTypeArguments(with_arguments) => {
+                    let expression = with_arguments.expression?.node_id()?;
+                    return self.is_entity_name_expression_node(expression).then_some(expression);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// `ast.IsEntityNameExpression`.
+    fn is_entity_name_expression_node(&self, node: NodeId) -> bool {
+        self.entity_name_expression_text(node).is_some()
+    }
+
+    /// The dotted text of an entity name expression, or `None` when `node` is
+    /// not one.
+    pub(crate) fn entity_name_expression_text(&self, node: NodeId) -> Option<String> {
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::PropertyAccessExpression(access) => {
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return None };
+                let left = self.entity_name_expression_text(access.expression?.node_id()?)?;
+                Some(format!("{left}.{}", name.text))
+            }
+            _ => None,
+        }
+    }
+
+    /// `resolveEntityName(expression, meaning, ignoreErrors=true)`
+    /// (`checker.go:15772`) for an entity name expression: the identifier arm
+    /// through the meaning-filtered resolver, and the property-access arm as
+    /// `resolveQualifiedName` — the left at `Namespace` meaning with its alias
+    /// followed, then the right in the namespace's exports, accepted when its
+    /// own flags or its alias target's carry `meaning`.
+    fn resolve_entity_name_expression(
+        &mut self,
+        node: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<tsr_binder::SymbolId> {
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => {
+                let text = identifier.text;
+                self.resolve_name_with_export_alias(node, text, meaning)
+            }
+            Node::PropertyAccessExpression(access) => {
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return None };
+                let left = access.expression?.node_id()?;
+                let mut namespace =
+                    self.resolve_entity_name_expression(left, SymbolFlags::NAMESPACE)?;
+                if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS) {
+                    namespace = self.resolve_alias(namespace)?;
+                }
+                let namespace = self.binder.merged_symbol(namespace);
+                let found = *self.binder.symbols().get(namespace).exports.get(name.text)?;
+                let found = self.binder.merged_symbol(found);
+                (self.binder.symbols().get(found).flags.intersects(meaning)
+                    || self.get_symbol_flags(found).intersects(meaning))
+                .then_some(found)
+            }
+            _ => None,
+        }
+    }
+
     /// `IsInTypeQuery` (`checker/utilities.go`): an ancestor walk through
     /// identifiers and qualified names that stops at a `TypeQuery`.
     fn is_in_type_query(&self, node: NodeId) -> bool {

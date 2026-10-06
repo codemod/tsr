@@ -64,7 +64,94 @@ impl<'a> Parser<'a> {
             start,
         );
         self.nodes.add_flags(file.node_id.unwrap(), tsr_ast::NodeFlags::JSON_FILE);
+        if let Some(Statement::ExpressionStatement(statement)) = statements.first() {
+            self.validate_json_value(statement.expression);
+        }
         file
+    }
+
+    /// `Parser.validateJsonValue` (`parser.go:232`): the value must be JSON —
+    /// TS1327 on a string not in double quotes, TS1328 on anything that is not
+    /// a literal, `-number`, object or array. Appended to the diagnostics
+    /// directly, as upstream does, so the same-position dedup of
+    /// `parseErrorAtRange` does not apply; the span is the node's own, trivia
+    /// skipped (`getErrorSpanForNode`).
+    fn validate_json_value(&mut self, value: Option<Expression<'a>>) {
+        let Some(value) = value else { return };
+        match value {
+            Expression::KeywordExpression(keyword)
+                if matches!(
+                    keyword.kind,
+                    SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword | SyntaxKind::NullKeyword
+                ) =>
+            {
+                return;
+            }
+            Expression::NumericLiteral(_) => return,
+            Expression::StringLiteral(literal) => {
+                if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) {
+                    self.json_error(
+                        value.node_id(),
+                        &messages::STRING_LITERAL_WITH_DOUBLE_QUOTES_EXPECTED,
+                    );
+                }
+                return;
+            }
+            Expression::PrefixUnaryExpression(unary)
+                if unary.operator.kind == SyntaxKind::MinusToken
+                    && matches!(unary.operand, Some(Expression::NumericLiteral(_))) =>
+            {
+                return;
+            }
+            Expression::ObjectLiteralExpression(object) => {
+                // `validateJsonObjectLiteral`.
+                for property in object.properties {
+                    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                        property
+                    else {
+                        self.json_error(
+                            tsr_ast::Node::from(*property).node_id(),
+                            &messages::PROPERTY_ASSIGNMENT_EXPECTED,
+                        );
+                        continue;
+                    };
+                    let double_quoted = matches!(
+                        assignment.name,
+                        tsr_ast::PropertyName::StringLiteral(name)
+                            if !name.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE)
+                    );
+                    if !double_quoted {
+                        self.json_error(
+                            tsr_ast::Node::from(assignment.name).node_id(),
+                            &messages::STRING_LITERAL_WITH_DOUBLE_QUOTES_EXPECTED,
+                        );
+                    }
+                    self.validate_json_value(assignment.initializer);
+                }
+                return;
+            }
+            Expression::ArrayLiteralExpression(array) => {
+                for element in array.elements {
+                    self.validate_json_value(Some(*element));
+                }
+                return;
+            }
+            _ => {}
+        }
+        self.json_error(
+            value.node_id(),
+            &messages::PROPERTY_VALUE_CAN_ONLY_BE_STRING_LITERAL_NUMERIC_LITERAL_TRUE_FALSE_NULL_OBJECT_LITERAL_OR_ARRAY_LITERAL,
+        );
+    }
+
+    fn json_error(
+        &mut self,
+        node: Option<tsr_ast::NodeId>,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        let Some(node) = node else { return };
+        let span = self.nodes.span(node);
+        self.diagnostics.push(tsr_diagnostics::Diagnostic::new(message, span));
     }
 
     /// The one statement a JSON file has: its top-level value.

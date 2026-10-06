@@ -1,4 +1,4 @@
-# lane implicit-any-widening (tsr-2zk.11): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane implicit-any-widening (tsr-2zk.11): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/asyncFunctionContextuallyTypedReturns	TD
 compiler/circularReferenceInReturnType	TD
 compiler/circularReferenceInReturnType2	TD
@@ -97,7 +97,7 @@ conformance/parserConditionalExpression1	D
 conformance/parserES3Accessors4	D
 conformance/parserEqualsGreaterThanAfterFunction1	TD
 conformance/parserEqualsGreaterThanAfterFunction2	D
-conformance/parserErrorRecovery_ParameterList4	TD
+conformance/parserErrorRecovery_ParameterList4	D
 conformance/parserRealSource12	T
 conformance/parserSkippedTokens19	D
 conformance/parserUnaryExpression2	D

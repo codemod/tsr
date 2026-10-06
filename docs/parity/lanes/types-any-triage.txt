@@ -1,4 +1,4 @@
-# lane types-any-triage (tsr-2zk.16): failing cases at 586c2ec0; suites: T=checker_types, D=diagnostics
+# lane types-any-triage (tsr-2zk.16): failing cases at 06f25e0; suites: T=checker_types, D=diagnostics
 compiler/abstractClassInLocalScopeIsAbstract	T
 compiler/acceptSymbolAsWeakType	T
 compiler/accessorDeclarationEmitJs	T
@@ -15,7 +15,6 @@ compiler/arrayBindingPatternOmittedExpressions	T
 compiler/arrowFunctionJSDocAnnotation	T
 compiler/assignmentToInstantiationExpression	T
 compiler/asyncImportNestedYield	T
-compiler/asyncYieldStarContextualType	T
 compiler/avoidNarrowingUsingConstVariableFromBindingElementWithLiteralInitializer	T
 compiler/awaitedTypeJQuery	T
 compiler/bestChoiceType	T
@@ -192,12 +191,9 @@ compiler/fatarrowfunctionsOptionalArgsErrors4	T
 compiler/fixCrashAliasLookupForDefauledImport	T
 compiler/fixingTypeParametersRepeatedly1	T
 compiler/fixingTypeParametersRepeatedly3	T
-compiler/forInStatement3	T
 compiler/freshLiteralInference	T
 compiler/functionType	T
 compiler/genericArrayWithoutTypeAnnotation	T
-compiler/genericCallAtYieldExpressionInGenericCall2	T
-compiler/genericCallAtYieldExpressionInGenericCall3	T
 compiler/genericCallOnMemberReturningClosedOverObject	T
 compiler/genericConditionalConstrainedToUnknownNotAssignableToConcreteObject	T
 compiler/genericFunctionHasFreshTypeArgs	T
@@ -214,7 +210,6 @@ compiler/globalThisDeclarationEmit3	T
 compiler/homomorphicMappedTypeWithNonHomomorphicInstantiationSpreadable1	T
 compiler/identityRelationNeverTypes	T
 compiler/implicitAnyGenericTypeInference	T
-compiler/implicitAnyInCatch	T
 compiler/implicitIndexSignatures	T
 compiler/importAliasAnExternalModuleInsideAnInternalModule	T
 compiler/importDeclFromTypeNodeInJsSource	T
@@ -227,7 +222,6 @@ compiler/importTypeTypeofClassStaticLookup	T
 compiler/importUsedInGenericImportResolves	T
 compiler/importedAliasedConditionalTypeInstantiation	T
 compiler/inKeywordAndIntersection	T
-compiler/inOperatorWithGeneric	T
 compiler/indexedAccessAndNullableNarrowing	T
 compiler/indexedAccessCanBeHighOrder	T
 compiler/indexedAccessKeyofNestedSimplifiedSubstituteUnwrapped	T
@@ -264,7 +258,6 @@ compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers	T
 compiler/jsFileImportPreservedWhenUsed	T
 compiler/jsFileMethodOverloads	T
 compiler/jsPropertyAssignedAfterMethodDeclaration_nonError	T
-compiler/jsdocRestParameter_es6	T
 compiler/jsdocTypeGenericInstantiationAttempt	T
 compiler/jsdocTypedef_propertyWithNoType	T
 compiler/jsxCallbackWithDestructuring	T
@@ -289,8 +282,6 @@ compiler/mappedTypeRecursiveInference2	T
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2	T
 compiler/missingPropertiesOfClassExpression	T
 compiler/missingTypeArguments2	T
-compiler/modularizeLibrary_Dom.asynciterable	T
-compiler/modularizeLibrary_Worker.asynciterable	T
 compiler/moduleAliasInterface	T
 compiler/moduleAugmentationDeclarationEmit1	T
 compiler/moduleAugmentationDeclarationEmit2	T
@@ -451,12 +442,10 @@ compiler/varianceProblingAndZeroOrderIndexSignatureRelationsAlign2	T
 compiler/widenedTypes1	T
 compiler/wrappedIncovations1	T
 compiler/wrappedIncovations2	T
-compiler/yieldStarContextualType	T
 conformance/FunctionPropertyAssignments4_es6	T
 conformance/MemberFunctionDeclaration4_es6	T
 conformance/TwoInternalModulesWithTheSameNameAndDifferentCommonRoot	T
 conformance/TypeGuardWithEnumUnion	T
-conformance/YieldStarExpression4_es6	T
 conformance/accessorsOverrideProperty8	T
 conformance/additionOperatorWithConstrainedTypeParameter	T
 conformance/ambientDeclarationsPatterns	T
@@ -522,14 +511,6 @@ conformance/duplicateStringIndexers	T
 conformance/elementAccessChain.2	T
 conformance/emitArrowFunctionES6	T
 conformance/emitClassDeclarationWithPropertyAccessInHeritageClause1	T
-conformance/emitter.asyncGenerators.classMethods.es2015	T
-conformance/emitter.asyncGenerators.classMethods.es2018	T
-conformance/emitter.asyncGenerators.functionDeclarations.es2015	T
-conformance/emitter.asyncGenerators.functionDeclarations.es2018	T
-conformance/emitter.asyncGenerators.functionExpressions.es2015	T
-conformance/emitter.asyncGenerators.functionExpressions.es2018	T
-conformance/emitter.asyncGenerators.objectLiteralMethods.es2015	T
-conformance/emitter.asyncGenerators.objectLiteralMethods.es2018	T
 conformance/enumConstantMemberWithTemplateLiterals	T
 conformance/enums	T
 conformance/errorSuperCalls	T
@@ -544,7 +525,6 @@ conformance/for-of43	T
 conformance/functionConstraintSatisfaction	T
 conformance/generatorReturnTypeFallback.2	T
 conformance/generatorReturnTypeIndirectReferenceToGlobalType	T
-conformance/generatorTypeCheck25	T
 conformance/generatorTypeCheck27	T
 conformance/generatorTypeCheck28	T
 conformance/generatorTypeCheck29	T
@@ -629,8 +609,6 @@ conformance/parserClassDeclaration23	T
 conformance/parserComputedPropertyName14	T
 conformance/parserComputedPropertyName18	T
 conformance/parserComputedPropertyName19	T
-conformance/parserForOfStatement19	T
-conformance/parserForOfStatement20	T
 conformance/parserForOfStatement25	T
 conformance/parserForStatement9	T
 conformance/parserIndexSignature8	T

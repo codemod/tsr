@@ -174,6 +174,9 @@ pub struct Scanner<'a> {
     /// `ReScanTemplateToken` at every call; this port carries it between them.
     /// §223.
     report_template_escapes: bool,
+    /// `languageVariant == LanguageVariantJSX`: the one place ordinary
+    /// scanning depends on it is `</`, which is a single token in JSX.
+    jsx: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -193,8 +196,15 @@ impl<'a> Scanner<'a> {
             token: Token::new(SyntaxKind::Unknown, Span::at(0), TokenFlags::empty()),
             value: None,
             report_template_escapes: true,
+            jsx: false,
             diagnostics: Vec::new(),
         }
+    }
+
+    /// `SetLanguageVariant(core.LanguageVariantJSX)` (`scanner.go`), which
+    /// the parser calls for `.tsx`/`.jsx` files before the first token.
+    pub fn set_jsx_language_variant(&mut self, jsx: bool) {
+        self.jsx = jsx;
     }
 
     /// The most recently scanned token.
@@ -679,7 +689,7 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        let mut decoded: Option<String> = None;
+        let mut decoded: Option<String> = self.value.clone();
 
         while let Some(ch) = self.peek() {
             if ch == '\\' {
@@ -1087,7 +1097,7 @@ impl<'a> Scanner<'a> {
             *flags |= TokenFlags::SINGLE_QUOTE;
         }
         let start = self.pos;
-        let mut decoded: Option<String> = None;
+        let mut decoded: Option<String> = self.value.clone();
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1142,7 +1152,12 @@ impl<'a> Scanner<'a> {
         // `scanEscapeSequence`'s `start` (`scanner.go:1691`) is taken BEFORE
         // the first character is consumed.
         let backslash = self.pos - 1;
-        let Some(ch) = self.bump() else { return };
+        // `scanEscapeSequence` (`scanner.go:1694`): a backslash at end of
+        // text is TS1126 at that end, whatever `flags` says.
+        let Some(ch) = self.bump() else {
+            self.error(&messages::UNEXPECTED_END_OF_TEXT, Span::new(self.pos, self.pos));
+            return;
+        };
         match ch {
             'n' => out.push('\n'),
             't' => out.push('\t'),
@@ -1303,7 +1318,7 @@ impl<'a> Scanner<'a> {
         report_escapes: bool,
     ) -> SyntaxKind {
         let start = self.pos;
-        let mut decoded: Option<String> = None;
+        let mut decoded: Option<String> = self.value.clone();
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1577,8 +1592,10 @@ impl<'a> Scanner<'a> {
         // Upstream reuses `scanIdentifierParts` here precisely "so unicode
         // escapes are handled" (`scanner.go:1338`): `data-\u0076ideo` is ONE
         // attribute named `data-video`, and stopping at the backslash split it
-        // into two. The decoded value is rebuilt only when an escape appears.
-        let mut decoded: Option<String> = None;
+        // into two. The decoded value is rebuilt only when an escape appears —
+        // or already appeared: upstream appends to the decoded `tokenValue`, so
+        // `<\u0061-b>` is named `a-b` and matches `</a-b>`.
+        let mut decoded: Option<String> = self.value.clone();
         while let Some(ch) = self.peek() {
             if ch == '-' || is_identifier_part(ch) {
                 if let Some(value) = decoded.as_mut() {
@@ -1611,9 +1628,15 @@ impl<'a> Scanner<'a> {
         }
 
         if extended {
+            // `scanIdentifierParts` records an escape in the token flags, which
+            // `parseIdentifierNameErrorOnUnicodeEscapeSequence` reads: `<a-\u0063>`
+            // reports TS17021 like `<\u0061>` does.
+            let mut flags = self.token.flags;
+            if decoded.is_some() {
+                flags |= TokenFlags::UNICODE_ESCAPE;
+            }
             self.value = decoded;
-            self.token =
-                Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), self.token.flags);
+            self.token = Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), flags);
         }
         self.token
     }
@@ -1653,10 +1676,9 @@ impl<'a> Scanner<'a> {
                 let mut flags = TokenFlags::empty();
                 if unterminated {
                     flags |= TokenFlags::UNTERMINATED;
-                    self.error(
-                        &messages::UNTERMINATED_STRING_LITERAL,
-                        Span::new(self.token_start, self.pos),
-                    );
+                    // `scanString` reports with `s.error`: zero-width at the
+                    // end of input, not over the token.
+                    self.error(&messages::UNTERMINATED_STRING_LITERAL, Span::at(self.pos));
                 }
                 self.token = Token::new(
                     SyntaxKind::StringLiteral,
@@ -1919,6 +1941,10 @@ impl<'a> Scanner<'a> {
                     }
                 } else if self.eat('=') {
                     SyntaxKind::LessThanEqualsToken
+                } else if self.jsx && self.peek() == Some('/') && self.peek_at(1) != Some('*') {
+                    // `scanner.go:778`: in JSX, `</` (but not `</*`) is one token.
+                    self.bump();
+                    SyntaxKind::LessThanSlashToken
                 } else {
                     SyntaxKind::LessThanToken
                 }

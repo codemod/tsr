@@ -54,6 +54,8 @@ bitflags::bitflags! {
         const ASYNC_YIELD_STAR = Self::ALLOWS_SYNC_ITERABLES.bits()
             | Self::ALLOWS_ASYNC_ITERABLES.bits()
             | Self::YIELD_STAR_FLAG.bits();
+        const GENERATOR_RETURN_TYPE = Self::ALLOWS_SYNC_ITERABLES.bits();
+        const ASYNC_GENERATOR_RETURN_TYPE = Self::ALLOWS_ASYNC_ITERABLES.bits();
     }
 }
 
@@ -78,6 +80,14 @@ impl IterationTypes {
     fn all(ty: TypeId) -> Self {
         Self { yield_type: Some(ty), return_type: Some(ty), next_type: Some(ty) }
     }
+}
+
+/// `IterationTypeKind` (`checker.go:219`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IterationTypeKind {
+    Yield,
+    Return,
+    Next,
 }
 
 /// `IterationTypesResolver` (`checker.go:520`): the sync or async half.
@@ -380,6 +390,159 @@ impl Checker<'_, '_> {
         Some((yielded, types.next_type))
     }
 
+    /// `getIterationTypesOfGeneratorFunctionReturnType` (`checker.go:6224`):
+    /// the iterable protocol of a generator's (annotated or contextual)
+    /// return type, else the type read as an iterator itself.
+    pub(crate) fn get_iteration_types_of_generator_function_return_type(
+        &mut self,
+        ty: TypeId,
+        is_async: bool,
+    ) -> Result<IterationTypes, Unsupported> {
+        if self.is_error(ty) {
+            return Err(());
+        }
+        if ty == self.intrinsics.any {
+            return Ok(IterationTypes::all(self.intrinsics.any));
+        }
+        let (use_, resolver) = if is_async {
+            (IterationUse::ASYNC_GENERATOR_RETURN_TYPE, Resolver::Async)
+        } else {
+            (IterationUse::GENERATOR_RETURN_TYPE, Resolver::Sync)
+        };
+        let result = self.get_iteration_types_of_iterable(ty, use_)?;
+        if result.has_types() {
+            return Ok(result);
+        }
+        self.get_iteration_types_of_iterator_worker(ty, resolver)
+    }
+
+    /// `getIterationTypeOfGeneratorFunctionReturnType` (`checker.go:6216`):
+    /// `Ok(None)` is upstream's nil (an `any` return type, or a missing slot).
+    pub(crate) fn get_iteration_type_of_generator_function_return_type(
+        &mut self,
+        kind: IterationTypeKind,
+        return_type: TypeId,
+        is_async: bool,
+    ) -> Result<Option<TypeId>, Unsupported> {
+        if self.is_error(return_type) {
+            return Err(());
+        }
+        if return_type == self.intrinsics.any {
+            return Ok(None);
+        }
+        let types =
+            self.get_iteration_types_of_generator_function_return_type(return_type, is_async)?;
+        Ok(match kind {
+            IterationTypeKind::Yield => types.yield_type,
+            IterationTypeKind::Return => types.return_type,
+            IterationTypeKind::Next => types.next_type,
+        })
+    }
+
+    /// `createGeneratorType` (`checker.go:20434`): `Generator` (or
+    /// `AsyncGenerator`) of the three slots, falling back to
+    /// `IterableIterator` and then to the empty object type when the lib
+    /// declares neither. The fallback's TS2318 report belongs to the global
+    /// lookup and is not made here.
+    pub(crate) fn create_generator_type(
+        &mut self,
+        yield_type: TypeId,
+        return_type: TypeId,
+        next_type: TypeId,
+        is_async: bool,
+    ) -> Result<TypeId, Unsupported> {
+        let resolver = if is_async { Resolver::Async } else { Resolver::Sync };
+        let unknown = self.intrinsics.unknown;
+        let yield_type = self.resolve_iteration_type(resolver, yield_type)?.unwrap_or(unknown);
+        let return_type = self.resolve_iteration_type(resolver, return_type)?.unwrap_or(unknown);
+        let [generator, iterable_iterator] = if is_async {
+            ["AsyncGenerator", "AsyncIterableIterator"]
+        } else {
+            ["Generator", "IterableIterator"]
+        };
+        let Some(target) = self
+            .global_type_symbol_with_arity(generator, 3)
+            .or_else(|| self.global_type_symbol_with_arity(iterable_iterator, 3))
+        else {
+            return Ok(self.intrinsics.empty_object);
+        };
+        Ok(self.create_type_reference(target, vec![yield_type, return_type, next_type]))
+    }
+
+    /// `checkGeneratorInstantiationAssignabilityToReturnType`
+    /// (`checker.go:29697`) without an error node: whether the generator
+    /// instantiated from `return_type`'s own iteration types is assignable to
+    /// it — the predicate upstream filters a union return type with.
+    pub(crate) fn generator_instantiation_assignable_to_return_type(
+        &mut self,
+        return_type: TypeId,
+        is_async: bool,
+    ) -> Result<bool, Unsupported> {
+        let any = self.intrinsics.any;
+        let yield_type = self
+            .get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Yield,
+                return_type,
+                is_async,
+            )?
+            .unwrap_or(any);
+        let generator_return = self
+            .get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Return,
+                return_type,
+                is_async,
+            )?
+            .unwrap_or(yield_type);
+        let next_type = self
+            .get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Next,
+                return_type,
+                is_async,
+            )?
+            .unwrap_or(self.intrinsics.unknown);
+        let instantiation =
+            self.create_generator_type(yield_type, generator_return, next_type, is_async)?;
+        match self.relate_ternary(instantiation, return_type, crate::relater::Relation::Assignable)
+        {
+            crate::relater::Ternary::Related => Ok(true),
+            crate::relater::Ternary::NotRelated => Ok(false),
+            crate::relater::Ternary::Unknown => Err(()),
+        }
+    }
+
+    /// The annotated half of `checkYieldExpression` (`checker.go:10982`):
+    /// `getReturnTypeFromAnnotation(fn)`, a union filtered by
+    /// [`Self::generator_instantiation_assignable_to_return_type`], answers
+    /// a non-star `yield` with its NEXT iteration type, orElse `anyType`.
+    pub(crate) fn annotated_yield_next_type(
+        &mut self,
+        annotated: TypeId,
+        is_async: bool,
+    ) -> Result<TypeId, Unsupported> {
+        let mut return_type = annotated;
+        if self.store.get(return_type).flags.contains(TypeFlags::UNION) {
+            let mut undecided = false;
+            return_type = self.filter_type(return_type, |checker, constituent| {
+                checker
+                    .generator_instantiation_assignable_to_return_type(constituent, is_async)
+                    .unwrap_or_else(|()| {
+                        undecided = true;
+                        false
+                    })
+            });
+            if undecided {
+                return Err(());
+            }
+        }
+        Ok(self
+            .get_iteration_type_of_generator_function_return_type(
+                IterationTypeKind::Next,
+                return_type,
+                is_async,
+            )?
+            .unwrap_or(self.intrinsics.any))
+    }
+
     /// Whether `name` is decidably absent from `ty` — the existing
     /// complete-table contract shared with the for-of yield resolver.
     /// A complete table that lists `name` while the property lookup missed it
@@ -492,9 +655,11 @@ impl Checker<'_, '_> {
     /// `getIterationTypesOfMethod` (`checker.go:6541`).
     ///
     /// Not ported: the arm that reads a method declared only by the global
-    /// `Generator`/`Iterator` through its instantiation mapper. It changes
-    /// which yield/return/next types are answered, never whether any exist,
-    /// so the not-iterable report this engine serves is unaffected.
+    /// `Generator`/`Iterator` through its instantiation mapper
+    /// (`checker.go:6585`). This port's `get_property_of_type` answers no
+    /// symbol for a member inherited through a type-argument heritage entry
+    /// (`interface I extends Iterator<0, 1, 2>`), so the arm's identity test
+    /// has nothing to compare; the lookup misses and the query declines.
     fn get_iteration_types_of_method(
         &mut self,
         ty: TypeId,

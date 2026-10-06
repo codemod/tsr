@@ -5,7 +5,10 @@
 //! parse diagnostics, which the caller (`check_grammar_modifier_shapes`)
 //! already guarantees.
 
-use tsr_ast::{ModifierLike, Node, NodeId, ObjectLiteralElementLike, SyntaxKind};
+use tsr_ast::{
+    Expression, ModifierLike, Node, NodeFlags, NodeId, ObjectLiteralElementLike, Statement,
+    SyntaxKind,
+};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -45,6 +48,752 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// The two `checkGrammarModifiers` tests (`grammarchecks.go:221`, `:245`)
+    /// that run before its per-keyword switch and return from it:
+    ///
+    /// - TS1433 — a `this` parameter takes neither decorators nor modifiers;
+    /// - TS1206 / TS1249 — a decorator on a node `ast.NodeCanBeDecorated`
+    ///   rejects, reported on the node's first token (its first decorator).
+    ///
+    /// Returns whether it reported; the caller then skips the rest of the
+    /// modifier chain, and `modifier_chain_reported` keeps the rules split out
+    /// of the chain quiet, as upstream's `!checkGrammarModifiers(node)` does.
+    ///
+    /// The kinds `reportObviousDecoratorErrors` rejects outright are
+    /// `check_illegal_decorator`'s; the legacy private-name arm of
+    /// `NodeCanBeDecorated` is `check_decorated_private_name`'s, so it answers
+    /// "can be decorated" here rather than reporting twice.
+    pub(crate) fn check_grammar_decorator_target(&mut self, node: NodeId, typed: Node<'_>) -> bool {
+        let Some(modifiers) = crate::check::modifiers_of(typed) else { return false };
+        if modifiers.is_empty() {
+            return false;
+        }
+        let message = if let Node::ParameterDeclaration(parameter) = typed
+            && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        {
+            &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS
+        } else if !modifiers.iter().any(|m| matches!(m, ModifierLike::Decorator(_)))
+            || self.node_can_be_decorated(node, typed)
+        {
+            return false;
+        } else if matches!(typed, Node::MethodDeclaration(method) if method.body.is_none()) {
+            &messages::A_DECORATOR_CAN_ONLY_DECORATE_A_METHOD_IMPLEMENTATION_NOT_AN_OVERLOAD
+        } else {
+            &messages::DECORATORS_ARE_NOT_VALID_HERE
+        };
+        self.modifier_chain_reported.insert(node);
+        self.decorator_error_reported.insert(node);
+        // `grammarErrorOnFirstToken(node, …)`: the node starts at its first
+        // decorator or modifier.
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+        let start = self.nodes.span(node).start;
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
+        true
+    }
+
+    /// `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) for the kinds that
+    /// reach `checkGrammarModifiers`' decorator arm, under
+    /// `experimentalDecorators` (`legacy_decorators`) or standard decorators.
+    fn node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
+        let legacy = self.legacy_decorators;
+        let parent = self.nodes.parent(node);
+        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
+        let parent_is_class_declaration = parent_kind == Some(SyntaxKind::ClassDeclaration);
+        let parent_is_class_like =
+            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
+        let private_name = |name: tsr_ast::PropertyName<'_>| {
+            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+        };
+        match typed {
+            Node::ClassDeclaration(_) => true,
+            Node::ClassExpression(_) => !legacy,
+            Node::PropertyDeclaration(property) => {
+                (legacy && (private_name(property.name) || parent_is_class_declaration))
+                    || (!legacy
+                        && parent_is_class_like
+                        && !tsr_ast::has_syntactic_modifier(
+                            property.modifiers,
+                            SyntaxKind::AbstractKeyword,
+                        )
+                        && !tsr_ast::has_syntactic_modifier(
+                            property.modifiers,
+                            SyntaxKind::DeclareKeyword,
+                        ))
+            }
+            Node::MethodDeclaration(method) => {
+                (legacy && private_name(method.name))
+                    || (method.body.is_some()
+                        && (if legacy {
+                            parent_is_class_declaration
+                        } else {
+                            parent_is_class_like
+                        }))
+            }
+            Node::GetAccessorDeclaration(accessor) => {
+                (legacy && private_name(accessor.name))
+                    || (accessor.body.is_some()
+                        && (if legacy {
+                            parent_is_class_declaration
+                        } else {
+                            parent_is_class_like
+                        }))
+            }
+            Node::SetAccessorDeclaration(accessor) => {
+                (legacy && private_name(accessor.name))
+                    || (accessor.body.is_some()
+                        && (if legacy {
+                            parent_is_class_declaration
+                        } else {
+                            parent_is_class_like
+                        }))
+            }
+            Node::ParameterDeclaration(_) => {
+                // Standard decorators do not decorate parameters yet.
+                if !legacy {
+                    return false;
+                }
+                let Some(parent) = parent else { return false };
+                let has_body = match self.node_map.get(parent) {
+                    Some(Node::ConstructorDeclaration(n)) => n.body.is_some(),
+                    Some(Node::MethodDeclaration(n)) => n.body.is_some(),
+                    Some(Node::SetAccessorDeclaration(n)) => n.body.is_some(),
+                    _ => false,
+                };
+                // `GetThisParameter(parent) != node` is the TS1433 arm's,
+                // which the caller has already taken.
+                has_body
+                    && self
+                        .nodes
+                        .parent(parent)
+                        .is_some_and(|grand| self.nodes.kind(grand) == SyntaxKind::ClassDeclaration)
+            }
+            _ => false,
+        }
+    }
+
+    /// The parser lane's statement checks that upstream reports with
+    /// `c.error` rather than `grammarErrorOnNode`, so they stand whether or not
+    /// the file has parse diagnostics.
+    pub(crate) fn check_parser_lane_statement(&mut self, typed: Node<'_>) {
+        // `Checker.checkPropertyDeclaration` (`checker.go:2709`): TS1267, an
+        // abstract property with an initializer, on the property's name.
+        if let Node::PropertyDeclaration(property) = typed
+            && property.initializer.is_some()
+            && tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::AbstractKeyword)
+            && let Some(id) = property.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let name = declaration_name_text(property.name);
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_CANNOT_HAVE_AN_INITIALIZER_BECAUSE_IT_IS_MARKED_ABSTRACT,
+                    span,
+                    [name],
+                ),
+            );
+        }
+        // `Checker.checkExternalImportOrExportDeclaration` (`checker.go:5333`):
+        // a module name that is present but not a string literal is TS1141.
+        let module_name = match typed {
+            Node::ImportDeclaration(declaration) => {
+                declaration.module_specifier.and_then(|s| s.node_id())
+            }
+            Node::ExportDeclaration(declaration) => {
+                declaration.module_specifier.and_then(|s| s.node_id())
+            }
+            Node::ImportEqualsDeclaration(declaration) => match declaration.module_reference {
+                Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) => {
+                    reference.expression.and_then(|e| e.node_id())
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(module_name) = module_name {
+            self.check_external_module_name_is_string_literal(module_name);
+        }
+        // `Checker.checkIfStatement` (`checker.go:3808`): TS1313 on an empty
+        // `then` statement.
+        if let Node::IfStatement(statement) = typed
+            && let Some(Statement::EmptyStatement(empty)) = statement.then_statement
+            && let Some(id) = empty.node_id
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THE_BODY_OF_AN_IF_STATEMENT_CANNOT_BE_THE_EMPTY_STATEMENT,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// The first arms of `Checker.checkExternalImportOrExportDeclaration`
+    /// (`checker.go:5333`): a missing name is the parser's error, and any
+    /// other non-string-literal name is TS1141 — a `c.error`, so it stands in
+    /// a file with parse errors, which is where the corpus has it
+    /// (`import * from Zero from "./0"` reads `Zero` as the specifier).
+    ///
+    /// Upstream reaches it after `checkGrammarModuleElementContext`, whose
+    /// report returns first; that grammar error needs a declaration outside a
+    /// source file or module block, so the bound is the parent's kind unless
+    /// the file's parse errors silence the grammar report.
+    fn check_external_module_name_is_string_literal(&mut self, module_name: NodeId) {
+        if self.nodes.kind(module_name) == SyntaxKind::StringLiteral {
+            return;
+        }
+        // `ast.NodeIsMissing`: an empty span.
+        let span = self.nodes.span(module_name);
+        if span.start == span.end {
+            return;
+        }
+        let Some(declaration) = self.nodes.ancestors(module_name).find(|&ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::ImportDeclaration
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::ImportEqualsDeclaration
+            )
+        }) else {
+            return;
+        };
+        let at_module_level = self.nodes.parent(declaration).is_some_and(|parent| {
+            matches!(self.nodes.kind(parent), SyntaxKind::SourceFile | SyntaxKind::ModuleBlock)
+        });
+        if !at_module_level && !self.file_has_parse_errors {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(module_name) else { return };
+        let span = self.error_span(module_name);
+        self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
+    }
+
+    /// The parser lane's grammar checks that upstream runs only when
+    /// `checkGrammarModifiers(node)` reported nothing — the caller,
+    /// `check_grammar_modifier_shapes`, is already behind that guard and the
+    /// file's parse diagnostics.
+    pub(crate) fn check_grammar_behind_modifiers(&mut self, node: NodeId, typed: Node<'_>) {
+        let list = match typed {
+            // `checkVariableStatement` (`checker.go:5767`).
+            Node::VariableStatement(statement) => {
+                statement.declaration_list.and_then(|list| list.node_id)
+            }
+            // `checkForStatement` (`checker.go:3960`) and
+            // `checkGrammarForInOrForOfStatement` (`grammarchecks.go:1256`).
+            Node::ForStatement(statement) => statement.initializer.and_then(|i| i.node_id()),
+            Node::ForInOrOfStatement(statement) => {
+                self.check_grammar_for_of_async(node, statement);
+                statement.initializer.and_then(|i| i.node_id())
+            }
+            Node::PropertyDeclaration(_) | Node::PropertySignatureDeclaration(_) => {
+                self.check_grammar_property(node, typed);
+                None
+            }
+            Node::VariableDeclaration(declaration) => {
+                self.check_grammar_variable_declaration_exclamation(node, declaration);
+                None
+            }
+            Node::ThrowStatement(statement) => {
+                self.check_grammar_throw_expression(node, statement);
+                None
+            }
+            // `checkClassExpression` → `checkGrammarModifiers`; a class
+            // expression never reaches `check_modifier_order`.
+            Node::ClassExpression(_) => {
+                self.check_grammar_decorator_target(node, typed);
+                None
+            }
+            Node::IndexSignatureDeclaration(_) => {
+                if let Some((at, message)) = self.index_signature_parameter_shape_error(node) {
+                    self.grammar_error_on_node(at, message);
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(list) = list
+            && self.nodes.kind(list) == SyntaxKind::VariableDeclarationList
+        {
+            self.check_grammar_variable_declaration_list(list);
+        }
+    }
+
+    /// `Checker.checkGrammarProperty` (`grammarchecks.go:1882`), the arms not
+    /// ported elsewhere:
+    ///
+    /// | parent | arm | code |
+    /// |---|---|---|
+    /// | class-like | `checkGrammarForInvalidDynamicName` | TS1166 |
+    /// | interface | initializer | TS1246 |
+    /// | type literal | initializer | TS1247 |
+    /// | any (property declaration) | `!` with an initializer / without a type / where not permitted | TS1263 / TS1264 / TS1255 |
+    ///
+    /// Ported elsewhere, and consulted here only for the short-circuit:
+    /// `check_field_named_constructor` (TS18006) and
+    /// `check_interface_computed_name` (TS1169/TS1170). Not ported: the mapped
+    /// type arm (TS7061, a computed `in` expression) — such a name returns
+    /// before anything here — and `checkAmbientInitializer`, which is
+    /// `check_ambient_initializer`'s.
+    fn check_grammar_property(&mut self, node: NodeId, typed: Node<'_>) {
+        let (name, postfix, annotation, initializer, modifiers) = match typed {
+            Node::PropertyDeclaration(n) => {
+                (n.name, n.postfix_token, n.r#type, n.initializer, n.modifiers)
+            }
+            Node::PropertySignatureDeclaration(n) => {
+                (n.name, n.postfix_token, n.r#type, n.initializer, n.modifiers)
+            }
+            _ => return,
+        };
+        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name
+            && let Some(Expression::BinaryExpression(binary)) = computed.expression
+            && binary.operator_token.is_some_and(|op| op.kind == SyntaxKind::InKeyword)
+        {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let invalid_dynamic_name = self.invalid_dynamic_name(name);
+        match self.nodes.kind(parent) {
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
+                if matches!(name, tsr_ast::PropertyName::StringLiteral(literal) if literal.text == "constructor")
+                {
+                    return;
+                }
+                if let Some(at) = invalid_dynamic_name {
+                    self.grammar_error_on_node(
+                        at,
+                        &messages::A_COMPUTED_PROPERTY_NAME_IN_A_CLASS_PROPERTY_DECLARATION_MUST_HAVE_A_SIMPLE_LITERAL_TYPE_OR_A_UNIQUE_SYMBOL_TYPE,
+                    );
+                    return;
+                }
+            }
+            kind @ (SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral) => {
+                if invalid_dynamic_name.is_some() {
+                    return;
+                }
+                if let Some(at) = initializer.and_then(|i| i.node_id()) {
+                    let message = if kind == SyntaxKind::InterfaceDeclaration {
+                        &messages::AN_INTERFACE_PROPERTY_CANNOT_HAVE_AN_INITIALIZER
+                    } else {
+                        &messages::A_TYPE_LITERAL_PROPERTY_CANNOT_HAVE_AN_INITIALIZER
+                    };
+                    self.grammar_error_on_node(at, message);
+                    return;
+                }
+            }
+            _ => {}
+        }
+        if !matches!(typed, Node::PropertyDeclaration(_)) {
+            return;
+        }
+        let Some(exclamation) = postfix.filter(|t| t.kind == SyntaxKind::ExclamationToken) else {
+            return;
+        };
+        let Some(at) = exclamation.node_id else { return };
+        let message = if initializer.is_some() {
+            &messages::DECLARATIONS_WITH_INITIALIZERS_CANNOT_ALSO_HAVE_DEFINITE_ASSIGNMENT_ASSERTIONS
+        } else if annotation.is_none() {
+            &messages::DECLARATIONS_WITH_DEFINITE_ASSIGNMENT_ASSERTIONS_MUST_ALSO_HAVE_TYPE_ANNOTATIONS
+        } else if !matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) || self.file_is_ambient
+            || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DeclareKeyword)
+            || self.declaration_is_in_an_ambient_context(node)
+            || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+            || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AbstractKeyword)
+        {
+            &messages::A_DEFINITE_ASSIGNMENT_ASSERTION_IS_NOT_PERMITTED_IN_THIS_CONTEXT
+        } else {
+            return;
+        };
+        self.grammar_error_on_node(at, message);
+    }
+
+    /// The definite-assignment arm of `Checker.checkGrammarVariableDeclaration`
+    /// (`grammarchecks.go:1588`): TS1263 / TS1264 / TS1255 on the `!`.
+    ///
+    /// The arms above it return first, and are ported elsewhere
+    /// (`check_using_is_initialized`, `check_const_is_initialized`), so they are
+    /// replayed here as bounds: a `using`/`await using` pattern, and — outside
+    /// a `for-in`/`for-of` head and an ambient context — a missing initializer
+    /// on a pattern or a `const`/`using`/`await using`. A catch clause's
+    /// declaration never reaches the function.
+    fn check_grammar_variable_declaration_exclamation(
+        &mut self,
+        node: NodeId,
+        declaration: &tsr_ast::VariableDeclaration<'_>,
+    ) {
+        let Some(exclamation) = declaration.exclamation_token else { return };
+        let Some(list) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(list) != SyntaxKind::VariableDeclarationList {
+            return;
+        }
+        let block_scope = self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED;
+        let using = block_scope == NodeFlags::USING || block_scope == NodeFlags::CONSTANT;
+        let pattern = matches!(declaration.name, Some(tsr_ast::BindingName::BindingPattern(_)));
+        if pattern && using {
+            return;
+        }
+        let owner = self.nodes.parent(list);
+        let owner_kind = owner.map(|owner| self.nodes.kind(owner));
+        let for_in_or_of =
+            matches!(owner_kind, Some(SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement));
+        let ambient = self.file_is_ambient || self.declaration_is_in_an_ambient_context(node);
+        if !for_in_or_of
+            && !ambient
+            && declaration.initializer.is_none()
+            && (pattern || using || block_scope == NodeFlags::CONST)
+        {
+            return;
+        }
+        if owner_kind == Some(SyntaxKind::VariableStatement)
+            && declaration.r#type.is_some()
+            && declaration.initializer.is_none()
+            && !ambient
+        {
+            return;
+        }
+        let message = if declaration.initializer.is_some() {
+            &messages::DECLARATIONS_WITH_INITIALIZERS_CANNOT_ALSO_HAVE_DEFINITE_ASSIGNMENT_ASSERTIONS
+        } else if declaration.r#type.is_none() {
+            &messages::DECLARATIONS_WITH_DEFINITE_ASSIGNMENT_ASSERTIONS_MUST_ALSO_HAVE_TYPE_ANNOTATIONS
+        } else {
+            &messages::A_DEFINITE_ASSIGNMENT_ASSERTION_IS_NOT_PERMITTED_IN_THIS_CONTEXT
+        };
+        let Some(at) = exclamation.node_id else { return };
+        self.grammar_error_on_node(at, message);
+    }
+
+    /// `checkGrammarForInvalidDynamicName`'s test (`grammarchecks.go:1409`):
+    /// the computed name to report, when the name is dynamic
+    /// (`ast.IsDynamicName`: not a string, numeric or signed numeric literal)
+    /// and its expression is not an entity name. A non-bindable entity name
+    /// returns false there too, so whether it is late-bindable never decides
+    /// the report and no type is needed.
+    pub(crate) fn invalid_dynamic_name(&self, name: tsr_ast::PropertyName<'_>) -> Option<NodeId> {
+        let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { return None };
+        let expression = computed.expression?;
+        let literal = match expression {
+            Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::NoSubstitutionTemplateLiteral(_) => true,
+            Expression::PrefixUnaryExpression(unary) => {
+                matches!(unary.operator.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+                    && matches!(unary.operand, Some(Expression::NumericLiteral(_)))
+            }
+            _ => false,
+        };
+        if literal || self.is_entity_name_expression(expression.node_id()?) {
+            return None;
+        }
+        computed.node_id
+    }
+
+    /// `Checker.checkThrowStatement`'s grammar arm (`checker.go:4228`): the
+    /// parser mints a missing identifier when a line break follows `throw`,
+    /// and the checker reports TS1142 at that identifier's `Pos()`.
+    ///
+    /// Upstream's missing node sits at the full start of the next token, the
+    /// end of the `throw` keyword; this parser places it at the next token's
+    /// trimmed start, so the position is taken from the keyword instead.
+    ///
+    /// Not ported: the `checkGrammarStatementInAmbientContext` guard in front
+    /// of it (the caller has no ambient context to hand).
+    fn check_grammar_throw_expression(
+        &mut self,
+        node: NodeId,
+        statement: &tsr_ast::ThrowStatement<'_>,
+    ) {
+        let Some(Expression::Identifier(identifier)) = statement.expression else { return };
+        if !identifier.text.is_empty() {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let at = self.nodes.span(node).start + u32::try_from("throw".len()).unwrap_or(0);
+        self.report(
+            file,
+            Diagnostic::new(&messages::LINE_BREAK_NOT_PERMITTED_HERE, tsr_core::Span::new(at, at)),
+        );
+    }
+
+    /// The shape arms of `Checker.checkGrammarIndexSignatureParameters`
+    /// (`grammarchecks.go:796`): everything it tests before it resolves the
+    /// parameter's type, as the node and message to report, or `None`.
+    ///
+    /// The type-reading arms that follow (TS1337, TS1268, TS1021) are ported
+    /// separately in `check.rs` (`check_index_signature_key_type`,
+    /// `check_index_signature_parameter_type`); each asks this first, because
+    /// upstream `return`s on the first arm that fires.
+    ///
+    /// Not ported: the TS1025 trailing-comma report between the count and the
+    /// rest arms. It does not return, so it stands alone, and its span is the
+    /// comma, which this AST does not keep for a parameter list.
+    pub(crate) fn index_signature_parameter_shape_error(
+        &self,
+        node: NodeId,
+    ) -> Option<(NodeId, &'static tsr_diagnostics::Message)> {
+        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
+            return None;
+        };
+        let Some(parameter) = signature.parameters.first() else {
+            return Some((node, &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER));
+        };
+        let name = parameter.name.and_then(|name| name.node_id());
+        if signature.parameters.len() != 1 {
+            return Some((name?, &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER));
+        }
+        if let Some(dots) = parameter.dot_dot_dot_token {
+            return Some((
+                dots.node_id?,
+                &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_REST_PARAMETER,
+            ));
+        }
+        if !parameter.modifiers.is_empty() {
+            return Some((
+                name?,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_ACCESSIBILITY_MODIFIER,
+            ));
+        }
+        if let Some(question) = parameter.question_token {
+            return Some((
+                question.node_id?,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_A_QUESTION_MARK,
+            ));
+        }
+        if parameter.initializer.is_some() {
+            return Some((
+                name?,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_INITIALIZER,
+            ));
+        }
+        if parameter.r#type.is_none() {
+            return Some((
+                name?,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_MUST_HAVE_A_TYPE_ANNOTATION,
+            ));
+        }
+        None
+    }
+
+    /// `checkGrammarForInOrForOfStatement`'s `async` arm
+    /// (`grammarchecks.go:1251`): `for (async of xs)` outside an await context
+    /// is TS1106 on the identifier. The arm does not return true, so the list
+    /// checks after it still run (they cannot apply to an identifier).
+    ///
+    /// `NodeFlagsAwaitContext` is not set by this parser; the enclosing
+    /// function's `async` stands in for it, as in
+    /// `check_await_as_binding_name`. Not ported: the `for await` arms above
+    /// it, and a module's top-level await context.
+    fn check_grammar_for_of_async(
+        &mut self,
+        node: NodeId,
+        statement: &tsr_ast::ForInOrOfStatement<'_>,
+    ) {
+        if self.nodes.kind(node) != SyntaxKind::ForOfStatement {
+            return;
+        }
+        let Some(tsr_ast::ForInitializer::Identifier(identifier)) = statement.initializer else {
+            return;
+        };
+        if identifier.text != "async" {
+            return;
+        }
+        let in_async_function = self
+            .nodes
+            .ancestors(node)
+            .find(|&ancestor| self.is_function_like_or_static_block(ancestor))
+            .and_then(|function| self.node_map.get(function))
+            .and_then(crate::check::modifiers_of)
+            .is_some_and(|modifiers| {
+                tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword)
+            });
+        if in_async_function {
+            return;
+        }
+        let Some(at) = identifier.node_id else { return };
+        self.grammar_error_on_node(
+            at,
+            &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_OF_STATEMENT_MAY_NOT_BE_ASYNC,
+        );
+    }
+
+    /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`)
+    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`)
+    /// and its trailing `checkGrammarAwaitOrAwaitUsing`, which is reported
+    /// elsewhere. Returns whether it reported.
+    pub(crate) fn check_grammar_variable_declaration_list(&mut self, list: NodeId) -> bool {
+        if self.report_disallowed_trailing_comma(list, &messages::TRAILING_COMMA_NOT_ALLOWED) {
+            return true;
+        }
+        let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list) else {
+            return false;
+        };
+        if declarations.declarations.is_empty() {
+            // `grammarErrorAtPos(list, declarations.Pos(), declarations.End() -
+            // declarations.Pos(), …)`: an empty `NodeList` sits at the end of
+            // the keyword, which is where the list node itself ends.
+            let Some(file) = self.source_file_of_for_diagnostics(list) else { return false };
+            let end = self.nodes.span(list).end;
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::VARIABLE_DECLARATION_LIST_CANNOT_BE_EMPTY,
+                    tsr_core::Span::new(end, end),
+                ),
+            );
+            return true;
+        }
+        // `NodeFlagsAwaitUsing` is `Const | Using` upstream. This parser
+        // flags an `await using` list plain `USING` and drops the `await`
+        // (the printer could not write it back otherwise), so the two
+        // spellings are told apart only where the tree still shows the
+        // `await`; a `CONST | USING` list is accepted for when it does.
+        let block_scope = self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED;
+        if block_scope != NodeFlags::USING && block_scope != NodeFlags::CONSTANT {
+            return false;
+        }
+        let Some(parent) = self.nodes.parent(list) else { return false };
+        if self.nodes.kind(parent) == SyntaxKind::ForInStatement {
+            // `for (await using x in …)` and `for (using x in …)` parse to the
+            // same tree here, and the two messages differ; decline the
+            // ambiguous one rather than guess.
+            if block_scope != NodeFlags::CONSTANT {
+                return false;
+            }
+            self.grammar_error_on_node(
+                list,
+                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
+            );
+            return true;
+        }
+        let Some(Node::VariableStatement(statement)) = self.node_map.get(parent) else {
+            return false;
+        };
+        if !self.nodes.parent(parent).is_some_and(|clause| {
+            matches!(self.nodes.kind(clause), SyntaxKind::CaseClause | SyntaxKind::DefaultClause)
+        }) {
+            return false;
+        }
+        // A statement with no modifiers starts where its list does, unless the
+        // parser consumed an `await` in front of the list: that gap is the
+        // `await`, and upstream's list (and so the report) starts there.
+        let statement_start = self.nodes.span(parent).start;
+        let list_span = self.nodes.span(list);
+        let awaited = block_scope == NodeFlags::CONSTANT
+            || (statement.modifiers.is_empty() && statement_start != list_span.start);
+        let (message, span) = if awaited {
+            (
+                &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
+                tsr_core::Span::new(statement_start.min(list_span.start), list_span.end),
+            )
+        } else {
+            (
+                &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
+                list_span,
+            )
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
+        self.report(file, Diagnostic::new(message, span));
+        true
+    }
+
+    /// `Checker.checkGrammarForDisallowedTrailingComma` (`grammarchecks.go:671`)
+    /// for a list whose owner records `NodeFlags::HAS_TRAILING_COMMA`.
+    ///
+    /// Upstream reports at `list.End() - len(",")`. The owner's parser ends
+    /// the node at the trailing comma for every list this is used on (a
+    /// variable declaration list, a heritage clause's types), so the comma is
+    /// the owner's last byte.
+    pub(crate) fn report_disallowed_trailing_comma(
+        &mut self,
+        owner: NodeId,
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        if !self.nodes.flags(owner).contains(NodeFlags::HAS_TRAILING_COMMA) {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return false };
+        let end = self.nodes.span(owner).end;
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(end - 1, end)));
+        true
+    }
+
+    /// `Checker.grammarErrorOnNode` with no arguments: the node's error span.
+    /// Callers have already checked the file's parse diagnostics.
+    pub(crate) fn grammar_error_on_node(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The postfix-token arms of `Checker.checkGrammarObjectLiteralExpression`
+    /// (`grammarchecks.go:1098`) and of `Checker.checkGrammarMethod` for a
+    /// method in an object literal (`:1438`): `?` is TS1162 and `!` is TS1255
+    /// on a property, shorthand or method, and a method's modifiers other than
+    /// a lone `async` are TS1184 on its first token.
+    ///
+    /// The property arms do not return, so each member stands alone. The
+    /// method arm sits behind `checkGrammarMethod`'s modifier test (anything
+    /// but a lone `async` is TS1184 and returns first), which is mirrored as a
+    /// bound rather than reported here.
+    pub(crate) fn check_grammar_object_literal_postfix_tokens(&mut self, typed: Node<'_>) {
+        let Node::ObjectLiteralExpression(literal) = typed else { return };
+        for property in literal.properties {
+            let postfix = match property {
+                ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.postfix_token
+                }
+                ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    shorthand.postfix_token
+                }
+                ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    let lone_async = matches!(
+                        method.modifiers,
+                        [ModifierLike::Token(token)] if token.kind == SyntaxKind::AsyncKeyword
+                    );
+                    if !method.modifiers.is_empty() && !lone_async {
+                        // TS1184 on the method's first token, and return.
+                        if let Some(id) = method.node_id
+                            && let Some(file) = self.source_file_of_for_diagnostics(id)
+                        {
+                            let start = self.nodes.span(id).start;
+                            self.report(
+                                file,
+                                Diagnostic::new(
+                                    &messages::MODIFIERS_CANNOT_APPEAR_HERE,
+                                    tsr_core::Span::new(start, start + 1),
+                                ),
+                            );
+                        }
+                        continue;
+                    }
+                    method.postfix_token
+                }
+                _ => continue,
+            };
+            let Some(token) = postfix else { continue };
+            let Some(id) = token.node_id else { continue };
+            let message = match token.kind {
+                SyntaxKind::QuestionToken => {
+                    &messages::AN_OBJECT_MEMBER_CANNOT_BE_DECLARED_OPTIONAL
+                }
+                SyntaxKind::ExclamationToken => {
+                    &messages::A_DEFINITE_ASSIGNMENT_ASSERTION_IS_NOT_PERMITTED_IN_THIS_CONTEXT
+                }
+                _ => continue,
+            };
+            self.grammar_error_on_node(id, message);
+        }
+    }
+
     /// `grammarErrorOnNode(mod, X_0_modifier_cannot_be_used_here, …)`.
     fn report_modifier_cannot_be_used_here(&mut self, modifier: NodeId, kind: SyntaxKind) {
         let Some(file) = self.source_file_of_for_diagnostics(modifier) else { return };
@@ -80,5 +829,18 @@ fn modifier_text(kind: SyntaxKind) -> &'static str {
         SyntaxKind::ReadonlyKeyword => "readonly",
         SyntaxKind::StaticKeyword => "static",
         _ => "",
+    }
+}
+
+/// `scanner.DeclarationNameToString` for a property name, as far as a message
+/// argument needs it: the name's written text (a string literal keeps its
+/// quotes), or empty for a computed name.
+fn declaration_name_text(name: tsr_ast::PropertyName<'_>) -> String {
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => identifier.text.to_string(),
+        tsr_ast::PropertyName::PrivateIdentifier(identifier) => identifier.text.to_string(),
+        tsr_ast::PropertyName::StringLiteral(literal) => format!("\"{}\"", literal.text),
+        tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
+        _ => String::new(),
     }
 }

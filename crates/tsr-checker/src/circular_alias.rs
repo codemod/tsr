@@ -1,56 +1,58 @@
 //! TS2303 — `Circular definition of import alias '{0}'.`
 //!
-//! `resolveAlias` (`checker.go:16272`-`:16291`). Upstream detects the cycle
-//! *generically*, with `pushTypeResolution`/`popTypeResolution` around the alias
-//! target; that resolution stack is not in this port, and building it to serve
-//! one diagnostic would be the tail wagging the compiler.
+//! `resolveAlias` (`checker.go:16266`-`:16291`). Upstream detects the cycle
+//! with `pushTypeResolution(symbol, AliasTarget)` around
+//! `getTargetOfAliasDeclaration`. Resolving a target **recurses** into
+//! `resolveAlias` whenever the target is itself an alias: `resolveEntityName`,
+//! `getExternalModuleMember` and `resolveExternalModuleSymbol` all end in
+//! `resolveSymbol`, and `resolveIndirectionAlias` covers a pure-alias target.
+//! When the recursion comes back to a symbol already on the stack, every frame
+//! from that symbol up pops `false` and reports TS2303 at its own declaration.
+//! An alias that only *leads into* a cycle pops `true` and reports nothing.
 //!
-//! The two shapes the corpus asks for that are decidable **syntactically** are
-//! ported instead:
+//! So the set of reporting aliases is exactly the aliases whose target chain
+//! returns to themselves. This port's [`Checker::resolve_alias`] is not
+//! recursive (it answers the immediate target), so the chain is walked here,
+//! one hop per recursion upstream would make:
 //!
-//! ```text
-//! namespace M { import A = B; import B = A; }          a chain in one scope
-//! declare module "m" { import self = require("m"); }   a self-reference
-//! ```
+//! - `import x = require("m")`, `import * as x from "m"`, `export * as x from
+//!   "m"`: the module's `export=` symbol (`resolveExternalModuleSymbol`).
+//! - every other alias form: [`Checker::resolve_alias`]'s immediate target.
 //!
-//! The third — `export type { A } from './b'` with `b.ts` re-exporting from
-//! `a.ts` — needs the module graph and export-star resolution and is declined.
-//! Owner: the module graph, via `checker_types`.
-//!
-//! `docs/architecture/checker-notes-diag2.md` §955.
+//! The walk stops at the first non-alias, at an unresolvable hop, or at a
+//! repeat that is not the start (a cycle this alias only leads into). This
+//! replaces the two syntactic shapes §955/§956 ported
+//! (`docs/architecture/checker-notes-diag2.md`), which missed cross-file
+//! cycles and `export =` cycles. `docs/parity/notes/names-modules.md` §2.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
+/// Hop bound for the chain walk. A chain is at most one hop per alias in the
+/// program; the bound only keeps a defect elsewhere from becoming a hang.
+const MAX_ALIAS_HOPS: usize = 64;
+
 impl Checker<'_, '_> {
-    /// One `import X = …` declaration.
+    /// One alias declaration: report TS2303 when its target chain comes back
+    /// to it. Called from every site upstream's `checkAliasSymbol` and
+    /// `checkExportAssignment` resolve the alias at.
     pub(crate) fn check_circular_import_alias(&mut self, node: NodeId) {
-        let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
-            return;
-        };
-        let Some(name) = declaration.name.and_then(|n| n.node_id) else { return };
-        let text = self.identifier_text(name).map(str::to_string);
-        let Some(text) = text else { return };
-        let circular = match declaration.module_reference {
-            // `import self = require("m")` **inside `declare module "m"`**. The
-            // same text in a real file is a different question — the module
-            // graph's — and is not decided here.
-            Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) => {
-                self.self_referencing_ambient_require(node, reference)
-            }
-            // `import A = B`, following the chain of entity-name aliases in
-            // scope until it terminates or returns to this declaration.
-            Some(tsr_ast::ModuleReference::Identifier(_)) => {
-                self.alias_chain_returns_to(node, declaration.module_reference)
-            }
-            _ => false,
-        };
-        if !circular {
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            // `getDeclarationOfAliasSymbol` is the declaration upstream
+            // reports at; a merged alias reports once, there.
+            || self.declaration_of_alias_symbol(symbol) != Some(node)
+        {
             return;
         }
+        if !self.alias_chain_returns_to(symbol) {
+            return;
+        }
+        let Some(text) = self.alias_name_as_written(node, symbol) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(
@@ -59,73 +61,91 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// `import self = require("m")` where the enclosing `declare module` names
-    /// `"m"` — the module resolves to the declaration containing it.
-    fn self_referencing_ambient_require(
-        &self,
-        node: NodeId,
-        reference: &tsr_ast::ExternalModuleReference<'_>,
-    ) -> bool {
-        let Some(specifier) = reference.expression.and_then(|e| e.node_id()) else { return false };
-        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return false };
-        self.nodes.ancestors(node).any(|ancestor| {
-            matches!(
-                self.node_map.get(ancestor),
-                Some(Node::ModuleDeclaration(module))
-                    if module.name.and_then(|n| n.node_id())
-                        .and_then(|id| self.node_map.get(id))
-                        .is_some_and(|n| matches!(n, Node::StringLiteral(own) if own.text == literal.text))
-            )
-        })
-    }
-
-    /// Follow `import A = B; import B = A;` from `start` and report whether the
-    /// chain comes back to it.
-    ///
-    /// **Terminating on resolution failure matters as much as on the cycle.**
-    /// `import A = B; import B = C` with a real `C` must walk off the end
-    /// rather than loop, which is falsifier 1.
-    fn alias_chain_returns_to(
-        &mut self,
-        start: NodeId,
-        reference: Option<tsr_ast::ModuleReference<'_>>,
-    ) -> bool {
-        let mut current = reference.and_then(|r| r.node_id());
-        let mut seen = 0usize;
-        while let Some(at) = current {
-            // A chain longer than the file has declarations is a cycle that
-            // does not pass through `start`, and is not this declaration's.
-            seen += 1;
-            if seen > 64 {
+    /// Does resolving `start` recurse back into `start`?
+    fn alias_chain_returns_to(&mut self, start: SymbolId) -> bool {
+        let mut current = start;
+        let mut seen: Vec<SymbolId> = Vec::new();
+        for _ in 0..MAX_ALIAS_HOPS {
+            let Some(next) = self.alias_recursion_target(current) else { return false };
+            let next = self.binder.merged_symbol(next);
+            // `resolveSymbol`/`resolveEntityName` recurse only into a
+            // **non-local alias** (`IsNonLocalAlias`, `utilities.go`): an alias
+            // that does not itself carry a value, type or namespace meaning. An
+            // alias merged with a real declaration of its name answers that
+            // declaration without recursing — even when it is `start` itself
+            // (`export { x }` beside `export let x`, `compiler/multipleExports`).
+            let flags = self.binder.symbols().get(next).flags;
+            if !flags.intersects(SymbolFlags::ALIAS)
+                || flags.intersects(SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+            {
                 return false;
             }
-            let Some(text) = self.identifier_text(at).map(str::to_string) else { return false };
-            let Some(symbol) = self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                at,
-                &text,
-                SymbolFlags::NAMESPACE_MODULE | SymbolFlags::TYPE | SymbolFlags::VALUE,
-            ) else {
-                return false;
-            };
-            let declarations =
-                self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-            let [declaration] = declarations.as_slice() else { return false };
-            if *declaration == start {
+            if next == start {
                 return true;
             }
-            let Some(Node::ImportEqualsDeclaration(next)) = self.node_map.get(*declaration) else {
+            if seen.contains(&next) {
                 return false;
-            };
-            current = match next.module_reference {
-                Some(tsr_ast::ModuleReference::Identifier(identifier)) => identifier.node_id,
-                _ => return false,
-            };
+            }
+            seen.push(next);
+            current = next;
         }
         false
     }
-}
 
-/// Keeps `SyntaxKind` in the import list for the ambient-module walk above.
-const _: SyntaxKind = SyntaxKind::ModuleDeclaration;
+    /// The symbol upstream's `resolveAlias(alias)` hands to its recursive
+    /// `resolveSymbol`/`resolveAlias` call.
+    fn alias_recursion_target(&mut self, alias: SymbolId) -> Option<SymbolId> {
+        let declaration = self.declaration_of_alias_symbol(alias)?;
+        let module_reference = match self.node_map.get(declaration)? {
+            Node::ImportEqualsDeclaration(import) => match import.module_reference? {
+                tsr_ast::ModuleReference::ExternalModuleReference(reference) => {
+                    Some((declaration, reference.expression?.node_id()?))
+                }
+                // `getSymbolOfPartOfRightHandSideOfImportEquals`: an identifier
+                // resolves at `Namespace` meaning, and the hit is handed on
+                // unresolved. [`Checker::resolve_alias`]'s identifier arm
+                // instead declines an alias hit (or types it), which is the
+                // recursion this walk exists to follow.
+                tsr_ast::ModuleReference::Identifier(name) => {
+                    return self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        name.node_id?,
+                        name.text,
+                        SymbolFlags::NAMESPACE,
+                    );
+                }
+                tsr_ast::ModuleReference::QualifiedName(_) => None,
+            },
+            Node::NamespaceImport(_) => {
+                let clause = self.nodes.parent(declaration)?;
+                let owner = self.nodes.parent(clause)?;
+                Some((owner, self.external_module_name(owner)?))
+            }
+            Node::NamespaceExport(_) => {
+                let owner = self.nodes.parent(declaration)?;
+                Some((owner, self.external_module_name(owner)?))
+            }
+            _ => None,
+        };
+        let Some((owner, specifier)) = module_reference else { return self.resolve_alias(alias) };
+        let module = self.resolve_external_module_name(owner, specifier)?;
+        let module = self.binder.merged_symbol(module);
+        // `resolveExternalModuleSymbol`: `resolveSymbol(exports["export="])`.
+        self.binder.symbols().get(module).exports.get("export=").copied()
+    }
+
+    /// `symbolToString` for an alias: `getNameOfSymbolAsWritten` spells an
+    /// `export =`/`export default` symbol by its declaration's name, which
+    /// for an export assignment is the expression when it is an identifier
+    /// (`GetNameOfDeclaration`).
+    fn alias_name_as_written(&self, node: NodeId, symbol: SymbolId) -> Option<String> {
+        if let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node)
+            && let Some(expression) = assignment.expression.and_then(|e| e.node_id())
+            && self.nodes.kind(expression) == SyntaxKind::Identifier
+        {
+            return self.identifier_text(expression).map(str::to_string);
+        }
+        Some(self.binder.symbols().get(symbol).name.to_string())
+    }
+}

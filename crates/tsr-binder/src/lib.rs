@@ -439,9 +439,15 @@ impl<'a> BindResult<'a> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
-        self.resolve_name_with_export_alias(nodes, node_map, start, name, meaning, |_, _| {
-            Some(false)
-        })
+        self.resolve_name_with_alias_meaning(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            &mut |_, _| Some(false),
+            false,
+        )
     }
 
     /// Pinned 5b1047d nameresolver.go:99 / checker.go:2176 delegates exported
@@ -458,6 +464,32 @@ impl<'a> BindResult<'a> {
         meaning: SymbolFlags,
         mut exported_alias: impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
     ) -> Option<SymbolId> {
+        self.resolve_name_with_alias_meaning(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            &mut exported_alias,
+            true,
+        )
+    }
+
+    /// The shared body of [`Self::resolve_name`] and
+    /// [`Self::resolve_name_with_export_alias`]. `filter_local_aliases` is
+    /// set only when `alias_meaning` is the checker's real target-meaning
+    /// answer, never for `resolve_name`'s constant `Some(false)`.
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_name_with_alias_meaning(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+        alias_meaning: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+        filter_local_aliases: bool,
+    ) -> Option<SymbolId> {
         let resolved = self.resolve_name_excluding_with_export_alias(
             nodes,
             node_map,
@@ -465,7 +497,8 @@ impl<'a> BindResult<'a> {
             name,
             meaning,
             None,
-            &mut exported_alias,
+            alias_meaning,
+            filter_local_aliases,
         )?;
         // §265. `declare global { … }` does NOT declare a binding called
         // `global` — the keyword is syntax, not a name. Upstream reports
@@ -641,6 +674,7 @@ impl<'a> BindResult<'a> {
             meaning,
             exclude,
             &mut |_, _| Some(false),
+            false,
         )
     }
 
@@ -654,6 +688,7 @@ impl<'a> BindResult<'a> {
         meaning: SymbolFlags,
         exclude: Option<NodeId>,
         exported_alias: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+        filter_local_aliases: bool,
     ) -> Option<SymbolId> {
         // Upstream's `lastLocation`: the node the walk came *from*. The static
         // rule below is a question about it, not about the class.
@@ -666,6 +701,18 @@ impl<'a> BindResult<'a> {
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
             if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
+                // `getSymbol`'s alias arm (`checker.go:2183`) on the locals
+                // table: an alias whose own flags lack `meaning` is a hit only
+                // when its target's flags carry it. Asked of the checker
+                // (`filter_local_aliases` is set only by its wrapper), and only
+                // a definite `Some(false)` rejects — an unsupported target
+                // keeps the binder's accept. A rejected local falls through to
+                // the location's exports arm and then outward, as upstream's
+                // nil `result` does. `docs/parity/notes/names-modules.md` §1.
+                && !(filter_local_aliases
+                    && !self.symbols.get(found).flags.intersects(meaning)
+                    && self.symbols.get(found).flags.intersects(SymbolFlags::ALIAS)
+                    && exported_alias(found, meaning) == Some(false))
                 && !self.symbol_is_declared_within(found, exclude, nodes)
                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)

@@ -127,8 +127,9 @@ pub fn skip_type_checking(
 /// `getDiagnosticsWithPrecedingDirectives` plus a TS2578 for each
 /// `@ts-expect-error` nothing used.
 ///
-/// A checked JavaScript file's `JSDocDiagnostics()` are not added: this
-/// port's parser discards JSDoc parse errors (`parse_jsdoc_comment`).
+/// A checked JavaScript file also reports its `JSDocDiagnostics()`, the parse
+/// errors inside its JSDoc comments ([`tsr_parser::JSDocTable::diagnostics`]),
+/// before the directives are applied.
 ///
 /// # Panics
 ///
@@ -149,6 +150,11 @@ pub fn bind_and_check_diagnostics(
     if is_plain_js_file(file, program.compiler_options()) {
         diagnostics.retain(|d| is_plain_js_error(d.message.code()));
         return diagnostics;
+    }
+    if is_source_file_js(file.file_name())
+        && is_check_js_enabled_for_file(file, program.compiler_options())
+    {
+        diagnostics.extend_from_slice(file.jsdoc().diagnostics());
     }
     let (mut kept, unused) = with_preceding_directives(file.text(), diagnostics);
     kept.extend(unused);

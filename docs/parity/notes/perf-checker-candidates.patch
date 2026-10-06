@@ -1,0 +1,69 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index a82dcee..32355fe 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -313,6 +313,7 @@ pub struct Checker<'a, 'n> {
+     /// (`checker.go:17334`). One per class, so `this` has a stable identity
+     /// inside one.
+     pub(crate) this_types: FxHashMap<SymbolId, TypeId>,
++    pub(crate) probe_ref_memo: FxHashMap<(TypeId, TypeId, TypeId), TypeId>,
+     /// `ObjectFlagsIsConstrainedTypeVariable`: intersection -> (variable, primitive).
+     pub(crate) constrained_type_variables: FxHashMap<TypeId, (TypeId, TypeId)>,
+     /// `symbol -> the type it *declares*`, upstream's
+@@ -1302,6 +1303,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             flow_loop_stack: Vec::new(),
+             declared_types: FxHashMap::default(),
+             this_types: FxHashMap::default(),
++            probe_ref_memo: FxHashMap::default(),
+             constrained_type_variables: FxHashMap::default(),
+             instantiations: FxHashMap::default(),
+             type_reference_targets: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 249feb5..5661e7e 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -6106,6 +6106,9 @@ impl Checker<'_, '_> {
+                 .iter()
+                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
+         }
++        if names.is_empty() {
++            return false;
++        }
+         let text = crate::printing::type_to_string(ty);
+         names.iter().any(|name| mentions_identifier(&text, name))
+     }
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 2229257..edbc9f1 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1275,7 +1275,7 @@ impl Checker<'_, '_> {
+         // the projection has in hand for one property name, so the 193-line
+         // "the property TYPES; the projection fails" bucket can be told apart
+         // from the already-refused inference legs. Behaviour-free.
+-        if std::env::var("TSR_PROJ_TRACE").ok().as_deref() == Some(name) {
++        if { static T: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new(); T.get_or_init(|| std::env::var("TSR_PROJ_TRACE").ok()).as_deref() == Some(name) } {
+             let reference = self.type_reference_targets.get(&id).cloned();
+             let arguments = reference.as_ref().map(|(_, args)| {
+                 args.iter()
+@@ -1895,6 +1895,21 @@ impl Checker<'_, '_> {
+         receiver: TypeId,
+         declared: TypeId,
+         this_argument: TypeId,
++    ) -> TypeId {
++        let key = (receiver, declared, this_argument);
++        if let Some(&hit) = self.probe_ref_memo.get(&key) {
++            return hit;
++        }
++        let result = self.instantiate_for_reference_with_this_probe(receiver, declared, this_argument);
++        self.probe_ref_memo.insert(key, result);
++        result
++    }
++
++    fn instantiate_for_reference_with_this_probe(
++        &mut self,
++        receiver: TypeId,
++        declared: TypeId,
++        this_argument: TypeId,
+     ) -> TypeId {
+         // resolveTypeReferenceMembers also supplies a this argument for a
+         // non-generic class or interface. The port keeps those as Named types

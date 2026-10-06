@@ -734,8 +734,10 @@ impl<'a> Checker<'a, '_> {
     /// The immutable Program owns symbols and module identities; the existing
     /// alias worker owns resolution. A direct completed nonalias target may
     /// admit this export or continue to an outer meaning. Missing/alias targets
-    /// decline rather than claiming absence. No new completion cache or image;
-    /// repeated alias-worker attribution remains tsr-1yb.11.
+    /// decline rather than claiming absence. The same answer filters an alias
+    /// found in `locals` (`getSymbol`'s alias arm; `Some(false)` continues
+    /// outward), `docs/parity/notes/names-modules.md` §1. No new completion
+    /// cache or image; repeated alias-worker attribution remains tsr-1yb.11.
     pub(crate) fn resolve_name_with_export_alias(
         &mut self,
         start: NodeId,

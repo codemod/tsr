@@ -1182,7 +1182,15 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                     if let Some(expression) = expression {
                         let span = nodes.span(id);
                         let text = &source[span.start as usize..span.end as usize];
+                        // isUntypedFunctionCall's third disjunct
+                        // (checker.go:9936): a namespace value has no
+                        // signatures and is assignable to an EMPTY global
+                        // Function, so calling it is an untyped call.
+                        let namespace_value = !clone && !class;
                         let expected = match text {
+                            "Head(1)" | "Twin(2)" | "Raw(5)" if namespace_value && empty => {
+                                intrinsics.any
+                            }
                             "Head(1)" | "Twin(2)" => untyped,
                             "Tail(3)" | "Linked(4)" if namespace_meaning && clone => untyped,
                             "Tail(3)" | "Linked(4)" | "new Head(7)" => intrinsics.error,
