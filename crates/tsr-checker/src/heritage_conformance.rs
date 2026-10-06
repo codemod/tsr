@@ -138,9 +138,7 @@ impl Checker<'_, '_> {
                 continue;
             };
             let flags = self.binder.symbols().get(implemented).flags;
-            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                || !self.has_single_type_declaration(implemented)
-            {
+            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
                 continue;
             }
             let Some(target) =

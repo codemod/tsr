@@ -446,3 +446,33 @@ TS2374/TS2411/TS2420/TS2430 lines, no new extra. **Kept** on
 `merged_export_spaces` (TS2395): lifting it lost `anonymousModules`, where
 `module {` recovers as an expression statement and the block's `export var`s
 are bound as a merge upstream never forms.
+
+## §19 TS2420: an implemented interface may have several declarations
+
+`checkClassLikeDeclaration`'s implements loop declined an implemented symbol
+with more than one class/interface declaration ("upstream's merge is not this
+port's"). For an interface merged from several declarations the binder's
+merged member table is what upstream's `resolveDeclaredMembers` reads, and the
+relation then works on it. Lifted for the implements arm (the extends arms
+keep it): +7 (`classWithMultipleBaseClasses`, `elaboratedErrors`,
+`genericArrayExtenstions`, `untypedFunctionCallsWithTypeParameters1`,
+`classImplementsMergedClassInterface`, `mergedInterfacesWithInheritedPrivates`,
+`mergedInterfacesWithInheritedPrivates2`), no loss.
+
+**One known wrong line.** `implementArrayInterface` (WRONG before and after)
+now reports TS2416 on `sort(...): this` against lib `Array<T>`. Upstream
+relates `getTypeWithThisArgument(t)` to `getTypeWithThisArgument(base,
+t.thisType)`, binding the base's `this` to the class's; this port has no
+`getTypeWithThisArgument` (`crate::declared` builds the base reference
+without a this-argument), so lib `Array`'s `this` stays `T[]` and
+`MyArray<T>` is checked against it. Reported to the integrator; with that
+port the line goes and the case's missing `every` line should appear.
+
+**Private names, refused.** Skipping private-identifier members in
+`issueMemberSpecificError` (upstream names them `__#<class>@#x`, so a derived
+`#x` never finds a base property) removes the extra TS2416 in
+`privateNamesAndFields` but then the broad relation `B` → `A` fails and
+reports TS2415 instead: this port's binder names private members by their
+text, so `B.#foo: string` and `A.#foo: number` are one property to the
+relater. The fix is `getSymbolNameForPrivateIdentifier` in the binder *and*
+every private-name lookup in the members code; reported, not built.
