@@ -486,3 +486,37 @@ Not ported: the children half (`getJsxElementChildrenPropertyName`, the
 TS2745/TS2746 arity messages, per-child elaboration and the TS2747 text-child
 diagnostic) and union props targets (the object-literal union decline
 applies). A failure only in `children` still reports at the tag name.
+
+## 20. Held at the end of round 2, with the number that held each
+
+Each was measured zero-loss except for the named case. The loss comes from a
+file another lane owns, so the change is held until that file is fixed (see
+the box's final report).
+
+- **Weak-type check (TS2559, `isWeakType`/`hasCommonProperties`,
+  `relater.go:2676`).** Gains +3 cases (`assignmentCompatWithObjectMembersOptionality2`,
+  `intersectionAsWeakTypeSource`, `nestedFreshLiteral`), TS2559 matched
+  0 → 17 lines. It also loses 2 cases: `overloadBindingAcrossDeclarationBoundaries`
+  and `…2`. The relation is right in both (`Opt1 -> Opt3` is not related),
+  and that exposes an overload-order bug. `signatures.rs::reorder_candidates`
+  gives each `CallSignatureDeclaration` its own symbol, so call signatures
+  merged from two interface declarations are not regrouped the way
+  `reorderCandidates` groups them, and `a({})` picks `Opt1` rather than
+  `Opt3`. A one-line change gives call signatures the owner that construct
+  signatures already use. With that change the combined run has zero losses,
+  +3 cases and +6 type lines. Three more TS2420 lines in `subtypingWithObjectMembers5`
+  would also need `heritage_conformance.rs` to emit TS2559 when the weak
+  check is what fails.
+- **Indexed-access target constraint arm (`relater.go:3456`, `S -> T[K]` via
+  the write constraint of `T[K]`).** Gains +1 case (`nonPrimitiveConstraintOfIndexAccessType`,
+  10 lines). It loses `contextuallyTypedSymbolNamedProperties`:
+  `mapped.rs::generic_mapped_contextual_property_type` mints the string
+  literal `"[A]"` for a symbol-keyed property name, and the relation now
+  relates it. It also loses `correlatedUnions`: `base_constraint_of_type(Funcs[K])`
+  answers the simplified `Func<K>`, where upstream's `getConstraintOfIndexedAccess`
+  substitutes the index constraint and gets `Funcs["a" | "b"]`.
+- **§10's primitive/index-signature change** landed on `main` from the
+  relate-3 stream (`bfb9ec2`).
+
+Lane state at `d7d1d2b`: whole-suite `diagnostics` 3935/5488 and
+`checker_types` 7609/9538.
