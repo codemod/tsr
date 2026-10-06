@@ -2459,20 +2459,17 @@ impl Checker<'_, '_> {
         // Pinned `checkConstructorDeclaration` reports this semantic error
         // even with parse diagnostics; its early decline is a missing body.
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
-        let Some(extends) = class
+        if !class
             .heritage_clauses
             .iter()
-            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-        else {
-            return;
-        };
-        if extends.types.iter().any(|base| {
-            base.expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
-        }) {
+            .any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+        {
             return;
         }
+        // `classDeclarationExtendsNull`: this parser spells the `null` of
+        // `extends null` as an identifier, which a `NullKeyword` test missed
+        // (`superCallBeforeThisAccessing5`, `classExtendsNull`).
+        let extends_null = self.class_declaration_extends_null(node);
         for member in class.members {
             let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member else {
                 continue;
@@ -2480,6 +2477,23 @@ impl Checker<'_, '_> {
             let Some(body) = constructor.body.and_then(|body| body.node_id()) else { continue };
             // `ast.NodeIsMissing(node.Body())` includes an empty recovery Block.
             if self.nodes.span(body).is_empty() {
+                continue;
+            }
+            if extends_null {
+                // TS17005 — `A constructor cannot contain a 'super' call when
+                // its class extends null.`, at `findFirstSuperCall`'s result
+                // (`checker.go:2848`).
+                if let Some(call) = self.first_super_call(body) {
+                    let Some(file) = self.source_file_of_for_diagnostics(call) else { continue };
+                    let span = self.error_span(call);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::A_CONSTRUCTOR_CANNOT_CONTAIN_A_SUPER_CALL_WHEN_ITS_CLASS_EXTENDS_NULL,
+                            span,
+                        ),
+                    );
+                }
                 continue;
             }
             if self.subtree_has_super_call(body) {
@@ -2521,6 +2535,26 @@ impl Checker<'_, '_> {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
         children.into_iter().any(|child| self.subtree_has_super_call(child))
+    }
+
+    /// `findFirstSuperCall` (`checker.go:2889`): the first super call in
+    /// child order, not entering function-like nodes — the node form of
+    /// [`Checker::subtree_has_super_call`].
+    fn first_super_call(&self, node: NodeId) -> Option<NodeId> {
+        if matches!(self.node_map.get(node), Some(Node::CallExpression(call))
+            if call.expression.and_then(|e| e.node_id())
+                .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
+        {
+            return Some(node);
+        }
+        if self.is_function_like_or_static_block(node) {
+            return None;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().find_map(|child| self.first_super_call(child))
     }
 
     /// `IsExpressionStatement(s) && isSuperCall(SkipOuterExpressions(…))`. §470.

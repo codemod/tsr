@@ -332,3 +332,27 @@ which decline on member references.
 
 **Measured.** `forwardRefInEnum` converted, `constEnumErrors` +1 line; none
 lost.
+
+## §16 TS2377 / TS17005: constructors of classes that extend `null`
+
+**Forcing constraint.** `checkConstructorDeclaration` (`checker.go:2836`)
+reads `classDeclarationExtendsNull` once: a super call in such a class is
+TS17005 at `findFirstSuperCall`'s result, and a missing super call is *not*
+TS2377. The port's TS2377 rule (`check_derived_constructor_calls_super`)
+tested the base expression for `SyntaxKind::NullKeyword`, but this parser
+spells the `null` of `extends null` as an identifier named `null` (§308 of
+`checker-notes-diag2.md`, already handled by `super_expression.rs`'s
+`class_declaration_extends_null`). So every `extends null` constructor
+without a super call drew a wrong TS2377, and TS17005 did not exist.
+
+**What changed.** The rule reuses `class_declaration_extends_null` (now
+crate-visible) and ports the TS17005 arm with `first_super_call`, the node
+form of the existing `subtree_has_super_call` walk (same function-like
+boundary, child order). `classDeclarationExtendsNull`'s real test is the
+base constructor type being `nullWideningType`; the written-`null` reading
+is §308's and inherits its limits (an `extends` expression that merely
+evaluates to null is not seen).
+
+**Measured.** `classExtendsNull`, `superCallBeforeThisAccessing4`,
+`superCallBeforeThisAccessing5` converted, `classExtendsNull2` +1 line; none
+lost.

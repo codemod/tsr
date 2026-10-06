@@ -302,7 +302,7 @@ impl Checker<'_, '_> {
     /// written `extends null`; this parser makes that `null` an `Identifier`
     /// named `null`, which, being a reserved word, can only be the literal.
     /// §308.
-    fn class_declaration_extends_null(&self, class: NodeId) -> bool {
+    pub(crate) fn class_declaration_extends_null(&self, class: NodeId) -> bool {
         let clauses = match self.node_map.get(class) {
             Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
             Some(Node::ClassExpression(node)) => node.heritage_clauses,
