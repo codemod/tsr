@@ -180,7 +180,9 @@ impl Checker<'_, '_> {
             return;
         }
         let apparent = self.apparent_type(receiver_type);
-        if self.type_of(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
+        if self.type_of(apparent).flags.intersects(TypeFlags::INTERSECTION)
+            || written_name.is_some() && self.type_of(apparent).flags.intersects(TypeFlags::UNION)
+        {
             return;
         }
         // getPropertyNameFromIndex: a usable literal key names a property,
@@ -589,6 +591,7 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors {
             return;
         }
+        self.check_private_method_assignment(node);
         // The `#name` arm keeps its JS decline (`privateIdentifierExpando`);
         // the accessibility arm below reads JSDoc `@private`/`@protected`.
         if !self.in_js_file(node) {
@@ -602,42 +605,315 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::with_args(message, span, arguments));
     }
 
-    /// TS18013 — `Property '{0}' is not accessible outside class '{1}' because
-    /// it has a private identifier.`
+    /// TS2803 — `Cannot assign to private method '{0}'. Private methods are
+    /// not writable.`
     ///
     /// `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
-    /// (`checker.go`), which `inaccessible_property` declines with *"`#x` is
-    /// TS18013, a different code with its own row"*. This is that row.
-    ///
-    /// A `#name` is **lexically scoped to the class that declares it**, so the
-    /// test is syntactic and needs no type: walk out from the access and report
-    /// unless some enclosing class declares the name. §138.
-    fn check_private_identifier_access(&mut self, node: NodeId) {
+    /// (`checker.go:11280`): an assignment target whose
+    /// `lookupSymbolForPrivateIdentifierDeclaration` symbol has a method as
+    /// its `valueDeclaration`, reported with `grammarErrorOnNode` at the name.
+    /// It asks only the lexical symbol, never the receiver's type, so `b.#m =
+    /// …` with `b: any` reports too.
+    #[inline(never)]
+    fn check_private_method_assignment(&mut self, node: NodeId) {
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
         let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
-        if self.enclosing_class_declares_private_name(node, name.text) {
-            return;
-        }
-        // Upstream runs this against the receiver's **type**, and `any`
-        // permits the access — `privateNameAndAny` was 3 of §138's 10 wrong
-        // lines, an index signature the fourth. The syntactic test cannot see
-        // either, so the receiver's type is asked here and only here. §139.
-        let Some(receiver) = access.expression else { return };
-        let receiver_type = self.check_expression(receiver);
-        if receiver_type == self.intrinsics.any {
-            return;
-        }
         let Some(at) = name.node_id else { return };
+        if self.assignment_target_kind(node) == AssignmentTargetKind::None {
+            return;
+        }
+        let Some(class) = self.lexical_private_declaring_class(node, name.text) else { return };
+        if !self.private_name_value_declaration_is_method(class, name.text) {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.error_span(at);
+        let span = self.nodes.span(at);
         self.report(
             file,
             Diagnostic::with_args(
-                &messages::PROPERTY_0_IS_NOT_ACCESSIBLE_OUTSIDE_CLASS_1_BECAUSE_IT_HAS_A_PRIVATE_IDENTIFIER,
+                &messages::CANNOT_ASSIGN_TO_PRIVATE_METHOD_0_PRIVATE_METHODS_ARE_NOT_WRITABLE,
                 span,
-                [name.text.to_string(), String::new()],
+                [name.text.to_string()],
             ),
         );
+    }
+
+    /// Is the `valueDeclaration` of `class`'s private member `text` a method?
+    /// The binder's `valueDeclaration` is the first value declaration in
+    /// member order (`SetValueDeclaration` keeps the first).
+    fn private_name_value_declaration_is_method(&self, class: NodeId, text: &str) -> bool {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return false,
+        };
+        let is_name = |name: tsr_ast::PropertyName<'_>| matches!(name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == text);
+        for member in members {
+            match member {
+                tsr_ast::ClassElement::MethodDeclaration(n) if is_name(n.name) => return true,
+                tsr_ast::ClassElement::PropertyDeclaration(n) if is_name(n.name) => return false,
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) if is_name(n.name) => {
+                    return false;
+                }
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) if is_name(n.name) => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// The private-name arm of `checkPropertyAccessExpressionOrQualifiedName`
+    /// (`checker.go:11268`) after the lexical lookup, with
+    /// `checkPrivateIdentifierPropertyAccess` (`checker.go:11494`):
+    ///
+    /// - an any-like receiver (`any`, the error type, `unknown` under
+    ///   `strictNullChecks`, which `checkNonNullExpression` turns into the
+    ///   error type) is silent when the name is lexically declared, and TS18016
+    ///   when the access is outside every class body;
+    /// - otherwise, when the lexical class's own member is not a property of
+    ///   the receiver, a private-named property of that spelling **on the
+    ///   receiver's type** is TS18013 — or TS18014 when its class lexically
+    ///   encloses the lexical one, which [`Checker::check_private_name_shadowing`]
+    ///   reports;
+    /// - and with no such property the access falls to `reportNonexistentProperty`:
+    ///   TS2339 on a receiver whose property list is certified complete
+    ///   (`never`, an any-like type, or `declared_members_are_complete`).
+    ///
+    /// Declines: a union or intersection receiver (`getPropertiesOfType`
+    /// over constituents), and an error-typed receiver inside a class with no
+    /// lexical declaration (this port's error type may be a gap).
+    /// `docs/parity/notes/property.md` §10.
+    fn check_private_identifier_access(&mut self, node: NodeId) {
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
+        let Some(at) = name.node_id else { return };
+        let Some(receiver) = access.expression else { return };
+        let text = name.text;
+        let lexical = self.lookup_private_declaring_class_for_diagnostic(at, text);
+        let declared_receiver = self.check_expression(receiver);
+        // A receiver this port could not type is a gap; `unknown` becoming
+        // the error type below is `checkNonNullExpression`'s own answer.
+        let is_error = self.is_error(declared_receiver);
+        let receiver_type = self.check_non_null_type(declared_receiver);
+        let flags = self.type_of(receiver_type).flags;
+        let any_like = is_error
+            || flags.intersects(TypeFlags::ANY)
+            || self.strict_null_checks && flags.intersects(TypeFlags::UNKNOWN);
+        if any_like {
+            if lexical.is_some() {
+                return;
+            }
+            if self.containing_class_excluding_class_decorators(at).is_none() {
+                self.report_at_name(
+                    at,
+                    &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+                    Vec::new(),
+                );
+                return;
+            }
+        }
+        if is_error {
+            return;
+        }
+        if flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION) {
+            return;
+        }
+        let receiver_is_this =
+            receiver.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ThisKeyword);
+        let found = if any_like { None } else { self.get_property_of_type(receiver_type, text) };
+        let declaration =
+            found.and_then(|property| self.binder.symbols().get(property).value_declaration);
+        let declared_in = declaration.and_then(|declaration| self.containing_class_of(declaration));
+        // getPrivateIdentifierPropertyOfType: the lexical class's own member.
+        if lexical.is_some() && declared_in == lexical {
+            return;
+        }
+        // Upstream files each class's `#x` under its own mangled name, so an
+        // instance of a subclass that redeclares `#x` still carries the
+        // lexical class's member; this port's text-keyed table answers the
+        // subclass's (`privateNamesConstructorChain-1`). An instance receiver
+        // whose class inherits from the lexical class has the lexical member.
+        if let Some(lexical) = lexical
+            && let crate::types::TypeData::Named { members: Some(owner), .. } =
+                self.type_of(receiver_type).data
+            && self.symbol_inherits_from_class(owner, lexical)
+        {
+            return;
+        }
+        // checkPrivateIdentifierPropertyAccess: a private-named property of
+        // this spelling on the receiver's type.
+        if let Some(declaration) = declaration
+            && self.declaration_names_a_private(declaration)
+        {
+            let Some(type_class) = declared_in else { return };
+            if let Some(lexical) = lexical
+                && (lexical == type_class
+                    || self.nodes.ancestors(lexical).any(|ancestor| ancestor == type_class))
+            {
+                // TS18014, reported by `check_private_name_shadowing`.
+                return;
+            }
+            let class_name = self.class_name_text(type_class).unwrap_or_default();
+            self.report_at_name(
+                at,
+                &messages::PROPERTY_0_IS_NOT_ACCESSIBLE_OUTSIDE_CLASS_1_BECAUSE_IT_HAS_A_PRIVATE_IDENTIFIER,
+                vec![text.to_string(), class_name],
+            );
+            return;
+        }
+        if found.is_some() {
+            return;
+        }
+        // `this` inside a decorator: this port types it from the decorated
+        // class rather than the enclosing function (a `check_this_expression`
+        // gap), so a miss there is not certified.
+        if receiver_is_this
+            && self.nodes.ancestors(at).any(|a| self.nodes.kind(a) == SyntaxKind::Decorator)
+        {
+            return;
+        }
+        let certified = any_like
+            || flags.intersects(TypeFlags::NEVER | TypeFlags::UNKNOWN)
+            || self.private_names_are_complete(receiver_type);
+        if !certified {
+            return;
+        }
+        let printed = self.type_to_string(receiver_type);
+        self.report_at_name(
+            at,
+            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+            vec![text.to_string(), printed],
+        );
+    }
+
+    /// `lookupSymbolForPrivateIdentifierDeclaration` (`checker.go`): the
+    /// first class, from `getContainingClassExcludingClassDecorators` outward,
+    /// that declares `text`. Unlike `lexical_private_declaring_class` (the type
+    /// road's walk, `crate::members`), a name in a class's own decorator is not
+    /// scoped by that class.
+    fn lookup_private_declaring_class_for_diagnostic(
+        &self,
+        name: NodeId,
+        text: &str,
+    ) -> Option<NodeId> {
+        let mut class = self.containing_class_excluding_class_decorators(name);
+        while let Some(current) = class {
+            if self.class_declares_private_name(current, text) {
+                return Some(current);
+            }
+            class = self.containing_class_of(current);
+        }
+        None
+    }
+
+    /// Is every **private-named** property of `receiver` visible to
+    /// `get_property_of_type`? Narrower than `declared_members_are_complete`
+    /// because the question is narrower: an index signature never answers a
+    /// `#name` (`checkPropertyAccessExpressionOrQualifiedName` skips index
+    /// infos for private identifiers), a computed name never is one, and a
+    /// static `#name` is never inherited (`addInheritedMembers` skips
+    /// `isStaticPrivateIdentifierProperty`), so a class's `typeof` side is
+    /// its own declarations. The instance side inherits base `#names`, so
+    /// bases are followed; a base this port cannot follow declines.
+    fn private_names_are_complete(&mut self, receiver: crate::types::TypeId) -> bool {
+        match self.type_of(receiver).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => {
+                self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS)
+                    && self.binder.symbols().get(symbol).declarations.iter().all(|&d| {
+                        matches!(
+                            self.nodes.kind(d),
+                            SyntaxKind::ClassDeclaration
+                                | SyntaxKind::ClassExpression
+                                | SyntaxKind::InterfaceDeclaration
+                                | SyntaxKind::ModuleDeclaration
+                        )
+                    })
+            }
+            crate::types::TypeData::Named { members: Some(owner), .. } => {
+                let mut visiting = Vec::new();
+                self.private_names_of_symbol_are_complete(owner, &mut visiting)
+            }
+            _ => false,
+        }
+    }
+
+    fn private_names_of_symbol_are_complete(
+        &mut self,
+        owner: SymbolId,
+        visiting: &mut Vec<SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) || visiting.len() > 32 {
+            return false;
+        }
+        visiting.push(owner);
+        let plain = self.binder.symbols().get(owner).declarations.iter().all(|&d| {
+            matches!(
+                self.nodes.kind(d),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+                    | SyntaxKind::TypeLiteral
+            )
+        });
+        if !plain {
+            return false;
+        }
+        let Some(bases) = self.base_symbols_of_ex(owner, false) else { return false };
+        bases.into_iter().all(|base| self.private_names_of_symbol_are_complete(base, visiting))
+    }
+
+    /// Does `owner`'s base chain (through `base_symbols_of_ex`) reach the
+    /// class declared by `class`? A base this port cannot follow answers
+    /// `true`, the silent direction.
+    fn symbol_inherits_from_class(&mut self, owner: SymbolId, class: NodeId) -> bool {
+        let mut pending = vec![owner];
+        let mut seen = Vec::new();
+        while let Some(current) = pending.pop() {
+            if seen.contains(&current) || seen.len() > 32 {
+                continue;
+            }
+            seen.push(current);
+            if current != owner && self.binder.symbols().get(current).declarations.contains(&class)
+            {
+                return true;
+            }
+            let Some(bases) = self.base_symbols_of_ex(current, false) else { return true };
+            pending.extend(bases);
+        }
+        false
+    }
+
+    fn report_at_name(
+        &mut self,
+        at: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        arguments: Vec<String>,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::with_args(message, span, arguments));
+    }
+
+    /// `getContainingClassExcludingClassDecorators` (`utilities.go:994`): a
+    /// name written in a class's own decorator starts the search above that
+    /// class.
+    fn containing_class_excluding_class_decorators(&self, node: NodeId) -> Option<NodeId> {
+        let decorator = self.nodes.ancestors(node).find(|&ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::Decorator
+                && self.nodes.parent(ancestor).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    )
+                })
+        });
+        let start = match decorator {
+            Some(decorator) => self.nodes.parent(decorator)?,
+            None => node,
+        };
+        self.containing_class_of(start)
     }
 
     /// Does any enclosing class declare this `#name`?
@@ -670,6 +946,13 @@ impl Checker<'_, '_> {
         let Some(receiver_id) = receiver.node_id() else { return };
         let Some(other) = self.annotated_class_of(receiver_id) else { return };
         if other == nearest {
+            return;
+        }
+        // `FindAncestor(lexicalClass, n == typeClass)`: shadowing only when the
+        // receiver's class lexically encloses the lexical one; a sibling or a
+        // subclass declared elsewhere is TS18013
+        // (`privateNamesAndStaticFields`'s `B.#foo` inside `A`).
+        if !self.nodes.ancestors(nearest).any(|ancestor| ancestor == other) {
             return;
         }
         if !self.class_declares_private_name(other, text) {
@@ -865,26 +1148,6 @@ impl Checker<'_, '_> {
         .map(str::to_string)
     }
 
-    fn enclosing_class_declares_private_name(&self, node: NodeId, text: &str) -> bool {
-        self.nodes.ancestors(node).any(|ancestor| {
-            let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(ancestor) {
-                Some(Node::ClassDeclaration(class)) => class.members,
-                Some(Node::ClassExpression(class)) => class.members,
-                _ => return false,
-            };
-            members.iter().any(|member| {
-                let name = match member {
-                    tsr_ast::ClassElement::PropertyDeclaration(n) => Some(n.name),
-                    tsr_ast::ClassElement::MethodDeclaration(n) => Some(n.name),
-                    tsr_ast::ClassElement::GetAccessorDeclaration(n) => Some(n.name),
-                    tsr_ast::ClassElement::SetAccessorDeclaration(n) => Some(n.name),
-                    _ => None,
-                };
-                matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(p)) if p.text == text)
-            })
-        })
-    }
-
     /// Is this property access inaccessible, and with which message?
     ///
     /// `checkPropertyAccessibilityAtLocation` (`checker.go`) for a dotted
@@ -1001,7 +1264,7 @@ impl Checker<'_, '_> {
     /// property is found: the message and arguments an inaccessible `prop`
     /// reports at `location`, or `None` when it is accessible or a link
     /// cannot be followed.
-    fn property_accessibility_error(
+    pub(crate) fn property_accessibility_error(
         &mut self,
         location: NodeId,
         is_super: bool,
@@ -1140,13 +1403,28 @@ impl Checker<'_, '_> {
             Some(Node::MethodDeclaration(n)) => n.parameters,
             _ => return ThisParameterClass::None,
         };
-        let Some(this_parameter) = parameters.first().filter(|parameter| {
-            matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-        }) else {
-            return ThisParameterClass::None;
+        let annotation = parameters
+            .first()
+            .filter(|parameter| {
+                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+            })
+            .and_then(|parameter| parameter.r#type);
+        let this_type = match annotation {
+            Some(annotation) => self.get_type_from_type_node(annotation),
+            // 3. "The 'this' parameter of a contextual type"
+            // (`getContextualThisParameterType`). Its contextual-signature arm
+            // is ported; the object-literal and `obj.m = function` arms (under
+            // `noImplicitThis` or in JS) are not, and decline.
+            None => match self.contextual_this_parameter_type(container) {
+                Some(this_type) => this_type,
+                None if (self.no_implicit_this || self.in_js_file(container))
+                    && self.contextual_this_needs_unported_arm(container) =>
+                {
+                    return ThisParameterClass::Unsupported;
+                }
+                None => return ThisParameterClass::None,
+            },
         };
-        let Some(annotation) = this_parameter.r#type else { return ThisParameterClass::None };
-        let this_type = self.get_type_from_type_node(annotation);
         // A type parameter is read through its constraint; an unconstrained
         // or primitive one is no class (`ObjectFlagsClassOrInterface` unset).
         let this_type = self.apparent_type(this_type);
@@ -1162,6 +1440,27 @@ impl Checker<'_, '_> {
             Some(class) => ThisParameterClass::Class(class),
             None => ThisParameterClass::None,
         }
+    }
+
+    /// Would `getContextualThisParameterType` reach its object-literal arm
+    /// (`getContainingObjectLiteral`) or its assignment arm (`obj.m =
+    /// function …`) for this function?
+    fn contextual_this_needs_unported_arm(&self, function: NodeId) -> bool {
+        let Some(mut parent) = self.nodes.parent(function) else { return false };
+        while self.nodes.kind(parent) == SyntaxKind::ParenthesizedExpression {
+            let Some(next) = self.nodes.parent(parent) else { return false };
+            parent = next;
+        }
+        matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::ObjectLiteralExpression
+                | SyntaxKind::PropertyAssignment
+                | SyntaxKind::BinaryExpression
+        ) || self.nodes.kind(function) == SyntaxKind::MethodDeclaration
+            && self
+                .nodes
+                .parent(function)
+                .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ObjectLiteralExpression)
     }
 
     /// Does `class` reach `base` through its `extends` chain, or **is** it
