@@ -401,3 +401,44 @@ but `tsr-printer`'s `recovered_new_type_assertion_does_not_gain_a_second_call`
 pins the old tree (`new <any>Factory()` printed back verbatim); that test is
 another lane's. Reported; with the test updated to upstream's tree the parser
 change is the two-arm move.
+
+### TS17019 / TS17020: `checkJSDocTypeIsInJsFile`
+
+`T?`, `?T`, `T!`, `!T` outside a JS file are reported by the checker
+(`checker.go:2584`), not the parser: the parser builds a `JSDocNullableType` /
+`JSDocNonNullableType` and `checkJSDocType` calls `grammarErrorOnNode` with the
+type written out. Ported in `grammar.rs` (`check_jsdoc_type_is_in_js_file`),
+dispatched behind the modifier chain like the other grammar arms; postfix is
+"the node starts where its operand starts", and the suggested type is the
+operand's type unioned with `undefined` (postfix `?`) or `undefined | null`
+(prefix `?`) unless it is `never` or `void`, i.e. `getNullableType`. The
+messages match the baseline text verbatim on `parseInvalidNullableTypes`. The
+TS8020 arm for every other JSDoc type in a TS file is not ported (no lane case
+waits on it, and those kinds reach the checker on paths not yet upstream's).
+
+## Design note: a JS-file flag in the parser (js lane ask)
+
+Upstream's parser takes the script kind (`ScriptKindJS`, `JSX`, `TS`, `TSX`,
+`JSON`) and derives two independent facts from it (`parser.go:300`): the
+language variant (JSX for `.jsx`/`.tsx`) and the context flag
+`NodeFlagsJavaScriptFile` (for `.js`/`.jsx`, and `.json`), which every node it
+finishes inherits. This port's `ScriptKind` has `TypeScript`, `Tsx` and `Json`
+only, so a `.js` file parses as `TypeScript` and a `.jsx` as `Tsx`, and the
+second fact is lost.
+
+Recommended shape, not built: add `Js` and `Jsx` variants (rather than a bool
+beside the kind), keep `allows_jsx()` true for `Tsx | Jsx`, add
+`is_javascript()` for `Js | Jsx | Json`, map `.js`/`.cjs`/`.mjs` and `.jsx` in
+`from_file_name`, and record the fact once on the `SourceFile` node
+(`NodeFlags::JAVASCRIPT_FILE`) rather than on every node: the checker already
+walks to the file for `in_js_file`, so per-node flags would buy nothing. The
+parser itself reads it in the places upstream reads
+`contextFlags&NodeFlagsJavaScriptFile`, which are recovery-relevant:
+`parseTypeArgumentsInExpression` returns nil in JS (`f<T>(x)` is a comparison
+there), `parseTypeAnnotation`/`checkJSSyntax` record JS-only diagnostics, and
+JSDoc reparsing (`reparser.go`) is enabled. Whether the reparser exists is
+`tsr-2zk.34`'s decision; the flag is useful without it.
+
+How we would know the shape is wrong: if a consumer needs the fact for a node
+whose file cannot be reached cheaply (a synthesized node with no parent), the
+per-file flag must become per-node.

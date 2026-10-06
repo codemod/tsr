@@ -312,6 +312,10 @@ impl Checker<'_, '_> {
                 self.check_grammar_type_operator_node(node, operator);
                 None
             }
+            Node::JSDocNullableType(_) | Node::JSDocNonNullableType(_) => {
+                self.check_jsdoc_type_is_in_js_file(node);
+                None
+            }
             Node::IndexSignatureDeclaration(_) => {
                 if let Some((at, message)) = self.index_signature_parameter_shape_error(node) {
                     self.grammar_error_on_node(at, message);
@@ -994,5 +998,50 @@ fn declaration_name_text(name: tsr_ast::PropertyName<'_>) -> String {
         tsr_ast::PropertyName::StringLiteral(literal) => format!("\"{}\"", literal.text),
         tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
         _ => String::new(),
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkJSDocTypeIsInJsFile` (`checker.go:2584`), its nullable
+    /// and non-nullable arm: outside a JS file, `T?` / `?T` / `T!` / `!T` is
+    /// TS17019 (postfix) or TS17020 (prefix) through `grammarErrorOnNode`,
+    /// suggesting the type written out — the operand's type, with
+    /// `undefined` (postfix `?`) or `undefined | null` (prefix `?`) added
+    /// unless it is `never` or `void` (`getNullableType`).
+    ///
+    /// The other arm (TS8020 for every other JSDoc type) is not ported: those
+    /// kinds reach this checker through paths whose shape is not yet
+    /// upstream's, and no lane case waits on it.
+    fn check_jsdoc_type_is_in_js_file(&mut self, node: NodeId) {
+        if self.in_js_file(node) {
+            return;
+        }
+        let (inner, nullable) = match self.node_map.get(node) {
+            Some(Node::JSDocNullableType(n)) => (n.r#type, true),
+            Some(Node::JSDocNonNullableType(n)) => (n.r#type, false),
+            _ => return,
+        };
+        let Some(inner) = inner else { return };
+        let Some(inner_id) = inner.node_id() else { return };
+        let postfix = self.nodes.span(node).start == self.nodes.span(inner_id).start;
+        let message = if postfix {
+            &messages::_0_AT_THE_END_OF_A_TYPE_IS_NOT_VALID_TYPESCRIPT_SYNTAX_DID_YOU_MEAN_TO_WRITE_1
+        } else {
+            &messages::_0_AT_THE_START_OF_A_TYPE_IS_NOT_VALID_TYPESCRIPT_SYNTAX_DID_YOU_MEAN_TO_WRITE_1
+        };
+        let mut ty = self.get_type_from_type_node(inner);
+        if nullable && ty != self.intrinsics.never && ty != self.intrinsics.void {
+            // `getNullableType(t, postfix ? Undefined : Nullable)`.
+            ty = if postfix {
+                self.get_union_type(&[ty, self.intrinsics.undefined])
+            } else {
+                self.get_union_type(&[ty, self.intrinsics.undefined, self.intrinsics.null])
+            };
+        }
+        let printed = self.type_to_string(ty);
+        let token = if nullable { "?" } else { "!" };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [token.to_string(), printed]));
     }
 }
