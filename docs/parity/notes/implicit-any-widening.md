@@ -145,3 +145,48 @@ converted, no verdict lost, no types line lost.
 **Known approximation.** Upstream also answers nil (and reports) when every
 assigned value is nullable (`everyType(flowType, IsNullableType)`); the
 syntactic test does not see types and declines there.
+
+## 5. TS7057 is `checkYieldExpression`'s own arm, and the walk must reach it
+
+Round 3. `checkYieldExpression` (`checker.go:11007`) reports TS7057 when the
+generator has no annotation and no contextual `Next` iteration type, the
+yield's result is used (`expressionResultIsUnused`, `utilities.go:1159`), and
+the yield's own contextual type is nil or `any`. The report is placed in
+`check_yield_expression` on the path that already answers `anyType` for an
+unannotated, uncontextualised generator (`report_implicit_any_yield`).
+
+**Why a walk hook was needed.** Upstream's `checkSourceElement` runs
+`checkExpression` on every expression. This port's walk runs rules per node,
+and computes an expression's type only when a rule asks, so an unreferenced
+`const v = yield;` was never checked. `check_yield_expression_of_walk` asks
+for the yield's type from the walk (under `noImplicitAny` only). It runs the
+real checker, not a copy of its decision, and the expression cache makes a
+second ask cost a lookup. Inside flow loops the cache is withheld, so the
+arm can run again; `report_deduplicated` drops the exact repeat that
+upstream's diagnostic collection would drop.
+
+**Declines (box protocol §3a).** The nil half of the contextual-type test is
+taken from `has_no_contextual_type`. `IsTypeAny` is not inferred from TSR's
+`any`. `has_no_contextual_type` has no binding-pattern arm
+(`checker.go:29431`), so a yield that initializes a binding-pattern
+declaration is declined (`generatorReturnTypeInference`'s
+`const [a = 1, b = 2] = yield;` was an extra line without that).
+
+**Measured** against `8b24e49`: TS7057 missing 10 → 8, extra 0 → 0. Converted:
+`templateStringWithEmbeddedYieldKeyword`. No RIGHT/EMPTY_RIGHT verdict and
+no RIGHT types line lost. Perf CPU median: domain-model 0.97,
+generic-imports 1.00 (41 samples).
+
+**Still missing (8 lines).** Each is a yield whose contextual type
+`has_no_contextual_type` cannot prove nil:
+- call arguments: `f(yield)` and `f1(yield 1)`, where upstream's context is
+  the resolving signature's parameter;
+- parameter initializers: `FunctionDeclaration6/7_es6`, `a = yield`;
+- `yield` inside loops: `yieldExpressionInFlowLoop`,
+  `yieldExpressionInControlFlow`.
+
+The faithful fix is `has_no_contextual_type`'s missing arms (`signatures.rs`),
+reported to the integrator.
+
+**Falsifier.** If a nil arm is added to `has_no_contextual_type` and one of
+these cases still misses its line, the cause is here.

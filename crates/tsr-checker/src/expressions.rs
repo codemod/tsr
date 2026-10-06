@@ -3540,6 +3540,7 @@ impl Checker<'_, '_> {
             }
             return error;
         }
+        self.report_implicit_any_yield(id);
         any
     }
 

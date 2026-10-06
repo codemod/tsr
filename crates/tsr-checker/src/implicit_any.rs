@@ -827,3 +827,130 @@ impl Checker<'_, '_> {
         );
     }
 }
+
+impl Checker<'_, '_> {
+    /// TS7057 — the `noImplicitAny` arm at the end of `checkYieldExpression`
+    /// (`checker.go:11007`, pinned `5b1047d`):
+    ///
+    /// ```go
+    /// t := c.getContextualIterationType(IterationTypeKindNext, fn)
+    /// if t == nil {
+    ///     t = c.anyType
+    ///     if c.noImplicitAny && !expressionResultIsUnused(node) {
+    ///         contextualType := c.getContextualType(node, ContextFlagsNone)
+    ///         if contextualType == nil || IsTypeAny(contextualType) { error(TS7057) }
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// The caller has already proven `getContextualIterationType` nil: it calls
+    /// this only on the unannotated, uncontextualised generator path that
+    /// answers `anyType`. The yield's own contextual type is asked through
+    /// [`Checker::has_no_contextual_type`], the walk over `getContextualType`'s
+    /// nil-answering arms; where that walk cannot prove nil the report is
+    /// declined rather than guessed (box protocol §3a — a TSR `any` contextual
+    /// type is not evidence of upstream's `IsTypeAny`).
+    /// `docs/parity/notes/implicit-any-widening.md` §5.
+    pub(crate) fn report_implicit_any_yield(&mut self, node: NodeId) {
+        if !self.no_implicit_any || self.expression_result_is_unused(node) {
+            return;
+        }
+        if !self.has_no_contextual_type(node) || self.initializes_a_binding_pattern(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        // `checkExpression` runs once per yield upstream; here the expression
+        // cache is withheld inside flow loops, so the arm can be re-entered.
+        self.report_deduplicated(
+            file,
+            Diagnostic::new(
+                &messages::YIELD_EXPRESSION_IMPLICITLY_RESULTS_IN_AN_ANY_TYPE_BECAUSE_ITS_CONTAINING_GENERATOR_LACKS_A_RETURN_TYPE_ANNOTATION,
+                span,
+            ),
+        );
+    }
+
+    /// Upstream's diagnostic collection drops an exact repeat (same file,
+    /// message, span and arguments); this port's `report` appends. Used by the
+    /// arms upstream reaches once per *use* but reports at one site.
+    fn report_deduplicated(&mut self, file: NodeId, diagnostic: Diagnostic) {
+        let repeated = self.diagnostics.iter().any(|(f, d)| {
+            *f == file
+                && std::ptr::eq(d.message, diagnostic.message)
+                && d.span == diagnostic.span
+                && d.args == diagnostic.args
+        });
+        if !repeated {
+            self.report(file, diagnostic);
+        }
+    }
+
+    /// `checkSourceElement` reaches every expression through `checkExpression`
+    /// upstream; this port's walk dispatches rules per node and computes an
+    /// expression's type only when some rule asks for it, so an unreferenced
+    /// `const v = yield;` was never checked and its TS7057 never reached.
+    /// Asking for the yield's type here runs `checkYieldExpression` itself
+    /// (cached in `node_types`, so a yield another rule already checked costs
+    /// a lookup) rather than re-deriving its decision. Only TS7057 needs it,
+    /// so the walk asks only under `noImplicitAny`.
+    pub(crate) fn check_yield_expression_of_walk(&mut self, node: NodeId) {
+        if !self.no_implicit_any {
+            return;
+        }
+        let Some(typed) = self.node_map.get(node) else { return };
+        let Ok(expression) = tsr_ast::Expression::try_from(typed) else { return };
+        self.check_expression(expression);
+    }
+
+    /// `getContextualTypeForVariableLikeDeclaration`'s binding-pattern arm
+    /// (`checker.go:29431`): an unannotated declaration whose name is a binding
+    /// pattern contextually types its initializer with the pattern's implied
+    /// type. [`Checker::has_no_contextual_type`]'s `VariableDeclaration` arm
+    /// lacks that arm (reported to the integrator, notes §3), so the nil proof
+    /// is not trusted there: `const [a = 1, b = 2] = yield;`
+    /// (`generatorReturnTypeInference`) is contextually typed upstream.
+    fn initializes_a_binding_pattern(&self, node: NodeId) -> bool {
+        let mut position = node;
+        while let Some(parent) = self.nodes.parent(position) {
+            match self.node_map.get(parent) {
+                Some(Node::ParenthesizedExpression(_)) => position = parent,
+                Some(Node::VariableDeclaration(declaration)) => {
+                    return matches!(
+                        declaration.name,
+                        Some(tsr_ast::BindingName::BindingPattern(_))
+                    );
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// `expressionResultIsUnused` (`checker/utilities.go:1159`): climbs
+    /// parentheses and comma right operands; the result is unused in an
+    /// expression statement, a `void` operand, a `for` initializer or
+    /// incrementor, and the left operand of a comma.
+    fn expression_result_is_unused(&self, mut node: NodeId) -> bool {
+        loop {
+            let Some(parent) = self.nodes.parent(node) else { return false };
+            match self.node_map.get(parent) {
+                Some(Node::ParenthesizedExpression(_)) => node = parent,
+                Some(Node::ExpressionStatement(_) | Node::VoidExpression(_)) => return true,
+                Some(Node::ForStatement(statement)) => {
+                    return statement.initializer.and_then(|i| i.node_id()) == Some(node)
+                        || statement.incrementor.and_then(|i| i.node_id()) == Some(node);
+                }
+                Some(Node::BinaryExpression(binary))
+                    if binary.operator_token.map(|t| t.kind) == Some(SyntaxKind::CommaToken) =>
+                {
+                    if binary.left.and_then(|e| e.node_id()) == Some(node) {
+                        return true;
+                    }
+                    node = parent;
+                }
+                _ => return false,
+            }
+        }
+    }
+}
