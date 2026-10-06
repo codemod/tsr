@@ -663,6 +663,21 @@ impl<'a> Parser<'a> {
         margin: u32,
         indent_text: &'a str,
     ) -> tsr_ast::JSDocTag<'a> {
+        // A bare `@import` closing the comment: `skipWhitespaceOrAsterisk`
+        // left the layout token in place (only layout remains), and
+        // upstream's `parseImportTag` parses on from it without a rescan —
+        // no identifier, no clause, and `parseModuleSpecifier` reports
+        // `Expression expected` at that token (`importTag10`, `(2,11)`).
+        if self.at_layout() {
+            self.error_at(&messages::EXPRESSION_EXPECTED, self.token.span);
+            let specifier = tsr_ast::Expression::Identifier(self.missing_identifier());
+            let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+            return tsr_ast::JSDocTag::JSDocImportTag(self.finish_jsdoc_node(
+                tsr_ast::JSDocImportTag::new(tag_name, None, Some(specifier), None, comment),
+                SyntaxKind::JSDocImportTag,
+                start,
+            ));
+        }
         let resume = self.token.span.start;
         let limit = self.scanner.limit();
         self.scanner.set_range(resume, limit);

@@ -143,3 +143,28 @@ symbol type) and `optionality.rs:252` (property tags). Each should call
 signature's optionality does not (or the reverse): the grammar check and the
 signature are then reading different roads, which is exactly what the shared
 query exists to prevent.
+
+## 4. `@import` at the end of a comment reports where upstream's does
+
+`importTag10`/`11`/`12` were the last of §1's deferred list. Two causes, both
+parser:
+
+- `parse_module_specifier` (`module.rs`) reported `Expression expected` at the
+  token when no expression can start. Upstream reaches
+  `parseIdentifierWithDiagnostic`, which at end of file reports zero-width at
+  the token's **full start** — the rule `parse_primary_expression` and
+  `report_missing_identifier` already follow. `@import foo` / `@import foo
+  from` closing the comment now report after the last word (`(2,15)`,
+  `(2,20)`), not at the `*/` (`(3,2)`).
+- A bare `@import`: `skipWhitespaceOrAsterisk` leaves the layout token in
+  place when only layout remains, and upstream's `parseImportTag` parses on
+  from that JSDoc token without rescanning — no identifier, no clause, and
+  `parseModuleSpecifier` reports on the newline token itself (`(2,11)`).
+  `parse_import_tag` rewound and rescanned under ordinary rules, skipping the
+  layout to the window's end. It now takes upstream's path when it is still
+  on a layout token.
+
+The §1 note that `expression.rs` held these was half right: that file's
+fallback had been fixed by the parser lane; the remaining report was
+`module.rs`'s own.
+
