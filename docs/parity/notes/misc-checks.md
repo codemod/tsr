@@ -160,3 +160,43 @@ with an initializer (TS1186) are not reference-checked.
 `parserPrivateIdentifierInArrayAssignment` converted; partial lines in
 `assignmentLHSIsValue` (2×TS2364) and `objectRestNegative` (TS2701); no
 line lost.
+
+## §10 TS2790 / TS2704: the `delete` operand's resolved symbol
+
+**Forcing constraint.** `checkDeleteExpression` (`checker.go:10814`) reads
+`getResolvedSymbolOrNil(expr)` and, for a read-only symbol, reports TS2704;
+otherwise `checkDeleteExpressionMustBeOptional` (`checker.go:10825`) tests
+`getTypeOfSymbol(symbol)` — the **property's** type. §587–§588 of
+`docs/architecture/checker-notes-diag2.md` tested the operand *expression's*
+type instead, and limited the operand to a syntactic property access. Both
+differ from upstream: an optional chain adds `undefined` to the expression
+type (`delete o1?.b` on `b: string` is TS2790 upstream, silent here —
+`deleteChain`, 13 lines), a flow narrowing does the same
+(`controlFlowDeleteOperator`'s §588 wrong line), parentheses were not skipped,
+and the read-only arm did not exist, so `delete Foo.name` reported TS2790
+where upstream reports TS2704.
+
+**What was ported** (`delete_operand.rs`, replacing
+`check_delete_operand_is_optional`). The symbol is found as
+`checkPropertyAccessExpressionOrQualifiedName` finds it: the receiver's
+non-nullable type (an optional chain's `getOptionalExpressionType` plus
+`checkNonNullType`), its apparent type, then `getPropertyOfType` by the
+identifier name, or by a string / canonical numeric literal argument of an
+element access. A private name uses the same lookup once the access's own
+check has not answered the error type (the lexical private-name scope).
+`isReadonlySymbol` is `is_readonly_symbol` plus the one arm it does not
+cover: a `readonly` modifier on a property signature or parameter property
+(`getDeclarationModifierFlagsFromSymbol` reads any value declaration).
+
+**Declines.** No symbol (computed element index, unresolved member, `any`
+receiver) → nothing, as upstream. `CheckFlagsReadonly` lives on synthetic and
+instantiated property symbols, which this port does not flag, so the TS2790
+arm declines when the symbol is not its own value declaration's symbol (it
+might be read-only and owe TS2704 instead). `exactOptionalPropertyTypes` is
+still not ported.
+
+**Measured.** `deleteChain`, `deleteReadonly`,
+`deleteReadonlyInStrictNullChecks`, `controlFlowDeleteOperator`,
+`deleteOperatorWithEnumType`, `symbolType3` converted; no line lost
+(`privateNamesNoDelete`'s TS2790 was lost by a first draft that resolved no
+private names, and is kept by the private-name arm).

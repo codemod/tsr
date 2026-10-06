@@ -653,7 +653,7 @@ impl Checker<'_, '_> {
             }
             Node::DeleteExpression(_) => {
                 self.check_reference_expression(node);
-                self.check_delete_operand_is_optional(node, typed);
+                self.check_delete_operand_symbol(node);
                 ambient
             }
             Node::CallExpression(_) => {
@@ -11741,51 +11741,6 @@ impl Checker<'_, '_> {
             None => Diagnostic::new(message, span),
         };
         self.report(file, diagnostic);
-    }
-
-    /// TS2790 — `The operand of a 'delete' operator must be optional.`
-    ///
-    /// `checkDeleteExpressionMustBeOptional` (`checker.go:10825`). Under
-    /// `strictNullChecks`, a property whose type cannot be `undefined` may not
-    /// be deleted. `hasTypeFacts(t, TypeFactsIsUndefined)` is
-    /// [`Checker::nullish_facts`]'s second bit, ported at §-nullable for
-    /// TS2532 and union-aware.
-    ///
-    /// The `exactOptionalPropertyTypes` arm — which reads `SymbolFlagsOptional`
-    /// instead — is **not ported**; the option is off for every corpus case
-    /// this row has. §501.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §587.
-    fn check_delete_operand_is_optional(&mut self, node: NodeId, typed: Node<'_>) {
-        if !self.strict_null_checks || self.file_has_parse_errors || self.in_js_file(node) {
-            return;
-        }
-        let Node::DeleteExpression(delete) = typed else { return };
-        let Some(operand) = delete.expression else { return };
-        let Some(operand_id) = operand.node_id() else { return };
-        // Upstream reaches this function only for an operand that resolved to a
-        // property symbol; a bare identifier is TS1102/TS2703's row (§552).
-        if self.nodes.kind(operand_id) != SyntaxKind::PropertyAccessExpression {
-            return;
-        }
-        let operand_type = self.check_expression(operand);
-        let flags = self.type_of(operand_type).flags;
-        if self.is_error(operand_type)
-            || flags.intersects(
-                crate::flags::TypeFlags::ANY_OR_UNKNOWN | crate::flags::TypeFlags::NEVER,
-            )
-        {
-            return;
-        }
-        if self.nullish_facts(operand_type).1 {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(operand_id) else { return };
-        let span = self.error_span(operand_id);
-        self.report(
-            file,
-            Diagnostic::new(&messages::THE_OPERAND_OF_A_DELETE_OPERATOR_MUST_BE_OPTIONAL, span),
-        );
     }
 
     /// TS2462 — `A rest element must be last in a destructuring pattern.`
