@@ -124,3 +124,74 @@ arm), not by the unique symbol's identity (`__@Key@id`). Matching a binding
 key to that name by text would be a syntactic guess, so a unique-symbol key
 against a concrete parent, and a concrete rest beside one, still gap
 (`genericObjectRest` 0:42/0:44, `declarationEmitComputedNameCausesImportToBePainted`).
+
+## 6. `getContextualReturnType` in full (tsr-2zk.16.3: CONTEXTUAL-RETURN-GENERATOR-FILTER, CONTEXTUAL-RETURN-IIFE-ARM)
+
+**Forcing constraint.** Upstream answers every generator- and return-position
+context through one function, `getContextualReturnType` (`checker.go:29665`):
+the written annotation, else the contextual signature's return type —
+filtered for a generator by `AnyOrUnknown | Void | InstantiableNonPrimitive`
+or `checkGeneratorInstantiationAssignabilityToReturnType`, for an async
+function by `getAwaitedTypeOfPromise` — else, for an immediately invoked
+function, the contextual type of the call. TSR had three partial copies
+(the `ReturnStatement` arm, the arrow concise-body arm, and
+`contextual_type_for_yield_operand`), each reading the iteration slots off a
+single `Generator`-family type reference (`contextual_generator_iteration_type`),
+so a union context (`number | Generator<…>`), a structural iterator, and every
+IIFE had no context.
+
+**What was ported** (`crates/tsr-checker/src/contextual.rs`):
+
+- `get_contextual_return_type` — `Ok(None)` is upstream's nil, `Err` a lookup
+  the port cannot finish. Only function expressions, arrows and object-literal
+  methods ask for a contextual signature
+  (`getContextualSignatureForFunctionLikeDeclaration`); an IIFE is a callee,
+  which `getContextualType` answers nil for, so its signature is decidably
+  absent and the IIFE arm reads `get_contextual_type(call)`. A `None` there
+  is nil only when `has_no_contextual_type(call)` proves it.
+- `get_contextual_iteration_type` (`checker.go:29656`) on the iteration-types
+  engine of §1.
+- `getContextualTypeForReturnExpression`'s generator arm: a union is narrowed to
+  the constituents with a RETURN iteration type before that slot is read.
+- `getContextualTypeForYieldOperand` (`checker.go:29719`): the non-star union
+  filter and YIELD slot; the star arm mints `Generator` (and `AsyncGenerator`)
+  through `create_generator_type`.
+- `check_yield_expression`'s unannotated arm is
+  `getContextualIterationType(Next, fn)` orElse `any`; an unfinished lookup
+  still answers `error` unless §224's predicate proves the container
+  uncontextualised.
+
+The annotation arm keeps reading the four function kinds' written return
+type. `getReturnTypeFromAnnotation`'s constructor and setter-paired getter arms
+are not ported here: neither container holds a `yield`, and a `return` in
+either kept its previous answer.
+
+**Two bounded deviations, both kept loss-free and both with a falsifier.**
+
+1. *Undecidable generator filter on a single type keeps the type.* TSR's
+   relater answers `Unknown` for `AsyncGenerator<Awaited<T>, Awaited<R>, any>`
+   against `AsyncGenerator<T, R>` (the filter's instantiation check under a
+   generic contextual signature, `typeParameterConstModifiersReturnsAndYields`
+   `test4`). Treating that as a gap removed the yield's context and widened the
+   const-inferred `[10, "1"]` to `[number, string]` (3 RIGHT lines lost). On a
+   non-union, an undecided filter now keeps the type — the answer the lookup
+   gave before the filter existed; on a union it is a gap. Falsifier: once the
+   relater decides that relation, the fallback is unreachable and is deleted.
+2. *Async contextual slots drop the `Awaited<…>` wrapper.* The async resolver
+   awaits a generic slot to `Awaited<T>`, exactly as upstream does, but
+   `is_const_type_variable` (`assertions.rs`) does not see through the
+   conditional's constraint as upstream's `isConstTypeVariable`
+   (`checker.go:13656`) does, so the const context was lost (same 3 lines).
+   `unwrap_contextual_awaited_slot` returns the unwrapped type at the yield
+   operand's YIELD slot and the return expression's RETURN slot of an async
+   generator — what the pre-port `getAwaitedTypeNoAlias` read gave. Falsifier:
+   when `is_const_type_variable(Awaited<T>)` answers `true` for a const `T`,
+   deleting the unwrap must lose nothing.
+
+**Not done here (file not owned): `return_type_from_body`'s generator arm**
+(`signatures.rs`). It still reads the NEXT fallback and the async gate off
+`contextual_generator_iteration_type`, and returns `None` (error) where
+`createGeneratorType` answers `{}` with neither global
+(CREATE-GENERATOR-TYPE-EMPTY-FALLBACK). Moving those three reads onto
+`get_contextual_iteration_type` / `createGeneratorType`'s `{}` fallback is
+handed to the calls box as a measured patch (§7).

@@ -3532,15 +3532,18 @@ impl Checker<'_, '_> {
             let annotated = self.get_type_from_type_node(annotation);
             return self.annotated_yield_next_type(annotated, is_async).unwrap_or(error);
         }
-        if contextualised {
-            if let Some(signature) = self.contextual_signature(container)
-                && let Some(next) = self.contextual_generator_iteration_type(signature.r#type, 2)
-            {
-                return next;
-            }
-            return error;
+        // `getContextualIterationType(Next, fn)` orElse `anyType`
+        // (`checker.go:11005`): the contextual return type — filtered for a
+        // generator, or an IIFE's own context — read as a generator return.
+        // A lookup this port cannot finish stays a gap unless the container
+        // is provably uncontextualised (the §224 predicate above).
+        match self
+            .get_contextual_iteration_type(crate::iteration::IterationTypeKind::Next, container)
+        {
+            Ok(Some(next)) => next,
+            Err(()) if contextualised => error,
+            Ok(None) | Err(()) => any,
         }
-        any
     }
 
     /// `ast.GetContainingFunction` (`utilities.go`).
