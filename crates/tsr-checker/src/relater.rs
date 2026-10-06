@@ -1293,6 +1293,58 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::NotRelated;
         }
+        // structuredTypeRelatedToWorker's indexed-access target arm
+        // (relater.go:3443) for a source that is not itself a type variable:
+        // under the assignable/comparable relations `S -> T[K]` relates only
+        // through the write constraint `getIndexedAccessTypeOrUndefined(
+        // baseConstraintOrType(T), baseConstraintOrType(K), Writing |
+        // (NoIndexSignatures when T had a constraint))`, and only when neither
+        // base is still generic; no later arm relates a concrete object,
+        // primitive or `unknown` source to an indexed access (the object arm
+        // needs an object target). A generic base is a definite failure, and
+        // so is a constrained object read through a key with no property-name
+        // constituent (`keyof T`'s base is `string | number | symbol`): with
+        // index signatures excluded no member can be selected, so the
+        // constraint is nil. Any other write constraint is not built here and
+        // the pair stays undecided.
+        if t.contains(TypeFlags::INDEXED_ACCESS)
+            && s.intersects(TypeFlags::OBJECT | TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+            && matches!(
+                self.relation,
+                Relation::Assignable | Relation::Subtype | Relation::StrictSubtype
+            )
+            && !self.checker.mapped_types.contains_key(&source)
+            && !self.is_qualified_alias_mint(source)
+            && let Some(&(object, index, _)) =
+                self.checker.deferred_indexed_access_types.get(&target)
+        {
+            if matches!(self.relation, Relation::Assignable) {
+                let base_object = self.checker.base_constraint_or_type(object);
+                let base_index = self.checker.base_constraint_or_type(index);
+                let object_flags = self.checker.type_of(base_object).flags;
+                let generic = object_flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || self.checker.indexed_access_index_is_generic(base_index);
+                if !generic {
+                    let key_parts =
+                        self.union_constituents(base_index).unwrap_or_else(|| vec![base_index]);
+                    let no_member_key = key_parts.iter().all(|&part| {
+                        let flags = self.checker.type_of(part).flags;
+                        flags.intersects(
+                            TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::ES_SYMBOL,
+                        ) && !flags.intersects(
+                            TypeFlags::STRING_LITERAL
+                                | TypeFlags::NUMBER_LITERAL
+                                | TypeFlags::UNIQUE_ES_SYMBOL,
+                        )
+                    });
+                    let constrained = base_object != object;
+                    if !(constrained && no_member_key && !object_flags.intersects(TypeFlags::ANY)) {
+                        return RelationResult::Unknown;
+                    }
+                }
+            }
+            return RelationResult::NotRelated;
+        }
         // structuredTypeRelatedToWorker (relater.go:3261): under strict null
         // checks `null`/`undefined`/`void` fail isSimpleTypeRelatedTo against
         // an object target, their apparent type stays primitive, and no
