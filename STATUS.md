@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Intersection admission (`tsr-1yb.16.3.6`), frozen `4cfe2340`: 56 ordinary/probe
+controls preserve output; exact clone traffic repeats at 2.20M allocations /
+176.69MB default and 1.03M / 70.37MB single on Next.js. The `.16.3.7` ordinary
+candidate is restored after its public gate fails: default wall1.124708s versus
+base1.109090s/A-A0.889130s; single RSS/base1.050321 exceeds1.05. All 665 source
+files and three baseline binaries restored; ordinary CLI rebuild hash matches.
+Only baseline corpora ran (477,652 type rows /10,570 diagnostic cases); no
+candidate RIGHT-loss, coverage or speed qualification. `.16.3.5` is corrected
+as a duplicate of the previously rejected `.16.3.4`.
+[Counts, refusal and handoff](docs/architecture/checker-intersection-clone.md).
+
 Allocation-origin refresh (`tsr-1yb.16.3`), frozen `2bf3601b` / native
 `5b1047d`: 40 ordinary/probe comparisons preserve complete output and 14,051
 ordered Next.js inputs with 24 diagnostics. Default records 7.81M instantiation
@@ -3033,6 +3044,10 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The intersection-admission payload candidate remains an archived rejection.
+Selecting the variant before cloning does not add reuse or change publication;
+its required ordinary benefit is unconfirmed, so production is unchanged.
+
 The current allocation observer is an archived eight-file replay, not a
 production allocator or reusable member/type answer. Its counters separate
 request entry, instantiation worker entry, nested parameter walks and original
@@ -3267,6 +3282,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+After the restored `.16.3.7` rejection, `.16.3.8` attributes anonymous property
+copies to actual existing cache outcomes. Keep mapper/print context gates and
+measure complete hits before moving payload copying. The borrowed-name `.5`
+selection below was a duplicate of closed `.4`; do not repeat it without new
+site-specific opportunity evidence.
 
 Current `2bf3601b` allocation evidence selects `tsr-1yb.16.3.5` for a measured
 borrowed-name candidate in local type-parameter queries. Preserve every
@@ -6759,6 +6780,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Intersection payload candidate `.16.3.7`, frozen `4cfe2340`, fails first public
+confirmation: default candidate1.124708s misses base1.109090s/A-A0.889130s by
+15.617/235.578ms, and CPU/A-A1.212264 exceeds1.05. Single wall gains53.012/
+30.348ms, but RSS/base1.050321 exceeds1.05. Identical-baseline spread is220ms;
+no causal regression claim or relaxed threshold. Original source/binaries
+restored; further candidate corpus/app/round2 gates not run.
+[Policy and complete evidence](docs/architecture/checker-intersection-clone.md).
 
 Allocation reporter v1 (`tsr-1yb.16.3`, frozen `2bf3601b`) is refused by its
 own live-sum assertion: 1,746 bytes in origin snapshots versus 1,810 in the
@@ -14317,6 +14346,8 @@ holds only the numbers.
 | 2026-10-06 | `f5db6e78` (prototype source) | — | — | **Rejected member-consumer prototype, tsr-1yb.31:** 27 passing member controls, four detected mutations, 39 replayed native parsed controls and 162 complete CLI children. Scalar identity returns merged/merged/merged versus native single/merged/single. All 54 baseline/prototype output pairs unchanged; 643 private Rust files restored and 20 original member controls pass. Evidence-only delivery; no new coverage or speed claim. [Replay](docs/architecture/checker-member-consumer-prototype.md). |
 
 | 2026-10-06 | `2bf3601b` (measurement source) | — | — | **Allocation-origin refresh, tsr-1yb.16.3:** 40 output-preserving ordinary/probe comparisons, five allocator controls and two detected mutants. Default3.13M versus single1.38M instantiation worker entries; member walks request1.70GB/1.36GB cumulatively. Unclassified traffic and observer overhead remain explicit; reporter v1 rejected by64-byte self-allocation. All665 baseline source/manifest/lock files and ordinary binary restored exactly. No retained runtime optimization, corpus gain or verified native ratio. [Evidence](docs/architecture/checker-allocation-origins.md). |
+
+| 2026-10-06 | `4cfe2340` (measurement source) | — | — | **Intersection-clone attribution / restored rejection, tsr-1yb.16.3.6/.7:** 56 output-preserving probe controls and36 ordinary first-round public children; Next.js clone traffic2.20M/1.03M allocations,176.69MB/70.37MB. Default public gain fails; single RSS1.050321 exceeds1.05. Baseline corpora only; all665 source files/3binaries restored and ordinary CLI rebuild matches. Duplicate borrowed-name task5 closed; follow-up8 attributes anonymous prelookup copying. No runtime optimization or native ratio proof. [Evidence](docs/architecture/checker-intersection-clone.md). |
 
 ## 8. Updating this file
 

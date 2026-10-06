@@ -129,6 +129,12 @@ tsr-1yb.16.3.6 separates temporary worker payload copies from published TypeStor
 ownership before selecting another borrow/move candidate. Its broad origin
 count does not establish copied bytes or saved wall time.
 
+Task-cut correction after delivery: `.16.3.5` duplicated the already rejected
+[`.16.3.4` borrowed-name experiment](checker-parameter-names.md) and is closed
+without replay. The current [intersection-clone attribution and restored
+rejection](checker-intersection-clone.md) deliver `.16.3.6`/`.16.3.7`;
+`.16.3.8` next measures anonymous payload copying before existing cache hits.
+
 Member completion remains with `.16.2`/`.4.2.1` and the published-symbol
 prerequisites `.32`/`.33`; mapper publication remains `.16.1`/`.4.1.2`.
 Parameter-walk work remains `.7.3`. These counts do not qualify a broad cache.

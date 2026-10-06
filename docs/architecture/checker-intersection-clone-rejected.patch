@@ -1,0 +1,14 @@
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5413,7 +5413,10 @@
+         }
+         // instantiateTypeWorker maps intersection constituents just as it
+         // maps union constituents; contextual mapped templates depend on it.
+-        if let TypeData::Intersection { types, symbol, .. } = self.store.get(id).data.clone() {
++        if let TypeData::Intersection { types, symbol, .. } = &self.store.get(id).data {
++            // Keep the constituent snapshot across recursive store growth. The
++            // cached display text and non-intersection payloads are not needed.
++            let (types, symbol) = (types.clone(), *symbol);
+             let mut substituted = Vec::with_capacity(types.len());
+             for constituent in types {
+                 let image = self.instantiate_type(constituent, map, parameters, names);
