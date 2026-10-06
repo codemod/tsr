@@ -543,7 +543,18 @@ impl Checker<'_, '_> {
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        self.flow_result_or_declared(reference, result, declared_type)
+        let result = self.flow_result_or_declared(reference, result, declared_type);
+        // `isAutomaticTypeInNonNull` (`checker.go:11174`): `x!` on an
+        // auto-typed variable reads the non-nullable flow type.
+        if is_auto
+            && self
+                .nodes
+                .parent(reference)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::NonNullExpression)
+        {
+            return self.get_non_nullable_type(result);
+        }
+        result
     }
 
     /// The tail of `getFlowTypeOfReferenceEx` (`flow.go:111`): the declared
@@ -6639,6 +6650,30 @@ impl Checker<'_, '_> {
         value: NodeId,
         assume_true: bool,
     ) -> TypeId {
+        // `flow.go:703`: a `===`/`!==` against a union keyed by this property
+        // picks the keyed constituent outright.
+        if matches!(
+            operator,
+            SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        ) && matches!(&self.store.get(t).data, TypeData::Union { types, .. } if types.len() >= 10)
+            && let Some(name) = self.get_accessed_property_name(access)
+            && let Some(map) = self.key_property_map(t, &name)
+        {
+            let key_type = self.check_expression_at_node(value);
+            let key = self.get_regular_type_of_literal_type(key_type);
+            if let Some(&Some(candidate)) = map.get(&key) {
+                let equal = operator == SyntaxKind::EqualsEqualsEqualsToken;
+                if assume_true == equal {
+                    return candidate;
+                }
+                return match self.get_type_of_property_of_type(candidate, &name) {
+                    Some(property) if self.type_of(property).flags.intersects(TypeFlags::UNIT) => {
+                        self.filter_type(t, |_, constituent| constituent != candidate)
+                    }
+                    _ => t,
+                };
+            }
+        }
         // Upstream passes `narrowTypeByEquality` with no chain flag: the
         // optional-chain strip belongs to `narrowTypeByDiscriminant`, which
         // does it on the RECEIVER before reading the property, so passing it
@@ -6646,6 +6681,91 @@ impl Checker<'_, '_> {
         self.narrow_type_by_discriminant(t, access, |checker, prop| {
             checker.narrow_type_by_equality(prop, operator, value, assume_true, false)
         })
+    }
+
+    /// `getKeyPropertyName` + `mapTypesByKeyProperty` (`relater.go:1118`,
+    /// `:1176`) for the property `name`: the constituent map of a union of at
+    /// least ten object types keyed by the regular literal type of `name`
+    /// (`None` value = a duplicated key, upstream's `unknownType`). `None`
+    /// when the union has no key property or its key property is not `name`.
+    ///
+    /// Upstream caches the pair on the union type; this port recomputes it per
+    /// query (no side table: the only caller is a `===`/`!==` discriminant
+    /// test on a ≥10-object union, and the relater's use of the same key is
+    /// not ported). A cache keyed by the union `TypeId` is the fix if a
+    /// profile ever shows it.
+    fn key_property_map(
+        &mut self,
+        t: TypeId,
+        name: &str,
+    ) -> Option<rustc_hash::FxHashMap<TypeId, Option<TypeId>>> {
+        let TypeData::Union { types, .. } = &self.store.get(t).data else { return None };
+        let types = types.clone();
+        let objects = |checker: &Self, c: TypeId| {
+            checker
+                .type_of(c)
+                .flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+        };
+        if types.len() < 10 || types.iter().filter(|&&c| objects(self, c)).count() < 10 {
+            return None;
+        }
+        // `getKeyPropertyCandidateName`: the first unit-typed property of the
+        // first object constituent that has one.
+        let mut candidate_name = None;
+        'search: for &constituent in &types {
+            if !objects(self, constituent) {
+                continue;
+            }
+            for property in self.property_names_of(constituent) {
+                if let Some(property_type) =
+                    self.get_type_of_property_of_type(constituent, &property)
+                    && self.type_of(property_type).flags.intersects(TypeFlags::UNIT)
+                {
+                    candidate_name = Some(property);
+                    break 'search;
+                }
+            }
+        }
+        if candidate_name.as_deref() != Some(name) {
+            return None;
+        }
+        let mut map: rustc_hash::FxHashMap<TypeId, Option<TypeId>> =
+            rustc_hash::FxHashMap::default();
+        let mut count = 0usize;
+        for &constituent in &types {
+            if !self.type_of(constituent).flags.intersects(
+                TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE_NON_PRIMITIVE,
+            ) {
+                continue;
+            }
+            let discriminant = self.get_type_of_property_of_type(constituent, name)?;
+            if !self.is_literal_type(discriminant) {
+                return None;
+            }
+            let distributed = match &self.store.get(discriminant).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![discriminant],
+            };
+            let mut duplicate = false;
+            for d in distributed {
+                let key = self.get_regular_type_of_literal_type(d);
+                match map.get(&key) {
+                    None => {
+                        map.insert(key, Some(constituent));
+                    }
+                    Some(Some(_)) => {
+                        map.insert(key, None);
+                        duplicate = true;
+                    }
+                    Some(None) => {}
+                }
+            }
+            if !duplicate {
+                count += 1;
+            }
+        }
+        (count >= 10 && count * 2 >= types.len()).then_some(map)
     }
 
     /// `narrowTypeByDiscriminant` (`flow.go:725`). §750.

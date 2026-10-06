@@ -418,3 +418,34 @@ Three upstream facts, one commit because each alone moved the same lines:
 
 **Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
 0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.
+
+## 16. Two `checker_types` narrowings: `isAutomaticTypeInNonNull`, key-property discriminants
+
+Baseline from here: the second merge `4fa3557` (3,940 RIGHT diagnostics cases,
+467,265 RIGHT type lines).
+
+- **`x!` on an auto-typed variable** (`checker.go:11174`): `checkIdentifier`
+  wraps the flow type in `getNonNullableType` when the declared type is
+  `autoType` and the parent is a `NonNullExpression`. Ported at the end of
+  `get_flow_type_of_reference_ex` (after the §9 tail, as upstream orders them).
+  `nonNullFullInference`: `last!` after a loop reads `number`, not
+  `number | undefined`.
+- **`getKeyPropertyName` in `narrowTypeByDiscriminantProperty`**
+  (`flow.go:703`, `relater.go:1118`–`1197`): a `===`/`!==` test on a union of
+  at least ten object constituents keyed by the accessed property picks the
+  keyed constituent outright (or removes it), instead of the comparable
+  filter — which keeps `undefined` (its discriminant reads `unknown`, and
+  everything is comparable to `unknown`). `narrowingUnionWithBang`: the
+  ten-member `working.thing` narrows to `{ name: 'Correct' }` while the
+  nine-member `borked.thing` keeps `| undefined`, exactly as upstream.
+  Ported as `key_property_map`, **recomputed per query** (no side table):
+  the only caller is a strict-equality discriminant test on a ≥10-member
+  union and a `types.len() >= 10` check runs before anything allocates.
+  Upstream caches `keyPropertyName`/`constituentMap` on the union; the
+  relater's own use (`getMatchingUnionConstituentForType`) is not ported, and
+  when it is, the cache belongs on a union-keyed side table shared by both.
+
+**Measured.** +4 RIGHT type lines, both cases convert, 0 diagnostic / 0 type
+losses. CPU median (41): `domain-model` 1.009 / 1.004 (two runs; a first run
+read 1.062 with the property name allocated before the length test),
+`generic-imports` 0.994.
