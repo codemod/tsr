@@ -181,44 +181,6 @@ fn walk_in_order(root: Node<'_>) -> Vec<Node<'_>> {
     result
 }
 
-/// Whether the baseline writer emits a line for this node.
-///
-/// Two stages, exactly as upstream splits them: `visitNode` (`:304`) keeps
-/// expressions, identifiers and declaration names, and `writeTypeOrSymbol`
-/// (`:345`) then drops the ones that are part of a type or an omitted expression.
-///
-/// The third of upstream's drops — an identifier whose parent's
-/// `GetMeaningFromDeclaration` carries no *value* meaning — is **not ported
-/// here**; see [`selects`]'s note.
-/// The symbol an **entity name** names: an identifier resolved in scope, or a
-/// qualified name resolved left-to-right through each container's exports.
-///
-/// §243. Upstream's `getSymbolOfNameOrPropertyAccessExpression` does this as
-/// one recursive walk; here it exists only to serve the leaf of an
-/// import-equals entity name, so it is deliberately limited to the namespace
-/// meaning and answers `None` the moment a step fails. `None` keeps the
-/// caller's gap rather than guessing — the whole reason the leaf was worth
-/// fixing is that a wrong name is worse than a missing one.
-fn entity_name_symbol(
-    id: NodeId,
-    nodes: &NodeTable,
-    map: &NodeMap<'_>,
-    binder: &tsr_binder::BindResult<'_>,
-) -> Option<tsr_binder::SymbolId> {
-    match map.get(id)? {
-        Node::Identifier(name) => {
-            binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)
-        }
-        Node::QualifiedName(qualified) => {
-            let left = qualified.left.and_then(|left| left.node_id())?;
-            let container = entity_name_symbol(left, nodes, map, binder)?;
-            let right = qualified.right?;
-            binder.symbols().get(container).exports.get(right.text).copied()
-        }
-        _ => None,
-    }
-}
-
 /// Whether an identifier IS the name of an import or export statement.
 ///
 /// §248, extracted from §178's inline condition so the WRITER can ask it too.
@@ -271,6 +233,71 @@ fn is_ewta_in_class_extends_clause(id: NodeId, nodes: &NodeTable, map: &NodeMap<
         )
 }
 
+/// `isInRightSideOfImportOrExportAssignment` (`checker/utilities.go:1107`):
+/// walk up through qualified names, then the outermost must be an
+/// import-equals' module reference or an export assignment's expression.
+/// Answers which of the two, by kind.
+fn right_side_of_import_or_export_assignment(
+    id: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+) -> Option<SyntaxKind> {
+    let mut node = id;
+    let mut parent = nodes.parent(node)?;
+    while nodes.kind(parent) == SyntaxKind::QualifiedName {
+        node = parent;
+        parent = nodes.parent(node)?;
+    }
+    match map.get(parent)? {
+        Node::ImportEqualsDeclaration(declaration)
+            if declaration.module_reference.and_then(|reference| reference.node_id())
+                == Some(node) =>
+        {
+            Some(SyntaxKind::ImportEqualsDeclaration)
+        }
+        Node::ExportAssignment(assignment)
+            if assignment.expression.and_then(|expression| expression.node_id()) == Some(node) =>
+        {
+            Some(SyntaxKind::ExportAssignment)
+        }
+        _ => None,
+    }
+}
+
+/// `getDeclaredTypeOfSymbol` (`checker.go:23670`) with
+/// `tryGetDeclaredTypeOfSymbol`'s alias arm (`checker.go:23690`), which it
+/// tests after every type meaning: an alias not merged with a type
+/// declaration answers `getDeclaredTypeOfAlias`.
+fn declared_type_of_symbol(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    binder: &tsr_binder::BindResult<'_>,
+    symbol: tsr_binder::SymbolId,
+) -> tsr_checker::TypeId {
+    let flags = binder.symbols().get(symbol).flags;
+    if flags.intersects(SymbolFlags::ALIAS)
+        && !flags.intersects(
+            SymbolFlags::CLASS
+                | SymbolFlags::INTERFACE
+                | SymbolFlags::TYPE_PARAMETER
+                | SymbolFlags::TYPE_ALIAS
+                | SymbolFlags::ENUM
+                | SymbolFlags::ENUM_MEMBER,
+        )
+    {
+        return checker.get_declared_type_of_alias(symbol);
+    }
+    checker.get_declared_type_of_symbol(symbol)
+}
+
+/// Whether the baseline writer emits a line for this node.
+///
+/// Two stages, exactly as upstream splits them: `visitNode` (`:304`) keeps
+/// expressions, identifiers and declaration names, and `writeTypeOrSymbol`
+/// (`:345`) then drops the ones that are part of a type or an omitted expression.
+///
+/// The third of upstream's drops — an identifier whose parent's
+/// `GetMeaningFromDeclaration` carries no *value* meaning — is **not ported
+/// here**; see [`selects`]'s note.
 fn selects(id: NodeId, tree: Tree<'_, '_>) -> bool {
     let kind = tree.kind(id);
     let kept = predicates::is_expression_node(id, tree)
@@ -699,35 +726,48 @@ pub fn type_id_at_location_tracking<'a>(
         return computed;
     }
 
-    // **An export-assignment's exported NAME records its declared type** —
-    // `export = C1` records `>C1 : C1`, and a generic `export = Foo` records
-    // `Foo<T>` with its own parameters (`exportNonVisibleType`,
-    // `exportAssignmentGenericType`). The heritage compensation's sibling,
-    // keyed the same way; a `var` or function on the right resolves only as
-    // a VALUE and falls through to its value type
-    // (`checker-notes-jsx.md`, the export-assignment bar).
-    if let Some(parent) = nodes.parent(id)
-        && nodes.kind(parent) == SyntaxKind::ExportAssignment
-        && nodes.kind(id) == SyntaxKind::Identifier
-        && let Some(Node::Identifier(name)) = map.get(id)
-        && let Some(symbol) =
-            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
-        // The VALUE resolution must not reach a DIFFERENT symbol: a class
-        // carries both meanings in one symbol (fine), an interface-only name
-        // has no value meaning at all (fine — `importNonExportedMember*`'s
-        // 27 lines, which an equality gate dropped), and `export = Math`
-        // (a local namespace value) beside the GLOBAL `Math` interface
-        // resolves two different symbols — the one shape that declines, the
-        // bar's falsifier from the first measurement.
-        && !matches!(
-            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE),
-            Some(value) if value != symbol
-        )
+    // `isInRightSideOfImportOrExportAssignment` (`checker/utilities.go:1107`),
+    // `getTypeOfNode`'s arm after the binding-pattern one (`checker.go:31927`):
+    // a name in an `import a = b.c` module reference or the expression of an
+    // `export =` / `export default`. Neither is an expression node
+    // (`IsInExpressionContext` has no import-equals or export-assignment
+    // parent arm), so nothing above claims them. `getSymbolAtLocation`
+    // routes both through `getSymbolOfNameOrPropertyAccessExpression`
+    // (`checker.go:31780`): the export-assignment arm resolves every meaning
+    // including `Alias`, the import-equals one is
+    // `getSymbolOfPartOfRightHandSideOfImportEquals` (`checker.go:14474`).
+    // The answer is the declared type — through the alias for an alias,
+    // `tryGetDeclaredTypeOfSymbol`'s last arm — and the value type when that
+    // is the error type. A miss falls off the end of `getTypeOfNode`:
+    // `errorType`, which the writer prints `any` for an export-assignment
+    // expression (`isExportStatementName`) and for a qualified-name part
+    // (`IsPropertyAccessOrQualifiedName(node.Parent)`,
+    // `type_symbol_baseline.go:380`).
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(parent) = nodes.parent(id)
+        && let Some(assignment) = right_side_of_import_or_export_assignment(id, nodes, map)
     {
-        let declared = checker.get_declared_type_of_symbol(symbol);
-        if declared != error {
-            return declared;
+        let symbol = match assignment {
+            SyntaxKind::ExportAssignment => checker.get_symbol_of_export_assignment_expression(id),
+            _ => checker.get_symbol_of_part_of_right_hand_side_of_import_equals(id),
+        };
+        let computed = match symbol {
+            Some(symbol) => {
+                let declared = declared_type_of_symbol(checker, binder, symbol);
+                if declared == error { checker.get_type_of_symbol(symbol) } else { declared }
+            }
+            None => error,
+        };
+        if computed == error
+            && matches!(
+                nodes.kind(parent),
+                SyntaxKind::ExportAssignment | SyntaxKind::QualifiedName
+            )
+        {
+            *saw_checker_error = true;
+            return checker.intrinsics().any;
         }
+        return computed;
     }
 
     // **The left of a qualified name in type position prints `any`.**
@@ -784,90 +824,8 @@ pub fn type_id_at_location_tracking<'a>(
         }
         let enclosing = nodes.parent(outermost).map(|above| nodes.kind(above));
 
-        // **A third exemption: the entity name of an `import x = M.a`.**
-        //
-        // Upstream does *not* reach this through `IsExpressionNode` — that
-        // function's `KindQualifiedName` arm walks to the outermost qualified
-        // name and asks `IsTypeQueryNode || IsJSDocLinkLike ||
-        // IsJSDocNameReference || IsJsxTagName`, all false for an import-equals.
-        // It falls through `getTypeOfNode` past the type-node, expression,
-        // class, type-declaration, binding and declaration branches to
-        // `isInRightSideOfImportOrExportAssignment`, which takes
-        // `getDeclaredTypeOfSymbol` and **falls back to `getTypeOfSymbol` when
-        // that is the error type**. For a namespace the declared type *is* the
-        // error type, so the answer is the value type: `typeof a`.
-        //
-        // The fallback order is the whole rule and must not be collapsed to
-        // "answer the value type". Measured at `f99072c` by
-        // `examples/qualified_name_left.rs`, this enclosing kind carries 133
-        // wrong lines *and 34 right ones* — the 34 being where upstream also
-        // says `any`. A blanket value-type rule would fix 133 and break 34, a
-        // net of +99 presented as +133.
-        if enclosing == Some(SyntaxKind::ImportEqualsDeclaration)
-            && let Some(Node::Identifier(name)) = map.get(id)
-            && let Some(symbol) =
-                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)
-        {
-            let declared = checker.get_declared_type_of_symbol(symbol);
-            if declared != checker.intrinsics().error {
-                return declared;
-            }
-            let value = checker.get_type_of_symbol(symbol);
-            return value;
-        }
-
         if enclosing != Some(SyntaxKind::TypeQuery) {
             return checker.intrinsics().any;
-        }
-    }
-
-    // §243, checker-1's handoff. The arm above serves the **root** of an
-    // import-equals entity name; this serves the **leaf**, which the arm above
-    // cannot reach and should not be widened to.
-    //
-    // ```text
-    // namespace a { export var x = 10; }
-    // namespace c { import b = a.x; export var bVal = b; }
-    // >x : number      <- the leaf; this port answered `any`
-    // ```
-    //
-    // The two need different lookups and that is the entire point. A root is a
-    // name **in scope**, so `resolve_name` finds it. A leaf is a **member of
-    // the root's namespace** — a scope lookup for `x` from that position finds
-    // nothing at all, which is exactly why the arm above falls through to
-    // `any`. Upstream reaches it with `getSymbolAtLocation` on the qualified
-    // name's right, which resolves through the left's exports.
-    //
-    // The declared-then-value fallback is the SAME rule as the root's and is
-    // repeated deliberately rather than shared: it is upstream's
-    // `isInRightSideOfImportOrExportAssignment` order, and collapsing it to
-    // "answer the value type" would break the 34 lines where upstream also
-    // says `any` (see the measurement above). Sized separately from the root's
-    // 133-vs-34, per checker-1's warning not to let one price the other.
-    if let Some(parent) = nodes.parent(id)
-        && nodes.kind(parent) == SyntaxKind::QualifiedName
-        && let Some(Node::QualifiedName(qualified)) = map.get(parent)
-        && qualified.right.and_then(|right| right.node_id) == Some(id)
-        && let Some(Node::Identifier(name)) = map.get(id)
-    {
-        let mut outermost = parent;
-        while let Some(above) = nodes.parent(outermost) {
-            if nodes.kind(above) != SyntaxKind::QualifiedName {
-                break;
-            }
-            outermost = above;
-        }
-        if nodes.parent(outermost).map(|above| nodes.kind(above))
-            == Some(SyntaxKind::ImportEqualsDeclaration)
-            && let Some(left) = qualified.left.and_then(|left| left.node_id())
-            && let Some(container) = entity_name_symbol(left, nodes, map, binder)
-            && let Some(&member) = binder.symbols().get(container).exports.get(name.text)
-        {
-            let declared = checker.get_declared_type_of_symbol(member);
-            if declared != checker.intrinsics().error {
-                return declared;
-            }
-            return checker.get_type_of_symbol(member);
         }
     }
 
@@ -2662,12 +2620,16 @@ mod tests {
         // stops the rule turning 34 right answers into wrong ones.
         // **`y` flipped by §144** (the thirty-eighth stand-in): the alias to
         // an unresolvable-root entity reads the same error-any its pieces do.
+        // `thing` misses too (`getSymbolOfPartOfRightHandSideOfImportEquals`
+        // finds no `Missing`), so `getTypeOfNode` answers `errorType`, and its
+        // parent is a qualified name, so the writer's
+        // `IsPropertyAccessOrQualifiedName` guard prints `any`, not `error`.
         assert_eq!(
             typed("import y = Missing.thing;"),
             vec![
                 ("y".to_string(), "any".to_string()),
                 ("Missing".to_string(), "any".to_string()),
-                ("thing".to_string(), "error".to_string()),
+                ("thing".to_string(), "any".to_string()),
             ],
         );
     }
