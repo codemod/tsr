@@ -685,6 +685,16 @@ impl Checker<'_, '_> {
                 // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
                 // what keeps an enclosing class's type parameter from being
                 // resolved here — see `BindResult::resolve_name`.
+                // `getResolvedSymbol` (`checker.go:13890`) resolves nothing for
+                // a missing identifier (`!ast.NodeIsMissing(node)`): parser
+                // recovery's empty name must not find a declaration whose name
+                // was also lost. `unknownSymbol` makes `checkIdentifier` answer
+                // `errorType`, printed `any` — deterministically, so the §31
+                // "the port might be the one failing to resolve it" gate below
+                // does not apply (the same reasoning as its §475 arm).
+                if node.text.is_empty() {
+                    return self.intrinsics.any;
+                }
                 let resolved =
                     self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);
                 if let Some(symbol) = resolved {

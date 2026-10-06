@@ -3560,7 +3560,15 @@ impl<'a> Checker<'a, '_> {
         // be a two-line declaration walk, not per-site context. Gated to class
         // expressions: a nameless default-export CLASS DECLARATION spells
         // `default` through a different leg of the same function, unported.
-        if self.has_a_name_no_type_query_can_spell(symbol) {
+        //
+        // Only the `typeof` kinds need a name: `getTypeOfFuncClassEnumModuleWorker`
+        // (`checker.go:16912`) builds the anonymous object type for a
+        // FUNCTION/METHOD symbol whatever its name, and that type prints
+        // structurally — a parser-recovered nameless function or a `[""]`
+        // method takes the signature road below.
+        if self.has_a_name_no_type_query_can_spell(symbol)
+            && flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
+        {
             if flags.intersects(SymbolFlags::CLASS)
                 && let Some(written) = self.anonymous_class_written_name(symbol)
             {
