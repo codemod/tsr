@@ -427,3 +427,13 @@ indexed-access annotation).
 **What would remove the bound.** The gap producers answering upstream's types
 (`Array<errorType>`) instead of `error` (§3a, `tsr-2zk.31`); then the test is
 `is_error(declared)` alone.
+
+## §18 TS2403/TS2687 run in files with parse errors
+
+`check_subsequent_declaration_type` returned early in a file with syntax
+errors, the port-wide decline (168 sites) that keeps checker rules away from
+recovered trees. Upstream's `checkVariableLikeDeclaration` has no such gate,
+and the merge arms read only symbols and declared types. Removed for this
+rule: +3 (`asyncArrowFunction9_es6`, `asyncArrowFunction9_es2017`,
+`negateOperatorInvalidOperations`), two more TS2687 lines, no new extra line
+of any code.

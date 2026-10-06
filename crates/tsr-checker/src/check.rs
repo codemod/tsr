@@ -8713,9 +8713,6 @@ impl Checker<'_, '_> {
     /// top-level `any`/`unknown` takes part only when the declaration's own
     /// annotation is that keyword.
     fn check_subsequent_declaration_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (name, annotated, is_property) = match self.node_map.get(node) {
             Some(Node::VariableDeclaration(declaration)) => (
                 declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
