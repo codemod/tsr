@@ -57,35 +57,81 @@ fn assign_probe_enabled() -> bool {
 }
 
 impl<'a> Checker<'a, '_> {
-    /// `checkAssignmentOperator` (`checker.go:12757`), the `=` arm.
+    /// `checkAssignmentOperator` (`checker.go:12757`), reached from
+    /// `checkBinaryLikeExpressionWorker` for `=`, `+=`, `&&=`, `||=`, `??=`
+    /// and (behind `leftOk && rightOk`) the arithmetic compound forms.
     ///
     /// The error node is the **left operand**, not the whole expression:
-    /// `aliasAssignments_1.ts(3,1)` for `x = 1` puts the caret on `x`.
+    /// `aliasAssignments_1.ts(3,1)` for `x = 1` puts the caret on `x`. The
+    /// source is the right operand's type for `=` and the logical forms, and
+    /// the operation's result type (`resultType`) for `+=` and the arithmetic
+    /// forms — `x += ''` relates `string` to `x`.
     pub(crate) fn check_assignment_operator(
         &mut self,
+        node: NodeId,
         binary: &BinaryExpression<'_>,
         ambient: bool,
     ) {
         if ambient || self.file_has_parse_errors {
             return;
         }
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        let (Some(left), Some(right), Some(operator)) =
+            (binary.left, binary.right, binary.operator_token)
+        else {
+            return;
+        };
         let Some(left_id) = left.node_id() else { return };
-
-        // `checkReferenceExpression` (`checker.go:12769`): upstream checks
-        // assignability **only** when the left-hand side is a reference, and
-        // reports a different code when it is not. A destructuring target is a
-        // reference too, but its assignability check is
-        // `checkDestructuringAssignment`'s per-element one and not this
-        // position, so it is declined here rather than approximated.
-        //
-        // A **property or element access** target is declined whole, and the
-        // reason is `divergentAccessorsTypes2`: a `set` accessor whose parameter
-        // type differs from its `get` return type makes the *write* type the
-        // setter's, which needs `getWriteTypeOfSymbol`. Reporting from the read
-        // type there is a wrong diagnostic on correct code.
-        let Some(target) = self.assignment_target_type(left_id) else { return };
-        let source = self.check_expression(right);
+        // `checkBinaryLikeExpression` (`checker.go:12338`) short-circuits a
+        // destructuring `=` to `checkDestructuringAssignment`, which relates
+        // per element and never reaches this site.
+        if operator.kind == SyntaxKind::EqualsToken
+            && matches!(
+                self.nodes.kind(left_id),
+                SyntaxKind::ObjectLiteralExpression | SyntaxKind::ArrayLiteralExpression
+            )
+        {
+            return;
+        }
+        // `checkReferenceExpression` (`checker.go:13130`): assignability is
+        // checked only when the left-hand side is a reference.
+        if !self.is_assignable_reference(left_id) {
+            return;
+        }
+        let Some(mut target) = self.assignment_target_type(left_id) else { return };
+        // "getters can be a subtype of setters, so to check for assignability
+        // we use the setter's type instead" (`checker.go:12765`): a compound
+        // write through a property access reads `checkPropertyAccessExpression`
+        // with `writeOnly`, whose divergent-accessor answer is the setter's
+        // parameter type (`getWriteTypeOfAccessors`).
+        if operator.kind != SyntaxKind::EqualsToken
+            && let tsr_ast::Expression::PropertyAccessExpression(access) = left
+            && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
+            && let Some(receiver) = access.expression
+        {
+            let receiver = self.check_expression(receiver);
+            let receiver = self.check_non_null_type(receiver);
+            if let Some(property) = self.get_property_of_type(receiver, name.text)
+                && let Some(written) = self.write_type_of_accessors(property)
+            {
+                target = written;
+            }
+        }
+        let source = match operator.kind {
+            SyntaxKind::EqualsToken
+            | SyntaxKind::AmpersandAmpersandEqualsToken
+            | SyntaxKind::BarBarEqualsToken
+            | SyntaxKind::QuestionQuestionEqualsToken => self.check_expression(right),
+            // `resultType`: `checkBinaryLikeExpressionWorker`'s `+` and
+            // arithmetic arms (`checker.go:12401`, `:12458`). An operator
+            // error (`errorType`) returns before the call upstream.
+            _ => {
+                let result = self.check_expression_at_node(node);
+                if result == self.intrinsics().error {
+                    return;
+                }
+                result
+            }
+        };
         // checkAssignmentOperator (native 5b1047d1 checker.go:12760) ignores
         // undefined writes to named CommonJS exports with multiple declarations.
         // Unlike inference's first-initializer rule, this applies to later
@@ -220,6 +266,10 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::ArrayLiteralExpression
                 | SyntaxKind::ObjectLiteralExpression
         ) {
+            return;
+        }
+        // `checkReferenceAssignment`'s `checkReferenceExpression` gate.
+        if !self.is_assignable_reference(left_id) {
             return;
         }
         let Some(target) = self.assignment_target_type(left_id) else { return };
@@ -971,6 +1021,19 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `checkReferenceExpression`'s verdict (`checker.go:13130`) without its
+    /// reports (those are `check_reference_expression`'s): an identifier or
+    /// access under assertions and parentheses, not an optional chain.
+    fn is_assignable_reference(&self, node: NodeId) -> bool {
+        let spine = self.skip_reference_spine(node, true);
+        matches!(
+            self.nodes.kind(spine),
+            SyntaxKind::Identifier
+                | SyntaxKind::PropertyAccessExpression
+                | SyntaxKind::ElementAccessExpression
+        ) && !self.spine_has_optional_chain(spine)
+    }
+
     /// The type an assignment writes *into*, or `None` where this port declines.
     ///
     /// # Why this is `getTypeOfSymbol` and not `checkExpression`
@@ -986,6 +1049,10 @@ impl<'a> Checker<'a, '_> {
     /// mechanism `docs/architecture/checker-notes-narrow.md` §9 measures from the
     /// `.types` side.
     fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
+        // `checkParenthesizedExpression` answers its operand's type, and
+        // `getAssignmentTargetKind` looks through parentheses, so `(x) = ''`
+        // writes into `x`'s declared type exactly as `x = ''` does.
+        let node = self.skip_outer_parentheses(node);
         // **A property-access target is admitted**, and §16's third decline —
         // which refused it because a `set` accessor's write type differs from
         // its getter's — is retired by measurement: +16 cases. The divergent-
@@ -1005,8 +1072,39 @@ impl<'a> Checker<'a, '_> {
             let ty = self.check_expression_at_node(node);
             return (ty != self.intrinsics().error).then_some(ty);
         }
+        // `leftType := c.checkExpressionEx(left, checkMode)`
+        // (`checker.go:12341`): an element access in a definite
+        // assignment-target position answers the write type
+        // (`checkElementAccessExpression`), and an asserted reference answers
+        // the assertion's type.
+        //
+        // **Declined: a `unique symbol` key.** The write type is
+        // `getIndexedAccessType(…, AccessFlagsWriting)`, which reaches the
+        // setter of a late-bound accessor pair (`getWriteTypeOfSymbol`);
+        // `check_element_access_expression`'s write arm resolves literal keys
+        // only and answers the getter's type here
+        // (`computedPropertiesWithSetterAssignment`).
+        //
+        // **Declined: an element access in a JS file.** The right operand's
+        // contextual type there is `getContextualTypeForAssignmentDeclaration`'s
+        // JS arm, which this port does not answer for element-access
+        // assignments, so `handlers[++id] = [resolve, reject]` types the
+        // literal as an array instead of the target's tuple
+        // (`jsDeclarationsTypedefFunction`).
+        if let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node)
+            && let Some(index) = access.argument_expression
+        {
+            if self.in_js_file(node) {
+                return None;
+            }
+            let index = self.check_expression(index);
+            if self.type_of(index).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL) {
+                return None;
+            }
+        }
         if self.nodes.kind(node) != SyntaxKind::Identifier {
-            return None;
+            let ty = self.check_expression_at_node(node);
+            return (ty != self.intrinsics().error).then_some(ty);
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return None };
         let text = identifier.text;
@@ -1030,15 +1128,16 @@ impl<'a> Checker<'a, '_> {
         ) {
             return None;
         }
-        // Two declarations of one name merge their types
-        // (`duplicateLocalVariable1`), and this port's merge is not upstream's;
-        // and a `const` target is TS2588, reported *instead of* the relation.
+        // A `const` target is TS2588, reported *instead of* the relation. Two
+        // `var` declarations of one name share the first declaration's type
+        // (`getTypeOfVariableOrParameterOrProperty`); a later conflicting one
+        // is TS2403's, not this site's.
         let declarations: Vec<NodeId> = entry.declarations.to_vec();
-        if declarations.len() != 1 {
-            return None;
-        }
-        if self.declaration_is_constant(declarations[0])
-            || self.declaration_is_auto_typed(declarations[0])
+        if declarations.is_empty()
+            || declarations.iter().any(|&declaration| {
+                self.declaration_is_constant(declaration)
+                    || self.declaration_is_auto_typed(declaration)
+            })
         {
             return None;
         }

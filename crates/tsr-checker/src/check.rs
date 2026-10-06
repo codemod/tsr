@@ -506,6 +506,7 @@ impl Checker<'_, '_> {
                 if operands_ok
                     && binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator())
                 {
+                    self.check_assignment_operator(node, binary, ambient);
                     self.check_reference_expression(node);
                 }
                 if operands_ok {
@@ -525,15 +526,14 @@ impl Checker<'_, '_> {
             // **The dispatch is the guard.** §542 widened the rule to every
             // assignment operator and measured +0, because this arm still
             // admitted `=` alone — §380's "dispatch never called", for the
-            // fourth time. `check_assignment_operator` stays on `=`;
-            // `check_reference_expression` takes them all, as upstream's
-            // `checkBinaryLikeExpression` does. §543.
+            // fourth time. `=`, `+=`, `&&=`, `||=` and `??=` reach
+            // `checkAssignmentOperator` here (`checker.go:12458`, `:12506`,
+            // `:12515`, `:12527`, `:12531`); the arithmetic compound forms
+            // reach it from the arm above, behind `leftOk && rightOk`. §543.
             Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind.is_assignment_operator()) =>
             {
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) {
-                    self.check_assignment_operator(binary, ambient);
-                }
+                self.check_assignment_operator(node, binary, ambient);
                 self.check_private_accessor_is_writable(node);
                 self.check_reference_expression(node);
                 ambient
@@ -10306,7 +10306,7 @@ impl Checker<'_, '_> {
 
     /// `SkipOuterExpressions(expr, OEKAssertions|OEKParentheses)`, or
     /// `SkipParentheses` when `assertions` is false.
-    fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
+    pub(crate) fn skip_reference_spine(&self, mut node: NodeId, assertions: bool) -> NodeId {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {
                 Some(Node::ParenthesizedExpression(inner)) => inner.expression,
@@ -10326,7 +10326,7 @@ impl Checker<'_, '_> {
     /// `NodeFlags::OPTIONAL_CHAIN` was never set; the flag exists since
     /// §748 and this walk is retained unchanged until the TS2779 arm is
     /// ported over it (through parentheses this walk and the flag differ).
-    fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
+    pub(crate) fn spine_has_optional_chain(&self, mut node: NodeId) -> bool {
         for _ in 0..64 {
             let next = match self.node_map.get(node) {
                 Some(Node::PropertyAccessExpression(access)) => {
