@@ -952,7 +952,10 @@ impl Relater<'_, '_, '_> {
         // structuredTypeRelatedTo compares primitive sources through their
         // apparent wrapper type (internal/checker/relater.go). Indexed targets
         // still need sourceIsPrimitive rules for an acceptance, but a failed
-        // required-property comparison already proves a rejection.
+        // required-property comparison already proves a rejection under every
+        // relation: `propertiesRelatedTo` runs before `indexSignaturesRelatedTo`
+        // in structuredTypeRelatedToWorker (relater.go), so `number -> any[]`
+        // fails on the missing `length` whatever the index infos say.
         if s.intersects(TypeFlags::PRIMITIVE)
             && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
             && t.intersects(TypeFlags::OBJECT)
@@ -964,8 +967,7 @@ impl Relater<'_, '_, '_> {
                     .get_index_infos_of_type(target)
                     .is_some_and(|infos| !infos.is_empty())
                 {
-                    return if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
-                        && self.has_members(apparent)
+                    return if self.has_members(apparent)
                         && self.has_members(target)
                         && self.properties_related_to(apparent, target)
                             == RelationResult::NotRelated

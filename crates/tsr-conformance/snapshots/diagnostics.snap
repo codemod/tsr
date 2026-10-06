@@ -2,16 +2,16 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 3906/5488 (71.17%)
-Failed         : 1582
-Skipped        : 6956 (excluded from the denominator)
+Passed         : 3936/5502 (71.54%)
+Failed         : 1566
+Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
-  5082  skipped: the case expects no diagnostics (see parser_typescript)
+  5068  skipped: the case expects no diagnostics (see parser_typescript)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1582 failures:
+First 100 of 1566 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -54,8 +54,6 @@ compiler/arrayConcatMap
   1 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
-compiler/arraySigChecking
-  2 missing (first TS2322 at arraySigChecking.ts(22,13))
 compiler/arrowExpressionBodyJSDoc
   2 missing (first TS2322 at mytest.js(6,44))
 compiler/arrowFunctionErrorSpan
@@ -68,22 +66,6 @@ compiler/assignmentCompat1
   2 missing (first TS2322 at assignmentCompat1.ts(8,1))
 compiler/assignmentCompatBug5
   1 unexpected (first TS2345 at assignmentCompatBug5.ts(5,6)), 2 missing
-compiler/assignmentCompatability16
-  1 missing (first TS2322 at assignmentCompatability16.ts(9,1))
-compiler/assignmentCompatability18
-  1 missing (first TS2322 at assignmentCompatability18.ts(9,1))
-compiler/assignmentCompatability20
-  1 missing (first TS2322 at assignmentCompatability20.ts(9,1))
-compiler/assignmentCompatability22
-  1 missing (first TS2322 at assignmentCompatability22.ts(9,1))
-compiler/assignmentCompatability29
-  1 missing (first TS2322 at assignmentCompatability29.ts(9,1))
-compiler/assignmentCompatability30
-  1 missing (first TS2322 at assignmentCompatability30.ts(9,1))
-compiler/assignmentCompatability31
-  1 missing (first TS2322 at assignmentCompatability31.ts(9,1))
-compiler/assignmentCompatability32
-  1 missing (first TS2322 at assignmentCompatability32.ts(9,1))
 compiler/assignmentCompatability40
   1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
 compiler/assignmentToAnyArrayRestParameters
@@ -98,8 +80,6 @@ compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
 compiler/augmentExportEquals5
   1 missing (first TS2454 at consumer.ts(4,11))
-compiler/augmentExportEquals7
-  1 missing (first TS2649 at /node_modules/@types/lib-extender/index.d.ts(2,16))
 compiler/autoLift2
   2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/awaitCallExpressionInSyncFunction
@@ -212,3 +192,23 @@ compiler/classFieldSuperNotAccessibleJs
   2 missing (first TS2855 at index.js(20,22))
 compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
+compiler/classImplementsClass6
+  1 unexpected (first TS2339 at classImplementsClass6.ts(21,4)), 1 missing
+compiler/classMemberWithMissingIdentifier2
+  1 missing (first TS2693 at classMemberWithMissingIdentifier2.ts(2,19))
+compiler/classSideInheritance1
+  1 unexpected (first TS2339 at classSideInheritance1.ts(13,3)), 1 missing
+compiler/classTypeParametersInStatics
+  2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
+compiler/classUpdateTests
+  2 missing (first TS2415 at classUpdateTests.ts(63,7))
+compiler/classWithEmptyTypeParameter
+  1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
+compiler/classWithMultipleBaseClasses
+  1 missing (first TS2420 at classWithMultipleBaseClasses.ts(18,7))
+compiler/cloduleTest2
+  4 missing (first TS2576 at cloduleTest2.ts(18,7))
+compiler/clodulesDerivedClasses
+  1 missing (first TS2417 at clodulesDerivedClasses.ts(9,7))
+compiler/coAndContraVariantInferences5
+  1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))

@@ -2199,37 +2199,121 @@ impl<'a, 'n> Checker<'a, 'n> {
         // declarations, moduleAugmentationExtend*'s bare-name wants) gate
         // out; FILE modules wait for the relative-specifier half.
         if self.module_alias_at(module, reference, SymbolFlags::VALUE).is_none() {
-            let declarations = &self.binder.symbols().get(module).declarations;
-            if let [declaration] = declarations.as_slice()
-                && let Some(tsr_ast::Node::ModuleDeclaration(node)) =
-                    self.node_map.get(*declaration)
-                && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name
-            {
-                // SS196: escaped, via the shared `quote` — see calls.rs.
-                return Some(format!("typeof import({})", crate::printing::quote(literal.text)));
-            }
-            // §521 — the FILE-module half §143 left waiting: a module whose
-            // one declaration is a SOURCE FILE prints the relative form,
-            // `typeof import("./foo")`. The module symbol's name is the
-            // resolved path with its extension stripped
-            // (`bind_source_file_as_external_module`), so the harness's
-            // rooted `/foo` spells `./foo` by prefixing the dot — the same
-            // shape every baseline in the pool records
-            // (`getSpecifierForModuleSymbol`'s relative half, reduced to the
-            // one directory layout the corpus mounts).
-            if let [declaration] = declarations.as_slice()
-                && self.nodes.kind(*declaration) == SyntaxKind::SourceFile
-            {
-                let name = self.binder.symbols().get(module).name;
-                if let Some(relative) = name.strip_prefix('/')
-                    && !relative.contains('/')
-                    && !relative.is_empty()
-                {
-                    return Some(format!("typeof import(\"./{relative}\")"));
-                }
-            }
+            return self
+                .module_specifier_for_symbol(module, reference)
+                .map(|specifier| format!("typeof import({specifier})"));
         }
         None
+    }
+
+    /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`), quoted, for
+    /// the module forms this port spells: the module's **source file**
+    /// declaration if it has one (`GetDeclarationOfKind(symbol,
+    /// KindSourceFile)`), else its ambient name.
+    ///
+    /// Any declaration, not only a sole one: a module augmented by
+    /// `declare module "x"` carries the augmentation's declarations too
+    /// (`mergeModuleAugmentation`, `docs/parity/notes/names-modules.md` §4),
+    /// and upstream still finds the file, or reads the ambient name off the
+    /// symbol.
+    ///
+    /// - **Ambient** (§143 slice 1, `checker-notes-narrow.md`): `declare module
+    ///   "name"` prints `"name"` verbatim — escaped via the shared `quote`
+    ///   (SS196). Read from the first string-named module declaration.
+    /// - **File** (§521): the relative specifier from the reference's file,
+    ///   `moduleSpecifiers`' relative preference with `index` stripped, for
+    ///   the plain extensions only — `node_modules` package names and the
+    ///   extension-keeping `.mts`/`.cts` forms decline (`None`, a gap). With
+    ///   no host path, the module symbol's name (the path with its extension
+    ///   stripped, `bind_source_file_as_external_module`) is spelled `./name`
+    ///   when it sits at the root, the one directory layout most of the corpus
+    ///   mounts.
+    fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
+        let symbol = self.binder.symbols().get(module);
+        // `tryGetModuleNameFromAmbientModule` (`modulespecifiers/specifiers.go:107`),
+        // which `GetModuleSpecifiersWithInfo` asks before any path: a
+        // string-named module declaration names the module, unless it is an
+        // external augmentation spelled with a relative name.
+        if let Some(name) = symbol.declarations.iter().find_map(|&declaration| {
+            let Some(tsr_ast::Node::ModuleDeclaration(node)) = self.node_map.get(declaration)
+            else {
+                return None;
+            };
+            let Some(tsr_ast::ModuleName::StringLiteral(literal)) = node.name else { return None };
+            (!(tsr_path::is_external_module_name_relative(literal.text)
+                && self.is_module_augmentation_external(declaration)))
+            .then_some(literal.text)
+        }) {
+            return Some(crate::printing::quote(name));
+        }
+        if let Some(&file) = symbol
+            .declarations
+            .iter()
+            .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+        {
+            let paths = self
+                .module_host
+                .zip(self.source_file_of(reference))
+                .and_then(|(host, from)| Some((host.file_path(from)?, host.file_path(file)?)));
+            let Some((from, to)) = paths else {
+                let relative = symbol.name.strip_prefix('/')?;
+                return (!relative.contains('/') && !relative.is_empty())
+                    .then(|| format!("\"./{relative}\""));
+            };
+            if to.contains("/node_modules/") {
+                return None;
+            }
+            let stem = [".d.ts", ".tsx", ".ts", ".jsx", ".js"]
+                .iter()
+                .find_map(|extension| to.strip_suffix(extension))?;
+            // `moduleSpecifiers`' `index` stripping: `./dir/index` is spelled
+            // `./dir`, and the importing directory's own index `.`.
+            let (stem, index) = match stem.strip_suffix("/index") {
+                Some("") => ("/", true),
+                Some(directory) => (directory, true),
+                None => (stem, false),
+            };
+            let options = tsr_path::ComparePathsOptions {
+                use_case_sensitive_file_names: true,
+                current_directory: String::new(),
+            };
+            let from_directory = tsr_path::get_directory_path(&from);
+            if (tsr_path::get_root_length(from_directory) > 0)
+                != (tsr_path::get_root_length(stem) > 0)
+            {
+                return None;
+            }
+            let relative =
+                tsr_path::get_relative_path_from_directory(from_directory, stem, &options);
+            let relative = if relative.is_empty() && index {
+                ".".to_string()
+            } else if relative.starts_with('.') {
+                relative
+            } else {
+                format!("./{relative}")
+            };
+            return Some(format!("\"{relative}\""));
+        }
+        None
+    }
+
+    /// `ast.IsModuleAugmentationExternal` (`utilities.go:1694`): a module
+    /// declaration at the top level of an external module, or inside a
+    /// top-level ambient module of a script.
+    fn is_module_augmentation_external(&self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        match self.nodes.kind(parent) {
+            SyntaxKind::SourceFile => self.binder.symbol_of(parent).is_some(),
+            SyntaxKind::ModuleBlock => {
+                let Some(outer) = self.nodes.parent(parent) else { return false };
+                let Some(file) = self.nodes.parent(outer) else { return false };
+                matches!(self.node_map.get(outer), Some(tsr_ast::Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+                    && self.nodes.kind(file) == SyntaxKind::SourceFile
+                    && self.binder.symbol_of(file).is_none()
+            }
+            _ => false,
+        }
     }
 
     /// Pinned tsgo 5b1047d shouldWriteTypeOfFunctionSymbol: typeof is admitted
@@ -3260,14 +3344,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// both through `getSpecifierForModuleSymbol`
     /// (`internal/checker/nodebuilderimpl.go:1104`) rather than through a dotted
     /// name, so neither may become a qualifier.
+    ///
+    /// `ast.IsAmbientModuleSymbolName(symbol.Name)`: the binder names a
+    /// string-named module by its quoted specifier (`quoted_module_name`), and
+    /// nothing else has a quoted name. Asking the *declarations* instead stopped
+    /// being equivalent once module augmentations merge
+    /// (`docs/parity/notes/names-modules.md` §4): an augmentation of an
+    /// `export =` function-and-namespace (`moment`) adds a `declare module
+    /// "moment"` declaration to that function, which is not a module.
     pub(crate) fn is_ambient_module(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            matches!(
-                self.node_map.get(declaration),
-                Some(Node::ModuleDeclaration(module))
-                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-            )
-        })
+        let name = self.binder.symbols().get(symbol).name;
+        name.len() >= 2 && name.starts_with('"') && name.ends_with('"')
     }
 
     /// Whether a symbol is a **file's** module symbol.

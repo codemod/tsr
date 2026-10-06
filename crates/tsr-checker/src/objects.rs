@@ -1440,7 +1440,8 @@ impl Checker<'_, '_> {
                                     "set {}({}: {})",
                                     name.text,
                                     parameter_name,
-                                    self.type_to_string(setter_type)
+                                    self.written_annotation_text(annotation)
+                                        .unwrap_or_else(|| self.type_to_string(setter_type))
                                 );
                                 members.push(Member::Signature { printed });
                                 capture_complete &= self.capture_checked_object_member(

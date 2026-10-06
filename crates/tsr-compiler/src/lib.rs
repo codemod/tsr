@@ -429,6 +429,46 @@ impl<'a> Program<'a> {
             self.bind_diagnostic_ends.push(self.binder.diagnostics().len());
         }
         self.bound_file_count = self.files.len();
+        self.merge_module_augmentations(arena);
+    }
+
+    /// `initializeChecker`'s non-global module-augmentation loop
+    /// (`checker.go:1384-1391`), run once every file is bound. The binder
+    /// decides and applies each merge
+    /// ([`BindResult::merge_module_augmentations`]); this supplies the module
+    /// resolution it needs: `resolveExternalModuleNameWorker` reduced to
+    /// `tryFindAmbientModule` (`checker.go:15533`) and then this program's
+    /// resolved module in the usage's mode, the same two steps
+    /// `tsr_checker`'s `resolve_external_module_name` takes.
+    fn merge_module_augmentations(&mut self, arena: &'a Arena) {
+        let bound = std::mem::replace(&mut self.binder, BindResult::empty());
+        let program = &*self;
+        let merged = bound.merge_module_augmentations(
+            arena,
+            &program.nodes,
+            &program.node_map,
+            |bound, importing_file, specifier, usage, nested| {
+                if tsr_path::is_external_module_name_relative(specifier) {
+                    // `collectModuleReferences` collects a nested augmentation
+                    // only under a non-relative name (`references.go:61`).
+                    if nested {
+                        return None;
+                    }
+                } else if let Some(ambient) = bound.ambient_module(specifier)
+                    && bound
+                        .symbols()
+                        .get(ambient)
+                        .flags
+                        .intersects(tsr_binder::SymbolFlags::VALUE_MODULE)
+                {
+                    return Some(ambient);
+                }
+                let mode = program.mode_for_usage_location(importing_file, usage);
+                let target = program.resolved_module_in_mode(importing_file, specifier, mode)?;
+                bound.symbol_of(target)
+            },
+        );
+        self.binder = merged;
     }
 
     /// `sourceFile.BindDiagnostics()` for the file at `file_index`: what the
@@ -1141,6 +1181,33 @@ mod tests {
             })
             .collect();
         assert_eq!(names, vec![vec!["x".to_string()], vec!["y".to_string()]]);
+    }
+
+    #[test]
+    fn a_module_augmentation_merges_into_the_module_it_names() {
+        // `mergeModuleAugmentation` (`checker.go:1405`), names-modules §4: the
+        // augmentation's export lands in the augmented module's symbol, and
+        // an interface it shares merges rather than shadowing. The target is
+        // an ambient module because a program built from in-memory files has
+        // no loader resolutions; `tryFindAmbientModule` answers it.
+        let arena = Arena::new();
+        let program = program(
+            &arena,
+            &[
+                ("o.d.ts", "declare module \"o\" { export interface O { a: number } }"),
+                (
+                    "m.ts",
+                    "export {};\ndeclare module \"o\" { interface O { b: string } \
+                     export const added: number; }",
+                ),
+            ],
+        );
+        let bound = program.binder();
+        let module = bound.ambient_module("o").expect("the ambient module is a global");
+        let exports = &bound.symbols().get(module).exports;
+        assert!(exports.get("added").is_some(), "the augmentation's new export is merged");
+        let interface = *exports.get("O").expect("O is exported");
+        assert_eq!(bound.symbols().get(interface).declarations.len(), 2);
     }
 
     #[test]

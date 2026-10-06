@@ -1660,11 +1660,11 @@ impl<'a> Checker<'a, '_> {
             }
             None => None,
         };
-        let written_text = node.r#type.and_then(|annotation| match annotation {
-            TypeNode::TypeReferenceNode(reference) => {
-                reference.node_id.and_then(|id| self.qualified_written_text.get(&id)).cloned()
-            }
-            _ => None,
+        let written_text = node.r#type.and_then(|annotation| {
+            tsr_ast::Node::from(annotation)
+                .node_id()
+                .and_then(|id| self.qualified_written_text.get(&id))
+                .cloned()
         });
         Some(TypePredicate {
             asserts: node.asserts_modifier.is_some(),

@@ -2207,6 +2207,11 @@ impl<'a> Checker<'a, '_> {
         let mut typed_signatures = Vec::new();
         let mut typed_indexes = Vec::new();
         let mut seen_index_keys: Vec<TypeId> = Vec::new();
+        // A merged duplicate member (below) changes the type's structure, but
+        // a signature that WROTE this literal still reuses the written node
+        // (`x is { a: string; a: string; }`,
+        // `checkTypePredicateForRedundantProperties`).
+        let mut merged_duplicate = false;
         // SS333: computed property signatures whose name cannot late-bind
         // contribute an INDEX (`var v: { [e]: number }` with unresolved `e`
         // records `{ [x: number]: number; }`, `parserComputedPropertyName13`),
@@ -2398,6 +2403,7 @@ impl<'a> Checker<'a, '_> {
                 {
                     let key = self.get_type_from_type_node(key_node);
                     if seen_index_keys.contains(&key) {
+                        merged_duplicate = true;
                         continue;
                     }
                     seen_index_keys.push(key);
@@ -2635,6 +2641,16 @@ impl<'a> Checker<'a, '_> {
                 _ => self.type_to_string(member_type),
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                // declareSymbolEx (binder.go:152): `PropertyExcludes` is
+                // empty, so same-named property signatures of one literal
+                // MERGE into one member symbol, and resolveAnonymousTypeMembers
+                // (via getMembersOfSymbol, checker.go:16124) yields one
+                // property typed from its first (value) declaration:
+                // `{ a: string; a: string; }` prints `{ a: string; }`.
+                if typed_properties.iter().any(|existing| existing.origin == Some(symbol)) {
+                    merged_duplicate = true;
+                    continue;
+                }
                 typed_properties.push(crate::objects::AnonymousProperty {
                     accessor_write: None,
                     method: false,
@@ -2690,6 +2706,16 @@ impl<'a> Checker<'a, '_> {
                 key: key.to_string(),
                 value: self.type_to_string(value),
             });
+        }
+        if merged_duplicate
+            && let Some(id) = node.node_id
+            && let Some(text) = crate::signatures::written_type_literal_text(
+                node,
+                &mut false,
+                &mut false,
+            )
+        {
+            self.qualified_written_text.entry(id).or_insert(text);
         }
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
@@ -4614,6 +4640,25 @@ impl<'a> Checker<'a, '_> {
         // truncation belongs to the partially-written arm alone — it exists so
         // a written `Map<string>` does not grow an argument nobody typed, a
         // question a bare reference does not raise.
+        // serializeTypeForDeclaration reuses the written annotation node in a
+        // signature when its type is the annotation's own: a reference to a
+        // type-parameter-bodied alias resolves to its argument (below), yet a
+        // signature still prints `set x(value: Fail<string>)`
+        // (`divergentAccessorsTypes6`). Registered in §926's written-text
+        // channel, which only annotation-reuse sites read.
+        if !node.type_arguments.is_empty()
+            && self.type_parameter_body_index(symbol).is_some()
+            && let Some(id) = node.node_id
+            && !self.qualified_written_text.contains_key(&id)
+            && let Some(base) = Self::entity_name_text(node.type_name)
+        {
+            let spelled: Vec<String> =
+                arguments[..node.type_arguments.len().min(arguments.len())]
+                    .iter()
+                    .map(|&argument| self.type_to_string(argument))
+                    .collect();
+            self.qualified_written_text.insert(id, format!("{base}<{}>", spelled.join(", ")));
+        }
         let result = self.create_type_reference(symbol, arguments);
         // getTypeAliasInstantiation supplies the enclosing alias to
         // mapTypeWithAlias. A distributed mapped union keeps that alias,
@@ -5777,6 +5822,20 @@ impl<'a> Checker<'a, '_> {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
+        // instantiateTypeWithAlias (checker.go:22104) over a TYPE PARAMETER:
+        // a generic alias whose body is one of its own parameters has that
+        // parameter as its declared type (§282), and instantiating a type
+        // parameter answers the mapper's image untouched — no alias is ever
+        // attached, so `type Id<T> = T; type X = Id<string>` records
+        // `>X : string` and `WithSpec<any>` is `any`
+        // (`conditionalTypeAnyUnion`).
+        if let Some(index) = self.type_parameter_body_index(symbol)
+            && let Some(&image) = arguments.get(index)
+            && self.local_type_parameters_of(symbol).len() == arguments.len()
+        {
+            self.instantiations.insert((symbol, arguments), image);
+            return image;
+        }
         // A type alias instantiation has the flags and identity of its body.
         // Keyword bodies do not depend on the mapper or carry an alias name.
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
@@ -6795,6 +6854,34 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         }
+    }
+
+    /// The position of the alias's own type parameter that IS its body
+    /// (`type Id<T> = T` → `Some(0)`), the shape §282 answers with that
+    /// parameter as the declared type. Parentheses are transparent, as in
+    /// `getTypeFromTypeNode`. `None` for every other body.
+    fn type_parameter_body_index(&self, symbol: SymbolId) -> Option<usize> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let mut body = alias.r#type?;
+        while let TypeNode::ParenthesizedTypeNode(inner) = body {
+            body = inner.r#type?;
+        }
+        let TypeNode::TypeReferenceNode(reference) = body else { return None };
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+            return None;
+        };
+        alias.type_parameters.iter().position(|parameter| {
+            parameter.name.is_some_and(|parameter_name| parameter_name.text == name.text)
+        })
     }
 
     /// The original, unmapped keyword body of one uniquely bound TS alias.

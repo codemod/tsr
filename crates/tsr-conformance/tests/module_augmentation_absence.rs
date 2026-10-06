@@ -5,7 +5,7 @@ use tsr_conformance::{TestCase, types_producer};
 use tsr_core::Arena;
 
 #[test]
-fn unmerged_augmentation_does_not_prove_function_member_absence() {
+fn merged_augmentation_does_not_yet_prove_function_relation() {
     for interop in [false, true] {
         for synthetic in [false, true] {
             for reversed in [false, true] {
@@ -38,10 +38,14 @@ fn unmerged_augmentation_does_not_prove_function_member_absence() {
                 let root = program.source_file("mod.ts").unwrap().source_file().node_id.unwrap();
                 let owner = program.binder().symbol_of(root).unwrap();
                 let entry = program.binder().symbols().get(owner);
-                // These local facts are true even when native merges an
-                // augmentation. They cannot establish a closed export bound.
-                assert_eq!(entry.declarations.as_slice(), &[root]);
-                assert!(!entry.exports.contains_key("requiredToken"));
+                // Native merges the augmentation into the module symbol
+                // (`mergeModuleAugmentation`), and so does this port since
+                // names-modules §4: the export and the declaration are there.
+                // The relation below still answers `Unknown` — the relater
+                // does not yet close a module object's export bound.
+                assert_eq!(entry.declarations.len(), 2);
+                assert_eq!(entry.declarations[0], root);
+                assert!(entry.exports.contains_key("requiredToken"));
                 let source = checker.get_type_of_symbol(owner);
                 let target = checker
                     .get_declared_type_of_symbol(program.binder().global("Function").unwrap());
@@ -52,7 +56,7 @@ fn unmerged_augmentation_does_not_prove_function_member_absence() {
                         assert_eq!(
                             checker.relate_ternary(source, target, relation),
                             Ternary::Unknown,
-                            "unmerged augmentation, interop={interop}, synthetic={synthetic}, \
+                            "merged augmentation, interop={interop}, synthetic={synthetic}, \
                              reversed={reversed}, relation={relation:?}"
                         );
                     }
