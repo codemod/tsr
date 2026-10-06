@@ -56,6 +56,30 @@ fn assign_probe_enabled() -> bool {
     *ENABLED.get_or_init(|| std::env::var("TSR_ASSIGN_PROBE").is_ok())
 }
 
+/// [`Checker::excess_properties_verdict`]'s answer: what `hasExcessProperties`
+/// (`relater.go:2714`) would do for a fresh object literal.
+enum ExcessProperties {
+    /// Silent: `isRelatedTo` goes on to the structural relation.
+    None,
+    /// `isKnownProperty` failed for the member named `name` at `at`; the
+    /// error target is `filterType(reducedTarget, isExcessPropertyCheckTarget)`.
+    Excess { at: NodeId, name: String, error_target: TypeId },
+    /// A known member's type does not relate to the discriminated target's
+    /// member types (the `checkTypes` arm): the relation is false and the
+    /// error is the outer one.
+    Incompatible,
+}
+
+/// [`Checker::union_object_literal_failure`]'s answer.
+enum UnionLiteralFailure {
+    /// The check ends here; whether it reported.
+    Settled(bool),
+    /// The relation failed and nothing finer was reported: the caller reports
+    /// the whole expression. `excess` is a failure only `hasExcessProperties`
+    /// saw, which the relater's verdict must not override.
+    Outer { excess: bool },
+}
+
 impl<'a> Checker<'a, '_> {
     /// `checkAssignmentOperator` (`checker.go:12757`), reached from
     /// `checkBinaryLikeExpressionWorker` for `=`, `+=`, `&&=`, `||=`, `??=`
@@ -1501,17 +1525,23 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
-        if self.nodes.kind(at) == SyntaxKind::ObjectLiteralExpression
-            && self.type_of(target).flags.contains(TypeFlags::UNION)
-        {
-            return false;
+        let union_literal = self.nodes.kind(at) == SyntaxKind::ObjectLiteralExpression
+            && self.type_of(target).flags.contains(TypeFlags::UNION);
+        let mut excess_failed = false;
+        if union_literal {
+            match self.union_object_literal_failure(at, source, target) {
+                UnionLiteralFailure::Settled(reported) => return reported,
+                UnionLiteralFailure::Outer { excess } => excess_failed = excess,
+            }
         }
         if !self.assignability_pair_is_reportable(source, target) {
             return false;
         }
-        let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-            == crate::relater::Ternary::NotRelated;
+        let not_related = excess_failed
+            || self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::NotRelated;
         if not_related
+            && !union_literal
             && self.elaborate_error(
                 at,
                 source,
@@ -1616,38 +1646,30 @@ impl<'a> Checker<'a, '_> {
                 }
             };
         }
-        // An object literal against a **union** target. `elaborateObjectLiteral`
-        // (`relater.go:498`) reads each member through
+        // An object literal against a **union** target. `isRelatedTo` runs
+        // `hasExcessProperties` (`relater.go:2714`) before the structural
+        // relation; a failure then goes to `elaborateObjectLiteral`
+        // (`relater.go:498`), which reads each member through
         // `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`): the
         // union's own indexed access first, then `getBestMatchingType`'s
         // constituent. When no member elaborates, `checkTypeRelatedToEx`
-        // reports at the error node — TS2322 with the union as target, since
-        // `reportRelationError`'s missing-property suppression matches chain
-        // arguments against the union and never fires — unless
-        // `hasExcessProperties` (`relater.go:2714`) moves the error to an
-        // excess member (TS2353). Where this port cannot decide a member's
+        // reports the excess member (TS2353/TS2561), or else TS2322 at the
+        // error node with the union as target, since `reportRelationError`'s
+        // missing-property suppression matches chain arguments against the
+        // union and never fires. Where this port cannot decide a member's
         // target type or the excess question, it declines.
         let union_literal = source_node.filter(|&node| {
             self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression
                 && self.type_of(target).flags.contains(TypeFlags::UNION)
         });
+        let mut excess_failed = false;
         if let Some(node) = union_literal {
-            if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-                != crate::relater::Ternary::NotRelated
-            {
-                probe!(PROBE_OBJECT_LITERAL_UNION);
-                return false;
-            }
-            match self.elaborate_object_literal_members(node, source, target) {
-                Some(true) => {
-                    probe!(PROBE_REPORTED);
-                    return true;
+            match self.union_object_literal_failure(node, source, target) {
+                UnionLiteralFailure::Settled(reported) => {
+                    probe!(if reported { PROBE_REPORTED } else { PROBE_OBJECT_LITERAL_UNION });
+                    return reported;
                 }
-                Some(false) if self.union_literal_has_no_excess_property(node, target) => {}
-                _ => {
-                    probe!(PROBE_OBJECT_LITERAL_UNION);
-                    return false;
-                }
+                UnionLiteralFailure::Outer { excess } => excess_failed = excess,
             }
         }
         // `elaborateError` (`relater.go:440`) runs **before** the whole-expression
@@ -1680,8 +1702,9 @@ impl<'a> Checker<'a, '_> {
         // which collapses `Unknown` into `false` — is what produced this
         // module's first measurement of **947 right against 988 wrong**. Every
         // undecidable pair was being reported as an error.
-        let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
-            == crate::relater::Ternary::NotRelated;
+        let not_related = excess_failed
+            || self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                == crate::relater::Ternary::NotRelated;
         if !not_related && !self.object_against_primitive(source, target) {
             probe!(PROBE_RELATION_DECLINED);
             return false;
@@ -1709,6 +1732,44 @@ impl<'a> Checker<'a, '_> {
         };
         self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
         true
+    }
+
+    /// An object literal against a union target, up to the outer report:
+    /// `hasExcessProperties` (`relater.go:2714`) ahead of the relation, then
+    /// `elaborateObjectLiteral` (`relater.go:498`) for a failed one, then the
+    /// excess member's TS2353/TS2561. `Settled(reported)` ends the check
+    /// (related, undecidable, elaborated or excess); `Outer` leaves the
+    /// whole-expression report to the caller, `excess` saying the relation
+    /// failed in `hasExcessProperties`' member-type arm.
+    fn union_object_literal_failure(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> UnionLiteralFailure {
+        let Some(excess) = self.excess_properties_verdict(node, source, target) else {
+            return UnionLiteralFailure::Settled(false);
+        };
+        let excess_failed = !matches!(excess, ExcessProperties::None);
+        if !excess_failed
+            && self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+        {
+            return UnionLiteralFailure::Settled(false);
+        }
+        match self.elaborate_object_literal_members(node, source, target) {
+            Some(true) => return UnionLiteralFailure::Settled(true),
+            Some(false) => {}
+            None => return UnionLiteralFailure::Settled(false),
+        }
+        if let ExcessProperties::Excess { at, name, error_target } = excess {
+            return UnionLiteralFailure::Settled(self.report_excess_property(
+                at,
+                &name,
+                error_target,
+            ));
+        }
+        UnionLiteralFailure::Outer { excess: excess_failed }
     }
 
     /// `getExactOptionalUnassignableProperties` (`checker.go:13115`): inspect
@@ -2042,11 +2103,8 @@ impl<'a> Checker<'a, '_> {
     /// against a union. `Ok(None)` is upstream's nil; `Err` is a choice this
     /// port cannot make faithfully.
     ///
-    /// - `findMatchingDiscriminantType`: `getMatchingUnionConstituentForType`
-    ///   needs `getKeyPropertyName` (unions of ten or more constituents) and
-    ///   `discriminateTypeByDiscriminableItems` needs discriminant members (a
-    ///   member whose types are non-uniform with a unit among them). Neither
-    ///   is ported, so either shape declines.
+    /// - `findMatchingDiscriminantType`:
+    ///   [`Checker::find_matching_discriminant_type`].
     /// - `findMatchingTypeReferenceOrTypeAliasReference` and
     ///   `findBestTypeForInvokable` never match a signature-less, alias-less
     ///   literal.
@@ -2063,27 +2121,11 @@ impl<'a> Checker<'a, '_> {
         let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
             return Ok(None);
         };
-        if types.len() >= 10 {
-            return Err(());
+        let discriminated = self.find_matching_discriminant_type(source, target).ok_or(())?;
+        if discriminated != target {
+            return Ok(Some(discriminated));
         }
         let source_names = self.get_property_names_of_type(source).ok_or(())?;
-        for name in &source_names {
-            let mut members = Vec::with_capacity(types.len());
-            for &part in &types {
-                if let Some(member) = self.get_type_of_property_of_type(part, name) {
-                    members.push(member);
-                }
-            }
-            // `CheckFlagsHasLiteralType`: some constituent's member type is
-            // `isLiteralType` — a unit, `boolean`, or a union of units.
-            let has_unit =
-                members.iter().any(|&member| self.is_literal_type_for_discriminant(member));
-            let non_uniform =
-                members.len() != types.len() || members.windows(2).any(|pair| pair[0] != pair[1]);
-            if has_unit && non_uniform {
-                return Err(());
-            }
-        }
         // `isArrayLikeType`: assignable to `readonly any[]`. A primitive is
         // not, and neither is an object type with no `length` member — the
         // target requires one — so the relation is asked only otherwise.
@@ -2110,16 +2152,18 @@ impl<'a> Checker<'a, '_> {
             if flags.intersects(TypeFlags::PRIMITIVE) {
                 continue;
             }
-            if flags.intersects(TypeFlags::INSTANTIABLE)
-                || !self.relation_members_are_complete(part)
-            {
+            if flags.intersects(TypeFlags::INSTANTIABLE) {
                 return Err(());
             }
-            let table = self.relation_property_table(part).ok_or(())?;
-            let overlap = source_names
-                .iter()
-                .filter(|name| table.iter().any(|(seen, _)| seen == *name))
-                .count();
+            // `getIntersectionType(keyof source, keyof target)`: the source's
+            // literal keys that are the constituent's property names or
+            // applicable index-signature keys (`isKnownProperty`'s question).
+            let mut overlap = 0usize;
+            for name in &source_names {
+                if self.is_known_property(part, name).ok_or(())? {
+                    overlap += 1;
+                }
+            }
             if overlap > 0 && overlap >= matching_count {
                 best = Some(part);
                 matching_count = overlap;
@@ -2320,73 +2364,559 @@ impl<'a> Checker<'a, '_> {
         }))
     }
 
-    /// `hasExcessProperties` (`relater.go:2714`) is silent for this literal
-    /// against a union: every written member is known (`isKnownProperty`) in
-    /// the target. Upstream narrows the target to a discriminated constituent
-    /// first (`findMatchingDiscriminantType`); this port does not, so a
-    /// literal writing a member that is a unit type in some constituent must
-    /// find every member in **every** constituent, and otherwise in some.
-    /// Constituents whose member tables are incomplete decline.
-    fn union_literal_has_no_excess_property(&mut self, node: NodeId, target: TypeId) -> bool {
+    /// `hasExcessProperties` (`relater.go:2714`) for the fresh object literal
+    /// written at `node`, asked without reporting. `None` is a question this
+    /// port cannot decide (a spread or computed member, a constituent whose
+    /// member table is incomplete, an `Unknown` relation); the caller then
+    /// declines rather than guesses.
+    ///
+    /// - `isExcessPropertyCheckTarget`, then the assignable relation's
+    ///   `isTypeSubsetOf(globalObjectType, target) || isEmptyObjectType(target)`
+    ///   exemption.
+    /// - A union target is reduced by `findMatchingDiscriminantType`, else by
+    ///   `filterPrimitivesIfContainsNonPrimitive`, and its constituents are the
+    ///   `checkTypes`.
+    /// - Each written member (`shouldCheckAsExcessProperty`) must be
+    ///   `isKnownProperty` in the reduced target; the first that is not is the
+    ///   excess member, reported against
+    ///   `filterType(reducedTarget, isExcessPropertyCheckTarget)`.
+    /// - Against `checkTypes`, each member's type must relate to
+    ///   `getTypeOfPropertyInTypes`; a nested fresh literal runs this check
+    ///   first, and its excess member is the one reported (`reportError`
+    ///   drops the `Types of property` link over an excess-property message).
+    ///   A failed member relation is the outer relation failure.
+    fn excess_properties_verdict(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<ExcessProperties> {
+        let node = self.skip_parenthesized_expression(node);
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
-            return false;
+            return Some(ExcessProperties::None);
         };
-        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
-            return false;
-        };
-        let mut names = Vec::with_capacity(literal.properties.len());
-        for property in literal.properties {
-            let name = match property {
-                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(p) => p.name.node_id(),
-                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(p) => {
-                    p.name.node_id()
-                }
-                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(p) => p.name.node_id(),
-                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(p) => p.name.node_id(),
-                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(p) => p.name.node_id(),
-                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return false,
-            };
-            let Some(name) = name.and_then(|id| self.identifier_text(id)).map(str::to_string)
-            else {
-                return false;
-            };
-            names.push(name);
+        if !self.is_excess_property_check_target(target) {
+            return Some(ExcessProperties::None);
         }
-        // `filterPrimitivesIfContainsNonPrimitive`: primitive constituents
-        // know no object-literal member.
-        let mut tables = Vec::with_capacity(types.len());
-        for &part in &types {
-            if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+        // `!noImplicitAny && JSLiteral`: JavaScript literals are not ported.
+        if self.in_js_file(node) {
+            return None;
+        }
+        if self.excess_check_target_admits_any_property(target)? {
+            return Some(ExcessProperties::None);
+        }
+        let (reduced, check_types) = match &self.type_of(target).data {
+            TypeData::Union { .. } => {
+                let discriminated = self.find_matching_discriminant_type(source, target)?;
+                let reduced = if discriminated == target {
+                    self.filter_primitives_if_contains_non_primitive(target)
+                } else {
+                    discriminated
+                };
+                let check_types = match &self.type_of(reduced).data {
+                    TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![reduced],
+                };
+                (reduced, Some(check_types))
+            }
+            _ => (target, None),
+        };
+        for property in literal.properties {
+            let (name, value) = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    (assignment.name.node_id(), assignment.initializer.and_then(|e| e.node_id()))
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    (shorthand.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    (method.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    (accessor.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    (accessor.name.node_id(), None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return None,
+            };
+            let name_id = name?;
+            let name = self.identifier_text(name_id)?.to_string();
+            if !self.is_known_property(reduced, &name)? {
+                let error_target = self
+                    .filter_type(reduced, |checker, t| checker.is_excess_property_check_target(t));
+                return Some(ExcessProperties::Excess { at: name_id, name, error_target });
+            }
+            let Some(check_types) = &check_types else { continue };
+            let source_property = self.get_type_of_property_of_type(source, &name)?;
+            let target_property = self.type_of_property_in_types(check_types, &name)?;
+            if let Some(value) = value {
+                match self.excess_properties_verdict(value, source_property, target_property)? {
+                    ExcessProperties::None => {}
+                    verdict => return Some(verdict),
+                }
+            }
+            match self.relate_ternary(
+                source_property,
+                target_property,
+                crate::relater::Relation::Assignable,
+            ) {
+                crate::relater::Ternary::Related => {}
+                crate::relater::Ternary::NotRelated => return Some(ExcessProperties::Incompatible),
+                crate::relater::Ternary::Unknown => return None,
+            }
+        }
+        Some(ExcessProperties::None)
+    }
+
+    /// TS2353 / TS2561 for [`ExcessProperties::Excess`]: `hasExcessProperties`'
+    /// object-literal report (`relater.go:2714`). An identifier name with a
+    /// spelling suggestion among the error target's properties
+    /// (`getSuggestionForNonexistentProperty`) is TS2561. Answers whether it
+    /// reported; an error target whose property names this port cannot
+    /// enumerate declines.
+    fn report_excess_property(&mut self, at: NodeId, name: &str, error_target: TypeId) -> bool {
+        let candidates = if self.nodes.kind(at) == SyntaxKind::Identifier {
+            let Some(names) = self.get_property_names_of_type(error_target) else { return false };
+            names
+        } else {
+            Vec::new()
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let span = self.error_span(at);
+        let printed = self.type_to_string(error_target);
+        let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
+        let diagnostic = match crate::check::spelling_suggestion(name, &candidates) {
+            Some(suggestion) => Diagnostic::with_args(
+                &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_BUT_0_DOES_NOT_EXIST_IN_TYPE_1_DID_YOU_MEAN_TO_WRITE_2,
+                span,
+                [name.to_string(), printed, suggestion.to_string()],
+            ),
+            None => Diagnostic::with_args(
+                &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
+                span,
+                [name.to_string(), printed],
+            ),
+        };
+        self.report(file, diagnostic);
+        true
+    }
+
+    /// `ast.SkipParentheses`.
+    fn skip_parenthesized_expression(&self, mut node: NodeId) -> NodeId {
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
+            && let Some(next) = inner.expression.and_then(|e| e.node_id())
+        {
+            node = next;
+        }
+        node
+    }
+
+    /// `hasExcessProperties`' assignable-relation exemption:
+    /// `isTypeSubsetOf(globalObjectType, target) || isEmptyObjectType(target)`
+    /// (`isEmptyObjectType`, `checker.go`: an object type with no properties,
+    /// signatures or index signatures, `object`, a union with some such
+    /// constituent, an intersection of only such). `None` where a
+    /// constituent's emptiness cannot be decided.
+    fn excess_check_target_admits_any_property(&mut self, target: TypeId) -> Option<bool> {
+        let global_object = self
+            .global_type_symbol_with_arity("Object", 0)
+            .map(|symbol| self.get_declared_type_of_symbol(symbol));
+        let parts = match &self.type_of(target).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![target],
+        };
+        if global_object.is_some_and(|object| parts.contains(&object)) {
+            return Some(true);
+        }
+        let mut undecided = false;
+        for part in parts {
+            match self.is_empty_object_type_for_excess(part) {
+                Some(true) => return Some(true),
+                Some(false) => {}
+                None => undecided = true,
+            }
+        }
+        (!undecided).then_some(false)
+    }
+
+    /// `isEmptyObjectType` for one union constituent.
+    fn is_empty_object_type_for_excess(&mut self, t: TypeId) -> Option<bool> {
+        let flags = self.type_of(t).flags;
+        if flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return Some(true);
+        }
+        if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
+            let mut all = true;
+            for part in types {
+                all &= self.is_empty_object_type_for_excess(part)?;
+            }
+            return Some(all);
+        }
+        if !flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        if self.is_empty_anonymous_object_type(t) {
+            return Some(true);
+        }
+        // A named property settles it; an empty or unknown table also needs
+        // the index and signature lists.
+        if self.get_property_names_of_type(t).is_some_and(|names| !names.is_empty()) {
+            return Some(false);
+        }
+        if self.relation_property_table(t)?.is_empty()
+            && self.get_index_infos_of_type(t)?.is_empty()
+        {
+            for kind in [
+                crate::signatures::SignatureKind::Call,
+                crate::signatures::SignatureKind::Construct,
+            ] {
+                if !self.signatures_of_type_kind(t, kind)?.is_empty() {
+                    return Some(false);
+                }
+            }
+            return Some(true);
+        }
+        Some(false)
+    }
+
+    /// `filterPrimitivesIfContainsNonPrimitive` (`relater.go`): only a union
+    /// containing `object` drops its primitive constituents.
+    fn filter_primitives_if_contains_non_primitive(&mut self, union: TypeId) -> TypeId {
+        if self.maybe_type_of_kind(union, TypeFlags::NON_PRIMITIVE) {
+            let result = self.filter_type(union, |checker, t| {
+                !checker.type_of(t).flags.intersects(TypeFlags::PRIMITIVE)
+            });
+            if !self.type_of(result).flags.contains(TypeFlags::NEVER) {
+                return result;
+            }
+        }
+        union
+    }
+
+    /// `isKnownProperty` (`relater.go:719`) without JSX attributes: an
+    /// object type's own (declared or inherited) property or applicable index
+    /// signature; in a union or intersection that is an excess-property check
+    /// target, any constituent's. `None` where an object constituent's member
+    /// table is not certified and no other constituent knows the name.
+    fn is_known_property(&mut self, target: TypeId, name: &str) -> Option<bool> {
+        let ty = self.type_of(target);
+        let flags = ty.flags;
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
+            if !self.is_excess_property_check_target(target) {
+                return Some(false);
+            }
+            let types = types.clone();
+            let mut undecided = false;
+            for part in types {
+                match self.is_known_property(part, name) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => undecided = true,
+                }
+            }
+            return (!undecided).then_some(false);
+        }
+        if !flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        let names = self.certified_property_names(target);
+        if names.as_ref().is_some_and(|names| names.iter().any(|seen| seen == name)) {
+            return Some(true);
+        }
+        if !self.get_index_infos_of_type(target)?.is_empty() {
+            let key = self.property_name_key_type(name);
+            if self.get_applicable_index_info(target, key).is_some() {
+                return Some(true);
+            }
+        }
+        names.map(|_| false)
+    }
+
+    /// A complete property-name list for an object type: the relation
+    /// reporters' certified table, else `getPropertiesOfType`'s names.
+    fn certified_property_names(&mut self, t: TypeId) -> Option<Vec<String>> {
+        match self.relation_property_table(t) {
+            Some(table) => Some(table.into_iter().map(|(name, _)| name).collect()),
+            None => self.get_property_names_of_type(t),
+        }
+    }
+
+    /// `getApplicableIndexInfoForName`'s key: the name's string-literal type
+    /// (`isApplicableIndexType` admits a numeric-literal name to a number
+    /// index signature).
+    fn property_name_key_type(&mut self, name: &str) -> TypeId {
+        self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(name.to_owned()),
+            false,
+        )
+    }
+
+    /// `getTypeOfPropertyInTypes` (`relater.go:2795`): the union of each
+    /// type's `getTypeOfPropertyInType` — its property, else its applicable
+    /// index signature's value, else `undefined`. `None` where a type lacking
+    /// the property has an uncertified member table.
+    fn type_of_property_in_types(&mut self, types: &[TypeId], name: &str) -> Option<TypeId> {
+        let mut found = Vec::with_capacity(types.len());
+        for &t in types {
+            found.push(
+                self.type_of_property_or_index_signature(t, name)
+                    .ok()?
+                    .unwrap_or(self.intrinsics.undefined),
+            );
+        }
+        Some(self.get_union_type(&found))
+    }
+
+    /// `getTypeOfPropertyOrIndexSignatureOfType`: `Ok(None)` is upstream's
+    /// nil (no property, no applicable index signature, certified table);
+    /// `Err` is undecidable. Both lookups read the apparent type
+    /// (`getReducedApparentType`), so a primitive answers from its wrapper
+    /// interface.
+    fn type_of_property_or_index_signature(
+        &mut self,
+        t: TypeId,
+        name: &str,
+    ) -> Result<Option<TypeId>, ()> {
+        if let Some(member) = self.get_type_of_property_of_type(t, name) {
+            return Ok(Some(member));
+        }
+        let apparent = self.apparent_type(t);
+        let key = self.property_name_key_type(name);
+        if let Some(info) = self.get_applicable_index_info(apparent, key) {
+            return Ok(Some(info.value));
+        }
+        // A type whose property names are certified, without `name`, answers
+        // nil; a name it lists that the lookup missed is undecidable.
+        let parts = match &self.type_of(apparent).data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types.clone(),
+            _ => vec![apparent],
+        };
+        for part in parts {
+            if self.certified_property_names(part).ok_or(())?.iter().any(|seen| seen == name) {
+                return Err(());
+            }
+        }
+        Ok(None)
+    }
+
+    /// `findMatchingDiscriminantType` (`relater.go:1062`): `Some(target)`
+    /// itself is upstream's nil (`discriminateTypeByDiscriminableItems`
+    /// answering the target unchanged); `None` is undecidable.
+    /// `getMatchingUnionConstituentForType` answers only for unions of ten or
+    /// more object constituents (`computeKeyPropertyNameAndMap`); that key map
+    /// is not ported, so such unions are undecidable.
+    fn find_matching_discriminant_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<TypeId> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Some(target);
+        };
+        if !self.type_of(source).flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION) {
+            return Some(target);
+        }
+        if types.len() >= 10
+            && types
+                .iter()
+                .filter(|&&t| {
+                    self.type_of(t)
+                        .flags
+                        .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                })
+                .count()
+                >= 10
+        {
+            return None;
+        }
+        // findDiscriminantProperties(getPropertiesOfType(source), target).
+        let mut discriminants = Vec::new();
+        let mut unwidened = Vec::new();
+        let mut widened = false;
+        for name in self.get_property_names_of_type(source)? {
+            if self.is_discriminant_property_of_union(&types, &name)? {
+                let source_property = self.get_type_of_property_of_type(source, &name)?;
+                let written =
+                    self.discriminant_member_written_literal(source, &name, source_property);
+                widened |= written.is_some();
+                unwidened.push((name.clone(), written.unwrap_or(source_property)));
+                discriminants.push((name, source_property));
+            }
+        }
+        if discriminants.is_empty() {
+            return Some(target);
+        }
+        let discriminated =
+            self.discriminate_type_by_discriminable_items(target, &types, &discriminants)?;
+        if widened
+            && self.discriminate_type_by_discriminable_items(target, &types, &unwidened)?
+                != discriminated
+        {
+            return None;
+        }
+        Some(discriminated)
+    }
+
+    /// The literal written for the object literal's member `name` when the
+    /// member is typed as that literal's widened base. Upstream widens a fresh
+    /// literal only when its contextual type holds no literal of its kind
+    /// (`getWidenedLiteralLikeTypeForContextualType`) and never widens a
+    /// non-fresh one such as a `const`'s, while this port's object-literal
+    /// typing can widen either (`{ kind }` with `const kind = "a"` is
+    /// `{ kind: string }`, `contextuallyTypedByDiscriminableUnion`). Which of
+    /// the two types upstream has is not decidable here, so
+    /// [`Checker::find_matching_discriminant_type`] answers only when both
+    /// discriminate alike.
+    fn discriminant_member_written_literal(
+        &mut self,
+        source: TypeId,
+        name: &str,
+        source_property: TypeId,
+    ) -> Option<TypeId> {
+        if self.is_literal_type_for_discriminant(source_property) {
+            return None;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.type_of(source).data else {
+            return None;
+        };
+        let &literal = self.binder.symbols().get(owner).declarations.first()?;
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return None;
+        };
+        let value = object.properties.iter().find_map(|property| match property {
+            tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment)
+                if assignment.name.node_id().and_then(|id| self.identifier_text(id))
+                    == Some(name) =>
+            {
+                assignment.initializer.and_then(|value| value.node_id())
+            }
+            tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand)
+                if shorthand.name.node_id().and_then(|id| self.identifier_text(id))
+                    == Some(name) =>
+            {
+                shorthand.name.node_id()
+            }
+            _ => None,
+        })?;
+        let written = self.check_expression_at_node(value);
+        (self.type_of(written).flags.intersects(TypeFlags::UNIT)
+            && self.get_base_type_of_literal_type(written) == source_property)
+            .then(|| self.get_regular_type_of_literal_type(written))
+    }
+
+    /// `isDiscriminantProperty` (`relater.go:1087`) over the synthetic union
+    /// property `createUnionOrIntersectionProperty` (`checker.go:21452`)
+    /// would build: `CheckFlagsNonUniformAndLiteral` — the constituents that
+    /// have the property disagree on its type (`HasNonUniformType`) and one
+    /// of those types is `isLiteralType` or `isPatternLiteralType`
+    /// (`HasLiteralType`) — and the property's type is not generic. A
+    /// property found in one constituent only is not synthetic-non-uniform.
+    /// `None` where a constituent lacking the name has an uncertified table.
+    fn is_discriminant_property_of_union(&mut self, types: &[TypeId], name: &str) -> Option<bool> {
+        let mut first = None;
+        let mut non_uniform = false;
+        let mut literal = false;
+        let mut generic = false;
+        for &part in types {
+            let flags = self.type_of(part).flags;
+            if self.is_error(part) || flags.contains(TypeFlags::NEVER) {
                 continue;
             }
-            if !self.relation_members_are_complete(part) {
-                return false;
+            let Some(member) = self.get_type_of_property_of_type(part, name) else {
+                if flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION) {
+                    self.type_of_property_or_index_signature(part, name).ok()?;
+                }
+                continue;
+            };
+            match first {
+                None => first = Some(member),
+                Some(seen) if seen != member => non_uniform = true,
+                Some(_) => {}
             }
-            let Some(table) = self.relation_property_table(part) else { return false };
-            tables.push((part, table));
+            let member_flags = self.type_of(member).flags;
+            literal |= self.is_literal_type_for_discriminant(member)
+                || member_flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING);
+            generic |= self.maybe_type_of_kind(member, TypeFlags::INSTANTIABLE);
         }
-        if tables.is_empty() {
-            return false;
+        Some(non_uniform && literal && !generic)
+    }
+
+    /// `discriminateTypeByDiscriminableItems` (`relater.go:1212`) with
+    /// `findMatchingDiscriminantType`'s `TypeDiscriminator`: a constituent's
+    /// discriminant matches when some constituent of the source member's type
+    /// is not `TernaryFalse`-related to it. An `Unknown` relation is
+    /// undecidable (`None`).
+    fn discriminate_type_by_discriminable_items(
+        &mut self,
+        target: TypeId,
+        types: &[TypeId],
+        discriminants: &[(String, TypeId)],
+    ) -> Option<TypeId> {
+        #[derive(Clone, Copy, PartialEq)]
+        enum Include {
+            False,
+            True,
+            Maybe,
         }
-        let mut discriminable = false;
-        for name in &names {
-            for &(part, _) in &tables {
-                if self
-                    .get_type_of_property_of_type(part, name)
-                    .is_some_and(|member| self.is_literal_type_for_discriminant(member))
-                {
-                    discriminable = true;
+        let mut include = Vec::with_capacity(types.len());
+        for &t in types {
+            let keep = !self.type_of(t).flags.intersects(TypeFlags::PRIMITIVE)
+                && !self.intersection_has_never_discriminant(t);
+            include.push(if keep { Include::True } else { Include::False });
+        }
+        for (name, source_property) in discriminants {
+            let sources = match &self.type_of(*source_property).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![*source_property],
+            };
+            let mut matched = false;
+            for (index, &t) in types.iter().enumerate() {
+                if include[index] == Include::False {
+                    continue;
+                }
+                let Some(target_type) = self.type_of_property_or_index_signature(t, name).ok()?
+                else {
+                    continue;
+                };
+                let mut related = false;
+                for &s in &sources {
+                    match self.relate_ternary(s, target_type, crate::relater::Relation::Assignable)
+                    {
+                        crate::relater::Ternary::NotRelated => {}
+                        crate::relater::Ternary::Related => {
+                            related = true;
+                            break;
+                        }
+                        crate::relater::Ternary::Unknown => return None,
+                    }
+                }
+                if related {
+                    matched = true;
+                } else {
+                    include[index] = Include::Maybe;
+                }
+            }
+            for state in &mut include {
+                if *state == Include::Maybe {
+                    *state = if matched { Include::False } else { Include::True };
                 }
             }
         }
-        names.iter().all(|name| {
-            let known = |table: &Vec<(String, bool)>| table.iter().any(|(seen, _)| seen == name);
-            if discriminable {
-                tables.iter().all(|(_, table)| known(table))
-            } else {
-                tables.iter().any(|(_, table)| known(table))
+        if include.contains(&Include::False) {
+            let filtered: Vec<TypeId> = types
+                .iter()
+                .zip(&include)
+                .filter(|(_, state)| **state == Include::True)
+                .map(|(&t, _)| t)
+                .collect();
+            let filtered = self.get_union_type(&filtered);
+            if !self.type_of(filtered).flags.contains(TypeFlags::NEVER) {
+                return Some(filtered);
             }
-        })
+        }
+        Some(target)
     }
 
     /// `getIndexedAccessTypeOrUndefined(target, nameType)`'s index-signature
