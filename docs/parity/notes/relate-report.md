@@ -390,3 +390,49 @@ argument path did not elaborate) are fixed by §17.
 
 Would be wrong if: a plain object source upstream relates to a tuple target
 while lacking one of the listed names. Zero-loss checks empty.
+
+## 17. Round 2: argument failures are elaborated
+
+`getSignatureApplicabilityError` checks each argument with
+`checkTypeRelatedToAndOptionallyElaborate(argType, paramType, relation,
+arg, arg, headMessage)`: a pair that is not related is first handed to
+`elaborateError`, and the TS2345 head is issued only when the elaboration
+says nothing. `report_argument_failure` (the TS2345 reporter every argument
+check in `call_arity.rs`/`calls.rs` calls) went straight to TS2345, so an
+array-literal or arrow argument reported at the argument instead of at the
+offending element or returned expression. It now elaborates a `NotRelated`
+pair after the port's reportability gate (kept in front, as for TS2322).
+
+Two pieces the elaboration needed, ported with it:
+
+- **The head message reaches the did-you-mean-to-call arm.**
+  `elaborateDidYouMeanToCallOrConstruct` reports with
+  `checkTypeRelatedTo(…, headMessage, …)`, so in an argument it is TS2345 at
+  the argument, not TS2322 (`elaborationForPossiblyCallableTypeStillReferencesArgumentAtTopLevel`,
+  `parser536727` were losses without this). `elaborate_error_with` carries
+  the head; member elaborations still report without one, as upstream.
+- **Variadic tuple targets in `elaborateArrayLiteral`.**
+  `generateLimitedTupleElements` skips an index the tuple-like target has no
+  property for; a variadic tuple's properties are its leading fixed elements,
+  so `[1, 2, 3, false, true]` against `[any, any, [[any]], ...any[]]`
+  elaborates `3` against `[[any]]` (TS2322 at the element). The port declined
+  every variadic target.
+- **`NoInfer<T>` in the missing-property messages.** `getNormalizedType`
+  unwraps the substitution before the relation, so `() => new Animal()`
+  against `() => NoInfer<Dog>` is TS2741 naming `Dog`. The missing-property
+  helpers now read the unwrapped target (`noInfer`'s line 47 was a new TS2322
+  extra without this).
+
+Converted: `compiler/assignmentCompatBug5`, `compiler/contextualTyping30`,
+`compiler/contextualTyping33`, `compiler/mapUpsert`,
+`compiler/overloadResolutionOverCTLambda`,
+`compiler/trailingCommaInHeterogenousArrayLiteral1`,
+`conformance/destructuringParameterDeclaration3ES5`,
+`conformance/destructuringParameterDeclaration3ES6`,
+`conformance/destructuringParameterDeclaration4`,
+`conformance/destructuringParameterProperties2`. TS2345 extra lines 64 → 39.
+Three lines change from a wrong TS2345 at the argument to a wrong TS2322 at
+the member (`es2020IntlAPIs` 32/33, `contextualTypeBasedOnIntersectionWithAnyInTheMix4`
+43): the argument type reaching the reporter is widened (`{ type: string }`
+for `{ type: 'region' }`) — the argument's contextual literal type is the
+calls lane's (`checkExpressionWithContextualType`).

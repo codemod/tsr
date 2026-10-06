@@ -1396,6 +1396,19 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        self.report_argument_failure_with(at, true, source, target)
+    }
+
+    /// [`Checker::report_argument_failure`]; with `elaborate` false the
+    /// argument is not elaborated (the did-you-mean-to-call arm, which already
+    /// chose the argument as its error node).
+    fn report_argument_failure_with(
+        &mut self,
+        at: NodeId,
+        elaborate: bool,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         if self.nodes.kind(at) == SyntaxKind::ObjectLiteralExpression
             && self.type_of(target).flags.contains(TypeFlags::UNION)
         {
@@ -1406,6 +1419,17 @@ impl<'a> Checker<'a, '_> {
         }
         let not_related = self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             == crate::relater::Ternary::NotRelated;
+        // checkTypeRelatedToAndOptionallyElaborate (`checker.go`), reached
+        // from getSignatureApplicabilityError with the argument as both error
+        // node and expression: a pair that is not related is elaborated
+        // first, and when `elaborateError` reports, the TS2345 head is not
+        // issued. The head message travels into the elaboration: only the
+        // did-you-mean-to-call arm uses it. This port's reportability gate
+        // stays in front of it, as in `report_assignability_failure_with`'s
+        // relation-dependent arms.
+        if elaborate && not_related && self.elaborate_error_with(at, source, target, true) {
+            return true;
+        }
         if !not_related && !self.object_against_primitive(source, target) {
             return false;
         }
@@ -1414,12 +1438,15 @@ impl<'a> Checker<'a, '_> {
         // reportRelationError suppresses the TS2345 head when the chain ends in
         // the pair's missing-property message (relater.go:4751), exactly as it
         // does for TS2322; a fresh literal keeps the written-key guard.
+        // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
+        // missing-property messages name the normalized target.
+        let normalized = self.no_infer_base_type(target).unwrap_or(target);
         if not_related
             && let Some(properties) = self
-                .missing_required_property(source, target)
-                .or_else(|| self.unmatched_property_report(source, target))
+                .missing_required_property(source, normalized)
+                .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            self.report_missing_properties(file, span, source, target, &properties);
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
@@ -1531,11 +1558,14 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
+        // missing-property messages name the normalized target.
+        let normalized = self.no_infer_base_type(target).unwrap_or(target);
         if REPORT_MISSING_REQUIRED_PROPERTY
-            && let Some(properties) = self.missing_required_property(source, target)
+            && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            self.report_missing_properties(file, span, source, target, &properties);
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
@@ -1552,8 +1582,9 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         probe!(PROBE_REPORTED);
-        if not_related && let Some(properties) = self.unmatched_property_report(source, target) {
-            self.report_missing_properties(file, span, source, target, &properties);
+        if not_related && let Some(properties) = self.unmatched_property_report(source, normalized)
+        {
+            self.report_missing_properties(file, span, source, normalized, &properties);
             return true;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
@@ -1801,6 +1832,20 @@ impl<'a> Checker<'a, '_> {
     /// target is not elaborated. `elaborateDidYouMeanToCallOrConstruct` is not
     /// ported here, so those failures keep the caller's outer report.
     fn elaborate_error(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
+        self.elaborate_error_with(node, source, target, false)
+    }
+
+    /// `elaborateError` with its `headMessage`: `argument_head` is the
+    /// TS2345 head of an argument check, which only the
+    /// did-you-mean-to-call arm reports with (`checkTypeRelatedTo(…,
+    /// headMessage, …)`); member elaborations report without a head.
+    fn elaborate_error_with(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+        argument_head: bool,
+    ) -> bool {
         if self.is_or_has_generic_conditional(target) {
             return false;
         }
@@ -1809,11 +1854,13 @@ impl<'a> Checker<'a, '_> {
             source,
             target,
             crate::signatures::SignatureKind::Construct,
+            argument_head,
         ) || self.elaborate_did_you_mean_to_call_or_construct(
             node,
             source,
             target,
             crate::signatures::SignatureKind::Call,
+            argument_head,
         ) {
             return true;
         }
@@ -1851,7 +1898,7 @@ impl<'a> Checker<'a, '_> {
         };
         inner
             .and_then(|inner| inner.node_id())
-            .is_some_and(|inner| self.elaborate_error(inner, source, target))
+            .is_some_and(|inner| self.elaborate_error_with(inner, source, target, argument_head))
     }
 
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
@@ -1866,6 +1913,7 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
         kind: crate::signatures::SignatureKind,
+        argument_head: bool,
     ) -> bool {
         let Some(signatures) = self.signatures_of_type_kind(source, kind) else { return false };
         let mut callable = false;
@@ -1883,7 +1931,12 @@ impl<'a> Checker<'a, '_> {
                 break;
             }
         }
-        callable && self.report_assignability_failure_with(node, None, source, target)
+        callable
+            && if argument_head {
+                self.report_argument_failure_with(node, false, source, target)
+            } else {
+                self.report_assignability_failure_with(node, None, source, target)
+            }
     }
 
     /// `getBestMatchingType` (`relater.go`) for an object-literal source, in
@@ -2091,11 +2144,36 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let tuple_target = self.tuple_element_lists.contains_key(&target);
-        if !tuple_target && self.variadic_tuple_elements.contains_key(&target) {
-            return false;
-        }
-        let array_element =
-            if tuple_target { None } else { self.tuple_spread_array_element(target) };
+        // A variadic tuple's properties are its leading fixed elements
+        // (generateLimitedTupleElements skips an index the tuple-like target
+        // has no property for).
+        let variadic_prefix: Option<Vec<TypeId>> = match self.variadic_tuple_elements.get(&target) {
+            Some((elements, _)) => {
+                let fixed: Vec<_> = elements
+                    .iter()
+                    .take_while(|element| !element.spread)
+                    .map(|element| (element.r#type, element.optional))
+                    .collect();
+                Some(
+                    fixed
+                        .into_iter()
+                        .map(|(t, optional)| {
+                            if optional && self.strict_null_checks {
+                                self.get_union_type(&[t, self.intrinsics.undefined])
+                            } else {
+                                t
+                            }
+                        })
+                        .collect(),
+                )
+            }
+            None => None,
+        };
+        let array_element = if tuple_target || variadic_prefix.is_some() {
+            None
+        } else {
+            self.tuple_spread_array_element(target)
+        };
         let source_tuple = self.tuple_element_lists.contains_key(&source);
         let elements: Vec<NodeId> =
             literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
@@ -2104,7 +2182,10 @@ impl<'a> Checker<'a, '_> {
             if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
                 continue;
             }
-            let target_element = if tuple_target {
+            let target_element = if let Some(prefix) = &variadic_prefix {
+                let Some(&member) = prefix.get(index) else { continue };
+                member
+            } else if tuple_target {
                 // isTupleLikeType(target) && no property `index`: skipped.
                 if self.tuple_element_lists.get(&target).is_none_or(|(list, _)| index >= list.len())
                 {
