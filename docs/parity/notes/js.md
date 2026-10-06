@@ -185,3 +185,36 @@ TS2322 in a script and nothing once any `export` is added. Upstream binds the
 typedef as an implicitly exported declaration
 (`IsImplicitlyExportedJSDocDeclaration`) that still resolves locally. That is
 the binder's / name resolution's, not this check's.
+
+## 6. `@satisfies` — measured patch, not committed (`js-satisfies.diff`)
+
+`reparseHosted`'s `KindJSDocSatisfiesTag` arm (`parser/reparser.go:396`)
+wraps the host's initializer / expression in a `SatisfiesExpression` whose
+type is the tag's. Three upstream behaviours follow, each needing a hunk in a
+file this lane does not own, so the change ships as
+[`js-satisfies.diff`](js-satisfies.diff) for the integrator:
+
+| upstream | where it lands here | file |
+|---|---|---|
+| the tag's type node is bound like any type node | `bind_jsdoc_declarations` gains a `JSDocSatisfiesTag` arm beside `JSDocTypeTag` — without it a type literal in `@satisfies` has no members (`'s' does not exist in type '{ s: boolean; }'`) | `tsr-binder/src/binder.rs` |
+| `getContextualType`'s `KindSatisfiesExpression` arm answers the type for the wrapped expression | one early return calling `jsdoc_satisfies_contextual_type` | `contextual.rs` |
+| `checkSatisfiesExpressionWorker` on the reparsed node, span = tag name (`findOriginatingJSDocSatisfiesTag`, `scanner.go:2625`) | `check_satisfies_expression` split into a shared `check_satisfies_worker`; `check_jsdoc_satisfies_tags` (owned) calls it from the walk's JSDoc hook block | `satisfies.rs`, `check.rs` |
+| `ObjectFlagsJSLiteral` only when `contextualType == nil` (`checker.go:13206`) | `objects.rs` marked every JS object literal, so a satisfies- or `@type`-contextual literal was relation-lenient | `objects.rs` |
+
+The owned half is in `jsdoc_annotations.rs` (`jsdoc_satisfies_tag_of`, the
+inverse of the arm's hosts: parenthesized, return, export, property,
+shorthand, variable declaration / first initialized declaration of a
+statement, assignment-declaration right side; `check_jsdoc_satisfies_tags`).
+
+**Measured** (against the head it applies to, unfiltered): diagnostics +2
+(`checkJsdocSatisfiesTag7`, `13`), 0 diagnostic losses, 0 type losses, 18
+type lines WRONG→RIGHT (`checkJsdocSatisfiesTag13` 9, `5` 5, `15` 4).
+
+**Still wrong after it, with the cause:** `…Tag8` (`Object.<string,
+boolean>` target: the JSDoc index-signature form does not elaborate a
+member), `…Tag9` (nested excess property under a `Record<string, Color>`
+target reports TS2322 on the inner literal instead of TS2353 at `d`), `…Tag10`
+(`Partial<Record<…>>` excess, as for the TypeScript spelling), `…Tag15`
+(parameter contextual typing from a satisfies function type; `@satisfies` on
+a function declaration has no arm upstream either, so `fn7`'s TS7006 is the
+implicit-any rule's).

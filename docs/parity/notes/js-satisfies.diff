@@ -1,0 +1,287 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index f02c527..f1c2129 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3257,6 +3257,13 @@ impl<'a, 'n> Binder<'a, 'n> {
+                                 self.bind(expression);
+                             }
+                         }
++                        // The reparsed `SatisfiesExpression`'s type node
++                        // (`reparseHosted`, `parser/reparser.go:396`).
++                        JSDocTag::JSDocSatisfiesTag(satisfies) => {
++                            if let Some(expression) = satisfies.type_expression {
++                                self.bind(tsr_ast::Node::from(expression));
++                            }
++                        }
+                         JSDocTag::JSDocOverloadTag(overload) => {
+                             let Some(id) = overload.node_id else { continue };
+                             if let Some(symbol) = self.node_symbols[host.index()] {
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index cf0e8ab..bdd3812 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1029,6 +1029,7 @@ impl Checker<'_, '_> {
+         self.register_for_unused_check(node);
+         self.check_jsdoc_link_references(node);
+         self.check_unmatched_jsdoc_parameters(node);
++        self.check_jsdoc_satisfies_tags(node, ambient);
+         let mut children = [const { None }; INLINE_CHILDREN];
+         let mut count = 0usize;
+         let mut overflow: Vec<NodeId> = Vec::new();
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index 4e4cb4b..b9cc7d4 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -1059,6 +1059,11 @@ impl<'a> Checker<'a, '_> {
+     /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
+     /// one pattern here, but it is not measured separately, so it is a gap.
+     pub(crate) fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
++        // A JS `@satisfies` is a reparsed `SatisfiesExpression` parent
++        // upstream, whose arm answers its type node (ADR-0046).
++        if let Some(satisfies) = self.jsdoc_satisfies_contextual_type(node) {
++            return Some(satisfies);
++        }
+         let parent = self.nodes.parent(node)?;
+         match self.node_map.get(parent)? {
+             // `getContextualTypeForInitializerExpression` (`checker.go:29423`) →
+diff --git a/crates/tsr-checker/src/jsdoc_annotations.rs b/crates/tsr-checker/src/jsdoc_annotations.rs
+index f67ceb0..5587366 100644
+--- a/crates/tsr-checker/src/jsdoc_annotations.rs
++++ b/crates/tsr-checker/src/jsdoc_annotations.rs
+@@ -14,9 +14,9 @@
+ //! report goes through the TypeScript path's own excess-property and
+ //! assignability reporters.
+ 
+-use tsr_ast::{Node, NodeId};
++use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
+ 
+-use crate::checker::Checker;
++use crate::{checker::Checker, types::TypeId};
+ 
+ impl Checker<'_, '_> {
+     /// `checkVariableLikeDeclaration`'s initializer check for a declaration
+@@ -59,3 +59,148 @@ impl Checker<'_, '_> {
+         self.report_assignability_failure(at, initializer_id, source, target);
+     }
+ }
++
++impl<'a> Checker<'a, '_> {
++    /// The `@satisfies` tag whose reparsed `SatisfiesExpression` is
++    /// `expression`'s parent upstream: `reparseHosted`'s `KindJSDocSatisfiesTag`
++    /// arm (`parser/reparser.go:396`) wraps the host's initializer or
++    /// expression in `makeNewCast(type, expr, isAssertion=false)`. The
++    /// innermost wrapper wins (a declaration's own comment is reparsed before
++    /// its statement's), which is the one `getContextualType` meets first.
++    pub(crate) fn jsdoc_satisfies_tag_of(
++        &self,
++        expression: NodeId,
++    ) -> Option<&'a tsr_ast::JSDocSatisfiesTag<'a>> {
++        let parent = self.nodes.parent(expression)?;
++        let is =
++            |e: Option<tsr_ast::Expression<'_>>| e.and_then(|e| e.node_id()) == Some(expression);
++        let host = match self.node_map.get(parent)? {
++            Node::ParenthesizedExpression(node) if is(node.expression) => parent,
++            Node::ReturnStatement(node) if is(node.expression) => parent,
++            Node::ExportAssignment(node) if is(node.expression) => parent,
++            Node::PropertyAssignment(node) if is(node.initializer) => parent,
++            Node::PropertyDeclaration(node) if is(node.initializer) => parent,
++            Node::ShorthandPropertyAssignment(node) if is(node.object_assignment_initializer) => {
++                parent
++            }
++            Node::VariableDeclaration(node) if is(node.initializer) => {
++                if let Some(tag) = self.last_jsdoc_satisfies_tag(parent) {
++                    return self.in_js_file(parent).then_some(tag);
++                }
++                // `KindVariableStatement`: the first declaration with an
++                // initializer.
++                let list = self.nodes.parent(parent)?;
++                let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list)
++                else {
++                    return None;
++                };
++                let first = declarations
++                    .declarations
++                    .iter()
++                    .find(|declaration| declaration.initializer.is_some())?;
++                if first.node_id != Some(parent) {
++                    return None;
++                }
++                let statement = self.nodes.parent(list)?;
++                if self.nodes.kind(statement) != SyntaxKind::VariableStatement {
++                    return None;
++                }
++                statement
++            }
++            Node::BinaryExpression(binary) if is(binary.right) => {
++                let statement = self.nodes.parent(parent)?;
++                if self.nodes.kind(statement) != SyntaxKind::ExpressionStatement
++                    || !self.is_assignment_declaration(binary)
++                {
++                    return None;
++                }
++                statement
++            }
++            _ => return None,
++        };
++        let tag = self.last_jsdoc_satisfies_tag(host)?;
++        self.in_js_file(host).then_some(tag)
++    }
++
++    /// `getContextualType`'s `KindSatisfiesExpression` arm
++    /// (`checker.go:29384`) for a reparsed `@satisfies`: the tag's type.
++    pub(crate) fn jsdoc_satisfies_contextual_type(&mut self, expression: NodeId) -> Option<TypeId> {
++        let tag = self.jsdoc_satisfies_tag_of(expression)?;
++        let annotation = jsdoc_type_expression_type(tag.type_expression?)?;
++        Some(self.get_type_from_type_node(annotation))
++    }
++
++    /// The **first** `@satisfies` tag (with a type) of a host's last comment;
++    /// hosted arms read only the last comment (`reparseTags`' `isLast`).
++    fn last_jsdoc_satisfies_tag(&self, host: NodeId) -> Option<&'a tsr_ast::JSDocSatisfiesTag<'a>> {
++        let doc = self.jsdoc_entries.get(&host)?.last()?;
++        doc.tags.iter().find_map(|tag| match tag {
++            tsr_ast::JSDocTag::JSDocSatisfiesTag(tag) if tag.type_expression.is_some() => {
++                Some(*tag)
++            }
++            _ => None,
++        })
++    }
++
++    /// `checkSatisfiesExpression` for each reparsed `@satisfies` cast `host`'s
++    /// comment makes: the expression's type must satisfy the tag's, reported
++    /// at the tag name (`getErrorSpanForNode`'s satisfies arm,
++    /// `findOriginatingJSDocSatisfiesTag`, `scanner.go:2625`).
++    pub(crate) fn check_jsdoc_satisfies_tags(&mut self, host: NodeId, ambient: bool) {
++        let Some(doc) = self.jsdoc_entries.get(&host).and_then(|docs| docs.last()) else {
++            return;
++        };
++        let Some(tsr_ast::JSDocTag::JSDocSatisfiesTag(tag)) = doc
++            .tags
++            .iter()
++            .find(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocSatisfiesTag(t) if t.type_expression.is_some()))
++        else {
++            return;
++        };
++        if ambient || self.file_has_parse_errors || !self.in_js_file(host) {
++            return;
++        }
++        let Some(expression) = self.jsdoc_satisfies_target(host) else { return };
++        let Some(annotation) = tag.type_expression.and_then(jsdoc_type_expression_type) else {
++            return;
++        };
++        let (Some(at), Some(span_node)) = (tag.node_id, tag.tag_name.node_id) else { return };
++        let span = self.nodes.span(span_node);
++        self.check_satisfies_worker(at, expression, annotation, span);
++    }
++
++    /// The expression `reparseHosted`'s satisfies arm wraps for `host`.
++    fn jsdoc_satisfies_target(&self, host: NodeId) -> Option<tsr_ast::Expression<'a>> {
++        match self.node_map.get(host)? {
++            Node::ParenthesizedExpression(node) => node.expression,
++            Node::ReturnStatement(node) => node.expression,
++            Node::ExportAssignment(node) => node.expression,
++            Node::PropertyAssignment(node) => node.initializer,
++            Node::PropertyDeclaration(node) => node.initializer,
++            Node::VariableDeclaration(node) => node.initializer,
++            Node::ShorthandPropertyAssignment(node) => node.object_assignment_initializer,
++            Node::VariableStatement(node) => node
++                .declaration_list?
++                .declarations
++                .iter()
++                .find_map(|declaration| declaration.initializer),
++            Node::ExpressionStatement(node) => match node.expression? {
++                tsr_ast::Expression::BinaryExpression(binary)
++                    if self.is_assignment_declaration(binary) =>
++                {
++                    binary.right
++                }
++                _ => None,
++            },
++            _ => None,
++        }
++    }
++}
++
++/// The type inside a tag's `{…}`.
++fn jsdoc_type_expression_type(node: TypeNode<'_>) -> Option<TypeNode<'_>> {
++    match node {
++        TypeNode::JSDocTypeExpression(expression) => expression.r#type,
++        other => Some(other),
++    }
++}
+diff --git a/crates/tsr-checker/src/jsdoc_params.rs b/crates/tsr-checker/src/jsdoc_params.rs
+index b8b1936..23960e4 100644
+--- a/crates/tsr-checker/src/jsdoc_params.rs
++++ b/crates/tsr-checker/src/jsdoc_params.rs
+@@ -557,7 +557,7 @@ impl<'a> Checker<'a, '_> {
+     /// binary expression in a JS file (`ast/utilities.go:1541`): `=` with an
+     /// access-expression left whose object is `this`, `module.exports`,
+     /// `exports` or an entity name.
+-    fn is_assignment_declaration(&self, binary: &tsr_ast::BinaryExpression<'_>) -> bool {
++    pub(crate) fn is_assignment_declaration(&self, binary: &tsr_ast::BinaryExpression<'_>) -> bool {
+         if binary.operator_token.map(|t| t.kind) != Some(SyntaxKind::EqualsToken) {
+             return false;
+         }
+diff --git a/crates/tsr-checker/src/objects.rs b/crates/tsr-checker/src/objects.rs
+index 21ace7f..650e7a7 100644
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -1968,7 +1968,13 @@ impl Checker<'_, '_> {
+         // `getPropertyTypeForIndexType`'s failure path answers `any` for
+         // (`checker.go:27130` and `:27189` via `isJSLiteralType`,
+         // `utilities.go:1753`). Recorded in a side table per ADR-0003.
+-        if node.node_id.is_some_and(|id| self.in_js_file(id)) {
++        // Only without a contextual type (`contextualType == nil`,
++        // `checker.go:13206`): a literal under `@type`/`@satisfies` is checked
++        // like a TypeScript one.
++        if node
++            .node_id
++            .is_some_and(|id| self.in_js_file(id) && self.get_contextual_type(id).is_none())
++        {
+             self.js_literal_types.insert(minted);
+         }
+         // §453: `ObjectFlagsFreshLiteral` — see the side table's doc on
+diff --git a/crates/tsr-checker/src/satisfies.rs b/crates/tsr-checker/src/satisfies.rs
+index f482a8f..456d13b 100644
+--- a/crates/tsr-checker/src/satisfies.rs
++++ b/crates/tsr-checker/src/satisfies.rs
+@@ -16,7 +16,7 @@ use crate::{
+     types::{TypeData, TypeId},
+ };
+ 
+-impl Checker<'_, '_> {
++impl<'a> Checker<'a, '_> {
+     /// The assignability check of one `expression satisfies Type`.
+     pub(crate) fn check_satisfies_expression(&mut self, node: NodeId, ambient: bool) {
+         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+@@ -26,6 +26,22 @@ impl Checker<'_, '_> {
+         let (Some(expression), Some(annotation)) = (satisfies.expression, satisfies.r#type) else {
+             return;
+         };
++        let Some(expression_id) = expression.node_id() else { return };
++        let span = self.satisfies_keyword_span(node, expression_id);
++        self.check_satisfies_worker(node, expression, annotation, span);
++    }
++
++    /// `checkSatisfiesExpressionWorker` proper: `expression` against
++    /// `annotation`, the head message at `span`. Shared with a JS file's
++    /// reparsed `@satisfies` cast (`jsdoc_annotations.rs`), whose span is the
++    /// tag name.
++    pub(crate) fn check_satisfies_worker(
++        &mut self,
++        node: NodeId,
++        expression: tsr_ast::Expression<'a>,
++        annotation: tsr_ast::TypeNode<'a>,
++        span: tsr_core::Span,
++    ) {
+         let Some(expression_id) = expression.node_id() else { return };
+         let source = self.check_expression(expression);
+         let target = self.get_type_from_type_node(annotation);
+@@ -52,7 +68,6 @@ impl Checker<'_, '_> {
+             self.report_first_excess_property(expression_id, target);
+             return;
+         }
+-        let span = self.satisfies_keyword_span(node, expression_id);
+         self.report_relation_failure(
+             node,
+             span,
