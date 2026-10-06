@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
-index 2f03dc0..b732f1b 100644
+index 9d76b87..e3d3326 100644
 --- a/crates/tsr-checker/src/checker.rs
 +++ b/crates/tsr-checker/src/checker.rs
 @@ -255,6 +255,21 @@ pub struct Checker<'a, 'n> {
@@ -24,7 +24,7 @@ index 2f03dc0..b732f1b 100644
      /// §136 (printseam §6): the WRITTEN arity of a default-filled reference —
      /// prints show this many leading arguments, matching upstream's
      /// written-annotation reuse (`Iterable<number>` written short prints
-@@ -1314,6 +1329,8 @@ impl<'a, 'n> Checker<'a, 'n> {
+@@ -1330,6 +1345,8 @@ impl<'a, 'n> Checker<'a, 'n> {
              constrained_type_variables: FxHashMap::default(),
              instantiations: FxHashMap::default(),
              type_reference_targets: FxHashMap::default(),
@@ -33,7 +33,7 @@ index 2f03dc0..b732f1b 100644
              reference_display_arity: FxHashMap::default(),
              literal_this_types: FxHashMap::default(),
              unresolved_types: rustc_hash::FxHashSet::default(),
-@@ -2135,6 +2152,20 @@ impl<'a, 'n> Checker<'a, 'n> {
+@@ -2155,6 +2172,20 @@ impl<'a, 'n> Checker<'a, 'n> {
              // printed form IS the symbol's own name — which is every
              // zero-argument reference. Reverted per §515; recorded so the next
              // reader does not re-run it.
@@ -55,10 +55,10 @@ index 2f03dc0..b732f1b 100644
                  && !arguments.is_empty()
                  && !self.rendering_composites.contains(&id)
 diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
-index d4493fa..eb44231 100644
+index f2fee78..8461b8a 100644
 --- a/crates/tsr-checker/src/declared.rs
 +++ b/crates/tsr-checker/src/declared.rs
-@@ -3104,7 +3104,64 @@ impl<'a> Checker<'a, '_> {
+@@ -3285,7 +3285,63 @@ impl<'a> Checker<'a, '_> {
              .is_some_and(|parent| self.is_readonly_type_operator(parent));
          let target = if readonly { "ReadonlyArray" } else { "Array" };
          let Some(target) = self.global_type_symbol(target) else { return error };
@@ -110,9 +110,8 @@ index d4493fa..eb44231 100644
 +            return cached;
 +        }
 +        let flags = self.store.get(reference).flags;
-+        let members = match self.store.get(reference).data {
-+            crate::types::TypeData::Named { members, .. } => members,
-+            _ => return reference,
++        let crate::types::TypeData::Named { members, .. } = self.store.get(reference).data else {
++            return reference;
 +        };
 +        let name = self.binder.symbols().get(alias).name.to_string();
 +        let named = self.store.new_named(flags, name, members);
@@ -124,7 +123,7 @@ index d4493fa..eb44231 100644
      }
  
      /// `Checker.getTypeFromArrayOrTupleTypeNode` (`checker.go:24115`), **tuple
-@@ -3367,7 +3424,17 @@ impl<'a> Checker<'a, '_> {
+@@ -3548,7 +3604,17 @@ impl<'a> Checker<'a, '_> {
                          spliced = None;
                      }
                  }
@@ -143,14 +142,19 @@ index d4493fa..eb44231 100644
              }
              if let Some(flat) = spliced {
                  let readonly = node
-@@ -4586,6 +4653,14 @@ impl<'a> Checker<'a, '_> {
-         // a written `Map<string>` does not grow an argument nobody typed, a
-         // question a bare reference does not raise.
+@@ -4785,6 +4851,19 @@ impl<'a> Checker<'a, '_> {
+             self.qualified_written_text.insert(id, format!("{base}<{}>", spelled.join(", ")));
+         }
          let result = self.create_type_reference(symbol, arguments);
 +        // getTypeFromClassOrInterfaceReference (checker.go:23200): a generic
 +        // class or interface reference that IS an alias body is deferred and
 +        // carries the alias (`type ImmutableTypes = IImmutableMap<any>`).
-+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++        if self
++            .binder
++            .symbols()
++            .get(symbol)
++            .flags
++            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
 +            && !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
 +        {
 +            return self.deferred_alias_reference(node.node_id, result);
@@ -159,7 +163,7 @@ index d4493fa..eb44231 100644
          // mapTypeWithAlias. A distributed mapped union keeps that alias,
          // unlike a normalized array/tuple which has its structural display.
 diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
-index 2229257..f47e739 100644
+index 5009264..d551c05 100644
 --- a/crates/tsr-checker/src/members.rs
 +++ b/crates/tsr-checker/src/members.rs
 @@ -1642,7 +1642,7 @@ impl Checker<'_, '_> {
@@ -171,3 +175,61 @@ index 2229257..f47e739 100644
          if body == id || body == self.intrinsics.unresolved || self.is_error(body) {
              return None;
          }
+@@ -4114,7 +4114,7 @@ const child = tree[0][1]; const readLength = readTree[0][1].length;"
+                 for _ in 0..3 {
+                     assert_eq!(
+                         checker.completed_array_placeholder_length_body(placeholder),
+-                        Some(original)
++                        Some(checker.without_alias(original))
+                     );
+                     assert_eq!(publication(checker), before);
+                     assert_eq!(
+diff --git a/crates/tsr-checker/src/unions.rs b/crates/tsr-checker/src/unions.rs
+index 90fb47a..bb96a17 100644
+--- a/crates/tsr-checker/src/unions.rs
++++ b/crates/tsr-checker/src/unions.rs
+@@ -1329,9 +1329,22 @@ impl Checker<'_, '_> {
+         left: &crate::types::Type,
+         right: &crate::types::Type,
+     ) -> Ordering {
++        // `getTypeNameSymbol` (`utilities.go:607`) answers the ALIAS symbol
++        // first (ADR-0045's `alias_of`): `type FooArray = FooBase[]` sorts
++        // under "FooArray", not under its target's "Array", and two types
++        // carrying one alias compare by alias arguments (`:593`).
++        let alias_a = self.alias_of.get(&a);
++        let alias_b = self.alias_of.get(&b);
++        if let (Some((symbol_a, args_a)), Some((symbol_b, args_b))) = (alias_a, alias_b)
++            && symbol_a == symbol_b
++        {
++            return self.compare_type_lists(args_a, args_b);
++        }
+         let reference_a = self.type_reference_targets.get(&a);
+         let reference_b = self.type_reference_targets.get(&b);
+-        if let (Some((target_a, args_a)), Some((target_b, args_b))) = (reference_a, reference_b)
++        if alias_a.is_none()
++            && alias_b.is_none()
++            && let (Some((target_a, args_a)), Some((target_b, args_b))) = (reference_a, reference_b)
+             && target_a == target_b
+         {
+             return self.compare_type_lists(args_a, args_b);
+@@ -1372,14 +1385,18 @@ impl Checker<'_, '_> {
+             return Ordering::Equal;
+         }
+         let symbols = self.binder.symbols();
+-        let left_name = if self.tuple_element_lists.contains_key(&a) {
++        let left_name = if let Some((alias, _)) = alias_a {
++            Some(symbols.get(*alias).name)
++        } else if self.tuple_element_lists.contains_key(&a) {
+             None
+         } else if let Some((target, _)) = reference_a {
+             Some(symbols.get(*target).name)
+         } else {
+             named_symbol_name(&left.data, symbols)
+         };
+-        let right_name = if self.tuple_element_lists.contains_key(&b) {
++        let right_name = if let Some((alias, _)) = alias_b {
++            Some(symbols.get(*alias).name)
++        } else if self.tuple_element_lists.contains_key(&b) {
+             None
+         } else if let Some((target, _)) = reference_b {
+             Some(symbols.get(*target).name)

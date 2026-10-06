@@ -848,6 +848,16 @@ losses). The design split on print position: `best_name` takes
 `admit_local_import_equals`, true from `symbol_chain`'s segment site, false
 from both `qualified_name_at` rename sites.
 
+> **Superseded (type-refs round 3, `tsr-2zk.39`).** The position split was a
+> stand-in for upstream's real discriminator: `trySymbolTable`
+> (`symbolaccessibility.go:551`) does not answer an ExportSymbol hit
+> directly — it makes `[symbol]` a candidate that competes with the table's
+> aliases under `compareSymbolChains`, so `m1_M1_public` (declared before
+> `import m1_im1_private = m1_M1_public`) wins at the whole-name site, while
+> the segment site's table holds no such local. With that arm ported,
+> `admit_local_import_equals` was deleted: +94 lines, 11 cases, 0 R→W
+> against `d109b0c` (`docs/parity/notes/type-refs.md` §3.3).
+
 **Second form** (split filter): WRONG→RIGHT 349, GAP→RIGHT 22,
 **RIGHT→WRONG 0, RIGHT→GAP 0, regressed 0**, GAP→WRONG 12 (6 = the esm
 interop ambiguity our refusal cannot see — `import Foo = require` beside
