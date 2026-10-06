@@ -623,3 +623,33 @@ Two pieces outside owned files:
   beyond the 8 added lines. The remaining case reports at column 11 where
   tsc reports 5: this parser's `VariableDeclarationList` span for
   `await using` starts at `using`, not `await` (parser lane).
+
+## §8. A named class expression's own name resolves in its body (cluster `tsr-2zk.16.18`)
+
+`var v = class C { static a = 1; static c = C.a }` resolved `C` nowhere:
+`bindClassLikeDeclaration` gives a class expression's name a symbol in no
+table, and upstream's `NameResolver.Resolve` (`nameresolver.go:189-195`)
+finds it by comparing the name against the expression's written name, in the
+`ClassExpression` case, after the members (type parameter) lookup misses.
+The binder walk (`resolve_name_excluding_with_export_alias`,
+`crates/tsr-binder/src/lib.rs`) had the `FunctionExpression` twin of that arm
+but not this one. Ported in the same place, with upstream's `meaning &
+Class` test. A type parameter found in the members table but declared
+elsewhere `break`s out of upstream's case before the comparison; the port's
+`continue` on that path skips it the same way.
+
+Measured unfiltered against the box baseline at `fae453f`: diagnostics **+2**
+(`computedPropertyNamesWithStaticProperty`,
+`privateNameStaticMethodClassExpression`), `checker_types` **+78 RIGHT
+lines** (the cluster's six cases fully RIGHT: `classBlockScoping`,
+`classExpressionWithStaticProperties1`/`ES61`/`ES62`/`ES63`,
+`classStaticBlock27`; plus `privateNameStaticMethodClassExpression` 20,
+`computedPropertyNamesWithStaticProperty` 9, `privateNameNestedMethodAccess`
+3), **0 lost**.
+
+The triage names a `calls.rs` guard (`§30`) that special-cases the miss; it
+is another lane's file and is left for its owner to retire.
+
+Cluster `tsr-2zk.16.24` (`RESOLVE-NAME-EXPORT-DEFAULT-LOCAL`) was already
+ported on this branch (the export-default arm just below); its listed cases
+read RIGHT at the baseline except lines owned by other clusters.

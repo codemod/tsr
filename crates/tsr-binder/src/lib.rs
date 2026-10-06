@@ -1144,6 +1144,19 @@ impl<'a> BindResult<'a> {
                 }
                 return Some(self.merged_symbol(found));
             }
+            // A named class expression's own name, in its body
+            // (`nameresolver.go:189-195`): reached only when the members
+            // lookup missed (a type parameter declared elsewhere `break`s out
+            // of the case above). `bindClassLikeDeclaration` gives the name a
+            // symbol in no table, so only this comparison finds it.
+            // names-modules notes §8.
+            if meaning.intersects(SymbolFlags::CLASS)
+                && let Some(tsr_ast::Node::ClassExpression(class)) = node_map.get(node)
+                && class.name.is_some_and(|written| written.text == name)
+                && let Some(symbol) = self.symbol_of(node)
+            {
+                return Some(symbol);
+            }
             // The **export-default local name** (`nameresolver.go:109`–`:119`):
             // in an external module, or an ambient module declaration that is
             // not `declare global`, `export default class Foo {}` exports
