@@ -1028,6 +1028,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node);
+            self.check_jsdoc_annotated_initializer(node, ambient);
         }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
             self.check_new_on_abstract_class(node);
@@ -9490,17 +9491,26 @@ impl Checker<'_, '_> {
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
+        // A JS function's `@param [x]` / `{T=}` is a reparsed `?` upstream
+        // (`makeQuestionIfOptional`), which this loop reads like a written
+        // one; ADR-0046.
+        let reparsed = self.jsdoc_reparsed_function(owner).parameters;
         let mut seen_optional = false;
         for (index, parameter) in parameters.into_iter().enumerate() {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
             let name = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id);
+            // The reparsed token's location is its `@param` tag's.
+            let question = declaration.question_token.map(|token| token.node_id).or_else(|| {
+                let slot = reparsed.get(index).filter(|slot| slot.question)?;
+                Some(slot.tag?.node_id)
+            });
             if let Some(rest) = declaration.dot_dot_dot_token {
                 let (at, message) = if index != count - 1 {
                     (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
-                } else if let Some(question) = declaration.question_token {
-                    (question.node_id, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
+                } else if let Some(question) = question {
+                    (question, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
                 } else if declaration.initializer.is_some() {
                     (name, &messages::A_REST_PARAMETER_CANNOT_HAVE_AN_INITIALIZER)
                 } else {
@@ -9514,7 +9524,7 @@ impl Checker<'_, '_> {
             // parameter optional for this loop, so `f(a = 1, b: number)` is
             // legal. Reading it as "`?` or initialiser" was six wrong TS1016
             // lines, every one of them a defaulted parameter. §288.
-            if declaration.question_token.is_some() {
+            if question.is_some() {
                 seen_optional = true;
                 // TS1015 is §103's, reported once per list from its own arm.
                 continue;

@@ -663,7 +663,16 @@ impl<'a> Parser<'a> {
             // NOTHING consumed — and the next statement parses intact, which
             // is exactly what its baseline records.
             if !self.is_start_of_expression() {
-                self.error_at_current(&messages::EXPRESSION_EXPECTED);
+                // `parseIdentifierWithDiagnostic`: at end of file the report
+                // sits zero-width at the token's full start
+                // (`importTag11`/`12`: `@import foo` / `@import foo from`
+                // closing the comment).
+                let span = if self.at(SyntaxKind::EndOfFile) {
+                    tsr_core::Span::at(self.node_end())
+                } else {
+                    self.token.span
+                };
+                self.error_at(&messages::EXPRESSION_EXPECTED, span);
                 return Expression::Identifier(self.missing_identifier());
             }
             self.error_at_current(&messages::STRING_LITERAL_EXPECTED);

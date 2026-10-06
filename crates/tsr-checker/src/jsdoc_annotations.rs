@@ -28,12 +28,20 @@ impl Checker<'_, '_> {
         if ambient || self.file_has_parse_errors || !self.in_js_file(node) {
             return;
         }
-        let (annotation, initializer) = match self.node_map.get(node) {
+        // `checkExportAssignment` (`checker.go:5662`) elaborates at the
+        // expression itself; the variable-like checks at the declaration.
+        let (annotation, initializer, export) = match self.node_map.get(node) {
             Some(Node::VariableDeclaration(declaration)) if declaration.r#type.is_none() => {
-                (self.jsdoc_type_annotation(node), declaration.initializer)
+                (self.jsdoc_type_annotation(node), declaration.initializer, false)
             }
             Some(Node::PropertyDeclaration(property)) if property.r#type.is_none() => {
-                (self.jsdoc_cast_annotation(node), property.initializer)
+                (self.jsdoc_cast_annotation(node), property.initializer, false)
+            }
+            // `reparseHosted`'s `KindJSDocTypeTag` arm types an export
+            // assignment; `node.Type()` is then read for `KindExportAssignment`
+            // (both `export default` and `export =`).
+            Some(Node::ExportAssignment(assignment)) => {
+                (self.jsdoc_cast_annotation(node), assignment.expression, true)
             }
             _ => return,
         };
@@ -41,12 +49,13 @@ impl Checker<'_, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
+        let at = if export { initializer_id } else { node };
         // §73: the elaboration reports the member instead of the outer message.
         let before = self.diagnostics.len();
         self.check_excess_properties(target, initializer_id);
         if self.diagnostics.len() != before {
             return;
         }
-        self.report_assignability_failure(node, initializer_id, source, target);
+        self.report_assignability_failure(at, initializer_id, source, target);
     }
 }
