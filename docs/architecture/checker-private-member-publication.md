@@ -4,8 +4,10 @@ The `tsr-1yb.33` experiment allocates actual private symbols and retains their
 publication history. It compiles, but is **rejected** at TSR
 `88a0d3cec2df7d1e43aff6684349eea1c6256446` / native
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`. Scalar query history is
-Merged/Merged/Single instead of native Single/Merged/Single; distinct `this`
-members also lose the distinction between apparent and expression reads.
+Merged/Merged/Single instead of native Single/Merged/Single. **Correction:**
+the distinct `this` test confused supplier reads with the synthesized result;
+its alleged second parity failure was an incorrect expectation, as the
+qualification below explains.
 No runtime change, production cache, coverage gain or speedup is retained.
 Equivalent complete-work TSR/native median wall <=0.50 remains unverified.
 
@@ -65,10 +67,10 @@ library tests pass**.
 
 | Observation | Result |
 | --- | --- |
-| Seven native fixture families × three fresh query orders | 18/21 property projections match; distinct-self fails all three apparent-read projections |
+| Seven fixture families × three fresh query orders | Historical run reports 18/21; the three distinct-self failures incorrectly compare the result with the native supplier expectation |
 | Scalar cold / expression-first / checked-first | Merged / Merged / Single; native is Single / Merged / Single |
 | Shared inherited `self` | One supplier identity and Both read/expression retained |
-| Distinct `self` | Synthesized identity and Left & Right expression retained, but apparent read incorrectly also becomes Left & Right instead of Both |
+| Distinct `self` | Synthesized Left & Right result/expression is native behavior; suppliers individually read Both. The historical assertion expected Both from the result and is corrected below. |
 | Equal/unequal generic value and distinct equal-valued declarations | Single string / synthesized never / synthesized string retained |
 | Both accessor orders | Merged clone retains first string/number write independently of number read |
 | Clone and explicit reset | Own-target versus link-target, flags, parent, mapper/write and warm identity controls pass |
@@ -94,7 +96,8 @@ deliberately driven tests, not ordinary workload or saved-worker counts.
 Native `getReducedApparentType` (`checker.go:21860`) runs reduction before and
 after `getApparentType`; `getReducedType` (`checker.go:21819`) can build composite
 properties while detecting a never intersection. Property expression preparation
-has its own apparent-type entry (`checker.go:28462`). Consequently, retaining
+has its own apparent-type entry (`checker.go:11258`, apparent preparation at
+`checker.go:11265`; corrected from the alias-marking anchor at 28462). Consequently, retaining
 symbols behind `(type, receiver)` without wiring those construction paths cannot
 recover the native history. Adding a cold-query special case or pre-forcing a
 scalar type would hide the missing representation rather than port it.
@@ -127,10 +130,76 @@ files remain unchanged. Full unfiltered corpora, workspace lint and whole-projec
 timing were not run for this rejected private prototype; no production retention
 or no-RIGHT-loss claim follows from these bounded outputs.
 
-`tsr-1yb.33.1` owns the next compiling repair: actual raw/reduced/apparent
-reference/member preparation, original receiver identity and natural publication
+`tsr-1yb.33.1` owns the remaining compiling repair after the preparation progress
+below: original receiver identity and natural field-complete publication
 continuation. It consumes this failure and existing native producers, preserving
 the receiver `tsr-6.69.2` and signature `.27`/`.28` owners. The concrete builder
 `tsr-1yb.4.2.1` depends on it and still requires current expensive construction
 counts, full fidelity and measured ordinary benefit before retention. No costly
 native-style builder reuse candidate is qualified by this experiment.
+
+## Prepared reference progress at 55ed1a2a
+
+The continuation of `.33.1` is an isolated experiment frozen at TSR
+`55ed1a2a09b1a77841cbac34b21db53eae659718` and the same native pin. The
+[receipt](checker-member-preparation.json) and [replay patch](checker-member-preparation.patch)
+preserve the compiling implementation and its pending natural control. They
+are progress assets; no runtime implementation is retained on main, and `.33.1`
+remains in progress.
+
+Concrete prepared TypeIds now retain ordered ordinary arguments plus the final
+original `this` argument. Raw references implicitly pad their own receiver;
+already prepared references retain their explicit argument. Apparent
+intersection construction and raw reduction publish separate concrete images.
+Reduction enumerates properties before the later apparent construction, whereas
+the expression consumer prepares the apparent type first. This produces native
+**Single / Merged / Single** scalar history, including readonly/private variants,
+without testing query order or pre-forcing scalar links. Warm identity, first
+accessor mapper/write and the clone's own target remain intact.
+
+The fresh existing native producer passes all **39** parsed-program controls.
+It also corrects two previous assertions. Distinct-self supplier read/write IDs
+equal the original aliased receiver; the synthesized result and expression share
+a different, unaliased intersection ID. Expecting `Both` from the result was
+wrong. Likewise, a merged clone's containing type is the prepared apparent
+intersection, not the raw receiver. The old receipt and failing tests remain
+unchanged as historical evidence; the replay here explicitly corrects them.
+
+Matching the native exact-optional options exposed a real writer gap. Rust's
+binder never sets OPTIONAL, so construction recovers the existing declaration
+fact before allocating a private symbol. Ordinary property writes remove missing
+after instantiation, independently of accessor writes; the read adapter removes
+missing only for its native `getNonMissingTypeOfSymbol` projection. The initial
+optional control used different options and its pass did not establish this
+agreement. Its corrected red failure and subsequent repair remain in the receipt.
+
+The current library run has **192 passes and one ignored pending test**. That
+test is also executed explicitly: all three natural circular-default orders
+still miss native TS2310. The actual property-image trace shows one Foo worker
+per order, target resets with an active frame in the first two, and no target
+reset after checked-first preparation. None of these property states is relabeled
+as native MembersResolved. A separate natural recursive-base control observes
+the unresolved `[Root]` prefix and completed `[Root, Later]` list at the real
+base re-entry; it pushes no synthetic frame and invokes no explicit reset.
+
+Full structured-member fields, natural reset/outer-worker continuation, native
+MapsThisOnly/isThisless and objectFlags admission, complete mapper metadata,
+synthesized declaration/flag propagation, signatures/indexes, augmentation and
+broader fidelity remain unqualified. Ordinary output preservation and focused
+identity tests cannot authorize production reuse or establish a speed win.
+
+Three final mutations compile and fail previously passing controls: skipping raw
+reduction, replacing the original final `this` argument, and retaining missing in
+an optional ordinary write. Each source edit restores exactly; a subsequent full
+library run again passes **192 tests with one ignored**. Compiler setup failures
+are preserved separately and are not counted as detected mutations.
+
+The intermediate and final binaries each complete **162 ordinary CLI invocations**
+on the same 27 fixture/variant inputs, in both modes. In each batch all **54**
+baseline/prototype stdout, stderr, exit-status and ordered-input pairs match,
+including already-WRONG cases; **32** pairs match native diagnostic payloads.
+The same **11** existing fixture/variant gaps remain, with no changed diagnostic
+pairs to triage. Recorded PIDs identify wrapper launches. The baseline binary is
+reused after verifying 650 Rust files, 22 Cargo inputs and 108 libraries equal;
+it is not a fresh baseline build. These bounded replays have no CPU/RSS or
+equivalent complete-work timing qualification.

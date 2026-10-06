@@ -10,10 +10,14 @@ or coverage result is claimed; equivalent complete-work TSR/native median
 wall <=0.50 remains unverified.
 
 The subsequent [compiling attempt](checker-private-member-publication.md) at
-`88a0d3ce` allocates actual private symbols but is rejected on scalar history
-and distinct-self apparent reads. It does not qualify the proposed completion
-protocol below. Follow-up `tsr-1yb.33.1` owns native raw/reduced/apparent
-publication before the concrete builder can retain reuse.
+`88a0d3ce` allocates actual private symbols but is rejected on scalar history.
+Its alleged distinct-self failure was an incorrect supplier/result assertion;
+the compiling attempt now records that correction explicitly. The subsequent
+[preparation experiment](checker-private-member-publication.md#prepared-reference-progress-at-55ed1a2a)
+at `55ed1a2a` fixes scalar history and exact-optional writes privately, while all
+three natural circular-default orders still miss TS2310. It does not qualify
+the proposed completion protocol below. Follow-up `tsr-1yb.33.1` owns the
+remaining natural field-complete publication before the builder can retain reuse.
 
 The [source inventory and replay receipt](checker-published-members.json)
 binds operations to exact bytes and records fresh replays of the existing
