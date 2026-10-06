@@ -11,6 +11,7 @@ use tsr_ast::{
 };
 use tsr_diagnostics::{Diagnostic, messages};
 
+use crate::check::has_modifier;
 use crate::checker::Checker;
 
 impl Checker<'_, '_> {
@@ -305,6 +306,14 @@ impl Checker<'_, '_> {
             // expression never reaches `check_modifier_order`.
             Node::ClassExpression(_) => {
                 self.check_grammar_decorator_target(node, typed);
+                None
+            }
+            Node::TypeOperatorNode(operator) => {
+                self.check_grammar_type_operator_node(node, operator);
+                None
+            }
+            Node::JSDocNullableType(_) | Node::JSDocNonNullableType(_) => {
+                self.check_jsdoc_type_is_in_js_file(node);
                 None
             }
             Node::IndexSignatureDeclaration(_) => {
@@ -825,6 +834,122 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `Checker.checkGrammarTypeOperatorNode` (`grammarchecks.go:1369`),
+    /// reached from `checkTypeOperator` for every type operator.
+    ///
+    /// `unique` must apply to `symbol` ("'symbol' expected" on the operand)
+    /// and may only type a `const` variable of a variable statement with an
+    /// identifier name, a `static readonly` class property or a `readonly`
+    /// property signature, the owner found through any parenthesized types;
+    /// `readonly` may only modify an array or tuple type (TS1354, on the
+    /// operator's first token).
+    fn check_grammar_type_operator_node(
+        &mut self,
+        node: NodeId,
+        operator: &tsr_ast::TypeOperatorNode<'_>,
+    ) {
+        let Some(inner) = operator.r#type.and_then(|t| t.node_id()) else { return };
+        match operator.operator.kind {
+            SyntaxKind::UniqueKeyword => {
+                if self.nodes.kind(inner) != SyntaxKind::SymbolKeyword {
+                    let Some(file) = self.source_file_of_for_diagnostics(inner) else { return };
+                    let span = self.error_span(inner);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(&messages::_0_EXPECTED, span, ["symbol".to_string()]),
+                    );
+                    return;
+                }
+                // `ast.WalkUpParenthesizedTypes(node.Parent)`.
+                let mut parent = self.nodes.parent(node);
+                while let Some(at) = parent
+                    && self.nodes.kind(at) == SyntaxKind::ParenthesizedType
+                {
+                    parent = self.nodes.parent(at);
+                }
+                let Some(parent) = parent else { return };
+                match self.node_map.get(parent) {
+                    Some(Node::VariableDeclaration(declaration)) => {
+                        if !matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_))) {
+                            self.grammar_error_on_node(
+                                node,
+                                &messages::UNIQUE_SYMBOL_TYPES_MAY_NOT_BE_USED_ON_A_VARIABLE_DECLARATION_WITH_A_BINDING_NAME,
+                            );
+                            return;
+                        }
+                        let list = self.nodes.parent(parent);
+                        let in_statement = list.is_some_and(|list| {
+                            self.nodes.kind(list) == SyntaxKind::VariableDeclarationList
+                                && self.nodes.parent(list).is_some_and(|statement| {
+                                    self.nodes.kind(statement) == SyntaxKind::VariableStatement
+                                })
+                        });
+                        if !in_statement {
+                            self.grammar_error_on_node(
+                                node,
+                                &messages::UNIQUE_SYMBOL_TYPES_ARE_ONLY_ALLOWED_ON_VARIABLES_IN_A_VARIABLE_STATEMENT,
+                            );
+                            return;
+                        }
+                        if list
+                            .is_some_and(|list| !self.nodes.flags(list).contains(NodeFlags::CONST))
+                            && let Some(name) = declaration.name.and_then(|n| n.node_id())
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_VARIABLE_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_CONST,
+                            );
+                        }
+                    }
+                    Some(Node::PropertyDeclaration(property)) => {
+                        if (!has_modifier(property.modifiers, SyntaxKind::StaticKeyword)
+                            || !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword))
+                            && let Some(name) = property.name.node_id()
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_PROPERTY_OF_A_CLASS_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_BOTH_STATIC_AND_READONLY,
+                            );
+                        }
+                    }
+                    Some(Node::PropertySignatureDeclaration(property)) => {
+                        if !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword)
+                            && let Some(name) = property.name.node_id()
+                        {
+                            self.grammar_error_on_node(
+                                name,
+                                &messages::A_PROPERTY_OF_AN_INTERFACE_OR_TYPE_LITERAL_WHOSE_TYPE_IS_A_UNIQUE_SYMBOL_TYPE_MUST_BE_READONLY,
+                            );
+                        }
+                    }
+                    _ => self.grammar_error_on_node(
+                        node,
+                        &messages::UNIQUE_SYMBOL_TYPES_ARE_NOT_ALLOWED_HERE,
+                    ),
+                }
+            }
+            SyntaxKind::ReadonlyKeyword => {
+                if !matches!(self.nodes.kind(inner), SyntaxKind::ArrayType | SyntaxKind::TupleType)
+                    && let Some(file) = self.source_file_of_for_diagnostics(node)
+                {
+                    // `grammarErrorOnFirstToken`: the `readonly` keyword,
+                    // which opens the node.
+                    let start = self.nodes.span(node).start;
+                    let span = tsr_core::Span::new(start, start + 8);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::READONLY_TYPE_MODIFIER_IS_ONLY_PERMITTED_ON_ARRAY_AND_TUPLE_LITERAL_TYPES,
+                            span,
+                            ["symbol".to_string()],
+                        ),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// `grammarErrorOnNode(mod, X_0_modifier_cannot_be_used_here, …)`.
     fn report_modifier_cannot_be_used_here(&mut self, modifier: NodeId, kind: SyntaxKind) {
         let Some(file) = self.source_file_of_for_diagnostics(modifier) else { return };
@@ -873,5 +998,50 @@ fn declaration_name_text(name: tsr_ast::PropertyName<'_>) -> String {
         tsr_ast::PropertyName::StringLiteral(literal) => format!("\"{}\"", literal.text),
         tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
         _ => String::new(),
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkJSDocTypeIsInJsFile` (`checker.go:2584`), its nullable
+    /// and non-nullable arm: outside a JS file, `T?` / `?T` / `T!` / `!T` is
+    /// TS17019 (postfix) or TS17020 (prefix) through `grammarErrorOnNode`,
+    /// suggesting the type written out — the operand's type, with
+    /// `undefined` (postfix `?`) or `undefined | null` (prefix `?`) added
+    /// unless it is `never` or `void` (`getNullableType`).
+    ///
+    /// The other arm (TS8020 for every other JSDoc type) is not ported: those
+    /// kinds reach this checker through paths whose shape is not yet
+    /// upstream's, and no lane case waits on it.
+    fn check_jsdoc_type_is_in_js_file(&mut self, node: NodeId) {
+        if self.in_js_file(node) {
+            return;
+        }
+        let (inner, nullable) = match self.node_map.get(node) {
+            Some(Node::JSDocNullableType(n)) => (n.r#type, true),
+            Some(Node::JSDocNonNullableType(n)) => (n.r#type, false),
+            _ => return,
+        };
+        let Some(inner) = inner else { return };
+        let Some(inner_id) = inner.node_id() else { return };
+        let postfix = self.nodes.span(node).start == self.nodes.span(inner_id).start;
+        let message = if postfix {
+            &messages::_0_AT_THE_END_OF_A_TYPE_IS_NOT_VALID_TYPESCRIPT_SYNTAX_DID_YOU_MEAN_TO_WRITE_1
+        } else {
+            &messages::_0_AT_THE_START_OF_A_TYPE_IS_NOT_VALID_TYPESCRIPT_SYNTAX_DID_YOU_MEAN_TO_WRITE_1
+        };
+        let mut ty = self.get_type_from_type_node(inner);
+        if nullable && ty != self.intrinsics.never && ty != self.intrinsics.void {
+            // `getNullableType(t, postfix ? Undefined : Nullable)`.
+            ty = if postfix {
+                self.get_union_type(&[ty, self.intrinsics.undefined])
+            } else {
+                self.get_union_type(&[ty, self.intrinsics.undefined, self.intrinsics.null])
+            };
+        }
+        let printed = self.type_to_string(ty);
+        let token = if nullable { "?" } else { "!" };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [token.to_string(), printed]));
     }
 }

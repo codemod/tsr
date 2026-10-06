@@ -250,3 +250,152 @@ identifier with empty text, which is what a missing identifier is here.
 
 **Measured.** `assignmentLHSIsValue` converted, +44 lines over six cases,
 none lost. The other parse-error fixtures still owe codes from other rules.
+
+## §13 TS2806: reading a set-only private accessor
+
+`checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+(`checker.go:11307`) reports `Private accessor was defined without a getter`
+once `getPrivateIdentifierPropertyOfType(leftType, lexicallyScopedSymbol)`
+finds a property with `SetAccessor` and no `GetAccessor`, unless the access is
+a *definite* assignment target (`=` and its destructuring positions;
+`+=` and `++` read first and do report).
+
+**Where it lives.** The faithful home is the property-access worker in
+`members.rs` (another lane's file). The check is a separate rule there,
+after the lookup succeeded, with no decision shared with the type it
+computes, so it is ported as its own dispatch rule
+(`private_setter_read.rs`) beside TS2540's private-accessor sibling
+(`check_private_accessor_is_writable`). It repeats the lookup:
+`lookupSymbolForPrivateIdentifierDeclaration` as the nearest enclosing
+class declaring the name; the receiver's non-nullable apparent type's
+property of that spelling must be declared in that class (otherwise upstream
+finds a different, mangled symbol and reports shadowing instead).
+
+**Declines.** Files with parse errors, JS files and ambient contexts, as the
+sibling private-name rules here do.
+
+**Measured.** `privateNameSetterNoGetter`, `privateWriteOnlyAccessorRead`
+converted; none lost.
+
+## §14 TS2431 and TS2477 / TS2478: enum declaration checks
+
+**TS2431** (`Enum name cannot be '{0}'`): `checkCollisionsForDeclarationName`'s
+enum arm (`checker.go:10459`) calls `checkTypeNameIsReserved` for every enum
+declaration; the port's helper had callers for every other declaration kind
+but not this one. Wired from the enum dispatch arm. `enumErrors` still
+declines: the shared helper `check_type_name_is_reserved` returns early in a
+file with parse errors (port-local; upstream has no such gate). Removing that
+bail measured +3 cases (`enumErrors`, `reservedNamesInAliases`,
+`interfacesWithPredefinedTypesAsNames`) with no line lost; it is a shared
+helper, so it is reported to the integrator rather than changed here.
+
+**TS2477 / TS2478**: `computeConstantEnumMemberValue`'s const arm
+(`checker.go:24001`) reports a `const` enum member whose initializer
+evaluates to a non-finite number (`NaN` has its own message). This port has
+no symbol-aware enum evaluator (§819 of `checker-notes-diag2.md`), so the
+value comes from a numeric-only evaluation covering exactly the shapes that
+can produce a non-finite value without symbols: numeric literals, the global
+`Infinity` / `NaN` (`evaluateEntity`'s first arm, `checker.go:24032`, same
+global-symbol test as `enum_initializer_may_evaluate`), unary `+`/`-` and
+`+ - * / % **`. Anything else — enum member and constant references,
+strings, bitwise operators (always finite) — declines; `constEnumErrors`'
+`F = E * E` overflow (member references) is such a decline.
+
+**Measured.** `enumWithPrimitiveName`, `enumConstantMembers` converted; two
+more correct lines in `constEnumErrors`; none lost.
+
+## §15 TS2651: enum initializers referencing later members
+
+**Forcing constraint.** `evaluateEnumMember` (`checker.go:24077`) reports
+TS2651 when `computeEnumMemberValues` evaluates an initializer (location =
+the member) and `evaluateEntity` resolves an enum member that
+`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) places after the
+location: same file, declared at a later position, usage not ambient.
+
+**What was ported.** `check_enum_member_forward_references` walks the
+initializer in the evaluator's visit order (`evaluator.go`): parentheses, a
+prefix operand, *both* binary operands whatever the operator (the evaluator
+evaluates both before looking at the operator), and the entity forms
+`evaluateEntity` accepts — an identifier, `E.m`, and `E["m"]` on an
+identifier that resolves to an enum. Declaration order is compared by
+start position within one file; another file is always "before"
+(upstream: "order cannot be determined"). A `declare enum` or an ambient
+context is skipped (`isInAmbientOrTypeNode(usage)`).
+
+**Declines.** A template expression's spans after the first: the evaluator
+stops at the first span without a value, which needs values this port does
+not compute. Aliases and longer entity names (`N.E.m`): `resolveEntityName`
+follows them, the binder lookup used here does not. The self-reference arm
+(`declaration == location`, TS2565 with a printed symbol) is not ported.
+The value `0` the arm substitutes is irrelevant to the other enum rules here,
+which decline on member references.
+
+**Measured.** `forwardRefInEnum` converted, `constEnumErrors` +1 line; none
+lost.
+
+## §16 TS2377 / TS17005: constructors of classes that extend `null`
+
+**Forcing constraint.** `checkConstructorDeclaration` (`checker.go:2836`)
+reads `classDeclarationExtendsNull` once: a super call in such a class is
+TS17005 at `findFirstSuperCall`'s result, and a missing super call is *not*
+TS2377. The port's TS2377 rule (`check_derived_constructor_calls_super`)
+tested the base expression for `SyntaxKind::NullKeyword`, but this parser
+spells the `null` of `extends null` as an identifier named `null` (§308 of
+`checker-notes-diag2.md`, already handled by `super_expression.rs`'s
+`class_declaration_extends_null`). So every `extends null` constructor
+without a super call drew a wrong TS2377, and TS17005 did not exist.
+
+**What changed.** The rule reuses `class_declaration_extends_null` (now
+crate-visible) and ports the TS17005 arm with `first_super_call`, the node
+form of the existing `subtree_has_super_call` walk (same function-like
+boundary, child order). `classDeclarationExtendsNull`'s real test is the
+base constructor type being `nullWideningType`; the written-`null` reading
+is §308's and inherits its limits (an `extends` expression that merely
+evaluates to null is not seen).
+
+**Measured.** `classExtendsNull`, `superCallBeforeThisAccessing4`,
+`superCallBeforeThisAccessing5` converted, `classExtendsNull2` +1 line; none
+lost.
+
+## §17 TS17009 / TS17011: `this`/`super` before `super()` without the flow graph
+
+**Forcing constraint.** `checkThisBeforeSuper` (`checker.go:12263`) reports
+when `!isPostSuperFlowNode(node.FlowNode)` (`flow.go:2611`): walking flow
+antecedents back from the use, some path reaches the function start without
+a `super(...)` call node (a branch label needs every antecedent post-super; a
+loop label follows its entry edge only; unreachable is post-super). §307 of
+`checker-notes-diag2.md` approximated it by top-level statement index and
+reported when the use and the `super()` shared a top-level statement, which
+is undecidable by index: `if (c) { super(); this.x }` and
+`let x = { k: super(), j: this._t }` drew wrong TS17009s
+(`checkSuperCallBeforeThisAccess`, `superCallBeforeThisAccessing8`), while
+uses in an `else` branch or a `switch` clause entered by jump were missed.
+
+**What was ported.** `certainly_reached_before_super` walks the use's
+ancestor chain top-down from the constructor body and answers "certainly not
+post-super" only when a super-free completing path to the use is certain:
+- at a statement list (block, case clause) every earlier sibling has a path
+  that completes without `super()` (`super_free_completion`: no `super()`
+  and no jump; an `if` with a super-free condition and a super-free branch
+  or no `else`; a block of such statements);
+- an `if` is entered through the branch on the chain once its condition is
+  super-free; a `switch` clause through the dispatch jump once the
+  discriminant and case labels are super-free (`d2` after a `super()` in the
+  previous clause is reported, as upstream does: the jump bypasses it);
+- any other container is a leaf: every `super()` in it must enclose the use
+  (arguments run before the call's flow node: `super(this)` is an error) or
+  start after it (left-to-right evaluation; a loop's later `super()` is not
+  on the entry edge upstream follows).
+Everything else declines. Parameter initializers keep §307's arm.
+
+**Declines.** A preceding `super()` under a conditional expression,
+`&&`/`||`/`??`, a loop, `try` or `switch` (`e2` after
+`{ w: c ? super() : 0 }` still owes TS17009); never-returning calls and
+other unreachable-code shapes are not modelled, which is why a jump anywhere
+in a "super-free" sibling makes it uncertain.
+
+**Measured.** `superCallBeforeThisAccessing8` converted; +7 correct lines and
+three wrong TS17009/TS17011 lines removed in `checkSuperCallBeforeThisAccess`
+(still owing TS2855 and the declines above); none lost. A first draft with
+the leaf rule "the leaf holds no `super()`" lost 19 lines over 11 cases
+(`super(this)` in `thisInSuperCall*`, `derivedClassSuperCallsWithThisArg`).
