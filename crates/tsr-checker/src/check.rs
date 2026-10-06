@@ -6632,22 +6632,10 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        // §839.1: a reference guarded by a condition that both names it **and**
-        // uses a narrowing this port does not model. Upstream removes
-        // `undefined` there and this port does not, so the arm would fire where
-        // upstream's does not and hand back the declared type.
-        //
-        // Measured, not assumed: without this the type road took
-        // `RIGHT->WRONG 67` — `typeGuardOfFormIsType` 37 (`isC1(c1Orc2) && …`),
-        // `typeGuardOfFormInstanceOf` 10, `parserindenter` 10 — against
-        // `WRONG->RIGHT 126`. Most of the 67 read `want string got any`, which
-        // is the *follow-on*: `c1Orc2.p1` off an un-narrowed `C1 | C2` is an
-        // error, and `errorType` prints `any`.
-        //
-        // The guard costs none of §839's wins because it already requires
-        // `subtree_has_unported_narrowing` — a pure `typeof` condition, which
-        // is every row of that family, does not match.
-        let guarded_by_unported_narrowing = self.reference_is_guarded_by_a_condition_on(node, text);
+        // §839.1's guard — decline a reference under a condition naming it
+        // that used a predicate call, `instanceof` or `.constructor` — is
+        // gone: each of those narrowings is ported in `crate::flow`, and
+        // removing it lost no case (`docs/parity/notes/flow.md` §11).
         // `assignmentKind == AssignmentKindDefinite` returns before the flow
         // section (`checker.go:11109`), so `x = 1` never reports even though the
         // flow type at `x` carries `undefined`. `getAssignmentTargetKind`
@@ -6794,13 +6782,6 @@ impl Checker<'_, '_> {
             .unwrap_or(symbol);
         let flow =
             self.get_flow_type_of_reference_ex(node, Some(flow_symbol), declared, Some(initial));
-        // The preceding blanket guard predates predicate subtype comparison.
-        // A computed narrowing of the optional initial type can now retain
-        // undefined on a false branch: checkIdentifier must then recover the
-        // declared type. Preserve the guard when that query made no progress.
-        if guarded_by_unported_narrowing && flow == initial {
-            return false;
-        }
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return false;
         }
@@ -6813,14 +6794,6 @@ impl Checker<'_, '_> {
     /// [`Checker::uninitialized_variable_reads_declared`], because
     /// `checkIdentifier` uses one condition for two answers and this port had
     /// split them — see `docs/architecture/checker-notes-deferred.md` §839.
-    ///
-    /// The guard below is why the two roads cannot share a single entry point.
-    /// `reference_is_guarded_by_a_condition_on` stands in for the narrowings
-    /// this port does not model, all of which leave `undefined` in the flow
-    /// type; declining costs a *missing diagnostic*, which is the direction
-    /// this rule may safely fail in. Upstream has no such guard, and it returns
-    /// true for every row in §839's family — so the **type** road must ask the
-    /// structural question without it.
     fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
         if !self.uninitialized_variable_reads_declared(node, text) {
             return;
@@ -6835,125 +6808,6 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
-    }
-
-    /// Is this reference in a position a *condition naming the same identifier*
-    /// dominates?
-    ///
-    /// A syntactic over-approximation of "upstream narrowed this before the
-    /// check", and deliberately one: every narrowing this port does not model —
-    /// user-defined type predicates, `instanceof` on an interface,
-    /// discriminated switches — removes `undefined` upstream and leaves it here,
-    /// and each of them is written as a guard. Declining costs a *missing*
-    /// diagnostic, which is the direction this rule may fail in.
-    ///
-    /// The three guard shapes, all of which put the reference in a subtree the
-    /// condition dominates:
-    ///
-    /// - the right operand of `&&`, `||` or `??` whose left mentions the name;
-    /// - the then/else branch of a conditional expression;
-    /// - the body of an `if`, `while` or `do` whose condition mentions it.
-    fn reference_is_guarded_by_a_condition_on(&self, node: NodeId, text: &str) -> bool {
-        let mut child = node;
-        let mut at = self.nodes.parent(node);
-        let mut depth = 0u32;
-        while let Some(current) = at {
-            depth += 1;
-            if depth > 64 {
-                return false;
-            }
-            let condition = match self.node_map.get(current) {
-                Some(Node::BinaryExpression(binary))
-                    if matches!(
-                        binary.operator_token.map(|token| token.kind),
-                        Some(
-                            SyntaxKind::AmpersandAmpersandToken
-                                | SyntaxKind::BarBarToken
-                                | SyntaxKind::QuestionQuestionToken
-                        )
-                    ) && binary.right.and_then(|right| right.node_id()) == Some(child) =>
-                {
-                    binary.left.and_then(|left| left.node_id())
-                }
-                Some(Node::ConditionalExpression(conditional))
-                    if conditional.condition.and_then(|c| c.node_id()) != Some(child) =>
-                {
-                    conditional.condition.and_then(|c| c.node_id())
-                }
-                Some(Node::IfStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::WhileStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                Some(Node::DoStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    statement.expression.and_then(|e| e.node_id())
-                }
-                _ => None,
-            };
-            // The condition must both name the reference **and** contain one of
-            // the narrowing mechanisms this port does not model — a call
-            // (a user-defined type predicate), an `instanceof`, or a
-            // `.constructor === C` comparison. Requiring the mechanism as well
-            // as the name is what keeps the guard from declining a TS2454
-            // upstream really does report.
-            if let Some(condition) = condition
-                && self.subtree_mentions(condition, text, 0)
-                && self.subtree_has_unported_narrowing(condition, 0)
-            {
-                return true;
-            }
-            child = current;
-            at = self.nodes.parent(current);
-        }
-        false
-    }
-
-    /// Does the subtree contain one of the narrowing mechanisms `crate::flow`
-    /// does not model — a call, an `instanceof`, or a `.constructor`
-    /// comparison?
-    ///
-    /// The list names *mechanisms* rather than a syntax and is meant to grow:
-    /// `narrowTypeByConstructor` was the third
-    /// (`checker-notes-diag2.md` §58), and it is the whole of TS2454's share of
-    /// `extraonly.rs`'s single-false-positive cases.
-    fn subtree_has_unported_narrowing(&self, node: NodeId, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::CallExpression(_))
-            || matches!(typed, Node::BinaryExpression(binary)
-                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::InstanceOfKeyword))
-            || matches!(typed, Node::PropertyAccessExpression(access)
-                if matches!(access.name, Some(tsr_ast::MemberName::Identifier(name))
-                    if name.text == "constructor"))
-        {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_has_unported_narrowing(child, depth + 1))
-    }
-
-    /// Does the subtree rooted at `node` contain an identifier spelled `text`?
-    pub(crate) fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
-        if depth > 32 {
-            return false;
-        }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        if matches!(typed, Node::Identifier(identifier) if identifier.text == text) {
-            return true;
-        }
-        let mut children = Vec::new();
-        tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
     }
 
     /// TS2428 — `All declarations of '{0}' must have identical type

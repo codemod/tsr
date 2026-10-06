@@ -296,3 +296,27 @@ Measured with that one line added locally (not committed): 24 TS7030 lines,
 also needs `checkReturnStatement`'s `return;` arm (`checker.go:4123`,
 non-strict only) in `assignreport.rs::check_return_statement` — reported.
 Perf (option off on both bench projects): 1.025 / 0.993 CPU median.
+
+## 11. TS2454: §839.1's "unported narrowing" guard removed
+
+`uninitialized_variable_reads_declared` declined any reference under a
+condition that named it and contained a call, an `instanceof` or a
+`.constructor` access (`reference_is_guarded_by_a_condition_on`,
+`checker-notes-deferred.md` §839.1), because those narrowings were unported
+and left `undefined` in the flow type. All three are ported in `crate::flow`
+now (type predicates, `narrowTypeByInstanceof`, `narrowTypeByConstructor`),
+and the guard had already been weakened to "only when the walk made no
+progress". With it removed, the false branch of `isFoo(value)` keeps
+`undefined` exactly as upstream's does and TS2454 reports there.
+
+**Measured.** 0 diagnostic / 0 type losses (the type road shares the
+predicate; the 67 type losses §839.1 recorded no longer occur); +12 TS2454
+lines, 0 extra; `narrowTypeByInstanceof`, `typeGuardNarrowsPrimitiveIntersection`,
+`typeGuardNarrowsToLiteralType`, `typeGuardNarrowsToLiteralTypeUnion`
+convert, `typeGuardOfFormInstanceOf` +6 lines. The guard's helpers
+(`subtree_has_unported_narrowing`, `subtree_mentions`) had no other caller and
+are deleted. CPU median: 1.001 / 0.988.
+
+**Falsifier.** A new TS2454 extra under a guard naming the variable would
+mean a narrowing arm over-keeps `undefined`; fix the arm, do not restore the
+guard.
