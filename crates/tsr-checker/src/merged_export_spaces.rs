@@ -164,7 +164,7 @@ impl Checker<'_, '_> {
     /// The parser sets no ambient flag (`bd tsr-o9tl`), so ambience is an
     /// ancestor walk to a `declare` or ambient module, and the declaration's
     /// own file is asked of the host.
-    fn is_exported_by_ambient_export_context(&self, declaration: NodeId) -> bool {
+    pub(crate) fn is_exported_by_ambient_export_context(&self, declaration: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(declaration) else { return false };
         if matches!(
             self.nodes.kind(parent),

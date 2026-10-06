@@ -903,8 +903,6 @@ pub struct Checker<'a, 'n> {
     pub(crate) enum_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Once per symbol for `checkExportsOnMergedDeclarations`. §960.
     pub(crate) merged_spaces_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Once per symbol for TS2385. §1021.
-    pub(crate) overload_accessibility_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Symbols `checkFunctionOrConstructorSymbol` has already visited.
     ///
     /// Upstream's `links.functionOrConstructorChecked` (`checker.go:3463`,
@@ -912,8 +910,6 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Symbols whose overload ambient agreement has been checked. §673.
-    pub(crate) overload_agreement_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Nodes for which `check_modifier_order` — this port's slice of upstream's
     /// `checkGrammarModifiers` — has already reported. Upstream's callers are
     /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
@@ -1495,9 +1491,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             enum_checked: rustc_hash::FxHashSet::default(),
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
-            overload_accessibility_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
-            overload_agreement_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
             decorator_error_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
