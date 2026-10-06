@@ -684,6 +684,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
+                self.check_circular_type_parameter_default(node);
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }
@@ -2130,6 +2131,39 @@ impl Checker<'_, '_> {
                 _ => {}
             }
         }
+    }
+
+    /// Ported from typescript-go's `checkTypeParameter`
+    /// (`internal/checker/checker.go:2603`), the TS2716 default-state check.
+    /// Check the written default first: its nested parameter resolutions decide
+    /// which participant native marks circular, including mutual defaults.
+    fn check_circular_type_parameter_default(&mut self, node: NodeId) {
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(default) = parameter.default_type else { return };
+        let (Some(at), Some(symbol)) = (default.node_id(), self.binder.symbol_of(node)) else {
+            return;
+        };
+        self.get_type_from_type_node(default);
+        let ty = self.get_declared_type_of_symbol(symbol);
+        if self.get_resolved_type_parameter_default(ty)
+            != crate::declared::TypeParameterDefaultState::Circular
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        if !self.circularity_reported.insert(at) {
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_DEFAULT,
+                self.error_span(at),
+                [self.binder.symbols().get(symbol).name.to_string()],
+            ),
+        );
     }
 
     /// TS2637 — `Variance annotations are only supported in type aliases for
