@@ -375,3 +375,21 @@ the conflict disappears with the parser fix (parser lane).
 
 **Falsifier.** A new extra TS2300/TS2451 between an exported declaration and
 a same-named local in a correctly parsed file.
+
+## §16 Binder: the `merged` edge on a conflicting merge stays (measured, refused)
+
+Round 1 asked the binder not to record `merged[source] = target` when the
+excludes forbid a merge (§3), as upstream's `mergeSymbol` never reaches
+`recordMergedSymbol` on that arm. Built and measured at `188e64f`: no verdict
+change, but two line regressions in WRONG cases — `recursiveComplicatedClasses`
+lost its TS2507 at `extends Symbol` (17,31) and
+`controlFlowFunctionLikeCircular1` gained an extra TS2448.
+
+**Why.** Upstream's `resolveName` skips a script's `SourceFile` locals (they
+were merged into `globals`), so `extends Symbol` in a script declaring
+`class Symbol` still reaches `lib.d.ts`'s `var Symbol: SymbolConstructor`.
+This port's resolver reads a script's file locals and relies on the `merged`
+redirect to land on the global; without the edge the reference resolves to
+the conflicting class itself. **Not shipped.** The edge can go once name
+resolution stops consulting script-file locals (reported to the integrator);
+until then §3's check-side test stays.
