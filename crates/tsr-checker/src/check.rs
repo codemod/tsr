@@ -10719,10 +10719,19 @@ impl Checker<'_, '_> {
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
-    /// function, module block, source file or property declaration.
+    /// function that is not immediately invoked, module block, source file or
+    /// property declaration. An IIFE's body is part of its caller's flow.
     pub(crate) fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction
+            ) && self.immediately_invoked_call(id).is_some()
+            {
+                current = self.nodes.parent(id);
+                continue;
+            }
             if matches!(
                 self.nodes.kind(id),
                 SyntaxKind::FunctionDeclaration

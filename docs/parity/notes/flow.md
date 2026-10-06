@@ -320,3 +320,20 @@ are deleted. CPU median: 1.001 / 0.988.
 **Falsifier.** A new TS2454 extra under a guard naming the variable would
 mean a narrowing arm over-keeps `undefined`; fix the arm, do not restore the
 guard.
+
+## 12. `getControlFlowContainer` skips immediately invoked functions
+
+`check.rs::control_flow_container` stopped at the first enclosing function.
+Upstream's predicate (`checker.go:11438`) is `IsFunctionLike(n) &&
+GetImmediatelyInvokedFunctionExpression(n) == nil`: an IIFE's body belongs to
+its caller's flow (the binder already threads it so). The port now skips a
+function expression or arrow that `immediately_invoked_call` names. Every
+caller (TS2454's `isOuterVariable`, the flow walk's container bound, the
+property-initialisation and readonly-target readers) asks upstream's
+question, so the change is made in the helper rather than at one caller.
+
+**Measured.** `typeGuardsInFunction` converts (TS2454 on a variable of the
+enclosing function read inside `function () { … } (param)` and
+`((p) => { … })(param)`); 0 diagnostic / 0 type losses, no other output
+changes. CPU median: `domain-model` 1.020, `generic-imports` 1.030 at 21
+samples and 1.020 at 41.
