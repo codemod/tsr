@@ -255,3 +255,45 @@ Losses, which is why it is held:
    is in the relater (strict-subtype over a fresh array literal) or in type-id
    creation order, neither of which this box owns. Falsifier for any fix: the
    case's line 10 turns RIGHT and no other line moves.
+
+### 2.5 Generic aliases run the declared-type push/pop frame (TS2456)
+
+Requested by the integrator ahead of the parser box's type-parameter-list
+recovery, which turns `type T1<in in> = T1` into a GENERIC alias
+(`varianceAnnotationsWithCircularlyReferencesError`: upstream `>T1 : any` plus
+TS2456). Two upstream orderings were missing:
+
+- `getDeclaredTypeOfTypeAlias` (`checker.go:23837`) resolves the body under
+  `pushTypeResolution` for every alias, generic or not. The generic arm of
+  `get_declared_type_of_type_alias` now does the same before its `Name<Params>`
+  mint: a failed pop reports TS2456 and declares `errorType`; a mention from a
+  lazily resolved construct (`deferred_since`) answers the mint, the §29 seam.
+  The resolved body is discarded (the declared type is still the mint — ADR-0045
+  rule 4 is not built for these bodies).
+- `getTypeFromTypeAliasReference` (`:23580`) reads the declared type BEFORE the
+  arity window, and a circular alias publishes no type parameters, so the
+  self-reference is `errorType`, not a TS2314. `get_type_reference_type` now
+  asks for a generic alias's declared type first and answers `error` on error.
+- `check_type_alias_circularity` (check.rs, the type-alias check) no longer
+  skips generic aliases, so the check pass reaches the getter.
+
+Measured on this branch (no parser change): zero moved lines in either dump
+against §2.2's state — no existing generic alias is newly found circular. On a
+scratch merge with the parser branch (`0238e8f`), the case's types turn
+2/2 RIGHT and its two TS2456 diagnostics appear (the remaining misses are
+TS2637 and TS1359, not this item).
+- Conditional-type BRANCHES are now deferred boundaries in
+  `native_resolves_lazily`. The first build of this commit failed
+  `awaited_types.rs`: lib `Awaited<T>` recurses through `Awaited<V>` in a
+  branch, which upstream never resolves while the declared type resolves
+  (`getConditionalType`, `:24300`, reads the branches only once the
+  conditional is not deferred) but which this port resolved eagerly — a false
+  circularity, `x: Awaited<T>` printing `error`. The port cannot yet tell at
+  that point whether a conditional defers, so every branch is a boundary;
+  for a fully concrete conditional that is lazier than upstream, and the cost
+  is a missed TS2456, never a false one. Falsifier: a concrete conditional
+  alias whose branch names itself, where upstream reports TS2456 and this port
+  does not.
+
+Re-measured with the branch boundary: zero moved lines in either dump,
+workspace tests pass, and the scratch-merge result above still holds.

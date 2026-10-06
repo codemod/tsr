@@ -200,6 +200,25 @@ impl<'a> Checker<'a, '_> {
     /// `checker.go:23236`). Consulted only while a declared type is resolving,
     /// to mark [`crate::resolution::Resolutions::enter_deferred`] boundaries.
     fn native_resolves_lazily(&mut self, node: TypeNode<'a>) -> bool {
+        // A BRANCH of a conditional type: getConditionalType resolves
+        // `root.node.TrueType`/`FalseType` only once the conditional is no
+        // longer deferred (checker.go:24300), so a deferred conditional — the
+        // shape of every generic alias body over its own parameters, lib
+        // `Awaited<T>` recursing through `Awaited<V>` — never reaches the alias
+        // from a branch while its declared type resolves. This port does not
+        // know at this point whether the conditional defers, so every branch
+        // is a boundary: for a fully concrete conditional that is lazier than
+        // upstream, and the cost is a missed TS2456, never a false one.
+        if let Some(id) = tsr_ast::Node::from(node).node_id()
+            && let Some(parent) = self.nodes.parent(id)
+            && let Some(Node::ConditionalTypeNode(conditional)) = self.node_map.get(parent)
+            && [conditional.true_type, conditional.false_type]
+                .into_iter()
+                .flatten()
+                .any(|branch| tsr_ast::Node::from(branch).node_id() == Some(id))
+        {
+            return true;
+        }
         match node {
             TypeNode::TypeLiteralNode(_)
             | TypeNode::FunctionTypeNode(_)
@@ -1773,6 +1792,16 @@ impl<'a> Checker<'a, '_> {
     ) -> TypeId {
         let error = self.intrinsics.error;
         let parameters = self.local_type_parameters_of(symbol).len();
+        // getTypeFromTypeAliasReference (checker.go:23580) reads the declared
+        // type BEFORE its arity window, and a circular alias publishes no type
+        // parameters, so `type T1<in in> = T1` answers `errorType` rather than
+        // a TS2314 arity failure.
+        if parameters > 0
+            && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && self.get_declared_type_of_symbol(symbol) == error
+        {
+            return error;
+        }
         if parameters == 0 {
             // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
             // that takes none is an error, and answering the bare declared type
@@ -6623,12 +6652,36 @@ impl<'a> Checker<'a, '_> {
                     return resolved;
                 }
             }
+            // getDeclaredTypeOfTypeAlias (checker.go:23837) resolves a GENERIC
+            // alias's body under the same push/pop frame as any other: a body
+            // that reaches the alias again eagerly fails the pop, reports
+            // TS2456 and declares `errorType` (`type T1<in in> = T1` records
+            // `>T1 : any`, `varianceAnnotationsWithCircularlyReferencesError`).
+            // A mention inside a construct native resolves lazily answers the
+            // name mint, upstream's laziness at the §29 seam. The resolved body
+            // is otherwise discarded: the declared type stays the mint below
+            // until ADR-0045 rule 4 is built for these bodies.
             let name = self.binder.symbols().get(symbol).name.to_string();
-            return self.store.new_named(
-                TypeFlags::OBJECT,
-                format!("{name}<{}>", parameters.join(", ")),
-                None,
-            );
+            let mint = |checker: &mut Self| {
+                checker.store.new_named(
+                    TypeFlags::OBJECT,
+                    format!("{name}<{}>", parameters.join(", ")),
+                    None,
+                )
+            };
+            if self.resolutions.deferred_since(symbol, PropertyName::DeclaredType) {
+                return mint(self);
+            }
+            if let Some(body) = self.type_alias_body(symbol) {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let _ = self.get_type_from_type_node(body);
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+            }
+            return mint(self);
         }
         let Some(type_node) = self.type_alias_body(symbol) else { return error };
         // getDeclaredTypeOfTypeAlias / getBuiltinIteratorReturnType
