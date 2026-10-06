@@ -1208,8 +1208,9 @@ impl Checker<'_, '_> {
     /// `getSignatureInstantiation` and `isSignatureApplicable`. On failure
     /// `reportCallResolutionErrors` (`checker.go:9649`) reports the
     /// constraint failure (`candidateForTypeArgumentError`, see
-    /// [`Checker::check_call_type_argument_constraints`]) or re-runs the
-    /// applicability check with `reportErrors` against that same
+    /// [`Checker::check_call_type_argument_constraints`]), the arity of an
+    /// instantiated generic rest (`candidateForArgumentArityError`), or
+    /// re-runs the applicability check with `reportErrors` against that same
     /// instantiation (`candidatesForArgumentError`'s only entry).
     ///
     /// A call with a context-sensitive argument and no written type
@@ -1258,6 +1259,27 @@ impl Checker<'_, '_> {
                 _ => return false,
             }
         };
+        // A generic rest type can instantiate to another arity
+        // (`checker.go:9068`): the instantiation is then
+        // `candidateForArgumentArityError`, reported by `getArgumentArityError`
+        // over it alone (`reportCallResolutionErrors`, `checker.go:9670`).
+        if self.signature_non_array_rest_type(candidate).is_some() {
+            let Some(effective) = self.effective_call_arguments(call.arguments) else {
+                return false;
+            };
+            match self.has_correct_arity(&instantiated, &effective, false) {
+                Some(true) => {}
+                Some(false) => {
+                    let error_node = call
+                        .expression
+                        .and_then(|callee| callee.node_id())
+                        .map_or(node, |callee| self.call_error_node(callee));
+                    self.report_argument_arity_error(node, error_node, &[instantiated], &effective);
+                    return true;
+                }
+                None => return false,
+            }
+        }
         if self.signature_non_array_rest_type(&instantiated).is_some() {
             return false;
         }
