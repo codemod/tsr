@@ -1017,7 +1017,10 @@ impl Checker<'_, '_> {
                 self.check_jsx_children_specified_twice(node);
             }
             Node::JsxExpression(_) => self.check_jsx_expression(node),
-            Node::YieldExpression(_) => self.check_yield_star_iteration(node),
+            Node::YieldExpression(_) => {
+                self.check_yield_star_iteration(node);
+                self.check_implicit_any_yield_expression(node);
+            }
             _ => {}
         }
         if matches!(typed, Node::ExportDeclaration(_)) {

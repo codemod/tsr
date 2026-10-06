@@ -2616,6 +2616,24 @@ impl<'a> Checker<'a, '_> {
         // its arguments, which is the immediately invoked function expression
         // upstream handles at `checker.go:29463` from the argument expressions.
         let index = call.arguments.iter().position(|a| a.node_id() == Some(argument))?;
+        // getContextualTypeForArgumentAtIndex's import-call arm
+        // (`checker.go:29773`): `import(specifier, options)` resolves no
+        // signature — the specifier is `string`, the options
+        // `getGlobalImportCallOptionsType` (the empty object type when the
+        // library lacks it), any further argument `any`.
+        if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
+            if keyword.kind == tsr_ast::SyntaxKind::ImportKeyword)
+        {
+            return Some(match index {
+                0 => self.intrinsics.string,
+                1 => self
+                    .global_type_symbol("ImportCallOptions")
+                    .map_or(self.intrinsics.empty_object, |options| {
+                        self.get_declared_type_of_symbol(options)
+                    }),
+                _ => self.intrinsics.any,
+            });
+        }
 
         // The const/freshness query needs parameter identities before the
         // fixing mapper, including after a completed call memo is available.
