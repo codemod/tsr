@@ -135,3 +135,12 @@ issue-id validator still fails on 191 pre-existing IDs; all 737 reported citatio
 lines are identical to frozen main. The issues named in this continuation resolve
 in the authoritative Beads database. This is a scoped verification, not a global
 issue-id pass. The delivery review covers these five passive paths only.
+
+## Native signature-admission continuation at `51960e07`
+
+The [native contract phase](checker-signature-admission-native.md) establishes
+80 parsed controls, three detected mutants and full native restoration for the
+remaining merged-function diagnostic boundary. It preserves deferred signature
+and return work rather than removing the Rust guard. `.27` stays in progress
+until the compiling seam handoff; `.28` and the earlier 18/one retention gates
+remain. The separate missing circular-annotation diagnostic is `tsr-6.74`.

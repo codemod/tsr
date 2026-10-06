@@ -22,6 +22,14 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Native signature prerequisite (`tsr-1yb.27`) at `51960e07` / native `5b1047d`:
+80 parsed controls and three compiling mutations qualify deferred signature/
+return forcing, including missing metadata with supported no-op identity. Full
+4,988 Go files and 108 libraries restored; 60 CLI children, 18/20 main native
+agreements and 16/20 private replay agreements. Compiling Rust seam pending,
+no runtime or speed change.
+[Contract and exact remaining gates](docs/architecture/checker-signature-admission-native.md).
+
 Member prerequisite continuation (`tsr-1yb.33.1`), frozen `53826afe`: native
 reference admission and actual instantiated contextual reads pass200 restored
 library tests. Fresh full corpora reduce losses from49/four to18 type assertions
@@ -3422,6 +3430,10 @@ thislessFunctionsNotContextSensitive3 type losses and one subtypesOfUnion
 diagnostic loss. Correct these actual paths before builder reuse; reference
 admission and contextual reads repaired earlier JSX/override/temporal losses.
 [Current source-bound continuation](docs/architecture/checker-member-admission-contextual-read.md).
+The signature native phase `.27` now has 80 qualified controls. `.28` must compile
+the actual absent/pending/active/completed/no-op admission seam before repairing
+merged-function TS2411; no blanket guard bypass. Circular return-annotation TS2577
+is separately tracked as `tsr-6.74`. [Native handoff](docs/architecture/checker-signature-admission-native.md).
 Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
 [Published identity and reset contract](docs/architecture/checker-published-members.md).
 [Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
@@ -14771,3 +14783,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `0fd93183` / native `5b1047d` | — | — | **Declared-reference progress, tsr-1yb.33.1; retention refused.** Class and inherited-interface formal-this admission repaired privately; two red/green controls, six fresh native orders, two final compiling mutants detected and exact restoration then 198 library passes. Two CLI batches total 384 terminal children; final 54/66 output pairs equal, ten changed pairs native-aligned, two derived negative pairs still wrong; no bounded native agreement loss. Unfiltered 477970 type rows lose 49 previously RIGHT, 10570 diagnostic cases lose four, including new subtypesOfUnion relative to class-only 62/six. All 101/12 changed rows retained. False public derived TS2430 and stored interface signature-this mapping remain unqualified. No main runtime retention, coverage or speed gain; builder 4.2.1 gated. [Replay and limits](docs/architecture/checker-declared-member-references.md). |
 
 | 2026-10-06 | `53826afe` / native `5b1047d` | — | — | **Member admission/contextual-read progress, tsr-1yb.33.1; retention refused.** Two actual paths repaired privately;15 fresh native observations,200 restored library passes, three compiling mutants detected. Fresh477970/10570 corpora reduce entry49/four losses to18/one; all74/9 changed rows retained. Two CLI matrices608 children plus8 exploratory; final62/78 main outputs equal,56 native agreements, two main agreements lost on missing subtypesOfUnion TS2411. No main runtime, coverage or speed gain;4.2.1 gated and PR5 regression34 unresolved. [Replay and limits](docs/architecture/checker-member-admission-contextual-read.md). |
+
+| 2026-10-06 | `51960e07` / native `5b1047d` | — | — | **Native signature-admission progress, tsr-1yb.27.** 80 fresh parsed controls; three compiling mutants detect eager return, skipped signature completion and premature success. Exact qualified rerun passes 80 controls; all 4,988 Go files and 108 libraries restored. 60 CLI children/20 pairs: main has 18 native agreements and private replay has 16. Merged generic TS2411 loss reproduced; missing circular TS2577 filed as tsr-6.74. False direct-recursion any expectation corrected explicitly from native never; original failed run retained. Compiling Rust seam pending; .27 in progress, .28 open, no runtime, coverage or speed gain. [Contract](docs/architecture/checker-signature-admission-native.md). |
