@@ -2163,7 +2163,20 @@ impl<'a> Checker<'a, '_> {
             PropertyName::Identifier(name) => name.text.to_string(),
             PropertyName::StringLiteral(name) => name.text.to_string(),
             PropertyName::NumericLiteral(name) => name.text.to_string(),
-            PropertyName::ComputedPropertyName(name) => self.late_bound_symbol_member_name(name)?.0,
+            PropertyName::ComputedPropertyName(name) => {
+                if let Some((name, _)) = self.late_bound_symbol_member_name(name) {
+                    name
+                } else {
+                    // A dynamic name has no property to look up; upstream goes
+                    // straight to the index fallback (`checker.go:29946-29955`)
+                    // with `getLiteralTypeFromPropertyName(name)`, which for a
+                    // computed name is the regular type of its expression.
+                    let expression = name.expression?;
+                    let name_type = self.check_expression(expression);
+                    let name_type = self.get_regular_type_of_literal_type(name_type);
+                    return self.contextual_index_value_for_name_type(contextual, name_type);
+                }
+            }
             _ => return None,
         };
         // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
@@ -2225,6 +2238,31 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(property_type)
+    }
+
+    /// getContextualTypeForObjectLiteralElement's index fallback
+    /// (`checker.go:29946-29955`): `mapTypeEx(t, findApplicableIndexInfo(
+    /// getIndexInfosOfStructuredType(t), nameType).valueType, noReductions)`.
+    fn contextual_index_value_for_name_type(
+        &mut self,
+        contextual: TypeId,
+        name_type: TypeId,
+    ) -> Option<TypeId> {
+        let constituents = match &self.store.get(contextual).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![contextual],
+        };
+        let mut values = Vec::new();
+        for constituent in constituents {
+            if let Some(info) = self.get_applicable_index_info(constituent, name_type) {
+                values.push(info.value);
+            }
+        }
+        match values.as_slice() {
+            [] => None,
+            [value] => Some(*value),
+            _ => Some(self.get_union_type_without_reduction(&values)),
+        }
     }
 
     /// [`Checker::contextual_property_type`] for an object literal's member,
