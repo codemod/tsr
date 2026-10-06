@@ -22,6 +22,15 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Published-member contract (`tsr-1yb.32`), inventory frozen `abbaa1d9` / native
+`5b1047d`: 58 source anchors and 69 fresh parsed native controls bind actual
+symbol publication, scalar Single/Merged/Single history, first accessor write
+and both reset completion paths. Both native archives restore exactly; no
+Rust runtime changes or new corpus/timing result. The proposed private member
+links and active-frame/revision protocol remain unimplemented. `.33` can
+compile-check the writer/read seam; `.4.2.1` still requires current costly
+builder attribution. [Contract and receipt](docs/architecture/checker-published-members.md).
+
 Late-bound copy attribution (`tsr-1yb.16.2.3`), frozen `48e300a4` / native
 `5b1047d`: 104 baseline and 78 candidate controls preserve complete output and
 1,397 actual Next.js checks. The lookup prototype `.7.5.1.1` removes exactly
@@ -3329,8 +3338,12 @@ orders; declaration origin plus supplying reference is not an accepted identity.
 The existing builder `tsr-1yb.4.2.1`, receiver repair `tsr-6.69.2` and signature
 admission `.27`/`.28` retain their production gates and owners. This architectural
 handoff assigns no new reachability score or measured performance benefit.
-New P1 contract `tsr-1yb.32` can start now; compiling consumer `tsr-1yb.33`
-depends on it, and the concrete builder depends on that consumer.
+Contract `tsr-1yb.32` now binds the actual writer/read seam at `abbaa1d9`.
+Compiling consumer `tsr-1yb.33` must implement and qualify the proposed private
+links and active-frame/revision protocol; the concrete builder depends on that
+consumer and current expensive construction counts. Native's 69 replayed
+controls establish semantics, not a saved-wall ceiling.
+[Published identity and reset contract](docs/architecture/checker-published-members.md).
 
 Parity round 2 (`tsr-2zk`): cross-lane blockers named by round-1 boxes come
 first because each unblocks several lanes — module-augmentation merge
@@ -6805,6 +6818,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Member identity reconstruction remains refused: `.32` replays the native
+Single/Merged/Single scalar sequence across three orders, whereas rejected
+`.31` reconstructed Merged/Merged/Merged. Pre-forcing reads, treating a link
+target as getTargetSymbol without INSTANTIATED, or requiring a fresh worker
+after every reset would repeat those semantic failures. The 69 native controls
+provide no cost-qualified production reuse candidate on `abbaa1d9`.
+[Required publication boundary](docs/architecture/checker-published-members.md).
 
 Late-bound borrowed instance lookup (`tsr-1yb.7.5.1.1`, frozen `48e300a4`):
 default public median0.555741s versus base0.557122s/A-A0.564955s saves only
@@ -14613,3 +14634,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-03 | `HEAD` | **95.75%** | **7,084/9,538** | **Generic alias keyof operands (tsr-6.42): +36 assertions vs exact cfcbcfab, zero RIGHT losses or population changes.** 458,508/478,855; aligned 474,251 total, 458,508 RIGHT, 2,433 GAP, 13,310 WRONG. 34 W→R, 2 G→R, one exposed G→W and 17 changed already-WRONG payloads. Alias-body evaluation, semantic empty-object deferral and retained remapped-alias operands follow pinned tsgo; concrete substitutions are tested. Diagnostics unchanged at 2,800/5,488. All 227 release workspace result blocks, strict clippy, fmt, 3,400 anchors and 16,642 section citations pass on the rebased source. The issue-ID gate still reports 197 missing historical records; Dolt adoption remains unapproved. 15,559 matches remain to 99%; recursive mapped keys, computed-symbol keys and circular-alias diagnostics remain in tsr-6.43. [Evidence](docs/architecture/checker-99-union-key-access.md). |
 
 | 2026-10-03 | `19677867` | **95.93%** | **7,147/9,538** | **Third eight-orb integration plus preserved upstream work: +909 assertions and +63 complete cases vs exact 8a65762e.** 459,381/478,855; aligned 474,251 total, 459,381 RIGHT, 2,198 GAP, 12,672 WRONG. 690 W→R, 219 G→R, zero RIGHT losses/new/removed rows, 19 G→W and 76 changed-WRONG payloads. Eight units alone add 873 matches against preserved 25007101; the other 36 are independently verified generic-alias keyof work. Diagnostics 2,808/5,488 (+8); parser, binder and declaration suites unchanged. All 2,630 release workspace tests/229 result blocks, three worker-diagnostic controls, nine performance-script tests, strict clippy, fmt, 3,400 anchors and 16,633 section citations pass. The 197 historical issue-ID failures and unconfigured Dolt remote remain explicit. 14,686 matches remain to 99%; review refusals and semantic follow-ups are recorded in §§4–5. |
+
+| 2026-10-06 | `abbaa1d9` (Rust inventory) / native `5b1047d` | — | — | **Published-member contract, tsr-1yb.32:** 58 source anchors and 69 fresh native parsed controls preserve actual scalar Single/Merged/Single history, clone target/flag/parent/first mapper/write, active prefixes and both natural reset completion paths. Both native archives restore exactly. Private member links and active-frame/revision protocol are proposed, not implemented; .33 owns compiling qualification and .4.2.1 requires current expensive builder attribution. No runtime, new corpus or speed claim. [Contract](docs/architecture/checker-published-members.md). |
