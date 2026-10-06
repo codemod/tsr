@@ -262,20 +262,7 @@ impl Checker<'_, '_> {
             return true;
         }
         let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
-        // `checkIdentifier`'s assignment arms end `return c.errorType`
-        // (`checker.go:11093`, `:11101`) for a target that is not a writable
-        // variable (TS2629/TS2630/… and TS2540 report there), and an
-        // error-typed left operand is `any` to everything below. §253, §282.
-        let left_is_error_target = matches!(left, tsr_ast::Expression::Identifier(_))
-            && operator.is_assignment_operator()
-            && left.node_id().is_some_and(|id| {
-                let tsr_ast::Expression::Identifier(identifier) = left else { return false };
-                self.assignment_target_symbol(id, identifier.text).is_some_and(|(symbol, flags)| {
-                    !flags.intersects(SymbolFlags::VARIABLE) || self.is_readonly_symbol(symbol)
-                })
-            });
-        let left_type =
-            if left_is_error_target { self.intrinsics.error } else { self.check_expression(left) };
+        let left_type = self.assignment_operand_type(left, operator.is_assignment_operator());
         let right_type = self.check_expression(right);
         let left_type = self.check_non_null_type_reporting(left_type, left);
         let right_type = self.check_non_null_type_reporting(right_type, right);
@@ -361,6 +348,28 @@ impl Checker<'_, '_> {
             }
         }
         left_ok && right_ok
+    }
+
+    /// An operand's type as the operator arms see it. `checkIdentifier`'s
+    /// assignment arms end `return c.errorType` (`checker.go:11093`,
+    /// `:11101`) for an assignment target that is not a writable variable
+    /// (TS2539/TS2629/TS2630/… and TS2540 report there), and an error-typed
+    /// operand is `any` to every operator rule. `is_target` is
+    /// `getAssignmentTargetKind(operand) != None`: the left of a compound
+    /// assignment, or the operand of `++`/`--`. §253, §282.
+    fn assignment_operand_type(
+        &mut self,
+        operand: tsr_ast::Expression<'_>,
+        is_target: bool,
+    ) -> TypeId {
+        let is_error_target = is_target
+            && operand.node_id().is_some_and(|id| {
+                let tsr_ast::Expression::Identifier(identifier) = operand else { return false };
+                self.assignment_target_symbol(id, identifier.text).is_some_and(|(symbol, flags)| {
+                    !flags.intersects(SymbolFlags::VARIABLE) || self.is_readonly_symbol(symbol)
+                })
+            });
+        if is_error_target { self.intrinsics.error } else { self.check_expression(operand) }
     }
 
     /// `checkArithmeticOperandType` (`checker.go:12799`):
@@ -458,7 +467,10 @@ impl Checker<'_, '_> {
         };
         let Some(operand) = operand else { return true };
         let prefix = self.nodes.kind(node) == SyntaxKind::PrefixUnaryExpression;
-        let operand_type = self.check_expression(operand);
+        let operand_type = self.assignment_operand_type(
+            operand,
+            matches!(operator, SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken),
+        );
         if prefix {
             // The literal arms answer a fresh literal before the operator
             // switch (`checker.go:10861`).

@@ -276,3 +276,32 @@ So the gate stays until `jsx_discriminant_value_type` reads the
 context-free type; then removing the type-parameter half should convert the
 first two cases with no crash. Narrowing only the `unknown` half converts
 nothing on its own (the reducer gap above), so it was not committed either.
+
+## 10. `checkNonNullType`'s reporter is not a strict-mode rule (TS18050, TS2531)
+
+Round 1's `check_non_null_type_reporting` reported only under
+`strictNullChecks`. Upstream's gate is `getTypeFacts(t, IsUndefinedOrNull)`
+(`checker.go:7425`), and the **non-strict** fact sets of `undefined` and
+`null` still carry `IsUndefined` / `IsNull` (`TypeFactsUndefinedFacts`,
+`TypeFactsNullFacts`, `checker.go:471-472`) — only the other primitives'
+non-strict sets differ. So `+null`, `~undefined` are TS18050 under
+`@strict: false` (`plusOperatorWithAnyOtherType`,
+`bitwiseNotOperatorWithAnyOtherType`). `3 + null` stays TS2365 there,
+because non-strict `null` is assignable to `string` and the `+` arm skips
+`checkNonNullType` — that is the `+` arm's own test, not this one's.
+
+The tail is upstream's too: non-strict `GetNonNullableType` is the identity,
+and a nullable or never result is `errorType` (`checker.go:7429`).
+`check_non_null_type` (`members.rs`, not this lane's) returns the operand
+unchanged in that case, so the wrapper applies the tail itself.
+
+Wiring that exposed a second gap: `++undefined` is TS2539 in
+`checkIdentifier`, which then returns `errorType` (`checker.go:11093`), so
+no TS18050 follows. The binary arm modelled that `errorType` for a compound
+assignment's left operand; the unary arm did not, and reported four extra
+TS18050 on `++undefined`/`undefined++`. Both now share
+`assignment_operand_type` (`getAssignmentTargetKind != None`: the left of a
+compound assignment, the operand of `++`/`--`).
+
+**Measured** (against `30f8d0a`): +2 cases (WRONG → RIGHT), zero losses;
+MISSING TS18050 27 → 17, TS2531 2 → 0; no new extras.
