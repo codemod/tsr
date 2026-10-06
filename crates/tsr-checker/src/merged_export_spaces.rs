@@ -129,7 +129,7 @@ impl Checker<'_, '_> {
     /// edge, so an exported declaration's local is found by name in the
     /// enclosing locals tables: the entry whose export link is the node's
     /// symbol and whose declarations include the node.
-    fn export_merge_local_symbol(
+    pub(crate) fn export_merge_local_symbol(
         &self,
         node: NodeId,
         symbol: tsr_binder::SymbolId,

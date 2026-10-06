@@ -12850,7 +12850,19 @@ impl Checker<'_, '_> {
     ///   `links.functionOrConstructorChecked` (`checker.go:3463`). Without it a
     ///   three-overload function reports three times, and the suite compares
     ///   multisets.
+    ///
+    /// `checkFunctionOrMethodDeclaration` (`checker.go:3422-3436`) calls the
+    /// worker only for a declaration with a **bindable name** (a dynamic name
+    /// that is not late-bindable — `[e]` with `e` unresolved, `[sym]` with
+    /// `sym: symbol` — is skipped), and twice for an exported one: on
+    /// `node.LocalSymbol()`, the local half that holds only this container's
+    /// declarations, and on the export symbol, which holds every merged
+    /// block's. Both runs can report the same line; upstream's diagnostic
+    /// collection deduplicates, so this does too.
     fn check_function_or_constructor_symbol(&mut self, node: NodeId, ambient: bool) {
+        if self.non_bindable_computed_name(node).is_some() {
+            return;
+        }
         // A **constructor has no symbol in this binder**. Upstream binds one as
         // `__constructor` in the class's member table; here `symbol_of` answers
         // `None`, so an overload set of constructors had nothing to gather its
@@ -12860,19 +12872,59 @@ impl Checker<'_, '_> {
         // class's constructor members in source order, and the dedup
         // `function_symbol_checked` gives a symbol is given here by running
         // only for the first of them.
-        let mut declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
-            let symbol = self.binder.merged_symbol(symbol);
-            if !self.function_symbol_checked.insert(symbol) {
-                return;
+        let mut lists: Vec<Vec<NodeId>> = Vec::new();
+        if let Some(own) = self.binder.symbol_of(node) {
+            let symbol = self.binder.merged_symbol(own);
+            let local = self
+                .declaration_name_of(node)
+                .and_then(|name| self.identifier_text(name))
+                .map(str::to_string)
+                .and_then(|name| self.export_merge_local_symbol(node, own, &name))
+                .filter(|&local| local != own && local != symbol);
+            for checked in local.into_iter().chain(std::iter::once(symbol)) {
+                if self.function_symbol_checked.insert(checked) {
+                    lists.push(
+                        self.binder.symbols().get(checked).declarations.iter().copied().collect(),
+                    );
+                }
             }
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect()
         } else {
             let siblings = self.constructor_siblings_of(node);
-            if siblings.first() != Some(&node) {
-                return;
+            if siblings.first() == Some(&node) {
+                lists.push(siblings);
             }
-            siblings
-        };
+        }
+        let start = self.diagnostics.len();
+        for declarations in lists {
+            self.check_function_or_constructor_declarations(node, declarations, ambient);
+        }
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut index = start;
+        while index < self.diagnostics.len() {
+            let (file, diagnostic) = &self.diagnostics[index];
+            let key = (
+                *file,
+                diagnostic.span.start,
+                diagnostic.span.end,
+                diagnostic.message.code(),
+                diagnostic.args.clone(),
+            );
+            if seen.insert(key) {
+                index += 1;
+            } else {
+                self.diagnostics.remove(index);
+            }
+        }
+    }
+
+    /// `checkFunctionOrConstructorSymbolWorker` over one symbol's
+    /// declarations; see [`Self::check_function_or_constructor_symbol`].
+    fn check_function_or_constructor_declarations(
+        &mut self,
+        node: NodeId,
+        mut declarations: Vec<NodeId>,
+        ambient: bool,
+    ) {
         let Some(mut file) = self.source_file_of_for_diagnostics(node) else { return };
         let mut ambient = ambient;
         // A module augmentation (`mergeModuleAugmentation`,
@@ -13263,38 +13315,82 @@ impl Checker<'_, '_> {
         Some(erased)
     }
 
-    /// `reportImplementationExpectedError` (`checker.go:3549`), reduced to its
-    /// two terminal messages.
+    /// `reportImplementationExpectedError` (`checker.go:3549`).
     ///
-    /// The subsequent-node scan above them selects TS2389
-    /// `Function implementation name must be '{0}'` and the static/instance
-    /// overload pair, and needs the *parent's* child order. It is not ported;
-    /// the effect is that a case wanting TS2389 gets TS2391 instead, which is a
-    /// wrong code — so the scan's guard is reproduced instead: if the next
-    /// sibling is adjacent, of the same kind and carries a body, say nothing.
+    /// The subsequent-node scan: when the declaration's next sibling (upstream
+    /// tests `subsequentNode.Pos() == node.End()`; see [`Self::next_sibling`])
+    /// is of the same kind, either the names match — then a method whose
+    /// `static`-ness differs from the next one's is TS2387/TS2388 at the next
+    /// one's name, and otherwise nothing is said, since the binder already
+    /// reported whatever kept them from merging — or the next one carries a
+    /// body and is the misnamed implementation, TS2389. Only past both does
+    /// the terminal message (TS2390/TS2391/TS2516) fall.
     fn report_implementation_expected(&mut self, node: NodeId, is_constructor: bool) {
-        // TS2389 first: an adjacent subsequent declaration of the same kind
-        // that **carries a body** and does **not** share this one's name is
-        // the implementation, misnamed (`checker.go:3585`). The error node is
-        // the *subsequent* declaration's name and the argument is this one's —
-        // `checker-notes-diag2.md` §63.
-        if let Some((at, expected)) = self.misnamed_implementation(node) {
-            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-            let span = self.error_span(at);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::FUNCTION_IMPLEMENTATION_NAME_MUST_BE_0,
-                    span,
-                    [expected],
-                ),
-            );
+        let name = self.declaration_name_of(node);
+        // `name != nil && ast.NodeIsMissing(name)`: a name the parser had to
+        // invent (an empty span here) says nothing.
+        if name.is_some_and(|name| {
+            let span = self.nodes.span(name);
+            span.start == span.end
+        }) {
             return;
         }
-        if self.next_sibling_is_the_implementation(node) {
-            return;
+        if let Some(next) = self.next_sibling(node)
+            && self.nodes.kind(next) == self.nodes.kind(node)
+        {
+            let subsequent = self.declaration_name_of(next);
+            let at = subsequent.unwrap_or(next);
+            if let (Some(name), Some(subsequent)) = (name, subsequent) {
+                match self.overload_names_identical(name, subsequent) {
+                    Some(true) => {
+                        let is_static = |checker: &Self, declaration: NodeId| {
+                            checker.node_map.get(declaration).and_then(modifiers_of).is_some_and(
+                                |modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword),
+                            )
+                        };
+                        let node_is_static = is_static(self, node);
+                        if matches!(
+                            self.nodes.kind(node),
+                            SyntaxKind::MethodDeclaration | SyntaxKind::MethodSignature
+                        ) && node_is_static != is_static(self, next)
+                            && let Some(file) = self.source_file_of_for_diagnostics(at)
+                        {
+                            let message = if node_is_static {
+                                &messages::FUNCTION_OVERLOAD_MUST_BE_STATIC
+                            } else {
+                                &messages::FUNCTION_OVERLOAD_MUST_NOT_BE_STATIC
+                            };
+                            let span = self.error_span(at);
+                            self.report(file, Diagnostic::new(message, span));
+                        }
+                        return;
+                    }
+                    Some(false) => {}
+                    // A computed pair the identity relation cannot decide.
+                    None => return,
+                }
+            }
+            if self.declaration_has_body(next) {
+                // `scanner.DeclarationNameToString(name)`; a declaration
+                // without a name (a constructor) has nothing to print.
+                let Some(expected) = name.and_then(|name| self.overload_name_to_string(name))
+                else {
+                    return;
+                };
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                let span = self.error_span(at);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::FUNCTION_IMPLEMENTATION_NAME_MUST_BE_0,
+                        span,
+                        [expected],
+                    ),
+                );
+                return;
+            }
         }
-        let at = self.declaration_name_of(node).unwrap_or(node);
+        let at = name.unwrap_or(node);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         let message = if is_constructor {
@@ -13305,6 +13401,87 @@ impl Checker<'_, '_> {
             &messages::FUNCTION_IMPLEMENTATION_IS_MISSING_OR_NOT_IMMEDIATELY_FOLLOWING_THE_DECLARATION
         };
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The name test of `reportImplementationExpectedError`
+    /// (`checker.go:3570-3573`): two private names with one text, two
+    /// computed names whose `checkComputedPropertyName` types are identical,
+    /// or two property-name literals (identifier, string, numeric,
+    /// no-substitution template) with one `Text()` — a numeric literal's text
+    /// is its canonical value, as the scanner stores it. `None` when the
+    /// identity of two computed-name types is undecidable here.
+    fn overload_names_identical(&mut self, name: NodeId, subsequent: NodeId) -> Option<bool> {
+        let literal_text = |checker: &Self, node: NodeId| -> Option<String> {
+            match checker.node_map.get(node)? {
+                Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                Node::StringLiteral(literal) => Some(literal.text.to_string()),
+                Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text.to_string()),
+                Node::NumericLiteral(literal) => {
+                    Some(tsr_core::jsnum::canonical_numeric_text(literal.text))
+                }
+                _ => None,
+            }
+        };
+        match (self.node_map.get(name), self.node_map.get(subsequent)) {
+            (Some(Node::PrivateIdentifier(left)), Some(Node::PrivateIdentifier(right))) => {
+                Some(left.text == right.text)
+            }
+            (Some(Node::ComputedPropertyName(left)), Some(Node::ComputedPropertyName(right))) => {
+                let (Some(left), Some(right)) = (left.expression, right.expression) else {
+                    return Some(false);
+                };
+                let left = self.check_expression(left);
+                let right = self.check_expression(right);
+                let left = self.get_regular_type_of_literal_type(left);
+                let right = self.get_regular_type_of_literal_type(right);
+                if left == right {
+                    return Some(true);
+                }
+                // Literal and unique-symbol types are interned: two distinct
+                // ids are two distinct types.
+                let unit = TypeFlags::STRING_LITERAL
+                    | TypeFlags::NUMBER_LITERAL
+                    | TypeFlags::BIG_INT_LITERAL
+                    | TypeFlags::BOOLEAN_LITERAL
+                    | TypeFlags::UNIQUE_ES_SYMBOL;
+                if self.type_of(left).flags.intersects(unit)
+                    && self.type_of(right).flags.intersects(unit)
+                {
+                    return Some(false);
+                }
+                match self.is_type_identical_to(left, right) {
+                    Ternary::Related => Some(true),
+                    Ternary::NotRelated => Some(false),
+                    Ternary::Unknown => None,
+                }
+            }
+            _ => match (literal_text(self, name), literal_text(self, subsequent)) {
+                (Some(left), Some(right)) => Some(left == right),
+                _ => Some(false),
+            },
+        }
+    }
+
+    /// `scanner.DeclarationNameToString` for an overload's name. Upstream
+    /// prints the source text; a string literal is respelled with double
+    /// quotes and a computed name from its expression, which only the
+    /// message argument can tell apart.
+    fn overload_name_to_string(&self, name: NodeId) -> Option<String> {
+        match self.node_map.get(name)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::PrivateIdentifier(identifier) => Some(identifier.text.to_string()),
+            Node::NumericLiteral(literal) => Some(literal.text.to_string()),
+            Node::StringLiteral(literal) => Some(format!("\"{}\"", literal.text)),
+            Node::ComputedPropertyName(computed) => {
+                let inner = match computed.expression? {
+                    tsr_ast::Expression::StringLiteral(literal) => format!("\"{}\"", literal.text),
+                    tsr_ast::Expression::NumericLiteral(literal) => literal.text.to_string(),
+                    _ => self.computed_name_spelling(name)?,
+                };
+                Some(format!("[{inner}]"))
+            }
+            _ => None,
+        }
     }
 
     /// Every `constructor` member of the class enclosing `node`, in source
@@ -13328,51 +13505,6 @@ impl Checker<'_, '_> {
                 _ => None,
             })
             .collect()
-    }
-
-    /// The subsequent declaration's name node and this one's written name,
-    /// when the pair is upstream's TS2389 shape: adjacent, same kind, the
-    /// subsequent one has a body, and the names differ.
-    ///
-    /// `None` for every other shape, including the name-matching one — that is
-    /// the static/instance arm (TS2387/TS2388), which is its own row and stays
-    /// declined. See `checker-notes-diag2.md` §63.
-    fn misnamed_implementation(&self, node: NodeId) -> Option<(NodeId, String)> {
-        let next = self.next_sibling(node)?;
-        if self.nodes.kind(next) != self.nodes.kind(node) || !self.declaration_has_body(next) {
-            return None;
-        }
-        let name = self.declaration_name_of(node)?;
-        let subsequent = self.declaration_name_of(next)?;
-        let written = self.identifier_text(name)?;
-        if self.identifier_text(subsequent) == Some(written) {
-            return None;
-        }
-        Some((subsequent, written.to_string()))
-    }
-
-    /// The guard `reportImplementationExpectedError` puts in front of its
-    /// terminal messages (`checker.go:3566`): a *subsequent* node that starts
-    /// exactly where this one ends, of the same kind, carrying a body, is the
-    /// implementation — upstream reports TS2389 there instead, and this port
-    /// stays silent rather than report the wrong code.
-    fn next_sibling_is_the_implementation(&self, node: NodeId) -> bool {
-        let Some(next) = self.next_sibling(node) else { return false };
-        if self.nodes.kind(next) != self.nodes.kind(node) {
-            return false;
-        }
-        // Upstream's branch structure at `checker.go:3567`, read exactly: with
-        // an adjacent subsequent node of the **same kind**, it reports the
-        // static/instance mismatch (TS2387/TS2388) or returns when the names
-        // match, and TS2389 `Function implementation name must be '{0}'` when
-        // they do not and the subsequent node has a body. In none of those does
-        // it reach TS2391. So the decline is exact rather than approximate: the
-        // only path that falls through is *different name, no body*.
-        let names_match = match (self.declaration_name_of(node), self.declaration_name_of(next)) {
-            (Some(left), Some(right)) => self.identifier_text(left) == self.identifier_text(right),
-            _ => false,
-        };
-        names_match || self.declaration_has_body(next)
     }
 
     /// The text of an identifier or private identifier used as a declaration
