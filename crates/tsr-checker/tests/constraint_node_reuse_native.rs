@@ -70,6 +70,19 @@ fn written_constraint_operators_do_not_collapse_to_their_semantic_image() {
 }
 
 #[test]
+fn written_parenthesized_constraints_are_not_replaced_by_semantic_types() {
+    // typeParameterConstraints1 writes (1), not 1. The simple operand visitor
+    // must also preserve the emitted parentheses in these actual controls.
+    assert_eq!(
+        reused_return(
+            "interface Obj { key: string } declare function source(): \
+             <K extends keyof (Obj), V extends (Obj)['key'], L extends (1)>() => V;",
+        ),
+        "<K extends keyof (Obj), V extends (Obj)['key'], L extends (1)>() => V",
+    );
+}
+
+#[test]
 fn nested_generic_scopes_preserve_distinct_written_type_parameters() {
     assert_eq!(
         reused_return(

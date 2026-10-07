@@ -251,6 +251,31 @@ paths are outside this worker's owned constraint visitor and were not turned
 into expected-empty tests or special-case visitor changes. No next cluster was
 claimed; the same 16-case constraint cluster awaits parent dispatch.
 
+## Parenthesized target continuation
+
+Actual native/TSR CLI controls with written constraints `keyof (Obj)`,
+`(Obj)["key"]`, and `(1)` agree, including nested parentheses on simple operands.
+A unique-symbol property inside a constraint also agrees on the source and
+returned-signature controls; these runs do not justify changing the visitor's
+scope gate. The pinned simple operand helper is
+`tryVisitSimpleTypeNode` (`nodecopy.go:452`); unique-symbol scope checking is
+`nodecopy.go:595`. No new naming/accessibility policy was inferred from syntax.
+
+A fifth owned visitor regression retains the three parenthesized forms and
+requires refusal after an unrelated semantic replacement. Release test result:
+**5 passed, 0 failed, 0 ignored, 0 filtered out**; formatting check passes.
+
+Re-ran actual target smoke for both `typeParameterConstraints1` and
+`declFileRestParametersOfFunctionAndFunctionType`: **39 RIGHT, 4 WRONG**.
+The remaining four lines are exactly top-level `extends any` versus native
+`extends unknown`, `extends 1` versus native `extends (1)`, and the two callable
+constraint `...args: any[]` versus native `...args: any` forms. The owned visitor
+controls for parentheses and callable insertion pass; parent semantic
+normalization/constraint display dispatch is still required. No production
+source or CLI binary changed, so the full paired no-loss/missing-ID and native
+performance receipts remain unchanged. The investigation still claims no
+whole-case conversions or completed release gate.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
