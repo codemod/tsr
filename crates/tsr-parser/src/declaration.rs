@@ -655,19 +655,26 @@ impl<'a> Parser<'a> {
     }
 
     /// typescript-go's `Parser.parseEnumMember` (`parser.go`).
+    /// The member owns its leading JSDoc (`withJSDoc`), and the initializer
+    /// parses with `DisallowInContext` cleared.
     fn parse_enum_member(&mut self) -> &'a EnumMember<'a> {
+        let docs = self.parse_leading_jsdoc();
         let member_start = self.pos();
         let member_name = self.parse_property_name();
+        let saved_no_in = std::mem::take(&mut self.no_in);
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
             Some(self.parse_assignment_expression())
         } else {
             None
         };
-        self.finish_node(
+        self.no_in = saved_no_in;
+        let node = self.finish_node(
             EnumMember::new(member_name, initializer, &[], None),
             SyntaxKind::EnumMember,
             member_start,
-        )
+        );
+        self.attach_jsdoc(node.into(), docs);
+        node
     }
 
     /// Type arguments in a heritage clause, which may be absent —
