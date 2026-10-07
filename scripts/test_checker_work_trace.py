@@ -212,6 +212,32 @@ class TraceIntegrityTests(unittest.TestCase):
         self.assertFalse(compare_work_captures(ours, native, receipt, receipt)
                          ["observed_full_worker_scope"]["identity_sets_match"])
 
+    def test_comparison_keeps_ordinary_same_basename_library_prefix_paths_distinct(self):
+        from checker_work_trace import compare_work_captures
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
+                "checked_file_ids": [0], "program_files": [], "operation_counters": {}}
+        native = {"artifact_integrity_valid": True, "native_trace_valid": True,
+                  "completed_full_workers": [], "operation_counters": {}}
+        for left, right in (
+            ("/a/typescript-go/internal/bundled/libs/model.ts",
+             "/b/typescript-go/internal/bundled/libs/model.ts"),
+            ("bundled:///libs/model.ts", "/a/typescript-go/internal/bundled/libs/model.ts"),
+            ("bundled:///libs/model.d.ts", "/a/typescript-go/internal/bundled/libs/model.d.ts"),
+        ):
+            ours["program_files"] = [{"file_id": 0, "path": left}]
+            native["completed_full_workers"] = [{"path": right, "checker_id": 0, "duration_ns": 1}]
+            result = compare_work_captures(ours, native, receipt, receipt)
+            self.assertFalse(result["observed_full_worker_scope"]["identity_sets_match"], result)
+            self.assertEqual(result["observed_full_worker_scope"]["tsr_only"], [left])
+            self.assertEqual(result["observed_full_worker_scope"]["native_only"], [right])
+        ours["program_files"] = [{"file_id": 0, "path": "bundled:///libs/lib.es5.d.ts"}]
+        native["completed_full_workers"] = [
+            {"path": "/a/typescript-go/internal/bundled/libs/lib.es5.d.ts", "checker_id": 0, "duration_ns": 1}]
+        canonical = compare_work_captures(ours, native, receipt, receipt)
+        self.assertTrue(canonical["observed_full_worker_scope"]["identity_sets_match"])
+        self.assertFalse(canonical["actual_checked_work_verified"])
+
     def test_comparison_cli_rejects_valid_base_trace_with_invalid_worker_activity(self):
         from checker_work_trace import PINNED_NATIVE_SHA
         native_path = self.root / "native.json"

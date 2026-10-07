@@ -688,10 +688,13 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
     cannot discharge equivalence. Unsupported counters are null, never zero.
     """
     def identity(path):
-        if path.startswith("bundled:///libs/"):
-            return "<typescript-lib>/" + path.rsplit("/", 1)[-1]
-        if "/typescript-go/internal/bundled/libs/" in path:
-            return "<typescript-lib>/" + path.rsplit("/", 1)[-1]
+        # Match whole_project_perf.file_identity's canonical-library restriction.
+        # Ordinary logical paths must never collapse merely by directory/basename.
+        base = path.rsplit("/", 1)[-1]
+        if (path.startswith("bundled:///libs/")
+                or "/typescript-go/internal/bundled/libs/" in path) \
+                and re.fullmatch(r"lib\.[\w.]+\.d\.ts", base):
+            return "<typescript-lib>/" + base
         return path
 
     ours = tsr.get("program_files", [])

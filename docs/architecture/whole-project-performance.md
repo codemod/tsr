@@ -265,6 +265,25 @@ harness SHA-256 `963936a7530d6a79110f84f117da4555a71de7e7e258462eae5db9a9920db42
 The large Linux ratios above remain failed speed observations; this small identity
 smoke supersedes none of them and verifies no frozen-parent diagnostic behavior.
 
+### Ordinary paths must not become bundled-library aliases
+
+A second review blocker found that the comparison normalized every basename
+under bundled-library-looking prefixes. It now applies the same restriction as
+`whole_project_perf.file_identity`: only `lib\.[\w.]+\.d\.ts` under known bundled
+prefixes becomes `<typescript-lib>/<basename>`. Ordinary paths remain exact;
+`/a/typescript-go/internal/bundled/libs/model.ts` and the corresponding `/b/`
+path, or `bundled:///libs/model.ts`, are distinct. `model.d.ts` is likewise not a
+canonical library. No new alias heuristic was introduced. Worker-activity
+validation and both producer rejection arrays remain required before matching.
+
+31 trace-reader tests passed, including consumer comparisons that reject equal
+ordinary basenames across different logical paths and preserve only canonical
+library normalization. The actual existing large-artifact comparison CLI ran
+and accepted bounded artifact integrity. Evidence
+`/tmp/recover-path-identity-comparison.json`. Full semantic work, source-to-binary
+identity and the <=0.50 speed certificate remain unverified; this fix changes no
+large-project performance observation.
+
 ### Worker-activity rejection must survive comparison
 
 Review found that a valid base TSR artifact could survive failed worker activity
