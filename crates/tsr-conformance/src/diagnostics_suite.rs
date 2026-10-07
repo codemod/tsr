@@ -751,3 +751,17 @@ mod tests {
         assert_eq!(actual, expected);
     }
 }
+
+/// LOCAL MEASUREMENT ONLY (lane diagnostics; never committed): each reported
+/// diagnostic with its flattened message chain.
+#[must_use]
+pub fn flattened_for(test: &crate::TestCase) -> Vec<((String, u32, u32, u32), String)> {
+    collect(test)
+        .into_iter()
+        .map(|(key, diagnostic)| {
+            let mut text = String::new();
+            tsr_diagnostics::format::write_flattened_diagnostic_message(&mut text, &diagnostic, "\n");
+            ((key.file, key.line, key.column, key.code), text)
+        })
+        .collect()
+}
