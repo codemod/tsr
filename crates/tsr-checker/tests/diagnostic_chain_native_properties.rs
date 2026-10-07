@@ -240,7 +240,7 @@ fn spread_entries_do_not_disable_explicit_object_member_elaboration() {
     assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
     assert_eq!(ds[0].text(), "Type 'string' is not assignable to type 'number'.");
     assert!(ds[0].message_chain().is_empty());
-    assert_eq!(ds[0].span.start as usize, source.find("\"wrong\"").unwrap());
+    assert_eq!(ds[0].span.start as usize, source.rfind("x:").unwrap());
 }
 
 #[test]

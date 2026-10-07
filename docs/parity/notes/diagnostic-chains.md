@@ -461,6 +461,21 @@ observed wall0.9973 with equal diagnostics, verified complete-work null; earlier
 positive deltas still prevent a global no-regression acceptance claim. Parent
 reserved return/signature fields untouched. Receipts this-arity-*.
 
+## Spread entries and explicit-member elaboration — tsr-2zk.1
+
+Pinned elaborateObjectLiteral at relater.go498 skips SpreadAssignment entries,
+then elaborates every explicit member normally. Owned assignreport helper removed
+its whole-literal refusal on any spread; existing loop already skips spread rows.
+No source/member traversal or semantic relation changes, no forbidden-file edits.
+Actual literal {...{}, x:"wrong"} now reports native head-only TS2322 at x instead
+of outer assignment TS2322/property chain. Quoted/numeric explicit-member controls
+stay byte-identical to native. Permanent test verifies text/head-only tree and
+native chosen property-name start. Target/workspace tests/clippy complete; all
+protected RIGHT keys retained, sixteen read-only suites complete. Domain21 observed
+cumulative recovery-baseline1.0305, diagnostics match, verified work null: no-hot
+acceptance remains unmet. This source includes prior queued reporting work; not
+parent integrated-source proof. Receipts elaboration-spread-* and elaboration-keys-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
