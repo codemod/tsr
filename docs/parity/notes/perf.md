@@ -259,3 +259,33 @@ commits) were not carried forward: none is needed for this verdict.
 | generic-imports | 106 ms | 113 ms | 0.94 | 97 ms | 222 ms |
 | domain-model | 212 ms | 210 ms | 1.01 | 414 ms | 742 ms |
 | domain-model-large | 821 ms | 572 ms | 1.44 | 1808 ms | 2563 ms |
+
+## §11 Resolved-module lookup by file index (`tsr-2zk.17`)
+
+Profile (perf, frame pointers, domain-model-large, default pool): on the
+critical checker (checker 0, owner of `src/main.ts`)
+`Program::resolved_module_in_mode` was 8.3% inclusive — two path-keyed
+`FxHashMap` probes per query (`resolved_modules[file.path()]`, then
+`files_by_path[target]`), each hashing and `memcmp`-ing a full canonical path.
+The checker asks it per alias resolution (`resolveExternalModule`).
+
+- **Native operation:** `Program.GetResolvedModule` (`program.go:521`, map
+  `p.resolvedModules` keyed by `file.Path()` then `{Name, Mode}`) and
+  `GetSourceFileForResolvedModule` (`filesByPath` lookup), consumed by
+  `checker.go` `resolveExternalModule`.
+- **Identity and owner:** `Program`-owned, immutable after
+  `from_root_files`. Outer key is now the file index whose `path()` the old
+  map was keyed by (a second spelling of one path shares the first's entry);
+  `ModeResolution::resolved_file` is `files_by_path[resolved]`, computed after
+  package redirects are inserted, so it equals the per-query hop.
+- **Publication:** built once before binding; no partial state is visible.
+- **Work boundary:** the checker's repeated queries remain (checker-owned);
+  each is now an index, one specifier hash and a mode scan.
+
+Native control (`/tmp/ctl1`, `module nodenext`, `importHelpers`): resolved
+import (TS2322 through its type), missing file (TS2307), resolved-but-not-held
+untyped JS package (TS7016, must stay distinct from TS2307) and missing
+`tslib` (TS2354): tsgo, base and new TSR print the same four diagnostics.
+Dumps byte-identical to base. Perf vs base, 21 pairs, median CPU ratio:
+domain-model 1.008, generic-imports 0.991, domain-model-large 0.991 (wall
+798 vs 824 ms).
