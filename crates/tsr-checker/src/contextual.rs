@@ -444,10 +444,15 @@ impl<'a> Checker<'a, '_> {
         // which is exactly what upstream's `GetThisParameter` subtraction on the
         // same line repairs; here it is a gap instead, so the two indices are
         // the same index or there is no answer.
-        let index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
-        if parameters.iter().any(|p| is_this_parameter(p)) {
-            return None;
+        let declaration_index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let this_offset = usize::from(parameters.first().is_some_and(|p| is_this_parameter(p)));
+        if this_offset != 0 && declaration_index == 0 {
+            let signature = self.contextual_signature(function)?;
+            let this_parameter = signature.this_parameter?;
+            let ty = self.parameter_type(&this_parameter);
+            return (ty != self.intrinsics.error).then_some(ty);
         }
+        let index = declaration_index - this_offset;
         // §86.1: the function's OWN trailing rest no longer bails the whole
         // list — `(a, b, ...rest)` under `(...args: [number, boolean,
         // ...string[]]) => void` types `a: number` positionally and `rest:
@@ -457,7 +462,7 @@ impl<'a> Checker<'a, '_> {
             Some(position) if position + 1 != parameters.len() => return None,
             _ => {}
         }
-        let asking_for_rest = own_rest == Some(index);
+        let asking_for_rest = own_rest == Some(declaration_index);
 
         // Contextually checked parameter types survive later inference reads
         // (assignContextualParameterTypes, checker.go). Pattern parameters have
@@ -491,7 +496,7 @@ impl<'a> Checker<'a, '_> {
         // contextual type is assignable to the widened initializer type.
         if widen_from_initializer
             && !asking_for_rest
-            && let Some(initializer) = parameters[index].initializer
+            && let Some(initializer) = parameters[declaration_index].initializer
         {
             use crate::relater::{Relation, Ternary};
             // getTypeOfParameter includes undefined for optional/defaulted

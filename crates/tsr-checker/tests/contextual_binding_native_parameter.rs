@@ -50,6 +50,18 @@ fn parameter_initializer_projects_raw_context_without_recursive_widening() {
 }
 
 #[test]
+fn explicit_this_does_not_shift_contextual_ordinary_parameter() {
+    assert_eq!(
+        default_parameter_type(
+            "interface C { value: number } \
+             let fn: (this: C, n: number) => number; \
+             fn = function(this, n) { return this.value + n; };",
+        ),
+        "number",
+    );
+}
+
+#[test]
 fn invalid_rest_default_still_receives_native_element_context() {
     // TS1186 does not prevent contextual checking of the initializer; native
     // types n as number before reporting the rest/default assignment errors.

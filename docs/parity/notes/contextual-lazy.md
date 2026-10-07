@@ -298,6 +298,36 @@ these failures. Actual pinned-native positive/negative controls and both full
 rejected dumps/comparisons retained as binding-* receipts; no performance or
 passing gate is claimed for rejected code. Highest owned cluster remains open.
 
+## Explicit contextual this parameter — tsr-2zk.16.289
+
+Native getContextuallyTypedParameterType subtracts an explicit this declaration
+from ordinary signature positions; assignContextualParameterTypes supplies an
+unannotated this slot from the contextual signature. Owned lookup previously
+refused every function containing this. It now reads contextual this separately,
+uses declaration index for initializer/rest syntax and signature index for
+ordinary/rest projections. Existing assigned signature and fixing state remain
+canonical; no cache, duplicate mapping or declaration-name heuristic added.
+
+Current target thisTypeInFunctions converts **645/645 RIGHT** (previous six
+wrong rows). Coherent ignored mirror full dumps: **+9 RIGHT type rows**, zero
+prior RIGHT losses or vanished keys; diagnostic prior RIGHT keys unchanged.
+Aligned whole-RIGHT row groups increase 8103 to 8104; these raw row groups are
+not the suite's eligibility-adjusted 9538-case denominator. Dedicated ordinary
+parameter/this offset regression passes; complete checker release tests pass.
+Actual pinned-native strict normal/rest callback controls are clean; actual
+mirror probe matches this C, number ordinary parameter and string rest tail.
+
+Observed candidate/0eda302c baseline domain wall was 1.05677 for first 21 pairs
+(CPU 0.98789); a 61-pair follow-up observes wall **0.99671**, CPU **1.00574**.
+Generic 21 pairs: wall **0.99017**, CPU **0.98308**. Both receipts retained;
+first slowdown observation is not erased. Scope/options/diagnostics match in
+these harness observations. Complete-work proof remains false, verified ratio
+null. No accepted <=0.50 or exhaustive hotpath/no-regression claim. Mirror
+includes parameter-context continuation and supplier seam but not unavailable
+production JSX cutover; integration must rerun coherent branch-level gates.
+Receipts explicit-this-*; existing .16.289 claimed and remains open for full
+campaign acceptance, despite this whole target conversion.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
