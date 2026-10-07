@@ -4153,7 +4153,14 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
+            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type.and_then(|mut body| {
+                // Native getTypeFromTypeNodeWorker unwraps parentheses before
+                // mapped construction; retain existing homomorphic worker.
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                    body = parenthesized.r#type?;
+                }
+                Some(body)
+            })
             && let [parameter_declaration] = self.local_type_parameters_of(symbol)
             && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
             && let Some(mapped_parameter) = mapped.type_parameter

@@ -117,6 +117,18 @@ fn parenthesized_variadic_alias_normalizes_ordered_tuple_arguments() {
 }
 
 #[test]
+fn parenthesized_identity_mapped_alias_preserves_primitive_argument() {
+    assert_eq!(
+        declared_and_reference(
+            "type Copy<T> = (({ [K in keyof T]: T[K] })); declare let value: Copy<string>;",
+            "Copy",
+        )
+        .1,
+        "string",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

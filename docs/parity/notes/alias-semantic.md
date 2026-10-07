@@ -269,6 +269,24 @@ no-hotpath-regression gate. This is a correctness prerequisite, not a speed win.
 Receipts `variadic-paren-*` under `target/recovery/alias`. Frozen verification
 excludes the pending TypeQuery wrapper dependency.
 
+## Parenthesized identity mapped body
+
+The existing identity-mapped body projection now unwraps parentheses before
+mapped construction, following native `getTypeFromTypeNodeWorker`. Primitive
+arguments reach the existing `instantiateMappedType` primitive-preservation arm.
+Existing homomorphic eligibility, mapper, member ownership and publication stay
+unchanged; no new cache or general mapped-body fallback. A separate canonical
+resolver-only mapped-chain experiment did not convert its target and was removed.
+
+Primitive consumer regression fails before and passes after; existing mapped/
+variadic targets pass. Real CLI diagnostics compare byte-for-byte with native.
+Existing unfiltered 477,970-assertion oracle unchanged, zero former RIGHT losses/
+vanished keys; no whole-case gain claimed. Seven interleaved fresh-process samples:
+after/before 0.97240, after/native 1.54266. Baseline omits the correct semantic
+answer and emits errors, so equivalent complete work/no-hotpath regression/release
+speed are not certified. Receipts `mapped-paren-*` under `target/recovery/alias`;
+verification uses the frozen pre-wrapper worktree.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
