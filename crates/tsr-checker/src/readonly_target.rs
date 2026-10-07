@@ -1374,14 +1374,32 @@ impl Checker<'_, '_> {
     ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
         let node = location;
         let declaration = self.modifier_declaration_of(property, writing)?;
-        let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);
-        if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
+        let roots = self.property_accessibility_roots(containing, name);
+        let synthetic = roots.len() > 1;
+        let is_private = roots.iter().any(|&root| {
+            self.modifier_declaration_of(root, writing)
+                .is_some_and(|decl| self.member_declaration_has(decl, SyntaxKind::PrivateKeyword))
+        });
+        let contains_public = roots.iter().any(|&root| {
+            self.modifier_declaration_of(root, writing).is_none_or(|decl| {
+                !self.member_declaration_has(decl, SyntaxKind::PrivateKeyword)
+                    && !self.member_declaration_has(decl, SyntaxKind::ProtectedKeyword)
+            })
+        });
+        let is_protected = roots.iter().any(|&root| {
+            self.modifier_declaration_of(root, writing)
+                .is_some_and(|decl| self.member_declaration_has(decl, SyntaxKind::ProtectedKeyword))
+        });
+        // Synthetic modifier precedence: private, then public, then protected.
+        if !is_private && (contains_public || !is_protected) {
             return None;
         }
-        // getClassLikeDeclarationOfSymbol(getParentOfSymbol(prop)): a parameter
-        // property's parent symbol is its constructor's class.
         let declaring = self.containing_class_of(declaration)?;
-        let declaring_name = self.class_declared_type_text(declaring)?;
+        let declaring_name = if synthetic {
+            self.type_to_string(containing)
+        } else {
+            self.class_declared_type_text(declaring)?
+        };
         let enclosing = self.enclosing_classes_of(node);
         if is_private {
             if enclosing.contains(&declaring) {
@@ -1395,14 +1413,19 @@ impl Checker<'_, '_> {
         if is_super {
             return None;
         }
-        let is_static = self.member_declaration_has(declaration, SyntaxKind::StaticKeyword);
-        let mut enclosing_class =
-            enclosing.iter().copied().find(|&class| self.class_derives_from(class, declaring));
+        let is_static = roots.iter().any(|&root| {
+            self.modifier_declaration_of(root, writing)
+                .is_some_and(|decl| self.member_declaration_has(decl, SyntaxKind::StaticKeyword))
+        });
+        let mut enclosing_class = enclosing
+            .iter()
+            .copied()
+            .find(|&class| self.class_derives_from_protected_roots(class, &roots, writing));
         if enclosing_class.is_none() {
             match self.enclosing_class_from_this_parameter(node) {
                 ThisParameterClass::None => {}
                 ThisParameterClass::Class(class) => {
-                    if self.class_derives_from(class, declaring) {
+                    if self.class_derives_from_protected_roots(class, &roots, writing) {
                         enclosing_class = Some(class);
                     }
                 }
@@ -1421,13 +1444,8 @@ impl Checker<'_, '_> {
         let enclosing_class = enclosing_class?;
         // hasBaseType(containingType, enclosingClass), the type parameter
         // receiver read through its constraint (apparent type above).
-        let crate::types::TypeData::Named { members: Some(owner), .. } =
-            self.type_of(containing).data
-        else {
-            return None;
-        };
-        let receiver_class = self.class_declaration_of_symbol(owner)?;
-        if self.class_derives_from(receiver_class, enclosing_class) {
+        let enclosing_symbol = self.binder.symbol_of(enclosing_class)?;
+        if self.has_base_type(containing, self.binder.merged_symbol(enclosing_symbol)) {
             return None;
         }
         let enclosing_name = self.class_declared_type_text(enclosing_class)?;
@@ -1562,53 +1580,28 @@ impl Checker<'_, '_> {
                 .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ObjectLiteralExpression)
     }
 
-    /// Does `class` reach `base` through its `extends` chain, or **is** it
-    /// `base`? A link this port cannot follow answers `false`, which is the
-    /// reporting direction — see §68's falsifier.
-    fn class_derives_from(&self, class: NodeId, base: NodeId) -> bool {
-        let mut current = class;
-        for _ in 0..16 {
-            if current == base {
+    /// Ported from typescript-go's `Checker.isClassDerivedFromDeclaringClasses`
+    /// (`internal/checker/checker.go`): every protected constituent contributes
+    /// its own canonical declaring class, independently of the winning symbol.
+    fn class_derives_from_protected_roots(
+        &mut self,
+        class: NodeId,
+        roots: &[SymbolId],
+        writing: bool,
+    ) -> bool {
+        let Some(class) = self.binder.symbol_of(class) else { return false };
+        let class = self.get_declared_type_of_symbol(class);
+        roots.iter().all(|&root| {
+            let Some(declaration) = self.modifier_declaration_of(root, writing) else {
+                return true;
+            };
+            if !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
                 return true;
             }
-            let Some(next) = self.extends_class_declaration(current) else { return false };
-            current = next;
-        }
-        false
-    }
-
-    /// The class declaration a class `extends`, when the heritage names one
-    /// non-generic class this port can resolve — §56's shape.
-    fn extends_class_declaration(&self, class: NodeId) -> Option<NodeId> {
-        let heritage = match self.node_map.get(class)? {
-            Node::ClassDeclaration(declaration) => declaration.heritage_clauses,
-            Node::ClassExpression(declaration) => declaration.heritage_clauses,
-            _ => return None,
-        };
-        let clause =
-            heritage.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?;
-        let [base] = clause.types else { return None };
-        let expression = base.expression?.node_id()?;
-        let Some(Node::Identifier(written)) = self.node_map.get(expression) else { return None };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            expression,
-            written.text,
-            tsr_binder::SymbolFlags::VALUE,
-        )?;
-        let symbol = self.binder.merged_symbol(symbol);
-        let entry = self.binder.symbols().get(symbol);
-        if !entry.flags.intersects(tsr_binder::SymbolFlags::CLASS) || entry.declarations.len() != 1
-        {
-            return None;
-        }
-        let candidate = entry.declarations[0];
-        matches!(
-            self.nodes.kind(candidate),
-            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-        )
-        .then_some(candidate)
+            let Some(declaring) = self.containing_class_of(declaration) else { return false };
+            let Some(symbol) = self.binder.symbol_of(declaring) else { return false };
+            self.has_base_type(class, self.binder.merged_symbol(symbol))
+        })
     }
 
     /// Does this class member carry the given modifier? `ast.HasSyntacticModifier`,

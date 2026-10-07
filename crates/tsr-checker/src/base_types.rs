@@ -455,7 +455,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `hasBaseType` (`checker.go:19551`), with `checkBase` named by its symbol.
-    fn has_base_type(&mut self, t: TypeId, check_base: SymbolId) -> bool {
+    pub(crate) fn has_base_type(&mut self, t: TypeId, check_base: SymbolId) -> bool {
         if let Some(target) = self.class_or_interface_target(t) {
             return target == check_base
                 || self

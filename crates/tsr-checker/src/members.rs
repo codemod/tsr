@@ -2131,6 +2131,59 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Ported from typescript-go's `Checker.forEachProperty`
+    /// (`internal/checker/checker.go`). Inherited composite properties retain
+    /// their containing base image even when lookup returns a constituent root.
+    /// Own class declarations shadow the inherited image on either side.
+    pub(crate) fn property_accessibility_roots(
+        &mut self,
+        receiver: TypeId,
+        name: &str,
+    ) -> Vec<SymbolId> {
+        if let Some(composite) = self.composite_property_of_type(receiver, name, false) {
+            return match composite.synthetic {
+                Some(synthetic) => {
+                    let mut roots = Vec::new();
+                    for (_, constituent) in synthetic.properties {
+                        for root in self.property_accessibility_roots(constituent, name) {
+                            if !roots.contains(&root) {
+                                roots.push(root);
+                            }
+                        }
+                    }
+                    roots
+                }
+                None => vec![composite.single],
+            };
+        }
+        let Some(property) = self.get_property_of_type(receiver, name) else {
+            return Vec::new();
+        };
+        let owner = match self.store.get(receiver).data {
+            TypeData::Named { members: Some(owner), .. } => Some(owner),
+            TypeData::Anonymous { symbol, .. } => Some(symbol),
+            _ => None,
+        };
+        if let Some(owner) = owner {
+            let owner = self.binder.merged_symbol(owner);
+            if self.binder.symbols().get(property).parent != Some(owner) {
+                if self.class_static_symbol(receiver).is_some() {
+                    let base = self.get_base_constructor_type_of_class(owner);
+                    if self.get_property_of_type(base, name).is_some() {
+                        return self.property_accessibility_roots(base, name);
+                    }
+                } else {
+                    for base in self.get_base_types(owner) {
+                        if self.get_property_of_type(base, name).is_some() {
+                            return self.property_accessibility_roots(base, name);
+                        }
+                    }
+                }
+            }
+        }
+        vec![property]
+    }
+
     /// `isReadonlySymbol(getPropertyOfType(receiver, name))`
     /// (`checker.go:13849`): for the synthetic property
     /// `createUnionOrIntersectionProperty` mints, its `CheckFlagsReadonly`

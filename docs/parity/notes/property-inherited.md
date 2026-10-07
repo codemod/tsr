@@ -206,7 +206,7 @@ an actual-worker/query/completed-hit/active-repeat/copy-byte audit to
 `tsr-2zk.4.12` / `tsr-1yb.11` before extending member reuse. No speculative cache
 is justified by this correctness experiment.
 
-## Protected alias receiver root — tsr-2zk.4.14 (active, rejected partial port)
+## Protected alias receiver root — tsr-2zk.4.14 (initial rejected partial port)
 
 Direct native/TSR control:
 
@@ -295,6 +295,84 @@ reuse/cache surface until that bounded audit is recorded. Native
 `hasBaseType` are the consumers. Next active owned work is exposing complete
 static/instance synthetic constituent roots without changing shared type stores,
 symbols, or any other checker files.
+
+## Completed protected constituent port — tsr-2zk.4.14
+
+The second `.4.14` implementation retains composite origins in
+`members.rs::property_accessibility_roots`. It reads the existing composite
+property image, recursively follows underlying roots, and preserves the base
+constructor image on the static side. An own class member shadows inherited
+origins; no binder or shared type-store symbol is synthesized. The returned
+ordered root list is query-local and unpublished, with no new semantic cache.
+`readonly_target.rs::property_accessibility_error` applies native synthetic
+modifier precedence (private, public, protected), retains static context, and
+requires ancestry from every protected declaring class via
+`class_derives_from_protected_roots`. Concrete receiver restriction separately
+uses the existing `has_base_type` predicate. This replaces the capped
+syntax-only ancestry walk, which is removed.
+
+Pinned operations: `forEachProperty`, `isClassDerivedFromDeclaringClasses`,
+`checkPropertyAccessibilityAtLocation`, `hasBaseType`, and
+`getDeclarationModifierFlagsFromSymbolEx`; native SHA and canonical target /
+reference-writer contracts above apply. Root queries use receiver TypeId plus
+property name, own/static side, and existing base/composite publication. Root
+identity is binder SymbolId, not printed property or class text. Read/write
+accessor declaration selection remains at the access consumer. Ordered reference
+arguments and concrete this are not conflated with ancestry target identity.
+The private Checker owns all existing base links; no Program/global publication
+is introduced. Root absence is not a cached completed member failure.
+The existing base-resolution guard owns active reentry versus completed bases.
+Expensive work is the base constructor/base resolution plus inherited/composite
+traversal; the bounded `.4.14` count follow-up above remains required before
+extending reuse. No speed optimization claim or worker-count claim is made.
+
+Native control:
+
+```ts
+class A { protected static s = 1; }
+class B { protected static s = 1; }
+declare function mix<X, Y>(x: X, y: Y): X & Y;
+class Both extends mix(A, B) { static read() { Both.s; } }
+class One extends A { static read() { Both.s; } }
+Both.s;
+class Public { static s = 1; }
+class Mixed extends mix(A, Public) {}
+Mixed.s;
+class Base { protected p = 1; }
+const Alias = Base;
+class Derived extends Alias { read(b: Base) { return b.p; } }
+```
+
+Native and candidate stdout match byte-for-byte: TS2445 at (4,53), (5,44),
+(6,6), all naming `typeof Both`; TS2446 at (12,56), naming Derived and Base.
+`Mixed.s` remains legal by public-constituent precedence. Before: TS2445 at
+(4,53), (6,6) names A, misses (5,44), wrongly rejects Mixed.s, and reports
+TS2445 rather than TS2446 at (12,56).
+Permanent `property_protected_constituent_native_static.rs` checks the exact
+ordered access-error codes, spans and complete message arguments.
+
+Full unfiltered dumps completed, compared with the completed constructor port:
+477,970 type keys and 10,570 diagnostic keys; zero vanished or changed protected
+keys, including all 469,765 prior RIGHT type lines and 9,189 RIGHT/EMPTY_RIGHT
+diagnostic cases. **All type payloads unchanged.** The only diagnostic payload
+change is `conformance/mixinAccessModifiers`, still WRONG: five extraneous
+TS2445 removed at (54,4), (76,6), (77,6), (90,6), (103,6). Expected (89,6)
+TS2445 remains. Multiset comparison of every changed case finds **zero expected
+before diagnostics lost and zero new diagnostics**. No named full case converts;
+remaining missing/extra mixin diagnostics require the still-open member cutover
+and other previously identified producers, not suppression.
+
+Workspace release tests completed through doc tests; clippy warnings-denied and
+workspace format check passed. Full unfiltered coverage completed over 12,444
+sources: checker_types 8042/9538, diagnostics 4221/5502. Scratch snapshot writes
+alone were redirected, with the previously stated independent-stdout-proof limit.
+21-pair observed baseline wall ratios: 1.0047/1.0254 (domain-model/generic-imports).
+Additional 41-pair runs: **1.0042/1.0010**, within the stated measurement noise
+band, no measured material slowdown. Pinned native observed ratios:
+0.9982/0.9264. Loaded scope/options/diagnostics match, but complete captured
+inputs and actual performed work remain unverified; all reports retain
+`work_comparable=false`, `target_verified=false`. No <=0.50 certification.
+Original readonly/member cutover remains open under `.4.12.1`.
 
 ## Completed owned root: element-access constructor permission
 
