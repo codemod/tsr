@@ -639,6 +639,25 @@ unchanged, preserving the prior full zero-loss/missing-ID and unverified
 performance receipts. Existing shared-context prerequisites remain open; no
 new target conversion is claimed.
 
+## Failing nested-nullable diagnostic control (`tsr-2zk.16.147`)
+
+Actual native/TSR CLIs on `declare function source(): ??number` and a returned
+function with `??number` parameter/return annotations emit the same TS17020
+syntax diagnostics at `(1,28)`, `(1,29)`, `(3,36)`, `(3,37)`, `(3,49)`,
+`(3,50)`. Native TS2322 at `(2,7)` and `(4,7)` normalizes the displayed nullable
+type to `number | null`; TSR incorrectly reuses `number | null | null`.
+The actual corpus pipeline reproduces duplicated nullable spelling while the
+standalone parameter's semantic type is `number | null`.
+
+This is a failing runtime control, not proof that changing owned
+`node_precedence` fixes it. Parent builder context/annotation eligibility must
+select semantic diagnostic serialization rather than written syntax here.
+Parenthesizing the nested wrapper would preserve duplicated syntax and remain
+incorrect. No symptom-only precedence change, diagnostic suppression, or
+unsupported empty expectation was added. Seven tests pass and the CLI hash
+remains identical to baseline. Full prior loss/ID/performance receipts remain
+unchanged; unresolved context prerequisites stay recorded in Beads.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
