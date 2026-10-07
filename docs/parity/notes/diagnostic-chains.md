@@ -280,6 +280,25 @@ lines), diagnostics 4221/5502. The original snapshot tree was not edited. Mount
 namespace isolation was attempted first and denied (`Operation not permitted`);
 scratch coverage resolved the limitation rather than skipping the gate.
 
+## Per-diagnostic no-emit metadata prerequisite
+
+Pinned `ast.Diagnostic.skippedOnNoEmit` is mutable per-diagnostic state, distinct
+from generated Message flags. `SetSkippedOnNoEmit` publishes true;
+`compiler.FilterNoEmitSemanticDiagnostics` removes only marked diagnostics when
+options.NoEmit is true. Native writers are `Checker.errorSkippedOnNoEmit` and
+`grammarErrorOnNodeSkippedOnNoEmit`, used by reserved emitter-name grammar
+checks. Native `NewDiagnosticChain` constructs a new parent and does not inherit
+this flag; Diagnostic.Clone retains it. Comparator/equality do not inspect it.
+
+Integrator/oracle-owner API request: confirm strict diagnostic serialization
+requires this field and route the producer/filter cutover atomically. Proposed
+model methods are `Diagnostic::skipped_on_no_emit(&self) -> bool` and
+`Diagnostic::set_skipped_on_no_emit(&mut self) -> &mut Self`. The model owner can
+implement native stored state once the request is confirmed; a constant false
+getter or inferring the flag from the message catalogue would be incorrect.
+Non-owned writers/checker and Program filtering must set/consume it at their
+native semantic boundary. No default-false oracle fallback was introduced.
+
 ## Native compaction follow-up
 
 The representation now also exports `sort_and_deduplicate_diagnostics`, ported
