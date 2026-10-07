@@ -7,18 +7,20 @@ use tsr_scanner::{Scanner, Token};
 
 /// Which dialect a file is parsed as.
 ///
-/// The only thing this changes is what `<` means in expression position, and the
-/// two readings are mutually exclusive: in `.ts` a leading `<` is a type
-/// assertion (`<Foo>x`), and in `.tsx` it opens a JSX element. TypeScript made
-/// them exclusive for exactly this reason — no lookahead can separate
-/// `<Foo>x` from `<Foo>x</Foo>` cheaply.
+/// Ported from typescript-go's `getLanguageVariant` (`parser/utilities.go`).
+/// TSX, JS, JSX and JSON select the JSX scanner variant; JavaScript also forbids
+/// expression and JSX type arguments. JSON uses its separate parser entry point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScriptKind {
     /// `.ts`, `.mts`, `.cts`, `.d.ts` — `<T>expr` is a type assertion.
     #[default]
     TypeScript,
-    /// `.tsx`, `.jsx` — `<` opens JSX; type assertions must use `as`.
+    /// `.tsx` — `<` opens JSX; type assertions must use `as`.
     Tsx,
+    /// `.js`, `.mjs`, `.cjs` — native JavaScript uses the JSX language variant.
+    Js,
+    /// `.jsx` — JavaScript with the JSX language variant.
+    Jsx,
     /// `.json`. A file is a single value, not a statement list.
     ///
     /// Not merely a dialect flag: it selects a different entry point
@@ -36,16 +38,25 @@ impl ScriptKind {
             .unwrap_or_default()
             .to_ascii_lowercase();
         match extension.as_str() {
-            "tsx" | "jsx" => Self::Tsx,
+            "tsx" => Self::Tsx,
+            "jsx" => Self::Jsx,
+            "js" | "mjs" | "cjs" => Self::Js,
             "json" => Self::Json,
             _ => Self::TypeScript,
         }
     }
 
-    /// Whether `<` in expression position opens JSX.
+    /// Ported from typescript-go's `getLanguageVariant` (`parser/utilities.go`).
+    /// JSON selects the JSX scanner variant but never enters JSX expressions.
     #[must_use]
     pub const fn allows_jsx(self) -> bool {
-        matches!(self, Self::Tsx)
+        matches!(self, Self::Tsx | Self::Js | Self::Jsx | Self::Json)
+    }
+
+    /// Whether native parsing sets `NodeFlagsJavaScriptFile` (JSON excluded).
+    #[must_use]
+    pub const fn is_javascript(self) -> bool {
+        matches!(self, Self::Js | Self::Jsx)
     }
 }
 
@@ -114,9 +125,8 @@ impl<'a> JSDocTable<'a> {
     /// The parse errors inside this file's JSDoc comments, in source order and
     /// once each — upstream's `SourceFile.JSDocDiagnostics()`.
     ///
-    /// Collected for every file because this parser does not know whether a
-    /// file is JavaScript (`ScriptKind` has no JS arm); only a checked
-    /// JavaScript file reports them (`getBindAndCheckDiagnosticsWithChecker`,
+    /// Collected for every file; only a checked JavaScript file reports them
+    /// (`getBindAndCheckDiagnosticsWithChecker`,
     /// `program.go:1366`), and that gate is the consumer's.
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
@@ -810,6 +820,8 @@ pub(crate) fn token_to_text(kind: SyntaxKind) -> &'static str {
         SyntaxKind::CommaToken => ",",
         SyntaxKind::ColonToken => ":",
         SyntaxKind::DotToken => ".",
+        SyntaxKind::DotDotDotToken => "...",
+        SyntaxKind::LessThanSlashToken => "</",
         SyntaxKind::EqualsToken => "=",
         SyntaxKind::EqualsGreaterThanToken => "=>",
         SyntaxKind::LessThanToken => "<",
