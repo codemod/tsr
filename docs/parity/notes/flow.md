@@ -527,3 +527,52 @@ issue was created and neither issue was closed. Parent must update the existing
 issues in its authoritative database. `binary.rs` also still creates a `0n`
 payload in its logical-bigint path; it is outside this worker's ownership and
 was reported for serialized integration rather than silently changed.
+
+## 17. Template literal and loose scalar facts: native worker domains
+
+Separate from semantic bigint-zero / symbol-like recovery, still tracked under
+existing campaign `tsr-2zk.15.5.1` pending parent issue attribution. Native pin
+remains `5b1047d10d32e7d5b446be4de56b126ff42f82bb`:
+`getTypeFactsWorker` in `internal/checker/checker.go` tests
+`String | StringMapping` first (broad string facts), then
+`StringLiteral | TemplateLiteral`. Its `isEmpty` is true only for an empty
+**string literal**. Every represented template literal therefore has
+`NonEmptyStringStrictFacts` in strict mode; no analysis of prefix/substitution
+contents or unary-consumer special case is involved.
+
+All four scalar families use native loose `Base*Facts`: add `Falsy`,
+`EQUndefined`, `EQNull`, and `EQUndefinedOrNull`, while retaining the strict
+facts. Previously this was limited to bigint and partially to enum literals.
+The worker now applies these bits uniformly after selecting the scalar domain.
+String mapping retains broad string truthiness. No new helper, allocation,
+cache, traversal or shared interface. Only the exclusive flow worker and its
+dedicated tests changed; user flow and parent unary-consumer work are preserved.
+
+Receipts: ignored `target/recovery/flow-template/`, relative to scalar-recovery
+binary retained from `7d47ec72` (source unchanged by subsequent docs commit
+`f91738cf`). Native strict declarations yield `never` for falsy branches of
+`prefix${string}`, `${number}`, nonempty string, `1`, and `true`; loose mode
+retains each original type. `Uppercase<string>` survives both modes. Two
+new dedicated controls failed before and pass after. Direct CLI template
+controls: native/candidate exit 0 with no diagnostics, baseline emits two
+TS2322 errors. All 113 focused tests pass, including prior flow/effects suites.
+
+Both unfiltered eligible-corpus runs completed with exit 0:
+
+- Diagnostics: 10,570 keys, byte-identical rows, zero RIGHT losses or vanished
+  keys.
+- Types: 477,968 keys, RIGHT 469,790 → 469,797, WRONG 7,183 → 7,176, GAP 995
+  unchanged; zero RIGHT losses, new keys, or vanished keys. Seven gained rows:
+  four `stringLiteralTypesInUnionTypes04`, two `templateLiteralTypesPatterns`,
+  one `logicalOrOperatorWithEveryType`.
+- Baseline keys include every RIGHT gained by the scalar recovery. Historical
+  parent RIGHT receipts and full configurations remain the parent's gate;
+  eligibility and exact-diagnostic limitations from section 16 still apply.
+
+Fresh-process whole-project timing, 21 alternating measured samples after
+warmup, corpus/build work excluded: domain-model candidate/baseline median
+1.0191 (0.2244103s / 0.2201963s), generic-imports 1.0004 (0.1001260s /
+0.1000871s). Printed complete diagnostics agree among baseline/candidate/native.
+No speed or no-slowdown claim: raw candidate/native is 1.0322 / 0.9331,
+equivalent complete work is unverified, and the release 0.50 gate is unmet.
+The saved recovery branch has no additional owned flow changes to replay.
