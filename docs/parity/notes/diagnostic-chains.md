@@ -373,6 +373,21 @@ and 9190 diagnostic keys, zero vanished/changed; sixteen suites complete. Domain
 observed cumulative recovery-baseline wall1.0446, diagnostics match, verified work
 null. No-hotpath-regression acceptance remains unmet. Receipts constraint-source-*.
 
+## Exact TS2344 owned-consumer seam proof
+
+Curated source-constraint commit: 58bebc06158a23ddbcc07f5480618d9b8057e245.
+An owned assignreport module regression parses/binds a real U extends string and
+number parameter pair, invokes report_relation_failure with caller-provided
+TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1, and verifies exactly TS2344 plus inner
+TS2322 string/number chain and inherited span. The targeted release test passes.
+This proves the reachable owned consumer; it does not fabricate the absent
+non-owned instantiation-expression caller on the recovery base. Parent can use
+this unchanged existing API directly; no new shared fields/contracts. Existing
+native CLI constraint control supplies the native complete message reference.
+This follow-up adds only the consumer behavior regression/docs, no runtime or
+performance change; prior source-qualified gates remain those in constraint-source
+receipts and still do not pass no-hotpath-regression acceptance.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
