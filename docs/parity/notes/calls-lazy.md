@@ -675,6 +675,22 @@ Recovery-return-check remains blocked by absent shared fields; no runtime/native
 acceptance claimed. Parent221/221legacy smoke does not certify ad-hoc outer alias
 returns; that integration remains ongoing.
 
+## Dynamic import option argument diagnostics
+
+User extended exclusive ownership to import_call.rs. Ported native8267 argument
+order: specifier/options/extras checked first, then specifier relation, nullable
+ImportCallOptions relation, first explicit obsolete assert property TS2880.
+Valid specifier no longer returns before option checks. Canonical relation/reporter
+is reused; no synthetic-default module table or formatter added.
+
+Independent checkpoint worktree contains only owned patch/test. Target/fullchecker
+and clippy pass. ActualCLI now matches native TS2880 message/code at2,33; before
+none. Numeric option still misses nativeTS2559, a weak-type relation/reporting
+prerequisite, so fulloptions/root acceptance is not claimed. Full12444-key types
+and diagnostics historical ratchets show zero priorPASS/vanished keys and no
+whole-case gains (import-options-ratchet.json). Current integratedparent parity
+and equivalent-work performance remain unverified. Durable receipts import-options-*.
+
 ## JavaScript call arity
 
 Claimed tsr-2zk.9.2. Three targets types already pass35/35,20/20,8/8; diagnostics
