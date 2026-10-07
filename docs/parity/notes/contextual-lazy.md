@@ -304,3 +304,75 @@ are context-independent. Existing TSR still omits these diagnostics; the
 retained contextual-parameter projection does not claim to fix that separate
 explicit-context/implicit-any path. Full 19-case initializer-root completion
 remains blocked on those contracts and authoritative case evidence.
+
+### Array-rest contextual projection, same binding cluster
+
+Native `getContextualTypeForBindingElement` does not reject array rest when
+an annotation/context already supplies the holder. It projects the element
+at the binding index even if the rest initializer itself is invalid. Removed
+TSR's unconditional array-rest admission restriction; no initializer fallback
+or declaration side pass was added. Same identity/publication/work boundary
+as the contextual holder projection above.
+
+Direct pinned-native control:
+
+```ts
+declare const input: [(n: number) => number, ...((n: number) => number)[]];
+let [...rest = n => n]: [(n: number) => number, ...((n: number) => number)[]] = input;
+```
+
+Native reports TS2322 at `(2,9)` and TS1186 at `(2,14)` for the source shown
+without the scratch file's leading strict directive. Observed scratch output
+has `(3,9)` and `(3,14)`. The complete observed messages are:
+
+```text
+../../tmp/box/binding-rest.ts(3,9): error TS2322: Type '(n: number) => number' is not assignable to type '[(n: number) => number, ...((n: number) => number)[]]'.
+../../tmp/box/binding-rest.ts(3,14): error TS1186: A rest element cannot have an initializer.
+```
+
+Actual candidate corpus-pipeline smoke now prints `n => n : (n: number) =>
+number` and both `n` references as `number`; before, the callback was `error`
+and both references were `any`. This is contextual typing parity, not a claim
+that this port owns those diagnostics. Added a rest-default regression beside
+the parameter-holder regression. Removed the obsolete unit assertion that
+pinned the deliberately unsupported rest-context implementation instead of
+native behavior.
+
+Post-change verification: workspace release tests, clippy, fmt check and all
+16 read-only parity suites complete. Both unfiltered dumps complete; explicit
+missing-key-aware comparison yields zero missing formerly RIGHT keys, zero
+RIGHT type-line losses and zero RIGHT/EMPTY_RIGHT diagnostic losses. No corpus
+conversions; coverage counts unchanged.
+
+The initial rest performance invocation accidentally used the previous CLI
+binary (its hash remained `144a1959...` despite rebuilding examples); those
+samples are **not** rest-port performance evidence. Rebuilt the actual binary
+with `cargo build --release -p tsr --bin tsr`, SHA-256
+`d734b75f89d062fdcd6805276da78db86ad851bdf5c056cf7027c1ae9c84f784`,
+and reran:
+
+| Project | Candidate/baseline CPU, 41 pairs | Observed baseline wall | Observed native wall, 21 pairs |
+| --- | --- | --- | --- |
+| domain-model | 0.97904 | 0.99414 | 1.04770 |
+| generic-imports | 1.00620 | 1.00088 | 0.91934 |
+
+Diagnostics/options/loaded scope match and captured inputs are stable. No CPU
+regression above 1.03. No verified native ratio: complete-input equivalence
+and actual checker work remain false, verified ratio null, target false.
+Candidate was measured on the isolated Box with only this owned rest
+projection/test change beyond `c4b69044`; the binary hash identifies it.
+
+Exact default/circular-parameter integration prerequisite: current
+`symbols.rs::get_type_for_variable_like_declaration` calls
+`get_contextually_typed_parameter_type` in its parameter branch (line 6169
+at the measured tree); it must consume raw native
+`getContextuallyTypedParameterType`, then apply optionality as native
+`getTypeForVariableLikeDeclaration` does. Current owned supplier also widens
+initializers. Native does that in `assignContextualParameterTypes`, requiring
+coordination with the signatures consumer owner. The symbol entry worker is
+currently named `get_type_of_variable_or_parameter_or_property_worker`, not
+`get_type_of_variable_parameter_property_worker`. Do not patch around that
+consumer using a second declaration traversal. Initializer/implied-pattern
+completion remains dependent on the explicit-context API and authoritative
+19-case evidence described above. Atomic accessor `.11.5.1` and lazy signature
+`.9.7.1` remain queued for their single owner; `.11.5` is still open.

@@ -39,7 +39,7 @@ fn callback_default_projects_the_contextual_holder_not_implicit_any() {
 }
 
 #[test]
-fn_invalid_rest_default_still_receives_native_element_context() {
+fn invalid_rest_default_still_receives_native_element_context() {
     // TS1186 does not prevent contextual checking of the initializer; native
     // types n as number before reporting the rest/default assignment errors.
     assert_eq!(
