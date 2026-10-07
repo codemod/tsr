@@ -485,6 +485,27 @@ print boundary; no complete-work perf claim. Receipts computed-name-* in
 target/recovery/property; parent-reserved Signature/AST/readonly/order suppliers
 are untouched.
 
+## Object-literal late-bound accessors — tsr-2zk.16.351
+
+late_bound_members_of now includes ObjectLiteralExpression properties alongside
+class/interface/type-literal members. Native SymbolFlagsLateBindingContainer
+includes object literals (5b1047d getResolvedMembersOrExportsOfSymbol / lateBindMember
+checker.go:15930/16005); the existing accessor symbol worker already merges
+same-name getter/setter declarations from this supplier. Original declaration
+and computed-key identities, static partition and existing cache/publication
+(owner SymbolId, static bool) are unchanged. No extra cache/memberimage/value
+fallback. Expensive name expressions retain the existing completed late-binding
+worker; the added container becomes part of that same computation.
+
+Current target symbolDeclarationEmit10 had2WRONG rows; both are nowRIGHT and
+diagnosticcase EMPTY_RIGHT. Directnative computed getter/setter declaration
+control exit0. Completedfull477970types/10570diagnostics:7typegains (2target,
+5computedgeneratoraccessor rows),1diagnosticcase gain(iteratorExtraParameters),
+0previousRIGHTloss/0vanished. Strict checkerClippyPASS. Completework performance
+is unmeasured and must gate parentacceptance. Receipts obj-accessor-* under
+target/recovery/property. Parentreadonly/order/anonexports/computedname helper
+reservations untouched; this is independent late-binding supplier code.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
