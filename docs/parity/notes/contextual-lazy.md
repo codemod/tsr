@@ -527,6 +527,25 @@ this partial control. Need coherent baseline and calls producer cutover before
 retesting; existing issue notes carry exact limitation. Receipts super-*;
 owned source unchanged and format passes.
 
+## Primitive-constrained literal cluster — tsr-2zk.16.94
+
+Claimed current eight-target root; last coherent measured RIGHT counts49/58,
+28/35,19/28,44/68,3/19,25/43,199/227,30/34. Direct pinned strict declaration
+controls emit a:"value",b:"value",c:42,d:string for flat/nested string,
+nested number and unconstrained arguments. Actual verified-base corpus probe
+agrees flat/unconstrained but nested string/number widen to string/number.
+
+Read existing objects.rs mutable-location literal context exclusion and
+signatures.rs isLiteralOfContextualType primitive constraint query. Owned
+contextual lookup alone cannot remove consumer bypass: actual candidate-root
+context and safe fixing/publication must reach the nested check before that
+exclusion can be deleted atomically by its owner. Those files are forbidden in
+this turn. No primitive/type-name heuristic, stateless raw-signature retry,
+second cache or no-op provider is added. Existing 4bc4705e/9375b1e1 provider
+contracts remain the integration seams. No implementation/target conversion
+or full/parity/performance acceptance claimed for this investigation. Receipts
+literal-constraint-* in ignored recovery directory; existing .16.94 open.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
