@@ -1504,9 +1504,8 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         type_arguments: &[TypeId],
     ) -> Option<Signature> {
-        let key = crate::inference::SignatureInstantiationKey::new(signature.identity.clone());
         if let Some(image) =
-            self.cached_signatures.get(&key).and_then(|images| images.get(type_arguments))
+            self.cached_signatures.get(&signature.id).and_then(|images| images.get(type_arguments))
         {
             return Some(image.clone());
         }
@@ -1520,7 +1519,7 @@ impl<'a> Checker<'a, '_> {
         let image =
             self.instantiate_signature_lazily(signature, &map, &parameters, &names, true)?;
         self.cached_signatures
-            .entry(key)
+            .entry(signature.id)
             .or_default()
             .insert(type_arguments.to_vec(), image.clone());
         Some(image)

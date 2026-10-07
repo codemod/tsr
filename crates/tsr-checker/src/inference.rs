@@ -108,32 +108,6 @@ pub(crate) struct InstantiatedTypeParameter {
     pub(crate) names: Vec<String>,
 }
 
-/// Native cachedSignatures key: stable signature identity plus ordered args.
-/// The retained Arc prevents address reuse; declaration/name equality is not
-/// signature identity. Private Checker cache lifetime matches TypeId ownership.
-#[derive(Clone, Debug)]
-pub(crate) struct SignatureInstantiationKey {
-    identity: std::sync::Arc<()>,
-}
-
-impl SignatureInstantiationKey {
-    pub(crate) fn new(identity: std::sync::Arc<()>) -> Self {
-        Self { identity }
-    }
-}
-
-impl PartialEq for SignatureInstantiationKey {
-    fn eq(&self, other: &Self) -> bool {
-        std::sync::Arc::ptr_eq(&self.identity, &other.identity)
-    }
-}
-impl Eq for SignatureInstantiationKey {}
-impl std::hash::Hash for SignatureInstantiationKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&std::sync::Arc::as_ptr(&self.identity), state);
-    }
-}
-
 /// instantiateSignatureEx target mapper, owned by the signature image.
 /// Ordered identities retain captured fixing/receiver context; no new cache.
 #[derive(Clone, Debug)]
@@ -6323,7 +6297,9 @@ impl<'a> Checker<'a, '_> {
         // and captured mapper. Native eraseTypeParameters affects only image.
         let target = std::sync::Arc::new(original.clone());
         let mut signature = original.clone();
-        signature.identity = std::sync::Arc::new(());
+        signature.id = self.next_signature_id;
+        self.next_signature_id =
+            self.next_signature_id.checked_add(1).expect("signature identity exhausted");
         if erase_type_parameters {
             signature.type_parameters.clear();
         }
@@ -6440,7 +6416,9 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> Option<Signature> {
         let target = std::sync::Arc::new(signature.clone());
-        signature.identity = std::sync::Arc::new(());
+        signature.id = self.next_signature_id;
+        self.next_signature_id =
+            self.next_signature_id.checked_add(1).expect("signature identity exhausted");
         signature.mapper = None;
         let error = self.intrinsics.error;
         let substitute = |checker: &mut Self, id: TypeId| -> Option<TypeId> {
