@@ -119,6 +119,19 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
         }
+        if self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+            && let (Some(receiver), Some(index)) = (node.expression, node.argument_expression)
+            && self.receiver_alias_is_namespace_import(receiver) == Some(true)
+        {
+            let source = self.check_expression(receiver);
+            let key = self.check_expression(index);
+            if self
+                .property_name_from_index(key)
+                .is_some_and(|name| self.get_property_of_type(source, &name).is_some())
+            {
+                return self.intrinsics.any;
+            }
+        }
         // `isThisPropertyAccessInConstructor` (`checker.go:27042`), the
         // element-access twin of the property-access arm: `this["x"]` inside
         // the declaring constructor reads `autoType` through its flow.

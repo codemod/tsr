@@ -562,6 +562,23 @@ independent single-key/contextual failures; no whole-two-case acceptanceclaim.
 Computed-only latebinding query work remains performance-unmeasured and must be
 qualified by parent. Receipts paired-setter-* in target/recovery/property.
 
+## Namespace-member assignment typing — tsr-2zk.4.4
+
+Existing receiver_alias_is_namespace_import helper is checker-visible and reused
+in property/element semantic assignment typing. Native isAssignmentToReadonlyEntity
+5b1047d:27279 checks parenthesized receiver resolving to NamespaceImport ALIAS,
+not module type shape. A found imported member assignment returns error-family
+any; readonly diagnostic reporter remains unchanged. Local namespaces and
+ordinary module variables are not blanket-readonly. No alias cache, duplicated
+predicate or reservedassignment_target_meaning/readonlysupplier edit.
+
+Directnative imports/parenthesized indexes/update reject whilelocalnamespace
+write remainslegal. Full477970type/10570diagpair adds36RIGHTrows,0priorRIGHTloss/
+0vanished;externalModuleImmutableBindings diagnosticWRONG->RIGHT. Its whole type
+case matches;importsImplicitlyReadonly retains2importedidentifier (notmember)
+assignmenttypefailures, diagnosticsRIGHT. StrictClippyPASS. No completework
+perfclaim; parentgatenecessary. Receipts namespace-write-* in recoverydirectory.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
