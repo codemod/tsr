@@ -159,6 +159,24 @@ suites rerun; this remains legacy coverage, not strict metadata parity. Fresh
 diagnostic fingerprints match; complete-work verified ratio remains null. No
 native <=0.50 or literal zero-regression release claim.
 
+## Call-before-construct reporting boundary
+
+Pinned structuredTypeRelatedToWorker at relater.go 3864 compares properties,
+then calls, then constructs, then indexes, visiting the next worker only when the
+previous result is non-false. TSR related_signatures previously evaluated calls
+and constructs eagerly, so a call TS2849 Expected 2 was overwritten by construct
+Expected 3. Existing owned worker now returns immediately on completed call
+NotRelated. No cache, new metadata or type identity; reporting still belongs to
+the existing direct ordered TypeId pair/Relater. Unsupported call work remains
+unsupported. Construct comparison is the skipped expensive boundary, not a second
+reporting query. Actual dual-signature CLI reproduced the discrepancy before and
+matches complete pinned native bytes after. Regression, workspace release tests
+and scoped clippy pass. Fresh full keyed dumps preserve all 469785 RIGHT type
+and 9190 RIGHT/EMPTY_RIGHT diagnostic keys, zero missing/changed; sixteen read-only
+suites rerun. Domain-model 21-pair candidate/recovery-baseline observed wall ratio
+0.9781 with matching diagnostic fingerprints, verified complete-work ratio null.
+No claim of native <=0.50 or strict full-configuration parity.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

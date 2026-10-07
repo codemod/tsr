@@ -1792,6 +1792,11 @@ impl Relater<'_, '_, '_> {
         }
         let calls =
             self.related_signature_kind(source, target, crate::signatures::SignatureKind::Call)?;
+        if calls == RelationResult::NotRelated {
+            // Native structural comparison does not visit construct signatures
+            // after call failure; preserve its explanation and work boundary.
+            return Some(calls);
+        }
         let constructs = self.related_signature_kind(
             source,
             target,
