@@ -1621,6 +1621,10 @@ impl<'a> Checker<'a, '_> {
                 return returned_image;
             };
             instance.r#type = returned_image;
+            // checkApplicableSignature re-checks each argument under the
+            // instantiated parameter (checker.go:9256), the context the
+            // resolved signature later gives it.
+            self.recheck_literal_arguments_in_context(call, &instance, arguments);
             *slot = Some(instance);
             return returned_image;
         }

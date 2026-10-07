@@ -4524,7 +4524,7 @@ impl Checker<'_, '_> {
     /// its first check, while `evict_subtree` would drop this port's copy.
     /// The memo is the existing per-call `call_inference_signatures` entry,
     /// published only for the duration of the re-check. No new cache.
-    fn recheck_literal_arguments_in_context(
+    pub(crate) fn recheck_literal_arguments_in_context(
         &mut self,
         call: Option<tsr_ast::NodeId>,
         signature: &Signature,
