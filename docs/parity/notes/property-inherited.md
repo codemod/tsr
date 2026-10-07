@@ -376,12 +376,13 @@ Original readonly/member cutover remains open under `.4.12.1`; broad `.4.14`
 also remains open. The bounded composite-origin/static-receiver slice is
 `.4.14.1`; `bfca6e08` implements that slice, not broad issue completion.
 
-## Constructor access-kind root — separate single-root issue pending integrator assignment
+## Constructor access-kind root — dedicated parent-.4 issue, integration queued
 
 Delivery identifiers: code/test `5f26bb1f` (Box auto-commit), verification
-record `60f065be`. Integrator review must assign this access-kind-only fix its
-own single-root issue under `.4.12`; no broader inherited-readonly completion
-is claimed. The parent remains open and under review.
+record `60f065be`, scope record `e10f62b0`. Integrator reports a dedicated
+single-root issue under parent `.4` created and this split delivery queued;
+the numeric leaf ID was not supplied. It is separate from broad `.4.12` and
+`.4.14`; no broader inherited-readonly completion is claimed.
 
 Pinned `isAssignmentToReadonlyEntity` tests `ast.IsAccessExpression`, not only
 property access. `assignment_is_inside_the_declaring_constructor` previously
@@ -483,12 +484,13 @@ works. Exact blocking producer: `declared.rs::build_type_literal`
 (the index-member branch around 2540) calls singular `index_signature_member`,
 which declines UNION keys, before it ever calls `index_infos_of_declaration`.
 The owned collector therefore cannot reach that literal. Required external hunk:
-replace singular index rendering with a list of members from the existing
-per-valid-key IndexInfos, deduplicate each semantic key TypeId across declarations
+replace singular index rendering with members from the existing
+`index_infos_of_declaration` followed by existing `index_info_members` for each
+valid-key IndexInfo; no new plural API is needed. Deduplicate each semantic key
+TypeId across declarations
 in declaration/constituent order, and retain key-specific value/readonly/source
-provenance. Do not render printed union text as one key. This requires an owned
-plural index-rendering producer and serialized unowned `declared.rs` caller
-cutover; no shim or shared-file edit was made.
+provenance. Do not render printed union text as one key. This requires a serialized unowned `declared.rs` caller
+cutover onto those existing owned APIs; no shim or shared-file edit was made.
 
 Missing duplicate TS2374 in this target belongs to
 `index_constraint.rs::check_duplicate_index_signatures`, also unowned, not the
