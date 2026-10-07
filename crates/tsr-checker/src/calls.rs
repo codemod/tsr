@@ -2828,7 +2828,8 @@ impl<'a> Checker<'a, '_> {
                     // defaults land.
                     let map: Vec<(TypeId, TypeId)> =
                         parameters.iter().copied().zip(written.iter().copied()).collect();
-                    let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
+                    let returned = self.get_return_type_of_signature(&signature).unwrap_or(error);
+                    let answer = self.instantiate_type(returned, &map, &parameters, &names);
                     if answer != error {
                         let contextual = node.arguments.iter().any(|argument| {
                             self.is_context_sensitive_argument(argument)
@@ -3376,7 +3377,8 @@ impl<'a> Checker<'a, '_> {
                         .collect();
                     let map: Vec<(TypeId, TypeId)> =
                         parameters.iter().copied().zip(written.iter().copied()).collect();
-                    let answer = self.instantiate_type(signature.r#type, &map, &parameters, &names);
+                    let returned = self.get_return_type_of_signature(&signature).unwrap_or(error);
+                    let answer = self.instantiate_type(returned, &map, &parameters, &names);
                     if answer != error {
                         return answer;
                     }

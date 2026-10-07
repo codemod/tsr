@@ -391,3 +391,22 @@ Source applied, but parent Signature.mapper field/getter and outer source fields
 are still absent, so predicate-consumer-check.log is not a passing compile/run.
 No identity/publication/performance proof fabricated; actual parent integration
 is required before ordered-mapper/distinct-context on-demand controls can run.
+
+### Image-owned completed slots
+
+The existing Arc<SignatureMapper> now owns OnceLock completed return and
+predicate slots, matching native instantiated-signature resolved metadata rather
+than original declaration caches. Clones share the exact target/mapper image;
+distinct maps get distinct slots. Unsupported/active work sets nothing;
+completed predicate absence stores None. mapped_signature_return checks its
+completed slot before target demand/substitution, then publishes only a supported
+result. Predicate mapper likewise publishes absence/success. Parent getter uses
+cached_mapped_signature_predicate before recursively demanding target predicate.
+No extra Checker cache or declaration key. Return/predicate objects remain
+Checker-local TypeIds; no cross-store reuse.
+
+Owned written-argument ordinary-call/tagged-template return consumers and
+instantiate_signature_in_context now use canonical return demand. Source applied;
+image-completion-check.log still records absent parent Signature.mapper/outer
+integration fields. No runtime/counter/publication/performance proof claimed
+until the actual parent integration can compile; no mock surface installed.
