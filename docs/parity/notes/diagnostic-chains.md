@@ -388,6 +388,21 @@ This follow-up adds only the consumer behavior regression/docs, no runtime or
 performance change; prior source-qualified gates remain those in constraint-source
 receipts and still do not pass no-hotpath-regression acceptance.
 
+## Immediate constraint identity preservation — tsr-2zk.1
+
+Actual U extends T extends string control exposed collapsed intermediate reporting:
+TSR displayed only string/number, native retains T/number then string/number.
+Owned existing cycle walk already records those immediate Checker-local TypeIds;
+completed primitive-constraint failure now wraps them in reverse order. No new
+semantic traversal, cache or verdict computation. Cycles/unsupported constraints
+still return Unknown before publication; tree allocation is completed reporting
+only. Actual assignment/argument CLI matches native complete three-level output;
+permanent regression verifies both parent codes and ordered inner heads. Completed
+workspace release tests/clippy pass; full keyed dumps preserve all protected RIGHT
+keys; sixteen suites complete. Observed domain21 cumulative baseline wall1.0400,
+diagnostics match, complete-work null: no-hotpath acceptance still unmet. Parent
+check_return_statement reserved and unchanged. Receipts constraint-chain-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

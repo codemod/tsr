@@ -190,6 +190,22 @@ fn source_type_parameter_primitive_constraint_failure_retains_inner_relation() {
 }
 
 #[test]
+fn immediate_source_constraints_are_not_flattened_to_terminal_type() {
+    let ds = diagnostics(
+        "function f<T extends string, U extends T>(value: U): number { return value; } function g<T extends string, U extends T>(value: U) { accept(value); } declare function accept(value: number): void;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322, 2345]);
+    for d in ds {
+        let mut text = String::new();
+        write_flattened_diagnostic_message(&mut text, &d.message_chain()[0], "\n");
+        assert_eq!(
+            text,
+            "Type 'T' is not assignable to type 'number'.\n  Type 'string' is not assignable to type 'number'."
+        );
+    }
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

@@ -3259,11 +3259,25 @@ impl Relater<'_, '_, '_> {
             {
                 // Primitive constraints have no polymorphic this to substitute.
                 // The completed constraint failure is the native inner head.
-                self.property_error = Some(tsr_diagnostics::Diagnostic::with_args(
+                let mut diagnostic = tsr_diagnostics::Diagnostic::with_args(
                     &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
                     tsr_core::Span::new(0, 0),
                     [self.checker.type_to_string(constraint), self.checker.type_to_string(target)],
-                ));
+                );
+                // The existing constraint-cycle walk retains each immediate
+                // type-variable identity. Native recursive reporting wraps each
+                // one, rather than displaying only the terminal constraint.
+                for &parameter in seen[1..].iter().rev() {
+                    diagnostic = tsr_diagnostics::Diagnostic::new_chain(
+                        Some(diagnostic),
+                        &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                        [
+                            self.checker.type_to_string(parameter),
+                            self.checker.type_to_string(target),
+                        ],
+                    );
+                }
+                self.property_error = Some(diagnostic);
             }
             return related;
         }
