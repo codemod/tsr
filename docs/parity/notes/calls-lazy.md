@@ -415,3 +415,49 @@ Parent fields/getters remain absent here, so preserve-target-check.log is blocke
 and behavioral tests are not counted passing. Image-owned completed slots avoid
 repeat demand of a single image; stable original signature interning plus ordered
 argument instantiation reuse is still unresolved and is not claimed by this fix.
+
+## Native signature identity / ordered-argument cache writer
+
+Applied owned cachedSignatures worker. Parent Signature.identity: Arc<()> must
+be initialized fresh for genuinely new signatures and retained across ordinary
+clones/completion. Owned eager/lazy instantiation writers mint fresh image
+identities while target snapshots retain the complete original identity/mapper.
+SignatureInstantiationKey retains the Arc and compares/hashes pointer identity;
+retention prevents allocator address reuse. No declaration/name equivalence.
+
+Parent Checker.cached_signatures exact field type is
+FxHashMap<inference::SignatureInstantiationKey, FxHashMap<Vec<TypeId>, Signature>>.
+Nested layout permits borrowed ordered &[TypeId] hits with no argument-vector
+allocation/copy; miss publishes a full signature image only after successful
+input mapping, copying the ordered arguments once. Cached clones share image
+identity/mapper completion slots. Unsupported mapping never publishes; pending
+return remains pending metadata, not unsupported input completion. No new cache
+beside native cachedSignatures; private Checker lifetime owns TypeIds/options.
+
+Actual source writer/lookup applied but parent fields remain absent here;
+signature-cache-final-check.log is blocked. Runtime identity/distinct-map/cache-hit
+proof and whole-work cost measurements are NOT claimed. Parent must also mint
+fresh identities for composite/new contextual signature writers, not preserve
+identity when changing semantics on a clone. Canonical getter integration and
+constraint-this obligation still require completion before feature acceptance.
+
+## Explicit constraint-this reference writer
+
+Applied get_type_with_this_argument in owned inference.rs: ordinary references
+retain their source argument vector and display arity; the explicit receiver is
+stored separately in parent type_reference_this_arguments: FxHashMap<TypeId,
+TypeId>. Completed reference images reuse parent type_reference_this_types:
+FxHashMap<(TypeId, TypeId), TypeId>. Intersection constituents use the same native
+operation; non-reference/other leaves remain unchanged unless apparent reduction
+is requested. No property table copies or padded ordinary arguments.
+
+Constraint checking calls the writer after instantiate_type and before the
+assignable relation/report. Signature reference projection reads the separate
+receiver; reference rebuilding maps and preserves it. Parent/property member
+projection must likewise honor the override for reads/writes/readonly/origin;
+without that consumer the reference image alone is not a completed cutover.
+
+Fields/parent getter integration remain absent here; constraint-this-check.log
+is blocked. No runtime exact native control, RIGHT ratchet or performance proof
+claimed. Cache owns private Checker TypeIds/options; publication is only a
+completed reference identity, not completed member computation or relation.

@@ -5605,7 +5605,14 @@ impl<'a> Checker<'a, '_> {
             // §136: a rebuild keeps the source reference's written display
             // arity — the spelling survives instantiation.
             let display = self.reference_display_arity.get(&id).copied();
-            let rebuilt = self.create_type_reference_with_display(symbol, substituted, display);
+            let mut rebuilt = self.create_type_reference_with_display(symbol, substituted, display);
+            if let Some(&this_argument) = self.type_reference_this_arguments.get(&id) {
+                let this_argument = self.instantiate_type(this_argument, map, parameters, names);
+                if self.is_error(this_argument) {
+                    return error;
+                }
+                rebuilt = self.get_type_with_this_argument(rebuilt, this_argument, false);
+            }
             // instantiateTypeWorker retains an instantiated callable object's
             // signatures (checker.go). Alias references preserve their name,
             // but a newly rebuilt argument list must also retain that callable
@@ -6117,6 +6124,54 @@ impl<'a> Checker<'a, '_> {
         renamed
     }
 
+    /// getTypeWithThisArgument (5b1047d:19573), without apparent reduction.
+    /// Ordinary arguments stay in type_reference_targets; the explicit receiver
+    /// is a separate field consumed by canonical member/signature projection.
+    pub(crate) fn get_type_with_this_argument(
+        &mut self,
+        ty: TypeId,
+        this_argument: TypeId,
+        need_apparent_type: bool,
+    ) -> TypeId {
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned() {
+            if let Some(&image) = self.type_reference_this_types.get(&(ty, this_argument)) {
+                return image;
+            }
+            if self.type_reference_this_arguments.get(&ty) == Some(&this_argument) {
+                return ty;
+            }
+            let crate::types::TypeData::Named { text, members } = self.store.get(ty).data.clone()
+            else {
+                return self.intrinsics.error;
+            };
+            let image = self.store.new_named(self.store.get(ty).flags, text, members);
+            self.type_reference_targets.insert(image, (symbol, arguments));
+            if let Some(&arity) = self.reference_display_arity.get(&ty) {
+                self.reference_display_arity.insert(image, arity);
+            }
+            self.type_reference_this_arguments.insert(image, this_argument);
+            self.type_reference_this_types.insert((ty, this_argument), image);
+            return image;
+        }
+        if let crate::types::TypeData::Intersection { types, .. } = self.store.get(ty).data.clone()
+        {
+            let images: Vec<_> = types
+                .iter()
+                .map(|&part| {
+                    self.get_type_with_this_argument(part, this_argument, need_apparent_type)
+                })
+                .collect();
+            if images.iter().any(|&image| self.is_error(image)) {
+                return self.intrinsics.error;
+            }
+            if images == types {
+                return ty;
+            }
+            return self.get_intersection_type(&images, None);
+        }
+        if need_apparent_type { self.apparent_type(ty) } else { ty }
+    }
+
     /// `instantiateSignatureEx` (checker.go), using an object reference's
     /// mapper while preserving the signature's own type parameters.
     pub(crate) fn instantiate_signature_for_reference(
@@ -6124,7 +6179,9 @@ impl<'a> Checker<'a, '_> {
         receiver: TypeId,
         signature: Signature,
     ) -> Option<Signature> {
-        self.instantiate_signature_for_reference_with_this(receiver, receiver, signature)
+        let this_argument =
+            self.type_reference_this_arguments.get(&receiver).copied().unwrap_or(receiver);
+        self.instantiate_signature_for_reference_with_this(receiver, this_argument, signature)
     }
 
     /// resolveTypeReferenceMembers / resolveObjectTypeMembers (5b1047d):
