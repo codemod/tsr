@@ -672,17 +672,6 @@ fn angle_bracket_means_different_things_per_dialect() {
 }
 
 #[test]
-fn script_kind_is_inferred_from_the_file_name() {
-    use tsr_parser::ScriptKind;
-    assert_eq!(ScriptKind::from_file_name("a.tsx"), ScriptKind::Tsx);
-    assert_eq!(ScriptKind::from_file_name("a.jsx"), ScriptKind::Tsx);
-    assert_eq!(ScriptKind::from_file_name("a.ts"), ScriptKind::TypeScript);
-    assert_eq!(ScriptKind::from_file_name("a.d.ts"), ScriptKind::TypeScript);
-    assert!(ScriptKind::Tsx.allows_jsx());
-    assert!(!ScriptKind::TypeScript.allows_jsx());
-}
-
-#[test]
 fn jsx_whitespace_only_children_are_marked() {
     // `<div>\n  </div>` has a whitespace-only child that emit drops; `<div>  </div>`
     // has real text.

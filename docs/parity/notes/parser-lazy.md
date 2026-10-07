@@ -1,3 +1,117 @@
+# Parser language boundaries and lazy TypeScript JSDoc
+
+## Recovery at 0e7824dd: tsr-2zk.16.405
+
+Native remains `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
+The recovery source `box/parity-parser-final` was fetched read-only. Its
+`bfaf6185` owned parser changes were rederived against native; the final
+`7840bfca` automatic snapshot was not merged, cherry-picked, or accepted as
+verified evidence. Its JavaScript call-typeargument gate was separately
+rederived from native `Parser.tryParseTypeArgumentsInExpression`.
+The cheap JSDoc classifier already present at b01886cf was not duplicated.
+
+### Implemented operations and boundaries
+
+`ScriptKind::{Js, Jsx}` preserve JavaScript identity. Filename inference maps
+`.js/.mjs/.cjs` to Js, `.jsx` to Jsx. Native `getLanguageVariant` in
+`internal/parser/utilities.go` selects JSX scanner mode for JS, JSX, TSX and
+JSON; JSON still enters its separate value parser. Native
+`parseJsxOpeningOrSelfClosingElementOrOpeningFragment` and
+`tryParseTypeArgumentsInExpression` reject type arguments in JS/JSX while
+retaining TypeScript parsing. The JSX caller invokes the ordinary type parser
+for TSX, including native `<` rescanning. Missing identifier recovery in
+`createIdentifierWithDiagnostic` finishes at `nodePos()` before leading
+trivia; `report_missing_identifier` now records that empty extent without an
+extra replacement allocation. Missing `super += 3` name is consequently
+[5,5), as the direct native control confirms. Punctuation printing includes
+native `...` and `</` messages.
+
+No semantic cache, mapper, traversal or reuse extension was added. Script kind
+belongs to one immutable parser invocation, not a checker cache. Node IDs are
+private file identities until ordered NodeTable/NodeMap publication relocates
+them to Program identity. Missing identifiers publish completed empty syntax,
+not absent or provisional semantic results. Type arguments remain ordered
+arena-owned slices: existing generated Publish traverses every typed argument,
+including nested TypeReference arguments, with registered-node memoization.
+The new publication control drops the private parser owner before reading
+nested JSX/call type arguments, uses a preceding file to force relocation,
+and checks concrete child names, range ownership and parent identity. Existing
+publication code already handles this boundary; no second type-list table is
+needed. Receiver/alias semantics are unchanged. The expensive worker remains
+ordinary expression/JSX/type parsing, with no extra pass or cache.
+
+### Fresh receipts, not historical passes
+
+Ignored receipt directory: `target/recovery-parser/`. It contains frozen base
+executables, before/after unfiltered dumps, native Go controls, transition JSON,
+binary hashes, test logs, a read-only all-suite run and parser timing samples.
+These ignored files remain Box-local; automatic commit fetching does not carry
+them. The measured conclusions below are recorded here for integration.
+
+Base is 0e7824dd with no unrelated edits. Base/candidate full unfiltered dumps:
+
+| Population | Base | Candidate |
+|---|---:|---:|
+| Type rows | 477970 | 477996 |
+| RIGHT type rows | 469785 | 469814 |
+| WRONG type rows | 7190 | 7187 |
+| GAP type rows | 995 | 995 |
+| Diagnostic rows | 10570 | 10570 |
+| RIGHT diagnostics | 4222 | 4226 |
+| WRONG diagnostics | 1280 | 1276 |
+| EMPTY_RIGHT diagnostics | 4968 | 4968 |
+| EMPTY_WRONG diagnostics | 100 | 100 |
+
+Every previous RIGHT/EMPTY_RIGHT key was explicitly looked up; zero adverse
+transitions and zero vanished keys. All three
+`parseJsxElementInUnaryExpressionNoCrash1/2/3` diagnostic cases change
+WRONG -> RIGHT. Targets 1/2 have all type lines RIGHT; target 3 retains its
+outer unary `boolean` versus `any` difference (13/14 target type rows RIGHT).
+
+Direct Go ParseSourceFile controls exercised JS/JSX/TS/TSX malformed unary
+JSX, relational-versus-call brackets, parenthesized JSX, nested JSX typeargs,
+and missing super names. Parser/scanner release tests passed; all four new
+boundary/publication tests passed; conformance parser smoke passed. Parser fmt
+check and release parser-library no-deps clippy passed after correcting the
+candidate's formatting and if-not-else lint. No workspace-lint pass is claimed.
+
+A read-only external runner completed all 16 existing suites on 12444 cases,
+without touching protected snapshots. Parser clean 5031/5031, scanner
+termination 12444/12444; checker_types 8057/9538 (2906 skipped), matched
+469814/478855 lines; diagnostics 4226/5502 (6942 skipped). These suites and
+verdict dumps retain existing varied-configuration/known-divergence exclusions;
+they do **not** establish >=99.9% exact full-configuration parity.
+
+Fresh-process interleaved 21-pair parser-only timing, 15 complete parses per
+sample, build/setup excluded: candidate/base median wall ratio 0.991832 for
+native parser.ts and 1.001716 for dom.generated.d.ts. Equal output node counts
+confirm equal parser work on these unchanged TS inputs. The latter is a small
+observed increase; no statistically established no-regression or speed-win
+claim is made. Neither is whole-project TSR/tsgo timing, and equivalent
+complete-checker-work <=0.50 remains unverified.
+
+### Integration prerequisites still open
+
+- Parent owns target 3's `negated_truthiness_type` native default boolean
+  behavior. Parser has no special case for the malformed input.
+- Integration owner should simplify compiler `loader.rs::parse_options` to
+  `ParseOptions::for_file(name)`: its old JSX-option-dependent JS->TSX
+  promotion becomes unreachable. Compiler/parser-smoke callsites with manual
+  script-kind mapping and the stale checker test comment require owner review.
+  No forbidden file was edited here.
+- Raw Go diagnostic emission order differs from TSR's existing public parser
+  position-sorted order: on `!< {:>` Go emits TS1003, TS1005, TS17008, TS1005;
+  TSR returns TS17008, TS1003, TS1005, TS1005. Codes/messages/spans agree for
+  these targets after source-order publication, but exact raw native order
+  is **not** certified. Changing the shared scanner/parser diagnostic protocol
+  needs coordinated ownership; this recovery does not suppress or repin it.
+- `bd prime` succeeded, but `bd show`, `bd history`, and `bd update` could not
+  find supplied issue tsr-2zk.16.405 in the Box database. No duplicate issue
+  was created. Parent must attach these receipts to the existing issue.
+- Full configuration expansion, exact diagnostic order/message/type printing,
+  integrated no-RIGHT-loss gates and verified equivalent-work wall <=0.50
+  remain campaign acceptance prerequisites, not this parser lane's passes.
+
 # Lazy TypeScript JSDoc: tsr-2zk.17.1
 
 ## Pinned evidence and implemented boundary

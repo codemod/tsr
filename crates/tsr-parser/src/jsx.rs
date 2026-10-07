@@ -378,14 +378,10 @@ impl<'a> Parser<'a> {
             return JsxOpening::Fragment(fragment, full_start);
         }
         let tag_name = self.parse_jsx_element_name();
-        // Upstream skips type arguments in JavaScript files
-        // (`contextFlags&NodeFlagsJavaScriptFile`); this parser has no such
-        // flag yet, so `.jsx` parses them too (`docs/parity/notes/jsx.md`).
-        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
-            self.parse_type_arguments()
-        } else {
-            Vec::new()
-        };
+        // Native parseJsxOpeningOrSelfClosingElementOrOpeningFragment:
+        // JS/JSX use JSX grammar but never consume TypeScript type arguments.
+        let type_arguments =
+            if self.script_kind.is_javascript() { Vec::new() } else { self.parse_type_arguments() };
         let type_arguments = self.arena.alloc_slice(&type_arguments);
         let attributes = self.parse_jsx_attributes();
         if self.at_jsx_greater_than() {

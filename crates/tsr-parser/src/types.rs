@@ -1301,6 +1301,11 @@ impl<'a> Parser<'a> {
     /// Returns `None` rather than recovering, because the caller uses failure to
     /// decide that `<` was a comparison after all.
     pub(crate) fn parse_type_arguments_for_call(&mut self) -> Option<Vec<TypeNode<'a>>> {
+        // Ported from typescript-go's `Parser.tryParseTypeArgumentsInExpression`
+        // (`parser.go`): JavaScript brackets remain relational operators.
+        if self.script_kind.is_javascript() {
+            return None;
+        }
         // `Foo<<T>() => void>` opens with a single `<<` shift token.
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
