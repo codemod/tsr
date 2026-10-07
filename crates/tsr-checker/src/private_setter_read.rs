@@ -21,7 +21,7 @@ use crate::expressions::AssignmentTargetKind;
 
 impl Checker<'_, '_> {
     pub(crate) fn check_private_setter_read(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.file_has_parse_errors {
             return;
         }
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };

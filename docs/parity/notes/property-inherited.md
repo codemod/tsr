@@ -563,6 +563,54 @@ verified patch. No candidate performance certification is attempted after a
 correctness loss. Existing member-mapper/publication/work audit boundaries above
 remain applicable; no reuse expansion was introduced.
 
+## PRIVATE-SETTER-READ checked-JS decline removal — dedicated issue requested
+
+Current exact corpus controls `conformance/privateNameSetterNoGetter` and
+`conformance/privateWriteOnlyAccessorRead` already have RIGHT diagnostics and
+all RIGHT type lines. No named conversion is claimed. Native
+`checkPropertyAccessExpressionOrQualifiedName` reports TS2806 after successful
+`getPrivateIdentifierPropertyOfType` lookup on a set-only accessor when assignment
+kind is not definite. It does not categorically exclude JavaScript there.
+`private_setter_read.rs::check_private_setter_read` did exclude every JS access;
+that unsupported decline is removed. Lexical class/declaration SymbolId identity,
+receiver apparent type and getter/setter flags remain the existing checks.
+No cache/member image/mapper/traversal is added; current private Checker ownership
+and source-node diagnostic context remain unchanged.
+
+Ordinary before/after native-supported CLI control:
+
+```js
+class C {
+  set #x(value) {}
+  read() { return this.#x; }
+  write() { this.#x = 1; }
+  update() { this.#x += 1; }
+}
+```
+
+With `--allowJs --checkJs --noImplicitAny false --noEmit --target es2015
+--pretty false`, native and candidate stdout match byte-for-byte: TS2806 at
+(3,19), (5,14), complete message `Private accessor was defined without a getter.`
+Frozen TSR reports neither. Definite setter write stays legal. Initial control
+without explicit noImplicitAny also exposes unrelated native TS7032/TS7006
+missing in TSR; no attempt was made to implement those outside this root.
+Permanent `property_private_setter_native_js.rs` verifies read/compound-write
+spans versus definite-write permission in JS.
+
+Full unfiltered dumps finish unchanged relative to completed composite port:
+477,970 type keys, 10,570 diagnostic keys; zero missing protected keys,
+zero verdict losses and zero changed payloads including WRONG cases.
+Workspace release tests completed through doc tests, clippy warnings-denied
+and workspace fmt check passed. Full coverage completed over 12,444 sources:
+checker_types 8042/9538, diagnostics 4221/5502, unchanged. Scratch snapshot-path
+redirection only; independent unredirected coverage stdout proof remains limited.
+Observed baseline walls: domain-model 21 pairs 1.0318, repeated 41 pairs **1.0001**;
+generic-imports 21 pairs **0.9747**. Pinned native 21-pair walls **1.0340/0.9297**.
+Scope/options/diagnostics match in performance reports but complete inputs/actual
+performed work are unverified (`work_comparable=false`, `target_verified=false`).
+No release-speed claim. Dedicated single-root Beads issue requested from integrator;
+parent `.4.12.1` in the delivery message does not close inherited readonly work.
+
 ## Release-target limits
 
 Observed 21-pair fresh-process interleaved comparisons after reverting the
