@@ -2268,6 +2268,84 @@ impl<'a> Checker<'a, '_> {
         self.signatures_of_type_kind(t, kind)
     }
 
+    /// getSignaturesOfType for instantiation-expression filtering. Never uses
+    /// the semantic resolver that completes all returns before arity filtering.
+    /// Parent resolves structured members before entering this list consumer.
+    pub(crate) fn get_instantiation_expression_signatures(
+        &mut self,
+        t: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Vec<Signature>> {
+        let t = self.apparent_type(t);
+        let is_call = kind == SignatureKind::Call;
+        if let Some(signatures) = self.signature_types.get(&t) {
+            return Some(
+                signatures
+                    .iter()
+                    .filter(|signature| (signature.kind == SignatureKind::Call) == is_call)
+                    .cloned()
+                    .collect(),
+            );
+        }
+        if t == self.intrinsics.empty_object
+            || t == self.intrinsics.unknown_empty_object
+            || self.store.get(t).flags.contains(TypeFlags::NON_PRIMITIVE)
+        {
+            return Some(Vec::new());
+        }
+        let TypeData::Anonymous { symbol, .. } = self.store.get(t).data else {
+            // Named inheritance/composite construction needs the same pending
+            // shape contract, not an eager resolver or invented empty list.
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.contains(SymbolFlags::CLASS) {
+            if is_call {
+                return (!flags.contains(SymbolFlags::FUNCTION)).then(Vec::new);
+            }
+            return self.get_class_construct_signatures(symbol);
+        }
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        if declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                tsr_ast::SyntaxKind::TypeLiteral | tsr_ast::SyntaxKind::InterfaceDeclaration
+            )
+        }) {
+            return None;
+        }
+        for declaration in declarations {
+            if !matches!(
+                self.nodes.kind(declaration),
+                tsr_ast::SyntaxKind::FunctionDeclaration
+                    | tsr_ast::SyntaxKind::FunctionExpression
+                    | tsr_ast::SyntaxKind::ArrowFunction
+                    | tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::FunctionType
+                    | tsr_ast::SyntaxKind::ConstructorType
+                    | tsr_ast::SyntaxKind::CallSignature
+                    | tsr_ast::SyntaxKind::ConstructSignature
+                    | tsr_ast::SyntaxKind::MethodSignature
+            ) {
+                continue;
+            }
+            let key = self.type_literal_key(declaration);
+            if !self.signature_returns.contains_key(&key) {
+                self.pending_signature_returns
+                    .entry(key)
+                    .or_insert(crate::signatures::LazyReturnState::Pending);
+            }
+        }
+        let signatures = self.get_signatures_of_symbol_for_type(symbol)?;
+        Some(
+            signatures
+                .into_iter()
+                .filter(|signature| (signature.kind == SignatureKind::Call) == is_call)
+                .collect(),
+        )
+    }
+
     fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {
         self.head_signatures(t, kind).map(|signatures| signatures.len())
     }

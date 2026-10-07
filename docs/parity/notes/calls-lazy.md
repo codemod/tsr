@@ -542,3 +542,58 @@ get_signature_instantiation, which uses instantiate_signature_lazily. Eager imag
 gets a fresh monotonic ID; target preserves completed source identity/context.
 Source applied; eager-lazy-source-check remains blocked by absent parent fields.
 No runtime or full-integration acceptance claimed.
+
+### Canonical original signature builder identity
+
+Native getSignatureFromDeclaration first reads signatureLinks.resolvedSignature.
+Current port get_signature_from_declaration has no equivalent full-signature
+publication; only returns cache by captured TypeLiteralKey. Parent signature owner
+must retain original signature ID through a canonical captured declaration entry,
+not mint an ID on each temporary getter rebuild. Pending/completed updates preserve
+identity; contextual reassignment must preserve mutable original semantics rather
+than reuse a foreign completed context. Unsupported construction is not empty.
+Derived/composite signatures remain genuinely new IDs. No printed-name interning.
+
+Extended parsed ordered-map behavior control re-reads the original signature
+through get_signatures_of_symbol, instantiates it and verifies earlier image
+returns remain distinct. This proves behavior, not cache-hit counts. Current
+original-builder-tests.log is compile-blocked by absent shared fields; no pass or
+work-boundary proof claimed. Parent original-builder publication is a separate
+native operation from cachedSignatures, not a duplicate return cache.
+
+### Renderer cutover: non-rendering nullability classification
+
+Owned inferential null/undefined classification now compares canonical intrinsic
+identities rather than allocating rendered strings and potentially forcing a
+lazy wrapper. Parent remains the single owner of plain type_to_string mutable
+cutover; owned actual rendering workers already take mutable Checker. Read-only
+mentions discovery remains structural/nonforcing. null-identity-check.log is
+blocked by prior absent shared fields; no independent runtime/parity claim.
+
+### Parsed ordered-map behavior control
+
+Added calls_ordered_instantiation.rs: one canonical parsed two-parameter signature
+is instantiated with swapped [string, number]/[number, string] vectors, then warm
+re-queries and original image demands must retain distinct string/number returns.
+No identity-copy or cache-wiring assertion. Parent numeric-field payload accepted;
+canonical source vector builders own IDs, not temporary getter copies. Current
+ordered-cache-tests.log is compile-blocked on absent parent fields, not a pass.
+Parent/member readonly/source forwarding contract unchanged; no shared file edits.
+
+## Nonforcing instantiation-expression signature list entry
+
+Applied get_instantiation_expression_signatures(TypeId, SignatureKind) in owned
+calls.rs. Baked lists retain authoritative empty/kind filtering. Anonymous
+function/type sources prepare existing captured pending-return slots before
+get_signatures_of_symbol_for_type; no eager complete_signature_return fallback.
+Class construct metadata uses existing constructor owner. Unsupported type-literal,
+interface, named and composite preparation is None, never an invented empty list.
+Parent resolves structured members before list demand.
+
+Complete named/heritage/composite coverage still requires signature-owner
+nonforcing shape publication. Current named candidate builder eagerly maps
+returns and cannot be reused unchanged. Parent should publish full ordered vectors
+with canonical original identity/receiver mapper and pending returns before this
+getter. This delivered entry is an integration-dependent supported-source slice,
+not full native-source acceptance. nonforcing-list-final-check is blocked by
+prior shared fields locally; no target/full-parity/perf proof claimed.
