@@ -477,3 +477,17 @@ interface and type-literal members, so `{ get [k]() {}, set [k](v) {} }` lost
 its computed accessors. Object-literal properties now feed the same worker;
 its existing (owner `SymbolId`, static) cache and publication are unchanged
 and the existing accessor worker merges same-name getter/setter declarations.
+
+## 17. Union-key indexed writes intersect per-key write types (tsr-2zk.16.213)
+
+`getIndexedAccessTypeOrUndefined` (`checker.go:26993`) with a union index and
+`AccessFlagsWriting` reads each key's write type and returns their
+intersection (reads take the union). The definite-write dispatcher in
+`indexed.rs` resolved only a single literal key; a union key now walks its
+constituents through the existing `write_type_of_property_of_type` (or the
+ordinary indexed access) and intersects them; a failed constituent fails the
+access as natively. Query-local vector, no cache. Control: divergent setters
+`{set a(v: boolean|string)}`/`{set b(v: boolean|number)}` written through
+`'a'|'b'` require `boolean`; the read stays a union. Residual: a computed
+symbol getter/setter pair splits into two symbols, so `write_type_of_accessors`
+(`symbols.rs`, unowned) misses the setter.
