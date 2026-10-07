@@ -376,7 +376,12 @@ Original readonly/member cutover remains open under `.4.12.1`; broad `.4.14`
 also remains open. The bounded composite-origin/static-receiver slice is
 `.4.14.1`; `bfca6e08` implements that slice, not broad issue completion.
 
-## Completed owned root: element-access constructor permission
+## Constructor access-kind root — separate single-root issue pending integrator assignment
+
+Delivery identifiers: code/test `5f26bb1f` (Box auto-commit), verification
+record `60f065be`. Integrator review must assign this access-kind-only fix its
+own single-root issue under `.4.12`; no broader inherited-readonly completion
+is claimed. The parent remains open and under review.
 
 Pinned `isAssignmentToReadonlyEntity` tests `ast.IsAccessExpression`, not only
 property access. `assignment_is_inside_the_declaring_constructor` previously
@@ -384,7 +389,9 @@ rejected `ElementAccessExpression`, incorrectly reporting TS2540 for the
 constructor's own `this['x']` assignment. It now selects the receiver from either
 access kind and retains the exact declaration-parent identity check. A missing
 control-flow container is not constructor permission (native reports readonly
-there). No metadata cache, traversal, mapper or member image is added.
+there). No metadata cache, traversal, mapper or member image is added. This is not a
+readonly-name or class-name pattern fix. The missing-flow-container branch is
+not permission, matching native's error direction.
 
 Native-supported control:
 
