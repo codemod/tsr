@@ -425,3 +425,28 @@ Parent fields/getters remain absent here, so preserve-target-check.log is blocke
 and behavioral tests are not counted passing. Image-owned completed slots avoid
 repeat demand of a single image; stable original signature interning plus ordered
 argument instantiation reuse is still unresolved and is not claimed by this fix.
+
+## Native signature identity / ordered-argument cache writer
+
+Applied owned cachedSignatures worker. Parent Signature.identity: Arc<()> must
+be initialized fresh for genuinely new signatures and retained across ordinary
+clones/completion. Owned eager/lazy instantiation writers mint fresh image
+identities while target snapshots retain the complete original identity/mapper.
+SignatureInstantiationKey retains the Arc and compares/hashes pointer identity;
+retention prevents allocator address reuse. No declaration/name equivalence.
+
+Parent Checker.cached_signatures exact field type is
+FxHashMap<inference::SignatureInstantiationKey, FxHashMap<Vec<TypeId>, Signature>>.
+Nested layout permits borrowed ordered &[TypeId] hits with no argument-vector
+allocation/copy; miss publishes a full signature image only after successful
+input mapping, copying the ordered arguments once. Cached clones share image
+identity/mapper completion slots. Unsupported mapping never publishes; pending
+return remains pending metadata, not unsupported input completion. No new cache
+beside native cachedSignatures; private Checker lifetime owns TypeIds/options.
+
+Actual source writer/lookup applied but parent fields remain absent here;
+signature-cache-final-check.log is blocked. Runtime identity/distinct-map/cache-hit
+proof and whole-work cost measurements are NOT claimed. Parent must also mint
+fresh identities for composite/new contextual signature writers, not preserve
+identity when changing semantics on a clone. Canonical getter integration and
+constraint-this obligation still require completion before feature acceptance.
