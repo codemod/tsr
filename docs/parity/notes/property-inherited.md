@@ -440,6 +440,30 @@ Parent must run its coherent wrapper/native and full no-loss/performance gates
 before accepting this requested prerequisite. This bounded own-table cutover
 is not completion of the broader inherited partition `.4.5` contract.
 
+## Method/assignment receiver widening — tsr-2zk.16.208
+
+Property access now applies native getWidenedType when the access is an
+assignment target or isMethodAccessForCall (5b1047d checker.go:11262/11466).
+Direct call/new callee identity is checked through parenthesized expressions;
+ordinary detached reads retain their non-widened receiver. Existing
+widen_object_literal_freshness implements the worker/cache; no alternate
+widening or alias heuristic is added. Reserved reference-this/readonly/order
+helpers are untouched. Work adds callee-parent inspection and invokes existing
+widening only on native selected contexts; no additional cache or value-metadata
+forcing is introduced.
+
+Direct native control: called/wrapped/null-containing array values() returns
+ArrayIterator<any>, while detached [].values remains
+()=>ArrayIterator<undefined>. TSR matches all four. Current cluster's ten wrong
+rows become RIGHT. argumentsAsPropertyName2 type case matches; iterator cases
+retain independent constructor/display failures, so whole-three-case completion
+is not claimed. Completed full477970 type/10570 diagnostic pair adds exactly10
+RIGHT rows, with zero previous RIGHT losses/zero vanished; diagnostic verdict
+counts unchanged. Strict checker Clippy passes. No equivalentcompletework
+performance/no-hotpath-regression measurement is claimed; parent gate required.
+Receipts: receiver-widen-* in target/recovery/property. This is a bounded native
+member consumer delivery, not closure of broad issue acceptance.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:

@@ -269,7 +269,7 @@ impl Checker<'_, '_> {
             receiver.node_id(),
             node.question_dot_token.is_some(),
         );
-        let stripped = self.check_non_null_type(non_optional);
+        let mut stripped = self.check_non_null_type(non_optional);
         if stripped == error {
             // §121 (`checker-notes-narrow.md`): the receiver COMPUTED (the
             // gap test above passed) and the non-null strip itself refused.
@@ -290,6 +290,29 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
             return error;
+        }
+        let widen_receiver = node.node_id.is_some_and(|access| {
+            if self.assignment_target_kind(access) != crate::expressions::AssignmentTargetKind::None
+            {
+                return true;
+            }
+            let mut current = access;
+            while let Some(parent) = self.nodes.parent(current) {
+                match self.node_map.get(parent) {
+                    Some(Node::ParenthesizedExpression(_)) => current = parent,
+                    Some(Node::CallExpression(call)) => {
+                        return call.expression.and_then(|expr| expr.node_id()) == Some(current);
+                    }
+                    Some(Node::NewExpression(call)) => {
+                        return call.expression.and_then(|expr| expr.node_id()) == Some(current);
+                    }
+                    _ => return false,
+                }
+            }
+            false
+        });
+        if widen_receiver {
+            stripped = self.widen_object_literal_freshness(stripped);
         }
         // §471 the shadow half of upstream's mangled-name lookup: the
         // property the receiver's type serves under this spelling must be
