@@ -691,6 +691,18 @@ and diagnostics historical ratchets show zero priorPASS/vanished keys and no
 whole-case gains (import-options-ratchet.json). Current integratedparent parity
 and equivalent-work performance remain unverified. Durable receipts import-options-*.
 
+### ImportCallOptions native arity-zero lookup
+
+Found actual missing TS2559 cause: global_type_symbol defaults to arity1, while
+native getGlobalImportCallOptionsTypeChecked resolves arity0. Changed owned
+lookup to global_type_symbol_with_arity("ImportCallOptions",0). Actual bundled-lib
+CLI now byte-identical to native TS2880/TS2559 message/code/locations.
+Full checker tests/clippy pass; both12444-key historical ratchets preserve all
+prior passes/keys (import-arity-ratchet.json). No whole-case conversion.
+A bare no-lib primitive-weaktype fixture was invalid for TS2559 metadata and its
+assertion was discarded; real CLI proof retained. Integratedparent fullparity and
+equivalent-work/nohotregression perf remain unverified.
+
 ## JavaScript call arity
 
 Claimed tsr-2zk.9.2. Three targets types already pass35/35,20/20,8/8; diagnostics

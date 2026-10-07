@@ -42,7 +42,7 @@ impl Checker<'_, '_> {
         }
         let (Some(options), Some(options_type)) = (options, options_type) else { return };
         if !self.is_error(options_type)
-            && let Some(symbol) = self.global_type_symbol("ImportCallOptions")
+            && let Some(symbol) = self.global_type_symbol_with_arity("ImportCallOptions", 0)
         {
             let target = self.get_declared_type_of_symbol(symbol);
             if !self.is_error(target) && target != self.intrinsics.empty_object {
