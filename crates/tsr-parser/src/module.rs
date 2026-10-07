@@ -72,7 +72,7 @@ impl<'a> Parser<'a> {
             if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
         // A default import may be followed by named or namespace bindings.
         let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
-            self.parse_named_import_bindings()
+            Some(self.parse_named_import_bindings())
         } else {
             None
         };
@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `* as ns` or `{ a, b as c }`.
-    pub(crate) fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
+    pub(crate) fn parse_named_import_bindings(&mut self) -> NamedImportBindings<'a> {
         let start = self.pos();
         if self.at(SyntaxKind::AsteriskToken) {
             self.next_token();
@@ -107,13 +107,14 @@ impl<'a> Parser<'a> {
                 SyntaxKind::NamespaceImport,
                 start,
             );
-            return Some(NamedImportBindings::NamespaceImport(node));
+            return NamedImportBindings::NamespaceImport(node);
         }
-        if !self.at(SyntaxKind::OpenBraceToken) {
-            return None;
+        if !self.expect(SyntaxKind::OpenBraceToken) {
+            let elements = &[];
+            let node =
+                self.finish_node(NamedImports::new(elements), SyntaxKind::NamedImports, start);
+            return NamedImportBindings::NamedImports(node);
         }
-
-        self.next_token();
         // `parseNamedImportsOrExports`: `parseBracketedList(
         // PCImportOrExportSpecifiers, parseImportSpecifier, {, })`.
         let (elements, _) = self.parse_delimited_list(
@@ -123,7 +124,7 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::CloseBraceToken);
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(NamedImports::new(elements), SyntaxKind::NamedImports, start);
-        Some(NamedImportBindings::NamedImports(node))
+        NamedImportBindings::NamedImports(node)
     }
 
     /// typescript-go's `Parser.parseImportSpecifier` (`parser.go`).

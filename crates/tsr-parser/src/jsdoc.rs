@@ -695,7 +695,7 @@ impl<'a> Parser<'a> {
             || matches!(self.token.kind, SyntaxKind::AsteriskToken | SyntaxKind::OpenBraceToken)
         {
             let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
-                self.parse_named_import_bindings()
+                Some(self.parse_named_import_bindings())
             } else {
                 None
             };

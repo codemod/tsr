@@ -275,6 +275,35 @@ from stale scanner accumulation, so this candidate is not accepted and no
 performance gate is claimed. No scanner/shared AST changes committed. Integrate
 scanner reset plus parser value publication atomically and rerun all gates.
 
+### Missing named-import list recovery (tsr-2zk.2)
+
+Native parseImportClause always calls parseNamedImports after a default binding
+comma unless the next token is *. TSR parse_named_import_bindings formerly
+returned None when { was absent, losing native TS1005 and missing-but-present
+NamedImports. The worker now expects { and publishes an allocated empty list
+when missing, without consuming from. Its return no longer uses Option; both
+module and JSDoc callers migrate explicitly, preserving the native clause gate.
+Private parser nodes/children publish as before; no cache, extra traversal or
+source heuristic. Missing { reports at current token, not guessed brackets.
+
+Verified in isolated fb043744 plus only this owned patch, excluding rejected
+metadata/missing-node/template candidates. Direct native and actual TSR control
+import defaultBinding, from 'm' agree on exact TS1005 [23,27) '{' expected and
+allocated missing bindings. Full parser tests, target regression, library clippy
+and fmt pass. Full current unfiltered dumps preserve every previous RIGHT and
+EMPTY_RIGHT key and have no vanished keys. The corpus multi-error target
+es6ImportNamedImportParsingError remains WRONG: its line2 parser error now
+matches, but independent line4 module-specifier/checker errors remain, not
+suppressed. No full-case conversion claimed.
+
+Fresh-process affinity-pinned 41 pairs x60 complete parses, setup/build excluded,
+wall/CPU versus frozen 0e7824dd: parser.ts 1.000629/1.000047, dom
+0.994672/0.994782, identical complete node outputs and all JSDoc/diagnostic work.
+These are relevant parser measurements, not equivalent whole-checker <=0.50.
+No AST/scanner file edited. The detached worktree corpus symlink was corrected
+before measurements; an earlier build with absent corpus failed and is not a
+pass. Detailed receipts remain target/recovery-parser/module-*.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
