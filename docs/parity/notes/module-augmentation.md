@@ -281,7 +281,14 @@ No binder field or name-based ownership heuristic is needed.
 Additional exact two-file control parses both c.js and importing a.js into one
 Program identity, with ModuleHost directly witnessing loaded source resolution.
 It proves the source exports `a` but not `c`, no global c exists, and importing
-c has semantic errorType after 0bb6c8e2. This bypasses the Box loader's obsolete
+c has semantic errorType after 0bb6c8e2. A throwaway executable also invokes
+production types_producer::type_at_location with those exact loaded sources:
+a.js PostfixUnaryExpression c serializes error; c.js BinaryExpression c still
+serializes any. Thus the owned fix restores the main reference, while parent
+expression unknown publication remains necessary for the assignment. The
+isolated host lacks production diagnostic/module-name presentation context;
+its exports rendering is error despite correct semantic source-module identity,
+so that output does not establish a binder bug. This bypasses the Box loader's obsolete
 node_modules root admission, so it proves the owned missing-export fix with the
 newly populated source rather than relying on old corpus population. Parent
 must still prove expression/reference printing in its integrated loader tree.
