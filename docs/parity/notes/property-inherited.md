@@ -256,6 +256,49 @@ Matching scope/options/diagnostics still does not prove complete actual work.
 No semantic change from either experiment is shipped. The single-owner whole-file
 member/static/alias contract remains unchanged pending a complete port.
 
+## Completed owned root: element-access constructor permission
+
+Pinned `isAssignmentToReadonlyEntity` tests `ast.IsAccessExpression`, not only
+property access. `assignment_is_inside_the_declaring_constructor` previously
+rejected `ElementAccessExpression`, incorrectly reporting TS2540 for the
+constructor's own `this['x']` assignment. It now selects the receiver from either
+access kind and retains the exact declaration-parent identity check. A missing
+control-flow container is not constructor permission (native reports readonly
+there). No metadata cache, traversal, mapper or member image is added.
+
+Native-supported control:
+
+```ts
+class C { readonly x: number; constructor() { this['x'] = 1; } }
+class D extends C { constructor() { super(); this['x'] = 2; } }
+declare let c: C;
+c['x'] = 3;
+```
+
+Before: TS2540 at (1,52), (2,51), (4,3). Native and candidate: only (2,51),
+(4,3), identical complete CLI messages/spans/order; stdout compared byte-for-byte.
+Permanent `property_inherited_native_constructor.rs` verifies the remaining
+readonly diagnostic spans and arguments, distinguishing own versus inherited
+constructor writes. Workspace release tests, clippy with warnings denied, and
+workspace format check all pass.
+
+Complete unfiltered type and diagnostic dumps finished: 477,970 type keys and
+10,570 diagnostic case keys. Every 469,765 prior RIGHT type key and 9,189 prior
+RIGHT/EMPTY_RIGHT diagnostic key is present with unchanged verdict. **Zero
+vanished, zero verdict losses, zero changed type or diagnostic payloads**, including
+WRONG rows/cases. This ad hoc control fixes a real consumer bug but converts no
+named corpus case. Full coverage completed: checker_types 8042/9538,
+diagnostics 4221/5502 over 12,444 discovered source cases, unchanged scores.
+Scratch snapshot-path redirection was used with the previously stated stdout
+verification limit, never diagnostic-output rewriting.
+
+21 fresh-process interleaved baseline/candidate wall pairs: domain-model
+0.9949, generic-imports 0.9871 (no observed slowdown). Pinned native comparisons:
+domain-model 1.0193, generic-imports 0.9298. Scope/options/diagnostics match in
+these harness runs, but complete input capture and actual checked-worker work
+remain unverified: `work_comparable=false`, `target_verified=false`. These are
+observed ratios, not a verified performance target or optimization claim.
+
 ## Release-target limits
 
 Observed 21-pair fresh-process interleaved comparisons after reverting the
