@@ -1,5 +1,32 @@
 # Full configured native oracle
 
+## Current native expected target: verified complete payload
+
+A fresh execution of the latest strict native worker returned PASS and COMPLETE.
+All **286** native type rows were decoded and compared byte-for-byte with this
+document's embedded payload: exact equality, SHA-256
+`2e44832de573ee0776677ca114dc1bbeb95ccdbac477f9e1744bfc638f7e13f9`.
+Thus the payload includes current native empty-argument/query rows as well as
+function-first f32 rows; it is not a declaration-preserved annotation dump or
+bundled TypeScript baseline.
+
+Receipt:
+- Native pin: `5b1047d10d32e7d5b446be4de56b126ff42f82bb`
+- Input source: `conformance/types/typeParameters/typeArgumentLists/instantiationExpressions.ts`
+- Input SHA-256: `86cdd089559185d1d1df073e20c9a1bc57c15c75fba6faac5502354a3ff50235`
+- Variant name: empty (single configuration)
+- Expanded options: target es2015, strict true, declaration true
+- Expected worker SHA-256: `4a146410a0a0762fe9212a970b7c6256aabe5e8df79846d4edf95394609d3fd6`
+- Full expected artifact SHA-256: `be9f918f857afa472e691c52128b144dc39db723992311f5b16307d2e1381c7a`
+- Records: 286 types, 16 primary diagnostics, 2 chain children, 18 metadata, 0 related
+- Raw artifact: `target/native-f32-control/native-related.tsv`
+
+Related-information comparison is already implemented and measured over all
+14,965 configurations, including files with real related records. The current
+strict rate is **7,361/14,965 (49.188106%)**, not the historical 50.77% primary-only
+rate. Failed native/actual workers remain denominator rows. Neither this control
+nor the strict corpus result certifies parent 99.9% or performance acceptance.
+
 ## Fresh strict f32 control and detail root queue
 
 The latest immutable expected/actual workers were directly executed for the
