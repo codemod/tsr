@@ -6,6 +6,9 @@ use tsr_compiler::{FileLoader, LoadOptions, Program};
 use tsr_core::{Arena, CompilerOptions, JsxEmit, Tristate};
 use tsr_vfs::FileSystem as _;
 
+// Actual worker assertions must not compete with another test's program lease.
+static FRONT_END_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct Host(tsr_vfs::InMemoryFileSystem);
 impl tsr_module::types::ResolutionHost for Host {
     fn fs(&self) -> &dyn tsr_vfs::FileSystem {
@@ -65,6 +68,7 @@ fn options(roots: &[String], serial: bool) -> LoadOptions {
 
 #[test]
 fn loader_replay_and_every_published_node_match_serial() {
+    let _guard = FRONT_END_TEST.lock().unwrap();
     let (host, roots) = fixture();
     assert_loader_identity(&host, &roots, false);
 }
@@ -113,6 +117,7 @@ fn assert_loader_identity(host: &Host, roots: &[String], dependencies: bool) {
 
 #[test]
 fn dynamically_discovered_dependencies_keep_complete_serial_identity() {
+    let _guard = FRONT_END_TEST.lock().unwrap();
     let (original, _) = fixture();
     let mut files = Vec::new();
     // A single root exposes a broad frontier: these files must be reached as
@@ -144,21 +149,28 @@ fn dynamically_discovered_dependencies_keep_complete_serial_identity() {
     files[0].1.push_str("\nimport './deep';\n");
     for i in 0..64 {
         writeln!(root, "/// <reference path=\"./leaf{i}.ts\" />").unwrap();
-        files.push((format!("/leaf{i}.ts"), format!("export const leaf{i} = {i};")));
+        let mut text = format!("export const leaf{i} = {i};\n");
+        for j in 0..300 {
+            writeln!(text, "export interface Leaf{i}_{j} {{ value: string; n: number; method(x: string): number; }}").unwrap();
+        }
+        files.push((format!("/leaf{i}.ts"), text));
     }
     files.push(("/deep.ts".to_owned(), "export const deep = 1;".to_owned()));
     files.push((
         "/huge.ts".to_owned(),
         format!("{}\nexport const huge = 1;", "/*oversized*/".repeat(100_000)),
     ));
-    root.push_str("/// <reference path=\"./huge.ts\" />\n/// <reference path=\"./missing.ts\" />\nexport {};\n");
+    root.push_str("/// <reference path=\"./huge.ts\" />\n/// <reference path=\"./missing.ts\" />\n/// <reference path=\"./F0.ts\" />\n/// <reference path=\"./f0.ts\" />\nexport {};\n");
     files.push(("/root.ts".to_owned(), root));
-    let host = Host(tsr_vfs::InMemoryFileSystem::new(files, [], true));
-    assert_loader_identity(&host, &["/root.ts".to_owned(), "/root.ts".to_owned()], true);
+    for case_sensitive in [true, false] {
+        let host = Host(tsr_vfs::InMemoryFileSystem::new(files.clone(), [], case_sensitive));
+        assert_loader_identity(&host, &["/root.ts".to_owned(), "/root.ts".to_owned()], true);
+    }
 }
 
 #[test]
 fn program_bind_identity_and_idempotence_match_serial() {
+    let _guard = FRONT_END_TEST.lock().unwrap();
     let (host, roots) = fixture();
     let serial_arena = Arena::new();
     let arena = Arena::new();

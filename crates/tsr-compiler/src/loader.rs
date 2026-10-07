@@ -919,7 +919,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             }
             let oversized = text.as_ref().is_some_and(|text| text.len() > 1024 * 1024);
             let prepared = match text {
-                Some(text) if !oversized => {
+                // For small files the queue and canonical AST copy cost more
+                // than the parse work available to overlap (API attribution:
+                // ~10k jobs averaging ~44us each). Keep those texts serial.
+                Some(text) if !oversized && text.len() >= 16 * 1024 => {
                     self.statistics.dependency_parse_jobs += 1;
                     PreparedDependency::Parse(pool.submit((text, self.parse_options(name))))
                 }
