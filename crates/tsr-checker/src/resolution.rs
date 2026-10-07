@@ -400,6 +400,8 @@ struct Resolution<K> {
 #[derive(Debug)]
 pub struct Resolutions<K> {
     stack: Vec<Resolution<K>>,
+    /// Native Checker.requireSymbol; private singleton, not a lookup cache.
+    pub(crate) require_symbol: Option<crate::symbol_access::SymbolRef>,
     /// Stack depths at which this port entered a type construct that native
     /// resolves *lazily* (an anonymous type literal's members, a deferred
     /// type reference's arguments; `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`,
@@ -424,7 +426,7 @@ pub struct Resolutions<K> {
 
 impl<K> Default for Resolutions<K> {
     fn default() -> Self {
-        Self { stack: Vec::new(), deferrals: Vec::new(), start: 0 }
+        Self { stack: Vec::new(), require_symbol: None, deferrals: Vec::new(), start: 0 }
     }
 }
 

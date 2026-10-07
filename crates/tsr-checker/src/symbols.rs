@@ -28,6 +28,63 @@ use tsr_diagnostics::{Diagnostic, messages};
 use crate::check::spelling_suggestion;
 
 impl<'a> Checker<'a, '_> {
+    /// Ported from NameResolver.Resolve's require fallback
+    /// (`internal/binder/nameresolver.go:322`) and Checker.getResolvedSymbol
+    /// (`checker.go:13890`). Local/global value resolution has precedence.
+    pub fn resolve_identifier_symbol(
+        &mut self,
+        node: NodeId,
+    ) -> Result<crate::symbol_access::SymbolRef, crate::symbol_access::SymbolAccessError> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else {
+            return Ok(self.symbols.unknown());
+        };
+        if identifier.text.is_empty() {
+            return Ok(self.symbols.unknown());
+        }
+        if let Some(symbol) = self.resolve_name_with_export_alias(
+            node,
+            identifier.text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) {
+            return self.symbols.bound(symbol);
+        }
+        let require_call = self.in_js_file(node)
+            && self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)).is_some_and(|parent| {
+                matches!(parent, Node::CallExpression(call)
+                    if matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+                        && call.arguments.len() == 1)
+            });
+        if !require_call {
+            return Ok(self.symbols.unknown());
+        }
+        if let Some(symbol) = &self.resolutions.require_symbol {
+            return Ok(symbol.clone());
+        }
+        let symbol = self.symbols.new_symbol(
+            SymbolFlags::PROPERTY,
+            std::borrow::Cow::Borrowed("require"),
+            crate::symbol_access::CheckFlags::empty(),
+        );
+        self.resolutions.require_symbol = Some(symbol.clone());
+        Ok(symbol)
+    }
+
+    /// Native getTypeOfVariableOrParameterOrPropertyWorker's requireSymbol arm
+    /// (`checker.go:16584`); unknownSymbol's type is errorType (`checker.go:1347`).
+    pub fn intrinsic_type_of_resolved_identifier_symbol(
+        &self,
+        symbol: &crate::symbol_access::SymbolRef,
+    ) -> Result<Option<TypeId>, crate::symbol_access::SymbolAccessError> {
+        self.symbols.view(symbol)?;
+        if self.resolutions.require_symbol.as_ref() == Some(symbol) {
+            return Ok(Some(self.intrinsics.any));
+        }
+        if *symbol == self.symbols.unknown() {
+            return Ok(Some(self.intrinsics.error));
+        }
+        Ok(None)
+    }
+
     /// The type of a symbol.
     ///
     /// Ported from `Checker.getTypeOfSymbol` (`checker.go:16493`). Upstream

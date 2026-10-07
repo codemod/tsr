@@ -540,6 +540,29 @@ expression unknown mismatch is still separate and not claimed fixed. Linux
 21-sample CPU new/base 1.0049/1.0012. Actual modules remain correctly populated;
 no compiler/signature/template/callable region touched.
 
+## Native resolver require singleton (tsr-2zk.6.16)
+
+Native NameResolver.Resolve after failed locals/globals returns Checker.requireSymbol
+only for a JS originalLocation whose parent is IsRequireCall(false): identifier
+callee require, exactly one argument of any shape. Bare/zero/two-argument/TS
+reads remain unknown; existing local/global require wins. Native variable worker
+returns any for requireSymbol, unknownSymbol returns errorType.
+
+Owned supplier resolve_identifier_symbol(NodeId) -> Result<SymbolRef,...> uses
+existing semantic local/global resolution first. intrinsic_type_of_resolved_identifier_symbol
+returns Some(any) for Checker-private require singleton, Some(error) for unknown,
+None for ordinary bound symbol (parent retains dispatch/flow). Private singleton
+lives alongside existing resolution state, not an alias/query cache; identity
+includes Checker owner and no private raw index enters Program domain. Lazy
+creation publishes once after admission, then completed queries reuse it.
+
+Consumer controls passed: exact JS argument-count admission, bare unknown,
+local parameter shadowing, repeat identity, foreign Checker rejection. Parent
+expression owner must wire supplier at native getResolvedSymbol/checkIdentifier
+boundary; no expression edits here. Nine newly exposed require RIGHT losses are
+not claimed fixed until that consumer is integrated. Full ratchet/native CLI/perf
+remain parent integrated prerequisites; no complete-work or speed claim.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
