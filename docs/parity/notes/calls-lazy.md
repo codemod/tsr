@@ -589,3 +589,21 @@ No identity-copy or cache-wiring assertion. Parent numeric-field payload accepte
 canonical source vector builders own IDs, not temporary getter copies. Current
 ordered-cache-tests.log is compile-blocked on absent parent fields, not a pass.
 Parent/member readonly/source forwarding contract unchanged; no shared file edits.
+
+## Nonforcing instantiation-expression signature list entry
+
+Applied get_instantiation_expression_signatures(TypeId, SignatureKind) in owned
+calls.rs. Baked lists retain authoritative empty/kind filtering. Anonymous
+function/type sources prepare existing captured pending-return slots before
+get_signatures_of_symbol_for_type; no eager complete_signature_return fallback.
+Class construct metadata uses existing constructor owner. Unsupported type-literal,
+interface, named and composite preparation is None, never an invented empty list.
+Parent resolves structured members before list demand.
+
+Complete named/heritage/composite coverage still requires signature-owner
+nonforcing shape publication. Current named candidate builder eagerly maps
+returns and cannot be reused unchanged. Parent should publish full ordered vectors
+with canonical original identity/receiver mapper and pending returns before this
+getter. This delivered entry is an integration-dependent supported-source slice,
+not full native-source acceptance. nonforcing-list-final-check is blocked by
+prior shared fields locally; no target/full-parity/perf proof claimed.
