@@ -212,6 +212,22 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Fresh sample receipts must bind the frozen executable
+
+Sampling protocol acceptance now validates actual per-tool sample/warmup receipt
+populations and pair count, distinct PID/start-time invocation identities,
+completed compiler exits and each child's before/after frozen executable hash
+and command. Replaying a process receipt or substituting another binary cannot
+pass merely by supplying five rows. This validates observed process boundaries,
+not semantic completion or source-built provenance.
+
+33 harness tests passed, including replayed-process/wrong-binary protocol
+controls. Actual frozen five-pair/warmup capture saved
+`/tmp/recover-sample-protocol-checkpoint.json`; sampling receipts pass the bounded
+protocol, complete-work comparable gate exits 1. Existing actual native negative
+owner/worker controls remain rejected; no local full-corpus zero-loss or vanished
+case receipt is supplied. Verified native <=0.50 remains unmet.
+
 ### Observed native owner must fit configured pool selection
 
 The reader derives the pinned checker-pool upper bound from effective

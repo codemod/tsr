@@ -209,6 +209,35 @@ def option_differences(left: dict, right: dict) -> dict:
             for key in sorted(a.keys() | b.keys()) if a.get(key) != b.get(key)}
 
 
+def validate_sample_protocol(report: dict, samples: int, warmups: int) -> dict:
+    reasons, identities = [], set()
+    if samples < 5 or warmups < 1:
+        reasons.append("At least five measured pairs and one warmup per tool are required")
+    if len(report.get("pairs", [])) != samples or len(report.get("warmups", [])) != warmups * 2:
+        reasons.append("Pair or warmup receipt population differs from requested protocol")
+    for name, tool in report.get("tools", {}).items():
+        measured = tool.get("samples", [])
+        warming = [row["measurement"] for row in report.get("warmups", []) if row["tool"] == name]
+        if len(measured) != samples or len(warming) != warmups:
+            reasons.append(name + ": missing sample or warmup receipts")
+        for child in [*warming, *measured]:
+            identity = (child.get("pid"), child.get("started_at_unix_ns"))
+            if (type(identity[0]) is not int or identity[0] <= 0 or type(identity[1]) is not int
+                    or identity[1] <= 0 or identity in identities):
+                reasons.append(name + ": missing or reused process invocation identity")
+            identities.add(identity)
+            binary = child.get("executed_binary_identity", {})
+            if (binary.get("stable") is not True or binary.get("sha256_before") != tool["binary_sha256"]
+                    or binary.get("sha256_after") != tool["binary_sha256"]
+                    or child.get("command", [None])[0] != tool["binary"]):
+                reasons.append(name + ": executed binary does not match frozen tool identity")
+            if child.get("timed_out") is not False or child.get("exit_code") not in (0, 1, 2):
+                reasons.append(name + ": sample did not complete a compiler invocation")
+    if set(report.get("tools", {})) != {"tsr", "tsgo"}:
+        reasons.append("Both compiler populations are required")
+    return {"verified": not reasons, "reasons": reasons, "distinct_invocations": len(identities)}
+
+
 def equivalence_certificate(report: dict) -> dict:
     """Inventory independent obligations; partial traces never discharge them."""
     constraints = {
@@ -645,7 +674,8 @@ def main() -> int:
     report["checkout_identities_after"] = {
         "tsr": checkout_identity(ROOT), "native": checkout_identity(ROOT / "vendor/typescript-go")}
     report["checkout_stable"] = report["checkout_identities"] == report["checkout_identities_after"]
-    report["sampling_protocol_verified"] = args.samples >= 5 and args.warmups >= 1
+    report["sampling_protocol_validation"] = validate_sample_protocol(report, args.samples, args.warmups)
+    report["sampling_protocol_verified"] = report["sampling_protocol_validation"]["verified"]
     report["equivalent_work_certificate"] = equivalence_certificate(report)
     report["work_comparable"] = (report["checkout_stable"] and report["sampling_protocol_verified"]
                                  and report["build_provenance_verified"]
