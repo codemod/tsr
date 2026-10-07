@@ -68,3 +68,16 @@ var before: C; export default class C {} }` has no TS2304 (was 2), and
 `export type X = typeof default` keeps TS2304. Converts
 defaultIsNotVisibleInLocalScope (2 rows + diagnostics),
 es5ExportDefaultClassDeclaration4 (diagnostics).
+
+## Callable value merged with an interface (tsr-1yb.7.7.3)
+
+Carried from 31049261. `resolveAnonymousTypeMembers` builds a function's
+value type from its exports; members of a merged interface belong to the
+instance/type side, so they no longer force the callable value to errorType.
+Native control: `function Foo(s: string); ... interface Foo { prop: number }
+let a: number = Foo` reports TS2322 `'(s: string) => any'` (was missing).
+Converts 19 rows (complexRecursiveCollections 8,
+contextualParamTypeVsNestedReturnTypeInference2/3/4 9,
+functionAndInterfaceWithSeparateErrors 2); the three `:0:24` rows of
+contextualParamTypeVsNestedReturnTypeInference2/3/4 move GAP->WRONG
+(alias-symbol printing `TagClassShape` vs `TagClass`, printing lane).
