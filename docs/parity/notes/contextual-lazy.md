@@ -472,3 +472,79 @@ IIFE defaults, and intra-pattern function defaults. They are not attributed
 to this parentheses fix. The explicit-context and raw parameter supplier
 prerequisites above remain necessary for the broader initializer cutover;
 no declaration side pass, heuristic guard, or already-RIGHT conversion claim.
+
+## LITERAL-CONTEXTUAL-INSTANTIABLE: native reproduction and prerequisite
+
+Investigation after `70f524fc`; no implementation change or target conversion.
+The assigned two-case queue and Beads id have not yet been supplied. The
+literal-constraint hypothesis was tested directly, not inferred from old
+triage counts.
+
+```ts
+declare function constrained<T extends string>(value: { item: T }): T;
+declare function nested<T extends string>(value: { inner: { item: T } }): T;
+declare function numeric<T extends number>(value: { item: T }): T;
+declare function unconstrained<T>(value: { item: T }): T;
+const a = constrained({ item: "value" });
+const b = nested({ inner: { item: "value" } });
+const c = numeric({ item: 42 });
+const d = unconstrained({ item: "value" });
+```
+
+Pinned native strict declaration-only emit exits 0 and emits `a: "value"`,
+`b: "value"`, `c: 42`, `d: string`. Current TSR real corpus-pipeline probe
+agrees on a/c/d but prints `b: string`; the nested inner object is
+`{ item: string; }`. A second direct control uses nested
+`T extends string ? T : never` context and nested numeric T: native emits
+`"value"` and `42`, TSR emits `string` and `number`. A flat boolean-constrained
+T already agrees (`true`). Plain instantiated `string` context preserves a
+literal in the initializer's contextual check but the call return remains
+string, as native does; that distinction must not become a primitive-string
+heuristic.
+
+Native `isLiteralOfContextualType` (`internal/checker/checker.go`) already has
+an equivalent implemented arm in **unowned**
+`signatures.rs::is_literal_of_contextual_type`: union/intersection recursion,
+instantiable base constraint, matching string/number/bigint/symbol primitive
+constraint, and recursive literal context. No missing arm was established.
+Owned `objects.rs::check_expression_for_mutable_location` bypasses that query
+for nested object literals inside call arguments because contextual signature
+resolution is not re-entry-safe; the file records historical RIGHT losses
+from indiscriminately removing that exclusion. This investigation did not
+remove it or reproduce historical counts as current gains/losses.
+
+Pinned native `inferTypeArguments` supplies each argument's actual paramType
+and active inference context through `checkExpressionWithContextualType`
+before checking the literal. The existing private Checker
+`active_inference_contexts[call].signature` is the raw, non-reentrant identity
+supplier; its writer is unowned
+`inference.rs::check_generic_call_with_mode`, around
+`check_generic_call_worker`. Owned
+`contextual.rs::contextual_type_for_argument` consults that snapshot for raw
+queries, but falls back to stateless signature resolution when no active
+snapshot exists. A stateless raw retry can still re-enter the call and return
+provisional any, so it is not a faithful universal replacement.
+
+Required single-owner inference/signature integration prerequisite: preserve
+the selected signature and actual native contextual checking mode/context
+through the nested argument check, with a non-fixing contextual mapper and
+safe deferred context-sensitive member work. Then remove the obsolete nested
+literal exclusion and raw retry in the owned mutable-location consumer as
+part of that atomic cutover. No duplicate snapshot table, readonly/member
+partial metadata, primitive constraint shortcut, declaration side pass, or
+fallback signature resolution is proposed.
+
+Identity/publication: call NodeId, selected signature/type-parameter identity,
+ordered inference slots, check mode and fixing/non-fixing mapper belong to the
+same private Checker. The active snapshot is provisional context, not a
+completed inferred signature. Completion remains in the inference/call owner;
+unsupported context must not be treated as successful any. Nested receiver,
+alias origin and diagnostic policy remain those of the actual parameter
+projection. Expensive work is contextual signature resolution plus argument
+checking/inference; no new reuse introduced. Counts are unmeasured: bounded
+Beads attribution follow-up request before extending raw snapshot reuse.
+
+Verification for this investigation consists only of the two pinned-native
+ad hoc declaration emits and TSR corpus-pipeline type probes. No changed
+implementation means no new after-verdict/performance acceptance claim. The
+last verified implementation remains `70f524fc` and its receipt above.
