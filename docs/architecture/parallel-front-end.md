@@ -8,6 +8,9 @@ Fixture revision: `4d4f005c8541e0255a9d8791205fdce326e462bc`.
 Work is tracked by `tsr-1yb.5`, `tsr-1yb.5.1.1`, `tsr-1yb.5.1.2`,
 `tsr-1yb.22.1` and `tsr-1yb.22.2`.
 
+The initial experiment below records root parsing and binding. The dependency
+follow-up at the end records the newer loader behavior separately.
+
 ## Experiment contract (CP0)
 
 Target the actual CLI's parsing and binding, keeping loaded files, checked files,
@@ -97,10 +100,11 @@ field, so direct ID readers require no accessor migration.
 
 ## Scheduling and measured costs
 
-The actual loader prepares readable, supported, deduplicated roots already held
-by its existing read-prefetch stage. Dependency discovery, path claims, package
-metadata and resolver replay stay serial; discovered dependency parsing also
-stays serial. Each prepared root is published only when the existing replay
+At the initial runtime `d5ee4f36`, the loader prepares readable, supported,
+deduplicated roots already held by its existing read-prefetch stage. Dependency
+discovery, path claims, package metadata and resolver replay stay serial;
+discovered dependency parsing stays serial in that revision. Each prepared root
+is published only when the existing replay
 first claims it. A prepared result whose source changed is discarded. Unclaimed
 roots may have incurred private parse work; that CPU and storage are included in
 whole-process measurements, not represented as a new published file.
@@ -205,3 +209,119 @@ were rebuilt and source-bound. Whole-run cost is unknown; no paid judge calls
 were made. The local experiment log remains under
 `.context/compound-engineering/ce-optimize/parallel-front-end/`, with aggregate
 evidence exported above. The worktree is retained for follow-up.
+## Dynamically discovered dependency parsing
+
+The follow-up in `tsr-1yb.5.2` extends private parsing to dependencies discovered
+during the canonical walk. At native commit
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
+`internal/compiler/filesparser.go`'s `filesParser.start` claims a path and queues
+`parseTask.load`; the task resolves references and queues more tasks before the
+work group's final wait. TSR retains its existing coordinator claims and
+resolver order and overlaps the pure parser part with that walk.
+
+One `FileLoader` owns the pending preparations. The key is the exact normalized
+file spelling, together with the loader's immutable dialect options. A cell is
+absent, holds owned read text, holds a queued/completed private `ParsedFile`, is
+consumed at the original first path claim, or is discarded when the loader
+finishes. This is source preparation, not a completed semantic cache entry:
+package identity, module format, receiver/alias interpretation, reference
+discovery and diagnostics still belong to their existing canonical consumers.
+Workers never receive the host, resolver, shared arena or node tables.
+
+The pool leases workers from the existing process-wide front-end limit. It
+starts for a broad frontier or an already substantial program, retains at most
+twice its actual worker count in dependency cells, and refills while visiting
+siblings. A full queue cannot stop the DFS walk: an unprepared current file
+parses serially. Sources below 16 KiB or above 1 MiB remain serial, with their
+already-read text consumed once at the canonical visit. Missing reads retain
+their missing result. The lower bound is a measured scheduling heuristic, not
+a tsgo semantic option. `singleThreaded` disables dependency workers.
+
+Each parser owns its source, arena, node table, recovery rows and JSDoc image.
+Publication copies into the program arena and rebases the complete AST using
+the existing schema-generated contract. The private owner then drops. No new
+unsafe implementation is introduced. Workers use the established 8 MiB stack
+budget. Their result channels never wait for publication. In unwind builds,
+parser panics are carried to the original visit; the release CLI retains its
+existing abort-on-panic profile. Loader shutdown disconnects and joins the pool
+before binding acquires another worker lease.
+
+The cell count is not a byte or RSS bound. A serial oversized text can be large,
+an AST can exceed its source size, and existing root preparations are outside
+this dependency count. Read-ahead assumes a stable source snapshot and changes
+physical read timing; semantic claims, resolution requests/traces and canonical
+publication retain their previous order. The separate leased-read experiment
+and native depth/claim fixes remain separate work.
+
+`LoadStatistics` distinguishes submitted dependency jobs, published results,
+actual worker count and peak pending cells. `dependency_parse_work` sums parser
+durations only for consumed worker results; it overlaps coordinator work and
+must not be added to wall-clock phases. Coordinator waits and canonical copies
+remain in parse wall time. Root preparation still has its separate barrier.
+
+Focused tests force two/default pool workers to finish out of order, propagate
+worker panics and drop unconsumed results without blocking shutdown. A single
+root discovers a wide mixed-language graph with cycles, duplicate references,
+case variants, augmentation, malformed/missing files, small children and an
+oversized source. Serial/default runs compare complete canonical node/parent
+and AST images, JSDoc, source diagnostics, file order, package redirects and
+ordered resolver requests/traces on both filesystem casing modes. Existing
+root publication, binder identity and full-corpus gates remain required.
+
+### Dependency confirmation
+
+Baseline is the already root/bind-parallel TSR
+`e222e6b2475f509a9bdf5d5a50745fef7403ca59`; the measured dependency runtime is
+`d0ad694fc81563c85367a19a746ee18101a69953`. Final delivery also contains comments,
+reproduction scripts and this evidence, without another production behavior
+change. The JSON's `dependency_followup` retains source/binary hashes, every
+paired row and warmup, input fingerprints, resources and qualified rejected
+rounds. Builds, fixture setup and corpus runs were outside confirmed timings.
+
+| Workload / metric | Root-parallel baseline | Dependency candidate |
+|---|---:|---:|
+| 768 dependency declarations, normal CLI (5 pairs) | 313.68 ms | 241.63 ms (-22.97%) |
+| Same fixture user / system CPU | 351.94 / 89.84 ms | 430.57 / 100.46 ms |
+| Same fixture median peak RSS | 636.83 MB | 658.80 MB |
+| 192 declarations, instrumented CLI (5 pairs) | 113.17 ms | 93.16 ms |
+| 192 declarations, normal CLI (3 pairs) | 104.27 ms | 104.61 ms |
+| API instrumented CLI (5 pairs) | 8.456 s | 8.012 s |
+| API coordinator parse wall | 552 ms | 541 ms |
+| API normal CLI (3 pairs) | 7.289 s | 6.794 s |
+| API normal CLI median peak RSS | 1,663.39 MB | 1,730.13 MB |
+
+The broad fixture confirms whole-command frontend benefit with more CPU and
+memory; the smaller normal fixture was flat. API aggregate medians improve,
+but its instrumented median paired wall ratio is 0.991, and check-time variation
+exceeds the parse change. Do not attribute the whole API drop to parser overlap
+or claim a verified native 2x win. The first unrefilled frontier and unfiltered
+refill rounds remain in the record; the latter submitted 10,040 API jobs and
+raised parser/copy overhead. The final size admission submits/publishes 477 API
+jobs on eight leased workers, with 16 maximum pending cells. The 192-file
+fixture uses 16 workers, 32 pending cells and 199 consumed jobs.
+
+Every comparison uses fresh processes, alternating order, identical effective
+configurations, complete loaded-file order and diagnostic fingerprints, and
+unchanged hashed inputs/binaries before and after each run. The instrumented
+API counts remain 9,861 loaded, 615 checked and 10,555 coordinator parse or
+publication calls, with the same four existing ioredis TS1005 errors. Normal
+runs do not invent checked-count telemetry. Full checked-file identities,
+resolver-query coverage and the native depth/trace gates remain broader work.
+
+Generate the exact larger public input with
+`python3 scripts/dependency_parse_fixture.py /tmp/dependency-fixture --files 768`.
+Build the baseline/candidate in separate target directories, then use
+`scripts/dependency_parse_perf.py --baseline <binary> --candidate <binary>
+--baseline-source <sha> --candidate-source <sha> --project /tmp/dependency-fixture
+--output /tmp/dependency-evidence --samples 5`, adding `--extended-diagnostics`
+for phase attribution. Raw output stays local. The generator reproduces all
+770 public input files byte-for-byte; the harness has an executed smoke check.
+
+The final dependency runtime preserves all 477,970 positioned assertions:
+469,765 RIGHT, 993 GAP and 7,212 WRONG, with zero RIGHT losses and byte-identical
+TSVs (`acdc6a1df173b7b598b8627c3ad27dbd1758b94301a992722a02477a7f586b50`).
+Binder, loader and diagnostic snapshots are also byte-identical to the
+root-parallel baseline. All 116 targeted tests, Rust formatting and changed
+crate Clippy with warnings denied pass. The scoped pool is retained for its
+confirmed frontend benefit; broader native loader fidelity and the <=0.50
+release ratio remain open in the parent tasks.

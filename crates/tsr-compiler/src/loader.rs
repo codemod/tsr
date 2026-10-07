@@ -222,13 +222,15 @@ pub struct LoaderDiagnostic {
 pub struct LoadStatistics {
     /// Construction through file extraction; excludes final task-storage drop.
     pub total_time: Duration,
-    /// Sum of nonrecursive `load_task` calls, including automatic type tasks.
+    /// Coordinator task bodies and frontier preparation, excluding recursive
+    /// child processing; includes automatic type tasks.
     pub task_time: Duration,
     /// Source-file module-format and package metadata lookups.
     pub metadata_time: Duration,
     /// Source-text reads, including failed reads.
     pub read_time: Duration,
-    /// Parser calls into shared node tables, including JSDoc parsing.
+    /// Coordinator parsing/publication and dependency waits, including JSDoc.
+    /// Also includes the separately recorded root preparation barrier below.
     pub parse_time: Duration,
     /// Private root parsing before the ordered task walk. Included in parse
     /// time, but excluded from the discovery subtraction inside task bodies.
@@ -253,7 +255,8 @@ pub struct LoadStatistics {
     pub reusable_module_requests: usize,
     /// Type requests reusable by native's directory/name/mode/inferred key.
     pub reusable_type_requests: usize,
-    /// Actual parser calls, including discarded duplicate package files.
+    /// Coordinator parse/publication calls, including discarded duplicate
+    /// package files. Unclaimed private preparations are excluded.
     pub parsed_files: usize,
 }
 
@@ -603,11 +606,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     /// Read every root file concurrently before the walk.
     ///
     /// Native `filesParser.start` (`filesparser.go:245`) queues each root task
-    /// on a work group, so their reads overlap. Parsing here stays on the walk
-    /// (one shared node table, ADR-0034); only the reads, which share no
-    /// state, run ahead through [`tsr_vfs::FileSystem::read_files`]. The walk
-    /// consumes each text exactly where it would have read it, so a file the
-    /// walk never loads costs one unused read and changes nothing else.
+    /// on a work group, so their reads overlap. Read-prefetch uses the host's
+    /// batch API; sufficiently large root batches also prepare private parses.
+    /// The walk consumes texts and publishes into the shared tables at each
+    /// original visit. Unclaimed roots can incur unused preparation work.
     fn prefetch_root_files(&mut self) {
         let fs = self.host.fs();
         let mut names: Vec<&str> = self
