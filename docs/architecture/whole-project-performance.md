@@ -212,6 +212,26 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Comparison command must reject differing completed scopes
+
+`artifact_integrity_valid` describes bounded producer captures, not cross-tool
+scope acceptance. The comparison now separately publishes `comparison_valid`,
+requiring both producer validations and a nonempty matching completed-worker path
+set. The CLI uses that gate for its exit status; two individually valid captures
+with different completed paths now save scope differences/reasons and exit 1,
+not 0. Empty scope also fails. This does not promote matching paths to complete
+semantic work or a speed certificate.
+
+35 trace tests passed, including an actual comparison CLI with valid TSR/native
+captures but different completed paths: bounded artifact integrity true,
+comparison validity false, differences preserved, exit 1. Existing invalid-receipt
+and unfinished-worker controls retain failure output. Actual matched large
+comparison ran; fresh frozen-hash/input five-pair/warmup smoke saved
+`/tmp/recover-scope-exit-checkpoint.json` and comparable exit 1. No full corpus
+run was performed here: parent zero prior-RIGHT report is not a local corpus
+receipt and vanished-case verification remains unproved. Existing native pinned
+202 observations and >0.50 ratios remain rejected release evidence.
+
 ### Native private-owner thread invariant and executable negative receipt
 
 Pinned `tracing.traceThreadKey.defaultThreadID` assigns checker index `i` the

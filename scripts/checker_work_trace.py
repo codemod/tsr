@@ -768,8 +768,12 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
                 "show_config": receipt["show_config"], "loaded_files": receipt["loaded_files"],
                 "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
             }
+    scope_match = valid and bool(checked) and set(checked) == set(native_checked)
+    if valid and not scope_match:
+        reasons.append("Observed completed full-worker path scopes differ or are empty")
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
+        "comparison_valid": valid and scope_match,
         "reasons": reasons, "producer_reasons": producer_reasons,
         "producer_validation": {
             "tsr_artifact_integrity_valid": tsr.get("artifact_integrity_valid") is True,
@@ -782,7 +786,7 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
         "observed_full_worker_scope": {"tsr": checked, "native": native_checked,
             "tsr_only": sorted(set(checked) - set(native_checked)),
             "native_only": sorted(set(native_checked) - set(checked)),
-            "identity_sets_match": valid and bool(checked) and set(checked) == set(native_checked)},
+            "identity_sets_match": scope_match},
         "operations": rows,
         "counter_attribution": {
             "tsr": {
@@ -847,7 +851,7 @@ def main() -> int:
         result["reasons"].append(f"Invalid supervising receipt: {type(error).__name__}: {error}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
-    return 0 if result.get("worker_activity_valid", result["artifact_integrity_valid"]) else 1
+    return 0 if result.get("comparison_valid", result.get("worker_activity_valid", result["artifact_integrity_valid"])) else 1
 
 
 if __name__ == "__main__":
