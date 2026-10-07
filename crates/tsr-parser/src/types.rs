@@ -1447,12 +1447,24 @@ impl<'a> Parser<'a> {
         let modifiers = self.parse_type_parameter_modifiers();
         let modifiers = self.arena.alloc_slice(&modifiers);
         let name = self.parse_identifier();
-        let constraint =
-            if self.eat(SyntaxKind::ExtendsKeyword) { Some(self.parse_type()) } else { None };
+        let mut expression = None;
+        let constraint = if self.eat(SyntaxKind::ExtendsKeyword) {
+            // Native parseTypeParameter preserves an improper expression
+            // constraint as unary syntax; consuming a binary expression would
+            // steal the generic list's closing >.
+            if self.is_start_of_type(false) || !self.is_start_of_expression() {
+                Some(self.parse_type())
+            } else {
+                expression = Some(self.parse_unary_expression());
+                None
+            }
+        } else {
+            None
+        };
         let default =
             if self.eat(SyntaxKind::EqualsToken) { Some(self.parse_type()) } else { None };
         self.finish_node(
-            TypeParameterDeclaration::new(modifiers, Some(name), constraint, None, default),
+            TypeParameterDeclaration::new(modifiers, Some(name), constraint, expression, default),
             SyntaxKind::TypeParameter,
             start,
         )

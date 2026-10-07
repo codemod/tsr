@@ -363,6 +363,24 @@ complete-parse 41pairs x60 wall/CPU 1.010255/1.006929 parser.ts,
 observed increases are not accepted as no-hotpath-regression. Candidate requires
 parent atomic semantic and performance gates before landing.
 
+### Improper generic constraint recovery (tsr-2zk.2.12)
+
+Pinned parseTypeParameter parses an extends operand as type when isStartOfType
+or not isStartOfExpression; otherwise it publishes a unary-expression recovery
+operand in the distinct expression field. Calling a binary expression would
+consume the generic list close. Candidate follows this selection and reuses
+existing type/unary workers, modifiers and default-type publication. No new
+cache/traversal or parser-context heuristic. Direct native class C<T extends +1,
+U> control and isolated AST behavior test preserve both parameters and no parse
+diagnostics. Parser full tests, library clippy and fmt pass.
+
+Full unfiltered type/diagnostic dumps are unchanged versus prior isolated state:
+zero prior RIGHT/EMPTY_RIGHT loss and zero vanished keys. No corpus conversion
+claimed; this closes the actual producer boundary. Incremental complete-parse
+41pairs x60 wall/CPU parser.ts 0.988781/0.988484, dom 0.988129/0.987654, identical
+node outputs and full JSDoc/diagnostic parsing. No observed incremental slowdown.
+No shared AST/scanner/checker edits. Prior rejected candidates remain separate.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
