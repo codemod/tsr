@@ -759,8 +759,12 @@ overload/recovery never. It now uses existing overload_has_correct_arity semanti
 minimum/effective rest operation. Direct native control returns string for one
 string and number for one number; TSR before returns never for string.
 Dedicated behavior regression preserves both candidates. No new selector or
-case-specific admission. void-overload-tests is compile-blocked by absent shared
-fields; no passing-after/fullRIGHT/performance acceptance claimed.
+case-specific admission. Initial isolated test showed survivor-only change was
+insufficient: subtype/assignable clean passes still used syntax arity. Completed
+those passes with the same semantic operation. Actual producer now matches native
+string/number returns; target/fullchecker/clippy pass. Both12444-key historical
+ratchets preserve prior passes/keys (void-passes-ratchet.json), no whole-case gain.
+Integratedparent/fullcurrent/performance acceptance remains unverified.
 
 ## IIFE tuple-spread arity
 

@@ -4189,7 +4189,7 @@ impl<'a> Checker<'a, '_> {
         // the second is a real negative.
         let mut arity_matched = false;
         for candidate in candidates {
-            if !has_correct_arity(candidate, argument_types.len()) {
+            if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
             arity_matched = true;
@@ -4588,7 +4588,9 @@ impl Checker<'_, '_> {
         // `isSignatureApplicable` checks each argument under the candidate's
         // parameter type; the first arity-matching candidate's check is the
         // argument's first, so it is made under that context.
-        let first = candidates.iter().find(|c| has_correct_arity(c, arguments.len()));
+        let first = candidates
+            .iter()
+            .find(|candidate| self.overload_has_correct_arity(candidate, arguments.len()));
         let call = self.call_for_overload_arguments(arguments);
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
@@ -4599,7 +4601,7 @@ impl Checker<'_, '_> {
         }
         let all_decidable = clean_len == candidates.len();
         for candidate in prefix {
-            if !has_correct_arity(candidate, argument_types.len()) {
+            if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
             let mut verdict = Ternary::Related;
