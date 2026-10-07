@@ -5509,6 +5509,21 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
+        // getObjectTypeInstantiation / instantiateAnonymousType (5b1047d):
+        // an instantiation-expression image retains the original expression
+        // and concrete source. Map that source, then reapply the written list.
+        // The expression worker owns completed (NodeId, source TypeId) results;
+        // this branch never publishes a provisional or partial wrapper image.
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            let Some(&node) = self.instantiation_expression_nodes.get(&id) else {
+                return error;
+            };
+            let source = self.instantiate_type(source, map, parameters, names);
+            if self.is_error(source) {
+                return error;
+            }
+            return self.get_instantiation_expression_type(source, node);
+        }
         if self.mapped_conditionals.contains_key(&id) {
             return self.instantiate_mapped_conditional(id, map, parameters, names);
         }
@@ -6599,6 +6614,13 @@ impl<'a> Checker<'a, '_> {
         }
         if visited.contains(&id) {
             return false;
+        }
+        // Wrapper signatures can be empty or already specialized while their
+        // source members still reference outer parameters. Follow the actual
+        // source edge before ordinary signature/primitive discovery.
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            visited.push(id);
+            return self.mentions_type_parameter_inner(source, is_parameter, names, visited);
         }
         if let Some((_, target)) = self.string_mapping_types.get(&id) {
             visited.push(id);
