@@ -73,6 +73,17 @@ fn parenthesized_indexed_alias_body_substitutes_arguments() {
 }
 
 #[test]
+fn parenthesized_conditional_alias_body_uses_native_branch_resolution() {
+    assert_eq!(
+        declared_and_reference(
+            "type Select<T> = ((T extends string ? number : boolean)); declare let value: Select<string>;",
+            "Select",
+        ).1,
+        "number",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

@@ -7397,9 +7397,15 @@ impl<'a> Checker<'a, '_> {
         if self.instantiation_depth == 100 {
             return None;
         }
-        let conditional = match alias.r#type {
-            Some(TypeNode::ConditionalTypeNode(conditional)) => conditional,
-            Some(TypeNode::TypeReferenceNode(reference)) if !parameters.is_empty() => {
+        // getTypeFromTypeNodeWorker resolves parenthesized bodies transparently;
+        // preserve the same conditional worker and its active mapper/frame.
+        let mut body = alias.r#type?;
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            body = parenthesized.r#type?;
+        }
+        let conditional = match body {
+            TypeNode::ConditionalTypeNode(conditional) => conditional,
+            TypeNode::TypeReferenceNode(reference) if !parameters.is_empty() => {
                 return self.evaluate_conditional_alias_reference(reference, frame, result_alias);
             }
             _ => return None,

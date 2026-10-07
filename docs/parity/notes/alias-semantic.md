@@ -196,6 +196,23 @@ certification. Receipts: `indexed-before.txt`, `indexed-after.txt`,
 `indexed-native.txt`, `indexed-smoke.txt`, `indexed-transitions.txt`,
 `indexed-perf.txt` under `target/recovery/alias`.
 
+## Parenthesized conditional alias root
+
+`evaluate_conditional_alias` now unwraps parentheses before selecting the existing
+conditional/reference worker, following native `getTypeFromTypeNodeWorker`.
+Ordered parameter frames, recursion/depth guard, deferred refusal and publication
+remain unchanged; no branch/name heuristic or extra cache.
+
+Regression fails before and passes after; existing conditional targets pass.
+Verification uses the same frozen pre-TypeQuery worktree plus indexed/conditional
+owned hunks. Real CLI exercises both conditional branches; incompatible assignment
+diagnostics compare byte-for-byte with native. Existing unfiltered 477,970-row
+oracle unchanged, no formerly RIGHT losses or vanished recognized keys, no
+whole-case gain claimed. Seven interleaved fresh-process samples: after/before
+0.99845, after/native 1.57815. Baseline emits false positives and lacks the correct
+projection, so equivalent complete work is unverified; no release performance
+claim. Receipts `conditional-paren-*` under `target/recovery/alias`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
