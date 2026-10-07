@@ -3627,6 +3627,18 @@ impl<'a> Checker<'a, '_> {
                 };
                 pieces.push(format!("{prefix}{printed}{suffix}"));
             }
+            if resolved_elements.iter().any(|element| {
+                element.spread && self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
+            }) {
+                // Native createNormalizedTupleTypeEx distributes variadic union
+                // operands before positional normalization. Reuse the existing
+                // semantic normalizer's cross-product bound and branch order.
+                let readonly = node
+                    .node_id
+                    .and_then(|id| self.nodes.parent(id))
+                    .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                return self.normalize_variadic_tuple(resolved_elements, readonly);
+            }
             if let Some(flat) = spliced {
                 let readonly = node
                     .node_id

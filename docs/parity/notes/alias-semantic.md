@@ -411,6 +411,21 @@ RIGHT losses/vanished keys. Seven ordinary-rest fresh-process samples:
 after/before 1.01331, after/native 1.60047; no complete-work/no-hotpath/release
 performance certification. Receipts `tuple-never-*`; all reserved functions untouched.
 
+## Source tuple variadic union distribution
+
+The source tuple producer now sends variadic union operands through the existing
+semantic normalizer before positional normalization, matching native
+`createNormalizedTupleTypeEx` mapType/cross-product operation. Existing branch
+order, cross-product bound and readonly context retained; no alias constructor
+or cache change. Regression fails before and passes after; tuple targets pass.
+CLI accepted distributed tuple and index consumers; single-type rejection diagnostics
+compare byte-for-byte with native. Union rejection still lacks native nested
+diagnostic detail (unowned diagnostics prerequisite), not claimed exact.
+Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
+Seven fresh-process samples after/before 1.00296, after/native 1.61520; complete-work/
+no-hotpath/release performance uncertified. Receipts `tuple-union-*`; all reserved
+functions unchanged.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
