@@ -263,3 +263,24 @@ fn union_source_reports_first_failed_constituent_like_each_type_related_to_type(
         ]
     );
 }
+#[test]
+fn type_argument_variance_failure_reports_first_failed_argument() {
+    let ds = diagnostics(
+        "interface Sink<T> { put: (x: T) => void } declare let kn: Sink<number>; let ks: Sink<string> = kn; interface Box<T> { get(): T } declare let o: { a: Box<number> }; let p: { a: Box<string> } = o; declare let vv: Box<number>; let vw: Box<void> = vv;",
+    );
+    let actual = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, d, "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual,
+        [
+            "Type 'Sink<number>' is not assignable to type 'Sink<string>'.\n  Type 'string' is not assignable to type 'number'.",
+            "Type '{ a: Box<number>; }' is not assignable to type '{ a: Box<string>; }'.\n  Types of property 'a' are incompatible.\n    Type 'Box<number>' is not assignable to type 'Box<string>'.\n      Type 'number' is not assignable to type 'string'.",
+        ]
+    );
+}
