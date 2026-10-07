@@ -1327,10 +1327,10 @@ impl<'a> BindResult<'a> {
                                 Some(tsr_ast::ModuleReference::QualifiedName(_)) => {
                                     return Some(found);
                                 }
-                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_)
-                                    | tsr_ast::ModuleReference::Identifier(_))
-                                    if exported_alias(found, meaning & mask)? =>
-                                {
+                                Some(
+                                    tsr_ast::ModuleReference::ExternalModuleReference(_)
+                                    | tsr_ast::ModuleReference::Identifier(_),
+                                ) if exported_alias(found, meaning & mask)? => {
                                     return Some(found);
                                 }
                                 _ => {}
