@@ -213,6 +213,44 @@ No new cache, traversal, production helper, or shared metadata change was added.
 behaviors already match the pin. The cluster remains in progress with the
 parent prerequisite; no next cluster was taken.
 
+## Target-shaped operator continuation
+
+The parent reports ownership of its per-signature display helper in
+`printing.rs`; this worker leaves that helper, signature metadata, and source
+constraint/default pins untouched. The next actual native/TSR controls placed
+these target constraint shapes inside a written returned generic function:
+
+```typescript
+declare function source(): <T extends number[] & { [s: string]: number | string }>() => T;
+const result: never = source;
+declare function keySource(): <K extends keyof { sum: [a: number, b: number]; concat: [a: string, b: string, c: string] }>() => K;
+const keyResult: never = keySource;
+declare function indexSource(): <K extends { key: number | string }["key"]>() => K;
+const indexResult: never = indexSource;
+```
+
+Both actual CLIs agree on all TS2322 messages, at `(2,7)`, `(4,7)`, `(6,7)`,
+in order. Both preserve `number | string` inside the intersection's index
+signature, `keyof` with its tuple-member literal, and the indexed-access
+constraint. The actual corpus pipeline shows the same written forms while
+printing the standalone `key` property type as `string | number`. Thus written
+node preservation does not alter semantic ordering globally.
+
+A fourth owned regression test covers these three operators plus the existing
+unrelated-image refusal boundary. `cargo test --release -p tsr-checker --test
+constraint_node_reuse_native` now reports **4 passed, 0 failed, 0 ignored,
+0 filtered out**; owned-file `rustfmt --check` passes. CLI binary SHA-256 values
+remain identical to the full-corpus/performance receipts above. This test-only
+continuation does not claim a compiler fix or new target conversions.
+
+A valid conditional alias with constrained `infer` also matches the actual
+CLIs on its returned generic signature. Direct conditional-return and invalid
+`infer`-outside-conditional probes encountered unsupported semantic production
+and missing TS1338 checking before a reusable node reached this visitor. Those
+paths are outside this worker's owned constraint visitor and were not turned
+into expected-empty tests or special-case visitor changes. No next cluster was
+claimed; the same 16-case constraint cluster awaits parent dispatch.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.

@@ -54,6 +54,22 @@ fn existing_node_defaults_and_constraints_keep_their_written_qualified_alias() {
 }
 
 #[test]
+fn written_constraint_operators_do_not_collapse_to_their_semantic_image() {
+    // These are the constraint shapes in cannotIndexGenericWritingError and
+    // correlatedUnions. Reusing their AST must preserve constituent order,
+    // keyof, and indexed access even when semantic resolution sorts/reduces.
+    assert_eq!(
+        reused_return(
+            "declare function source(): \
+             <T extends number[] & { [s: string]: number | string }, \
+             K extends keyof { sum: [a: number, b: number]; concat: [a: string, b: string, c: string] }, \
+             V extends { key: number | string }['key']>() => V;",
+        ),
+        "<T extends number[] & { [s: string]: number | string; }, K extends keyof { sum: [a: number, b: number]; concat: [a: string, b: string, c: string]; }, V extends { key: number | string; }['key']>() => V",
+    );
+}
+
+#[test]
 fn nested_generic_scopes_preserve_distinct_written_type_parameters() {
     assert_eq!(
         reused_return(
