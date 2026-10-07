@@ -409,6 +409,8 @@ pub fn run_compilation(
              Parsed files:          {}\nLoader time:           {:.3}s\n\
              File read time:        {:.3}s\nMetadata time:         {:.3}s\n\
              Parse time:            {:.3}s\nFile discovery time:   {:.3}s\n\
+             Dependency parse work: {:.3}s\nDependency parse jobs: {}\n\
+             Dependency published:  {}\nDependency workers:    {}\nDependency pending:    {}\n\
              Resolver time:         {:.3}s\nResolver requests:     {}\n\
              Reusable modules:      {}\nReusable type refs:    {}\n\
              Indexing time:         {:.3}s\nBind time:             {:.3}s\n\
@@ -423,6 +425,11 @@ pub fn run_compilation(
             statistics.load.metadata_time.as_secs_f64(),
             statistics.load.parse_time.as_secs_f64(),
             statistics.load.discovery_time().as_secs_f64(),
+            statistics.load.dependency_parse_work.as_secs_f64(),
+            statistics.load.dependency_parse_jobs,
+            statistics.load.dependency_parses_published,
+            statistics.load.dependency_parse_workers,
+            statistics.load.dependency_pending_peak,
             statistics.load.resolution_time.as_secs_f64(),
             statistics.load.resolution_requests,
             statistics.load.reusable_module_requests,

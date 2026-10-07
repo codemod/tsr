@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 use tsr_ast::NodeId;
 use tsr_compiler::{FileLoader, LoadOptions, Program};
 use tsr_core::{Arena, CompilerOptions, JsxEmit, Tristate};
+use tsr_vfs::FileSystem as _;
 
 struct Host(tsr_vfs::InMemoryFileSystem);
 impl tsr_module::types::ResolutionHost for Host {
@@ -65,10 +66,23 @@ fn options(roots: &[String], serial: bool) -> LoadOptions {
 #[test]
 fn loader_replay_and_every_published_node_match_serial() {
     let (host, roots) = fixture();
+    assert_loader_identity(&host, &roots, false);
+}
+
+fn assert_loader_identity(host: &Host, roots: &[String], dependencies: bool) {
     let serial_arena = Arena::new();
     let arena = Arena::new();
-    let serial = FileLoader::load(&serial_arena, &host, options(&roots, true));
-    let parallel = FileLoader::load(&arena, &host, options(&roots, false));
+    let serial = FileLoader::load(&serial_arena, host, options(roots, true));
+    let parallel = FileLoader::load(&arena, host, options(roots, false));
+    if dependencies && std::thread::available_parallelism().unwrap().get() >= 2 {
+        assert!(parallel.statistics.dependency_parse_workers >= 2);
+        assert!(parallel.statistics.dependency_parses_published >= 8);
+        assert!(
+            parallel.statistics.dependency_pending_peak
+                <= 2 * parallel.statistics.dependency_parse_workers
+        );
+        assert_eq!(serial.statistics.dependency_parse_jobs, 0);
+    }
     assert_eq!(parallel.file_names, serial.file_names);
     assert_eq!(parallel.requests, serial.requests);
     assert_eq!(format!("{:?}", parallel.traces), format!("{:?}", serial.traces));
@@ -95,6 +109,48 @@ fn loader_replay_and_every_published_node_match_serial() {
         assert_eq!(format!("{:?}", actual.jsdoc()), format!("{:?}", expected.jsdoc()));
         assert_eq!(format!("{:?}", actual.diagnostics()), format!("{:?}", expected.diagnostics()));
     }
+}
+
+#[test]
+fn dynamically_discovered_dependencies_keep_complete_serial_identity() {
+    let (original, _) = fixture();
+    let mut files = Vec::new();
+    // A single root exposes a broad frontier: these files must be reached as
+    // dependencies and cannot accidentally pass via the root preparation path.
+    let mut root = String::new();
+    for name in [
+        "f0.ts",
+        "f1.ts",
+        "f2.ts",
+        "f3.ts",
+        "f4.ts",
+        "f5.ts",
+        "f6.ts",
+        "f7.ts",
+        "doc.js",
+        "view.tsx",
+        "data.json",
+        "broken.ts",
+        "empty.ts",
+        "aug.ts",
+        "script.ts",
+        "other.ts",
+    ] {
+        writeln!(root, "/// <reference path=\"./{name}\" />").unwrap();
+        files.push((format!("/{name}"), original.0.read_file(&format!("/{name}")).unwrap()));
+    }
+    // Fill the bounded queue before descending into a new, unqueued child.
+    // That child must make progress serially rather than wait for free slots.
+    files[0].1.push_str("\nimport './deep';\n");
+    files.push(("/deep.ts".to_owned(), "export const deep = 1;".to_owned()));
+    files.push((
+        "/huge.ts".to_owned(),
+        format!("{}\nexport const huge = 1;", "/*oversized*/".repeat(100_000)),
+    ));
+    root.push_str("/// <reference path=\"./huge.ts\" />\n/// <reference path=\"./missing.ts\" />\nexport {};\n");
+    files.push(("/root.ts".to_owned(), root));
+    let host = Host(tsr_vfs::InMemoryFileSystem::new(files, [], true));
+    assert_loader_identity(&host, &["/root.ts".to_owned(), "/root.ts".to_owned()], true);
 }
 
 #[test]

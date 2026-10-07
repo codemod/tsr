@@ -215,7 +215,7 @@ pub struct LoaderDiagnostic {
     pub args: Vec<String>,
 }
 
-/// Opt-in host-clock attribution for the serial loader (`reportStatistics`).
+/// Opt-in host-clock attribution for the loader (`reportStatistics`).
 /// Task time excludes recursive child processing. Parse time includes JSDoc;
 /// discovery is the remaining task work, including import collection/resolution.
 #[derive(Debug, Default, Clone, Copy)]
@@ -233,6 +233,17 @@ pub struct LoadStatistics {
     /// Private root parsing before the ordered task walk. Included in parse
     /// time, but excluded from the discovery subtraction inside task bodies.
     pub parse_preparation_time: Duration,
+    /// Sum of consumed dependency workers' parse durations. Overlaps the
+    /// coordinator's work; never add this to the disjoint wall-clock phases.
+    pub dependency_parse_work: Duration,
+    /// Private dependency jobs submitted, including unclaimed preparations.
+    pub dependency_parse_jobs: usize,
+    /// Dependency worker results copied into canonical tables.
+    pub dependency_parses_published: usize,
+    /// Actual leased parser workers; zero when preparation stayed serial.
+    pub dependency_parse_workers: usize,
+    /// Maximum retained dependency cells (queued, completed or serial text).
+    pub dependency_pending_peak: usize,
     /// Module/type-directive queries within tasks; excludes lib replacement.
     /// This is a subset of discovery time, not another disjoint phase.
     pub resolution_time: Duration,
@@ -386,6 +397,22 @@ struct ResolvedRef {
     package_id: PackageId,
 }
 
+struct DependencyParse {
+    file: tsr_parser::ParsedFile,
+    elapsed: Duration,
+}
+
+enum PreparedDependency {
+    Parse(crate::front_end::Ticket<DependencyParse>),
+    // Missing and oversized texts still consume one lookahead slot and are
+    // consumed at the original visit. Never turn a resource limit into a
+    // missing-file result, or reread a text merely because it is oversized.
+    Serial(Option<String>),
+}
+
+type DependencyPool =
+    crate::front_end::DynamicPool<(String, tsr_parser::ParseOptions), DependencyParse>;
+
 /// The walk (`compiler.fileLoader` + `compiler.filesParser`).
 ///
 /// Two lifetimes, deliberately: `'host` is the host and its file system, `'a`
@@ -429,6 +456,10 @@ pub struct FileLoader<'host, 'a> {
     /// Private root parses, keyed by canonical task path. Discovery, metadata,
     /// package identity and publication still follow the original serial walk.
     prepared_roots: FxHashMap<Path, tsr_parser::ParsedFile>,
+    dependency_pool: Option<DependencyPool>,
+    /// Exact file spelling and the immutable loader parse options identify an
+    /// owned preparation. This map does not claim paths or choose package IDs.
+    prepared_dependencies: FxHashMap<String, PreparedDependency>,
 }
 
 impl<'host, 'a> FileLoader<'host, 'a> {
@@ -478,6 +509,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             supported_extensions_with_json,
             prefetched: FxHashMap::default(),
             prepared_roots: FxHashMap::default(),
+            dependency_pool: None,
+            prepared_dependencies: FxHashMap::default(),
         };
 
         for root in &root_file_names {
@@ -497,6 +530,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         for root in roots {
             loader.process_task(root, 0);
         }
+        // Drain even unused bounded work before binding acquires its worker
+        // lease. No private AST/source owner survives program construction.
+        loader.prepared_dependencies.clear();
+        loader.dependency_pool.take();
         let (mut result, order) = loader.collect_files();
         if load_started.is_some() {
             // Count potential native-key reuse, including traced requests that
@@ -782,12 +819,109 @@ impl<'host, 'a> FileLoader<'host, 'a> {
 
         let task_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         self.load_task(index);
+        let sub_tasks = self.tasks[index].sub_tasks.clone();
+        self.prepare_dependencies(&sub_tasks, current_depth);
         if let Some(started) = task_started {
             self.statistics.task_time += started.elapsed();
         }
-        let sub_tasks = self.tasks[index].sub_tasks.clone();
         for sub_task in sub_tasks {
             self.process_task(sub_task, current_depth);
+        }
+    }
+
+    fn prepare_dependencies(&mut self, tasks: &[usize], depth: i32) {
+        if self.options.single_threaded.is_true() {
+            return;
+        }
+        if self
+            .dependency_pool
+            .as_ref()
+            .is_some_and(|pool| self.prepared_dependencies.len() >= 2 * pool.workers())
+        {
+            return;
+        }
+        let mut seen = FxHashSet::default();
+        let eligible: Vec<_> = tasks
+            .iter()
+            .copied()
+            .filter(|&index| {
+                let task = &self.tasks[index];
+                if task.is_for_automatic_type_directive
+                    || self.claimed.contains_key(&task.path)
+                    || self.prepared_roots.contains_key(&task.path)
+                    || self.prefetched.contains_key(&task.file_name)
+                    || self.prepared_dependencies.contains_key(&task.file_name)
+                    || (task.depth.elide
+                        && depth + i32::from(task.depth.increase) > self.max_node_module_js_depth)
+                {
+                    return false;
+                }
+                (!has_extension(&task.file_name)
+                    || self.options.allow_non_ts_extensions.is_true()
+                    || self.is_supported_extension(&get_canonical_file_name(
+                        &task.file_name,
+                        self.host.fs().use_case_sensitive_file_names(),
+                    )))
+                    && seen.insert(task.file_name.clone())
+            })
+            .collect();
+        if self.dependency_pool.is_none() {
+            // Tiny corpus programs should not pay for a persistent pool. A
+            // broad frontier or an already substantial program earns overlap.
+            if eligible.len() < 2
+                || (eligible.len() < 8 && self.root_tasks.len() < 8 && self.nodes.len() < 10_000)
+            {
+                return;
+            }
+            let requested = crate::front_end::workers(&self.options, eligible.len().max(8));
+            if requested < 2 {
+                return;
+            }
+            let measured = self.options.extended_diagnostics.is_true();
+            self.dependency_pool = DependencyPool::new(requested, move |(text, options)| {
+                let started = measured.then(Instant::now);
+                let file = tsr_parser::ParsedFile::parse_with_options(text, options);
+                DependencyParse {
+                    file,
+                    elapsed: started.map_or(Duration::ZERO, |start| start.elapsed()),
+                }
+            });
+        }
+        let Some(pool) = &self.dependency_pool else { return };
+        let limit = 2 * pool.workers();
+        self.statistics.dependency_parse_workers = pool.workers();
+        for index in eligible {
+            if self.prepared_dependencies.len() >= limit {
+                break;
+            }
+            let name = &self.tasks[index].file_name;
+            let started = self.options.extended_diagnostics.is_true().then(Instant::now);
+            let text = self
+                .host
+                .fs()
+                .read_static(name)
+                .map(str::to_owned)
+                .or_else(|| self.host.fs().read_file(name));
+            if let Some(started) = started {
+                self.statistics.read_time += started.elapsed();
+            }
+            let oversized = text.as_ref().is_some_and(|text| text.len() > 1024 * 1024);
+            let prepared = match text {
+                Some(text) if !oversized => {
+                    self.statistics.dependency_parse_jobs += 1;
+                    PreparedDependency::Parse(pool.submit((text, self.parse_options(name))))
+                }
+                text => PreparedDependency::Serial(text),
+            };
+            self.prepared_dependencies.insert(name.clone(), prepared);
+            self.statistics.dependency_pending_peak =
+                self.statistics.dependency_pending_peak.max(self.prepared_dependencies.len());
+            // Avoid accumulating several oversized read-ahead texts at one
+            // frontier. The slot bound includes this serial text; no byte or
+            // AST/RSS ceiling is implied by a file-count bound.
+            if oversized {
+                break;
+            }
         }
     }
 
@@ -838,15 +972,35 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // `bundled.WrapFS`) is borrowed as is: native `ReadFile` shares those
         // bytes too.
         let arena = self.arena;
+        let dependency_started = self.options.extended_diagnostics.is_true().then(Instant::now);
+        let (prepared_dependency, dependency_text) =
+            match self.prepared_dependencies.remove(&file_name) {
+                Some(PreparedDependency::Parse(ticket)) => {
+                    let result = ticket.wait();
+                    self.statistics.dependency_parse_work += result.elapsed;
+                    (Some(result.file), None)
+                }
+                Some(PreparedDependency::Serial(text)) => (None, Some(text)),
+                None => (None, None),
+            };
+        if let Some(started) = dependency_started {
+            self.statistics.parse_time += started.elapsed();
+        }
         let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let fs = self.host.fs();
-        let text: Option<&'a str> = match fs.read_static(&file_name) {
-            Some(text) => Some(text),
-            None => self
-                .prefetched
-                .remove(&file_name)
-                .unwrap_or_else(|| fs.read_file(&file_name))
-                .map(|text| &*arena.alloc_str(&text)),
+        let text: Option<&'a str> = if let Some(prepared) = &prepared_dependency {
+            Some(arena.alloc_str(prepared.source()))
+        } else if let Some(text) = dependency_text {
+            text.map(|text| &*arena.alloc_str(&text))
+        } else {
+            match fs.read_static(&file_name) {
+                Some(text) => Some(text),
+                None => self
+                    .prefetched
+                    .remove(&file_name)
+                    .unwrap_or_else(|| fs.read_file(&file_name))
+                    .map(|text| &*arena.alloc_str(&text)),
+            }
         };
         if let Some(started) = read_started {
             self.statistics.read_time += started.elapsed();
@@ -860,8 +1014,16 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // half of the identity widening, and parsing into fresh tables here
         // would give two files the same `NodeId`s.
         let parse_started = self.options.extended_diagnostics.is_true().then(Instant::now);
-        let parsed = match self.prepared_roots.remove(&self.tasks[index].path) {
+        let is_prepared_dependency = prepared_dependency.is_some();
+        let parsed = match prepared_dependency
+            .or_else(|| self.prepared_roots.remove(&self.tasks[index].path))
+        {
             Some(prepared) if prepared.source() == text => {
+                // Dependency cells have already been consumed by exact file
+                // spelling; root cells still validate their canonical text.
+                if is_prepared_dependency {
+                    self.statistics.dependency_parses_published += 1;
+                }
                 prepared.publish(arena, text, &mut self.nodes, &mut self.node_map)
             }
             _ => tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map),
