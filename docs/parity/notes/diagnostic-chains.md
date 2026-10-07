@@ -177,6 +177,52 @@ suites rerun. Domain-model 21-pair candidate/recovery-baseline observed wall rat
 0.9781 with matching diagnostic fingerprints, verified complete-work ratio null.
 No claim of native <=0.50 or strict full-configuration parity.
 
+## Property relation reporting — tsr-2zk.1
+
+Native `propertyRelatedTo`/`isPropertySymbolTypeRelated` at relater.go 4310/4334
+reports the completed member failure then prepends TS2326. `reportError` at 4831
+compresses property / relation / property into TS2200 dotted names, with quoted
+property names converted to bracket paths. Owned
+`properties_related_to_with_optionals` now collects reporting data during that
+same receiver-mapped member comparison, not a second member/type traversal.
+
+Identity/owner: ordered concrete Checker-local member TypeIds from existing
+property getters, current relation/options/intersection-target context, private
+walk-local Relater. A temporarily selected reporting pair returns to its parent's
+pair. Completed simple failures and completed property/signature chains publish
+an explanation; success/Unknown restores saved reporting data. Unavailable
+recursive explanations stay absent. No new semantic cache or cross-Checker key.
+Verdict-only paths bypass reporting-state movement. Reporting allocations occur
+only for completed failure text/trees; existing simple failure sites publish an
+inline boolean without an extra query. First failed member stops later worker
+execution. Related declaration images remain unchanged. Completed subtrees move
+rather than clone; native dotted compression reuses the inner chain and removes
+the intervening relation head.
+
+`Diagnostic::message_chain_mut()` is the minimal model seam for attaching the
+consumer's chosen error span to each completed child after reporting. Both owned
+assignment/argument consumers perform this cutover; primary tuple collector APIs
+and external file identities are unchanged. Property names reuse existing
+callable_property_name presentation, preserving quoted member syntax in direct
+controls. Arbitrary alias/qualification, mapped late-bound symbols, recursive
+union/generic constraint wrappers, optionality/private/member-related notes and
+signature return/parameter wrappers are not certified by these controls.
+
+Actual pinned CLI failing-before/passing-after controls cover TS2322 and TS2345
+with two differently failing properties (first x retained), nested x.y compression,
+quoted ["x-y"].z and x["y-z"] paths, and a signature-valued property with native
+nested TS2849. Complete stdout matches native after; permanent regressions assert
+full trees, ordering and child spans plus successful/overload rollback controls.
+Targeted/workspace release tests and scoped all-target clippy pass. Fresh unfiltered
+dumps preserve all 469785 RIGHT type and 9190 RIGHT/EMPTY_RIGHT diagnostic keys,
+zero missing/changed; sixteen read-only suites complete without snapshot edits.
+21-pair candidate/recovery-baseline observed wall ratios: domain-model 0.9494,
+generic-imports 0.9950; diagnostic fingerprints match. An interrupted generic
+measurement was discarded and replaced by a completed run. These comparisons
+include earlier recovery work, not isolated property-port attribution. Verified
+complete-work ratios remain null; no native <=0.50 or literal no-regression release
+claim. Receipts `target/recovery-diagnostics/property-*`.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

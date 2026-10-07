@@ -456,6 +456,9 @@ struct Relater<'c, 'a, 'n> {
     /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
     diagnostic_pair: Option<(TypeId, TypeId)>,
     signature_error: Option<(usize, usize)>,
+    /// Completed property reporting data; absent on verdict-only walks.
+    property_error: Option<tsr_diagnostics::Diagnostic>,
+    simple_error: bool,
 }
 
 /// A walk-local relation result key: the ordered pair and whether it was
@@ -694,10 +697,10 @@ impl Checker<'_, '_> {
         self.relate_with_signature_diagnostic(source, target, relation, false).0
     }
 
-    /// Native signatureRelatedTo/compareSignaturesRelated arity reporting,
-    /// collected during the same relation walk that decides the failure.
-    /// Direct signature pairs only; recursive property/signature error contexts
-    /// require the complete native error-state contract before expansion.
+    /// Native signature arity and property reporting collected during the same
+    /// relation walk that decides failure. Property contexts preserve concrete
+    /// member receiver mappings and completed child explanations; unsupported
+    /// recursive failures publish no guessed explanation.
     pub(crate) fn relate_with_signature_diagnostic(
         &mut self,
         source: TypeId,
@@ -718,19 +721,21 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: report_errors.then_some((source, target)),
             signature_error: None,
+            property_error: None,
+            simple_error: false,
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
         let answer = relater.is_related_to(source, target).public_answer();
         reasons::finish(outer, answer == Ternary::Unknown);
         let diagnostic = if answer == Ternary::NotRelated {
-            relater.signature_error.map(|(minimum, count)| {
+            relater.property_error.take().or_else(|| relater.signature_error.map(|(minimum, count)| {
                 tsr_diagnostics::Diagnostic::with_args(
                     &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
                     tsr_core::Span::new(0, 0),
                     [minimum.to_string(), count.to_string()],
                 )
-            })
+            }))
         } else {
             None
         };
@@ -852,6 +857,8 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: None,
             signature_error: None,
+            property_error: None,
+            simple_error: false,
         };
         let mut missing = Vec::new();
         for name in names {
@@ -1030,6 +1037,8 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: None,
             signature_error: None,
+            property_error: None,
+            simple_error: false,
         };
         relater
             .one_signature_related_to(source, target, false, false, false)
@@ -1111,7 +1120,10 @@ impl Relater<'_, '_, '_> {
         }
         match self.is_simple_type_related_to(source, target) {
             Some(true) => return RelationResult::Related,
-            Some(false) => return RelationResult::NotRelated,
+            Some(false) => {
+                self.simple_error = self.diagnostic_pair == Some((source, target));
+                return RelationResult::NotRelated;
+            }
             None => {}
         }
         // isRelatedToWorker / hasExcessProperties (relater.go:2667,2714).
@@ -1423,6 +1435,7 @@ impl Relater<'_, '_, '_> {
             return RelationResult::NotRelated;
         }
         if self.flag_decidable(source) && self.flag_decidable(target) {
+            self.simple_error = self.diagnostic_pair == Some((source, target));
             RelationResult::NotRelated
         } else {
             // Measurement only: say which of the two shapes above it was, per
@@ -1892,8 +1905,12 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::new();
         for target_signature in &target_signatures {
             let saved_error = self.signature_error.take();
+            let saved_property = self.property_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
             let Some(target_signature) = target_signature else {
                 self.signature_error = saved_error;
+                self.property_error = saved_property;
+                self.simple_error = saved_simple;
                 parts.push(RelationResult::Unknown);
                 continue;
             };
@@ -1922,6 +1939,8 @@ impl Relater<'_, '_, '_> {
                 return Some(RelationResult::NotRelated);
             }
             self.signature_error = saved_error;
+            self.property_error = saved_property;
+            self.simple_error = saved_simple;
             parts.push(best);
         }
         Some(RelationResult::all(parts))
@@ -3857,11 +3876,120 @@ impl Relater<'_, '_, '_> {
             // resolved member types, including parameters and their constraints.
             // get_type_of_property_of_type has already applied receiver maps;
             // a surviving parameter can be the intended semantic member type.
-            parts.push(if type_related_unread {
+            let reporting = self.diagnostic_pair == Some((source, target));
+            if !reporting {
+                let related = if type_related_unread {
+                    RelationResult::Related
+                } else {
+                    self.is_related_to(source_type, target_type)
+                };
+                if related == RelationResult::NotRelated {
+                    return related;
+                }
+                parts.push(related);
+                continue;
+            }
+            let saved_pair = self.diagnostic_pair;
+            let saved_property = self.property_error.take();
+            let saved_signature = self.signature_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            self.diagnostic_pair = reporting.then_some((source_type, target_type));
+            let related = if type_related_unread {
                 RelationResult::Related
             } else {
                 self.is_related_to(source_type, target_type)
-            });
+            };
+            self.diagnostic_pair = saved_pair;
+            if related == RelationResult::NotRelated {
+                if reporting {
+                    use tsr_diagnostics::{Diagnostic, messages};
+                    let span = tsr_core::Span::new(0, 0);
+                    let nested = self.property_error.take();
+                    let signature = self.signature_error.take();
+                    // A simple native relation failure has no prior recursive
+                    // error chain. Unsupported recursive failures stay absent.
+                    let simple = std::mem::take(&mut self.simple_error);
+                    if nested.is_some() || signature.is_some() || simple {
+                        let printed_name =
+                            self.checker.get_property_of_type(target, &name).map_or_else(
+                                || name.clone(),
+                                |symbol| self.checker.callable_property_name(symbol, &name),
+                            );
+                        let property_name = if printed_name.starts_with(['\"', '\'', '`']) {
+                            format!("[{printed_name}]")
+                        } else {
+                            printed_name.clone()
+                        };
+                        // Native reportError removes the intervening relation
+                        // head when adjacent property explanations compress.
+                        let diagnostic = if let Some(mut nested) = nested {
+                            if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                || nested.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                            {
+                                if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                    && nested.args[0].starts_with(['\"', '\'', '`'])
+                                {
+                                    nested.args[0].insert(0, '[');
+                                    nested.args[0].push(']');
+                                }
+                                let mut pos = 0;
+                                loop {
+                                    if nested.args[0][pos..].starts_with('(') {
+                                        pos += 1;
+                                    } else if nested.args[0][pos..].starts_with("new ") {
+                                        pos += 4;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if !nested.args[0][pos..].starts_with('[') {
+                                    nested.args[0].insert(pos, '.');
+                                }
+                                nested.args[0].insert_str(pos, &property_name);
+                                nested.message = &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
+                                nested
+                            } else {
+                                let child = Diagnostic::new_chain(Some(nested),
+                                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                    [self.checker.type_to_string(source_type),
+                                     self.checker.type_to_string(target_type)]);
+                                Diagnostic::new_chain(Some(child),
+                                    &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE, [printed_name.clone()])
+                            }
+                        } else {
+                            let mut child = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                span,
+                                [
+                                    self.checker.type_to_string(source_type),
+                                    self.checker.type_to_string(target_type),
+                                ],
+                            );
+                            if let Some((minimum, count)) = signature {
+                                child.add_message_chain(Some(Diagnostic::with_args(
+                                    &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    span, [minimum.to_string(), count.to_string()],
+                                )));
+                            }
+                            Diagnostic::new_chain(
+                                Some(child),
+                                &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
+                                [printed_name],
+                            )
+                        };
+                        self.property_error = Some(diagnostic);
+                    }
+                } else {
+                    self.property_error = saved_property;
+                    self.signature_error = saved_signature;
+                }
+                self.simple_error = saved_simple;
+                return RelationResult::NotRelated;
+            }
+            self.simple_error = saved_simple;
+            self.property_error = saved_property;
+            self.signature_error = saved_signature;
+            parts.push(related);
         }
         RelationResult::all(parts)
     }
@@ -3994,6 +4122,8 @@ mod variance_recursion_tests {
                 intersection_target: false,
                 diagnostic_pair: None,
                 signature_error: None,
+                property_error: None,
+                simple_error: false,
             };
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);

@@ -37,6 +37,14 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// Attach the chosen relation error location to the completed explanation tree.
+fn set_relation_chain_span(diagnostic: &mut Diagnostic, span: tsr_core::Span) {
+    diagnostic.span = span;
+    for child in diagnostic.message_chain_mut() {
+        set_relation_chain_span(child, span);
+    }
+}
+
 /// Verdicts recorded by §172's probe, in the order
 /// `report_assignability_failure` tests them.
 pub const PROBE_REPORTED: u8 = 0;
@@ -1683,7 +1691,7 @@ impl<'a> Checker<'a, '_> {
             target_text,
         );
         if let Some(mut signature_error) = signature_error {
-            signature_error.span = span;
+            set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
         self.report(file, diagnostic);
@@ -1861,7 +1869,7 @@ impl<'a> Checker<'a, '_> {
         let mut diagnostic =
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
         if let Some(mut signature_error) = signature_error {
-            signature_error.span = span;
+            set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
         self.report(file, diagnostic);

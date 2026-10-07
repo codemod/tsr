@@ -1,0 +1,72 @@
+//! Completed property relation failures retain native ordering and compression.
+use tsr_checker::{Checker, check::FileContext};
+use tsr_core::Arena;
+use tsr_diagnostics::{Diagnostic, format::write_flattened_diagnostic_message};
+fn diagnostics(source: &str) -> Vec<Diagnostic> {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let root = parsed.source_file.node_id.unwrap();
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "a.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
+    checker.diagnostics().iter().map(|(_, d)| d.clone()).collect()
+}
+#[test]
+fn property_assignment_argument_and_nested_path_keep_first_failure() {
+    let ds = diagnostics(
+        "declare let source: { x: string; y: number }; let target: { x: number; y: string } = source; declare function accept(x: { x: number; y: string }): void; accept(source); declare let nested: { x: { y: string } }; let nestedTarget: { x: { y: number } } = nested;",
+    );
+    let actual = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, d, "\n");
+            (d.message.code(), text)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, [
+        (2322, "Type '{ x: string; y: number; }' is not assignable to type '{ x: number; y: string; }'.\n  Types of property 'x' are incompatible.\n    Type 'string' is not assignable to type 'number'.".into()),
+        (2345, "Argument of type '{ x: string; y: number; }' is not assignable to parameter of type '{ x: number; y: string; }'.\n  Types of property 'x' are incompatible.\n    Type 'string' is not assignable to type 'number'.".into()),
+        (2322, "Type '{ x: { y: string; }; }' is not assignable to type '{ x: { y: number; }; }'.\n  The types of 'x.y' are incompatible between these types.\n    Type 'string' is not assignable to type 'number'.".into()),
+    ]);
+    for d in &ds {
+        assert_eq!(d.message_chain()[0].span, d.span);
+        assert_eq!(d.message_chain()[0].message_chain()[0].span, d.span);
+    }
+}
+#[test]
+fn quoted_property_paths_and_signature_members_preserve_native_trees() {
+    let ds = diagnostics(
+        "declare let a: { \"x-y\": { z: string } }; let b: { \"x-y\": { z: number } } = a; declare let c: { x: { \"y-z\": string } }; let d: { x: { \"y-z\": number } } = c; declare let s: { x: (a: any, b: any) => {} }; let t: { x: (a: any) => {} } = s;",
+    );
+    let actual = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, &d.message_chain()[0], "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual,
+        [
+            "The types of '[\"x-y\"].z' are incompatible between these types.\n  Type 'string' is not assignable to type 'number'.",
+            "The types of 'x[\"y-z\"]' are incompatible between these types.\n  Type 'string' is not assignable to type 'number'.",
+            "Types of property 'x' are incompatible.\n  Type '(a: any, b: any) => {}' is not assignable to type '(a: any) => {}'.\n    Target signature provides too few arguments. Expected 2 or more, but got 1.",
+        ]
+    );
+}
+
+#[test]
+fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
+    let ds = diagnostics(
+        "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",
+    );
+    assert!(ds.is_empty(), "{ds:?}");
+}
