@@ -594,6 +594,24 @@ receipts support current no-loss result. Clean rebuild removed all those probes.
 Receipts numeric-* under ignored recovery directory; production still needs
 atomic shared/JSX integration before full branch verification.
 
+## Concrete contextual optionality probe — tsr-2zk.16.228
+
+Claimed existing two-case contextual own-member root. Read pinned
+getTypeOfConcretePropertyOfContextualType removal of optional missing type and
+existing symbols.rs concrete_contextual_property_type implementation. An owned
+consumer delegation to contextual_property_type compiles and full cleaned
+mirror dumps show **zero verdict changes, zero prior RIGHT or diagnostic losses,
+zero vanished keys** versus numeric-clean baseline. Reverted the unproven
+consumer change; no redundant optionality state or function-apply special case.
+
+contextualTypeCaching and unionTypeWithIndexedLiteralType remain incomplete;
+canonical own-property/function augmentation and contextual union discrimination
+are their producer boundaries, not optionality removal alone. Native actual
+target command recorded; no conversion/performance acceptance claimed for this
+investigation. Receipts optional-member-*; source unchanged, existing issue open.
+Parent TypeId-scoped signature-print work and main push are noted, not rerun
+or treated as this worker's verification.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
