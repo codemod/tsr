@@ -563,6 +563,17 @@ boundary; no expression edits here. Nine newly exposed require RIGHT losses are
 not claimed fixed until that consumer is integrated. Full ratchet/native CLI/perf
 remain parent integrated prerequisites; no complete-work or speed claim.
 
+## Default-specifier next-route probe (tsr-2zk.16.161)
+
+After parent integrated private require supplier, scoped native
+ModuleExportNameIsDefault accepting identifier/string default and attributed
+import/export specifiers. Owned routing hunk reused actual usage-mode/default
+worker; full current corpus was unchanged, no new RIGHT/vanished losses beyond
+held template 12. Removed zero-impact patch instead of asserting a new root gain;
+receipt default-specifier-zero-impact.patch. Shared expression/template/callable
+publishers untouched. Wired require nine-loss full/performance proof belongs to
+the parent integrated tree, not this unmodified expression checkout.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
