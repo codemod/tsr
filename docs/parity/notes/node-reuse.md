@@ -619,6 +619,26 @@ at parent construction, not an inferred precedence workaround. Existing seven
 tests and prior source-bound full loss/ID/performance receipts remain unchanged;
 no conversion or accepted speed improvement is claimed.
 
+## Computed property-name continuation (`tsr-2zk.16.75`)
+
+Scoped `reused_property_name`, which prints computed entity names without a
+`ReuseContext`, against pinned computed-name handling (`nodecopy.go:648`,
+`:751`). Actual namespace and global unique-symbol controls define a source
+returning `{ [key]: string }`, then reference it externally and under a local
+`const key = 1` shadow. Native/TSR CLIs agree with `--target es2015 --noEmit
+--pretty false`; both preserve `[key]` in diagnostics. The actual corpus
+pipeline also preserves `[key]` in declaration and reference views.
+
+These controls do not prove a missing qualification defect: native's
+non-late-bindable-name handling and recovery can retain the written computed
+name. Changing all computed entity names to site-qualified names solely because
+the owned helper lacks a context argument would guess behavior rather than
+port the observed operation. No computed-name rewrite, shared identity field,
+visibility relaxation, or new cache was introduced. Production source remains
+unchanged, preserving the prior full zero-loss/missing-ID and unverified
+performance receipts. Existing shared-context prerequisites remain open; no
+new target conversion is claimed.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
