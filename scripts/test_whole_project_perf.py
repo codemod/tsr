@@ -95,10 +95,16 @@ class BenchmarkEvidenceTests(unittest.TestCase):
                   "diagnostics_stable": True, "diagnostics_match": True, "inputs_unchanged": True,
                   "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
                   "actual_checked_work_verified": True, "complete_input_equivalence_verified": True,
-                  "build_provenance_verified": True}
+                  "build_provenance_verified": True, "flags": ["--noEmit"],
+                  "tools": {name: {"effective_config": {"compilerOptions": {"noEmit": True}}}
+                            for name in ("tsr", "tsgo")}}
         certificate = equivalence_certificate(report)
         self.assertFalse(certificate["verified"])
-        self.assertEqual(certificate["proof_gap_count"], 8)
+        self.assertEqual(certificate["proof_gap_count"], 9)
+        self.assertIn("native_emit_eligibility_skipping_and_actual_work", certificate["unmet_constraints"])
+        report["tools"]["tsgo"]["effective_config"]["compilerOptions"]["noEmit"] = False
+        self.assertIn("matching_explicit_no_emit_options", equivalence_certificate(report)["unmet_constraints"])
+        report["tools"]["tsgo"]["effective_config"]["compilerOptions"]["noEmit"] = True
         self.assertIn("actual_timed_full_worker_completion_and_cancellation", certificate["unmet_constraints"])
         report["sampling_protocol_verified"] = False
         self.assertIn("five_fresh_pairs_and_warmups", equivalence_certificate(report)["unmet_constraints"])

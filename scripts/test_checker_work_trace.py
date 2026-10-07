@@ -148,6 +148,17 @@ class TraceIntegrityTests(unittest.TestCase):
         end["args"]["id"] = 100
         self.assertFalse(self.native_trace_check([begin, end])["native_trace_valid"])
 
+    def test_native_emit_spans_do_not_claim_output_or_emission_equivalence(self):
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "emit", "ts": 10,
+                 "name": "emit", "args": {"path": "a.ts"}}
+        end = {**begin, "ph": "E", "ts": 20}
+        result = self.native_trace_check([begin, end])
+        self.assertTrue(result["native_trace_valid"], result)
+        self.assertEqual(result["completed_emit_operations"], [
+            {"args_begin": {"path": "a.ts"}, "args_end": {"path": "a.ts"}, "duration_ns": 10000}])
+        self.assertFalse(result["actual_checked_work_verified"])
+        self.assertFalse(result["target_verified"])
+
     def test_native_sampled_and_empty_work_cannot_certify_complete_checking(self):
         row = {"pid": 1, "tid": 2, "ph": "X", "cat": "check", "ts": 10,
                "dur": 100, "name": "checkExpression", "args": {"checkerId": 0, "path": "a.ts"}}

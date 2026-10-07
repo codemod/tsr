@@ -175,6 +175,11 @@ def equivalence_certificate(report: dict) -> dict:
         "pinned_native_revision": report.get("oracle_sha") == "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
         # Neither current producer observes these obligations. Do not accept
         # externally supplied booleans as complete-work evidence.
+        "matching_explicit_no_emit_options": (
+            "--noEmit" in report.get("flags", [])
+            and all(report.get("tools", {}).get(name, {}).get("effective_config", {})
+                    .get("compilerOptions", {}).get("noEmit") is True for name in ("tsr", "tsgo"))),
+        "native_emit_eligibility_skipping_and_actual_work": False,
         "source_to_binary_build_provenance": False,
         "complete_cross_tool_query_and_bundled_library_bytes": False,
         "actual_timed_program_inventory_and_eligibility": False,
