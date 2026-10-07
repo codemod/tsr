@@ -703,6 +703,15 @@ A bare no-lib primitive-weaktype fixture was invalid for TS2559 metadata and its
 assertion was discarded; real CLI proof retained. Integratedparent fullparity and
 equivalent-work/nohotregression perf remain unverified.
 
+### Focused fresh-process import timing
+
+Nine interleaved fresh CLI samples on import-perf.ts, builds excluded: checkpoint
+TSR median628.37ms, owned import patch599.85ms, pinnednative386.83ms. Observed
+patch/checkpoint ratio0.9546; TSR/native1.5507. All exits0. Receipt
+import-perf-receipt.json retains commands/output/status/timings. Query-input and
+actual complete checker work equivalence unverified; this is not accepted
+<=0.50 or whole-project/nohotregression evidence. No speed claim.
+
 ## JavaScript call arity
 
 Claimed tsr-2zk.9.2. Three targets types already pass35/35,20/20,8/8; diagnostics
