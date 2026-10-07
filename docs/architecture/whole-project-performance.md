@@ -212,6 +212,22 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Native completed bind inventory is not implied by checks
+
+Completed unsampled `bindSourceFile` paths now receive the same exact loaded-
+inventory enforcement as parse paths. Duplicate/incomplete binding paths reject;
+missing telemetry stays `bound_inventory_verified=false`, and partial completed
+paths survive rejection output. Binding, parsing and initial checking remain
+separate evidence boundaries.
+
+43 trace tests passed; actual large native reader verified 265 bound paths and
+265 parsed paths separately from 202 checked workers. Actual trace with one
+complete binding pair removed saved `/tmp/recover-bind-negative/rejection.json`
+and exited 1. Fresh frozen qualified five-pair/warmup capture saved
+`/tmp/recover-bind-checkpoint.json`, comparable exit 1. No old-baseline worktree
+copy is relabeled as the corrected parent build; source-build/full-semantic/full-
+corpus gates and verified native <=0.50 remain unmet.
+
 ### Native completed parse inventory is independently bounded
 
 When native unsampled `createSourceFile` operations are present, their completed

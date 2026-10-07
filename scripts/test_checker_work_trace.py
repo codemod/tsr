@@ -140,6 +140,15 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
         self.assertFalse(result["actual_checked_work_verified"])
 
+    def test_native_partial_bind_inventory_cannot_pass_as_loaded_scope(self):
+        begin = {"pid": 1, "tid": 10, "ph": "B", "cat": "bind", "ts": 0,
+                 "name": "bindSourceFile", "args": {"path": "a.ts"}}
+        result = self.native_trace_check([begin, {**begin, "ph": "E", "ts": 10}])
+        self.assertFalse(result["native_trace_valid"])
+        self.assertFalse(result["bound_inventory_verified"])
+        self.assertEqual(result["completed_bound_paths"], ["a.ts"])
+        self.assertIn("bind scope differs", result["reasons"][0])
+
     def test_native_partial_parse_inventory_cannot_pass_as_loaded_scope(self):
         begin = {"pid": 1, "tid": 10, "ph": "B", "cat": "parse", "ts": 0,
                  "name": "createSourceFile", "args": {"path": "a.ts"}}

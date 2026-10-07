@@ -81,9 +81,11 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
         require(isinstance(rows, list) and rows, "missing native trace records")
         stacks, spans, seen, counters = {}, [], set(), {}
         last_boundary_time = {}
-        parsed_paths = []
+        parsed_paths, bound_paths = [], []
         result["completed_parsed_paths"] = parsed_paths
+        result["completed_bound_paths"] = bound_paths
         result["parsed_inventory_verified"] = False
+        result["bound_inventory_verified"] = False
         loaded = receipt["loaded_files"]
         require(len(loaded) == len(set(loaded)), "duplicate native loaded identity")
         result["completed_full_workers"] = spans
@@ -164,11 +166,12 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                     "args_begin": begin_args, "args_end": args,
                     "duration_ns": round((timestamp - begin["ts"]) * 1000),
                 })
-            if name == "createSourceFile":
+            if name in ("createSourceFile", "bindSourceFile"):
                 source = args["path"]
-                require(isinstance(source, str) and source and source not in parsed_paths,
-                        "invalid or duplicate completed native parse source")
-                parsed_paths.append(source)
+                completed = parsed_paths if name == "createSourceFile" else bound_paths
+                require(isinstance(source, str) and source and source not in completed,
+                        "invalid or duplicate completed native " + name + " source")
+                completed.append(source)
             if name == "checkSourceFile":
                 owner, source = args["checkerId"], args["path"]
                 require(integer(owner) and isinstance(source, str) and source,
@@ -178,17 +181,22 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                 spans.append({"path": source, "checker_id": owner,
                               "duration_ns": round((timestamp - begin["ts"]) * 1000)})
         require(all(not stack for stack in stacks.values()), "unfinished native spans")
-        if parsed_paths:
+        if parsed_paths or bound_paths:
             def parse_identity(source):
                 base = source.rsplit("/", 1)[-1]
                 if (source.startswith("bundled:///libs/") or "/typescript-go/internal/bundled/libs/" in source) \
                         and re.fullmatch(r"lib\.[\w.]+\.d\.ts", base):
                     return "<typescript-lib>/" + base
                 return source
-            require({parse_identity(source) for source in parsed_paths} ==
-                    {parse_identity(source) for source in loaded},
-                    "completed native parse scope differs from captured Program inventory")
-            result["parsed_inventory_verified"] = True
+            for completed, phase, field in (
+                (parsed_paths, "parse", "parsed_inventory_verified"),
+                (bound_paths, "bind", "bound_inventory_verified"),
+            ):
+                if completed:
+                    require({parse_identity(source) for source in completed} ==
+                            {parse_identity(source) for source in loaded},
+                            "completed native " + phase + " scope differs from captured Program inventory")
+                    result[field] = True
         result.update(native_trace_valid=True, artifact_integrity_valid=True,
                       completed_full_workers=spans, operation_counters=counters,
                       highest_observed_native_worker=max(spans, key=lambda row: row["duration_ns"], default=None))
