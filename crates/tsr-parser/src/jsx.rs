@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::JsxOpeningElement,
                 pos,
             );
-            self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+            self.set_type_argument_list_metadata(node.node_id().unwrap(), list_span);
             return JsxOpening::Element(node);
         }
         self.expect(SyntaxKind::SlashToken);
@@ -413,7 +413,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::JsxSelfClosingElement,
             pos,
         );
-        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+        self.set_type_argument_list_metadata(node.node_id().unwrap(), list_span);
         JsxOpening::SelfClosing(node)
     }
 

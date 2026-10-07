@@ -189,6 +189,13 @@ impl ParseOptions {
     }
 }
 
+/// Native type-argument list location and trailing-comma state.
+#[derive(Clone, Copy)]
+pub(crate) struct TypeArgumentListMetadata {
+    pub span: Span,
+    pub trailing_comma: bool,
+}
+
 /// A recursive-descent parser over one source file.
 pub struct Parser<'a> {
     pub(crate) arena: &'a Arena,
@@ -647,6 +654,33 @@ impl<'a> Parser<'a> {
     }
 
     // ---- node construction ----------------------------------------------
+
+    /// Publish completed type-list metadata without writing absent new hosts.
+    #[inline]
+    pub(crate) fn set_type_argument_list_metadata(
+        &mut self,
+        host: tsr_ast::NodeId,
+        metadata: Option<TypeArgumentListMetadata>,
+    ) {
+        if let Some(metadata) = metadata {
+            self.nodes.set_type_argument_list_span(host, Some(metadata.span));
+            if metadata.trailing_comma {
+                self.nodes.add_flags(host, tsr_ast::NodeFlags::HAS_TRAILING_COMMA);
+            }
+        }
+    }
+
+    /// Recover a wrapper's exact type-list state before absorption.
+    #[inline]
+    pub(crate) fn type_argument_list_metadata(
+        &self,
+        host: tsr_ast::NodeId,
+    ) -> Option<TypeArgumentListMetadata> {
+        self.nodes.type_argument_list_span(host).map(|span| TypeArgumentListMetadata {
+            span,
+            trailing_comma: self.nodes.flags(host).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA),
+        })
+    }
 
     /// Allocate a node and record its kind and span.
     ///
