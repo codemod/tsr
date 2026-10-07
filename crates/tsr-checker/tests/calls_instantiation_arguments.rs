@@ -53,7 +53,10 @@ fn constructor_signature_substitutes_instance_and_parameters() {
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let ty = checker.get_type_of_symbol(bound.lookup_local(root, "C").unwrap());
-    let signature = checker.resolve_call_signature_with_type_arguments(ty, None, false).unwrap();
+    let tsr_checker::types::TypeData::Anonymous { symbol, .. } = checker.type_of(ty).data else {
+        panic!("constructor type")
+    };
+    let signature = checker.get_signatures_of_symbol(symbol).unwrap().remove(0);
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[2] else { panic!() };
     let InstantiationExpressionSignature::Instantiated(image) = checker
         .get_instantiation_expression_signature(&signature, &[alias.r#type.unwrap()])

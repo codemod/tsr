@@ -3595,7 +3595,13 @@ impl<'a> Checker<'a, '_> {
         // symbol path's one candidate does; an overload set stays a gap for
         // the same reason the symbol path's does.
         if self.is_instantiated_signature_type(callee) {
-            let signatures = self.signature_types.get(&callee).cloned().unwrap_or_default();
+            let signatures: Vec<_> = self
+                .signature_types
+                .get(&callee)?
+                .iter()
+                .filter(|signature| signature.kind == SignatureKind::Call)
+                .cloned()
+                .collect();
             if let [signature] = signatures.as_slice() {
                 if counted {
                     bump(&COUNTERS.single_candidate);
@@ -3672,7 +3678,7 @@ impl<'a> Checker<'a, '_> {
             .into_iter()
             .filter(|signature| signature.kind == SignatureKind::Call)
             .collect();
-        let signatures = if from_type.is_empty() {
+        let signatures = if from_type.is_empty() && !self.signature_types.contains_key(&callee) {
             let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
                 if counted {
                     bump(&COUNTERS.callee_no_signatures);

@@ -310,3 +310,25 @@ bool) -> TypeId`; owned constraint worker then applies it after ordinary
 constraint instantiation and before the relation/report. No eager member copies
 or fake successful relation added. Helper parity is not certified until this
 native obligation is implemented and exercised.
+
+## Native review: authoritative call lists and lazy instantiation
+
+Minted signature-type call resolution now filters Call signatures. Ordinary
+resolution with a present signature_types vector and zero calls no longer falls
+back to its retained source symbol. Thus construct-only/empty wrapper call lists
+remain authoritative. A construct-only call rejection control passes; the
+constructor instantiation test now reads the actual constructor signature rather
+than erroneously obtaining it through call resolution. Target tests, full checker
+tests and clippy pass (`authoritative-kinds-*.log`), excluding pending outer-source
+integration hunk temporarily then restoring it.
+
+Native getSignatureInstantiationWithoutFillingInTypeArguments caches by actual
+signature identity and ordered arguments; instantiateSignatureEx leaves return
+and predicate lazy under the signature mapper. Existing port metadata has no
+signature-owned mapper/pending predicate/composite identity; declaration/captured
+return caches cannot substitute for that key. The current helper still completes
+returns eagerly and is NOT certified native-lazy/native-cached. Simply removing
+completion would lose delayed substitutions. No duplicate declaration cache or
+unmapped pending return fallback added. Parent serialized signature representation
+must supply actual identity/mapper publication before this work-boundary
+obligation can be implemented end-to-end.
