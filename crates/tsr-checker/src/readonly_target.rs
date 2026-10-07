@@ -1128,7 +1128,7 @@ impl Checker<'_, '_> {
     /// (`checker.go:27279`): for a receiver that is (through parentheses) an
     /// identifier resolving to an alias, `Some(declaration is a
     /// NamespaceImport)`; `None` for any other receiver.
-    fn receiver_alias_is_namespace_import(
+    pub(crate) fn receiver_alias_is_namespace_import(
         &mut self,
         receiver: tsr_ast::Expression<'_>,
     ) -> Option<bool> {
