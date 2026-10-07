@@ -366,3 +366,52 @@ placeholder installed, no passing-after/runtime/full-parity/perf claim. Native
 signature-identity ordered-argument cache and complete predicate publication
 remain unresolved integration obligations; the writer alone is not complete
 feature acceptance.
+
+### Remaining direct consumer and predicate-state cutover
+
+Owned nongeneric ordinary-call return consumers now demand the canonical return
+before type-argument recovery, unique-symbol checks, counters and concrete-this
+return handling; nongeneric tagged templates use the same getter. No name or
+source-echo heuristic. Public mapped_signature_predicate(signature,
+completed_target_predicate) -> Option<Option<TypePredicate>> preserves unsupported
+mapping, completed absence and mapped success. Parent must propagate unsupported
+target predicate demand before invoking it. No new cache or declaration lookup.
+
+Source applied, but parent Signature.mapper field/getter and outer source fields
+are still absent, so predicate-consumer-check.log is not a passing compile/run.
+No identity/publication/performance proof fabricated; actual parent integration
+is required before ordered-mapper/distinct-context on-demand controls can run.
+
+### Image-owned completed slots
+
+The existing Arc<SignatureMapper> now owns OnceLock completed return and
+predicate slots, matching native instantiated-signature resolved metadata rather
+than original declaration caches. Clones share the exact target/mapper image;
+distinct maps get distinct slots. Unsupported/active work sets nothing;
+completed predicate absence stores None. mapped_signature_return checks its
+completed slot before target demand/substitution, then publishes only a supported
+result. Predicate mapper likewise publishes absence/success. Parent getter uses
+cached_mapped_signature_predicate before recursively demanding target predicate.
+No extra Checker cache or declaration key. Return/predicate objects remain
+Checker-local TypeIds; no cross-store reuse.
+
+Owned written-argument ordinary-call/tagged-template return consumers and
+instantiate_signature_in_context now use canonical return demand. Source applied;
+image-completion-check.log still records absent parent Signature.mapper/outer
+integration fields. No runtime/counter/publication/performance proof claimed
+until the actual parent integration can compile; no mock surface installed.
+
+### Preserve original target metadata when erasing image parameters
+
+Corrected lazy writer: get_signature_instantiation borrows original parameter
+names and passes the original by reference; instantiate_signature_lazily creates
+the complete target snapshot before erasing only the image's type parameters.
+Target own defaults/constraints/captured mapper remain intact for canonical
+return/predicate demand. Removed incidental image/target-empty metadata assertions;
+behavioral dependent-default and constructor return controls remain. No extra
+pre-clone or cloned name Strings in the caller.
+
+Parent fields/getters remain absent here, so preserve-target-check.log is blocked
+and behavioral tests are not counted passing. Image-owned completed slots avoid
+repeat demand of a single image; stable original signature interning plus ordered
+argument instantiation reuse is still unresolved and is not claimed by this fix.

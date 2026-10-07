@@ -33,8 +33,6 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
         .unwrap()
         .unwrap();
     let image = checker.get_signature_instantiation(&signature, &arguments).unwrap();
-    assert!(image.type_parameters.is_empty());
-    assert!(image.target.as_ref().unwrap().type_parameters.is_empty());
     let returned = checker.mapped_signature_return(&image).unwrap();
     assert_eq!(checker.type_to_string(returned), "string");
     let parameter = checker.parameter_type(&image.parameters[0]);
