@@ -1504,6 +1504,12 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         type_arguments: &[TypeId],
     ) -> Option<Signature> {
+        let key = crate::inference::SignatureInstantiationKey::new(signature.identity.clone());
+        if let Some(image) =
+            self.cached_signatures.get(&key).and_then(|images| images.get(type_arguments))
+        {
+            return Some(image.clone());
+        }
         let parameters = self.type_parameter_types(signature)?;
         if parameters.len() != type_arguments.len() {
             return None;
@@ -1511,7 +1517,13 @@ impl<'a> Checker<'a, '_> {
         let names: Vec<_> =
             signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
         let map: Vec<_> = parameters.iter().copied().zip(type_arguments.iter().copied()).collect();
-        self.instantiate_signature_lazily(signature, &map, &parameters, &names, true)
+        let image =
+            self.instantiate_signature_lazily(signature, &map, &parameters, &names, true)?;
+        self.cached_signatures
+            .entry(key)
+            .or_default()
+            .insert(type_arguments.to_vec(), image.clone());
+        Some(image)
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an
