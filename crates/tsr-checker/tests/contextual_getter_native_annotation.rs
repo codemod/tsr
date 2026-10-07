@@ -102,6 +102,17 @@ fn jsdoc_parameter_annotation_contextualizes_default_callback() {
 }
 
 #[test]
+fn invalid_setter_this_parameter_does_not_replace_value_annotation_context() {
+    assert_eq!(
+        returned_object_type(
+            "class C { get value() { return { tag: 'a' }; } \
+             set value(this: C, value: { tag: 'a' | 'b' }) {} }",
+        ),
+        "{ tag: \"a\"; }",
+    );
+}
+
+#[test]
 fn unannotated_getter_does_not_invent_literal_context() {
     assert_eq!(
         returned_object_type("const obj = { get value() { return { tag: 'a' }; } };"),

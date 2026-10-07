@@ -675,6 +675,27 @@ symbols/reparser owner. Fresh domain41 wall **0.97793**, generic21 **0.99110**
 vsverified0eda302c, complete-work proof false; no release/exhaustive hotpath claim.
 Receipts jsdoc-parameter-* and iife-return-*; .16.230 updated/open.
 
+## Paired setter value slot — tsr-2zk.16.200
+
+Native utilities.GetSetAccessorValueParameter selects slot1 only when exactly
+two parameters and slot0 is this; otherwise slot0. Owned raw getter-context
+annotation lookup now mirrors that operation instead of taking parameters.first.
+No Parameter structure, mapper, parser or canonical accessor producer edited.
+Invalid syntax still receives native value-annotation context before reporting.
+
+Dedicated raw contextual getter test fails before and passes after; prior controls
+and complete cleaned checker tests pass. Full cleaned type/diagnostic dumps
+**zero changed verdicts, zero protected losses or vanished keys**. No whole
+corpus target conversion. Fresh domain41 wall **0.97444**, generic21 **0.98836**
+vsverified0eda302c, complete-work false.
+
+Actual native control emits TS2784 at(3,13), accessors cannot declare this.
+Actual mirror CLI still emits TS1049 at(3,7) and false TS2322 at(2,26).
+Canonical accessor type/check/report consumers outside this lane still need the
+same native value-slot operation. Raw contextual test is not end-to-end diagnostic
+acceptance; no suppression or foreign edits added. Existing .16.200 remains open.
+Receipts setter-this-*; curated code only changes owned annotation projection.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.

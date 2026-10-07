@@ -1697,7 +1697,9 @@ impl<'a> Checker<'a, '_> {
                             else {
                                 return None;
                             };
-                            let parameter = setter.parameters.first()?;
+                            let has_this = setter.parameters.len() == 2
+                                && is_this_parameter(setter.parameters[0]);
+                            let parameter = setter.parameters.get(usize::from(has_this))?;
                             parameter.r#type.or_else(|| {
                                 self.jsdoc_parameter_annotation(parameter.node_id?)
                                     .map(|(annotation, _)| annotation)
