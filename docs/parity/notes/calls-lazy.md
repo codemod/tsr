@@ -571,6 +571,15 @@ original-builder-tests.log is compile-blocked by absent shared fields; no pass o
 work-boundary proof claimed. Parent original-builder publication is a separate
 native operation from cachedSignatures, not a duplicate return cache.
 
+### Renderer cutover: non-rendering nullability classification
+
+Owned inferential null/undefined classification now compares canonical intrinsic
+identities rather than allocating rendered strings and potentially forcing a
+lazy wrapper. Parent remains the single owner of plain type_to_string mutable
+cutover; owned actual rendering workers already take mutable Checker. Read-only
+mentions discovery remains structural/nonforcing. null-identity-check.log is
+blocked by prior absent shared fields; no independent runtime/parity claim.
+
 ### Parsed ordered-map behavior control
 
 Added calls_ordered_instantiation.rs: one canonical parsed two-parameter signature

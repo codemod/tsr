@@ -1467,7 +1467,7 @@ impl<'a> Checker<'a, '_> {
             // `checker-notes-infer2.md` records the diagnosis.
             if let Some(inferred) = candidate
                 && !self.strict_null_checks
-                && matches!(self.type_to_string(inferred).as_str(), "null" | "undefined")
+                && (inferred == self.intrinsics.null || inferred == self.intrinsics.undefined)
             {
                 return decline;
             }
