@@ -1,5 +1,42 @@
 # Full configured native oracle
 
+## Fresh strict f32 control and detail root queue
+
+The latest immutable expected/actual workers were directly executed for the
+entire instantiationExpressions source/configuration after the loaded-source
+fix. Native: 286 T, 16 D, 2 C, 18 M, 0 R records, COMPLETE; c818 TSR: 292 T,
+4 D, 0 C, 4 M, 0 R, COMPLETE. Native f32 rows remain function-first; frozen
+c818 TSR prints `any` for both specialization rows. This is not parent candidate
+parity. Native `R=0` here does not test missing related records; the corpus does.
+
+- `target/native-f32-control/native-related.tsv` SHA-256:
+  `be9f918f857afa472e691c52128b144dc39db723992311f5b16307d2e1381c7a`
+- `target/native-f32-control/actual-related-c818.tsv` SHA-256:
+  `403ea0b687f7d0d634cc9c00ad0ca95ad99036bfe63f79ba896c6f775f77c0b9`
+- Source/configuration identities are unchanged from the embedded payload.
+- Worker hashes are the latest loaded-source measurement hashes below.
+
+First-detail-difference root queue (counts over all 14,965 rows):
+
+| Native primary | Missing/different detail | Cases | Control |
+|---|---|---:|---|
+| TS2322 | TS2849 chain has missing actual file ownership | 34 | assignmentCompatability44 |
+| TS2741 | missing TS2728 required-property origin | 32 | assignmentCompat1 |
+| TS2403 | missing TS6203 previous declaration | 30 | augmentedTypesVar |
+| TS2554 | missing TS6211 parameter binding-pattern origin | 24 | arityErrorRelatedSpanBindingPattern |
+| TS2322 | missing TS2208 type-parameter constraint suggestion | 24 | conditionalTypeDoesntSpinForever |
+| TS2552 | missing TS2728 suggested declaration | 22 | commonMissingSemicolons |
+| TS2683 | missing TS2738 outer this-container location | 21 | thisInFunctionCall |
+
+These are producer/checker diagnostics, not an oracle comparison omission. For
+example `assignmentCompatability44` emits the same TS2849 child message/span but
+TSR child `Diagnostic.file()` is absent whereas native owns the source image.
+The oracle must keep that mismatch: guessing inheritance or copying expected
+file identity would manufacture parity. Missing related records likewise need
+native-supported checker publishers, outside this worker's checker ownership.
+Beads `tsr-pgb` tracks those parent-owned fixes. No mock, expected-row injection
+or diagnostic suppression was applied.
+
 ## Latest loaded-source native fidelity measurement
 
 Completed `target/full-oracle-c8185606-loaded/`: **7,361/14,965 RIGHT
