@@ -5020,13 +5020,7 @@ impl Checker<'_, '_> {
             };
             arguments.push(filled);
         }
-        let names: Vec<String> =
-            best.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let map: Vec<(TypeId, TypeId)> = parameters.iter().copied().zip(arguments).collect();
-        let mut instance = best;
-        instance.type_parameters.clear();
-        self.instantiate_signature(instance, &map, &parameters, &names)
+        self.get_signature_instantiation(&best, &arguments)
     }
 
     /// The containing call for an actual argument list. Synthesized argument

@@ -698,3 +698,19 @@ at3,1, missing before TSR. Dedicated regression observes both boundaries.
 Unannotated IIFE optionality/minimum metadata remains parent signature-owner
 contract, not guessed from syntax. iife-spread-tests is compile-blocked by absent
 shared fields; no passing-after/fullRIGHT/perf acceptance.
+
+## Written arity-failure lazy recovery consumer
+
+Claimed tsr-2zk.16.27. Native pickLongestCandidateSignature uses
+createSignatureInstantiation with getTypeArgumentsFromNodes (truncate written
+arguments, fill defaults/constraints/unknown), not constraint rechecking. Existing
+owned recovery computed that vector but eagerly mapped an erased clone and cloned
+parameter names. It now consumes the same vector through get_signature_instantiation,
+preserving complete original target/lazy slots and canonical cache identity.
+Parent-reserved instantiation API unchanged.
+
+Direct extra-type-argument Box control already yields Box<string> before and
+native; this is a work/identity correction, not a new conversion claim.
+Arity-recovery-check remains compile-blocked by absent shared fields; no
+passing-after/fullRIGHT/perf acceptance. Constructor return consumer is parent-
+owned and must demand mapped return through canonical getter.
