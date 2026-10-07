@@ -66,7 +66,9 @@ Still missing from that model:
 
 - Per-diagnostic `reports_unnecessary`, `reports_deprecated`, `skipped_on_no_emit`;
   message flags are not a substitute for diagnostic overrides. Native TS2695 is a
-  witnessed mismatch. Current serialized flags expose this mismatch, not parity.
+  witnessed mismatch. Serialization now labels message defaults as
+  `message-default:<bool>` and dynamic state as `unavailable:skippedOnNoEmit`.
+  Neither compares exact with native booleans; no hardcoded false remains.
 - Signed/undefined global diagnostic spans: native compiler diagnostics use -1.
 - Native Program/global option diagnostics; `settingsSimpleTest` witnesses TS5108
   for removed Classic resolution. Compiler and diagnostics are owned elsewhere.
@@ -76,8 +78,9 @@ Required integration-owner contract for `b6d2104f`:
 
 1. `Diagnostic::reports_unnecessary() -> bool`, `reports_deprecated() -> bool`,
    `skipped_on_no_emit() -> bool`, backed by per-diagnostic state and real writers,
-   not code-specific consumer overrides. The current producer uses message flags
-   and lacks skipped-on-no-emit state; it is not lossless for those fields.
+   not code-specific consumer overrides. The current producer marks message
+   defaults and unavailable dynamic state explicitly; it is not lossless for those
+   fields. This is the minimal finalized diagnostic-owner metadata API request.
 2. Signed byte location accessors preserving native undefined `(-1, -1)` globals;
    root and recursive nodes need the same location contract. Keep existing AST
    spans unchanged if the diagnostic model carries its own signed location.
@@ -91,6 +94,14 @@ Existing chain/related APIs and Program source images are integrated already.
 Diagnostic top rendering prefers each diagnostic's canonical source image,
 including library/redirected files not among baseline input echoes; it must not
 silently downgrade a file diagnostic to a global one.
+
+Native `typeWriterWalker.getTypeCheckerForCurrentFile` leases the checker associated
+with the current file; native compilation may use multiple checkers. TSR currently
+checks all files and renders through one private Program-backed Checker. This
+preserves TSR's actual alias/site printing, but equivalent native file affinity
+has not been proved. Record output/order differences; never normalize them away.
+No cross-file checker-affinity equivalence or four-checker performance claim is made.
+
 These are correctness prerequisites, not permission to exclude configurations,
 shrink the denominator, or mark the current producer as complete/lossless.
 
@@ -102,7 +113,8 @@ Commands used offline release builds; Cargo/config/lockfiles unchanged.
 - Library tests: 137 passed.
 - `full_oracle_boundaries`: 4 passed, including real native/TSR clean control,
   native Cartesian/span control, a hung-process deadline/reaping control, and
-  config-only options with exact diagnostics/error/type artifacts.
+  config-only options with exact error/type artifacts and explicit unavailable
+  semantic metadata. The earlier exact config result predates metadata labeling.
 - `assignment_declarations`: 10 passed.
 - Focused executable run: five configurations, one exact (`2dArrays`). Type artifact
   bytes match native for all five: `settingsSimpleTest` strict true/false,
