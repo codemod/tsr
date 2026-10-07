@@ -3556,13 +3556,6 @@ impl<'a> Checker<'a, '_> {
                 if resolved == error {
                     return error;
                 }
-                // Native createNormalizedTupleTypeEx maps a variadic never
-                // operand to never before positional tuple normalization.
-                if matches!(element, TypeNode::RestTypeNode(_))
-                    && self.store.get(resolved).flags.contains(TypeFlags::NEVER)
-                {
-                    return self.intrinsics.never;
-                }
                 let member = match element {
                     TypeNode::NamedTupleMember(member) => Some(*member),
                     TypeNode::RestTypeNode(rest) => match rest.r#type {
@@ -3626,6 +3619,13 @@ impl<'a> Checker<'a, '_> {
                     self.type_to_string(resolved)
                 };
                 pieces.push(format!("{prefix}{printed}{suffix}"));
+            }
+            // Native resolves every element before normalization maps a
+            // variadic never to never; later operand work must not be skipped.
+            if resolved_elements.iter().any(|element| {
+                element.spread && self.store.get(element.r#type).flags.contains(TypeFlags::NEVER)
+            }) {
+                return self.intrinsics.never;
             }
             if resolved_elements.iter().any(|element| {
                 element.spread

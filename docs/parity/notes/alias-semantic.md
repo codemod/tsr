@@ -479,6 +479,20 @@ zero former RIGHT losses/vanished keys. Seven fresh-process samples after/before
 0.98709, after/native 1.58266; complete-work/no-hotpath/release performance uncertified.
 Receipts `tuple-any-*`; reserved functions untouched.
 
+## Tuple element resolution before never normalization
+
+The source tuple worker now resolves the complete ordered element list before
+returning never for a variadic never operand, matching native element collection
+followed by `createNormalizedTupleTypeEx`. Later operand diagnostics/publication
+are no longer skipped. Unsupported earlier resolution still follows existing
+refusal; no wildcard/error identity or union precedence changes.
+
+Tuple targets pass; native cycle/later-operand CLI diagnostics compare byte-for-byte.
+Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
+Seven fresh-process samples after/before 1.00245, after/native 1.62038;
+complete-work/no-hotpath/release performance uncertified. Receipts
+`tuple-element-order-*`; parent intrinsic/union/alias fields untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
