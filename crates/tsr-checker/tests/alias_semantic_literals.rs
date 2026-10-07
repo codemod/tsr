@@ -306,6 +306,18 @@ fn source_tuple_variadic_union_distributes_in_branch_order() {
 }
 
 #[test]
+fn concrete_optional_spread_before_required_tail_normalizes_slot() {
+    assert_eq!(
+        declared_and_reference(
+            "type Unused = string; declare let value: [...[string?], number];",
+            "Unused",
+        )
+        .1,
+        "[string | undefined, number]",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

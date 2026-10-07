@@ -3644,6 +3644,28 @@ impl<'a> Checker<'a, '_> {
                     .node_id
                     .and_then(|id| self.nodes.parent(id))
                     .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                let mut seen_optional = false;
+                if flat.iter().any(|(_, optional, _)| {
+                    if *optional {
+                        seen_optional = true;
+                        false
+                    } else {
+                        seen_optional
+                    }
+                }) {
+                    // Native tuple normalization makes an optional slot before
+                    // a required tail required, retaining undefined in its type.
+                    let elements = flat
+                        .into_iter()
+                        .map(|(r#type, optional, label)| crate::tuples::TupleElement {
+                            r#type,
+                            spread: false,
+                            optional,
+                            label,
+                        })
+                        .collect();
+                    return self.normalize_variadic_tuple(elements, readonly);
+                }
                 if flat.iter().any(|(_, optional, label)| *optional || label.is_some()) {
                     let elements: Vec<_> =
                         flat.iter().map(|(t, optional, _)| (*t, *optional)).collect();

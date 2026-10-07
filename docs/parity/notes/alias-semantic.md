@@ -426,6 +426,20 @@ Seven fresh-process samples after/before 1.00296, after/native 1.61520; complete
 no-hotpath/release performance uncertified. Receipts `tuple-union-*`; all reserved
 functions unchanged.
 
+## Concrete optional spread before required tail
+
+After concrete spread expansion, the source tuple worker now routes optional-before-
+required slots through the existing normalizer. Native tuple normalization makes
+such slots required while retaining undefined in their type; creating an optional
+tuple directly lost that transition. Labels/readonly and normalizer ownership
+remain unchanged; no alias-constructor/cache edits.
+
+Regression fails before and passes after; tuple targets pass. Real CLI slot types,
+assignability and rejection diagnostics compare byte-for-byte with native.
+Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
+Seven fresh-process samples after/before 0.99696, after/native 1.59184; complete-work/
+no-hotpath/release performance uncertified. Receipts `tuple-optional-tail-*`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
