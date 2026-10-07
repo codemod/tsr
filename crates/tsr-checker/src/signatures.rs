@@ -2475,6 +2475,18 @@ impl<'a> Checker<'a, '_> {
         // no body and its return type is `any`. That is a computed answer and not
         // a gap, which is why it is `anyType` here and `errorType` below.
         let Some(body) = body else { return Some(self.intrinsics.any) };
+        // NodeIsMissing also includes the parser's present, zero-width recovery
+        // body. A real empty block has nonzero width and still infers void.
+        let body_node = match body {
+            Body::Block(node) => Some(node),
+            Body::Expression(expression) => tsr_ast::Node::from(expression).node_id(),
+        };
+        if body_node.is_some_and(|node| {
+            let span = self.nodes.span(node);
+            span.start == span.end && self.nodes.kind(node) != SyntaxKind::EndOfFile
+        }) {
+            return Some(self.intrinsics.any);
+        }
         self.return_type_from_body(declaration, body, modifiers, asterisk, may_return_never)
     }
 
