@@ -418,3 +418,15 @@ Three upstream facts, one commit because each alone moved the same lines:
 
 **Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
 0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.
+
+## 16. Bigint zero and symbol-like facts (`getTypeFactsWorker`, `isZeroBigInt`)
+
+`normalise_bigint` stores canonical decimal digits (`"0"`), but the facts
+worker and `getFalsyTypeOfType` (`binary.rs`) compared against `"0n"`, so
+`0n`, `0x0n` read truthy and `bigint && x` minted a separate `0nn` literal.
+Both now test `"0"` (pinned `isZeroBigInt`, no negative zero). The symbol arm
+covers `ESSymbolLike` (unique symbols) and loose `SymbolFacts` adds the falsy
+nullish bits; loose bigint facts likewise. Native control: `b && "x"` on
+`0n | 1n | 0x0n` prints `"x" | 0n` in both; truthy branch `1n`, falsy `0n`.
+Gate vs `6539256c`: +7 type lines (`uniqueSymbols*`, `numberVsBigIntOperations`),
+0 losses. CPU 1.013 / 1.000.
