@@ -355,3 +355,18 @@ constituent member the literal does not write). Without discriminators
 upstream walks the whole union, so `{ type: b ? 'x' : 'y' }` against
 `{ type: 'x' } | { type: 'y' }` keeps `"x" | "y"`
 (`assignmentCompatWithDiscriminatedUnion`).
+
+## 13. getContextualReturnType reads getReturnTypeFromAnnotation (tsr-2zk.16.200)
+
+`getReturnTypeFromAnnotation` (`checker.go:20058`) answers the declaration's
+type node — in JS the reparsed `@returns` (`reparseHosted`) — and, for a get
+accessor without one, the paired setter's value-parameter annotation
+(`getEffectiveSetAccessorTypeAnnotationNode`, explicit `this` skipped,
+reparsed `@param` included). `get_contextual_return_type` now reads both via
+`jsdoc_return_annotation` and `paired_setter_value_annotation`; no state.
+Native control (tsgo `.types`): getter with typed setter returns
+`{ tag: "a"; }`, a lone getter `{ tag: string; }`; JS `@return {[string,
+number]}` function returns the tuple, an undocumented one
+`(string | number)[]`. Still open in `contextualTypeFromJSDoc`: the getter
+symbol's own type from the setter's JSDoc `@param` (accessor type
+resolution, not this lane).
