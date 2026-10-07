@@ -291,6 +291,27 @@ not prove no slowdown. Verified complete-work ratio remains null. Frozen parent
 catalogue-aware collector candidate is not the measured source: these receipts
 apply only to this recovery branch's cumulative owned delta from 0e7824dd.
 
+## Callback parameter reportErrors propagation — tsr-2zk.1
+
+Pinned compareSignaturesRelated 1568 passes reportErrors through the reversed
+callback signature worker, then wraps failure with outer TS2328. Owned worker
+now does so instead of explicitly disabling reporting. Completed inner chains
+move beneath the outer actual parameter names; success/Unknown restores saved
+error/signature/marker state. Unsupported callback resolution becomes Unknown,
+not successful metadata. Ordinary parameter names only; tuple-rest suppliers
+remain unproved. No side traversal/new cache/public identity.
+
+Actual nested callback control gains both native TS2328 wrappers, contravariant
+object head and TS2326/TS2322 detail. Complete callback and nested-property CLI
+bytes match native. Permanent behavior regression passes; completed workspace
+release tests/clippy pass. Fresh full dumps preserve all 469785 RIGHT type and
+9190 diagnostic keys, zero vanished/changed; sixteen suites complete. Domain
+21-pair cumulative recovery-baseline observed wall 1.0241, diagnostics equal,
+verified complete-work null. This measured increase does not pass no-hotpath-
+regression acceptance and is not attributed exclusively to this small delta;
+parent must evaluate the queued cumulative candidate with its performance owner.
+No release-ready or full-cluster claim. Receipts callback-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

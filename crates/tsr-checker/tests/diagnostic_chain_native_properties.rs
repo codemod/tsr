@@ -125,6 +125,20 @@ fn outer_property_and_constructor_return_paths_reduce_in_native_order() {
 }
 
 #[test]
+fn nested_callback_parameters_retain_both_native_parameter_wrappers() {
+    let ds = diagnostics(
+        "declare let source: (callback: (value: {x: number}) => void) => void; let target: (callback: (value: {x: string}) => void) => void = source;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    let mut text = String::new();
+    write_flattened_diagnostic_message(&mut text, &ds[0].message_chain()[0], "\n");
+    assert_eq!(
+        text,
+        "Types of parameters 'callback' and 'callback' are incompatible.\n  Types of parameters 'value' and 'value' are incompatible.\n    Type '{ x: number; }' is not assignable to type '{ x: string; }'.\n      Types of property 'x' are incompatible.\n        Type 'number' is not assignable to type 'string'."
+    );
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

@@ -2170,13 +2170,40 @@ impl Relater<'_, '_, '_> {
                 && self.checker.get_type_facts(from) & nullable
                     == self.checker.get_type_facts(to) & nullable
             {
-                parts.push(self.one_signature_related_to(
-                    &target_callback,
-                    &source_callback,
-                    true,
-                    !strict_variance,
-                    false,
-                )?);
+                let saved_error = if report_errors { self.property_error.take() } else { None };
+                let saved_signature =
+                    if report_errors { self.signature_error.take() } else { None };
+                let saved_marker = if report_errors { self.return_marker.take() } else { None };
+                let related = self
+                    .one_signature_related_to(
+                        &target_callback,
+                        &source_callback,
+                        true,
+                        !strict_variance,
+                        report_errors,
+                    )
+                    .unwrap_or(RelationResult::Unknown);
+                if report_errors {
+                    if related == RelationResult::NotRelated {
+                        if let Some(child) = self.property_error.take()
+                            && let (Some(source), Some(target)) = (
+                                source_signature.parameters.get(index),
+                                target_signature.parameters.get(index),
+                            )
+                        {
+                            self.property_error = Some(tsr_diagnostics::Diagnostic::new_chain(
+                                Some(child),
+                                &tsr_diagnostics::messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                                [source.name.clone(), target.name.clone()],
+                            ));
+                        }
+                    } else {
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.return_marker = saved_marker;
+                    }
+                }
+                parts.push(related);
             } else {
                 let forward = if callback || strict_variance {
                     RelationResult::NotRelated
