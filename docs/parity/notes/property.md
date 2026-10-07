@@ -456,3 +456,14 @@ with its late-bound declarations) and sort it with the existing
 `compare_symbols`. Value filtering, static/instance separation and inherited
 traversal order are unchanged; no member values are forced and no cache is
 added (the name vector is query-local).
+
+## 15. Receiver widening for method calls and assignment targets (tsr-2zk.16.208)
+
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11262`) widens the
+receiver with `getWidenedType` when the access is an assignment target or
+`isMethodAccessForCall` (callee of a call/new through parentheses). TSR's
+property access never widened, so `[].values()` kept `undefined[]`. The access
+now applies the existing `widen_object_literal_freshness` (getWidenedType) in
+exactly those two contexts; detached reads keep the unwidened receiver. Control:
+`[].values()` → `ArrayIterator<any>`, detached `[].values` →
+`() => ArrayIterator<undefined>`, matching tsgo. No cache added.
