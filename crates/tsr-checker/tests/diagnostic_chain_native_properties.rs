@@ -284,3 +284,26 @@ fn type_argument_variance_failure_reports_first_failed_argument() {
         ]
     );
 }
+#[test]
+fn nested_unmatched_property_and_literal_suggestion_follow_report_relation_error() {
+    let ds = diagnostics(
+        "interface I1 { a: string } class C3 { b = 1 } declare let o: { p: C3 }; let q: { p: I1 } = o; declare let u: C3 | I1; let w: I1 = u; type R = \"yes\" | \"no\"; declare let a: \"yess\" | \"no\"; let b: R = a; declare let c: \"maybe\" | \"no\"; let d: R = c;",
+    );
+    let actual = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, d, "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual,
+        [
+            "Type '{ p: C3; }' is not assignable to type '{ p: I1; }'.\n  Types of property 'p' are incompatible.\n    Property 'a' is missing in type 'C3' but required in type 'I1'.",
+            "Type 'C3 | I1' is not assignable to type 'I1'.\n  Property 'a' is missing in type 'C3' but required in type 'I1'.",
+            "Type '\"no\" | \"yess\"' is not assignable to type 'R'.\n  Type '\"yess\"' is not assignable to type 'R'. Did you mean '\"yes\"'?",
+            "Type '\"maybe\" | \"no\"' is not assignable to type 'R'.\n  Type '\"maybe\"' is not assignable to type 'R'.",
+        ]
+    );
+}

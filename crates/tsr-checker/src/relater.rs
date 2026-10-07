@@ -4062,6 +4062,30 @@ impl Relater<'_, '_, '_> {
                 .collect::<Option<Vec<_>>>()
                 .map(|names| names.into_iter().flatten().collect::<Vec<_>>())
         });
+        // propertiesRelatedTo (relater.go:4153) checks getUnmatchedProperty
+        // before any member type; with reportErrors, reportUnmatchedProperty
+        // explains the pair. Only a certified unmatched population publishes
+        // (its display gates also keep native's normalized-structure names
+        // out of reach); otherwise the walk below decides as before.
+        if !optionals_only
+            && self.relation == Relation::Assignable
+            && self.diagnostic_pair == Some((source, target))
+            && let Some(missing) = self.checker.unmatched_property_report(source, target)
+        {
+            // Several names print in member-table order, which is not yet
+            // native declaration order for every type (members lane): the
+            // failure stands, its explanation is not published.
+            self.property_error = (missing.len() == 1).then(|| {
+                self.checker.missing_properties_diagnostic(
+                    tsr_core::Span::new(0, 0),
+                    source,
+                    target,
+                    &missing,
+                )
+            });
+            self.signature_error = None;
+            return RelationResult::NotRelated;
+        }
         // propertiesRelatedTo (relater.go:4240): an object-literal target
         // requires actual named properties, even when it has an index signature.
         // Regularization retains ObjectLiteral; widening removes it.
@@ -4389,28 +4413,49 @@ impl Relater<'_, '_, '_> {
                                 };
                                 nested
                             } else {
-                                let child = Diagnostic::new_chain(Some(nested),
-                                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                                    [self.checker.type_to_string(source_type),
-                                     self.checker.type_to_string(target_type)]);
+                                // isPropertySymbolTypeRelated's nested
+                                // reportRelationError; an unported link keeps
+                                // the plain head.
+                                let child = match self.checker.nested_relation_link(
+                                    source_type,
+                                    target_type,
+                                    Some(nested),
+                                ) {
+                                    Ok(child) => child,
+                                    Err(nested) => Diagnostic::new_chain(nested,
+                                        &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                        [self.checker.type_to_string(source_type),
+                                         self.checker.type_to_string(target_type)]),
+                                };
                                 Diagnostic::new_chain(Some(child),
                                     &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE, [printed_name.clone()])
                             }
                         } else {
-                            let mut child = Diagnostic::with_args(
-                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                                span,
-                                [
-                                    self.checker.type_to_string(source_type),
-                                    self.checker.type_to_string(target_type),
-                                ],
-                            );
-                            if let Some((minimum, count)) = signature {
-                                child.add_message_chain(Some(Diagnostic::with_args(
+                            let arity = signature.map(|(minimum, count)| {
+                                Diagnostic::with_args(
                                     &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
                                     span, [minimum.to_string(), count.to_string()],
-                                )));
-                            }
+                                )
+                            });
+                            let child = match self.checker.nested_relation_link(
+                                source_type,
+                                target_type,
+                                arity,
+                            ) {
+                                Ok(child) => child,
+                                Err(arity) => {
+                                    let mut child = Diagnostic::with_args(
+                                        &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                        span,
+                                        [
+                                            self.checker.type_to_string(source_type),
+                                            self.checker.type_to_string(target_type),
+                                        ],
+                                    );
+                                    child.add_message_chain(arity);
+                                    child
+                                }
+                            };
                             Diagnostic::new_chain(
                                 Some(child),
                                 &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
