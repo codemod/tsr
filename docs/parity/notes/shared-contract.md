@@ -36,3 +36,22 @@ set no longer holds it. Labeled optional tuple elements now print through
 `removeMissingType` like unlabeled ones (`typeToTypeNodeHelper` tuple arm), so
 exact mode prints `[b?: string]`; an explicit `b?: string | undefined` keeps
 `undefined` (native control). No new cache or key.
+
+## Declared alias bodies (tsr-2zk.16.2)
+
+Carried from `box/recover-alias` (ca3ef430..2197be77, declared.rs only;
+f82ccc9d TypeQuery migration omitted: needs `get_instantiation_expression_type`
+from the unmerged instantiation-expression module). Ported pieces:
+`getTypeFromTypeNodeWorker` parenthesis transparency (`skip_type_parentheses`)
+for keyword, indexed, conditional, variadic-tuple and identity-mapped alias
+bodies; `getDeclaredTypeOfTypeAlias` seeds `instantiations[(alias, own
+parameter TypeIds)]` after successful resolution; `getTypeAliasInstantiation`
+returns the declared body for literal/keyword/intrinsic bodies (no alias
+image) and instantiates keyof/typeof bodies through `instantiate_type`;
+parameter identity by binder symbol, not spelling; identity-mapped alias
+reuse keyed by `(alias, ordered argument TypeIds)` in `instantiations`
+instead of printed text; `unique` requires a `symbol` keyword operand before
+publication; `createTypeNodesFromResolvedType` prints call before construct
+signatures. No new cache: keys reuse the existing SymbolId-owned
+`instantiations` table. `tsr-conformance/tests/original_callable_entry.rs`
+pins the removed non-native TS2464 and needs `[]` (out of lane).
