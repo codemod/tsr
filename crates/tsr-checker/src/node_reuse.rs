@@ -1132,9 +1132,15 @@ impl<'a> Checker<'a, '_> {
                 let (keyword, operand_precedence) = match operator.operator.kind {
                     SyntaxKind::KeyOfKeyword => ("keyof", Precedence::TypeOperator),
                     SyntaxKind::ReadonlyKeyword => ("readonly", Precedence::Postfix),
-                    // `nodecopy.go:596`: `unique symbol` is reused only
-                    // inside its own declaration's scope, which a print of a
-                    // signature is not.
+                    // Native visitExistingNodeTreeSymbolsWorker permits unique
+                    // symbol only when the original enclosing declaration is
+                    // an ancestor of this node. Moved annotations still recover
+                    // through semantic serialization; no name-based exception.
+                    SyntaxKind::UniqueKeyword
+                        if matches!(operator.r#type, Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::SymbolKeyword)
+                            && operator.node_id.is_some_and(|node| {
+                                cx.site.is_some_and(|site| self.is_ancestor_or_self(site, node))
+                            }) => ("unique", Precedence::TypeOperator),
                     _ => return None,
                 };
                 let operand =
@@ -1632,6 +1638,23 @@ mod tests {
         assert_eq!(text_precedence("\"a|b\""), Precedence::NonArray);
         assert_eq!(text_precedence("T extends U ? X : Y"), Precedence::Conditional);
         assert_eq!(text_precedence("Foo<() => void>"), Precedence::NonArray);
+    }
+
+    #[test]
+    fn unique_symbol_reuse_requires_its_declaration_scope() {
+        let arena = tsr_core::Arena::new();
+        let source = "declare const value: unique symbol; declare const other: symbol;";
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(&arena, parsed.source_file, &parsed.nodes, tsr_binder::FileInfo { name: "test.ts", text: source });
+        let tsr_ast::Statement::VariableStatement(statement) = parsed.source_file.statements[0] else { panic!("variable") };
+        let declaration = statement.declaration_list.unwrap().declarations[0];
+        let annotation = declaration.r#type.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let ty = checker.get_type_from_type_node(annotation);
+        let written = checker.reuse_annotation(annotation, ty).unwrap();
+        assert_eq!(checker.written_annotation_text_at(written, ty, declaration.node_id.unwrap()), Some("unique symbol".into()));
+        let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().unwrap();
+        assert_eq!(checker.written_annotation_text_at(written, ty, root), None);
     }
 
     #[test]
