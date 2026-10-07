@@ -2048,6 +2048,11 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::ModuleExportName::Identifier(name) => name.text,
             tsr_ast::ModuleExportName::StringLiteral(name) => name.text,
         };
+        // getExternalModuleMember returns a shorthand ambient module itself:
+        // any named member is its canonical any-valued module symbol.
+        if self.is_shorthand_ambient_module(module_symbol) {
+            return Some(module_symbol);
+        }
         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
         // for both callers here: its synthetic-default and

@@ -241,6 +241,31 @@ median child CPU new/base over 21 samples: domain-model 1.0080, generic-imports
 0.9863; diagnostics/scope/options matched. Native complete-work target remains
 unverified; this bounded port is not a campaign parity/performance certification.
 
+## Shorthand ambient named re-exports (tsr-2zk.16.314)
+
+Native getExternalModuleMember returns the existing shorthand ambient module
+symbol for a named import/re-export; getTypeOfFuncClassEnumModuleWorker gives
+that symbol canonical any. Added exactly that semantic branch using existing
+is_shorthand_ambient_module. No cache, identity fabrication, path heuristic or
+alias presentation change. A module symbol is not a missing member sentinel.
+
+The permanent semantic regression fails before (error) and passes after (any).
+Actual CLI native/TSR outputs match for a named re-export and importing call;
+that empty-diagnostic control alone is not the discriminating proof. Current
+ambientShorthand_reExport gains two RIGHT rows and one whole type case.
+Full corpus preserves every prior RIGHT and missing key. Coverage types
+8,058/9,538, diagnostics 4,223/5,502; total RIGHT 469,816/477,970.
+Focused module tests, checker clippy and owned formatting pass. Linux 21-sample
+fresh-process median child CPU new/base: 0.9908 domain-model, 0.9921
+generic-imports. Native equivalent complete-work target remains unverified.
+
+Higher-impact owned attempts were not silently accepted: qualified-entity
+existing-worker delegation (tsr-2zk.16.144) was zero-impact and removed;
+property-export target admission (tsr-2zk.16.37) restored TS2322 but lost
+exportDefaultProperty2's previously RIGHT B type. That root requires combined
+static-property/interface symbol identity from members/declared integration
+owner. Its rejected patch is saved, not committed; no export-default specialcase.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
