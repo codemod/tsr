@@ -129,6 +129,32 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+bitflags::bitflags! {
+    /// Native CheckMode bits, shared with the canonical JSX attribute worker.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct ContextualCheckMode: u32 {
+        const NORMAL = 0;
+        const CONTEXTUAL = 1 << 0;
+        const INFERENTIAL = 1 << 1;
+        const SKIP_CONTEXT_SENSITIVE = 1 << 2;
+        const SKIP_GENERIC_FUNCTIONS = 1 << 3;
+        const IS_FOR_SIGNATURE_HELP = 1 << 4;
+        const REST_BINDING_ELEMENT = 1 << 5;
+        const TYPE_ONLY = 1 << 6;
+        const FORCE_TUPLE = 1 << 7;
+    }
+}
+
+/// Dynamic contextualInfos/inferenceContextInfos scope, not a completed cache.
+/// Type lookup is oldest-first; inference lookup is newest-first by ancestry.
+pub(crate) struct ContextualTypeFrame {
+    pub(crate) node: NodeId,
+    pub(crate) ty: Option<TypeId>,
+    pub(crate) is_cache: bool,
+    /// Explicit None shields nongeneric checking from an outer inference scope.
+    pub(crate) inference_context: Option<NodeId>,
+}
+
 /// A resolved contextual-signature lookup, distinct from an unsupported lookup.
 pub(crate) enum ContextualSignature {
     Absent,
@@ -145,6 +171,63 @@ impl ContextualSignature {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// checkExpressionWithContextualType/getContextNode for JSX attributes.
+    /// The existing canonical JSX worker owns SkipContextSensitive and
+    /// ContextChecked publication; this scope never publishes a checked image.
+    pub(crate) fn check_jsx_attributes_with_context(
+        &mut self,
+        opening: NodeId,
+        props: TypeId,
+        inference_context: Option<NodeId>,
+        check_mode: ContextualCheckMode,
+    ) -> Option<TypeId> {
+        let attributes = match self.node_map.get(opening)? {
+            Node::JsxOpeningElement(node) => node.attributes?.node_id?,
+            Node::JsxSelfClosingElement(node) => node.attributes?.node_id?,
+            _ => return None,
+        };
+        let context_node = if matches!(self.node_map.get(opening), Some(Node::JsxOpeningElement(_)))
+        {
+            let parent = self.nodes.parent(opening)?;
+            if !matches!(self.node_map.get(parent), Some(Node::JsxElement(_))) {
+                return None;
+            }
+            parent
+        } else {
+            attributes
+        };
+        // The inference owner supplies a real active context at the native
+        // root. Never manufacture signature/fixing state for a nongeneric call.
+        if let Some(context) = inference_context
+            && (context != context_node || !self.active_inference_contexts.contains_key(&context))
+        {
+            return None;
+        }
+        self.contextual_type_stack.push(ContextualTypeFrame {
+            node: context_node,
+            ty: Some(props),
+            is_cache: false,
+            inference_context,
+        });
+        let mode = check_mode
+            | ContextualCheckMode::CONTEXTUAL
+            | if inference_context.is_some() {
+                ContextualCheckMode::INFERENTIAL
+            } else {
+                ContextualCheckMode::NORMAL
+            };
+        let result = self.check_jsx_attributes_worker(opening, mode);
+        // Native clears the sites after the check, before popping the scope.
+        // The worker feeds sites to the existing mapper before this boundary.
+        if let Some(context) = inference_context
+            && let Some(context) = self.active_inference_contexts.get_mut(&context)
+        {
+            context.intra_expression_sites.clear();
+        }
+        self.contextual_type_stack.pop().expect("balanced JSX contextual scope");
+        result
+    }
+
     /// The type an unannotated parameter takes from its context, if any.
     ///
     /// Ported from `Checker.getContextuallyTypedParameterType`
@@ -1127,6 +1210,14 @@ impl<'a> Checker<'a, '_> {
     /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
     /// one pattern here, but it is not measured separately, so it is a gap.
     pub(crate) fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
+        if self.nodes.flags(node).contains(tsr_ast::NodeFlags::IN_WITH_STATEMENT) {
+            return None;
+        }
+        // Native findContextualNode is oldest-first and retains explicit nil.
+        // This entry point uses ContextFlagsNone, therefore includes caches.
+        if let Some(frame) = self.contextual_type_stack.iter().find(|frame| frame.node == node) {
+            return frame.ty;
+        }
         // A JS `@satisfies` is a reparsed `SatisfiesExpression` parent
         // upstream, whose arm answers its type node (ADR-0046).
         if let Some(satisfies) = self.jsdoc_satisfies_contextual_type(node) {
@@ -1254,6 +1345,14 @@ impl<'a> Checker<'a, '_> {
             Node::JsxOpeningElement(opening)
                 if opening.attributes.and_then(|attributes| attributes.node_id) == Some(node) =>
             {
+                // getContextualJsxElementAttributesType explicitly probes the
+                // root element because getContextNode moved the frame there.
+                if let Some(root) = self.nodes.parent(parent)
+                    && let Some(frame) =
+                        self.contextual_type_stack.iter().find(|frame| frame.node == root)
+                {
+                    return frame.ty;
+                }
                 self.jsx_attributes_context(parent)
             }
             Node::JsxSelfClosingElement(opening)

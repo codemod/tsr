@@ -97,17 +97,16 @@ Candidate CLI SHA-256:
 ## Serialized JSX contextual-stack prerequisite
 
 No JSX file or shared `checker.rs` edit is included. The remote worker has no
-cross-worker messaging tool. The initial task names recover-calls' requested
-provider but does not include its agreed API. Exact minimal integration request:
+cross-worker messaging tool. Exact minimal serialized integration request:
 
 ```rust
 // Checker field; initializer Vec::new()
 pub(crate) contextual_type_stack: Vec<crate::contextual::ContextualTypeFrame>;
 ```
 
-Owned API to connect atomically with that field and real calls/JSX consumers:
-`push_contextual_type(node, Option<TypeId>, is_cache)`, `pop_contextual_type()`,
-and `stacked_contextual_type(node, include_caches) -> Option<Option<TypeId>>`.
+The initial proposed push/pop helper API below was superseded by the requested
+canonical `check_jsx_attributes_with_context` provider in the continuation.
+Stack push/pop and query are inline; no separate trivial helper API is required.
 Native `contextualInfos`/`pushContextualType`/`findContextualNode` scan
 **oldest-first**. Explicit nil must stop fallback; absent frame must not.
 Cached frames are excluded for nonzero `ContextFlags`, not automatically for
@@ -129,10 +128,51 @@ already-queried result including nil and cannot publish recursive success.
 Expensive checking/inference remains consumer-owned; lookup is only a small
 linear stack scan. No second semantic cache is justified.
 
-An exact minimal proposed hunk is retained in ignored
-`contextual-stack-integration.patch`, not installed as dead scaffold or presented
-as verified implementation. Connecting it requires the serialized field/API
-agreement and JSX/calls-owner cutover; those files are forbidden to this worker.
+## Requested canonical provider continuation
+
+Owned `contextual.rs` now contains the real
+`check_jsx_attributes_with_context(opening, props, inference_context, check_mode)`
+provider requested for calls issue `.16.168`. `inference_context: Option<NodeId>`
+is the identity of an existing active context at the native root; None creates
+no fake signature or inference snapshot. `ContextualCheckMode` mirrors all
+native CheckMode bits. The provider adds Contextual and, only with a real
+context, Inferential; it forwards the original skip flags to the canonical
+JSX worker, clears intra-expression sites at native check completion, and pops
+the dynamic scope even when that worker returns None. The provider does not
+change completed callback/signature publication or infer from copied props.
+
+Root frames are read directly by the opening attributes contextual query,
+mirroring `getContextualJsxElementAttributesType`; self-closing attributes read
+their own frame. `get_contextual_type` honors native with-statement refusal
+before oldest-first frame lookup. The field retains the explicit nil domain;
+query-time native context flags must exclude cache frames where applicable.
+
+Exact shared integration hunk remains:
+`Checker.contextual_type_stack: Vec<crate::contextual::ContextualTypeFrame>`,
+initialized with `Vec::new()`. Calls owner must supply
+`check_jsx_attributes_worker(opening: NodeId, check_mode: ContextualCheckMode)
+-> Option<TypeId>` as its canonical real JSX image/check worker, preserving
+SkipContextSensitive, callback ContextChecked lifecycle and source ordering.
+Calls/inference owner must consult non-cache dynamic frames newest-first by
+inclusive descendant scope in `live_inference_context`: a containing frame's
+None shields nongeneric checking from any outer active inference context.
+The existing parent-map lookup cannot represent that native nil boundary.
+Cache frames do not introduce inference scopes. Real contexts are rooted at
+the containing element for ordinary openings, attributes node for self-closing.
+
+Current `cargo check -p tsr-checker` fails specifically at missing serialized
+field and canonical JSX worker; receipt `provider-prerequisites.log`.
+This continuation **does not compile standalone and is not verified JSX parity**.
+No fake worker, foreign-file edits, narrow mock smoke, or old-binary after-gate
+is substituted. The previously recorded gates apply only to `0eda302c`.
+Four native target/message gates, no-RIGHT-loss and performance must run after
+these real integration prerequisites land coherently. The four target identities
+were not included in this Box's task payload; retrieve them from the calls
+owner's authoritative existing issue rather than guessing test names.
+
+Fetched `origin/box/recover-calls` through `0f60df78`: no JSX provider/shared
+state changes are published there yet. Cross-worker messaging is not exposed
+by the Box tools, so exact contracts were sent in commentary for parent relay.
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
