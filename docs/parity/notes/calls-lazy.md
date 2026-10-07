@@ -278,3 +278,15 @@ index signature; that comparison is not certified full parity. No >=99.9%,
 full-current-native or equivalent-work/no-hotpath-regression claim. The issue
 remains in progress; parent diagnostic and expression integrations plus native
 negative and performance gates remain required before acceptance.
+
+## Head signature list API
+
+`head_signatures(&mut self, TypeId, SignatureKind) -> Option<Vec<Signature>>`
+is now pub(crate) for parent instantiation-expression object consumers. No
+algorithm change: baked complete ordered vectors are filtered by call/construct
+kind without completing returns, including authoritative empty vectors. Missing
+or unsupported lists still differ from empty. Non-baked shapes use the existing
+shared resolver. Parent must not assume that fallback guarantees lazy return
+construction for every previously unsupported shape. Existing three calls remain
+unchanged. Target signature/receiver tests and clippy pass (`head-api-*.log`)
+with integration-dependent outer-link hunk excluded temporarily then restored.
