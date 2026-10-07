@@ -814,6 +814,30 @@ zero-protected-loss/missing-ID pair and native timing observations from the
 implemented correction remain applicable; verification remains false, not an
 accepted <=0.50 release result.
 
+## Merged source-symbol identity continuation (`tsr-2zk.16.75`)
+
+Actual native/TSR CLI controls merge two `Shared` namespace declarations and
+`Part` interfaces, then reference a written returned-function annotation from
+an external site and a consumer containing an unrelated nested `Shared`.
+The real corpus pipeline qualifies the original merged symbol as `Shared.Part`
+and uses `globalThis.Shared.Part` under the unrelated namespace shadow.
+Native/TSR CLI diagnostics agree. This exercises merged/export symbol identity
+rather than equating equal namespace spellings.
+
+Owned `track_existing_entity_name` normalizes resolved aliases, export symbols,
+and merged symbols before comparing source/site identity. No production defect
+was demonstrated by this control, so no scope/name/alias shared-field change
+was made. Eight tests pass. Actual four-case `.75` smoke remains
+**152 RIGHT, 24 WRONG, 0 GAP** across 176 aligned lines; those known failures
+retain the parent context prerequisites above.
+
+Current corrected CLI SHA-256:
+`178ae0f763cd0fcce076fa42c2ecfbb1f8f77e62b7e08748577386e415d03a32`.
+Native hash remains the pinned value above. The fresh full no-protected-loss/
+missing-ID pair and performance observations recorded for the emitted-node
+precedence correction apply to this unchanged implementation. No extra
+conversion or performance certification is claimed.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
