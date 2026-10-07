@@ -20,8 +20,8 @@ pub mod format;
 mod generated;
 
 pub use compare::{
-    compare_diagnostics, equal_diagnostics, equal_diagnostics_no_related_info,
-    sort_and_deduplicate_diagnostics,
+    compact_and_merge_related_infos, compare_diagnostics, equal_diagnostics,
+    equal_diagnostics_no_related_info, sort_and_deduplicate_diagnostics,
 };
 
 pub use format::{

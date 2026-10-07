@@ -24,6 +24,11 @@ flattens insertion-ordered children with two spaces per level and the requested
 newline; only pretty output prints related information at its own source image.
 `LocatedDiagnostic::compare` uses externally supplied Program primary locations.
 `sort_and_deduplicate_diagnostics` requires attached primary files.
+`compact_and_merge_related_infos(Vec<Diagnostic>) -> Vec<Diagnostic>` exposes
+native already-sorted compaction without performing a second sort. Its input must
+already use `compare_diagnostics`, not a head-only order. Both functions consume
+owned diagnostics; external file/index side tables must be rebuilt or carried at
+the consumer boundary, never zipped against pre-compaction positions.
 
 Runtime category, unnecessary and deprecated booleans are stored in each
 Diagnostic, initialized from the template by native NewDiagnostic semantics.
