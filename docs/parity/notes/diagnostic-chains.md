@@ -583,3 +583,16 @@ one, equal display names, exactOptionalPropertyTypes, object-to-non-object
 pairs (primitive/wrapper notes), unconstrained type-parameter sources (TS2208
 note), and target unions needing `getBestMatchingType`. Expensive work: one
 extra walk only on reported failures, as native.
+
+## Type-argument variance chains — tsr-2zk.1
+
+Pinned `relateVariances` (relater.go:3266) keeps the `typeArgumentsRelatedTo`
+(:3903) chain when a measured variance check fails without structural fallback:
+the first failed argument is related again as the diagnostic pair
+(contravariant reversed, bivariant via the covariant check) and its nested
+`reportRelationError` link is published (`report_type_arguments_failure`).
+Declines: unmeasured (default-covariant) variances, since native may carry
+Unmeasurable/Unreliable fallback flags this port lacks; any invariant
+parameter, where native discards the variance chain for a structural
+elaboration not run here; an undecided earlier argument. Walk-local
+`property_error`, no cache; extra walk only on a reported failure.

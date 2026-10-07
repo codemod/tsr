@@ -3035,6 +3035,63 @@ impl Relater<'_, '_, '_> {
         RelationResult::all(parts)
     }
 
+    /// `typeArgumentsRelatedTo` (`relater.go:3903`) with `reportErrors`, as
+    /// `relateVariances` (:3266) keeps its chain when the variance check fails
+    /// without structural fallback. Native returns on the first failed
+    /// argument; that argument is related again as the diagnostic pair
+    /// (contravariant arguments reversed, bivariant through the covariant
+    /// check) and its nested `reportRelationError` link is published.
+    /// Callers pass only measured variances with no covariant-void fallback.
+    /// Publishes nothing for an invariant parameter (native discards the
+    /// variance chain for a structural elaboration this port does not run),
+    /// after an undecided argument, or for an unsupported explanation.
+    /// Walk-local `property_error`; no cache.
+    fn report_type_arguments_failure(
+        &mut self,
+        parts: &[RelationResult],
+        sources: &[TypeId],
+        targets: &[TypeId],
+        variances: &[crate::variances::Variance],
+    ) {
+        use crate::variances::Variance;
+        if variances.contains(&Variance::Invariant) {
+            return;
+        }
+        let Some(index) = parts.iter().position(|&part| part == RelationResult::NotRelated) else {
+            return;
+        };
+        if parts[..index].contains(&RelationResult::Unknown) {
+            return;
+        }
+        let (source, target) = match variances[index] {
+            Variance::Contravariant => (targets[index], sources[index]),
+            _ => (sources[index], targets[index]),
+        };
+        let saved_pair = self.diagnostic_pair;
+        let saved_simple = std::mem::take(&mut self.simple_error);
+        let saved_marker = self.return_marker.take();
+        self.property_error = None;
+        self.signature_error = None;
+        self.diagnostic_pair = Some((source, target));
+        let related = self.is_related_to(source, target);
+        self.diagnostic_pair = saved_pair;
+        let child = self.property_error.take().or_else(|| {
+            self.signature_error.take().map(|(minimum, count)| {
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                    tsr_core::Span::new(0, 0),
+                    [minimum.to_string(), count.to_string()],
+                )
+            })
+        });
+        let simple = std::mem::take(&mut self.simple_error);
+        if related == RelationResult::NotRelated && (child.is_some() || simple) {
+            self.property_error = self.checker.nested_relation_error(source, target, child);
+        }
+        self.simple_error = saved_simple;
+        self.return_marker = saved_marker;
+    }
+
     /// structuredTypeRelatedToWorker (internal/checker/relater.go).
     fn structured_type_related_to_worker(
         &mut self,
@@ -3584,6 +3641,9 @@ impl Relater<'_, '_, '_> {
             && source_arguments.len() == target_arguments.len()
         {
             let measured = self.checker.inference_variances(source_symbol);
+            let reporting = self.relation == Relation::Assignable
+                && self.diagnostic_pair == Some((source, target))
+                && measured.as_ref().is_some_and(|v| v.len() == source_arguments.len());
             let variances = match measured {
                 Some(variances)
                     if variances.is_empty()
@@ -3613,6 +3673,9 @@ impl Relater<'_, '_, '_> {
                             && self.checker.type_of(target).flags.intersects(TypeFlags::VOID)
                     });
                 let mut parts = Vec::new();
+                let arguments = reporting.then(|| {
+                    (source_arguments.clone(), target_arguments.clone(), variances.clone())
+                });
                 for ((source, target), variance) in
                     source_arguments.into_iter().zip(target_arguments).zip(variances)
                 {
@@ -3633,8 +3696,13 @@ impl Relater<'_, '_, '_> {
                         Variance::Independent => RelationResult::Related,
                     });
                 }
-                let result = RelationResult::all(parts);
+                let result = RelationResult::all(parts.iter().copied());
                 if result != RelationResult::NotRelated || !allows_covariant_void {
+                    if result == RelationResult::NotRelated
+                        && let Some((sources, targets, variances)) = arguments
+                    {
+                        self.report_type_arguments_failure(&parts, &sources, &targets, &variances);
+                    }
                     return result;
                 }
             }
