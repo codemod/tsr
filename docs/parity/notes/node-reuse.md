@@ -553,6 +553,29 @@ exception or fake import-type completion was added. Production binary remains
 unchanged, retaining full no-loss/missing-ID and unverified performance
 receipts. `.147` remains unresolved on parent annotation retention.
 
+## Ambient declaration visibility continuation (`tsr-2zk.16.75`)
+
+Compared owned `is_declaration_visible` with pinned
+`determineIfDeclarationIsVisible` (`emitresolver.go:131`), including its ambient
+module-element exception and parent-visibility dependency. Actual native/TSR
+CLI controls agree for an ambient namespace with unexported `Part` and `source`
+declarations and a nonambient namespace with a private `Part` plus exported
+`source`.
+
+The actual corpus pipeline renders the ambient source's returned function as
+`(value: Ambient.Part) => Ambient.Part` outside the namespace and under a local
+`type Part = number` shadow. The nonambient private type keeps its declaration
+view. This confirms the ambient-member and source/site identity path without
+assuming every unexported declaration is inaccessible or making visibility
+unconditional.
+
+No production discrepancy was demonstrated, so no visibility policy, demand
+side table, or shared writer contract changed. Seven existing owned tests pass.
+Compiler source/binary and prior full loss/ID/performance receipts remain
+unchanged. The measured open items still require parent annotation retention,
+diagnostic/site-aware dispatch, and active dynamic signature scope; this
+control does not establish cluster completion or a speed improvement.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
