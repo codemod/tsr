@@ -1502,7 +1502,7 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         type_arguments: &[TypeId],
     ) -> Option<Signature> {
-        let mut signature = self.complete_signature_return(signature.clone())?;
+        let mut signature = signature.clone();
         let parameters = self.type_parameter_types(&signature)?;
         if parameters.len() != type_arguments.len() {
             return None;
@@ -1510,7 +1510,7 @@ impl<'a> Checker<'a, '_> {
         let own = std::mem::take(&mut signature.type_parameters);
         let names: Vec<_> = own.iter().map(|parameter| parameter.name.as_str()).collect();
         let map: Vec<_> = parameters.iter().copied().zip(type_arguments.iter().copied()).collect();
-        self.instantiate_signature(signature, &map, &parameters, &names)
+        self.instantiate_signature_lazily(signature, &map, &parameters, &names)
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an

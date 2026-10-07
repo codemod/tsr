@@ -108,6 +108,15 @@ pub(crate) struct InstantiatedTypeParameter {
     pub(crate) names: Vec<String>,
 }
 
+/// instantiateSignatureEx target mapper, owned by the signature image.
+/// Ordered identities retain captured fixing/receiver context; no new cache.
+#[derive(Clone, Debug)]
+pub(crate) struct SignatureMapper {
+    pub(crate) map: Vec<(TypeId, TypeId)>,
+    pub(crate) parameters: Vec<TypeId>,
+    pub(crate) names: Vec<String>,
+}
+
 impl<'a> Checker<'a, '_> {
     /// The signature-less inference context used by getConditionalType.
     /// getTypeFromInference preserves candidates rather than applying the
@@ -6211,6 +6220,80 @@ impl<'a> Checker<'a, '_> {
         self.instantiate_signature(signature, &combined, &sources, &names)
     }
 
+    /// instantiateSignatureEx (5b1047d): substitute input slots, retain target
+    /// and mapper, and leave return/predicate demand to canonical getters.
+    /// Target identity is the original Arc plus its ordered mapper, not a
+    /// declaration-only key. No result cache or completed return is published.
+    pub(crate) fn instantiate_signature_lazily(
+        &mut self,
+        mut signature: Signature,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<Signature> {
+        let target = std::sync::Arc::new(signature.clone());
+        if let Some(parameter) = &mut signature.this_parameter {
+            let original = self.parameter_type(parameter);
+            let image = self.instantiate_type(original, map, parameters, names);
+            if self.is_error(image) {
+                return None;
+            }
+            parameter.set_type(image);
+        }
+        for parameter in &mut signature.parameters {
+            let original = self.parameter_type(parameter);
+            let image = self.instantiate_type(original, map, parameters, names);
+            if self.is_error(image) {
+                return None;
+            }
+            if image != original {
+                parameter.written_text = None;
+            }
+            parameter.set_type(image);
+        }
+        signature.r#type = self.intrinsics.error;
+        signature.predicate = None;
+        signature.target = Some(target);
+        signature.mapper = Some(std::sync::Arc::new(SignatureMapper {
+            map: map.to_vec(),
+            parameters: parameters.to_vec(),
+            names: names.iter().map(|name| (*name).to_owned()).collect(),
+        }));
+        Some(signature)
+    }
+
+    /// Canonical getter target branch; unsupported/active target stays None.
+    pub fn mapped_signature_return(&mut self, signature: &Signature) -> Option<TypeId> {
+        let mapper = signature.mapper.as_ref()?;
+        let target = signature.target.as_ref()?;
+        let returned = self.get_return_type_of_signature(target)?;
+        let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
+        let image = self.instantiate_type(returned, &mapper.map, &mapper.parameters, &names);
+        (!self.is_error(image)).then_some(image)
+    }
+
+    /// Map a completed target predicate; caller owns target predicate demand
+    /// and must distinguish completed absence from unsupported computation.
+    pub(crate) fn map_signature_predicate(
+        &mut self,
+        signature: &Signature,
+        mut predicate: crate::signatures::TypePredicate,
+    ) -> Option<crate::signatures::TypePredicate> {
+        let mapper = signature.mapper.as_ref()?;
+        if let Some(ty) = predicate.r#type {
+            let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
+            let image = self.instantiate_type(ty, &mapper.map, &mapper.parameters, &names);
+            if self.is_error(image) {
+                return None;
+            }
+            if image != ty {
+                predicate.written_text = None;
+            }
+            predicate.r#type = Some(image);
+        }
+        Some(predicate)
+    }
+
     /// One signature with every carried type substituted, or `None` when any
     /// part refuses.
     pub(crate) fn instantiate_signature(
@@ -6221,6 +6304,7 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> Option<Signature> {
         let target = std::sync::Arc::new(signature.clone());
+        signature.mapper = None;
         let error = self.intrinsics.error;
         let substitute = |checker: &mut Self, id: TypeId| -> Option<TypeId> {
             let image = checker.instantiate_type(id, map, parameters, names);
