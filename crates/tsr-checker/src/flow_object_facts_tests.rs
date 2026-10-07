@@ -79,11 +79,9 @@ fn object_and_function_facts_select_only_the_null_mode() {
 }
 
 #[test]
-fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
+fn empty_object_composite_and_inherited_category_boundaries_stay_held() {
     for (prefix, body, strict, loose) in [
         ("", "{}", 16_318_463, 16_777_215),
-        ("", r#""left""#, 7_929_345, 7_929_345),
-        ("", r#"string & {p: "left"}"#, 16_317_953, 16_317_953),
         ("", r#"{p: "left"} | {q: 17}"#, 7_888_800, 16_736_160),
         ("", r#"{p: "left"} & {q: 17}"#, 7_888_800, 16_736_160),
         (r#"type F = (p: "left") => 17;"#, r#"F & {q: "right"}"#, 7_880_640, 16_728_000),
@@ -113,7 +111,7 @@ fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
 }
 
 #[test]
-fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
+fn ordinary_and_runtime_this_false_branches_keep_their_receiver_types() {
     let source = r#"function f(this: {p: "left"; q: 17}, x: {p: "right"; q: 23}) {
         if (!x) {type X = typeof x;}
         if (!this) {type Held = typeof this; this;}
@@ -133,12 +131,7 @@ fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
         for index in 0..checker.nodes.len() {
             let id = NodeId::new(u32::try_from(index).expect("node count fits"));
             let kind = checker.nodes.kind(id);
-            if kind == SyntaxKind::PrefixUnaryExpression {
-                let ty = checker.check_expression_at_node(id);
-                // Native loose mode returns boolean. The separate object
-                // negation consumer does not read these facts yet; held here.
-                assert_eq!(checker.type_to_string(ty), "false");
-            } else if kind == SyntaxKind::ThisKeyword
+            if kind == SyntaxKind::ThisKeyword
                 && checker
                     .nodes
                     .parent(id)

@@ -418,3 +418,47 @@ Three upstream facts, one commit because each alone moved the same lines:
 
 **Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
 0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.
+
+## 16. Equality replaces primitives after an unchanged comparable filter
+
+`tsr-2zk.7.8`, pinned native `5b1047d`: `narrowTypeByEquality`
+(`internal/checker/flow.go:595-598`) always calls
+`replacePrimitivesWithLiterals`, even when `filterType` retains every
+constituent. TSR returned early for that unchanged result, leaving a plain
+`string`, `number` or `bigint` broad inside a matching equality branch.
+
+The replacement worker now follows native `flow.go:1907-1925`: string-domain
+extraction includes string literals, template patterns and string mappings;
+pattern placeholders extract string literals only when the comparand does not
+retain a string/template/mapping domain; number and bigint extraction preserve
+their respective primitive and literal domains. Existing `map_narrowing_type`
+and `filter_type` preserve union origins and unchanged identity. No cache,
+side table or receiver image is added. Keys remain private-Checker `TypeId`s;
+only changed completed maps construct a new union. Existing native pattern
+classification and origin projection own recursive work; scalar maps allocate
+nothing. Equality's existing comparable relation remains unchanged.
+
+**Smoke:** native declaration emit and TSR's real corpus `probefile` pipeline
+agree on plain string/number branch results, pattern-string narrowing, generic
+template preservation, mixed-domain loose equality and fresh-comparand return
+widening. Negative broad-string branches remain broad. Native-supported
+regression controls pass in the existing narrowing suite: 73 tests.
+
+**Full unfiltered evidence:** against `6d55ae54`, 31 WRONG→RIGHT type
+assertions, zero previously RIGHT losses, zero RIGHT/EMPTY_RIGHT diagnostic
+case losses. Coverage: 8,046/9,538 type cases (84.36%); diagnostics remain
+4,221/5,502 (76.72%). This is the historical coarse oracle, not complete
+message/span/order or configuration-variant certification.
+
+**A/B performance:** 41 alternating fresh-process pairs on
+`domain-model-large`, candidate versus frozen baseline binary, same options,
+loaded scope and diagnostic fingerprint. Median child CPU ratio 0.9924;
+observed wall ratio 0.9573. Concurrent verification load widened wall samples;
+this is a no-slowdown observation, not a verified native release speed claim.
+
+Two newly exposed producer boundaries remain with the alias owner, not hidden
+by restoring broad equality results: bigint union ordering
+(`tsr-2zk.16.2.2`) and unions of string mappings with literal returns
+(`tsr-2zk.16.2.3`). Their smoke outputs do not lose any previously RIGHT corpus
+assertion in this change.
+

@@ -58,6 +58,97 @@ judged RIGHT cases only, EMPTY cases are excluded by the suite):
 | laziness-2 (local) `ea1306d3` | 7,944 | 4,195 | 1.24 |
 | types-misc-2 (local) `6ccb0d0f` | 7,983 | 4,197 | 1.21 |
 | calls-7 (local) `4497370d` | 7,988 (83.75%) | 4,203 (76.39%) | 1.23 |
+| measurement `6d55ae54` (2026-10-06) | 8,042 (84.32%) | 4,221 (76.72%) | see representative measurement below |
+
+## Current measurement and exclusive remote ownership
+
+Integration issue `tsr-2zk.47`; pinned native commit
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`. Fresh release coverage discovered
+12,444 compiler/conformance sources. Type assertions: 469,765/478,855
+(98.10%); clean diagnostic cases: 4,968/5,068. These remain **coarse,
+incomplete oracles**: configuration variants and native divergence cases are
+excluded; diagnostic scoring compares file/line/column/code, not complete
+message trees, span lengths or ordering. Neither rate certifies the full-corpus
+99.9% objective.
+
+Representative `domain-model-large`, macOS arm64, default scheduling,
+21 alternating fresh-process pairs: TSR median 0.3886385 s; pinned native
+0.1382433 s; observed wall ratio **2.8113**. Loaded scope, effective options,
+stable diagnostics and diagnostic fingerprints match. Complete query-input
+coverage and actual performed checker work remain unverified; verified ratio
+is null and the <=0.50 release target is unmet. Raw capture is local derived
+data under `/tmp/tsr-parity-20261006/`, not a portable release receipt.
+
+Ten remote boxes requested from this source revision; ownership is whole-file
+exclusive. A provisioning request is not evidence of a running worker.
+
+| box | Beads issue | exclusive subsystem |
+|---|---|---|
+| `parity-full-corpus` | `tsr-2zk.47` | configuration expansion and full diagnostic/type oracle |
+| `parity-alias` | `tsr-2zk.16.2` | declared type bodies, alias/mapper representation, mapped/indexed/union types |
+| `parity-calls` | `tsr-2zk.9.7` | calls, signatures, overloads and inference |
+| `parity-contextual` | `tsr-2zk.11.5` | contextual typing, object/accessor laziness and binding patterns |
+| `parity-symbols` | `tsr-2zk.38` | binder, symbol/module resolution and augmentation publication |
+| `parity-parser` | `tsr-2zk.17.1` | parser/scanner and lazy JSDoc demand |
+| `parity-printing` | `tsr-2zk.39` | checker state, accessible symbol chains, printing and node reuse |
+| `parity-property` | `tsr-2zk.4.12` | properties, member images, inherited receivers and readonly metadata |
+| `parity-diagnostic-chains` | `tsr-2zk.22` | diagnostic representation/rendering and relation reporting |
+| `parity-performance` | `tsr-2zk.17` | compiler/CLI scheduling and complete-work performance evidence |
+
+Only the integration owner changes shared dispatch (`check.rs`,
+`expressions.rs`, `lib.rs`) and `types_producer.rs`. Exported contract changes
+are serialized through their single owner, then all callers migrate during
+integration. Each commit must preserve all previously RIGHT type assertions
+and RIGHT/EMPTY_RIGHT diagnostic cases; full parity and fresh-process A/B
+performance are rerun after each serialized merge. Historical lane tables
+below retain their original measurement populations, not current rankings.
+
+
+### Current session dispatch and measurement
+
+Current source `5dd3bad8`: fresh unfiltered coverage remains 8,046/9,538
+`checker_types` cases (84.36%) and 4,221/5,502 diagnostic cases (76.72%).
+The type verdict dump records 469,796 RIGHT, 7,181 WRONG and 993 GAP aligned
+rows; its population differs from the coverage assertion denominator and is
+used only for the no-RIGHT-loss transition gate. The exact expanded native
+population, complete diagnostic messages/spans/order and independent type
+selection remain the `parity-full-corpus` owner's required work.
+
+The current failed-case intersection contains 510 native-operation root groups.
+Existing Beads records cover 384; 126 additional bounded roots were created
+with native evidence and current target lists. Counts rank blocked scope, not
+promised conversions, and can overlap across prerequisite roots.
+
+Ten Box slots were dispatched with the exclusive ownership above. Two machines
+failed before agent startup during Rust installation with a null exit status
+and a closed exec connection (`tsr-2zk.50`); they were destroyed and replaced by
+`parity-calls-r2` and `parity-performance-r2`. Provisioning and setup are not
+running-worker evidence. The other workers retain their original names.
+
+Fresh 21-pair `domain-model-large` timing observes a TSR/pinned-native median
+wall ratio **2.6621**, with matching scope, options and stable diagnostics.
+Sample ranges show concurrent-load effects; complete input and performed-work
+proof remain false, `verified_wall_ratio` remains null, and the <=0.50 target
+is unmet. Raw current captures are local derived artifacts, not a release
+certificate. The stronger oracle and performance work are not optional scope.
+
+First current-session code integration: `f9e8b84f9`, native `trySymbolTable`
+local alias exclusions. Isolated committed-parent comparison gains 20 RIGHT
+type assertions, loses none, and has no vanished verdict keys; diagnostics
+remain unchanged. Full legacy coverage reports 8,051/9,538 type cases and
+4,221/5,502 diagnostic cases. This excludes the unrelated local flow patch.
+Workspace release tests (3,125), clippy, formatting and 4,497 native anchors
+pass. Real script/module UMD controls match native site type printing.
+Twenty-one alternating candidate/parent pairs observe wall ratio 0.9739 and
+CPU ratio 1.0123; native comparison observes wall ratio 2.6821. Complete-work
+verification remains false; neither observation certifies the release target.
+
+The native-only oracle snapshot was rejected: it has no real TSR artifact
+producer, retains expected-driven type selection and lacks bounded process
+outcome publication. Replacement `parity-full-corpus-r2` owns the entire
+conformance producer cutover (`tsr-2zk.47.3`), including the real TSR producer.
+Its predecessor is stopped; provisioning remains distinct from running work.
+
 
 Held from merge: node-reuse (`local/node-reuse-2`, +42 types cases, 348
 WRONG→RIGHT lines, zero losses) because A/B child CPU read 1.025 / 1.036
