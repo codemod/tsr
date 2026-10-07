@@ -924,11 +924,18 @@ Historical per-line attribution is not current completion evidence; the
 authoritative `.16.421` target receipt governs acceptance. `.9.8` verified delivery and `.16.420` canonical
 union-regularization handoff remain unchanged.
 
-## RESOLVE-JSX-OPENING-LIKE-ELEMENT-OVERLOADS receipt
+## RESOLVE-JSX-OPENING-LIKE-ELEMENT-OVERLOADS — tsr-2zk.16.168
 
 Integrator extended exclusive ownership to jsx_intrinsic.rs, jsx_component.rs,
 jsx_attributes.rs and jsx_factory.rs, alongside original calls/signatures/
-inference files. Four current blocked cases; exact issue/case receipt pending.
+inference files. Authoritative four-case blocked scope, not conversion promise:
+
+- `compiler/jsxComplexSignatureHasApplicabilityError`
+- `compiler/reactDefaultPropsInferenceSuccess`
+- `conformance/checkJsxSubtleSkipContextSensitiveBug`
+- `conformance/contextuallyTypedStringLiteralsInJsxAttributes02`
+
+No contextual/objects/members/declared/shared-state ownership was granted.
 Read pinned jsx.go `resolveJsxOpeningLikeElement`,
 `checkApplicableSignatureForJsxCallLikeElement`, `inferJsxTypeArguments`,
 `getUninstantiatedJsxSignaturesOfType`, effective call/class props, and
@@ -1000,5 +1007,5 @@ ContextChecked retention and completed hits for this JSX root.
 
 No semantic implementation, new tests, type/diagnostic conversion or candidate
 performance claim. The current four-case root needs the shared complete
-checking contract before it can meet acceptance; exact case receipt still
-pending. `.9.8` completed delivery and other open collector roots unchanged.
+checking contract before it can meet acceptance; the authoritative `.16.168`
+four-case receipt governs acceptance, including literals and children context. `.9.8` completed delivery and other open collector roots unchanged.
