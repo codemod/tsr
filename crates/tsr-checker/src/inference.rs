@@ -636,18 +636,19 @@ impl<'a> Checker<'a, '_> {
         overload_failure: bool,
     ) -> TypeId {
         let error = self.intrinsics.error;
+        // inferTypeArguments is a semantic return consumer. Demand through
+        // the canonical target/pending accessor rather than reading a lazy
+        // signature's provisional return sentinel as a completed type.
+        let Some(returned) = self.get_return_type_of_signature(signature) else {
+            return error;
+        };
         let parameter_types = self.type_parameter_types(signature);
         let (mut infos, return_mapper) = if self.written_type_arguments(call).is_none()
             && let Some(parameters) = parameter_types.as_deref()
         {
             let skip_binding_patterns =
                 signature.type_parameters.iter().all(|parameter| parameter.default.is_some());
-            self.contextual_return_inferences(
-                signature.r#type,
-                parameters,
-                call,
-                skip_binding_patterns,
-            )
+            self.contextual_return_inferences(returned, parameters, call, skip_binding_patterns)
         } else {
             (Vec::new(), Vec::new())
         };
@@ -883,12 +884,11 @@ impl<'a> Checker<'a, '_> {
                 let names =
                     signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
                 let map = vec![(*type_parameter, element)];
-                return self.instantiate_type(signature.r#type, &map, &parameters, &names);
+                return self.instantiate_type(returned, &map, &parameters, &names);
             }
             return error;
         }
 
-        let returned = signature.r#type;
         if returned == error {
             return error;
         }
