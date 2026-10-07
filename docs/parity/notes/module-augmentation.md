@@ -213,6 +213,61 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Ambient export-default local name follow-up to closed .16.24
+
+Assigned bounded follow-up: tsr-2zk.6.17 (created/claimed by integrator).
+Default-local lookup drops ambient module context because this parser does not
+publish native NodeFlagsAmbient. Completed tsr-2zk.16.24 remains closed. The existing arm is already implemented;
+this follow-up restores its exact context prerequisite, not its historical
+missing algorithm.
+
+Pinned native binder NameResolver.Resolve, GetLocalSymbolForExportDefault:
+locals/shadowing are consulted first; SourceFile/ambient nonglobal module then
+looks up default, requires syntactic default on the first declaration, actual
+local-symbol name equality and result flags intersecting requested meaning.
+The binder already computes ambient module context from enclosing ambient,
+declaration file and declare modifier. It now publishes that existing fact as
+NodeFacts::AMBIENT_MODULE_CONTEXT and the default-local arm reads it alongside
+native parser AMBIENT. No rendered-name identity, alias fallback or new semantic
+cache is introduced. Existing marker.export_symbol and canonical merged default
+SymbolId are retained. Namespace meaning must still reject a plain class; local
+parameters still shadow the default-export name.
+
+Owner/lifetime: one Program BindResult NodeFacts table keyed by module NodeId.
+Absent means no binder-proven ambient context; binding publishes the fact before
+children, consumers run after binding completion. There is no active semantic
+answer/failure cache. The context is the same ambient bit already used by member
+binding, including declaration-file state. Expensive work remains the existing
+scope walk/default lookup, with one additional bit lookup for module queries.
+Actual worker/query attribution remains unmeasured; integrator follow-up request
+before widening reuse. No optimization claim.
+
+Native controls: pkg.d.ts declares module pkg, export default class Foo with
+value:number, and export {Foo as Named}; main imports Named and assigns its
+instance value to string. Native and candidate emit sole TS2322 main.ts(4,7),
+complete message `Type 'number' is not assignable to type 'string'.` Frozen TSR
+emits nothing. Regression asserts VALUE/TYPE lookup reaches actual default
+SymbolId, NAMESPACE rejects it, a parameter shadows it, and missing name misses.
+The corpus-derived ambient before/after C reference control is native clean
+under ES2015; frozen TSR emits three TS2304 errors, candidate is clean. Native
+ES5 invocation rejects target with TS5108; no ES5 native parity claim.
+
+Verification: full unfiltered keys types 477970/477970, diagnostics 10570/10570;
+zero missing keys and zero formerly RIGHT/EMPTY_RIGHT losses. Type counts remain
+469765 RIGHT, 7212 WRONG, 993 GAP. Diagnostic EMPTY_RIGHT grows 4968 to 4969,
+EMPTY_WRONG drops 100 to 99: compiler/es5ExportDefaultClassDeclaration4 converts
+on the existing normalized oracle. Full 12444-source coverage completes,
+checker_types 8042/9538 and diagnostics 4221/5502 unchanged; generated snapshots
+are not committed. Workspace release tests pass; strict clippy and format pass
+after removing one unused test import; native anchor gate passes. No other
+historically named target is claimed converted.
+
+Fresh-process interleaved 21-pair candidate/frozen baseline observed wall ratios
+domain-model 0.991740, generic-imports 0.998594; median child CPU ratios 1.010905
+and 0.991988. Against pinned native 21-pair observed wall ratios 1.019439 and
+0.921646. Harness work_comparable=false: complete query-input coverage and
+performed checker budgets remain unverified; no <=0.50 verified release ratio.
+
 ### Alias-indirection next-root prerequisite (.16.68)
 
 Current issue tsr-2zk.16.68 is absent from the Box DB (`bd show` reports not

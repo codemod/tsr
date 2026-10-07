@@ -110,6 +110,9 @@ bitflags::bitflags! {
         const CONTAINS_THIS = 1 << 3;
         /// A `label:` that nothing `break`s or `continue`s to.
         const UNUSED_LABEL = 1 << 4;
+        /// Parser ambient context as computed by binding for module declarations.
+        /// Includes declaration-file and enclosing ambient-module context.
+        const AMBIENT_MODULE_CONTEXT = 1 << 5;
     }
 }
 
@@ -1298,7 +1301,8 @@ impl<'a> BindResult<'a> {
             if (match node_map.get(node) {
                 Some(tsr_ast::Node::SourceFile(_)) => true,
                 Some(tsr_ast::Node::ModuleDeclaration(module)) => {
-                    nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                    (nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                        || self.facts(node).contains(NodeFacts::AMBIENT_MODULE_CONTEXT))
                         && module.keyword.kind != SyntaxKind::GlobalKeyword
                 }
                 _ => false,
