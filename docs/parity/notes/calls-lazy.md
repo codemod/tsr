@@ -332,3 +332,21 @@ completion would lose delayed substitutions. No duplicate declaration cache or
 unmapped pending return fallback added. Parent serialized signature representation
 must supply actual identity/mapper publication before this work-boundary
 obligation can be implemented end-to-end.
+
+## Canonical return demand in generic inference
+
+`check_generic_call_worker` now obtains its semantic return through
+`get_return_type_of_signature` before contextual-return inference and spread/final
+substitution, rather than consuming the direct provisional return slot. An
+unsupported demand returns error without publishing a successful inference.
+Existing original pending protocol remains the owner; full checker tests and
+clippy pass (`return-demand-*.log`) with parent-dependent outer links temporarily
+excluded then restored.
+
+Full lazy writer/consumer cutover still requires parent-owned Signature target
+mapper metadata and canonical getter changes in signatures.rs (outside current
+calls/inference ownership). Proposed mapper metadata lives on the existing
+Signature.target edge, not a declaration-only or duplicate signature cache.
+The current get_signature_instantiation remains eager until that getter can
+resolve target return/predicate under the exact ordered map. No claimed lazy
+completion, target mapper stub or unkeyed side table is delivered.
