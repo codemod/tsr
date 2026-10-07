@@ -701,6 +701,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         crate::front_end::ordered(
             &inputs,
             workers,
+            crate::front_end::Lookahead::One,
             |_, (_, text, options)| {
                 tsr_parser::ParsedFile::parse_with_options((*text).clone(), *options)
             },
