@@ -375,6 +375,41 @@ seven visitor regressions pass; implementation, full paired verdict/ID receipts,
 and performance observations remain unchanged. The cluster stays in progress;
 these additional controls do not claim conversions.
 
+## Next measured cluster: existing entity-name tracking (`tsr-2zk.16.75`)
+
+Claimed the next P1 existing-node tracking cluster after the constraint cluster's
+parent dispatch prerequisite. Fresh target verdicts for
+`compiler/controlFlowForFunctionLike1` contain eight wrong lines: returned inner
+function views retain captured `typeof a` where native serializes `number` or
+`string | number`. Actual native and TSR CLI runs with `--strict --noEmit
+--pretty false` on the native case agree diagnostically; positioned type
+assertions expose the display difference.
+
+Tested an owned candidate in `declared_inside_reused_node`: stop treating an
+outer captured parameter as signature-local at the nearest function boundary.
+Actual target smoke corrected inner views but introduced formerly-RIGHT losses
+on outer signature views, which must keep their parameter's written `typeof a`.
+The target still contained eight wrong lines. The candidate was rejected and
+reverted; no regressing implementation or exception test is committed.
+
+Native `enterSignatureScope` / `enterNewScope` (`nodebuilderscopes.go:53`) own
+**dynamic rendered signature** parameter scope. AST ancestry alone cannot tell
+whether the current render includes the outer signature or only its returned
+inner signature. Required shared contract: provide the active render signature
+or its parameter-symbol scope to `ReuseContext` at visitor entry. The parent
+owns signature rendering and shared state; this worker did not edit them.
+Reusing a captured parameter solely because its declaration is an ancestor is
+not sufficient, but replacing it solely because an inner function intervenes
+is also wrong.
+
+After reverting and rebuilding, actual target smoke reproduces the baseline
+with **0 verdict changes and 0 missing IDs**. The CLI SHA-256 is again exactly
+`50fd451ef234b67b97b7458a1024a5832fa09058ec51affd6e4b519634470aff`.
+Seven owned regression tests pass after the revert. The unchanged binary
+retains the earlier full zero-loss/missing-ID and unverified performance
+receipts. Neither cluster is closed; the measured candidate is a rejected
+experiment, not an implemented fix or claimed speed win.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
