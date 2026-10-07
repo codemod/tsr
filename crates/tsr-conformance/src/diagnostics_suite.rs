@@ -760,7 +760,11 @@ pub fn flattened_for(test: &crate::TestCase) -> Vec<((String, u32, u32, u32), St
         .into_iter()
         .map(|(key, diagnostic)| {
             let mut text = String::new();
-            tsr_diagnostics::format::write_flattened_diagnostic_message(&mut text, &diagnostic, "\n");
+            tsr_diagnostics::format::write_flattened_diagnostic_message(
+                &mut text,
+                &diagnostic,
+                "\n",
+            );
             ((key.file, key.line, key.column, key.code), text)
         })
         .collect()

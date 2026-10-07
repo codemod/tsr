@@ -1772,7 +1772,7 @@ impl<'a> Checker<'a, '_> {
         );
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
-            diagnostic.add_message_chain(Some(signature_error));
+            attach_relation_child(&mut diagnostic, Some(signature_error));
         }
         self.report(file, diagnostic);
         true
@@ -1950,7 +1950,7 @@ impl<'a> Checker<'a, '_> {
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
-            diagnostic.add_message_chain(Some(signature_error));
+            attach_relation_child(&mut diagnostic, Some(signature_error));
         }
         self.report(file, diagnostic);
         true
@@ -2040,12 +2040,15 @@ impl<'a> Checker<'a, '_> {
         child: Option<Diagnostic>,
     ) -> Result<Diagnostic, Option<Diagnostic>> {
         let source_flags = self.type_of(source).flags;
+        // reportErrorResults' tryElaborateErrorsForPrimitivesAndObjects and
+        // Object-type notes apply only to these global sources.
+        let global_wrapper = matches!(self.type_of(source).data,
+            TypeData::Named { members: Some(owner), .. }
+                if ["Object", "String", "Number", "Boolean", "Symbol"].iter().any(|name| {
+                    self.global_type_symbol_with_arity(name, 0) == Some(owner)
+                }));
         if self.exact_optional_property_types
-            || (source_flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
-                && !self
-                    .type_of(target)
-                    .flags
-                    .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
+            || global_wrapper
             || (source_flags.contains(TypeFlags::TYPE_PARAMETER)
                 && self.base_constraint_of_type(source).is_none())
         {

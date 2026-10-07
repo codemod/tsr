@@ -1217,7 +1217,13 @@ impl Relater<'_, '_, '_> {
                         RelationResult::Unknown
                     };
                 }
-                return self.is_related_to(apparent, target);
+                // structuredTypeRelatedToWorker reports no structural errors
+                // for a primitive source (reportStructuralErrors needs
+                // !sourceIsPrimitive): the pair's own link explains it.
+                let result = self.is_related_to(apparent, target);
+                self.simple_error |= result == RelationResult::NotRelated
+                    && self.diagnostic_pair == Some((source, target));
+                return result;
             }
         }
         // structuredTypeRelatedTo compares the non-primitive `object` through
@@ -1318,6 +1324,8 @@ impl Relater<'_, '_, '_> {
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
         if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+            // No structured arm reports for a primitive target.
+            self.simple_error |= self.diagnostic_pair == Some((source, target));
             return RelationResult::NotRelated;
         }
         // In strict mode unknown includes null and undefined, so it cannot
@@ -1342,6 +1350,9 @@ impl Relater<'_, '_, '_> {
             )
             && !self.checker.mapped_types.contains_key(&source)
         {
+            // No structured arm reports; reportRelationError adds the
+            // type-parameter explanation to the pair's own link.
+            self.simple_error |= self.diagnostic_pair == Some((source, target));
             return RelationResult::NotRelated;
         }
         // structuredTypeRelatedToWorker's indexed-access target arm
@@ -1414,6 +1425,8 @@ impl Relater<'_, '_, '_> {
                 || (!self.is_generic_mapped_target(target)
                     && !self.is_qualified_alias_mint(target)))
         {
+            // No structured arm accepts or reports a non-object source.
+            self.simple_error |= self.diagnostic_pair == Some((source, target));
             return RelationResult::NotRelated;
         }
         // A template always inhabits the string domain. Generic holes do not
