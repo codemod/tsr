@@ -380,7 +380,35 @@ impl<'a> Parser<'a> {
             SyntaxKind::ThisKeyword => {
                 self.next_token();
                 let node = self.finish_node(ThisTypeNode::new(), SyntaxKind::ThisType, start);
-                TypeNode::ThisTypeNode(node)
+                // Native parseNonArrayType accepts this predicates in ordinary
+                // type positions too; grammar checking owns TS1228.
+                if self.at(SyntaxKind::IsKeyword) && !self.token.has_preceding_line_break() {
+                    self.next_token();
+                    let type_node = self.parse_type();
+                    let predicate = self.finish_node(
+                        TypePredicateNode::new(
+                            None,
+                            Some(TypePredicateParameterName::ThisTypeNode(node)),
+                            Some(type_node),
+                        ),
+                        SyntaxKind::TypePredicate,
+                        start,
+                    );
+                    TypeNode::TypePredicateNode(predicate)
+                } else {
+                    TypeNode::ThisTypeNode(node)
+                }
+            }
+            SyntaxKind::AssertsKeyword if self.next_starts_predicate_subject() => {
+                let asserts = self.take_token();
+                let parameter = self.parse_type_predicate_parameter();
+                let type_node =
+                    if self.eat(SyntaxKind::IsKeyword) { Some(self.parse_type()) } else { None };
+                TypeNode::TypePredicateNode(self.finish_node(
+                    TypePredicateNode::new(Some(asserts), Some(parameter), type_node),
+                    SyntaxKind::TypePredicate,
+                    start,
+                ))
             }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();

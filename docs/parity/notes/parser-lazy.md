@@ -345,6 +345,24 @@ Incremental full-parse 41pair x60 wall/CPU 0.994856/0.993521 parser.ts,
 incremental slowdown, but complete target remains blocked on actual consumers.
 No AST/scanner/checker/printer edits in this candidate.
 
+### Ordinary type-position predicate syntax (tsr-2zk.2.14)
+
+Pinned parseNonArrayType handles same-line this-is predicates and asserts
+predicates in all type positions, not only return annotations. The owned types
+candidate publishes those native TypePredicate nodes and reuses the ordinary
+subject/type workers; grammar consumers own invalid-position TS1228. No shared
+AST/scanner changes, alias shortcut or context-specific test exception. Native
+controls and isolated parser target/full tests/clippy/fmt pass.
+
+Full unfiltered type delta versus preceding isolated candidate: five existing
+WRONG->RIGHT, 124 new RIGHT and three new WRONG rows; every previous RIGHT and
+EMPTY_RIGHT key preserved, zero vanished keys. assertionTypePredicates1 remains
+WRONG on semantic diagnostics; no full-case conversion claimed. Incremental
+complete-parse 41pairs x60 wall/CPU 1.010255/1.006929 parser.ts,
+1.018117/1.017934 dom, equal node outputs and full JSDoc/diagnostic work. These
+observed increases are not accepted as no-hotpath-regression. Candidate requires
+parent atomic semantic and performance gates before landing.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
