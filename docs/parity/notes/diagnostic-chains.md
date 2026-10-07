@@ -249,6 +249,32 @@ marker compression (f().x); no complete parameter/return cluster claim. Native
 return marker writer/reduction must be implemented together before publication.
 Receipts target/recovery-diagnostics/parameter-*.
 
+## Return worker and elided marker publication — tsr-2zk.1
+
+Owned one_signature_related_to now selects actual completed source/target return
+TypeIds for the existing recursive relation worker. Native reverse bivariant
+query remains verdict-only; forward failure publishes the return relation chain.
+Inline return marker (construct/call, arguments/no arguments) mirrors native
+compareSignaturesRelated 1615 marker emission without rendering the marker.
+properties_related_to consumes it at native reportError's reduction boundary:
+function relation/property wrappers disappear and returned-by f().x retains the
+actual inner property failure. No syntax-based signature reconstruction or
+second semantic traversal. Marker state is walk-local, restored with successful
+candidate/member/parameter states, never stored as a completed semantic cache.
+
+Actual complete CLI control now matches native TS2322/2345 object parameter,
+object return and property-return f().x trees. Permanent return test asserts both
+uncompressed return chain and native returned-by compression. Workspace release
+tests finish and pass, scoped clippy passes, sixteen read-only suites finish.
+Fresh full keyed dumps preserve 469785 protected RIGHT type and 9190 diagnostic
+keys without disappearance or changes. 21-pair domain recovery-baseline observed
+wall ratio 0.9581, diagnostics match, verified complete-work ratio null. This
+bounded worker publication does not certify nested callback predicates, tuple-
+rest labels, arbitrary alias normalization, cyclic reporting re-entry or full
+compiler/configuration exact parity. No whole-case conversion count is claimed
+by legacy head-code verdicts, which cannot observe these full-message gains.
+Receipts target/recovery-diagnostics/return-* and parameter-return-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

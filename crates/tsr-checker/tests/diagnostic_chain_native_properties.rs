@@ -81,6 +81,28 @@ fn parameter_failure_wraps_the_actual_contravariant_object_chain() {
 }
 
 #[test]
+fn return_object_chain_and_property_return_marker_preserve_native_compression() {
+    let ds = diagnostics(
+        "declare let r: () => { x: string }; let q: () => { x: number } = r; declare let p: { f: () => { x: string } }; let o: { f: () => { x: number } } = p;",
+    );
+    let texts = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, &d.message_chain()[0], "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        texts,
+        [
+            "Type '{ x: string; }' is not assignable to type '{ x: number; }'.\n  Types of property 'x' are incompatible.\n    Type 'string' is not assignable to type 'number'.",
+            "The types returned by 'f().x' are incompatible between these types.\n  Type 'string' is not assignable to type 'number'.",
+        ]
+    );
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

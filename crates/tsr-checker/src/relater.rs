@@ -459,6 +459,8 @@ struct Relater<'c, 'a, 'n> {
     /// Completed property reporting data; absent on verdict-only walks.
     property_error: Option<tsr_diagnostics::Diagnostic>,
     simple_error: bool,
+    /// Native elided return marker: construct side and whether arguments exist.
+    return_marker: Option<(bool, bool)>,
 }
 
 /// A walk-local relation result key: the ordered pair and whether it was
@@ -723,6 +725,7 @@ impl Checker<'_, '_> {
             signature_error: None,
             property_error: None,
             simple_error: false,
+            return_marker: None,
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
@@ -859,6 +862,7 @@ impl Checker<'_, '_> {
             signature_error: None,
             property_error: None,
             simple_error: false,
+            return_marker: None,
         };
         let mut missing = Vec::new();
         for name in names {
@@ -1039,6 +1043,7 @@ impl Checker<'_, '_> {
             signature_error: None,
             property_error: None,
             simple_error: false,
+            return_marker: None,
         };
         relater
             .one_signature_related_to(source, target, false, false, false)
@@ -1907,10 +1912,12 @@ impl Relater<'_, '_, '_> {
             let saved_error = self.signature_error.take();
             let saved_property = self.property_error.take();
             let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
             let Some(target_signature) = target_signature else {
                 self.signature_error = saved_error;
                 self.property_error = saved_property;
                 self.simple_error = saved_simple;
+                self.return_marker = saved_marker;
                 parts.push(RelationResult::Unknown);
                 continue;
             };
@@ -1941,6 +1948,7 @@ impl Relater<'_, '_, '_> {
             self.signature_error = saved_error;
             self.property_error = saved_property;
             self.simple_error = saved_simple;
+            self.return_marker = saved_marker;
             parts.push(best);
         }
         Some(RelationResult::all(parts))
@@ -2183,6 +2191,7 @@ impl Relater<'_, '_, '_> {
                     let saved_error = self.property_error.take();
                     let saved_signature = self.signature_error.take();
                     let saved_simple = std::mem::take(&mut self.simple_error);
+                    let saved_marker = self.return_marker.take();
                     self.diagnostic_pair = Some((to, from));
                     let reverse = self.is_related_to(to, from);
                     self.diagnostic_pair = saved_pair;
@@ -2234,10 +2243,12 @@ impl Relater<'_, '_, '_> {
                             ));
                         }
                         self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
                     } else {
                         self.property_error = saved_error;
                         self.signature_error = saved_signature;
                         self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
                     }
                     RelationResult::any([forward, reverse])
                 } else {
@@ -2285,21 +2296,60 @@ impl Relater<'_, '_, '_> {
                     return Some(RelationResult::NotRelated);
                 }
             } else {
-                parts.push(if bivariant_callback {
-                    // Callback returns use the opposite native direction order.
-                    let reverse =
-                        self.is_related_to(target_signature.r#type, source_signature.r#type);
-                    if reverse.is_success() {
-                        reverse
-                    } else {
-                        RelationResult::any([
-                            reverse,
-                            self.is_related_to(source_signature.r#type, target_signature.r#type),
-                        ])
-                    }
+                let reverse = if bivariant_callback {
+                    self.is_related_to(target_signature.r#type, source_signature.r#type)
                 } else {
-                    self.is_related_to(source_signature.r#type, target_signature.r#type)
-                });
+                    RelationResult::NotRelated
+                };
+                let related = if reverse.is_success() {
+                    reverse
+                } else if report_errors {
+                    let source_return = source_signature.r#type;
+                    let target_return = target_signature.r#type;
+                    let saved_pair = self.diagnostic_pair;
+                    let saved_error = self.property_error.take();
+                    let saved_signature = self.signature_error.take();
+                    let saved_simple = std::mem::take(&mut self.simple_error);
+                    let saved_marker = self.return_marker.take();
+                    self.diagnostic_pair = Some((source_return, target_return));
+                    let forward = self.is_related_to(source_return, target_return);
+                    self.diagnostic_pair = saved_pair;
+                    if forward == RelationResult::NotRelated {
+                        let error = self.property_error.take();
+                        let simple = std::mem::take(&mut self.simple_error);
+                        if error.is_some() || simple {
+                            use tsr_diagnostics::{Diagnostic, messages};
+                            let mut diagnostic = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                tsr_core::Span::new(0, 0),
+                                [
+                                    self.checker.type_to_string(source_return),
+                                    self.checker.type_to_string(target_return),
+                                ],
+                            );
+                            diagnostic.add_message_chain(error);
+                            self.property_error = Some(diagnostic);
+                            self.return_marker = Some((
+                                source_signature.kind != crate::signatures::SignatureKind::Call,
+                                !source_signature.parameters.is_empty()
+                                    || !target_signature.parameters.is_empty(),
+                            ));
+                        }
+                        self.simple_error = saved_simple;
+                    } else {
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
+                    }
+                    RelationResult::any([reverse, forward])
+                } else {
+                    RelationResult::any([
+                        reverse,
+                        self.is_related_to(source_signature.r#type, target_signature.r#type),
+                    ])
+                };
+                parts.push(related);
             }
         }
         Some(RelationResult::all(parts))
@@ -3955,6 +4005,7 @@ impl Relater<'_, '_, '_> {
             let saved_property = self.property_error.take();
             let saved_signature = self.signature_error.take();
             let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
             self.diagnostic_pair = reporting.then_some((source_type, target_type));
             let related = if type_related_unread {
                 RelationResult::Related
@@ -3968,6 +4019,7 @@ impl Relater<'_, '_, '_> {
                     let span = tsr_core::Span::new(0, 0);
                     let nested = self.property_error.take();
                     let signature = self.signature_error.take();
+                    let return_marker = self.return_marker.take();
                     // A simple native relation failure has no prior recursive
                     // error chain. Unsupported recursive failures stay absent.
                     let simple = std::mem::take(&mut self.simple_error);
@@ -3977,7 +4029,7 @@ impl Relater<'_, '_, '_> {
                                 || name.clone(),
                                 |symbol| self.checker.callable_property_name(symbol, &name),
                             );
-                        let property_name = if printed_name.starts_with(['\"', '\'', '`']) {
+                        let mut property_name = if printed_name.starts_with(['\"', '\'', '`']) {
                             format!("[{printed_name}]")
                         } else {
                             printed_name.clone()
@@ -3985,6 +4037,34 @@ impl Relater<'_, '_, '_> {
                         // Native reportError removes the intervening relation
                         // head when adjacent property explanations compress.
                         let diagnostic = if let Some(mut nested) = nested {
+                            if let Some((construct, has_arguments)) = return_marker {
+                                property_name.push_str(if has_arguments { "(...)" } else { "()" });
+                                if construct {
+                                    property_name.insert_str(0, "new ");
+                                }
+                                let compressed = nested.message_chain().first().is_some_and(|d| {
+                                    d.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                        || d.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                });
+                                if compressed {
+                                    nested = std::mem::replace(
+                                        &mut nested.message_chain_mut()[0],
+                                        Diagnostic::new(
+                                            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                            span,
+                                        ),
+                                    );
+                                } else {
+                                    // Native return marker removes the function
+                                    // relation head, retaining its return chain.
+                                    let diagnostic = Diagnostic::new_chain(Some(nested),
+                                        &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES,
+                                        [property_name]);
+                                    self.property_error = Some(diagnostic);
+                                    self.simple_error = saved_simple;
+                                    return RelationResult::NotRelated;
+                                }
+                            }
                             if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
                                 || nested.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
                             {
@@ -4008,7 +4088,11 @@ impl Relater<'_, '_, '_> {
                                     nested.args[0].insert(pos, '.');
                                 }
                                 nested.args[0].insert_str(pos, &property_name);
-                                nested.message = &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
+                                nested.message = if return_marker.is_some() {
+                                    &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                } else {
+                                    &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                };
                                 nested
                             } else {
                                 let child = Diagnostic::new_chain(Some(nested),
@@ -4048,6 +4132,7 @@ impl Relater<'_, '_, '_> {
                 self.simple_error = saved_simple;
                 return RelationResult::NotRelated;
             }
+            self.return_marker = saved_marker;
             self.simple_error = saved_simple;
             self.property_error = saved_property;
             self.signature_error = saved_signature;
@@ -4186,6 +4271,7 @@ mod variance_recursion_tests {
                 signature_error: None,
                 property_error: None,
                 simple_error: false,
+                return_marker: None,
             };
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);
