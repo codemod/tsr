@@ -207,19 +207,15 @@ fn external_primary_paths_keep_file_identity_and_merge_only_equal_trees() {
     duplicate.add_related_information(Some(child("a")));
     let mut different_tree = head();
     different_tree.add_message_chain(Some(child("explanation")));
-    let rows = tsr_diagnostics::sort_and_deduplicate_located_diagnostics(
-        vec![
-            ("b.ts", head()),
-            ("a.ts", first),
-            ("", head()),
-            ("a.ts", duplicate),
-            ("a.ts", different_tree),
-        ],
-        |(path, diagnostic)| (*path, diagnostic),
-        |(_, diagnostic)| diagnostic,
-    );
+    let rows = tsr_diagnostics::sort_and_deduplicate_located_diagnostics(vec![
+        ("b.ts".into(), head()),
+        ("a.ts".into(), first),
+        (String::new(), head()),
+        ("a.ts".into(), duplicate),
+        ("a.ts".into(), different_tree),
+    ]);
     assert_eq!(
-        rows.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
+        rows.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
         ["", "a.ts", "a.ts", "b.ts"]
     );
     assert_eq!(rows[1].1.message_chain()[0].text(), "'explanation' expected.");
