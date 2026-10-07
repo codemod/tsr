@@ -473,3 +473,6 @@ per-file flag must become per-node.
   type only as a whole alias body not followed by `.`; elsewhere a type
   reference (TS2304). `checkTypeAliasDeclaration`'s TS2795 for a
   non-compiler alias body is in `grammar.rs` (syntactic, no type queries).
+- Function declaration names (`parseFunctionDeclaration`): the name is
+  optional only under a `default` modifier (unless a binding identifier
+  follows); otherwise `parseBindingIdentifier` reports TS1003.
