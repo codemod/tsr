@@ -255,6 +255,26 @@ no-RIGHT-loss gate fails. The prior missing-node prerequisite itself remains
 performance-rejected. Temporary canonical AST copies removed; no shared AST
 changes in this candidate. Issue stays in progress with exact consumer blockers.
 
+### Template rescan value publication dependency (tsr-2zk.16.368)
+
+Three expression template rescan sites updated the token but not Parser's
+captured decoded value. The parser candidate routes all three through the same
+rescan publication seam as slash/JSX/continuation operations, updating token and
+cooked value together. Direct pinned native controls confirm untagged octal
+\\5 cooks U+0005 with exact TS1487 [11,13), head \\055 cooks '-' [11,15),
+continuation \\5 cooks U+0005 [19,21); tagged invalid escape remains raw \\5
+without diagnostics, ordinary Unicode escape cooks 'a'.
+
+This exposes a scanner-side writer defect: rescan_template retains previous
+Scanner.value, and scan_template_body appends to it. The observed parser value
+is literal \\5 followed by U+0005, not native U+0005. Scanner ownership is parent;
+required exact hunk is self.value=None before scan_template_body (review the
+continuation writer's reset too). The cooked-value regression test remains
+failing, not repinned. Full unfiltered candidate comparison has many RIGHT losses
+from stale scanner accumulation, so this candidate is not accepted and no
+performance gate is claimed. No scanner/shared AST changes committed. Integrate
+scanner reset plus parser value publication atomically and rerun all gates.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

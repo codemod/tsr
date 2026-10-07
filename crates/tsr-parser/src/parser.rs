@@ -499,6 +499,13 @@ impl<'a> Parser<'a> {
         self.token_value = capture_value(&self.scanner);
     }
 
+    /// Ported from typescript-go's `Parser.reScanTemplateToken` (`parser.go`).
+    /// Publish the rescanned token and cooked value together, as other rescans do.
+    pub(crate) fn rescan_template(&mut self, is_tagged: bool) {
+        self.token = self.scanner.rescan_template(is_tagged);
+        self.token_value = capture_value(&self.scanner);
+    }
+
     /// Re-scan a `}` as the continuation of a template literal.
     pub(crate) fn rescan_template_continuation(&mut self) {
         self.token = self.scanner.rescan_template_continuation();
