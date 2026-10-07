@@ -127,6 +127,20 @@ fn constraint_query_uses_source_symbol_identity_at_shadowed_print_sites() {
 }
 
 #[test]
+fn property_constraints_preserve_written_intersection_and_optional_annotation() {
+    // spreadObjectOrFalsy's z resolves semantically to T. Reusing the
+    // containing constraint still prints (T | undefined) & T, and does not
+    // add the optional property's semantic undefined to its annotation.
+    assert_eq!(
+        reused_return(
+            "declare function source(): \
+             <T extends {}, A extends { z: (T | undefined) & T; readonly q?: T | null }>(a: A) => T;",
+        ),
+        "<T extends {}, A extends { z: (T | undefined) & T; readonly q?: T | null; }>(a: A) => T",
+    );
+}
+
+#[test]
 fn nested_generic_scopes_preserve_distinct_written_type_parameters() {
     assert_eq!(
         reused_return(

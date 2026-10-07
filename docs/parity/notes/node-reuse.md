@@ -310,6 +310,41 @@ count, and unverified performance receipts therefore remain unchanged. This
 continuation guards a real accessibility boundary but does not claim a cluster
 conversion or a completed release goal.
 
+## Property-constraint continuation (`spreadObjectOrFalsy`)
+
+Actual native/TSR CLI controls place the target's constraint inside a written
+returned generic function:
+
+```typescript
+declare function source(): <T extends {}, A extends { z: (T | undefined) & T }>(a: A) => T;
+const result: never = source;
+declare function nested(): <T extends {}, A extends { z: (T | undefined) & T; readonly q?: T | null }>(a: A) => T;
+const nestedResult: never = nested;
+```
+
+Both emit identical TS2322 messages at `(2,7)` and `(4,7)`, in order. The
+constraint preserves `(T | undefined) & T` and the optional annotation
+`readonly q?: T | null`. The actual corpus pipeline separately renders `z` as
+semantic `T` and `q` as `T | null | undefined`. This verifies that node reuse
+preserves written structure without rewriting the underlying semantic types.
+The owned path is `reused_type_members` / `reused_type_member` followed by
+`emit_reused_type`; the existing native recovery boundary remains unchanged.
+
+Added a seventh owned regression for the intersection/property annotation
+boundary and unrelated semantic-image refusal. Release suite result:
+**7 passed, 0 failed, 0 ignored, 0 filtered out**; formatting check passes.
+Actual target smoke remains **46 RIGHT, 1 WRONG, 0 GAP** for
+`conformance/spreadObjectOrFalsy`: the top-level signature still prints
+`A extends { z: T; }` rather than the written constraint. Parent dispatch is
+required; no production visitor defect was demonstrated.
+
+No compiler source, binary, shared metadata, or visibility edits occurred.
+Checked native/TSR SHA-256 values still match the recorded full receipts.
+The prior unfiltered pair remains zero verdict changes, prior-RIGHT/EMPTY_RIGHT
+losses, missing IDs, and new IDs; native performance remains unverified rather
+than accepted. No blanket fresh-TypeId guard, text-equivalence gate, or cache
+was introduced, and no other cluster was claimed.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
