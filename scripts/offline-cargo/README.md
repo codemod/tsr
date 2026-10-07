@@ -3,6 +3,21 @@
 For cloud sessions whose network policy blocks `index.crates.io`,
 `static.crates.io` and `static.rust-lang.org` but allows `git` over GitHub.
 
+Box setup installs the assembler's hash-pinned `tomlkit==0.13.3` in
+`~/.local/share/tsr/offline-python` and adds its interpreter to the agent's
+login PATH. Outside Box, use an isolated Python 3.11+ environment:
+
+```bash
+python3 -m venv /tmp/tsr-offline-python
+/tmp/tsr-offline-python/bin/python3 -m pip install --require-hashes \
+  -r scripts/offline-cargo/requirements.txt
+export PATH="/tmp/tsr-offline-python/bin:$PATH"
+```
+
+Do not use the older distro `tomlkit` or inject another user's package cache.
+The download cache is keyed by `requirements.txt`; the virtual environment
+is rebuilt locally and is not cached.
+
 ```bash
 scripts/offline-cargo/bootstrap.sh          # from the repo root
 git submodule update --init --recursive --depth 1

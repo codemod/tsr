@@ -1,5 +1,4 @@
 import sys, os, shutil, json, tomllib, re
-import glob; sys.path[:0] = glob.glob("/root/.cache/uv/archive-v0/*/tomlkit/..")
 import tomlkit
 V="/tmp/claude-0/vend"; OUT=V+"/vendor"
 lock=tomllib.load(open(os.environ.get("TSR_ROOT",os.getcwd())+"/Cargo.lock","rb"))
