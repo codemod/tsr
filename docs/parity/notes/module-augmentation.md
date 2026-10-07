@@ -639,6 +639,16 @@ based synthetic prototype path before publishing another symbol. No duplicate
 member image or callable edit introduced. Class self-name .16.18 inspected and
 already implemented in current binder; stale issue is not a new port.
 
+## Export-value fallback property probe (tsr-2zk.16.6)
+
+Native resolveExportByName reads export= properties with
+skipObjectFunctionPropertyAugment=true. Scoped the owned getter switch to the
+existing get_property_of_type_ex API; full corpus unchanged, no new RIGHT/
+vanished losses beyond held template 12. Consumers query internal default/
+__esModule/module.exports names, so this exact flag difference did not unlock a
+current target. Removed zero-impact hunk, preserved export-fallback/zero-impact.patch;
+no ready implementation/performance claim or shared alias/member edits.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
