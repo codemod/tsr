@@ -3327,12 +3327,20 @@ impl Checker<'_, '_> {
         owner: tsr_binder::SymbolId,
         names: &mut Vec<String>,
     ) -> bool {
-        for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
-            if self.symbol_is_value(symbol) && !names.iter().any(|existing| existing == name) {
-                names.push(name.to_owned());
-            }
-        }
-        for (name, _) in self.late_bound_static_members_of(owner) {
+        let mut own: Vec<_> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .exports
+            .iter()
+            .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
+            .map(|(&name, &symbol)| (name.to_owned(), symbol))
+            .collect();
+        own.extend(self.late_bound_static_members_of(owner));
+        // getNamedMembers/compareSymbols (5b1047d): source declaration order
+        // within the own table, retaining original symbols and value filtering.
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -3381,23 +3389,22 @@ impl Checker<'_, '_> {
         // A members table also holds type parameters, so the value gate is the
         // same one `getPropertyOfType` applies; without it `interface I<T>`
         // would demand a property named `T`.
-        let own: Vec<String> = self
+        let mut own: Vec<_> = self
             .binder
             .symbols()
             .get(owner)
             .members
             .iter()
             .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
-            .map(|(&name, _)| name.to_owned())
+            .map(|(&name, &symbol)| (name.to_owned(), symbol))
             .collect();
-        for name in own {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        // getResolvedMembersOrExportsOfSymbol keeps instance members and exports
-        // separate, including computed declarations.
-        for (name, _) in self.late_bound_members_of(owner, false) {
+        // Late-bound own declarations belong to this same ordered partition,
+        // not an appended table. Instance and static identities stay separate.
+        own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
+            |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
+        ));
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -3811,6 +3818,26 @@ mod property_name_tests {
         let root = parsed.source_file.node_id().unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         test(&mut checker, root)
+    }
+
+    #[test]
+    fn own_member_order_retains_source_order_and_static_instance_boundaries() {
+        with_checker(
+            "interface Callable<T> { readonly tag: string; method(value: T): T } class Shape { static tag: string; static method(): void {} instance: number }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Callable").unwrap();
+                let ty = checker.get_declared_type_of_symbol(owner);
+                assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["tag", "method"]);
+                let class = checker.binder.lookup_local(root, "Shape").unwrap();
+                let statics = checker.get_type_of_symbol(class);
+                assert_eq!(
+                    checker.get_property_names_of_type(statics).unwrap(),
+                    ["prototype", "tag", "method"]
+                );
+                let instance = checker.get_declared_type_of_symbol(class);
+                assert_eq!(checker.get_property_names_of_type(instance).unwrap(), ["instance"]);
+            },
+        );
     }
 
     #[test]

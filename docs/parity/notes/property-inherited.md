@@ -419,6 +419,27 @@ measurement is claimed; parent must gate acceptance on no slowdown before issue
 closure. This correctness delivery is independent of reserved lazy-render files
 and is not completion of inherited-this16.225.
 
+## Own member order prerequisite — tsr-2zk.4.5
+
+Parent requested a bounded own-table order cutover for the isolated wrapper
+renderer. `collect_structured_property_names` and `collect_static_property_names`
+now order original own symbols with existing `compare_symbols` (native
+getNamedMembers/compareSymbols, 5b1047d checker.go:22049). Late-bound declarations
+join their respective own partitions before ordering. Value-only filtering,
+merged original identity, static/instance separation, name deduplication and
+existing inherited traversal order are unchanged; inherited tables are not
+sorted wholesale. No member values are forced, no cache is introduced. The
+existing query-local name vector retains its ownership; comparison reads first
+declaration/source position. Synthetic prototype remains at its existing caller
+position; no new ordering convention is introduced for that metadata.
+
+Focused control verifies tag-before-method own order, static tag/method order,
+and absence of statics from the instance names. Smoke and strict checker all-
+target Clippy pass in the ignored parent-field copy (`own-order-*` receipts).
+Parent must run its coherent wrapper/native and full no-loss/performance gates
+before accepting this requested prerequisite. This bounded own-table cutover
+is not completion of the broader inherited partition `.4.5` contract.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
