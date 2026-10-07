@@ -206,9 +206,36 @@ cases remain unverified, not reduced to the controls above.
 
 The integrator subsequently assigned this root to the calls owner. The prior
 oracle-coordination paragraph describes its earlier ownership notification,
-not a competing current claim. `.61` was absent from this Box's local Beads
-DB. `types-triage-2.md` records 20 blocked cases but its detailed sections stop
-before the cluster; the exact issue target list remains an integrator input.
+not a competing current claim. The Box's local `bd show` could not resolve
+`.61`; that is a local database limitation, not evidence that the issue is
+absent. The passive `.beads/issues.jsonl` export is stale and not authoritative.
+The integration owner confirms `.61` exists and supplies these 20 current
+failed targets (blocked scope, not promised conversions):
+
+- `compiler/acceptSymbolAsWeakType`
+- `compiler/arrayFlatMap`
+- `compiler/computedPropertyBindingElementDeclarationNoCrash1`
+- `compiler/contextualParamTypeVsNestedReturnTypeInference4`
+- `compiler/contextualTypeFunctionObjectPropertyIntersection`
+- `compiler/declarationEmitOverloadedPrivateInference`
+- `compiler/dissallowSymbolAsWeakType`
+- `compiler/doYouNeedToChangeYourTargetLibraryES2015`
+- `compiler/doYouNeedToChangeYourTargetLibraryES2016Plus`
+- `compiler/implicitIndexSignatures`
+- `compiler/reverseMappedTypeContextualTypeNotCircular`
+- `conformance/contextualTypeTupleEnd`
+- `conformance/genericCallWithConstructorTypedArguments5`
+- `conformance/genericCallWithFunctionTypedArguments5`
+- `conformance/genericRestParameters1`
+- `conformance/inferingFromAny`
+- `conformance/objectLiteralContextualTyping`
+- `conformance/partiallyAnnotatedFunctionInferenceWithTypeParameter`
+- `conformance/restTupleElements1`
+- `conformance/variadicTuples1`
+
+Historical counts are not current completion evidence. Other prerequisites
+may block these sources; already-RIGHT type IDs or EMPTY_RIGHT diagnostic
+cases are controls, not conversions.
 
 ### Native-supported reproduction and experiment
 
