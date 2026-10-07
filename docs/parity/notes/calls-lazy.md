@@ -103,33 +103,15 @@ Fresh receipts in `target/recovery/calls`:
 No current-native full-configuration or performance acceptance is inferred
 from these focused controls and historical harness ratchets.
 
-## F6/G6 query-return signature prerequisite
+## Superseded F6 experiment
 
-Parent reported `type F6 = ({ a: string }) => typeof string` collapsing its
-callable body; constructor `G6` has the same boundary. Reproduction showed
-parameter construction succeeds, but `return_type_of_worker` declines because
-the existing unresolved-annotation spelling channel excludes type queries.
-Native `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` publishes the
-anonymous identity before members; `getSignatureFromDeclaration` preserves
-shape and `getReturnTypeFromAnnotation` resolves the return independently.
-
-Owned change: the established unresolved return annotation path also consults
-`type_query_written_text` for a query with no type arguments. This retains
-its existing any/error-return representation and written-node channel rather
-than declining the entire signature. It applies equally to function and
-constructor signatures, not alias names. Instantiated queries remain outside
-this spelling seam. No new identity table, cache, mapper or shared field.
-Existing captured declaration keys and `signature_returns` own completion;
-`qualified_written_text` retains annotation presentation. This does not change
-the alias owner's anonymous publication or certify broader lazy admission.
-
-Receipts: `f6-test-before2.log` fails with `error`; `f6-test-after.log` passes
-exact `F6`/`G6` expectations. `f6-native.log` and `f6-cli.log` are byte-identical
-actual CLI diagnostics. Complete checker tests/clippy pass (`f6-tests.log`,
-`f6-clippy-final.log`). Case `renamingDestructuredPropertyInFunctionType` moves
-156/177 to 162/177 type lines, with F10 still the first mismatch. Full existing
-12,444-key types/diagnostics ratchets retain all prior passes and keys
-(`f6-ratchet.json`); no new whole-case pass or release/perf claim.
+Parent's native implied-binding-parent fix `db726c9c` resolves the actual F6
+producer/admission boundary. Removed this worker's query-return spelling
+fallback, type-node pending-return preparation/publication experiment and both
+dedicated tests. They are not independent bug fixes and must not be integrated
+as additional F6 work. No parent changes are reverted. Remaining checked
+signature-instantiation and concrete-receiver controls pass; clippy passes
+(`no-f6-target-tests.log`, `no-f6-clippy.log`).
 
 ## Instantiation-expression signature entry
 
@@ -181,28 +163,6 @@ both suites. The final JS empty-object adjustment was followed by target tests
 and clippy; no JS corpus parity claim is made for that final adjustment.
 Parent's structured instantiation-expression images and end-to-end native CLI
 controls are still required; this API does not choose an arity survivor.
-
-## Function/constructor type-node pending-return protocol
-
-Parent now owns `function_types.rs` identity publication. After reserving the
-native anonymous identity and alias, before signature construction, call
-`prepare_signature_type_node_return(NodeId)`. It admits only FunctionType and
-ConstructorType nodes into the existing captured `TypeLiteralKey` pending table.
-It does not overwrite active/completed returns or infer unsupported work is any.
-Pending signature return error is unavailable metadata, not native completed
-errorType. Canonical `complete_signature_return` owns demand and completion.
-That completion now republishes the original into the reserved type-node
-`signature_types` vector via `type_literal_types[key]`, not only function-symbol
-vectors. No new cache or field.
-
-F6/G6 controls exercise identity construction with pending return, then demand
-through the checked instantiation API; supported query spelling completes the
-return to any and preserves exact alias identity. Target controls, full checker
-tests and clippy pass (`lazy-node-*.log`). No new full-corpus run was used to
-claim parent integration acceptance. Unsupported shape/annotation remains
-None; parent must retain provisional identity without publishing completed
-member absence or alias-name-on-error fallback. A general supported-error versus
-unported query provenance model remains outside this bounded admission.
 
 ### Separate checked-arguments and instantiation entries
 
