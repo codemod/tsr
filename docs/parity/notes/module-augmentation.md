@@ -82,6 +82,61 @@ No heuristic, suppression, compatibility shim or rejected semantic patch is
 included in the accepted commit. Callable merged-interface port
 `97f99018` has now been recovered and remeasured independently above.
 
+## Exact serialized alias-state interface
+
+Integration owner alone applies these two Checker additions with the canonical
+consumer cutover:
+
+```rust
+pub(crate) alias_symbol_links:
+    FxHashMap<crate::symbol_access::SymbolRef, crate::resolution::AliasSymbolLinks>,
+// with_module_host constructor:
+alias_symbol_links: FxHashMap::default(),
+```
+
+Owned resolution state uses existing `SymbolRef` (no new identity space):
+
+```rust
+#[derive(Debug, Default)]
+pub(crate) struct AliasSymbolLinks {
+    pub(crate) alias_target: Option<SymbolRef>,
+    pub(crate) immediate_target: Option<SymbolRef>,
+    pub(crate) type_only_origin: Option<NodeId>,
+}
+```
+
+Native writers and reentry, audited at the pin:
+
+- `resolveAlias`: nil target enters shared AliasTarget resolution; push failure
+  returns private unknown without publishing completion. Pure nonlocal aliases
+  recurse. Target publishes before pop; failed pop reports TS2303 then overwrites
+  with unknown. Completed unknown remains distinct from absence.
+- `tryResolveAlias`: completed target forces ordinary resolver; unpublished
+  target with no cycle-start frame does likewise. Active cycle-start returns
+  absence without failing any frame. Search checks published properties before
+  matching the requested frame and respects resolutionStart.
+- `resolveIndirectionAlias`: merged canonical target plus first-writer-wins
+  type-only-origin propagation. Receiver/written origin is not this target.
+- `markSymbolOfAliasDeclarationIfTypeOnly`: syntactic origin first, otherwise
+  type-only export-star origin; neither overwrites an existing marker.
+- `getImmediateAliasedSymbol`: independently caches getTargetOfAliasDeclaration.
+  Its written edge must not be replaced by the canonical terminal target.
+- `createDefaultPropertyWrapperForModule`: seeds a private synthetic alias's
+  completed canonical target directly. This writer requires SymbolRef end to end.
+
+Resolved/Unsupported result variants keep unsupported port work separate from
+native unknown; try additionally returns Active. Unsupported never writes
+alias_target. No raw-private-index conversion or bound compatibility getter.
+Recover-alias declared consumers need this real distinction, not another
+speculative F6P0 field.
+
+The minimal patch in ignored recovery receipts passes `git apply --check`.
+Definitions are delivered beside it, not installed as dead compiled state.
+Installation requires the integration owner's shared field and atomically
+migrated consumers: this worker cannot apply checker.rs, check.rs, declared.rs
+or printing.rs. The previously measured RIGHT losses prohibit an isolated
+replacement of the existing raw-ID resolver.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
