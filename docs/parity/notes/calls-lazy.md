@@ -181,3 +181,25 @@ both suites. The final JS empty-object adjustment was followed by target tests
 and clippy; no JS corpus parity claim is made for that final adjustment.
 Parent's structured instantiation-expression images and end-to-end native CLI
 controls are still required; this API does not choose an arity survivor.
+
+## Function/constructor type-node pending-return protocol
+
+Parent now owns `function_types.rs` identity publication. After reserving the
+native anonymous identity and alias, before signature construction, call
+`prepare_signature_type_node_return(NodeId)`. It admits only FunctionType and
+ConstructorType nodes into the existing captured `TypeLiteralKey` pending table.
+It does not overwrite active/completed returns or infer unsupported work is any.
+Pending signature return error is unavailable metadata, not native completed
+errorType. Canonical `complete_signature_return` owns demand and completion.
+That completion now republishes the original into the reserved type-node
+`signature_types` vector via `type_literal_types[key]`, not only function-symbol
+vectors. No new cache or field.
+
+F6/G6 controls exercise identity construction with pending return, then demand
+through the checked instantiation API; supported query spelling completes the
+return to any and preserves exact alias identity. Target controls, full checker
+tests and clippy pass (`lazy-node-*.log`). No new full-corpus run was used to
+claim parent integration acceptance. Unsupported shape/annotation remains
+None; parent must retain provisional identity without publishing completed
+member absence or alias-name-on-error fallback. A general supported-error versus
+unported query provenance model remains outside this bounded admission.

@@ -1986,8 +1986,17 @@ impl<'a> Checker<'a, '_> {
             let completed = self.get_signature_from_declaration(signature.declaration);
             self.pending_signature_returns.remove(&key);
             signature = completed?;
-            if let Some(owner) = self.binder.symbol_of(signature.declaration)
-                && let Some(&ty) = self.symbol_types.get(&owner)
+            let owner_type = if matches!(
+                self.nodes.kind(signature.declaration),
+                SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+            ) {
+                self.type_literal_types.get(&key).copied()
+            } else {
+                self.binder
+                    .symbol_of(signature.declaration)
+                    .and_then(|owner| self.symbol_types.get(&owner).copied())
+            };
+            if let Some(ty) = owner_type
                 && let Some(signatures) = self.signature_types.get_mut(&ty)
             {
                 for slot in signatures {
@@ -2165,6 +2174,30 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         self.pending_signature_returns.insert(key, LazyReturnState::Pending);
+    }
+
+    /// getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode (5b1047d:22933)
+    /// publishes anonymous identity before getSignatureFromDeclaration demands
+    /// any return. The caller owns that reservation and its signature vector.
+    /// Pending is not a supported error/any return; only the canonical return
+    /// accessor may complete it. Unsupported parameter shape remains None.
+    pub fn prepare_signature_type_node_return(&mut self, declaration: NodeId) {
+        if !matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+        ) {
+            return;
+        }
+        let key = self.type_literal_key(declaration);
+        if self.signature_returns.contains_key(&key)
+            || self.resolutions.on_stack(
+                crate::resolution::ResolutionTarget::Signature(key.clone()),
+                crate::resolution::PropertyName::ResolvedReturnType,
+            )
+        {
+            return;
+        }
+        self.pending_signature_returns.entry(key).or_insert(LazyReturnState::Pending);
     }
 
     /// checkFunctionExpressionOrObjectLiteralMethod leaves an uncontextualized
