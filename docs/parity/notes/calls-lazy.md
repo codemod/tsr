@@ -570,3 +570,125 @@ the previous `.61` experiment remains the last completed unfiltered evidence.
 Further owned cluster work requires an authoritative next-root assignment,
 or completion of the stated publication/collector prerequisites. `.16.27`
 remains open and unimplemented.
+
+## Semantic rest-pattern arity port — calls lane tsr-2zk.9
+
+The integrator assigned native minimum/count/rest arity as the next owned
+root and will file its specific Beads issue after identification. Root:
+**rest binding-pattern length overrides the parameter's semantic type**.
+Current TS2554 witnesses are `conformance/iterableArrayPattern17` and
+`conformance/iterableArrayPattern26`; both mistakenly require two arguments
+for an annotated array rest parameter. No explicit matching named cluster
+was found in the existing type-triage tables; this is a directly reproduced
+native arity root, not a speculative reassignment of a tuple-normalization
+cluster. Integrator issue request: link this port under tsr-2zk.9.
+
+### Native algorithm and implementation
+
+Pinned `getMinArgumentCountEx`, `getParameterCount` and
+`hasEffectiveRestParameter` (`internal/checker/relater.go`) read the rest
+symbol type. A fixed tuple contributes required/fixed elements; an array
+rest remains unbounded. A destructuring name does not change the annotation.
+`tryGetTypeFromEffectiveTypeNode` (`internal/checker/checker.go`) uses the
+implied binding-pattern type for an unannotated non-contextual parameter,
+including a rest parameter.
+
+`call_arity.rs::sole_signature_arity` now obtains the original declaration's
+Signature and uses the existing canonical minimum/count/rest queries for
+rest parameters. Removed the binding-pattern-length arity helper.
+`signatures.rs::parameter_of` uses the existing implied-pattern builder for
+unannotated rest binding parameters inside its existing non-contextual
+admission branch. This companion is necessary: the current symbol worker
+otherwise supplies implicit any[] and loses the required nested tuple
+arity in `iterableArrayPattern25`. No symbol-worker edit, new cache, syntax
+peek of an unpublished edge, or lazy-signature cutover was introduced.
+
+**Boundary:** declaration NodeId and binder parameter SymbolId remain owned
+by the private Checker for its checking lifetime. Signature slots retain
+original versus instantiated/contextual identity; strict-null-check options
+continue to govern void/optional semantic types. No new absent/active/success/
+failure table was added. The existing signature constructor and parameter
+accessor own forcing; unsupported signature construction remains unsupported,
+not a guessed tuple. Alias/default/rest type computation stays with the
+existing type store and binding-pattern builder. Expensive work is original
+signature construction and rest type demand; there is no duplicate cache.
+Worker/hit/re-entry/copy counts were not instrumented. Integrator bounded
+Beads follow-up request: measure semantic-rest arity demand counts before
+extending query reuse; timing below is not a verified speed claim.
+
+### Before/after native controls
+
+```typescript
+function annotated(...[a, b]: number[]) {}
+annotated();
+annotated(1);
+annotated(1, 2, 3);
+function fixed(...[a, b]: [number, number]) {}
+fixed(1);
+fixed(1, 2, 3);
+function defaults(a = 1, b: number) {}
+defaults(1);
+```
+
+Run both CLIs with `--ignoreConfig --strict --noEmit --pretty false`.
+Before TSR reports three extra TS2554s on lines 2, 3, 4. After TSR and pinned
+native output match byte-for-byte, preserving ordered diagnostics:
+
+- `(6,1)` TS2554: `Expected 2 arguments, but got 1.`
+- `(7,13)` TS2554: `Expected 2 arguments, but got 3.`
+- `(9,1)` TS2554: `Expected 2 arguments, but got 1.`
+
+Unannotated nested rest control `iterableArrayPattern25` directly matches
+native CLI TS2554 output byte-for-byte after the companion fix. Permanent
+`calls_min_arity_native_rest.rs` tests exercise annotated array versus fixed
+and implied tuples, and required-after-default minimum. Both pass.
+
+### Final verification and limits
+
+Candidate SHA-256:
+`6b247ae91157fab06c109a742f6aba05c4c061643a109afd3589b2125771947c`.
+Final completed unfiltered dump matrix, including missing keys:
+
+- Types: 477,970 IDs before/after; RIGHT 469,765 -> 469,766;
+  WRONG 7,212 -> 7,211; GAP 993 unchanged. **0 formerly-RIGHT losses,
+  0 missing IDs**. Only gained ID:
+  `compiler/restParameterWithBindingPattern1:0:0`, native/candidate
+  `(...{ a, b }: { a: any; b: any; }) => void` versus old
+  `(...{ a, b }: any[]) => void`. Other case IDs still gap; no case conversion.
+- Diagnostics: 10,570 IDs before/after, all verdicts unchanged. RIGHT 4,221,
+  EMPTY_RIGHT 4,968. **0 RIGHT/EMPTY_RIGHT losses, 0 missing case IDs**.
+- Read-only full existing coverage suite completed over all 12,444 discovered
+  cases: checker_types 8,042/9,538 (2,906 skipped), line percentage
+  98.10193064706435; diagnostics 4,221/5,502 (6,942 skipped).
+  Existing oracle exclusions and lack of strict message/length/order
+  population proof remain explicit; not >=99.9% full-corpus evidence.
+- `cargo test --workspace --release`: passed through all tests/doc-tests.
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `cargo fmt --all -- --check`: passed.
+- First semantic-query experiment lost iterableArrayPattern25's RIGHT
+  diagnostic; companion implied-pattern fix repaired it. Final matrix above
+  is the corrected candidate, not the rejected experiment.
+
+Fresh-process interleaved 21-pair final measurements, diagnostics and loaded
+scope matching in every run:
+
+| Project | candidate/baseline wall | median child CPU ratio | candidate/pinned-native observed wall |
+|---|---:|---:|---:|
+| domain-model | 0.953806 | 0.999043 | 1.036818 |
+| generic-imports | 1.000381 | 0.998785 | 0.916880 |
+
+Baseline no-slowdown evidence is within noise; complete_input_equivalence
+and actual_checked_work verification flags remain false. No verified native
+ratio or <=0.50 release claim. Build/setup is outside the timed child samples.
+
+### Remaining shared prerequisite, not silently counted as converted
+
+`iterableArrayPattern17/26` still fail corpus diagnostic verdicts: TSR now
+omits erroneous syntax TS2554 but also omits native argument-type errors
+(TS2741 / TS2345). Existing syntax argument checking reads the array
+annotation without rest element expansion. Integration owner must route
+these complete rest signatures through the shared semantic applicability/
+diagnostic caller in `check.rs` and the owned calls applicability consumer;
+do not add a second binding-name rule. No outside-owned files were edited.
+Delivered: faithful rest-type arity boundary and one native type-line gain;
+whole-case conversions: zero.
