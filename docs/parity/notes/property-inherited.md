@@ -123,6 +123,45 @@ A coherent cross-owner port must rerun native controls and a full pair after
 integration. Historical C1/C2/C3 rejections in
 `docs/architecture/checker-inherited-this.md` are evidence, not current passes.
 
+## Shared instantiation-expression prerequisite — tsr-2zk.16.56.1
+
+Owned member projections are implemented against the agreed parent field
+`instantiation_expression_sources: FxHashMap<TypeId, TypeId>`. Native
+`getInstantiationExpressionType` (`5b1047d`, checker.go:10660–10726) shares
+resolved source members/index infos and replaces call/construct signatures.
+Parent owns field initialization, `(NodeId, source)` mint/cache, serializer,
+index readers, and atomic source-link plus both signature-set publication.
+Completed-empty overrides must not fall through to source signatures.
+
+`members.rs` forwards source own/inherited symbols, semantic reads, write types,
+readonly status, intersection origins, names and absence ownership. Source
+lookup skips augmentation; wrapper Object/Function augmentation uses filtered
+wrapper signatures. Original concrete source this/alias context and static side
+are retained. Anonymous class-symbol wrappers do not enter the ordinary class
+static classification or unsupported-signature fallback. `readonly_target.rs`
+forwards mapped/literal readonly metadata, constructor permission, accessibility
+receiver context and private-name completeness. No member/index cloning, cache,
+fake empty completion or standalone wrapper mint is added. Existing private
+Checker/store TypeIds and source publication boundaries remain authoritative;
+queries add source-link lookups, not speculative reuse or a speed claim.
+
+Parent must also forward `member_completeness.rs` consumers
+`declared_members_are_complete`, `declared_property_table`, and
+`relation_property_table`. Calls/inference must retain source-link context under
+outer mapper rebuilding and both completed-empty signature overrides. Do not
+publish the wrapper before these serialized consumers work. This projection
+preserves current source semantics, not the rejected inherited-this cutover.
+
+Smoke verification uses an ignored workspace copy under
+`target/recovery/projection-workspace/` with only the agreed default field added
+to the copied Checker. Real owned code resolves inherited string values, own
+readonly metadata, names, class-static boolean members and absent instance
+members through source-linked views. The smoke passes; strict checker all-target
+Clippy passes. Logs: `target/recovery/property/projection-smoke.log` and
+`projection-clippy.log`. Main checker.rs is untouched. Native expression-mint
+end-to-end controls, full absence-aware parity and complete-work timing are
+blocked on parent field/mint and serialized consumers, and are not claimed.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
