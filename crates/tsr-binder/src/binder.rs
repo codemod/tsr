@@ -4250,10 +4250,15 @@ impl<'a, 'n> Binder<'a, 'n> {
         } else {
             flags.excludes()
         };
+        let symbol_owner = if matches!(node, Node::ExportAssignment(_)) {
+            self.node_symbols.get(self.container.index() - self.node_base).copied().flatten()
+        } else {
+            self.owner
+        };
         let symbol = self.declare_into_with_excludes(
             destination,
             table_owner,
-            self.owner,
+            symbol_owner,
             name,
             flags,
             excludes,
