@@ -946,6 +946,10 @@ impl<'a> Checker<'a, '_> {
                 (self.nodes.kind(inner.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
                     .then_some(inner)
             }
+            // getContextualType's ParenthesizedExpression arm passes the
+            // parent's contextual type through (`const { B = … } = ({ B:
+            // undefined })`).
+            tsr_ast::Node::ParenthesizedExpression(_) => self.contextual_binding_pattern(parent),
             _ => None,
         }
     }
