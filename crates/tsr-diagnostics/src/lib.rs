@@ -22,6 +22,7 @@ mod generated;
 pub use compare::{
     compact_and_merge_related_infos, compare_diagnostics, equal_diagnostics,
     equal_diagnostics_no_related_info, sort_and_deduplicate_diagnostics,
+    sort_and_deduplicate_located_diagnostics,
 };
 
 pub use format::{

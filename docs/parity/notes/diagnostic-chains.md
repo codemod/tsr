@@ -103,6 +103,23 @@ Receipts: repository-ignored `target/recovery-diagnostics/`, not `/tmp`.
   cross-tool query-input coverage and actual checker work/worker budgets remain
   unverified. Builds and fixture setup were outside timed samples.
 
+## Allocation-free primary-location consumer API
+
+`sort_and_deduplicate_located_diagnostics<T>(Vec<T>, locate, diagnostic_mut)`
+accepts owned rows and borrowed `(path, &Diagnostic)` views plus mutable diagnostic
+access. For `(path, Diagnostic)` tuples use `|(path, d)| (path.as_str(), d)` and
+`|(_, d)| d`. Program-indexed rows can borrow the path from the existing Program
+instead. Empty path denotes globals. Views must access the same diagnostic.
+
+This is the canonical native sort/compact worker: attached-file sort and
+already-sorted compaction call the same internals, not parallel comparator
+conventions. Explicit primary paths drive both comparison and equality. Rows and
+consumer metadata move together in place; no key copies, primary source-image
+copies or per-primary boxed details allocations. Related notes still carry their
+independent attached shared images. Merged nonempty related lists are the only
+compaction publication that needs diagnostic details. The existing Program/file
+image owner remains responsible for source text and line maps at rendering.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

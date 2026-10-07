@@ -200,6 +200,37 @@ fn duplicate_heads_merge_sorted_unique_related_info_but_distinct_chains_survive(
 }
 
 #[test]
+fn external_primary_paths_keep_file_identity_and_merge_only_equal_trees() {
+    let mut first = head();
+    first.add_related_information(Some(child("z")));
+    let mut duplicate = head();
+    duplicate.add_related_information(Some(child("a")));
+    let mut different_tree = head();
+    different_tree.add_message_chain(Some(child("explanation")));
+    let rows = tsr_diagnostics::sort_and_deduplicate_located_diagnostics(
+        vec![
+            ("b.ts", head()),
+            ("a.ts", first),
+            ("", head()),
+            ("a.ts", duplicate),
+            ("a.ts", different_tree),
+        ],
+        |(path, diagnostic)| (*path, diagnostic),
+        |(_, diagnostic)| diagnostic,
+    );
+    assert_eq!(
+        rows.iter().map(|(path, _)| *path).collect::<Vec<_>>(),
+        ["", "a.ts", "a.ts", "b.ts"]
+    );
+    assert_eq!(rows[1].1.message_chain()[0].text(), "'explanation' expected.");
+    assert_eq!(
+        rows[2].1.related_information().iter().map(Diagnostic::text).collect::<Vec<_>>(),
+        ["'a' expected.", "'z' expected."]
+    );
+    assert!(rows.iter().all(|(_, diagnostic)| diagnostic.file().is_none()));
+}
+
+#[test]
 fn comparator_equivalent_children_with_different_codes_are_not_compacted() {
     let mut first = head();
     first.add_message_chain(Some(child("x")));
