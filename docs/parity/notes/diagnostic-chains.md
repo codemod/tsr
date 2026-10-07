@@ -105,11 +105,11 @@ Receipts: repository-ignored `target/recovery-diagnostics/`, not `/tmp`.
 
 ## Allocation-free primary-location consumer API
 
-`sort_and_deduplicate_located_diagnostics<T>(Vec<T>, locate, diagnostic_mut)`
-accepts owned rows and borrowed `(path, &Diagnostic)` views plus mutable diagnostic
-access. For `(path, Diagnostic)` tuples use `|(path, d)| (path.as_str(), d)` and
-`|(_, d)| d`. Program-indexed rows can borrow the path from the existing Program
-instead. Empty path denotes globals. Views must access the same diagnostic.
+`sort_and_deduplicate_located_diagnostics(Vec<(String, Diagnostic)>)` returns
+`Vec<(String, Diagnostic)>`. It consumes the existing compiler tuple rows;
+empty paths denote globals. Paths and diagnostic ownership move together without
+key copies. Generic borrowed views are private worker machinery, not a second
+public consumer convention.
 
 This is the canonical native sort/compact worker: attached-file sort and
 already-sorted compaction call the same internals, not parallel comparator
