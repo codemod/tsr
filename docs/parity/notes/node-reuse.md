@@ -482,6 +482,40 @@ unsupported empty result was added. Seven owned tests pass. Source/binary
 identities and prior full no-loss/missing-ID/performance receipts remain
 unchanged; `.75` still has 11 blocked targets and no conversion claim.
 
+## Written mapper/source-identity continuation (`tsr-2zk.16.75`)
+
+Actual native/TSR CLI and corpus controls exercised the owned annotation gate's
+alias-frame and source-identity boundary, not printed-text equivalence:
+
+```typescript
+type Box<T> = { value: T };
+type Holder<T> = { fn: (value: Box<T>) => Box<T>; mixed: (value: T | string) => T | string };
+declare const original: Holder<number>;
+const result: never = original.fn;
+const mixed: never = original.mixed;
+type Same<T> = { fn: <T>(value: Box<T>) => Box<T> };
+declare const same: Same<number>;
+const sameResult: never = same.fn;
+```
+
+Both actual CLIs agree; the real corpus pipeline renders the moved reference
+as `Box<number>`, the moved union as `string | number`, and the distinct nested
+signature's own `T` unchanged. Another actual control with
+`Query<T> = { fn: (value: T) => typeof value; nested: <U extends T>(value: U) => U }`
+instantiated at `number` prints `(value: number) => number` and
+`<U extends number>(value: U) => U` in both CLIs and the corpus. A conditional
+alias branch with `(value: T[]) => T[]` likewise produces mapped `number[]`.
+
+These controls exercise `reuse_annotation`, its alias-frame refusal, and
+existing signature substitution feeding the visitor. No stale written mapper
+reference or owned production failure was demonstrated. A blanket fresh-TypeId
+refusal or syntax-based alias guard is not justified. No new cache, shared
+metadata change, production helper, or duplicate passing-path regression was
+added. Seven owned tests pass; unchanged compiler identities retain the full
+no-loss/missing-ID and unverified native performance receipts. Parent context
+contracts identified above remain unresolved; no new cluster conversion is
+claimed.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
