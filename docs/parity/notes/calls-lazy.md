@@ -153,3 +153,21 @@ both suites. The final JS empty-object adjustment was followed by target tests
 and clippy; no JS corpus parity claim is made for that final adjustment.
 Parent's structured instantiation-expression images and end-to-end native CLI
 controls are still required; this API does not choose an arity survivor.
+
+### Separate checked-arguments and instantiation entries
+
+Parent's wrapper consumer may use the same operations separately:
+`check_signature_type_arguments(&Signature, &[TypeNode]) ->
+Option<Option<Vec<TypeId>>>` is public; the filled vector then enters
+`get_signature_instantiation(&Signature, &[TypeId]) -> Option<Signature>`.
+The latter requires the complete vector, does not repeat constraint diagnostics,
+and owns no property/index/wrapper image. The combined API delegates to it.
+Dependent-default and pending-query controls pass, clippy passes. Full checker
+unit/integration output passes; the command was interrupted at doc-test startup,
+so this run is not claimed as a completed full-suite pass.
+
+The existing anonymous signature-type instantiator must not consume the parent's
+signature-only wrapper. Its source link/cache and members/index forwarding are
+serialized parent/member-owner contracts. Outer mapper support requires the
+actual source-link field and complete parent expression worker before adding an
+owned `instantiate_type_worker` branch; no stub or heuristic image is added.

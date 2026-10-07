@@ -21,10 +21,11 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     assert!(Checker::signature_accepts_type_argument_count(&signature, 1));
     assert!(!Checker::signature_accepts_type_argument_count(&signature, 0));
     assert!(!Checker::signature_accepts_type_argument_count(&signature, 3));
-    let image = checker
-        .instantiate_signature_with_type_arguments(&signature, &[alias.r#type.unwrap()])
+    let arguments = checker
+        .check_signature_type_arguments(&signature, &[alias.r#type.unwrap()])
         .unwrap()
         .unwrap();
+    let image = checker.get_signature_instantiation(&signature, &arguments).unwrap();
     assert_eq!(checker.type_to_string(image.r#type), "string");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "string");

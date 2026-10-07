@@ -1360,11 +1360,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// Native checkTypeArguments; arbitrary instantiation/call/query node list.
-    #[expect(
-        clippy::option_option,
-        reason = "unsupported differs from native constraint rejection"
-    )]
-    pub(crate) fn check_signature_type_arguments(
+    pub fn check_signature_type_arguments(
         &mut self,
         candidate: &Signature,
         nodes: &[tsr_ast::TypeNode<'a>],
@@ -1459,14 +1455,28 @@ impl<'a> Checker<'a, '_> {
         let Some(arguments) = self.check_signature_type_arguments(signature, nodes)? else {
             return Some(None);
         };
+        self.get_signature_instantiation(signature, &arguments).map(Some)
+    }
+
+    /// getSignatureInstantiation for the complete ordered vector returned by
+    /// `check_signature_type_arguments`. No members, indexes or wrapper identity
+    /// are instantiated here; the expression consumer owns those source links.
+    pub fn get_signature_instantiation(
+        &mut self,
+        signature: &Signature,
+        type_arguments: &[TypeId],
+    ) -> Option<Signature> {
         let signature = self.complete_signature_return(signature.clone())?;
         let parameters = self.type_parameter_types(&signature)?;
+        if parameters.len() != type_arguments.len() {
+            return None;
+        }
         let names: Vec<_> =
             signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
-        let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
+        let map: Vec<_> = parameters.iter().copied().zip(type_arguments.iter().copied()).collect();
         let mut image = self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
         image.type_parameters.clear();
-        Some(Some(image))
+        Some(image)
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an
