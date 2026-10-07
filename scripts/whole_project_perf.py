@@ -46,6 +46,33 @@ def revision(path: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def checkout_identity(path: Path) -> dict:
+    """Bind observed tracked deltas and untracked files; not build provenance.
+
+    git diff includes staged and unstaged tracked content against HEAD. Hash
+    untracked bytes separately: equal HEAD alone hides mixed-source candidates.
+    """
+    def git(*args):
+        return subprocess.run(["git", "-C", str(path), *args], capture_output=True, check=True).stdout
+    try:
+        patch = git("diff", "--binary", "--no-ext-diff", "--ignore-submodules=all", "HEAD", "--")
+        names = git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+        untracked = []
+        for raw in names:
+            if raw:
+                name = os.fsdecode(raw)
+                untracked.append({"path": name, "snapshot": inputs.snapshot([str(path / name)])[0]})
+        head = git("rev-parse", "HEAD").decode().strip()
+        return {"head": head, "tracked_delta_sha256": hashlib.sha256(patch).hexdigest(),
+                "tracked_delta_bytes": len(patch), "untracked": untracked,
+                "identity_sha256": fingerprint({"head": head, "patch_sha256": hashlib.sha256(patch).hexdigest(),
+                                                "untracked": untracked}),
+                "build_provenance_verified": False, "causal_baseline_verified": False}
+    except (OSError, subprocess.CalledProcessError) as error:
+        return {"valid": False, "error": str(error), "build_provenance_verified": False,
+                "causal_baseline_verified": False}
+
+
 def process(command: list[str], cwd: Path, timeout: float, *, environment: dict | None = None) -> dict:
     """Temporary files avoid pipe deadlocks; wait4 owns reaping this child."""
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
@@ -218,6 +245,10 @@ def qualified_checkpoint(report: dict) -> dict:
     return {
         "schema_version": 1, "issue": "tsr-2zk.17", "source_sha": report["source_sha"],
         "oracle_sha": report["oracle_sha"], "certifier_sha256": report["harness_sha256"],
+        "checkout_identities": report.get("checkout_identities"),
+        "checkout_identities_after": report.get("checkout_identities_after"),
+        "checkout_stable": report.get("checkout_stable"),
+        "causal_baseline_verified": False,
         "project": report["project"], "project_config_sha256": report["project_config_sha256"],
         "mode": report["mode"], "flags": report["flags"],
         "binaries": {name: {"path": tool["binary"], "sha256": tool["binary_sha256"],
@@ -273,6 +304,9 @@ def main() -> int:
                                for path in (project, *binaries.values()))
     report = {
         "schema_version": 2, "source_sha": revision(ROOT),
+        "checkout_identities": {"tsr": checkout_identity(ROOT),
+                                "native": checkout_identity(ROOT / "vendor/typescript-go")},
+        "causal_baseline_verified": False,
         "oracle_sha": revision(ROOT / "vendor/typescript-go"),
         "project_sha": revision(cwd), "project": str(project),
         "project_config_sha256": initial_by_path[str(project)].get("sha256"),
@@ -439,6 +473,8 @@ def main() -> int:
             receipt = {
                 "schema_version": 1, "child": child, "current_directory": str(cwd),
                 "source_sha": report["source_sha"], "oracle_sha": report["oracle_sha"],
+                "checkout_identities": report["checkout_identities"],
+                "causal_baseline_verified": False,
                 "binary_sha256": report["tools"][name]["binary_sha256"],
                 "source_files_sha256": {str(path): inputs.file_hash(path) for path in source_paths},
                 "inputs_before": before, "inputs_after": after,
@@ -525,9 +561,12 @@ def main() -> int:
     report["scope_match"] = ours["loaded_files_fingerprint"] == theirs["loaded_files_fingerprint"]
     report["options_match"] = not report["option_differences"]
     report["inputs_unchanged"] = all(event["stable"] for event in report["input_observations"])
+    report["checkout_identities_after"] = {
+        "tsr": checkout_identity(ROOT), "native": checkout_identity(ROOT / "vendor/typescript-go")}
+    report["checkout_stable"] = report["checkout_identities"] == report["checkout_identities_after"]
     report["sampling_protocol_verified"] = args.samples >= 5 and args.warmups >= 1
     report["equivalent_work_certificate"] = equivalence_certificate(report)
-    report["work_comparable"] = (report["sampling_protocol_verified"]
+    report["work_comparable"] = (report["checkout_stable"] and report["sampling_protocol_verified"]
                                  and report["build_provenance_verified"]
                                  and report["scope_match"] and report["options_match"]
                                  and report["diagnostics_stable"] and report["diagnostics_match"]

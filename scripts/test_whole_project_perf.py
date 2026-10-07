@@ -82,6 +82,31 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertIn("skipLibCheck", option_differences(
             {"compilerOptions": {}}, {"compilerOptions": {"skipLibCheck": True}}))
 
+    def test_checkout_identity_distinguishes_unmerged_tracked_and_untracked_source(self):
+        from whole_project_perf import checkout_identity
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+            git("init")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Fixture")
+            source = root / "source.rs"
+            source.write_text("baseline")
+            git("add", "source.rs")
+            git("commit", "-m", "baseline")
+            baseline = checkout_identity(root)
+            source.write_text("unmerged AST candidate")
+            candidate = checkout_identity(root)
+            self.assertEqual(baseline["head"], candidate["head"])
+            self.assertNotEqual(baseline["identity_sha256"], candidate["identity_sha256"])
+            git("add", "source.rs")
+            self.assertEqual(candidate["identity_sha256"], checkout_identity(root)["identity_sha256"])
+            (root / "helper.rs").write_text("untracked source")
+            self.assertNotEqual(candidate["identity_sha256"], checkout_identity(root)["identity_sha256"])
+            self.assertFalse(candidate["build_provenance_verified"])
+            self.assertFalse(candidate["causal_baseline_verified"])
+
     def test_ambient_trace_cannot_silently_serialize_timed_children(self):
         with patch.dict(os.environ, {"TSR_WORK_TRACE": "/ambient/trace", "TSR_WORK_TRACE_BINARY_SHA256": "ambient"}):
             sample = process([sys.executable, "-c",

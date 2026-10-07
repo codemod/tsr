@@ -212,6 +212,33 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Mixed-source candidate qualification
+
+Reports, receipts and curated checkpoints retain `checkout_identities`: HEAD,
+SHA-256 and byte count of staged+unstaged tracked deltas against HEAD, untracked
+file snapshots, and a combined identity. Source checkout identities are captured
+before the run and again after all pairs, outside child timing; mismatch prevents
+comparability. This does not detect transient edits. Nested submodule deltas are
+not recursively audited; the pinned native repository is captured independently.
+Neither a clean HEAD nor equal checkout identities attests that supplied binaries
+were built from them. `build_provenance_verified` and
+`causal_baseline_verified` remain false.
+
+Parent's mixed AST candidate (unmerged mask/unary changes) and reported AB41 CPU
+ratios domain 1.0308 / generic 1.0098 are **not** attributed to the diagnostic
+patch or labeled a speed win. Frozen source patch plus binary/build qualification
+and a causal same-source control are required before that comparison can be
+accepted. No parent patch or new runtime binary is present on this worker yet;
+the scripts-only identity smoke uses the original prebuilt binaries.
+
+28 harness tests passed, including equal-HEAD staged/unstaged/untracked source
+controls. Actual five-pair/warmup smoke with capture/checkpoint completed, checkout
+stable, observed ratio 0.9133487218123627, verified ratio null, causal baseline
+false and comparable exit 1. Artifact `/tmp/recover-source-qualified-checkpoint.json`;
+harness SHA-256 `963936a7530d6a79110f84f117da4555a71de7e7e258462eae5db9a9920db42a`.
+The large Linux ratios above remain failed speed observations; this small identity
+smoke supersedes none of them and verifies no frozen-parent diagnostic behavior.
+
 ### Runnable cross-tool operation-gap comparison
 
 The trace reader accepts `--compare-native-trace` and
