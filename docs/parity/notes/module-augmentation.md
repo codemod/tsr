@@ -574,6 +574,17 @@ receipt default-specifier-zero-impact.patch. Shared expression/template/callable
 publishers untouched. Wired require nine-loss full/performance proof belongs to
 the parent integrated tree, not this unmodified expression checkout.
 
+## Bare alias namespace-meaning prerequisite (tsr-2zk.16.33)
+
+Scoped native bare import-equals alias admission by Namespace target meaning
+rather than only module-value clone. Existing flags worker admission passes
+alias/cross-file tests, but both unfiltered dumps abort stack overflow. Those
+interrupted dumps are not passes or comparable missing-key verdicts. Requires
+native canonical AliasTarget active/completed/unknown publication and tryResolve
+consumer cutover in parent isolated tree before any recursion admission.
+No suppression/depth cap or shared alias cache added; patch withheld at
+bare-alias/cycle-blocked.patch and production restored. No full/perf claim.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
