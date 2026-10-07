@@ -121,10 +121,14 @@ Commands used offline release builds; Cargo/config/lockfiles unchanged.
 
 - Built every tsr-conformance example after caller migration.
 - Library tests: 137 passed.
-- `full_oracle_boundaries`: 4 passed, including real native/TSR clean control,
+- `full_oracle_boundaries`: 5 passed, including real native/TSR clean control,
   native Cartesian/span control, a hung-process deadline/reaping control, and
   config-only options with exact error/type artifacts and explicit unavailable
   semantic metadata. The earlier exact config result predates metadata labeling.
+- Fresh-process `tslibImportDefaultHelperCommonJS`: native and TSR both disable
+  type output (`<no content>`), and error baselines match. Missing semantic flags
+  still make the verdict Different; noTypesAndSymbols does not hide the mismatch.
+  This boundary is retained as a native/real-TSR regression control.
 - `assignment_declarations`: 10 passed.
 - Focused executable run: five configurations, one exact (`2dArrays`). Type artifact
   bytes match native for all five: `settingsSimpleTest` strict true/false,

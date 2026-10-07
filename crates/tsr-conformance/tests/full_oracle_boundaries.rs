@@ -78,6 +78,23 @@ fn config_only_options_keep_source_identity_and_complete_artifacts() {
 }
 
 #[test]
+fn native_disabled_type_output_does_not_hide_semantic_metadata_failure() {
+    let dir = std::env::temp_dir().join(format!("full-oracle-no-types-{}", std::process::id()));
+    let population = full_oracle::native_population(
+        &tsr_conformance::repo_root().join("vendor/typescript-go"), &dir,
+        Some(r"^TestFullOracle$/^local$/^compiler$/^tslibImportDefaultHelperCommonJS\.ts$"),
+    ).expect("native noTypesAndSymbols control");
+    let native = population.configurations.values().next().expect("configured control retained");
+    let expected = native.output.as_ref().expect("native artifacts");
+    let actual = tsr_conformance::full_oracle_actual::produce(&native.configuration).expect("real TSR producer");
+    assert_eq!(expected.types, b"<no content>");
+    assert_eq!(actual.types, expected.types);
+    assert_eq!(actual.errors, expected.errors);
+    assert!(matches!(full_oracle::compare(expected, &actual), Verdict::Different { diagnostics: true, errors: false, types: false }));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn process_deadline_reaps_hung_compiler_and_retains_output() {
     let path = std::env::temp_dir().join(format!("full-oracle-deadline-{}", std::process::id()));
     let status = full_oracle::run_bounded(std::process::Command::new("sh").args(["-c", "echo started; exec sleep 10"]),
