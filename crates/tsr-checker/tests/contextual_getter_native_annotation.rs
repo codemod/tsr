@@ -6,14 +6,24 @@ use tsr_core::Arena;
 
 fn returned_object_type(source: &str) -> String {
     let arena = Arena::new();
-    let parsed = tsr_parser::parse(&arena, source);
-    let bound = tsr_binder::bind(
+    let mut parsed = tsr_parser::parse_with_options(
+        &arena,
+        source,
+        tsr_parser::ParseOptions::for_file("control.js"),
+    );
+    let root = parsed.source_file.node_id.unwrap();
+    parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
+    let bound = tsr_binder::bind_into_with_jsdoc(
+        tsr_binder::BindResult::empty(),
         &arena,
         parsed.source_file,
         &parsed.nodes,
-        tsr_binder::FileInfo { name: "control.ts", text: source },
+        tsr_binder::FileInfo { name: "control.js", text: source },
+        &jsdoc,
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.set_jsdoc(parsed.jsdoc.iter());
     let expression = (0..parsed.nodes.len())
         .map(|index| NodeId::new(u32::try_from(index).unwrap()))
         .find_map(|id| match parsed.node_map.get(id) {
@@ -42,6 +52,27 @@ fn paired_setter_supplies_unannotated_getter_context() {
         returned_object_type(
             "class Holder { get value() { return { tag: 'a' }; } \
              set value(v: { tag: 'a' | 'b' }) {} }",
+        ),
+        "{ tag: \"a\"; }",
+    );
+}
+
+#[test]
+fn jsdoc_setter_annotation_contextualizes_getter_return() {
+    assert_eq!(
+        returned_object_type(
+            "class C { /** @param {{ tag: 'a' | 'b' }} value */ \
+             set value(value) {} get value() { return { tag: 'a' }; } }",
+        ),
+        "{ tag: \"a\"; }",
+    );
+}
+
+#[test]
+fn jsdoc_return_annotation_contextualizes_function_return() {
+    assert_eq!(
+        returned_object_type(
+            "/** @return {{ tag: 'a' | 'b' }} */ function f() { return { tag: 'a' }; }",
         ),
         "{ tag: \"a\"; }",
     );

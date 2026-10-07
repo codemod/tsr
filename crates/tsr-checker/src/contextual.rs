@@ -1520,14 +1520,18 @@ impl<'a> Checker<'a, '_> {
                         let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)? else {
                             return None;
                         };
-                        setter.parameters.first()?.r#type
+                        let parameter = setter.parameters.first()?;
+                        parameter.r#type.or_else(|| {
+                            self.jsdoc_parameter_annotation(parameter.node_id?)
+                                .map(|(annotation, _)| annotation)
+                        })
                     })
                 });
                 (annotation, false)
             }
             _ => (None, false),
         };
-        if let Some(annotation) = annotation {
+        if let Some(annotation) = annotation.or_else(|| self.jsdoc_return_annotation(function)) {
             return Ok(Some(self.get_type_from_type_node(annotation)));
         }
         // getContextualSignatureForFunctionLikeDeclaration: only function

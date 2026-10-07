@@ -628,9 +628,10 @@ that investigation's publication.
 Owned port: `contextual.rs::get_contextual_return_type` now consumes native
 `getReturnTypeFromAnnotation`'s getter annotation, falling back to the bound
 paired setter's first parameter annotation. The getter's own annotation
-wins. No accessor type/signature/body query is added. The authoritative issue
-and two target names remain pending integration's queue; the measured corpus
-case below is not assumed to be either queued target.
+wins. No accessor type/signature/body query is added. Authoritative issue **tsr-2zk.16.417**, targets
+`conformance/contextualTypeFromJSDoc` and
+`conformance/objectLiteralGettersAndSetters`, supplied after the initial
+annotation port. The measured case below is now a confirmed target.
 
 Pinned native direct strict declaration-only emit exits 0 for:
 
@@ -694,5 +695,76 @@ Complete-input and actual checked-work verification remain false; verified
 ratio null and target false. No verified release ratio claimed. Harness
 source label is `968b02d7`; actual measured implementation is the isolated
 owned getter-context change beyond that commit, identified by binary hash.
-Authoritative target-case acceptance remains pending the queue. Literal
-instantiable `.16.425` remains open/investigation-only.
+Target-case acceptance remained pending the queue at this measurement;
+see the authoritative JSDoc continuation below. Literal instantiable
+`.16.425` remains open/investigation-only.
+
+### .16.417 JSDoc annotation continuation
+
+Native reparsing exposes JSDoc return and setter parameter annotations through
+`getReturnTypeFromAnnotation`/`getAnnotatedAccessorType`. TSR stores those
+nodes separately. Owned contextual return lookup now reuses existing raw
+`jsdoc_return_annotation` and `jsdoc_parameter_annotation`, preserving the
+written getter annotation and paired setter parameter precedence. It never
+calls `getTypeOfAccessors`, signature construction, or body checking to obtain
+this context. Existing private Checker JSDoc host metadata owns the annotation
+node; no new cache or member image. Same annotation/publication/receiver/work
+boundary as the getter port above, plus the existing JSDoc host lookup.
+
+Pinned-native JS strictness-independent control, allowJs/checkJs declaration
+emit, exits 0:
+
+```js
+/** @return {{ tag: 'a' | 'b' }} */
+function f() { return { tag: 'a' }; }
+class C {
+  /** @param {{ tag: 'a' | 'b' }} value */
+  set value(value) {}
+  get value() { return { tag: 'a' }; }
+}
+```
+
+Both raw annotations contextualize returned tag literals; permanent tests
+register actual parser/binder JSDoc metadata and distinguish unannotated and
+divergent-annotation controls. Five annotation tests pass. The actual
+`contextualTypeFromJSDoc` corpus-pipeline smoke now preserves its returned
+nested tuple contexts, gaining **6 lines**, **31/39 -> 37/39**. The previous
+getter port gained 6 lines in `objectLiteralGettersAndSetters`, now 165/179.
+Neither target is fully converted. Two further lines improve in
+`instantiateTemplateTagTypeParameterOnVariableStatement`.
+
+Exact remaining unowned prerequisite for the JSDoc target:
+`symbols.rs::get_type_of_accessors_worker` obtains setter annotations through
+`accessor_annotation`, which does not supply this setter's JSDoc @param type.
+Native `getAnnotatedAccessorTypeNode` uses
+`getEffectiveSetAccessorTypeAnnotationNode`. Port that raw JSDoc annotation
+source in the canonical accessor producer; do not infer the setter contract
+from a correctly contextually checked getter body. The two remaining x symbol
+lines must have `[string, { x?: number; y?: number; }][]`, not the union of
+getter-body tuple shapes. This lane does not edit symbols.rs. Remaining
+object-literal target duplicate/accessor-image construction failures stay with
+the queued atomic accessor owner, not a context side pass.
+
+Verification after the JSDoc continuation: both unfiltered dumps, all 16
+read-only parity suites, workspace release tests, clippy all-targets -D
+warnings and fmt check complete. Zero missing formerly RIGHT keys, zero RIGHT
+type-line losses, zero RIGHT/EMPTY_RIGHT diagnostic losses. RIGHT lines are
+**469781/477970** (2 parentheses + 6 getter + 8 JSDoc gains over frozen base).
+Case coverage remains **8043/9538**, diagnostics **4221/5502**, clean
+**4968/5068**. No fully converted .16.417 target claimed.
+
+Candidate CLI SHA-256:
+`0330f4ff16411865a9881761f267fb6ab65eef60f66232b478b08bba772a5970`.
+Fresh-process interleaved baseline 41 pairs and native 21 pairs:
+
+| Project | Baseline CPU | Baseline observed wall | Native observed wall |
+| --- | --- | --- | --- |
+| domain-model | 0.99248 | 0.99790 | 1.04127 |
+| generic-imports | 1.00282 | 0.99860 | 0.92881 |
+
+No measured CPU regression above 1.03. Scope/options/diagnostics match and
+captured inputs stable. Complete-input and actual-work proof remain false,
+verified ratio null, target false; no verified 0.50 claim. Harness HEAD label
+is `5c801fff`; isolated owned JSDoc contextual changes are identified by the
+candidate binary hash. .16.417 remains open pending canonical accessor
+producer and target completion.
