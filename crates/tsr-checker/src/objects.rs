@@ -844,6 +844,13 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<&'a tsr_ast::BindingPattern<'a>> {
         let parent = self.nodes.parent(literal)?;
         match self.node_map.get(parent)? {
+            // Native getContextualType propagates the initializer's binding
+            // context through parentheses before selecting its declaration.
+            tsr_ast::Node::ParenthesizedExpression(expression)
+                if expression.expression.and_then(|inner| inner.node_id()) == Some(literal) =>
+            {
+                self.contextual_binding_pattern(parent)
+            }
             tsr_ast::Node::VariableDeclaration(declaration) => {
                 if declaration.initializer.and_then(|i| i.node_id()) != Some(literal) {
                     return None;

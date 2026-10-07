@@ -1499,11 +1499,9 @@ impl<'a> Checker<'a, '_> {
     /// nil — the function provably has no contextual return type; `Err` is a
     /// lookup this port cannot finish, which callers keep as a gap.
     ///
-    /// The annotation arm reads the written return type of the four function
-    /// kinds that can carry one here. `getReturnTypeFromAnnotation`'s
-    /// constructor and setter-paired get-accessor arms are not reached: neither
-    /// container can hold a `yield`, and a `return` in either kept its earlier
-    /// answer (no context). See `docs/parity/notes/destructure-iteration.md` §6.
+    /// getReturnTypeFromAnnotation supplies the written getter annotation or
+    /// its paired setter's effective annotation without resolving the accessor
+    /// type or checking its body. Constructor context remains class-owned.
     pub(crate) fn get_contextual_return_type(
         &mut self,
         function: NodeId,
@@ -1514,9 +1512,25 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionExpression(f)) => (f.r#type, f.asterisk_token.is_some()),
             Some(Node::ArrowFunction(f)) => (f.r#type, false),
             Some(Node::MethodDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
+            Some(Node::GetAccessorDeclaration(getter)) => {
+                let annotation = getter.r#type.or_else(|| {
+                    let symbol = self.binder.symbol_of(function)?;
+                    self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                        let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)? else {
+                            return None;
+                        };
+                        let parameter = setter.parameters.first()?;
+                        parameter.r#type.or_else(|| {
+                            self.jsdoc_parameter_annotation(parameter.node_id?)
+                                .map(|(annotation, _)| annotation)
+                        })
+                    })
+                });
+                (annotation, false)
+            }
             _ => (None, false),
         };
-        if let Some(annotation) = annotation {
+        if let Some(annotation) = annotation.or_else(|| self.jsdoc_return_annotation(function)) {
             return Ok(Some(self.get_type_from_type_node(annotation)));
         }
         // getContextualSignatureForFunctionLikeDeclaration: only function
@@ -1818,11 +1832,11 @@ impl<'a> Checker<'a, '_> {
         supported.then(|| arguments.get(slot).copied()).flatten()
     }
 
-    /// getContextualTypeForBindingElement (`checker.go:29583`), restricted to
-    /// annotated object and non-rest array holders. This is declared projection,
-    /// not binding inference: defaults do not remove undefined or supply a
-    /// parent type. Initialized array rest and annotation-less initializer or
-    /// implied-pattern fallbacks remain unsupported, not native refusals.
+    /// getContextualTypeForBindingElement (`checker.go:29583`): written holder
+    /// annotations precede nested binding and contextual parameter projection.
+    /// Defaults do not remove undefined. Initializer fallback still requires
+    /// explicit-context declaration checking to avoid recursively requesting
+    /// the holder's initializer from its implied defaults.
     fn contextual_type_for_binding_element(&mut self, declaration: NodeId) -> Option<TypeId> {
         let Node::BindingElement(element) = self.node_map.get(declaration)? else { return None };
         // Native rejects pattern-valued names and computed nonliteral syntax
@@ -1855,16 +1869,24 @@ impl<'a> Checker<'a, '_> {
         let pattern = self.nodes.parent(declaration)?;
         let array = match self.nodes.kind(pattern) {
             tsr_ast::SyntaxKind::ObjectBindingPattern => false,
-            tsr_ast::SyntaxKind::ArrayBindingPattern if element.dot_dot_dot_token.is_none() => true,
+            tsr_ast::SyntaxKind::ArrayBindingPattern => true,
             _ => return None,
         };
         let holder = self.nodes.parent(pattern)?;
-        let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
-            self.contextual_type_for_binding_element(holder)?
+        let parent_type = if let Some(annotation) = self.type_annotation_of(holder) {
+            Some(self.get_type_from_type_node(annotation))
         } else {
-            let annotation = self.type_annotation_of(holder)?;
-            self.get_type_from_type_node(annotation)
+            match self.nodes.kind(holder) {
+                tsr_ast::SyntaxKind::BindingElement => {
+                    self.contextual_type_for_binding_element(holder)
+                }
+                tsr_ast::SyntaxKind::Parameter => {
+                    self.get_contextually_typed_parameter_type(holder)
+                }
+                _ => None,
+            }
         };
+        let parent_type = parent_type?;
         if array {
             let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };
             // Binding holes occupy positions, and the binding pattern's length
@@ -3290,8 +3312,6 @@ mod tests {
                     vec![if strict { None } else { Some("\"right\"".into()) }]
                 );
                 for source in [
-                    "declare const input: ['head', ...'middle'[], 'end']; \
-                     let [, ...chosen = 'wrong']: ['head', ...'middle'[], 'end'] = input;",
                     "let [chosen = 'wrong'] = ['right'];",
                     "function f([chosen = 'wrong'] = ['right']) {}",
                 ] {
