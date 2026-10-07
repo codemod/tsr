@@ -354,3 +354,58 @@ publication copy of `lib.dom.d.ts` (12 ms) plus a slower worker parse
 on generic-imports without the 128 KiB root bound. It becomes free with a
 zero-copy publication (parse into a reserved node-id range), which is
 parser/AST work outside this lane.
+
+## §14 `resolve_alias` publishes `aliasTarget` (`tsr-1yb.7.7.3`)
+
+Port of `resolveAlias` (`checker.go:16266`) memoisation: a private
+`Checker::alias_targets` keyed by alias `SymbolId`, states uncomputed /
+`Resolving` / `Resolved(Option)` (completed `None` = `unknownSymbol`); a
+re-entrant query answers `None` and the outer resolution completes `None`, as
+`pushTypeResolution` failing does. TS2303 stays in `circular_alias.rs`. The
+record is on `resolve_alias`'s doc comment.
+
+Work boundary, temporary counters (not committed), default pool:
+
+| Project | `resolve_alias` queries | worker runs after | `resolved_module_in_mode` before → after |
+|---|---:|---:|---:|
+| domain-model-large | 693,083 | 7,755 | 709,026 → 23,698 |
+| domain-model | 81,727 | 1,515 | — → 4,658 |
+| generic-imports | 409 | 20 | — → 61 |
+
+Dumps byte-identical to the rebased base `ba0370ec`. Control `/tmp/ctl4`
+(re-export rename chain, `import = require` of an `export =` object, a
+two-file `export { p } from` cycle): base and new print the same six lines;
+tsgo prints five — the extra `TS2708` on the cycle use is pre-existing.
+Perf vs base, 21 pairs, CPU ratio / wall: domain-model 0.956 / 200 vs 205 ms,
+generic-imports 0.996 / 103 vs 104 ms, domain-model-large 0.902 / 687 vs
+803 ms; RSS +0.7%. Verified ratio (work-trace builds) before → after:
+generic-imports 0.908 → 0.911, domain-model 0.951 → 0.962,
+domain-model-large 1.351 → **1.204**.
+
+Re-profiled after this commit (checker 0, domain-model-large):
+`type_to_string_at_worker` fell from 21.3% to 5.5% inclusive and
+`check_object_literal_members` is 8.3% inclusive including its non-printing
+work — most of §13 C5's cost was `resolve_alias` under the printer.
+
+**§13 C5 not ported (`tsr-1yb.16.3.10`).** The printed member text is the
+literal type's identity, not a cache: `check_object_literal_members` mints
+`TypeStore::new_named(OBJECT, render_object_type(&members), symbol)` and
+stores `object_literal_members` as printed `Member`s; 131 `TypeData::Named`
+reads in 27 files consume that text. Printing later is not equivalent:
+`member_text_at` reads state that changes after the mint (pending signature
+returns, alias accessibility at the reference site). Native's
+`checkObjectLiteral` → symbol table → print at report time needs a semantic
+object-literal type behind `Named` for those readers — a representation change
+outside a function-level grant, now worth ≤5.5% of the critical checker.
+
+**Global allocator refused (`mimalloc` 0.1.52 in `crates/tsr`, measured in a
+scratch tree).** Verified ratio vs pinned tsgo (21 pairs) improved —
+generic-imports 0.94 → 0.85, domain-model 0.955 → 0.86, domain-model-large
+1.199 → 1.063 — but peak RSS rose 40 → 120, 58 → 147 and 137 → 249 MB
+(+81–196%). The gain is mimalloc's eager arena commit plus transparent huge
+pages: domain-model-large, 9 runs, glibc 686 ms / 137 MB; mimalloc default
+639 ms / 237 MB; `ARENA_EAGER_COMMIT=0` or `ALLOW_THP=0` 688 ms / 156 MB;
+with `PURGE_DELAY=0` 759 ms / 122 MB. No configuration is faster than glibc
+within +10% RSS on this Linux box. macOS (no THP, slower system malloc) is
+unmeasured; setting options in code needs unsafe FFI, which the workspace
+denies.

@@ -27,6 +27,15 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::check::spelling_suggestion;
 
+/// One `aliasSymbolLinks.aliasTarget` entry ([`Checker::resolve_alias`]).
+#[derive(Clone, Copy)]
+pub(crate) enum AliasTarget {
+    /// The worker is running; `circular` records a re-entrant query.
+    Resolving { circular: bool },
+    /// Completed; `None` is upstream's `unknownSymbol`.
+    Resolved(Option<SymbolId>),
+}
+
 impl<'a> Checker<'a, '_> {
     /// The type of a symbol.
     ///
@@ -991,35 +1000,15 @@ impl<'a> Checker<'a, '_> {
     /// (*"merged declarations are where to look — `export interface I {}` beside
     /// `export const I = 1`"*), so the control found the predicted failure and
     /// the prediction is what makes one line worth acting on.
-    /// # Upstream's circularity frame is deliberately **not** ported, and this
-    /// is the evidence
+    /// # The circularity frame is the memo's `Resolving` state
     ///
     /// `resolveAlias` pushes `TypeSystemPropertyNameAliasTarget`
-    /// (`checker.go:16272`) and, on failure, reports
-    /// `Circular_definition_of_import_alias_0`. Two files re-exporting through
-    /// each other is a real shape, so that frame was written here first —
-    /// a `PropertyName::AliasTarget` variant and a push/pop around the dispatch
-    /// below.
-    ///
-    /// **It was measured and it could not fire, so it was removed.** With the
-    /// frame disabled, every test in `tests/cross_file_aliases.rs` stays green,
-    /// including the two-file re-export cycle. The reason is structural rather
-    /// than a property of those fixtures: **this function is not
-    /// self-recursive.** Its four arms reach `Binder::resolve_name`,
-    /// [`Checker::export_specifier_target`],
-    /// [`Checker::import_specifier_target`] and
-    /// [`Checker::get_external_module_member`], and none of those calls back
-    /// into `resolve_alias` or into `get_type_of_symbol` — they read symbol
-    /// tables. Upstream's does recurse, through `resolveIndirectionAlias`
-    /// (`checker.go:16293`), which this port does not have.
-    ///
-    /// A guard nobody can make fire reads as safety and supplies none;
-    /// `docs/conventions.md` records the same failure one level up, in a control
-    /// bucket that could only ever read zero. **What would make it necessary:**
-    /// porting `resolveIndirectionAlias`, or any arm that resolves a target's
-    /// own alias from inside this function. Whoever does that must restore the
-    /// frame, and `a_re_export_cycle_between_two_files_terminates` is the test
-    /// that will hang if they do not.
+    /// (`checker.go:16272`) and answers `unknownSymbol` on re-entry. An earlier
+    /// frame here was removed because nothing re-entered (the arms read symbol
+    /// tables); the `require` arm and the `get_type_of_symbol` /
+    /// `check_expression` fallbacks can now, so re-entry is answered by the
+    /// memo below rather than by recursion. The diagnostic is not reported
+    /// here (`circular_alias.rs` owns TS2303).
     ///
     /// # What *does* make a cycle terminate, and it is not this function
     ///
@@ -1030,14 +1019,51 @@ impl<'a> Checker<'a, '_> {
     /// **hangs** `a_re_export_cycle_between_two_files_terminates`, which is the
     /// mutation that pins it.
     ///
-    /// # Not memoised, where upstream memoises
+    /// # Memoised as upstream memoises (`tsr-1yb.7.7.3`)
     ///
-    /// Upstream stores the answer in `aliasSymbolLinks[symbol].aliasTarget` and
-    /// so computes each alias target once. This recomputes. The cost is repeated
-    /// work on a chain, bounded because [`Checker::get_type_of_alias`] memoises
-    /// the *type* in [`Checker::symbol_types`] and that is what every caller
-    /// ultimately wants.
+    /// - **Native operation:** `resolveAlias` (`checker.go:16266`) publishes
+    ///   `aliasSymbolLinks[symbol].aliasTarget`; consumers are every alias
+    ///   chase (`getTypeOfAlias`, `getSymbolFlags`, the printer's
+    ///   accessibility/naming walks).
+    /// - **Identity and owner:** key is the alias [`SymbolId`] as passed
+    ///   (merged and unmerged ids are distinct keys, each with its own
+    ///   declaration); value is this function's target. Private to one
+    ///   [`Checker`], living as long as it; no options vary within a checker.
+    /// - **Publication:** absent = uncomputed; [`AliasTarget::Resolving`] while
+    ///   the worker runs; [`AliasTarget::Resolved`] once it returns, including
+    ///   a completed `None` (upstream's `unknownSymbol`). A query that meets
+    ///   `Resolving` answers `None` and marks the outer resolution circular,
+    ///   which then completes as `None` — `pushTypeResolution` /
+    ///   `popTypeResolution` returning `unknownSymbol`. TS2303 stays with
+    ///   `circular_alias.rs`; this adds no report.
+    /// - **Consumer context:** none — no receiver, mapper or print mode
+    ///   enters the answer.
+    /// - **Work boundary:** the worker's module lookups
+    ///   (`resolveExternalModuleName`, export-table reads). domain-model-large:
+    ///   709,026 `resolved_module_in_mode` queries before, one worker per
+    ///   alias after (perf notes §14).
     pub fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        match self.alias_targets.get_mut(&symbol) {
+            Some(AliasTarget::Resolved(target)) => return *target,
+            Some(AliasTarget::Resolving { circular }) => {
+                *circular = true;
+                return None;
+            }
+            None => {}
+        }
+        self.alias_targets.insert(symbol, AliasTarget::Resolving { circular: false });
+        let target = self.get_target_of_alias_symbol(symbol);
+        let target = match self.alias_targets.get(&symbol) {
+            Some(AliasTarget::Resolving { circular: true }) => None,
+            _ => target,
+        };
+        self.alias_targets.insert(symbol, AliasTarget::Resolved(target));
+        target
+    }
+
+    /// `getTargetOfAliasDeclaration` (`checker.go`): the uncached worker
+    /// behind [`Checker::resolve_alias`]; see its documentation.
+    fn get_target_of_alias_symbol(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         match self.nodes.kind(declaration) {
             // getTargetOfImportEqualsDeclaration also accepts syntactic JS
