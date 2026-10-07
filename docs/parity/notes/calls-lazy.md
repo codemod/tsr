@@ -350,3 +350,29 @@ Signature.target edge, not a declaration-only or duplicate signature cache.
 The current get_signature_instantiation remains eager until that getter can
 resolve target return/predicate under the exact ordered map. No claimed lazy
 completion, target mapper stub or unkeyed side table is delivered.
+
+## Signature-target lazy mapper writer cutover
+
+Applied the actual owned writer: get_signature_instantiation no longer completes
+returns. instantiate_signature_lazily substitutes input slots, retains the
+original target Arc and ordered SignatureMapper metadata, and leaves return and
+predicate unresolved. mapped_signature_return demands the target through the
+canonical existing pending getter then maps the actual returned type.
+map_signature_predicate maps a completed target predicate without inventing
+absence. Existing eager instantiate_signature clears inherited mapper metadata
+because its slots are already mapped. No new cache or declaration-only key.
+
+Parent-owned Signature.mapper: Option<Arc<inference::SignatureMapper>> and
+canonical signatures.rs getter branches are required; every original constructor
+initializes mapper None. Return getter dispatches mapper-bearing signatures to
+mapped_signature_return before declaration keys. Completion must retain mapped
+predicate/return on the image without publishing to the original declaration
+key. This metadata is a native correctness prerequisite, not a speed claim.
+
+Updated return-on-demand behavioral controls use the actual mapped return worker.
+Compilation is currently blocked by missing parent Signature field and prior
+outer-expression fields/method (lazy-mapper-check.log). No mock/shared-file
+placeholder installed, no passing-after/runtime/full-parity/perf claim. Native
+signature-identity ordered-argument cache and complete predicate publication
+remain unresolved integration obligations; the writer alone is not complete
+feature acceptance.

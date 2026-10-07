@@ -24,7 +24,8 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     let empty_arguments =
         checker.check_signature_type_arguments(&signature, &[], true).unwrap().unwrap();
     let empty_image = checker.get_signature_instantiation(&signature, &empty_arguments).unwrap();
-    assert_eq!(checker.type_to_string(empty_image.r#type), "unknown");
+    let empty_return = checker.mapped_signature_return(&empty_image).unwrap();
+    assert_eq!(checker.type_to_string(empty_return), "unknown");
     let empty_parameter = checker.parameter_type(&empty_image.parameters[0]);
     assert_eq!(checker.type_to_string(empty_parameter), "unknown");
     let arguments = checker
@@ -34,7 +35,8 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     let image = checker.get_signature_instantiation(&signature, &arguments).unwrap();
     assert!(image.type_parameters.is_empty());
     assert!(image.target.as_ref().unwrap().type_parameters.is_empty());
-    assert_eq!(checker.type_to_string(image.r#type), "string");
+    let returned = checker.mapped_signature_return(&image).unwrap();
+    assert_eq!(checker.type_to_string(returned), "string");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "string");
 }
@@ -64,7 +66,8 @@ fn constructor_signature_substitutes_instance_and_parameters() {
     else {
         panic!("constructor must instantiate")
     };
-    assert_eq!(checker.type_to_string(image.r#type), "Box<number>");
+    let returned = checker.mapped_signature_return(&image).unwrap();
+    assert_eq!(checker.type_to_string(returned), "Box<number>");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "number");
 }
