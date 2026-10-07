@@ -23,6 +23,18 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertNotEqual(diagnostics(first, Path("/repo"))["fingerprint"],
                             diagnostics(first.replace("nested detail", "different"), Path("/repo"))["fingerprint"])
 
+    def test_performance_r2_global_order_and_duplicate_multiplicity_are_significant(self):
+        global_error = "error TS2318: Cannot find global type 'Array'.\n"
+        file_error = "a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n"
+        expected = diagnostics(global_error + file_error, Path("/repo"))
+        for changed in (file_error + global_error,
+                        global_error + file_error + file_error,
+                        global_error + global_error + file_error,
+                        file_error):
+            with self.subTest(output=changed):
+                self.assertNotEqual(diagnostics(changed, Path("/repo"))["fingerprint"],
+                                    expected["fingerprint"])
+
     def test_scope_does_not_collapse_symlink_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

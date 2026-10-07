@@ -12,11 +12,26 @@ reversing the emitted entries retained the old fingerprint. The candidate
 fingerprint rejects this reversal. A two-file control with standard libraries
 emits matching ordered TS2322 diagnostics from TSR and native.
 
+Integrator Beads request: track this native diagnostic-order evidence root
+separately from tsr-2zk.17's global complete-work/performance root. The separate
+issue ID is not available on this Box; commits reference the assigned parent.
+
+Additional current controls: passing the same two root paths twice emits the
+same two TS2322 diagnostics once in both compilers (exact stdout/exit agreement).
+With `--noLib`, pinned native emits ten global TS2318 diagnostics; TSR instead
+emits the two file TS2322 diagnostics. This is a real global-diagnostic producer
+gap, not harness equivalence. Route native checker initializeChecker global-type
+validation to the checker owner; do not hide it or infer completion from file
+output. Harness controls require global order and duplicate multiplicity to
+change fingerprints. No harness deduplication is performed.
+
 This is an evidence correction, not a compiler optimization or a conformance
 case conversion. No cache, checker identity, AST, or diagnostic producer changes.
 The harness owns one ordered rendered sequence per fresh child invocation;
-identity includes normalized project paths, complete captured continuation text,
-and order. Absent output is an empty sequence, not completed semantic success.
+identity includes normalized project paths, codes, messages, printed line/column
+positions, complete captured continuation text, duplicate multiplicity and order.
+CLI output does not expose span lengths, so a full-span fingerprint still needs
+the structured diagnostic oracle; this harness does not claim one. Absent output is an empty sequence, not completed semantic success.
 Timeout/failure remain separate child outcomes. No active or completed semantic
 cache publication is inferred from this fingerprint. Existing binary/input
 capture happens outside child timing; the fingerprint does not establish actual
@@ -70,7 +85,13 @@ of worker execution/reuse, and does not justify adding a cache or changing
 file affinity. The existing CLI pool already mirrors native `createCheckers`
 and `forEachCheckerGroupDo`: private checkers, Program file index modulo count,
 read-only Program, no cross-checker semantic-cache merging. No speculative
-scheduling change was made.
+scheduling change was made. Aggregating the actual same profile by symbol across
+all threads gives self samples: malloc 5.31%, BindResult::resolve_name 4.89%,
+cfree 2.61%, SymbolTableField::get 2.42%, Checker::check_node 2.24%,
+get_type_at_flow_node 2.10%. Native owner-affinity and the actual production
+parallel run were preserved. Unreliable unwound parent addresses are not treated
+as worker counts or expensive traversal evidence; no scheduler speed claim is
+made from this profile.
 
 ## Integration prerequisites / Beads follow-up request
 
