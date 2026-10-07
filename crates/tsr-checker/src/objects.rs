@@ -422,14 +422,15 @@ pub(crate) fn signature_member_text(
                 out.push_str("const ");
             }
             out.push_str(&parameter.name);
-            if let Some(constraint) = parameter.constraint {
+            if let Some(constraint) = checker.signature_parameter_constraint(parameter) {
                 out.push_str(" extends ");
-                match &parameter.written_constraint {
-                    Some(written) => out.push_str(written),
-                    None => out.push_str(&checker.type_to_string(constraint)),
+                if let Some(written) = &parameter.written_constraint {
+                    out.push_str(written);
+                } else {
+                    out.push_str(&checker.type_to_string(constraint));
                 }
             }
-            if let Some(default) = parameter.default {
+            if let Some(default) = checker.signature_parameter_default(parameter) {
                 out.push_str(" = ");
                 out.push_str(&checker.type_to_string(default));
             }
@@ -465,13 +466,14 @@ pub(crate) fn signature_member_text(
     // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
     // node the builder is filling. `interface I { m(): this is S[]; }` is the
     // form that needs it, and the corpus records it on lib's `every`.
-    let written_return = signature
-        .written_return
-        .and_then(|written| checker.site_free_annotation_text(written, signature.r#type));
-    match (&signature.predicate, written_return) {
-        (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
+    let predicate = checker.get_type_predicate_of_signature(signature).flatten();
+    let returned = checker.get_return_type_of_signature(signature).unwrap_or(checker.intrinsics.error);
+    let written_return = signature.written_return
+        .and_then(|written| checker.site_free_annotation_text(written, returned));
+    match (predicate, written_return) {
+        (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(&predicate)),
         (None, Some(written)) => out.push_str(&written),
-        (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
+        (None, None) => out.push_str(&checker.type_to_string(returned)),
     }
     out
 }
@@ -1047,7 +1049,7 @@ impl Checker<'_, '_> {
                         == Some(&crate::signatures::LazyReturnState::Pending)
             })
         }) {
-            return self.type_to_string(id);
+            return crate::printing::type_to_string(self.store.get(id));
         }
         match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
             Some(text) => text,

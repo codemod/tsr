@@ -116,6 +116,10 @@ pub struct NodeTable {
     kind: Vec<SyntaxKind>,
     span: Vec<Span>,
     flags: Vec<NodeFlags>,
+    /// Native Node.TypeArgumentList (5b1047d ast.go:493). Sparse host IDs keep
+    /// absent lists distinct from allocated empty spans without a per-node column.
+    /// Program-owned, file-relative spans publish only at parser completion.
+    type_argument_lists: Vec<(NodeId, Span)>,
 }
 
 impl NodeTable {
@@ -131,6 +135,8 @@ impl NodeTable {
         self.flags.extend_from_slice(&local.flags);
         self.parent
             .extend(local.parent.iter().map(|id| id.map(|id| NodeId::new(base + id.as_u32()))));
+        self.type_argument_lists.extend(local.type_argument_lists.iter()
+            .map(|&(id, span)| (NodeId::new(base + id.as_u32()), span)));
         base..end
     }
     /// An empty table.
@@ -152,6 +158,7 @@ impl NodeTable {
             kind: Vec::with_capacity(nodes),
             span: Vec::with_capacity(nodes),
             flags: Vec::with_capacity(nodes),
+            type_argument_lists: Vec::new(),
         }
     }
 
@@ -212,6 +219,30 @@ impl NodeTable {
         self.span[id.as_u32() as usize]
     }
 
+    /// Native allocated argument-list extent; None is a nil list.
+    #[must_use]
+    pub fn type_argument_list_span(&self, host: NodeId) -> Option<Span> {
+        self.type_argument_lists.binary_search_by_key(&host, |&(id, _)| id)
+            .ok().map(|index| self.type_argument_lists[index].1)
+    }
+
+    /// Publish a completed parser list or clear a replaced expression wrapper.
+    pub fn set_type_argument_list_span(&mut self, host: NodeId, span: Option<Span>) {
+        assert!((host.as_u32() as usize) < self.len(), "foreign argument-list host");
+        if let Some(span) = span
+            && self.type_argument_lists.last().is_none_or(|&(last, _)| last < host)
+        {
+            self.type_argument_lists.push((host, span));
+            return;
+        }
+        match (self.type_argument_lists.binary_search_by_key(&host, |&(id, _)| id), span) {
+            (Ok(index), Some(span)) => self.type_argument_lists[index].1 = span,
+            (Ok(index), None) => { self.type_argument_lists.remove(index); }
+            (Err(index), Some(span)) => self.type_argument_lists.insert(index, (host, span)),
+            (Err(_), None) => {}
+        }
+    }
+
     /// The node's flags.
     ///
     /// # Panics
@@ -256,11 +287,16 @@ impl NodeTable {
     /// Used by speculative parsing: a rejected attempt registers nodes that never
     /// enter the tree. Sound only because ids are handed out sequentially and a
     /// discarded node's id is not yet referenced anywhere.
+    #[inline]
     pub fn truncate(&mut self, len: usize) {
         self.parent.truncate(len);
         self.kind.truncate(len);
         self.span.truncate(len);
         self.flags.truncate(len);
+        if self.type_argument_lists.last().is_some_and(|&(host, _)| host.as_u32() as usize >= len) {
+            let keep = self.type_argument_lists.partition_point(|&(host, _)| (host.as_u32() as usize) < len);
+            self.type_argument_lists.truncate(keep);
+        }
     }
 
     /// Walk from `id` up to the root.

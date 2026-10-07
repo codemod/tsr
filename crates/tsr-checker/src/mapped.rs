@@ -50,10 +50,15 @@ impl<'a> Checker<'a, '_> {
         let text = self.mapped_type_text(&info)?;
         let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
         self.mapped_types.insert(ty, info);
+        if let Some(alias) = node.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
+            let arguments = self.local_type_parameter_types_of(alias)
+                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+            self.alias_of.insert(ty, (alias, arguments));
+        }
         Some(ty)
     }
 
-    fn mapped_type_text(&self, info: &MappedTypeInfo) -> Option<String> {
+    fn mapped_type_text(&mut self, info: &MappedTypeInfo) -> Option<String> {
         let Some(Node::MappedTypeNode(node)) = self.node_map.get(info.declaration) else {
             return None;
         };
@@ -776,6 +781,9 @@ impl<'a> Checker<'a, '_> {
         }
         self.instantiated_objects.insert(key.clone(), self.intrinsics.error);
         let result = self.instantiate_mapped_type_worker(id, map, parameters, names);
+        if self.mapped_types.contains_key(&result) {
+            self.instantiate_alias_metadata(id, result, map, parameters, names);
+        }
         self.instantiated_objects.insert(key, result);
         result
     }

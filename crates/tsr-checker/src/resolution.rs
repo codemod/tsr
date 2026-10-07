@@ -47,6 +47,7 @@ use tsr_core::ResolutionMode;
 pub(crate) enum ResolutionTarget {
     Symbol(SymbolId),
     Signature(crate::declared::TypeLiteralKey),
+    SignatureImage(u32),
     BaseConstraint(crate::constraints::BaseConstraintKey),
 }
 
@@ -400,6 +401,8 @@ struct Resolution<K> {
 #[derive(Debug)]
 pub struct Resolutions<K> {
     stack: Vec<Resolution<K>>,
+    /// Native Checker.requireSymbol; private singleton, not a lookup cache.
+    pub(crate) require_symbol: Option<crate::symbol_access::SymbolRef>,
     /// Stack depths at which this port entered a type construct that native
     /// resolves *lazily* (an anonymous type literal's members, a deferred
     /// type reference's arguments; `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`,
@@ -424,7 +427,7 @@ pub struct Resolutions<K> {
 
 impl<K> Default for Resolutions<K> {
     fn default() -> Self {
-        Self { stack: Vec::new(), deferrals: Vec::new(), start: 0 }
+        Self { stack: Vec::new(), require_symbol: None, deferrals: Vec::new(), start: 0 }
     }
 }
 
@@ -507,21 +510,10 @@ impl<K: Clone + PartialEq> Resolutions<K> {
         &mut self,
         target: impl Into<K>,
         property: PropertyName,
-        mut has_property: impl FnMut(&K, PropertyName) -> bool,
+        has_property: impl FnMut(&K, PropertyName) -> bool,
     ) -> bool {
         let target = target.into();
-        let mut cycle = None;
-        let start = self.start.min(self.stack.len());
-        for (offset, frame) in self.stack[start..].iter().enumerate().rev() {
-            if has_property(&frame.target, frame.property) {
-                break;
-            }
-            if frame.target == target && frame.property == property {
-                cycle = Some(start + offset);
-                break;
-            }
-        }
-        if let Some(start) = cycle {
+        if let Some(start) = self.find_cycle_start(&target, property, has_property) {
             for frame in &mut self.stack[start..] {
                 frame.succeeded = false;
             }
@@ -529,6 +521,26 @@ impl<K: Clone + PartialEq> Resolutions<K> {
         }
         self.stack.push(Resolution { target, property, succeeded: true });
         true
+    }
+
+    /// Read-only native findResolutionCycleStartIndex (5b1047d1).
+    /// Borrow exact owner keys; do not mark frames or publish a recursive answer.
+    pub(crate) fn find_cycle_start(
+        &self,
+        target: &K,
+        property: PropertyName,
+        mut has_property: impl FnMut(&K, PropertyName) -> bool,
+    ) -> Option<usize> {
+        let start = self.start.min(self.stack.len());
+        for (offset, frame) in self.stack[start..].iter().enumerate().rev() {
+            if has_property(&frame.target, frame.property) {
+                return None;
+            }
+            if &frame.target == target && frame.property == property {
+                return Some(start + offset);
+            }
+        }
+        None
     }
 
     /// Begin a scope whose cycle search starts at the current depth
@@ -667,6 +679,18 @@ mod tests {
         assert!(!r.pop(), "b is in the cycle");
         assert!(!r.pop(), "a is in the cycle");
         assert!(r.pop(), "outer merely contained it");
+    }
+
+    #[test]
+    fn noncircular_query_does_not_fail_frames_or_cross_publication() {
+        let mut r: Resolutions<u32> = Resolutions::new();
+        assert!(r.push(0u32, PropertyName::ResolvedReturnType));
+        assert_eq!(r.find_cycle_start(&0, PropertyName::ResolvedReturnType, |_, _| false), Some(0));
+        assert_eq!(r.find_cycle_start(&0, PropertyName::ResolvedReturnType, |_, _| true), None);
+        let saved = r.reset_start();
+        assert_eq!(r.find_cycle_start(&0, PropertyName::ResolvedReturnType, |_, _| false), None);
+        r.restore_start(saved);
+        assert!(r.pop(), "a speculative cycle lookup must not fail completion");
     }
 
     #[test]

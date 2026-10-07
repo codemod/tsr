@@ -991,6 +991,7 @@ impl Checker<'_, '_> {
         if !self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return None;
         }
+        if self.restrictive_parameter_instances.contains(&id) { return None; }
         if let Some(symbol) =
             self.this_types.iter().find_map(|(&symbol, &ty)| (ty == id).then_some(symbol)).or_else(
                 || {
@@ -1968,6 +1969,8 @@ impl Checker<'_, '_> {
         declared: TypeId,
         this_argument: TypeId,
     ) -> TypeId {
+        let this_argument = self.type_reference_this_arguments.get(&receiver)
+            .copied().unwrap_or(this_argument);
         // resolveTypeReferenceMembers also supplies a this argument for a
         // non-generic class or interface. The port keeps those as Named types
         // rather than entries in type_reference_targets.
@@ -2162,6 +2165,11 @@ impl Checker<'_, '_> {
         if let Some(&source) = self.instantiation_expression_sources.get(&receiver) {
             return self.is_readonly_property_of_type(source, name);
         }
+        // Native instantiated property CheckFlags use the mapped modifier,
+        // including -readonly, before the original declaration's readonly bit.
+        if let Some(&(_, Some(readonly))) = self.mapped_identity_optionality.get(&receiver) {
+            return readonly && self.get_property_of_type(receiver, name).is_some();
+        }
         if let Some(composite) = self.composite_property_of_type(receiver, name, false)
             && let Some(synthetic) = composite.synthetic
         {
@@ -2182,7 +2190,8 @@ impl Checker<'_, '_> {
             };
         }
         self.get_property_of_type(receiver, name)
-            .is_some_and(|property| self.is_readonly_symbol(property))
+            .is_some_and(|property| self.is_readonly_symbol(property)
+                || self.property_signature_is_readonly(property))
     }
 
     /// `getWriteTypeOfSymbol(getPropertyOfType(receiver, name))`
@@ -3179,7 +3188,7 @@ impl Checker<'_, '_> {
             return Some(properties.iter().map(|property| property.name.clone()).collect());
         }
         if let Some(symbol) = self.class_static_symbol(id) {
-            let mut names = vec!["prototype".to_owned()];
+            let mut names = Vec::new();
             return self.collect_static_property_names(symbol, &mut names).then_some(names);
         }
         if let TypeData::Anonymous { symbol, .. } = self.type_of(id).data
@@ -3205,7 +3214,7 @@ impl Checker<'_, '_> {
                     .symbols()
                     .get(symbol)
                     .flags
-                    .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE))
+                    .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD | SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE))
         {
             let mut names: Vec<_> = self
                 .binder
@@ -3289,16 +3298,20 @@ impl Checker<'_, '_> {
         owner: tsr_binder::SymbolId,
         names: &mut Vec<String>,
     ) -> bool {
-        for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
-            if self.symbol_is_value(symbol) && !names.iter().any(|existing| existing == name) {
-                names.push(name.to_owned());
-            }
-        }
-        for (name, _) in self.late_bound_static_members_of(owner) {
+        let mut own: Vec<_> = self.binder.symbols().get(owner).exports.iter()
+            .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
+            .map(|(&name, &symbol)| (name.to_owned(), symbol)).collect();
+        own.extend(self.late_bound_static_members_of(owner));
+        // Native getNamedMembers preserves own-table declaration insertion order.
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
         }
+        // Native binder prototype has no declaration: compareSymbols places it
+        // after declared own statics, before the separately inherited partition.
+        if !names.iter().any(|name| name == "prototype") { names.push("prototype".to_owned()); }
         let base = self.get_base_constructor_type_of_class(owner);
         let flags = self.store.get(base).flags;
         if flags.contains(TypeFlags::ANY) {
@@ -3343,23 +3356,14 @@ impl Checker<'_, '_> {
         // A members table also holds type parameters, so the value gate is the
         // same one `getPropertyOfType` applies; without it `interface I<T>`
         // would demand a property named `T`.
-        let own: Vec<String> = self
-            .binder
-            .symbols()
-            .get(owner)
-            .members
-            .iter()
+        let mut own: Vec<_> = self.binder.symbols().get(owner).members.iter()
             .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
-            .map(|(&name, _)| name.to_owned())
-            .collect();
-        for name in own {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        // getResolvedMembersOrExportsOfSymbol keeps instance members and exports
-        // separate, including computed declarations.
-        for (name, _) in self.late_bound_members_of(owner, false) {
+            .map(|(&name, &symbol)| (name.to_owned(), symbol)).collect();
+        own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
+            |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
+        ));
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -4528,7 +4532,7 @@ function outer<X>() {{ type Local = [X, Local][]; let local!: Local; return loca
                     2 => checker.mapped_template_depth = 1,
                     3 => checker.instantiation_depth = 1,
                     4 => checker.identity_unmapped_type_parameters = true,
-                    5 => checker.render_type_parameter_scope.push(("foreign".into(), owner)),
+                    5 => checker.render_type_parameter_scope.push(("foreign".into(), completed)),
                     _ => assert!(
                         checker
                             .resolutions

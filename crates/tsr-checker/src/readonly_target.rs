@@ -542,11 +542,6 @@ impl Checker<'_, '_> {
         receiver_type: crate::types::TypeId,
         name: &str,
     ) -> bool {
-        // The instantiation-expression wrapper shares source member metadata,
-        // including mapped/literal readonly flags and declaration permission.
-        if let Some(&source) = self.instantiation_expression_sources.get(&receiver_type) {
-            return self.is_assignment_to_readonly_property(node, source, name);
-        }
         let name = name.to_string();
         // Tuple targets synthesize a readonly `length` property, and a
         // readonly tuple's leading fixed elements `"0"`… carry
@@ -921,9 +916,6 @@ impl Checker<'_, '_> {
     /// its own declarations. The instance side inherits base `#names`, so
     /// bases are followed; a base this port cannot follow declines.
     fn private_names_are_complete(&mut self, receiver: crate::types::TypeId) -> bool {
-        if let Some(&source) = self.instantiation_expression_sources.get(&receiver) {
-            return self.private_names_are_complete(source);
-        }
         match self.type_of(receiver).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS)
@@ -1379,10 +1371,6 @@ impl Checker<'_, '_> {
         property: SymbolId,
         name: &str,
     ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
-        if let Some(&source) = self.instantiation_expression_sources.get(&containing) {
-            return self
-                .property_accessibility_error(location, is_super, writing, source, property, name);
-        }
         let node = location;
         let declaration = self.modifier_declaration_of(property, writing)?;
         let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);

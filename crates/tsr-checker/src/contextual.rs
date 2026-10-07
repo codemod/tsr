@@ -249,7 +249,7 @@ impl<'a> Checker<'a, '_> {
                 if arguments == self.intrinsics.error {
                     return None;
                 }
-                let signature = Signature { mapper: None, declaration: function,
+                let signature = Signature { id: self.new_signature_id(), mapper: None, declaration: function,
                 target: None,
                 union_contains_abstract: false,
                 non_inferrable: false,

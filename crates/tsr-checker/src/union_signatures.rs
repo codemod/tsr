@@ -17,6 +17,7 @@ impl Checker<'_, '_> {
         candidates: &[Signature],
     ) -> Option<Signature> {
         let mut result = candidates.first()?.clone();
+        result.id = self.new_signature_id();
         let non_rest = |signature: &Signature| {
             signature.parameters.len()
                 - usize::from(signature.parameters.last().is_some_and(|p| p.rest))
@@ -575,6 +576,7 @@ impl Checker<'_, '_> {
             self.get_union_type(&signatures.iter().map(|s| s.r#type).collect::<Vec<_>>());
         result.written_return = None;
         result.target = None;
+        result.mapper = None;
         result.union_contains_abstract = signatures.iter().any(|signature| {
             signature.kind == SignatureKind::AbstractConstruct || signature.union_contains_abstract
         });
@@ -694,6 +696,7 @@ impl Checker<'_, '_> {
             ));
         }
         let mut result = left.clone();
+        result.id = self.new_signature_id();
         result.parameters = parameters;
         if right.kind == SignatureKind::AbstractConstruct {
             result.kind = SignatureKind::AbstractConstruct;

@@ -8,29 +8,26 @@ fn leaves(checker: &Checker<'_, '_>, id: TypeId) -> Vec<TypeId> {
     }
 }
 
-fn image(checker: &Checker<'_, '_>, id: TypeId) -> String {
+fn image(checker: &mut Checker<'_, '_>, id: TypeId) -> String {
     let ty = checker.store.get(id);
-    let parts = match &ty.data {
-        TypeData::Union { types, .. } => {
-            types.iter().map(|&t| image(checker, t)).collect::<Vec<_>>().join(",")
-        }
-        _ => String::new(),
+    let flags = ty.flags.bits();
+    let types = match &ty.data {
+        TypeData::Union { types, .. } => types.clone(),
+        _ => Vec::new(),
     };
-    let origin = checker
-        .union_origin
-        .get(&id)
-        .map(|entries| entries.iter().map(|&t| image(checker, t)).collect::<Vec<_>>().join(","))
-        .unwrap_or_default();
     let alias = match &ty.data {
         TypeData::Union { symbol: Some(symbol), .. } => {
             format!("{:?}", checker.binder.symbols().get(*symbol).name)
         }
         _ => "null".to_owned(),
     };
+    let origin = checker.union_origin.get(&id).cloned().unwrap_or_default();
+    let parts = types.into_iter().map(|t| image(checker, t)).collect::<Vec<_>>().join(",");
+    let origin = origin.into_iter().map(|t| image(checker, t)).collect::<Vec<_>>().join(",");
     format!(
         "{{\"id\":{},\"flags\":{},\"text\":{:?},\"missing\":{},\"undefined\":{},\"void\":{},\"never\":{},\"any\":{},\"error\":{},\"unknown\":{},\"alias\":{},\"parts\":[{}],\"origin\":[{}]}}",
         id.index(),
-        ty.flags.bits(),
+        flags,
         checker.type_to_string(id),
         id == checker.intrinsics.missing,
         id == checker.intrinsics.undefined,
@@ -213,12 +210,12 @@ fn ordinary_undefined_dominates_missing_only_in_reduced_unions() {
                                     if raw {
                                         let input_images = inputs
                                             .iter()
-                                            .map(|&t| image(&checker, t))
+                                            .map(|&t| image(&mut checker, t))
                                             .collect::<Vec<_>>()
                                             .join(",");
                                         println!(
                                             "RUST_3TV\t{{\"mode\":{mode:?},\"warm\":{warm},\"diagnosticsFirst\":{diagnostics_first},\"reverse\":{reverse},\"case\":{case:?},\"order\":{order},\"reduce\":{reduce},\"step\":{step},\"inputs\":[{input_images}],\"result\":{}}}",
-                                            image(&checker, actual)
+                                            image(&mut checker, actual)
                                         );
                                     }
                                 }

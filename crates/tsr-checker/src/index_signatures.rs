@@ -780,7 +780,7 @@ impl<'a> Checker<'a, '_> {
 
     /// indexInfoToIndexSignatureDeclarationHelper: copies retain the original
     /// parameter name; synthesized index infos use the native fallback `x`.
-    pub(crate) fn index_info_member(&self, info: &IndexInfo) -> crate::objects::Member {
+    pub(crate) fn index_info_member(&mut self, info: &IndexInfo) -> crate::objects::Member {
         let name = info
             .declaration
             .and_then(|id| match self.node_map.get(id) {

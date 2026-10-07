@@ -459,6 +459,24 @@ pub fn type_at_location<'a>(
     id: NodeId,
 ) -> String {
     let computed = type_id_at_location(checker, binder, nodes, map, id);
+    // writeTypeOrSymbol's intrinsic-name fast path (5b1047d:380-390).
+    // The enclosing corpus writer handles hadErrorBaseline after this read;
+    // nested checker serialization must not expose the raw error name.
+    if checker.type_of(computed).flags.intersects(tsr_checker::TypeFlags::ANY)
+        && !nodes.parent(id).is_some_and(|parent| {
+            matches!(map.get(parent), Some(Node::BindingElement(_) | Node::PropertyAccessExpression(_)
+                | Node::QualifiedName(_) | Node::MetaProperty(_)))
+                || matches!(map.get(parent), Some(Node::ModuleDeclaration(module))
+                    if module.keyword.kind == SyntaxKind::GlobalKeyword)
+        })
+        && !is_label_name(id, nodes, map)
+        && !is_import_or_export_statement_name(id, nodes, map)
+        && !nodes.parent(id).and_then(|parent| jsx_tag_name_of(parent, map))
+            .is_some_and(|tag| tag == id && matches!(map.get(id), Some(Node::Identifier(name))
+                if is_intrinsic_jsx_name(name.text)))
+        && let tsr_checker::types::TypeData::Intrinsic { name } = checker.type_of(computed).data {
+        return name.to_owned();
+    }
     render(checker, id, computed)
 }
 

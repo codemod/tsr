@@ -28,6 +28,60 @@ use tsr_diagnostics::{Diagnostic, messages};
 use crate::check::spelling_suggestion;
 
 impl<'a> Checker<'a, '_> {
+    /// Ported from NameResolver.Resolve's require fallback
+    /// (`internal/binder/nameresolver.go:322`) and Checker.getResolvedSymbol
+    /// (`checker.go:13890`). Local/global value resolution has precedence.
+    pub fn resolve_identifier_symbol(
+        &mut self,
+        node: NodeId,
+    ) -> Result<crate::symbol_access::SymbolRef, crate::symbol_access::SymbolAccessError> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else {
+            return Ok(self.symbols.unknown());
+        };
+        if identifier.text.is_empty() {
+            return Ok(self.symbols.unknown());
+        }
+        if let Some(symbol) = self.resolve_name_with_export_alias(
+            node, identifier.text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) {
+            return self.symbols.bound(symbol);
+        }
+        let require_call = self.in_js_file(node)
+            && self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)).is_some_and(|parent| {
+                matches!(parent, Node::CallExpression(call)
+                    if matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+                        && call.arguments.len() == 1)
+            });
+        if !require_call {
+            return Ok(self.symbols.unknown());
+        }
+        if let Some(symbol) = &self.resolutions.require_symbol {
+            return Ok(symbol.clone());
+        }
+        let symbol = self.symbols.new_symbol(
+            SymbolFlags::PROPERTY, std::borrow::Cow::Borrowed("require"),
+            crate::symbol_access::CheckFlags::empty(),
+        );
+        self.resolutions.require_symbol = Some(symbol.clone());
+        Ok(symbol)
+    }
+
+    /// Native getTypeOfVariableOrParameterOrPropertyWorker's requireSymbol arm
+    /// (`checker.go:16584`); unknownSymbol's type is errorType (`checker.go:1347`).
+    pub fn intrinsic_type_of_resolved_identifier_symbol(
+        &self,
+        symbol: &crate::symbol_access::SymbolRef,
+    ) -> Result<Option<TypeId>, crate::symbol_access::SymbolAccessError> {
+        self.symbols.view(symbol)?;
+        if self.resolutions.require_symbol.as_ref() == Some(symbol) {
+            return Ok(Some(self.intrinsics.any));
+        }
+        if *symbol == self.symbols.unknown() {
+            return Ok(Some(self.intrinsics.error));
+        }
+        Ok(None)
+    }
+
     /// The type of a symbol.
     ///
     /// Ported from `Checker.getTypeOfSymbol` (`checker.go:16493`). Upstream
@@ -3715,7 +3769,15 @@ impl<'a> Checker<'a, '_> {
         // `[signature]` renders a bare `FunctionTypeNode`; the many-signature
         // arm renders a `TypeLiteralNode`, which is never parenthesised.
         let mut signature_node = false;
-        let printed = match signatures.as_slice() {
+        let has_pending_return = signatures.iter().any(|signature|
+            self.pending_signature_returns.get(&self.type_literal_key(signature.declaration))
+                == Some(&crate::signatures::LazyReturnState::Pending));
+        let printed = if has_pending_return {
+            signature_node = signatures.len() == 1 && export_members.is_empty();
+            // Native callable construction publishes shape without serialization.
+            // This display is uncomputed; semantic signatures own later printing.
+            String::new()
+        } else { match signatures.as_slice() {
             [] => return self.intrinsics.error,
             [signature] if export_members.is_empty() => {
                 signature_node = true;
@@ -3757,7 +3819,7 @@ impl<'a> Checker<'a, '_> {
                 members.extend(export_members);
                 crate::objects::render_object_type(&members)
             }
-        };
+        } };
         let resolved = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node);
         let built = if let Some(reserved) = reserved {
             self.store.complete_object(reserved, resolved);
@@ -3773,6 +3835,7 @@ impl<'a> Checker<'a, '_> {
             self.anonymous_properties.insert(built, (export_properties, false));
         }
         self.signature_types.insert(built, signatures);
+        if has_pending_return { self.pending_callable_displays.insert(built); }
         debug_assert_eq!(self.completed_callable_symbol(built), Some(symbol));
         // `checker.go:16930`: an OPTIONAL method carries `| undefined`.
         //

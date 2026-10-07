@@ -360,12 +360,13 @@ impl Checker<'_, '_> {
                 }
                 let index_type = self.check_expression(argument);
                 let span = self.error_span(node);
+                let index_text = self.type_to_string(index_type);
                 self.report(
                     file,
                     Diagnostic::with_args(
                         &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
                         span,
-                        [self.type_to_string(index_type), printed],
+                        [index_text, printed],
                     ),
                 );
                 return;
@@ -453,12 +454,14 @@ impl Checker<'_, '_> {
             let Some(index) = access.argument_expression else { return };
             let index_type = self.check_expression(index);
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let index_text = self.type_to_string(index_type);
+            let receiver_text = self.type_to_string(receiver_type);
             self.report(
                 file,
                 Diagnostic::with_args(
                     &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
                     self.error_span(node),
-                    [self.type_to_string(index_type), self.type_to_string(receiver_type)],
+                    [index_text, receiver_text],
                 ),
             );
             return;

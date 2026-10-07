@@ -705,9 +705,27 @@ impl Checker<'_, '_> {
                 self.check_tagged_template_diagnostics(node);
                 ambient
             }
-            Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
+            Node::TypeReferenceNode(_) => {
                 self.check_type_argument_arity(node);
                 self.check_type_argument_constraints(node);
+                ambient
+            }
+            Node::ExpressionWithTypeArguments(expression) => {
+                if self.nodes.parent(node).is_some_and(|parent|
+                    matches!(self.node_map.get(parent), Some(Node::HeritageClause(_))))
+                {
+                    self.check_type_argument_arity(node);
+                    self.check_type_argument_constraints(node);
+                } else {
+                    // checkSourceElementWorker's expression fallback dispatches
+                    // checkExpressionWithTypeArguments (5b1047d:10637).
+                    self.check_expression(tsr_ast::Expression::ExpressionWithTypeArguments(expression));
+                }
+                ambient
+            }
+            Node::TypeQueryNode(query) => {
+                // Native checkTypeQuery (5b1047d:3130) demands its type.
+                self.get_type_from_type_node(tsr_ast::TypeNode::TypeQueryNode(query));
                 ambient
             }
             Node::TypeParameterDeclaration(_) => {

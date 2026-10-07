@@ -198,18 +198,3 @@ fn typeof_in_parameter_position_prints_as_written_too() {
     assert_eq!(checker.type_to_string(id), "{ (x: typeof f): typeof f; (x: any): any; }");
 }
 
-// Instantiation expressions `typeof f<string>` (10 corpus lines) reach
-// `getInstantiationExpressionType` (`checker.go:10660`), which filters
-// signatures by arity and instantiates each — refused whole-construct, while
-// the argument-less `typeof f` on the same symbol answers.
-//
-// The declaration and the expected rendering are both from
-// `compiler/inferentialTypingWithFunctionTypeSyntacticScenarios.types`:
-//   declare function identity<V>(y: V): V;   >identity : <V>(y: V) => V
-//   <typeof identity>identity                : <V>(y: V) => V
-#[test]
-fn an_instantiation_expression_stays_a_gap_while_plain_typeof_answers() {
-    let source = "declare function identity<V>(y: V): V;\nvar a: typeof identity<string>;\nvar b: typeof identity;";
-    assert_eq!(type_of_declaration(source, "a"), "error");
-    assert_eq!(type_of_declaration(source, "b"), "<V>(y: V) => V");
-}

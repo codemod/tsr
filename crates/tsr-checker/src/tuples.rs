@@ -153,9 +153,10 @@ impl Checker<'_, '_> {
     /// parameter's base constraint (`internal/checker/checker.go`).
     pub(crate) fn tuple_array_like(&mut self, id: TypeId) -> bool {
         fn visit(checker: &mut Checker<'_, '_>, id: TypeId, seen: &mut Vec<TypeId>) -> bool {
-            if seen.contains(&id) || checker.is_error(id) {
+            if seen.contains(&id) {
                 return false;
             }
+            if checker.store.get(id).flags.contains(TypeFlags::ANY) { return true; }
             if checker.tuple_element_lists.contains_key(&id)
                 || checker.variadic_tuple_elements.contains_key(&id)
                 || checker.tuple_spread_array_element(id).is_some()

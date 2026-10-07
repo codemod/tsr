@@ -260,7 +260,8 @@ fn an_enum_declares_a_real_union_that_prints_as_the_enum_name() {
         };
         assert_eq!(types.len(), 2, "one constituent per member");
         assert!(symbol.is_some(), "printing as `E` must come from the symbol");
-        let members = types.iter().map(|&id| checker.type_to_string(id)).collect::<Vec<_>>();
+        let types = types.clone();
+        let members = types.into_iter().map(|id| checker.type_to_string(id)).collect::<Vec<_>>();
         assert_eq!(members, ["E.A", "E.B"], "members print qualified, in declaration order");
     });
 }

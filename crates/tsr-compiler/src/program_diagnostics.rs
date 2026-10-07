@@ -184,7 +184,7 @@ pub fn diagnostics_of_any_program(
         out.extend(file.diagnostics().iter().map(|d| (index, d.clone())));
     }
     out.extend(js_syntax);
-    if !out.is_empty() {
+    if !out.is_empty() || program.compiler_options().list_files_only.is_true() {
         return out;
     }
     let mut by_file: Vec<Vec<Diagnostic>> = vec![Vec::new(); files.len()];

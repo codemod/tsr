@@ -159,7 +159,7 @@ impl Checker<'_, '_> {
             return name.clone();
         }
         if let Some((name, _)) =
-            self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == symbol)
+            self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == id)
         {
             return name.clone();
         }
@@ -675,7 +675,7 @@ impl Checker<'_, '_> {
         Some(crate::objects::render_object_type(&members))
     }
 
-    fn type_literal_signature_at(
+    pub(crate) fn type_literal_signature_at(
         &mut self,
         signature: crate::signatures::Signature,
         reference: tsr_ast::NodeId,

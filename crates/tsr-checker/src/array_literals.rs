@@ -697,9 +697,6 @@ impl Checker<'_, '_> {
                 let (element_type, spread) = if let Expression::SpreadElement(spread) = element {
                     let Some(operand) = spread.expression else { return error };
                     let operand_type = self.check_expression(operand);
-                    if operand_type == error {
-                        return error;
-                    }
                     // `checkArrayLiteral` classifies an array-like spread as a
                     // Variadic tuple element. Normalization then expands a
                     // fixed tuple, retains a generic variadic, and turns a
@@ -736,9 +733,6 @@ impl Checker<'_, '_> {
                     // checkExpressionForMutableLocation, so a defaulted target
                     // `b = 0` contributes `number`, not the fresh `0`.
                     let element_type = self.check_expression_for_mutable_location(*element);
-                    if element_type == error {
-                        return error;
-                    }
                     (element_type, false)
                 };
                 elements.push(crate::tuples::TupleElement {
@@ -815,9 +809,6 @@ impl Checker<'_, '_> {
                     }
                 } else {
                     let t = self.check_array_literal_element(node, *element);
-                    if self.is_error(t) {
-                        return error;
-                    }
                     // checkArrayLiteral marks ordinary elements after an
                     // exact-optional omission optional as well. Spread flags
                     // stay Variadic/Rest regardless of preceding omissions.
@@ -1062,9 +1053,6 @@ impl Checker<'_, '_> {
                         Expression::OmittedExpression(_) => return error,
                         _ => {
                             let element_type = self.check_array_literal_element(node, *element);
-                            if element_type == error {
-                                return error;
-                            }
                             union_elements.push(element_type);
                         }
                     }
@@ -1088,9 +1076,6 @@ impl Checker<'_, '_> {
                     Expression::OmittedExpression(_) => return error,
                     _ => {
                         let element_type = self.check_array_literal_element(node, *element);
-                        if element_type == error {
-                            return error;
-                        }
                         spliced.push(element_type);
                     }
                 }
@@ -1138,12 +1123,6 @@ impl Checker<'_, '_> {
                 continue;
             }
             let element_type = self.check_array_literal_element(node, *element);
-            // A gap in an element is a gap in the array — the same call made for
-            // union constituents, type arguments, object members and array
-            // *type* elements.
-            if element_type == error {
-                return error;
-            }
             elements.push(element_type);
         }
 
@@ -1211,17 +1190,10 @@ impl Checker<'_, '_> {
     /// helper's other arms, so the Array half is kept verbatim and only the
     /// iterator tail is appended — strictly additive by construction.
     pub(crate) fn array_spread_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
-        if operand == self.intrinsics.error {
-            return None;
-        }
-        // §397: spreading an `any` contributes `any` — upstream's
-        // `checkIteratedTypeOrElementType` answers the anyType straight off
-        // (`[...obj?.a]` is `any[]`, `propertyAccessChain.3`,
-        // `trailingCommasInBindingPatterns`). Identity against the intrinsic,
-        // not a flag test: `errorType` carries ANY and must stay the gap
-        // above.
-        if operand == self.intrinsics.any {
-            return Some(self.intrinsics.any);
+        // checkIteratedTypeOrElementType (5b1047d:6095) returns every ANY
+        // input, including errorType, without re-entering iteration resolution.
+        if self.store.get(operand).flags.contains(TypeFlags::ANY) {
+            return Some(operand);
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&operand).cloned()
             && arguments.len() == 1

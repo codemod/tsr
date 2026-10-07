@@ -121,6 +121,13 @@ pub(crate) struct SignatureMapper {
     predicate: std::sync::OnceLock<Option<crate::signatures::TypePredicate>>,
 }
 
+impl SignatureMapper {
+    /// Exact image completion; does not force target return or mapper work.
+    pub(crate) fn completed_return_type(&self) -> Option<TypeId> {
+        self.return_type.get().copied()
+    }
+}
+
 impl<'a> Checker<'a, '_> {
     /// The signature-less inference context used by getConditionalType.
     /// getTypeFromInference preserves candidates rather than applying the
@@ -1467,7 +1474,7 @@ impl<'a> Checker<'a, '_> {
             // `checker-notes-infer2.md` records the diagnosis.
             if let Some(inferred) = candidate
                 && !self.strict_null_checks
-                && matches!(self.type_to_string(inferred).as_str(), "null" | "undefined")
+                && (inferred == self.intrinsics.null || inferred == self.intrinsics.undefined)
             {
                 return decline;
             }
@@ -1693,10 +1700,9 @@ impl<'a> Checker<'a, '_> {
         let mut inferred = candidate.unwrap_or(fallback);
         map.push((parameter, inferred));
         let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        let declaration = &signature.type_parameters[position];
         if candidate.is_none()
             && !no_default
-            && let Some(default) = declaration.default
+            && let Some(default) = self.signature_parameter_default(&signature.type_parameters[position])
         {
             // Defaults resolve earlier parameters through the non-fixing mapper;
             // self/forward references always map to unknown, even in JS files.
@@ -1723,7 +1729,7 @@ impl<'a> Checker<'a, '_> {
                 return inferred;
             }
         }
-        if let Some(constraint) = declaration.constraint {
+        if let Some(constraint) = self.signature_parameter_constraint(&signature.type_parameters[position]) {
             for (index, &source) in parameters.iter().enumerate() {
                 if self.mentions_type_parameter(constraint, &[source], &[names[index]])
                     && self.resolve_inference_with_constraints(
@@ -1744,7 +1750,7 @@ impl<'a> Checker<'a, '_> {
             {
                 inferred = self
                     .inferred_type_with_constraint(info, signature, position, inferred, constraint);
-            } else if (!no_default && declaration.default.is_none())
+            } else if (!no_default && self.signature_parameter_default(&signature.type_parameters[position]).is_none())
                 || self.relate_ternary(inferred, constraint, Relation::Assignable)
                     == Ternary::NotRelated
             {
@@ -1778,7 +1784,7 @@ impl<'a> Checker<'a, '_> {
         {
             return false;
         }
-        let (_, returned) = source.inference_return_types(target);
+        let Some(returned) = self.get_return_type_of_signature(target) else { return false };
         !self.mentions_type_parameter(returned, &[parameter], &[name])
             && !target.parameters.iter().any(|p| {
                 let p_type = self.parameter_type(p);
@@ -2519,8 +2525,9 @@ impl<'a> Checker<'a, '_> {
         if candidates.iter().all(|info| !info.has_candidates()) {
             return false;
         }
-        let (source_return, target_return) = instantiated.inference_return_types(&target_signature);
-        self.infer_from_types(source_return, target_return, parameters, &mut candidates, 0);
+        if let Some((source_return, target_return)) = self.signature_inference_return_types(&instantiated, &target_signature, parameters) {
+            self.infer_from_types(source_return, target_return, parameters, &mut candidates, 0);
+        }
         if candidates.iter().any(|candidate| {
             existing.iter().any(|info| {
                 candidate.type_parameter == info.type_parameter && info.has_candidates()
@@ -2709,8 +2716,9 @@ impl<'a> Checker<'a, '_> {
             out,
             0,
         );
-        let (source_return, target_return) = instantiated.inference_return_types(&target_signature);
-        self.infer_from_types(source_return, target_return, parameters, out, 0);
+        if let Some((source_return, target_return)) = self.signature_inference_return_types(&instantiated, &target_signature, parameters) {
+            self.infer_from_types(source_return, target_return, parameters, out, 0);
+        }
         true
     }
 
@@ -2821,15 +2829,16 @@ impl<'a> Checker<'a, '_> {
         self.inference_observed_priority = i32::from(InferencePriority::MAX_VALUE.bits());
         let mut inferences = Vec::new();
         self.apply_to_parameter_types(contextual, &signature, None, &own, &mut inferences, 0);
-        let (source_return, target_return) = contextual.inference_return_types(&signature);
-        self.infer_from_types_with_priority(
-            source_return,
-            target_return,
-            &own,
-            &mut inferences,
-            0,
-            InferencePriority::RETURN_TYPE,
-        );
+        if let Some((source_return, target_return)) = self.signature_inference_return_types(contextual, &signature, &own) {
+            self.infer_from_types_with_priority(
+                source_return,
+                target_return,
+                &own,
+                &mut inferences,
+                0,
+                InferencePriority::RETURN_TYPE,
+            );
+        }
         (self.inference_contravariant, self.inference_bivariant, self.inference_priority) = saved;
         self.inference_observed_priority = saved_observed;
         let owned_names: Vec<_> =
@@ -4964,16 +4973,7 @@ impl<'a> Checker<'a, '_> {
                 if !s.non_inferrable {
                     self.infer_from_signature_parameters(&s, &t, original, parameters, out, depth);
                 }
-                // applyToReturnTypes (inference.go:895-907) reads the target
-                // first. Parameters<F> has target any, so its source's native
-                // return slot must stay lazy while parameter inference runs.
-                let target_return = t.predicate.as_ref().and_then(|p| p.r#type).unwrap_or(t.r#type);
-                if !self.target_could_contain_parameter(target_return, parameters, &mut Vec::new())
-                {
-                    continue;
-                }
-                let Some(s) = self.complete_signature_return(s) else { continue };
-                let (source_return, target_return) = s.inference_return_types(&t);
+                let Some((source_return, target_return)) = self.signature_inference_return_types(&s, &t, parameters) else { continue };
                 self.infer_from_types_within(
                     source_return,
                     target_return,
@@ -4984,6 +4984,33 @@ impl<'a> Checker<'a, '_> {
                 );
             }
         }
+    }
+
+    /// applyToReturnTypes (5b1047d inference.go:896-907). Demand target first;
+    /// an uncomputed source return is not the image's error sentinel. Existing
+    /// canonical getters own completion; this query adds no cached state.
+    fn signature_inference_return_types(&mut self, source: &Signature, target: &Signature, parameters: &[TypeId]) -> Option<(TypeId, TypeId)> {
+        if let Some(target_predicate) = self.get_type_predicate_of_signature(target)?
+            && let Some(source_predicate) = self.get_type_predicate_of_signature(source)? {
+            let same_kind = source_predicate.asserts == target_predicate.asserts
+                && source_predicate.parameter_name.is_some() == target_predicate.parameter_name.is_some();
+            let same_position = match (&source_predicate.parameter_name, &target_predicate.parameter_name) {
+                (Some(source_name), Some(target_name)) => {
+                    let source_position = source.parameters.iter().position(|parameter| &parameter.name == source_name)?;
+                    let target_position = target.parameters.iter().position(|parameter| &parameter.name == target_name)?;
+                    source_position == target_position
+                }
+                (None, None) => true,
+                _ => false,
+            };
+            if same_kind && same_position
+                && let (Some(source_type), Some(target_type)) = (source_predicate.r#type, target_predicate.r#type) {
+                return Some((source_type, target_type));
+            }
+        }
+        let target_type = self.get_return_type_of_signature(target)?;
+        if !self.target_could_contain_parameter(target_type, parameters, &mut Vec::new()) { return None; }
+        Some((self.get_return_type_of_signature(source)?, target_type))
     }
 
     /// inferFromMatchingTypes followed by inferToMultipleTypes for a union
@@ -5317,7 +5344,7 @@ impl<'a> Checker<'a, '_> {
     /// or unknown, with interdependent constraints expanded before erasure.
     pub(crate) fn signature_for_inference(
         &mut self,
-        mut signature: Signature,
+        signature: Signature,
         erase: bool,
     ) -> Option<Signature> {
         if signature.type_parameters.is_empty() {
@@ -5337,7 +5364,7 @@ impl<'a> Checker<'a, '_> {
             let mut constraints: Vec<_> = signature
                 .type_parameters
                 .iter()
-                .map(|p| p.constraint.unwrap_or(self.intrinsics.unknown))
+                .map(|parameter| self.signature_parameter_constraint(parameter).unwrap_or(self.intrinsics.unknown))
                 .collect();
             let immediate: Vec<_> = own.iter().copied().zip(constraints.iter().copied()).collect();
             for _ in 1..own.len() {
@@ -5350,8 +5377,7 @@ impl<'a> Checker<'a, '_> {
             }
             own.iter().copied().zip(constraints).collect()
         };
-        signature.type_parameters.clear();
-        self.instantiate_signature(signature, &map, &own, &names)
+        Some(self.instantiate_signature_lazily(&signature, &map, &own, &names, true))
     }
 
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
@@ -5416,12 +5442,6 @@ impl<'a> Checker<'a, '_> {
     ) -> TypeId {
         if let Some(&(_, image)) = map.iter().find(|&&(from, _)| from == id) {
             return image;
-        }
-        // A return mapper may inspect the original signature only after its
-        // declaration-owned lazy return completes. Active/unsupported originals
-        // decline before a no-type-parameter decision or mapper image is stored.
-        if !self.complete_pending_signature_returns_of_type(id) {
-            return self.intrinsics.error;
         }
         if !self.mentions_type_parameter(id, parameters, names) {
             return id;
@@ -5509,20 +5529,18 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
-        // getObjectTypeInstantiation / instantiateAnonymousType (5b1047d):
-        // an instantiation-expression image retains the original expression
-        // and concrete source. Map that source, then reapply the written list.
-        // The expression worker owns completed (NodeId, source TypeId) results;
-        // this branch never publishes a provisional or partial wrapper image.
-        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
-            let Some(&node) = self.instantiation_expression_nodes.get(&id) else {
-                return error;
-            };
+        if let Some(&source) = self.alias_body_sources.get(&id) {
             let source = self.instantiate_type(source, map, parameters, names);
-            if self.is_error(source) {
-                return error;
-            }
-            return self.get_instantiation_expression_type(source, node);
+            let Some((alias, arguments)) = self.alias_of.get(&id).cloned() else { return error };
+            let arguments = arguments.into_iter().map(|argument|
+                self.instantiate_type(argument, map, parameters, names)).collect();
+            return self.alias_object_image(source, alias, arguments);
+        }
+        // instantiateAnonymousType (5b1047d:22458) retains the source view,
+        // saved node and outer mapper; do not replay captured argument syntax.
+        if self.instantiation_expression_sources.contains_key(&id) {
+            return self.instantiate_expression_image(id, map, parameters, names)
+                .unwrap_or(error);
         }
         if self.mapped_conditionals.contains_key(&id) {
             return self.instantiate_mapped_conditional(id, map, parameters, names);
@@ -5664,7 +5682,13 @@ impl<'a> Checker<'a, '_> {
                 }
                 substituted.push(image);
             }
-            return self.get_union_type(&substituted);
+            let result = self.get_union_type(&substituted);
+            if self.instantiation_expression_composites.contains(&id)
+                && self.store.get(result).flags.contains(crate::flags::TypeFlags::UNION)
+            {
+                self.instantiation_expression_composites.insert(result);
+            }
+            return result;
         }
         // instantiateTypeWorker maps intersection constituents just as it
         // maps union constituents; contextual mapped templates depend on it.
@@ -5677,7 +5701,13 @@ impl<'a> Checker<'a, '_> {
                 }
                 substituted.push(image);
             }
-            return self.get_intersection_type(&substituted, symbol);
+            let result = self.get_intersection_type(&substituted, symbol);
+            if self.instantiation_expression_composites.contains(&id)
+                && self.store.get(result).flags.contains(crate::flags::TypeFlags::INTERSECTION)
+            {
+                self.instantiation_expression_composites.insert(result);
+            }
+            return result;
         }
         if let Some(instantiated) = self.instantiate_type_literal(id, map, parameters, names) {
             return instantiated;
@@ -5728,6 +5758,19 @@ impl<'a> Checker<'a, '_> {
             return self.create_tuple_type(substituted, readonly);
         }
         error
+    }
+
+    /// instantiateTypeAlias (5b1047d:22473): propagate presentation only to a
+    /// newly constructed object. Never retag a shared intrinsic or mapped input.
+    pub(crate) fn instantiate_alias_metadata(
+        &mut self, source: TypeId, image: TypeId, map: &[(TypeId, TypeId)],
+        parameters: &[TypeId], names: &[&str],
+    ) {
+        if let Some((alias, arguments)) = self.alias_of.get(&source).cloned() {
+            let arguments = arguments.into_iter().map(|argument|
+                self.instantiate_type(argument, map, parameters, names)).collect();
+            self.alias_of.insert(image, (alias, arguments));
+        }
     }
 
     /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go), for
@@ -5789,6 +5832,7 @@ impl<'a> Checker<'a, '_> {
         let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
         self.anonymous_properties.insert(minted, (properties, true));
         self.object_literal_index_infos.insert(minted, indexes);
+        self.instantiate_alias_metadata(id, minted, map, parameters, names);
         self.instantiated_objects.insert(key, minted);
         minted
     }
@@ -5900,8 +5944,8 @@ impl<'a> Checker<'a, '_> {
                 .map(|p| &p.name)
                 .ne(stored.type_parameters.iter().map(|p| &p.name))
         });
-        let minted =
-            self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol, signature_node);
+        let minted = self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol,
+            signature_node && !self.alias_of.contains_key(&id));
         if !properties.is_empty() {
             self.anonymous_properties.insert(minted, (properties, true));
         }
@@ -5922,31 +5966,21 @@ impl<'a> Checker<'a, '_> {
             map.to_vec()
         };
         self.instantiated_signature_mappers.insert(minted, mapper);
+        self.instantiate_alias_metadata(id, minted, map, parameters, names);
         self.instantiated_signatures.insert(key, minted);
         self.minted_signature_types.insert(minted);
         minted
     }
 
-    /// §107: push a signature's own (post-rename name, symbol) pairs onto
-    /// the render scope; the caller truncates back to its saved depth.
+    /// Push a signature's own display names and fresh semantic identities;
+    /// the caller truncates the node-builder scope after slot rendering.
     pub(crate) fn push_render_type_parameter_scope(
         &mut self,
         signature: &crate::signatures::Signature,
     ) {
-        let declarations = match self.node_map.get(signature.declaration) {
-            Some(Node::FunctionDeclaration(node)) => node.type_parameters,
-            Some(Node::FunctionExpression(node)) => node.type_parameters,
-            Some(Node::ArrowFunction(node)) => node.type_parameters,
-            Some(Node::MethodDeclaration(node)) => node.type_parameters,
-            Some(Node::MethodSignatureDeclaration(node)) => node.type_parameters,
-            Some(Node::CallSignatureDeclaration(node)) => node.type_parameters,
-            Some(Node::ConstructSignatureDeclaration(node)) => node.type_parameters,
-            Some(Node::FunctionTypeNode(node)) => node.type_parameters,
-            _ => return,
-        };
-        for (parameter, declaration) in signature.type_parameters.iter().zip(declarations) {
-            if let Some(symbol) = declaration.node_id.and_then(|id| self.binder.symbol_of(id)) {
-                self.render_type_parameter_scope.push((parameter.name.clone(), symbol));
+        for parameter in &signature.type_parameters {
+            if let Some(id) = parameter.resolved_type {
+                self.render_type_parameter_scope.push((parameter.name.clone(), id));
             }
         }
     }
@@ -6001,13 +6035,9 @@ impl<'a> Checker<'a, '_> {
             signature.type_parameters.iter().zip(&own).zip(declarations)
         {
             let own_symbol = declaration.node_id.and_then(|id| self.binder.symbol_of(id));
-            let render_shadow = own_symbol.is_some_and(|own_symbol| {
-                self.render_type_parameter_scope
-                    .iter()
-                    .rev()
-                    .find(|(name, _)| *name == parameter.name)
-                    .is_some_and(|&(_, symbol)| symbol != own_symbol)
-            });
+            let render_shadow = self.render_type_parameter_scope.iter().rev()
+                .find(|(name, _)| *name == parameter.name)
+                .is_some_and(|&(_, id)| id != own_type);
             let shadowed = render_shadow
                 || own_symbol.is_some_and(|own_symbol| {
                     self.binder
@@ -6143,7 +6173,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// getTypeWithThisArgument (5b1047d:19573), without apparent reduction.
-    /// Ordinary arguments stay in type_reference_targets; the explicit receiver
+    /// Ordinary arguments stay in `type_reference_targets`; the explicit receiver
     /// is a separate field consumed by canonical member/signature projection.
     pub(crate) fn get_type_with_this_argument(
         &mut self,
@@ -6217,6 +6247,26 @@ impl<'a> Checker<'a, '_> {
         this_argument: TypeId,
         signature: Signature,
     ) -> Option<Signature> {
+        self.instantiate_signature_for_reference_worker(receiver, this_argument, signature, false)
+    }
+
+    /// resolveObjectTypeMembers keeps return/predicate work out of shape mapping.
+    pub(crate) fn instantiate_signature_for_reference_lazily(
+        &mut self,
+        receiver: TypeId,
+        this_argument: TypeId,
+        signature: Signature,
+    ) -> Option<Signature> {
+        self.instantiate_signature_for_reference_worker(receiver, this_argument, signature, true)
+    }
+
+    fn instantiate_signature_for_reference_worker(
+        &mut self,
+        receiver: TypeId,
+        this_argument: TypeId,
+        signature: Signature,
+        defer_returns: bool,
+    ) -> Option<Signature> {
         let (symbol, arguments) = match self.type_reference_targets.get(&receiver).cloned() {
             Some(reference) => reference,
             None => match self.store.get(receiver).data {
@@ -6254,20 +6304,39 @@ impl<'a> Checker<'a, '_> {
         }
         let ids: Vec<_> = map.iter().map(|(id, _)| *id).collect();
         let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
-        self.instantiate_signature_with_fresh_parameters(signature, &map, &ids, &names)
+        self.instantiate_signature_with_fresh_parameters_worker(
+            signature, &map, &ids, &names, defer_returns,
+        )
     }
 
     /// instantiateSignatureEx with retained type parameters (checker.go).
     /// Own parameters map to fresh identities before applying the outer map.
     pub(crate) fn instantiate_signature_with_fresh_parameters(
         &mut self,
-        mut signature: Signature,
+        signature: Signature,
         map: &[(TypeId, TypeId)],
         parameters: &[TypeId],
         names: &[&str],
     ) -> Option<Signature> {
+        self.instantiate_signature_with_fresh_parameters_worker(
+            signature, map, parameters, names, false,
+        )
+    }
+
+    pub(crate) fn instantiate_signature_with_fresh_parameters_worker(
+        &mut self,
+        mut signature: Signature,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+        defer_returns: bool,
+    ) -> Option<Signature> {
         if signature.type_parameters.is_empty() {
-            return self.instantiate_signature(signature, map, parameters, names);
+            return if defer_returns {
+                Some(self.instantiate_signature_lazily(&signature, map, parameters, names, false))
+            } else {
+                self.instantiate_signature(signature, map, parameters, names)
+            };
         }
         let own = self.type_parameter_types(&signature)?;
         let mut combined = Vec::with_capacity(own.len() + map.len());
@@ -6301,7 +6370,25 @@ impl<'a> Checker<'a, '_> {
             );
         }
         let names: Vec<_> = source_names.iter().map(String::as_str).collect();
-        self.instantiate_signature(signature, &combined, &sources, &names)
+        if defer_returns {
+            let mut image = self.instantiate_signature_lazily(
+                &signature, &combined, &sources, &names, false,
+            );
+            for (parameter, &(_, fresh)) in image.type_parameters.iter_mut().zip(&combined) {
+                parameter.resolved_type = Some(fresh);
+                if let Some(default) = parameter.default {
+                    parameter.default = Some(self.instantiate_type(default, &combined, &sources, &names));
+                }
+                if let Some(constraint) = parameter.constraint {
+                    let image = self.instantiate_type(constraint, &combined, &sources, &names);
+                    parameter.constraint = Some(image);
+                    if image != constraint { parameter.written_constraint = None; }
+                }
+            }
+            Some(image)
+        } else {
+            self.instantiate_signature(signature, &combined, &sources, &names)
+        }
     }
 
     /// instantiateSignatureEx (5b1047d): substitute input slots, retain target
@@ -6315,7 +6402,7 @@ impl<'a> Checker<'a, '_> {
         parameters: &[TypeId],
         names: &[&str],
         erase_type_parameters: bool,
-    ) -> Option<Signature> {
+    ) -> Signature {
         // Preserve the complete original target, including its own parameters
         // and captured mapper. Native eraseTypeParameters affects only image.
         let target = std::sync::Arc::new(original.clone());
@@ -6326,36 +6413,22 @@ impl<'a> Checker<'a, '_> {
         if erase_type_parameters {
             signature.type_parameters.clear();
         }
+        let mapper = std::sync::Arc::new(SignatureMapper {
+            map: map.to_vec(), parameters: parameters.to_vec(),
+            names: names.iter().map(|name| (*name).to_owned()).collect(),
+            return_type: std::sync::OnceLock::new(), predicate: std::sync::OnceLock::new(),
+        });
         if let Some(parameter) = &mut signature.this_parameter {
-            let original = self.parameter_type(parameter);
-            let image = self.instantiate_type(original, map, parameters, names);
-            if self.is_error(image) {
-                return None;
-            }
-            parameter.set_type(image);
+            *parameter = parameter.mapped(mapper.clone());
         }
         for parameter in &mut signature.parameters {
-            let original = self.parameter_type(parameter);
-            let image = self.instantiate_type(original, map, parameters, names);
-            if self.is_error(image) {
-                return None;
-            }
-            if image != original {
-                parameter.written_text = None;
-            }
-            parameter.set_type(image);
+            *parameter = parameter.mapped(mapper.clone());
         }
         signature.r#type = self.intrinsics.error;
         signature.predicate = None;
         signature.target = Some(target);
-        signature.mapper = Some(std::sync::Arc::new(SignatureMapper {
-            map: map.to_vec(),
-            parameters: parameters.to_vec(),
-            names: names.iter().map(|name| (*name).to_owned()).collect(),
-            return_type: std::sync::OnceLock::new(),
-            predicate: std::sync::OnceLock::new(),
-        }));
-        Some(signature)
+        signature.mapper = Some(mapper);
+        signature
     }
 
     /// Canonical getter target branch; unsupported/active target stays None.
@@ -6365,9 +6438,27 @@ impl<'a> Checker<'a, '_> {
         if let Some(&returned) = mapper.return_type.get() {
             return Some(returned);
         }
-        let returned = self.get_return_type_of_signature(target)?;
-        let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
-        let image = self.instantiate_type(returned, &mapper.map, &mapper.parameters, &names);
+        if !self.resolutions.push(crate::resolution::ResolutionTarget::SignatureImage(signature.id),
+            crate::resolution::PropertyName::ResolvedReturnType) {
+            return None;
+        }
+        let image = self.get_return_type_of_signature(target).map(|returned| {
+            let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
+            self.instantiate_type(returned, &mapper.map, &mapper.parameters, &names)
+        });
+        let image = if self.resolutions.pop() {
+            image?
+        } else {
+            let annotation = self.node_map.get(signature.declaration).and_then(|node| match node {
+                tsr_ast::Node::FunctionDeclaration(node) => node.r#type,
+                tsr_ast::Node::FunctionExpression(node) => node.r#type,
+                tsr_ast::Node::ArrowFunction(node) => node.r#type,
+                tsr_ast::Node::MethodDeclaration(node) => node.r#type,
+                _ => None,
+            });
+            self.report_return_type_cycle(signature.declaration, annotation);
+            self.intrinsics.any
+        };
         if self.is_error(image) {
             return None;
         }
@@ -6403,7 +6494,6 @@ impl<'a> Checker<'a, '_> {
     #[must_use]
     #[allow(clippy::option_option, reason = "completed absence differs from unsupported predicate demand")]
     pub(crate) fn cached_mapped_signature_predicate(
-        &self,
         signature: &Signature,
     ) -> Option<Option<crate::signatures::TypePredicate>> {
         signature.mapper.as_ref()?.predicate.get().cloned()
@@ -6447,7 +6537,8 @@ impl<'a> Checker<'a, '_> {
         // completed by its canonical target/mapper getter first; its sentinel
         // is not a type to substitute. Native lazy instantiation uses the
         // separate instantiate_signature_lazily writer and does not force here.
-        if signature.mapper.is_some() {
+        if signature.mapper.is_some()
+            || self.pending_signature_returns.contains_key(&self.type_literal_key(signature.declaration)) {
             signature = self.complete_signature_return(signature)?;
         }
         let target = std::sync::Arc::new(signature.clone());
@@ -6615,12 +6706,27 @@ impl<'a> Checker<'a, '_> {
         if visited.contains(&id) {
             return false;
         }
+        if let Some((_, arguments)) = self.alias_of.get(&id) {
+            visited.push(id);
+            if arguments.iter().any(|&argument|
+                self.mentions_type_parameter_inner(argument, is_parameter, names, visited)) {
+                return true;
+            }
+        }
+        if let Some(&source) = self.alias_body_sources.get(&id) {
+            visited.push(id);
+            if self.mentions_type_parameter_inner(source, is_parameter, names, visited) {
+                return true;
+            }
+        }
         // Wrapper signatures can be empty or already specialized while their
         // source members still reference outer parameters. Follow the actual
         // source edge before ordinary signature/primitive discovery.
         if let Some(&source) = self.instantiation_expression_sources.get(&id) {
             visited.push(id);
-            return self.mentions_type_parameter_inner(source, is_parameter, names, visited);
+            if self.mentions_type_parameter_inner(source, is_parameter, names, visited) {
+                return true;
+            }
         }
         if let Some((_, target)) = self.string_mapping_types.get(&id) {
             visited.push(id);

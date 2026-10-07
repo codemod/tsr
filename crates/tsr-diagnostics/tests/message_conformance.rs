@@ -13,7 +13,7 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
-use tsr_diagnostics::{Category, messages};
+use tsr_diagnostics::{Category, MessageFlags, messages};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -36,6 +36,8 @@ struct GoMessage {
     category: String,
     key: String,
     text: String,
+    reports_unnecessary: bool,
+    reports_deprecated: bool,
 }
 
 /// Parse `var Name = &Message{code: 1002, category: CategoryError, key: "...", text: "..."}`.
@@ -57,7 +59,11 @@ fn parse_go_messages(source: &str) -> Vec<GoMessage> {
         let Some(key) = go_string(body, "key: ") else { continue };
         let Some(text) = go_string(body, "text: ") else { continue };
 
-        out.push(GoMessage { code, category, key, text });
+        let reports_unnecessary = field(body, "reportsUnnecessary: ")
+            .is_some_and(|value| value.trim_end_matches('}') == "true");
+        let reports_deprecated = field(body, "reportsDeprecated: ")
+            .is_some_and(|value| value.trim_end_matches('}') == "true");
+        out.push(GoMessage { code, category, key, text, reports_unnecessary, reports_deprecated });
     }
     out
 }
@@ -152,6 +158,14 @@ fn every_upstream_message_exists_here_with_matching_fields() {
                 actual.category(),
                 expected_category
             ));
+        }
+        for (flag, expected, name) in [
+            (MessageFlags::REPORTS_UNNECESSARY, expected.reports_unnecessary, "reportsUnnecessary"),
+            (MessageFlags::REPORTS_DEPRECATED, expected.reports_deprecated, "reportsDeprecated"),
+        ] {
+            if actual.flags().contains(flag) != expected {
+                problems.push(format!("{}: {name} disagrees with upstream", actual.key()));
+            }
         }
     }
 

@@ -718,6 +718,11 @@ impl<'a> Checker<'a, '_> {
                         let id = self.store.new_named(flags, text, None);
                         if let TypeNode::MappedTypeNode(mapped) = node {
                             self.capture_mapped_type(id, mapped);
+                            if let Some(alias) = mapped.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
+                                let arguments = self.local_type_parameter_types_of(alias)
+                                    .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                                self.alias_of.insert(id, (alias, arguments));
+                            }
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
                             && self.mapped_template_depth > 0
                             && let (Some(true_type), Some(false_type)) =
@@ -767,6 +772,12 @@ impl<'a> Checker<'a, '_> {
                                 .collect();
                             self.conditional_inference_nodes
                                 .insert(id, ConditionalInferenceNode { declaration, bindings });
+                        }
+                        if matches!(node, TypeNode::ConditionalTypeNode(_))
+                            && let Some(alias) = Node::from(node).node_id().and_then(|node| self.alias_symbol_for_type_node(node)) {
+                            let arguments = self.local_type_parameter_types_of(alias)
+                                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                            self.alias_of.insert(id, (alias, arguments));
                         }
                         id
                     }
@@ -991,6 +1002,12 @@ impl<'a> Checker<'a, '_> {
                             && self.local_type_parameters_of(alias).is_empty()
                         {
                             return self.get_named_union_type(&types, TypeFlags::empty(), alias);
+                        }
+                        if self.deferred_indexed_access_types.contains_key(&t)
+                            && let Some(alias) = node.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
+                            let arguments = self.local_type_parameter_types_of(alias)
+                                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                            return self.alias_object_image(t, alias, arguments);
                         }
                         return t;
                     }
@@ -1427,6 +1444,7 @@ impl<'a> Checker<'a, '_> {
     /// object-literal widening *at the query* is owned by the notes page §2.
     fn get_type_from_type_query_node(&mut self, node: &tsr_ast::TypeQueryNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        if let Some(id) = node.node_id { self.check_instantiation_expression_grammar(id); }
         let Some(name) = node.expr_name else { return error };
         // The first run of this arm refused `typeof` over a parameter symbol
         // here, after the registered bar fired (+1,341 gap→wrong,
@@ -2055,6 +2073,12 @@ impl<'a> Checker<'a, '_> {
         if let Some(indexes) = self.object_literal_index_infos.remove(&resolved) {
             self.object_literal_index_infos.insert(reserved, indexes);
         }
+        if let Some(alias) = self.alias_of.remove(&resolved) {
+            self.alias_of.insert(reserved, alias);
+        }
+        if let Some(source) = self.alias_body_sources.remove(&resolved) {
+            self.alias_body_sources.insert(reserved, source);
+        }
         reserved
     }
 
@@ -2222,6 +2246,7 @@ impl<'a> Checker<'a, '_> {
         if !indexes.is_empty() {
             self.object_literal_index_infos.insert(reserved, indexes);
         }
+        self.instantiate_alias_metadata(id, reserved, map, parameters, names);
         Some(reserved)
     }
 
@@ -2289,13 +2314,23 @@ impl<'a> Checker<'a, '_> {
                 Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                     self.binder.symbols().get(alias).name.to_string()
                 }
-                Some(_) => return error,
+                Some(alias) => {
+                    let parameters = self.local_type_parameter_types_of(alias)
+                        .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect::<Vec<_>>()).unwrap_or_default();
+                    self.type_reference_text(alias, &parameters)
+                }
             };
             let Some(symbol) = node.node_id.and_then(|id| self.binder.symbol_of(id)) else {
                 return error;
             };
-            let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+            let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, alias.is_none());
             self.signature_types.insert(built, vec![signature]);
+            if let Some(alias) = alias
+                && !self.local_type_parameters_of(alias).is_empty() {
+                let arguments = self.local_type_parameter_types_of(alias)
+                    .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                self.alias_of.insert(built, (alias, arguments));
+            }
             if alias.is_some() {
                 // The alias name is the print; the site re-render that
                 // collapses the signature applies to an unaliased literal.
@@ -2338,11 +2373,13 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let mut signatures = Vec::new();
+        let mut construct_signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
         let mut typed_properties: Vec<crate::objects::AnonymousProperty> =
             Vec::with_capacity(node.members.len());
         let mut typed_signatures = Vec::new();
+        let mut typed_construct_signatures = Vec::new();
         let mut typed_indexes = Vec::new();
         let mut seen_index_keys: Vec<TypeId> = Vec::new();
         // A merged duplicate member (below) changes the type's structure, but
@@ -2454,6 +2491,7 @@ impl<'a> Checker<'a, '_> {
                     return error;
                 };
                 let text = crate::objects::signature_member_text(self, &signature);
+                let construct = signature.kind == crate::signatures::SignatureKind::Construct;
                 let name = name.unwrap_or_default();
                 if is_property {
                     let Some(symbol) = self.binder.symbol_of(id) else { return error };
@@ -2508,10 +2546,13 @@ impl<'a> Checker<'a, '_> {
                     } else {
                         typed_properties.push(property);
                     }
+                } else if construct {
+                    typed_construct_signatures.push(signature);
                 } else {
                     typed_signatures.push(signature);
                 }
-                let bucket = if is_property { &mut properties } else { &mut signatures };
+                let bucket = if is_property { &mut properties }
+                    else if construct { &mut construct_signatures } else { &mut signatures };
                 bucket.push(crate::objects::Member::Signature {
                     printed: format!("{prefix}{name}{text}"),
                 });
@@ -2826,6 +2867,10 @@ impl<'a> Checker<'a, '_> {
         {
             self.qualified_written_text.entry(id).or_insert(text);
         }
+        // Native object serialization groups call, construct, index, property;
+        // source order remains unchanged inside each signature group.
+        signatures.append(&mut construct_signatures);
+        typed_signatures.append(&mut typed_construct_signatures);
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
         let members = signatures;
@@ -2869,7 +2914,7 @@ impl<'a> Checker<'a, '_> {
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 self.binder.symbols().get(alias).name.to_string()
             }
-            Some(_) => return error,
+            Some(_) => crate::objects::render_object_type(&members),
         };
         // The binder gives a type literal its own anonymous `__type` symbol,
         // whose members table is where a property access on this type looks.
@@ -2893,6 +2938,12 @@ impl<'a> Checker<'a, '_> {
             if !typed_indexes.is_empty() {
                 self.object_literal_index_infos.insert(minted, typed_indexes);
             }
+        }
+        if let Some(alias) = node.node_id.and_then(|node| self.alias_symbol_for_type_node(node))
+            && !self.local_type_parameters_of(alias).is_empty() {
+            let arguments = self.local_type_parameter_types_of(alias)
+                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+            return self.alias_object_image(minted, alias, arguments);
         }
         minted
     }
@@ -3257,11 +3308,6 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let Some(element_node) = node.element_type else { return error };
         let element = self.get_type_from_type_node(element_node);
-        // A gap in the element is a gap in the array: `Unported[]` is not
-        // `any[]`, the same call made for union constituents and type arguments.
-        if element == error {
-            return error;
-        }
         let readonly = node
             .node_id
             .and_then(|id| self.nodes.parent(id))
@@ -3280,6 +3326,7 @@ impl<'a> Checker<'a, '_> {
     /// carries no alias. For consumers that build a NEW type from the
     /// reference's structure, where upstream's new type has no alias.
     pub(crate) fn without_alias(&self, id: TypeId) -> TypeId {
+        if let Some(&source) = self.alias_body_sources.get(&id) { return source; }
         if !self.alias_of.contains_key(&id) {
             return id;
         }
@@ -3291,41 +3338,99 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `createDeferredTypeReference` (`checker.go:25121`) reached through
-    /// `isDeferredTypeReferenceNode`'s alias arm (`:23237`): when `node` is
-    /// directly the body of a non-generic type alias (through parentheses and
-    /// `readonly`), the reference carries that alias (ADR-0045). The copy keeps
-    /// every semantic channel of `reference` — flags, member owner,
-    /// `type_reference_targets` — so members, iteration and relations read the
-    /// same `(target, arguments)`; only [`Checker::alias_of`] differs, and only
-    /// the printer reads it. Anything else answers `reference` unchanged.
-    ///
-    /// A GENERIC alias host is left alone: its declared type is still the
-    /// `Name<Params>` mint (ADR-0045 rule 4 is not built for it), so no
-    /// reference to its body is ever printed through here.
+    /// `isDeferredTypeReferenceNode`'s alias arm (`:23237`). Alias bodies,
+    /// including generic bodies, retain the enclosing symbol and ordered own
+    /// parameters without changing the canonical reference. Member, iteration
+    /// and relation queries retain the reference target and receiver context.
     fn deferred_alias_reference(&mut self, node: Option<NodeId>, reference: TypeId) -> TypeId {
         let Some(node) = node else { return reference };
         let Some(alias) = self.alias_symbol_for_type_node(node) else { return reference };
-        if !self.local_type_parameters_of(alias).is_empty()
-            || self.is_error(reference)
-            || !self.type_reference_targets.contains_key(&reference)
-        {
+        if self.is_error(reference) || !self.type_reference_targets.contains_key(&reference) {
             return reference;
         }
-        if let Some(&cached) = self.deferred_alias_references.get(&(alias, reference)) {
-            return cached;
-        }
-        let flags = self.store.get(reference).flags;
-        let crate::types::TypeData::Named { members, .. } = self.store.get(reference).data else {
-            return reference;
-        };
-        let name = self.binder.symbols().get(alias).name.to_string();
-        let named = self.store.new_named(flags, name, members);
-        let target = self.type_reference_targets[&reference].clone();
-        self.type_reference_targets.insert(named, target);
-        self.alias_of.insert(named, (alias, Vec::new()));
-        self.deferred_alias_references.insert((alias, reference), named);
-        named
+        let arguments = self.local_type_parameter_types_of(alias)
+            .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+        self.alias_object_image(reference, alias, arguments)
     }
+    /// instantiateAnonymousType with an explicit enclosing alias (5b1047d).
+    /// Alias identity and ordered arguments are part of the existing image key;
+    /// never retag a cached alias-free body. Copy only completed semantic views.
+    pub(crate) fn alias_object_image(&mut self, source: TypeId, alias: SymbolId, arguments: Vec<TypeId>) -> TypeId {
+        if !self.store.get(source).flags.intersects(TypeFlags::OBJECT | TypeFlags::INDEXED_ACCESS) || self.is_error(source) {
+            return source;
+        }
+        let key = (alias, arguments.clone(), source);
+        if let Some(&image) = self.deferred_alias_references.get(&key) { return image; }
+        let ty = self.store.get(source).clone();
+        let text = if arguments.is_empty() { self.binder.symbols().get(alias).name.to_owned() }
+            else { self.type_reference_text(alias, &arguments) };
+        let image = match ty.data {
+            crate::types::TypeData::Named { members, .. } => self.store.new_named(ty.flags, text, members),
+            crate::types::TypeData::Anonymous { symbol, .. } => self.store.new_anonymous(ty.flags, text, symbol, false),
+            _ => return source,
+        };
+        if let Some(operands) = self.deferred_indexed_access_types.get(&source).copied() {
+            self.deferred_indexed_access_types.insert(image, operands);
+            self.deferred_index_mints.insert(image);
+        }
+        if let Some(signatures) = self.signature_types.get(&source).cloned() {
+            self.signature_types.insert(image, signatures);
+            self.alias_named_signature_types.insert(image);
+        }
+        if let Some(mapper) = self.instantiated_signature_mappers.get(&source).cloned() {
+            self.instantiated_signature_mappers.insert(image, mapper);
+        }
+        if let Some(tuple) = self.tuple_element_lists.get(&source).cloned() {
+            self.tuple_element_lists.insert(image, tuple);
+        }
+        if let Some(mask) = self.tuple_optional_masks.get(&source).cloned() {
+            self.tuple_optional_masks.insert(image, mask);
+        }
+        if let Some(labels) = self.tuple_labels.get(&source).cloned() {
+            self.tuple_labels.insert(image, labels);
+        }
+        if let Some(elements) = self.variadic_tuple_elements.get(&source).cloned() {
+            self.variadic_tuple_elements.insert(image, elements);
+        }
+        if let Some(properties) = self.anonymous_properties.get(&source).cloned() {
+            self.anonymous_properties.insert(image, properties);
+        }
+        if let Some(indexes) = self.object_literal_index_infos.get(&source).cloned() {
+            self.object_literal_index_infos.insert(image, indexes);
+        }
+        if let Some(members) = self.object_literal_members.get(&source).cloned() {
+            self.object_literal_members.insert(image, members);
+        }
+        if let Some(&origin) = self.type_literal_origins.get(&source) {
+            self.type_literal_origins.insert(image, origin);
+        }
+        if let Some(&supplier) = self.instantiation_expression_sources.get(&source) {
+            self.instantiation_expression_sources.insert(image, supplier);
+            if let Some(&node) = self.instantiation_expression_nodes.get(&source) {
+                self.instantiation_expression_nodes.insert(image, node);
+            }
+        }
+        if let Some(reference) = self.type_reference_targets.get(&source).cloned() {
+            self.type_reference_targets.insert(image, reference);
+        }
+        if let Some(&receiver) = self.type_reference_this_arguments.get(&source) {
+            self.type_reference_this_arguments.insert(image, receiver);
+        }
+        if let Some(info) = self.mapped_types.get(&source).cloned() {
+            self.mapped_types.insert(image, info);
+        }
+        if let Some(&modifiers) = self.mapped_identity_optionality.get(&source) {
+            self.mapped_identity_optionality.insert(image, modifiers);
+        }
+        if let Some(&supplier) = self.mapped_identity_sources.get(&source) {
+            self.mapped_identity_sources.insert(image, supplier);
+        }
+        self.alias_of.insert(image, (alias, arguments));
+        self.alias_body_sources.insert(image, source);
+        self.deferred_alias_references.insert(key, image);
+        image
+    }
+
 
     /// `Checker.getTypeFromArrayOrTupleTypeNode` (`checker.go:24115`), **tuple
     /// half, plain elements only**.
@@ -3363,6 +3468,14 @@ impl<'a> Checker<'a, '_> {
     /// element list itself — see [`Checker::tuple_types`](crate::checker).
     fn get_type_from_tuple_type_node(&mut self, node: &tsr_ast::TupleTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && !self.local_type_parameters_of(alias).is_empty()
+            && !node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_))) {
+            let structural = self.tuple_type_node_structural(node);
+            let arguments = self.local_type_parameter_types_of(alias)
+                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+            return self.alias_object_image(structural, alias, arguments);
+        }
         // §79.1: `getAliasForTypeNode`'s three arms, the §72 rule at the
         // tuple mint — `type T2 = [number, string, boolean?]` prints `T2`
         // (`optionalTupleElements1` priced this at 99 G→W without it: the
@@ -4640,6 +4753,34 @@ impl<'a> Checker<'a, '_> {
                 arguments.push(instantiated);
             }
         }
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            let has_body = self.anonymous_properties.contains_key(&declared)
+                || self.signature_types.contains_key(&declared)
+                || self.instantiation_expression_sources.contains_key(&declared);
+            if has_body && self.store.get(declared).flags.contains(TypeFlags::OBJECT) {
+                let Some(own) = self.local_type_parameter_types_of(symbol) else { return error };
+                let ids: Vec<_> = own.iter().map(|&(id, _)| id).collect();
+                let names: Vec<_> = own.iter().map(|(_, name)| name.as_str()).collect();
+                let map: Vec<_> = ids.iter().copied().zip(arguments.iter().copied()).collect();
+                let image = self.instantiate_type(declared, &map, &ids, &names);
+                let image = match node.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
+                    Some(alias) if !(self.alias_declaration_is_locally_scoped(node.type_name)
+                        || self.mapped_types.get(&declared).is_some_and(|info| {
+                            self.deferred_keyof_operands.get(&info.constraint).is_some_and(|variable| {
+                                self.store.get(*variable).flags.contains(TypeFlags::TYPE_PARAMETER)
+                                    && map.iter().any(|(parameter, image)| parameter == variable && image != variable)
+                            })
+                        })) => {
+                        let alias_arguments = self.local_type_parameter_types_of(alias)
+                            .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                        self.alias_object_image(image, alias, alias_arguments)
+                    }
+                    _ => image,
+                };
+                return image;
+            }
+        }
         // §36's second contained leg: an alias whose body is a CONDITIONAL
         // type over CONCRETE arguments is EVALUATED upstream (`Foo1<"*x*">`
         // answers the branch, `templateLiteralTypes3`); the written
@@ -4872,7 +5013,35 @@ impl<'a> Checker<'a, '_> {
                 .collect();
             self.qualified_written_text.insert(id, format!("{base}<{}>", spelled.join(", ")));
         }
+        // instantiateMappedType maps a changed homomorphic variable through
+        // mapTypeWithAlias; only a distributed union takes the new alias.
+        let homomorphic_changed = self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && self.local_type_parameter_types_of(symbol).is_some_and(|parameters| {
+                let declared = self.get_declared_type_of_symbol(symbol);
+                self.mapped_types.get(&declared).is_some_and(|info| {
+                    self.deferred_keyof_operands.get(&info.constraint).is_some_and(|variable| {
+                        self.store.get(*variable).flags.contains(TypeFlags::TYPE_PARAMETER)
+                            && parameters.iter().zip(&arguments)
+                                .any(|((parameter, _), argument)| parameter == variable && argument != variable)
+                    })
+                })
+            });
         let result = self.create_type_reference(symbol, arguments);
+        let result = if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && self.type_parameter_body_index(symbol).is_none()
+            && !homomorphic_changed
+            && !(self.is_normalized_mapped_sequence(result)
+                && (self.mapped_alias_reference_body(symbol).is_some()
+                    || matches!(self.type_alias_body(symbol), Some(TypeNode::MappedTypeNode(_))))) {
+            match node.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
+                Some(alias) if !self.alias_declaration_is_locally_scoped(node.type_name) => {
+                    let parameters = self.local_type_parameter_types_of(alias)
+                        .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                    self.alias_object_image(result, alias, parameters)
+                }
+                _ => result,
+            }
+        } else { result };
         // getTypeFromClassOrInterfaceReference (checker.go:23200): a generic
         // class or interface reference that IS an alias body is deferred and
         // carries the alias (`type ImmutableTypes = IImmutableMap<any>`).
@@ -5967,6 +6136,28 @@ impl<'a> Checker<'a, '_> {
         {
             let _ = self.get_declared_type_of_symbol(symbol);
         }
+        // getTypeAliasInstantiation (5b1047d:19327/23837) maps the declared
+        // instantiation-expression object, not an empty alias-symbol table.
+        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            if self.instantiation_expression_sources.contains_key(&declared)
+                || self.instantiation_expression_composites.contains(&declared)
+            {
+                if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
+                    return cached;
+                }
+                let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+                    return self.intrinsics.error;
+                };
+                let ids: Vec<_> = parameters.iter().map(|&(id, _)| id).collect();
+                let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+                if ids.len() != arguments.len() { return self.intrinsics.error; }
+                let map: Vec<_> = ids.iter().copied().zip(arguments.iter().copied()).collect();
+                let image = self.instantiate_type(declared, &map, &ids, &names);
+                self.instantiations.insert((symbol, arguments), image);
+                return image;
+            }
+        }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
@@ -6161,7 +6352,7 @@ impl<'a> Checker<'a, '_> {
     /// `globalArrayType` and `globalReadonlyArrayType` before anything else, so
     /// the shorthand is a property of the **target**, not of how the type was
     /// written. `Array<Base>` prints `Base[]`.
-    fn type_reference_text(&mut self, symbol: SymbolId, arguments: &[TypeId]) -> String {
+    pub(crate) fn type_reference_text(&mut self, symbol: SymbolId, arguments: &[TypeId]) -> String {
         if let [element] = arguments {
             let element = self.array_element_text(*element);
             if self.global_type_symbol("Array") == Some(symbol) {
@@ -6208,7 +6399,8 @@ impl<'a> Checker<'a, '_> {
     /// `Union`/`IntersectionTypeNode` to upstream's builder, so neither is
     /// parenthesised anywhere.
     fn array_element_text(&self, element: TypeId) -> String {
-        let text = crate::printing::type_to_string(self.store.get(element));
+        let text = if element == self.intrinsics.error { "any".to_owned() }
+            else { crate::printing::type_to_string(self.store.get(element)) };
         self.wrap_array_element_text(element, &text)
     }
 
@@ -6883,10 +7075,11 @@ impl<'a> Checker<'a, '_> {
                 if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
                     return error;
                 }
-                let _ = self.get_type_from_type_node(body);
+                let resolved = self.get_type_from_type_node(body);
                 if !self.resolutions.pop() {
                     return self.report_type_alias_circularity(symbol);
                 }
+                if resolved != error { return resolved; }
             }
             return mint(self);
         }
@@ -7576,14 +7769,7 @@ impl<'a> Checker<'a, '_> {
         }
         self.with_conditional_inference_node(id, |checker, node| {
             let check = checker.get_type_from_type_node(node.check_type?);
-            if checker.signature_types.contains_key(&check)
-                || !(checker
-                    .store
-                    .get(check)
-                    .flags
-                    .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || checker.mentions_registered_type_parameter(check))
-            {
+            if !checker.conditional_check_is_deferred(node, check) {
                 return None;
             }
             Some([
@@ -7716,12 +7902,9 @@ impl<'a> Checker<'a, '_> {
             if self.is_error(check) {
                 return None;
             }
-            // A deferred check must stay under its conditional mapper. Walk
-            // semantic operands, including keyof and deeply nested references.
-            if !self.signature_types.contains_key(&check)
-                && (self.store.get(check).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || self.mentions_registered_type_parameter(check))
-            {
+            // isDeferredType (5b1047d:24475) uses generic object/index flags,
+            // plus generic elements only for matching simple tuple syntax.
+            if self.conditional_check_is_deferred(conditional, check) {
                 return None;
             }
             // getConditionalTypeInstantiation distributes a naked parameter's
@@ -7933,12 +8116,9 @@ impl<'a> Checker<'a, '_> {
                 // a definite ordinary relation to a generic target cannot pick
                 // a branch that must remain open for later instantiations.
                 if extends != error
-                    && !self.conditional_extends_is_generic(extends)
-                    // getConditionalType also defers generic check types. A
-                    // retained keyof operand (including polymorphic this) need
-                    // not contain a registered type parameter in this port.
-                    && !self.indexed_access_index_is_generic(check)
-                    && !self.mentions_any_type_parameter(check, 2)
+                    && !self.conditional_type_is_deferred(extends,
+                        Self::conditional_checks_simple_tuples(conditional))
+                    && !self.conditional_check_is_deferred(conditional, check)
                 {
                     let extends_is_any_or_unknown = self
                         .store
@@ -7952,21 +8132,8 @@ impl<'a> Checker<'a, '_> {
                     } else if check_is_any {
                         // Upstream answers `true | false` here; declined.
                         None
-                    } else if let Some((permissive, restrictive)) =
-                        self.conditional_extends_instantiations(extends)
-                    {
-                        self.definite_conditional_outcome(check, permissive, restrictive)
                     } else {
-                        match self.relate_ternary(
-                            check,
-                            extends,
-                            crate::relater::Relation::Assignable,
-                        ) {
-                            crate::relater::Ternary::Related => Some(true),
-                            crate::relater::Ternary::NotRelated => Some(false),
-                            // Upstream's deferred outcome.
-                            crate::relater::Ternary::Unknown => None,
-                        }
+                        self.definite_conditional_outcome(check, extends)
                     };
                     if let Some(takes_true) = takes_true {
                         let branch =
@@ -8006,97 +8173,99 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    /// getConditionalType's definite outcomes for a non-deferred extends type
-    /// that still mentions type parameters (checker.go:24372-24429): the
-    /// permissive instantiation maps them to the wildcard, the restrictive one
-    /// to unconstrained clones (getPermissiveInstantiation and
-    /// getRestrictiveInstantiation). `None` when the extends type mentions no
-    /// type parameter, so both instantiations are the type itself.
-    ///
-    /// This port has no wildcard distinct from `any`; relating to `any` is the
-    /// wildcard's relation. A failed instantiation answers `error` for both,
-    /// which [`Checker::definite_conditional_outcome`] defers.
-    fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
-        if !self.mentions_registered_type_parameter(extends) {
-            return None;
+    /// getPermissiveInstantiation/getRestrictiveInstantiation (5b1047d:24479)
+    /// over supported semantic images. Both operands use the same ordered map;
+    /// names never select parameters. Existing object/signature mapper caches
+    /// own expensive substitution. Restrictive clones publish no constraint
+    /// only after creation and preserve the original declaration symbol.
+    fn definite_conditional_outcome(&mut self, check: TypeId, extends: TypeId) -> Option<bool> {
+        let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().filter(|&parameter| {
+            self.mentions_type_parameter(check, &[parameter], &[])
+                || self.mentions_type_parameter(extends, &[parameter], &[])
+        }).collect();
+        if parameters.is_empty() {
+            return match self.relate_ternary(check, extends, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => Some(true),
+                crate::relater::Ternary::NotRelated => Some(false),
+                crate::relater::Ternary::Unknown => None,
+            };
         }
-        let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
-        let mentioned: Vec<TypeId> = candidates
-            .into_iter()
-            .filter(|&parameter| self.mentions_type_parameter(extends, &[parameter], &[]))
-            .collect();
-        let names: Vec<String> =
-            mentioned.iter().map(|&parameter| self.type_to_string(parameter)).collect();
-        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let any = self.intrinsics.any;
-        let permissive_map: Vec<(TypeId, TypeId)> =
-            mentioned.iter().map(|&parameter| (parameter, any)).collect();
-        let permissive = self.instantiate_type(extends, &permissive_map, &mentioned, &name_refs);
-        // getRestrictiveTypeParameter: a clone whose constraint is
-        // noConstraintType. The clone is not registered as a declared
-        // parameter, so no constraint is found for it.
-        let restrictive_map: Vec<(TypeId, TypeId)> = mentioned
-            .iter()
-            .zip(&names)
-            .map(|(&parameter, name)| {
-                (parameter, self.store.new_named(TypeFlags::TYPE_PARAMETER, name.clone(), None))
-            })
-            .collect();
-        let restrictive = self.instantiate_type(extends, &restrictive_map, &mentioned, &name_refs);
-        let error = self.intrinsics.error;
-        if permissive == error || restrictive == error {
-            return Some((error, error));
-        }
-        Some((permissive, restrictive))
-    }
-
-    /// FALSE when even the permissive extends type rejects the check, TRUE when
-    /// the restrictive one accepts it, otherwise deferred (checker.go:24377
-    /// and :24415).
-    fn definite_conditional_outcome(
-        &mut self,
-        check: TypeId,
-        permissive: TypeId,
-        restrictive: TypeId,
-    ) -> Option<bool> {
-        let error = self.intrinsics.error;
-        if permissive == error || restrictive == error {
-            return None;
-        }
-        match self.relate_ternary(check, permissive, crate::relater::Relation::Assignable) {
+        let permissive: Vec<_> = parameters.iter().map(|&parameter| (parameter, self.intrinsics.wildcard)).collect();
+        let permissive_check = self.instantiate_type(check, &permissive, &parameters, &[]);
+        let permissive_extends = self.instantiate_type(extends, &permissive, &parameters, &[]);
+        if self.is_error(permissive_check) || self.is_error(permissive_extends) { return None; }
+        match self.relate_ternary(permissive_check, permissive_extends, crate::relater::Relation::Assignable) {
             crate::relater::Ternary::NotRelated => return Some(false),
             crate::relater::Ternary::Unknown => return None,
             crate::relater::Ternary::Related => {}
         }
-        if std::env::var("TSR_DBG").is_ok() {
-            let n = self.get_property_names_of_type(restrictive);
-            let t = self.get_type_of_property_of_type(restrictive, "name");
-            eprintln!(
-                "DBG names={:?} t={:?} data={:?}",
-                n,
-                t.map(|t| self.type_to_string(t)),
-                self.store.get(restrictive)
-            );
-        }
-        match self.relate_ternary(check, restrictive, crate::relater::Relation::Assignable) {
+        let restrictive: Vec<_> = parameters.iter().map(|&parameter| {
+            let constrained = self.instantiated_type_parameters.contains_key(&parameter)
+                || self.type_parameter_symbols.get(&parameter).is_some_and(|symbol| {
+                    self.binder.symbols().get(*symbol).declarations.iter().any(|&declaration| {
+                        matches!(self.node_map.get(declaration), Some(Node::TypeParameterDeclaration(node))
+                            if node.constraint.is_some())
+                    })
+                });
+            let image = if self.restrictive_parameter_instances.contains(&parameter) || !constrained { parameter }
+                else if let Some(&image) = self.restrictive_type_parameters.get(&parameter) { image }
+                else {
+                    let text = self.type_to_string(parameter);
+                    let image = self.store.new_named(TypeFlags::TYPE_PARAMETER, text, None);
+                    if let Some(&symbol) = self.type_parameter_symbols.get(&parameter) { self.type_parameter_symbols.insert(image, symbol); }
+                    self.restrictive_parameter_instances.insert(image);
+                    self.restrictive_type_parameters.insert(parameter, image);
+                    image
+                };
+            (parameter, image)
+        }).collect();
+        let restrictive_check = self.instantiate_type(check, &restrictive, &parameters, &[]);
+        let restrictive_extends = self.instantiate_type(extends, &restrictive, &parameters, &[]);
+        if self.is_error(restrictive_check) || self.is_error(restrictive_extends) { return None; }
+        match self.relate_ternary(restrictive_check, restrictive_extends, crate::relater::Relation::Assignable) {
             crate::relater::Ternary::Related => Some(true),
             _ => None,
         }
     }
 
-    /// getGenericObjectFlags/isDeferredType (checker.go): unions and
-    /// intersections inherit generic flags from their constituents. Structured
-    /// references containing a parameter are not generic by that fact alone.
-    fn conditional_extends_is_generic(&self, id: TypeId) -> bool {
-        if let crate::types::TypeData::Union { types, .. }
-        | crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data
-        {
-            return types.iter().any(|&part| self.conditional_extends_is_generic(part));
+    /// isSimpleTupleType / isDeferredType (5b1047d:24469-24476).
+    /// Existing semantic classifiers retain their own metadata/publication;
+    /// this read adds no cache or graph identity. Tuple syntax only selects the
+    /// native element-checking branch, never a printed-name heuristic.
+    fn conditional_checks_simple_tuples(node: &tsr_ast::ConditionalTypeNode<'a>) -> bool {
+        let tuple = |mut node: TypeNode<'a>| {
+            while let TypeNode::ParenthesizedTypeNode(parent) = node {
+                let inner = parent.r#type?;
+                node = inner;
+            }
+            let TypeNode::TupleTypeNode(tuple) = node else { return None };
+            (!tuple.elements.is_empty() && !tuple.elements.iter().any(|element| match element {
+                TypeNode::OptionalTypeNode(_) | TypeNode::RestTypeNode(_) => true,
+                TypeNode::NamedTupleMember(member) => member.question_token.is_some()
+                    || member.dot_dot_dot_token.is_some(),
+                _ => false,
+            })).then_some(tuple.elements.len())
+        };
+        node.check_type.and_then(tuple).zip(node.extends_type.and_then(tuple))
+            .is_some_and(|(check, extends)| check == extends)
+    }
+
+    fn conditional_type_is_deferred(&mut self, id: TypeId, check_tuples: bool) -> bool {
+        if self.indexed_access_index_is_generic(id) || self.indexed_access_object_is_generic(id) {
+            return true;
         }
-        self.store
-            .get(id)
-            .flags
-            .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
+        if check_tuples && let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+            let count = elements.len();
+            for index in 0..count {
+                let element = self.tuple_element_lists[&id].0[index];
+                if self.conditional_type_is_deferred(element, false) { return true; }
+            }
+        }
+        false
+    }
+
+    fn conditional_check_is_deferred(&mut self, node: &tsr_ast::ConditionalTypeNode<'a>, check: TypeId) -> bool {
+        self.conditional_type_is_deferred(check, Self::conditional_checks_simple_tuples(node))
     }
 
     pub(crate) fn distributive_conditional_parameter(
@@ -8129,7 +8298,7 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<TypeId> {
         use crate::relater::{Relation, Ternary};
         if self.store.get(check).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
-            || self.mentions_any_type_parameter(check, 2)
+            || self.conditional_check_is_deferred(conditional, check)
         {
             return None;
         }

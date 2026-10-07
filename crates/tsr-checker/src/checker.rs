@@ -157,8 +157,6 @@ pub struct Checker<'a, 'n> {
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
-    /// §784: the `CommonJS` half of the same cache.
-    pub(crate) file_commonjs_machinery: FxHashMap<NodeId, bool>,
     /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
     pub(crate) global_this_type: Option<TypeId>,
     /// One `unique symbol` per WRITTEN `unique symbol` type node
@@ -255,21 +253,24 @@ pub struct Checker<'a, 'n> {
     /// it has no entry and no rebuild — see
     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
-    /// ADR-0045's alias attribute, first writer: upstream's `Type.alias`
-    /// (`symbol` + `typeArguments`) for a type built by an alias-accepting
-    /// constructor. Written once, at creation, by
-    /// [`Checker::deferred_alias_reference`](crate::Checker) — the
-    /// `createDeferredTypeReference` arm of `isDeferredTypeReferenceNode`
-    /// (`checker.go:23236`) — and read only by the printer
-    /// ([`Checker::type_to_string_at`]), mirroring the node builder's alias
-    /// arm (`nodebuilderimpl.go:3362`). Relations, members and inference never
-    /// read it. An absent entry means "no alias", a completed answer.
+    /// getTypeWithThisArgument (5b1047d:19573): ordinary reference arguments
+    /// stay separate from the explicit polymorphic receiver. Private Checker
+    /// `TypeId`s identify both views; publication certifies reference identity,
+    /// not resolved members. Reads preserve source alias and receiver context.
+    pub(crate) type_reference_this_arguments: FxHashMap<TypeId, TypeId>,
+    pub(crate) type_reference_this_types: FxHashMap<(TypeId, TypeId), TypeId>,
+    /// Native Type.alias (5b1047d): constructors publish the enclosing symbol
+    /// and ordered arguments; semantic instantiation maps those arguments onto
+    /// a newly constructed image. Private Checker/store identities, not names.
+    /// This metadata does not certify completed members, signatures or returns;
+    /// printers and type ordering consume it with the current alias/site context.
     pub(crate) alias_of: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
-    /// Intern table for those alias-carrying references, keyed by
-    /// `(alias symbol, the reference the alias is put on)`: upstream caches the
-    /// deferred reference per alias-body node, and the body is resolved once
-    /// per alias, so one alias over one reference is one type.
-    pub(crate) deferred_alias_references: FxHashMap<(SymbolId, TypeId), TypeId>,
+    pub(crate) alias_body_sources: FxHashMap<TypeId, TypeId>,
+    /// Existing deferred/anonymous alias image cache: enclosing symbol, ordered
+    /// alias arguments and canonical source `TypeId`. Images preserve receiver,
+    /// source-node and completed semantic views; missing views remain uncomputed.
+    /// Construction publishes the image only after those edges are installed.
+    pub(crate) deferred_alias_references: FxHashMap<(SymbolId, Vec<TypeId>, TypeId), TypeId>,
     /// §136 (printseam §6): the WRITTEN arity of a default-filled reference —
     /// prints show this many leading arguments, matching upstream's
     /// written-annotation reuse (`Iterable<number>` written short prints
@@ -863,9 +864,9 @@ pub struct Checker<'a, 'n> {
     /// dead-ends inside a comment — an `@import` tag's specifier resolving
     /// against its FILE is the sole client.
     pub(crate) jsdoc_hosts: FxHashMap<NodeId, NodeId>,
-    /// §107: the RENDER scope — (name, symbol) of each signature's own type
-    /// parameters, pushed for the duration of its slot rendering.
-    pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
+    /// typeParameterToName (5b1047d:1404): display scope retains each fresh
+    /// signature parameter's `TypeId`, not its shared declaration symbol.
+    pub(crate) render_type_parameter_scope: Vec<(String, TypeId)>,
     /// Private node-builder allocations; never part of a semantic mapper.
     pub(crate) render_type_parameter_names: crate::printing::TypeParameterNames,
     /// §91: the conditional-alias evaluator's binding frames — type-parameter
@@ -1091,6 +1092,11 @@ pub struct Checker<'a, 'n> {
     /// Fresh signature parameters retain a target and constraint mapper.
     pub(crate) instantiated_type_parameters:
         FxHashMap<TypeId, crate::inference::InstantiatedTypeParameter>,
+    /// Native cachedTypes restrictive parameter entries (5b1047d:24511).
+    /// Private Checker `TypeId`s; a completed clone has certified no constraint,
+    /// never the original declaration's constraint or an active assumption.
+    pub(crate) restrictive_type_parameters: FxHashMap<TypeId, TypeId>,
+    pub(crate) restrictive_parameter_instances: rustc_hash::FxHashSet<TypeId>,
     /// `the baked signature type -> the signatures its text was rendered from`.
     ///
     /// The sibling of [`Checker::type_reference_targets`] for function-shaped
@@ -1103,6 +1109,35 @@ pub struct Checker<'a, 'n> {
     /// per distinct baked type; written where the text is rendered, because
     /// that is the last point the structure exists. `bd tsr-0hc`.
     pub(crate) signature_types: FxHashMap<TypeId, Vec<crate::signatures::Signature>>,
+    /// Native callable shape exists before node serialization. Only the display
+    /// is absent; this provenance does not certify a completed return/member.
+    pub(crate) pending_callable_displays: rustc_hash::FxHashSet<TypeId>,
+    /// cachedSignatures (5b1047d:19318): private monotonic signature identity
+    /// plus ordered argument `TypeId`s. Nested maps admit borrowed slice hits;
+    /// only supported input images publish. Return/predicate completion remains
+    /// lazy on the exact image's mapper, never keyed by declaration or spelling.
+    pub(crate) next_signature_id: u32,
+    pub(crate) cached_signatures: FxHashMap<u32, FxHashMap<Vec<TypeId>, crate::signatures::Signature>>,
+    /// signatureLinks.resolvedSignature (5b1047d:19836), for immutable original
+    /// generic shapes only. Captured bindings distinguish Rust alias re-resolution;
+    /// contextual copied parameter slots are not licensed to share this identity.
+    pub(crate) original_generic_signature_ids: FxHashMap<crate::declared::TypeLiteralKey, u32>,
+    /// Native original shape publication before parameter/default/return demand.
+    /// Captured `TypeLiteralKey` owns re-entry; an active skeleton is not completed
+    /// semantic return work and is replaced after ordinary construction.
+    pub(crate) active_signature_shapes: FxHashMap<crate::declared::TypeLiteralKey, crate::signatures::Signature>,
+    pub(crate) active_signature_builders: rustc_hash::FxHashSet<crate::declared::TypeLiteralKey>,
+    /// Native noTypePredicate temporary marker during body inference; this
+    /// active state is never a reusable completed absence.
+    pub(crate) active_signature_predicates: rustc_hash::FxHashSet<crate::declared::TypeLiteralKey>,
+    /// getInstantiationExpressionType (5b1047d:10660-10738). Private Checker
+    /// keys combine written node/captured binding identity and source `TypeId`.
+    /// transformation publishes; unsupported work remains absent. Wrapper source
+    /// and node edges preserve alias/receiver/member/index context for outer maps.
+    pub(crate) instantiation_expression_types: FxHashMap<(crate::declared::TypeLiteralKey, TypeId), TypeId>,
+    pub(crate) instantiation_expression_sources: FxHashMap<TypeId, TypeId>,
+    pub(crate) instantiation_expression_nodes: FxHashMap<TypeId, NodeId>,
+    pub(crate) instantiation_expression_composites: rustc_hash::FxHashSet<TypeId>,
     /// Native decorator signature links belong to the decorated declaration.
     pub(crate) decorator_types: crate::decorators::DecoratorTypes,
     /// Declaration-owned resolved return slots (native getReturnTypeOfSignature,
@@ -1354,7 +1389,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
-            file_commonjs_machinery: FxHashMap::default(),
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
@@ -1371,7 +1405,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             constrained_type_variables: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
+            type_reference_this_arguments: FxHashMap::default(),
+            type_reference_this_types: FxHashMap::default(),
             alias_of: FxHashMap::default(),
+            alias_body_sources: FxHashMap::default(),
             deferred_alias_references: FxHashMap::default(),
             reference_display_arity: FxHashMap::default(),
             literal_this_types: FxHashMap::default(),
@@ -1556,8 +1593,21 @@ impl<'a, 'n> Checker<'a, 'n> {
             variadic_alias_in_progress: rustc_hash::FxHashSet::default(),
             type_parameter_symbols: FxHashMap::default(),
             instantiated_type_parameters: FxHashMap::default(),
+            restrictive_type_parameters: FxHashMap::default(),
+            restrictive_parameter_instances: rustc_hash::FxHashSet::default(),
             reference_types_from_nodes: rustc_hash::FxHashSet::default(),
             signature_types: FxHashMap::default(),
+            pending_callable_displays: rustc_hash::FxHashSet::default(),
+            next_signature_id: 0,
+            cached_signatures: FxHashMap::default(),
+            original_generic_signature_ids: FxHashMap::default(),
+            active_signature_shapes: FxHashMap::default(),
+            active_signature_builders: rustc_hash::FxHashSet::default(),
+            active_signature_predicates: rustc_hash::FxHashSet::default(),
+            instantiation_expression_types: FxHashMap::default(),
+            instantiation_expression_sources: FxHashMap::default(),
+            instantiation_expression_nodes: FxHashMap::default(),
+            instantiation_expression_composites: rustc_hash::FxHashSet::default(),
             decorator_types: crate::decorators::DecoratorTypes::default(),
             signature_returns: FxHashMap::default(),
             pending_signature_returns: FxHashMap::default(),
@@ -1931,20 +1981,46 @@ impl<'a, 'n> Checker<'a, 'n> {
 
     /// Render a type as a `.types` baseline would print it.
     #[must_use]
-    pub fn type_to_string(&self, id: TypeId) -> String {
+    pub fn type_to_string(&mut self, id: TypeId) -> String {
+        if let Some((symbol, arguments)) = self.alias_of.get(&id).cloned() {
+            return if arguments.is_empty() { self.binder.symbols().get(symbol).name.to_owned() }
+                else { self.type_reference_text(symbol, &arguments) };
+        }
+        // typeToTypeNodeHelper (5b1047d:3232) emits the any keyword for
+        // errorType. Only the conformance writer's intrinsic fast path uses
+        // its raw intrinsic name; nested serialization always uses this path.
+        if id == self.intrinsics.error { return "any".to_owned(); }
+        if self.instantiation_expression_sources.contains_key(&id) {
+            return self.instantiation_expression_text(id, None)
+                .unwrap_or_else(|| printing::type_to_string(self.store.get(self.intrinsics.error)));
+        }
+        if self.instantiation_expression_composites.contains(&id) {
+            return self.instantiation_composite_text(id, None)
+                .unwrap_or_else(|| printing::type_to_string(self.store.get(self.intrinsics.error)));
+        }
+        if self.pending_callable_displays.contains(&id) && self.rendering_composites.insert(id) {
+            let signatures = self.signature_types.get(&id).cloned().expect("published callable shape");
+            let properties = self.anonymous_properties.get(&id).map(|(properties, _)| properties.clone()).unwrap_or_default();
+            let text = match signatures.as_slice() {
+                [signature] if properties.is_empty() => self.signature_to_string(signature),
+                signatures => {
+                    let mut members: Vec<_> = signatures.iter().map(|signature|
+                        crate::objects::Member::Signature { printed: crate::objects::signature_member_text(self, signature) }).collect();
+                    members.extend(self.property_members(&properties));
+                    crate::objects::render_object_type(&members)
+                }
+            };
+            self.rendering_composites.remove(&id);
+            return text;
+        }
         printing::type_to_string(self.store.get(id))
     }
 
     /// Render a type **as seen from a particular reference site**.
     ///
-    /// The second entry point beside [`Checker::type_to_string`], which is left
-    /// exactly as it was. `type_to_string` has 110 call sites across five
-    /// checker modules and a dozen test files; changing its signature would put
-    /// a cross-cutting refactor in the same commit as a behaviour change, and
-    /// would collide with two agents editing those files. More importantly the
-    /// split makes the property **structural rather than maintained**: a caller
-    /// with no reference node cannot get a context-sensitive name, so no call
-    /// site can regress by omission.
+    /// Both entry points demand lazy return/member slots only when printing.
+    /// A reference site additionally supplies accessible alias names and
+    /// type-parameter scope; neutral printing uses the declaration's scope.
     ///
     /// # Why a name can depend on the reference site at all
     ///
@@ -1992,6 +2068,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        if let Some((symbol, arguments)) = self.alias_of.get(&id).cloned()
+            && let Some(text) = self.reference_text_at(symbol, &arguments, reference) {
+            return Some(text);
+        }
+        if id == self.intrinsics.error { return Some("any".to_owned()); }
+        if self.instantiation_expression_sources.contains_key(&id) {
+            return self.instantiation_expression_text(id, Some(reference));
+        }
+        if self.instantiation_expression_composites.contains(&id) {
+            return self.instantiation_composite_text(id, Some(reference));
+        }
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
@@ -2517,7 +2604,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     out.push_str("const ");
                 }
                 out.push_str(&parameter.name);
-                if let Some(constraint) = parameter.constraint {
+                if let Some(constraint) = self.signature_parameter_constraint(parameter) {
                     out.push_str(" extends ");
                     if let Some(written) = &parameter.written_constraint {
                         out.push_str(written);
@@ -2528,7 +2615,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                         out.push_str(&rendered);
                     }
                 }
-                if let Some(default) = parameter.default {
+                if let Some(default) = self.signature_parameter_default(parameter) {
                     let rendered = self
                         .type_to_string_at(default, reference)
                         .unwrap_or_else(|| self.type_to_string(default));

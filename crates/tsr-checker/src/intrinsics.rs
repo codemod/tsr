@@ -43,6 +43,8 @@ pub struct Intrinsics {
     pub error: TypeId,
     /// Native unresolvedType: private unresolved aliases link to this distinct intrinsic.
     pub unresolved: TypeId,
+    /// Native wildcardType (5b1047d:977), distinct from ordinary any.
+    pub(crate) wildcard: TypeId,
     /// `unknownType` — `checker.go:983`.
     pub unknown: TypeId,
     /// The empty anonymous object and unknown's distinct empty constituent
@@ -191,6 +193,7 @@ impl Intrinsics {
             regular_false,
             true_type,
             false_type,
+            wildcard: store.new_intrinsic(TypeFlags::ANY, "any"),
         }
     }
 

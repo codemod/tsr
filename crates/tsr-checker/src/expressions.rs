@@ -234,42 +234,6 @@ impl Checker<'_, '_> {
         self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
     }
 
-    /// Whether the node's source file carries COMMONJS module machinery — a
-    /// reference to `require`, `module` or `exports`. §784.
-    ///
-    /// The sibling [`Checker::file_has_import_machinery`] asks the same
-    /// question — *can an unresolved name here be this port's own binding gap
-    /// rather than the source's?* — but only over ES `import`/`export`
-    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
-    /// the shape `allowJs` corpora are written in.
-    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
-        let mut root = node;
-        while let Some(parent) = self.nodes.parent(root) {
-            root = parent;
-        }
-        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
-            return cached;
-        }
-        let answer = self.node_map.get(root).is_none_or(|file| {
-            let mut stack = vec![file];
-            let mut children = Vec::new();
-            let mut found = false;
-            while let Some(current) = stack.pop() {
-                if let Node::Identifier(identifier) = current
-                    && matches!(identifier.text, "require" | "module" | "exports")
-                {
-                    found = true;
-                    break;
-                }
-                children.clear();
-                tsr_ast::push_children(current, &mut children);
-                stack.extend(children.iter().copied());
-            }
-            found
-        });
-        self.file_commonjs_machinery.insert(root, answer);
-        answer
-    }
 
     /// Whether the node's source file carries any import/export declaration
     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
@@ -693,7 +657,7 @@ impl Checker<'_, '_> {
                 // "the port might be the one failing to resolve it" gate below
                 // does not apply (the same reasoning as its §475 arm).
                 if node.text.is_empty() {
-                    return self.intrinsics.any;
+                    return self.intrinsics.error;
                 }
                 let resolved =
                     self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);
@@ -728,6 +692,16 @@ impl Checker<'_, '_> {
                             self.prepare_uncontextual_callable(original);
                         }
                         let declared = self.get_type_of_symbol(symbol);
+                        // Native assignment targets test local/export identity,
+                        // not the imported target's variable flags (5b1047d:11076).
+                        if self.assignment_target_kind(id) != AssignmentTargetKind::None {
+                            let local_or_export = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
+                            let flags = self.binder.symbols().get(self.binder.merged_symbol(local_or_export)).flags;
+                            if !(flags.intersects(SymbolFlags::VARIABLE)
+                                || self.in_js_file(id) && flags.intersects(SymbolFlags::VALUE_MODULE)) {
+                                return self.intrinsics.error;
+                            }
+                        }
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
                         // variable or parameter reference is narrowed. A class,
                         // interface, enum or function reference is not, and
@@ -840,26 +814,6 @@ impl Checker<'_, '_> {
                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
-                        } else if self.assignment_target_kind(id) != AssignmentTargetKind::None
-                            && self.binder.symbols().get(symbol).flags.intersects(
-                                SymbolFlags::FUNCTION
-                                    | SymbolFlags::CLASS
-                                    | SymbolFlags::ENUM
-                                    | SymbolFlags::VALUE_MODULE,
-                            )
-                        {
-                            // §313: ASSIGNING to a function, class, enum or
-                            // namespace name is upstream's TS2629/2630/2631/2632
-                            // family — `checkReferenceExpression` reports and
-                            // the target reads `errorType`, whose observable is
-                            // `any` (every such case carries an errors
-                            // baseline): `eval = 1` records `>eval : any`
-                            // (`parserStrictMode3` — and its `-negative` twin
-                            // proves strict mode is not the trigger),
-                            // `fn = () => {}` records `>fn : any`
-                            // (`assignmentToFunction`, `assignToEnum`,
-                            // `assignToExistingClass`).
-                            self.intrinsics.error
                         } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
                             // §280: a bare enum-member REFERENCE takes the
                             // access spelling, exactly as the property-access
@@ -883,24 +837,6 @@ impl Checker<'_, '_> {
                     // measurement (`checker-notes-narrow.md` §31).
                 } else {
                     {
-                        let anywhere = self.binder.resolve_name(
-                            self.nodes,
-                            self.node_map,
-                            id,
-                            node.text,
-                            SymbolFlags::VALUE
-                                | SymbolFlags::TYPE
-                                | SymbolFlags::NAMESPACE
-                                | SymbolFlags::ALIAS,
-                        );
-                        // The structural gate: a file with import/export
-                        // machinery can miss through the PORT's alias
-                        // resolution; a `///<reference>`-style script cannot
-                        // — its unresolved names are the SOURCE's.
-                        // `arguments` is THIS PORT's miss (upstream binds
-                        // `IArguments` in every function), and a JS/JSX file
-                        // resolves through machinery with known port gaps —
-                        // both stay honest gaps.
                         // §33: `globalThis` mints its own type; members
                         // resolve through the merged globals table.
                         if node.text == "globalThis" {
@@ -950,50 +886,11 @@ impl Checker<'_, '_> {
                                 return declared;
                             }
                         }
-                        // §475: a name that resolves ONLY to a TYPE
-                        // PARAMETER is upstream's TS2693 ("only refers to a
-                        // type") DETERMINISTICALLY — a type parameter can
-                        // never carry a value meaning in any file this port
-                        // has not loaded, so the §31 gate's "the port might
-                        // be the one failing to resolve it" argument does
-                        // not apply, and the answer is `errorType`, printed
-                        // `any` (`class C<T> extends T` records `>T : any`,
-                        // `typeParameterAsBaseClass`,
-                        // `inheritFromGenericTypeParameter`).
-                        if let Some(found) = anywhere
-                            && self
-                                .binder
-                                .symbols()
-                                .get(found)
-                                .flags
-                                .contains(SymbolFlags::TYPE_PARAMETER)
-                        {
-                            return self.intrinsics.any;
-                        }
-                        if anywhere.is_some()
-                            || node.text == "arguments"
-                            || self.file_has_import_machinery(id)
-                            // §784: the JS half the §31 comment above already
-                            // argues for but the gate never tested. A `.js`
-                            // file is checked with `allowJs`, where upstream
-                            // still reports TS2304 on an unresolved name and
-                            // the oracle records `error` — so `any` is this
-                            // port's own over-answer, not upstream's. The
-                            // exception is a JS file carrying COMMONJS
-                            // machinery: `require`/`module.exports` bring
-                            // names into scope through roads this port only
-                            // partly has, so an unresolved name THERE may be
-                            // the port's miss, exactly as the ES-declaration
-                            // test above allows. The ES-only detector cannot
-                            // see them; measured at 11 RIGHT->GAP without
-                            // this second half.
-                            || (self.in_js_file(id)
-                                && !self.file_has_commonjs_machinery(id))
-                        {
-                            self.intrinsics.error
-                        } else {
-                            self.intrinsics.any
-                        }
+                        let symbol = self.resolve_identifier_symbol(id)
+                            .expect("identifier resolution stays in this Checker's symbol domain");
+                        self.intrinsic_type_of_resolved_identifier_symbol(&symbol)
+                            .expect("resolved identifier symbol has this Checker's owner")
+                            .unwrap_or(self.intrinsics.error)
                     }
                 }
             }
@@ -1210,6 +1107,16 @@ impl Checker<'_, '_> {
                 };
                 self.get_type_of_symbol(symbol)
             }
+            Expression::ExpressionWithTypeArguments(node) => {
+                if let Some(id) = node.node_id {
+                    self.check_instantiation_expression_grammar(id);
+                    self.check_instantiation_instanceof_operand(id);
+                }
+                let Some(source) = node.expression else { return self.intrinsics.error };
+                let source = self.check_expression(source);
+                let Some(node) = node.node_id else { return self.intrinsics.error };
+                self.get_instantiation_expression_type(source, node)
+            }
             _ => self.intrinsics.error,
         }
     }
@@ -1334,9 +1241,7 @@ impl Checker<'_, '_> {
     /// Missing this case would be a plausible wrong line on every negative
     /// constant in the corpus.
     ///
-    /// Not ported, each a gap: an operand this port cannot type (see
-    /// [`Self::unary_result_type`] for why that is a gap rather than `number`),
-    /// and `!` on an operand whose truthiness is not decidable here.
+    /// Logical negation delegates to the native type-facts worker below.
     fn check_prefix_unary_expression(
         &mut self,
         node: &tsr_ast::PrefixUnaryExpression<'_>,
@@ -1344,6 +1249,7 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let Some(operand) = node.operand else { return error };
         let operand_type = self.check_expression(operand);
+        if Some(operand_type) == self.silent_never_type { return operand_type; }
         let operator = node.operator.kind;
 
         // The literal special cases, which run before the operator's general
@@ -1456,103 +1362,18 @@ impl Checker<'_, '_> {
         self.intrinsics.number
     }
 
-    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`).
-    ///
-    /// Upstream calls `getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)`
-    /// and answers `false` when the operand can only be truthy, `true` when it
-    /// can only be falsy, and `boolean` when it could be either. `>!x : boolean`
-    /// is the common baseline line, but `!` on a literal is not `boolean` and
-    /// answering `boolean` everywhere would be a wrong line on each one.
-    ///
-    /// # Only the decidable half of `getTypeFacts` is ported
-    ///
-    /// A unit type has one truthiness and the primitives have both, which is
-    /// enough for the corpus shapes. Everything else — unions, objects,
-    /// intersections, type parameters, `never` — is a gap. An object type is
-    /// *always* truthy upstream and so would answer `false`, but that holds only
-    /// once `TypeFacts` distinguishes an object from a possibly-`undefined` one,
-    /// and guessing it here would be a wrong line on every optional value.
+    /// checkPrefixUnaryExpression (5b1047d:10887-10896).
+    /// Empty or mixed truthiness facts select boolean, including never/error.
     fn negated_truthiness_type(&mut self, operand: TypeId) -> TypeId {
-        if operand == self.intrinsics.error {
-            return self.intrinsics.error;
+        let facts = self.get_type_facts(operand)
+            & (crate::flow::TypeFacts::TRUTHY | crate::flow::TypeFacts::FALSY);
+        if facts == crate::flow::TypeFacts::TRUTHY {
+            self.intrinsics.false_type
+        } else if facts == crate::flow::TypeFacts::FALSY {
+            self.intrinsics.true_type
+        } else {
+            self.intrinsics.boolean
         }
-        let (flags, data) = {
-            let t = self.store.get(operand);
-            (t.flags, t.data.clone())
-        };
-        // Always falsy: `!null`, `!undefined`, `!void` are all `true`.
-        if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
-            return self.intrinsics.true_type;
-        }
-        let falsy = match data {
-            TypeData::EnumLiteral { .. } => {
-                let facts = self.get_type_facts(operand);
-                let truthy = facts.contains(crate::flow::TypeFacts::TRUTHY);
-                let falsy = facts.contains(crate::flow::TypeFacts::FALSY);
-                return if truthy && falsy {
-                    self.intrinsics.boolean
-                } else if falsy {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            TypeData::BooleanLiteral(value) => !value,
-            TypeData::StringLiteral(text) => text.is_empty(),
-            // The normalised text, so 0, 0.0 and 0x0 arrive as "0".
-            TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
-            // §291: a UNION folds its constituents' truthiness — all-truthy
-            // is `false`, all-falsy `true`, a mix `boolean`, and any
-            // undecidable constituent keeps the gap
-            // (`!abcOrXyzOrNumber : boolean`,
-            // `stringLiteralTypesWithVariousOperators01`).
-            TypeData::Union { types: constituents, .. } => {
-                let mut saw_true = false;
-                let mut saw_false = false;
-                let mut saw_boolean = false;
-                for constituent in constituents {
-                    let negated = self.negated_truthiness_type(constituent);
-                    if negated == self.intrinsics.error {
-                        return self.intrinsics.error;
-                    } else if negated == self.intrinsics.true_type {
-                        saw_true = true;
-                    } else if negated == self.intrinsics.false_type {
-                        saw_false = true;
-                    } else {
-                        saw_boolean = true;
-                    }
-                }
-                return if saw_boolean || (saw_true && saw_false) {
-                    self.intrinsics.boolean
-                } else if saw_true {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            _ => {
-                // Both truthiness values are possible for the unit-less
-                // primitives, which is upstream's `Truthy|Falsy` and prints
-                // `boolean`.
-                return if flags.intersects(
-                    TypeFlags::STRING
-                        | TypeFlags::NUMBER
-                        | TypeFlags::BIG_INT
-                        | TypeFlags::BOOLEAN
-                        | TypeFlags::ANY_OR_UNKNOWN,
-                ) {
-                    self.intrinsics.boolean
-                } else if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL_LIKE) {
-                    // §291: an object or symbol operand is ALWAYS truthy
-                    // (upstream's TypeFacts), so its negation is the `false`
-                    // literal.
-                    self.intrinsics.false_type
-                } else {
-                    self.intrinsics.error
-                };
-            }
-        };
-        if falsy { self.intrinsics.true_type } else { self.intrinsics.false_type }
     }
 
     /// Ported from `Checker.checkThisExpression` (`checker.go:12077`), reduced to

@@ -386,6 +386,7 @@ pub mod counters {
 
 /// Native instantiation-expression signature filtering/checking outcome.
 /// Unsupported work is the enclosing Option's None, not an applicable image.
+#[allow(clippy::large_enum_variant, reason = "stack-owned filtering result avoids one allocation per applicable signature")]
 pub enum InstantiationExpressionSignature {
     /// Nongeneric signature or incorrect written type-argument arity.
     Inapplicable,
@@ -1396,7 +1397,7 @@ impl<'a> Checker<'a, '_> {
         }
         let is_javascript = self.in_js_file(candidate.declaration);
         for position in nodes.len()..parameters.len() {
-            let argument = match candidate.type_parameters[position].default {
+            let argument = match self.signature_parameter_default(&candidate.type_parameters[position]) {
                 Some(default)
                     if is_javascript
                         && (default == self.intrinsics.unknown
@@ -1414,16 +1415,13 @@ impl<'a> Checker<'a, '_> {
             map[position].1 = argument;
         }
         for (position, &node) in nodes.iter().enumerate() {
-            let Some(constraint) = self.type_parameter_constraint(parameters[position]) else {
+            let Some(constraint) = self.signature_parameter_constraint(&candidate.type_parameters[position]) else {
                 continue;
             };
             let constraint = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
             let target = self.get_type_with_this_argument(constraint, source, false);
-            if self.is_error(target)
-                || self.head_could_contain_type_variables(source, 3)
-                || self.head_could_contain_type_variables(target, 3)
-            {
+            if self.is_error(target) {
                 return None;
             }
             match self.relate_ternary(source, target, Relation::Assignable) {
@@ -1517,7 +1515,7 @@ impl<'a> Checker<'a, '_> {
             signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
         let map: Vec<_> = parameters.iter().copied().zip(type_arguments.iter().copied()).collect();
         let image =
-            self.instantiate_signature_lazily(signature, &map, &parameters, &names, true)?;
+            self.instantiate_signature_lazily(signature, &map, &parameters, &names, true);
         self.cached_signatures
             .entry(signature.id)
             .or_default()
@@ -1964,7 +1962,7 @@ impl<'a> Checker<'a, '_> {
     fn min_type_argument_count(type_parameters: &[crate::signatures::TypeParameter]) -> usize {
         type_parameters
             .iter()
-            .rposition(|parameter| parameter.default.is_none())
+            .rposition(|parameter| !parameter.has_default)
             .map_or(0, |i| i + 1)
     }
 
@@ -2251,41 +2249,12 @@ impl<'a> Checker<'a, '_> {
                     .collect(),
             );
         }
-        // A class merged with a function declares call signatures through the
-        // function; the shared resolver's class arm answers an empty call list
-        // for it, which is not upstream's list, so the head declines.
-        if is_call
-            && let TypeData::Anonymous { symbol, .. } = self.store.get(t).data
-            && self
-                .binder
-                .symbols()
-                .get(self.binder.merged_symbol(symbol))
-                .flags
-                .contains(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
-        {
-            return None;
+        if matches!(self.store.get(t).data, TypeData::Named { .. }) {
+            return self.signature_shape_of_named_type(t, kind);
         }
-        self.signatures_of_type_kind(t, kind)
-    }
-
-    /// getSignaturesOfType for instantiation-expression filtering. Never uses
-    /// the semantic resolver that completes all returns before arity filtering.
-    /// Parent resolves structured members before entering this list consumer.
-    pub(crate) fn get_instantiation_expression_signatures(
-        &mut self,
-        t: TypeId,
-        kind: SignatureKind,
-    ) -> Option<Vec<Signature>> {
-        let t = self.apparent_type(t);
-        let is_call = kind == SignatureKind::Call;
-        if let Some(signatures) = self.signature_types.get(&t) {
-            return Some(
-                signatures
-                    .iter()
-                    .filter(|signature| (signature.kind == SignatureKind::Call) == is_call)
-                    .cloned()
-                    .collect(),
-            );
+        if matches!(self.store.get(t).data,
+            TypeData::Union { .. } | TypeData::Intersection { .. }) {
+            return self.signatures_of_type_kind(t, kind);
         }
         if t == self.intrinsics.empty_object
             || t == self.intrinsics.unknown_empty_object
@@ -2294,8 +2263,7 @@ impl<'a> Checker<'a, '_> {
             return Some(Vec::new());
         }
         let TypeData::Anonymous { symbol, .. } = self.store.get(t).data else {
-            // Named inheritance/composite construction needs the same pending
-            // shape contract, not an eager resolver or invented empty list.
+            // A symbol-less unsupported object is not an empty signature list.
             return None;
         };
         let symbol = self.binder.merged_symbol(symbol);
@@ -2313,7 +2281,7 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::SyntaxKind::TypeLiteral | tsr_ast::SyntaxKind::InterfaceDeclaration
             )
         }) {
-            return None;
+            return self.signature_shape_of_named_type(t, kind);
         }
         for declaration in declarations {
             if !matches!(

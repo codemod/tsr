@@ -218,7 +218,7 @@ impl<'a> Checker<'a, '_> {
             _ => return Ok(None),
         };
         let returned = self.get_union_type(&[returned, self.intrinsics.void]);
-        Ok(Some(decorator_signature(declaration, None, parameters, returned)))
+        Ok(Some(decorator_signature(self.new_signature_id(), declaration, None, parameters, returned)))
     }
 
     fn legacy_decorator_key(&mut self, declaration: NodeId) -> Result<TypeId, ()> {
@@ -278,7 +278,9 @@ impl<'a> Checker<'a, '_> {
                 let (template, target, returned) = match kind {
                     SyntaxKind::MethodDeclaration => ("ClassMethodDecoratorContext", value, value),
                     SyntaxKind::GetAccessor => {
+                        let id = self.new_signature_id();
                         let target = self.decorator_function_type(decorator_signature(
+                            id,
                             declaration,
                             None,
                             Vec::new(),
@@ -287,7 +289,9 @@ impl<'a> Checker<'a, '_> {
                         ("ClassGetterDecoratorContext", target, target)
                     }
                     SyntaxKind::SetAccessor => {
+                        let id = self.new_signature_id();
                         let target = self.decorator_function_type(decorator_signature(
+                            id,
                             declaration,
                             None,
                             vec![decorator_parameter("value", value)],
@@ -307,7 +311,9 @@ impl<'a> Checker<'a, '_> {
                         ("ClassAccessorDecoratorContext", target, returned)
                     }
                     _ => {
+                        let id = self.new_signature_id();
                         let returned = self.decorator_function_type(decorator_signature(
+                            id,
                             declaration,
                             Some(decorator_parameter("this", this_type)),
                             vec![decorator_parameter("value", value)],
@@ -329,6 +335,7 @@ impl<'a> Checker<'a, '_> {
         };
         let returned = self.get_union_type(&[returned, self.intrinsics.void]);
         Ok(Some(decorator_signature(
+            self.new_signature_id(),
             declaration,
             None,
             vec![decorator_parameter("target", target), decorator_parameter("context", context)],
@@ -414,12 +421,13 @@ fn decorator_parameter(name: &str, ty: TypeId) -> Parameter {
 }
 
 fn decorator_signature(
+    id: u32,
     declaration: NodeId,
     this_parameter: Option<Parameter>,
     parameters: Vec<Parameter>,
     returned: TypeId,
 ) -> Signature {
-    Signature { mapper: None, declaration,
+    Signature { id, mapper: None, declaration,
     target: None,
     union_contains_abstract: false,
     non_inferrable: false,

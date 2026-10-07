@@ -129,25 +129,22 @@ impl<'a> Checker<'a, '_> {
     /// The shared tail of the two arms above.
     fn signature_bearing_type_node(&mut self, id: tsr_ast::NodeId) -> TypeId {
         let error = self.intrinsics.error;
-        // §72 (`checker-notes-narrow.md`): `getAliasForTypeNode`'s three arms,
-        // the SAME three the type-literal and union nodes take — a body under
-        // a non-generic alias prints the alias's name (`type F2 = ({ a:
-        // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
-        // than dropping its arguments, an unaliased node renders structurally.
+        // getAliasForTypeNode (5b1047d:23711) retains an alias body's own
+        // ordered type parameters. Unaliased nodes render structurally.
 
         let alias_name = match self.alias_symbol_for_type_node(id) {
             None => None,
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 Some(self.binder.symbols().get(alias).name.to_string())
             }
-            // §947.2: the alias currently being re-resolved renders its body
-            // STRUCTURALLY here, which is §92's exemption for the union road
-            // applied to this one. Keyed on `variadic_alias_in_progress` — the
-            // alias §947.2's caller inserted before re-resolving — so an
-            // unrelated function type reached during some other evaluation still
-            // declines.
+            // Existing alias re-resolution evaluates the structural body;
+            // completed constructors otherwise retain the alias arguments.
             Some(alias) if self.variadic_alias_in_progress.contains(&alias) => None,
-            Some(_) => return error,
+            Some(alias) => {
+                let parameters = self.local_type_parameter_types_of(alias)
+                    .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect::<Vec<_>>()).unwrap_or_default();
+                Some(self.type_reference_text(alias, &parameters))
+            }
         };
         // The symbol is `bindFunctionOrConstructorType`'s `__type` symbol, whose
         // members table holds the `__call` signature symbol. A node that somehow
@@ -201,6 +198,12 @@ impl<'a> Checker<'a, '_> {
         // see `Checker::signature_types` (`bd tsr-0hc`). Recorded here because
         // this is the last point the `Signature` exists.
         self.signature_types.insert(built, vec![signature]);
+        if let Some(alias) = self.alias_symbol_for_type_node(id)
+            && !self.local_type_parameters_of(alias).is_empty() {
+            let arguments = self.local_type_parameter_types_of(alias)
+                .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+            self.alias_of.insert(built, (alias, arguments));
+        }
         self.type_literal_types.insert(key, built);
         built
     }
@@ -357,30 +360,6 @@ mod node_identity_tests {
         }
     }
 
-    #[test]
-    fn cached_generic_alias_success_never_bypasses_current_eligibility() {
-        with_checker(
-            "type FunctionAlias<T> = (value: T) => T;
-             type ConstructorAlias<T> = new(value: T) => { value: T };",
-            |checker, nodes, _| {
-                for &node in nodes {
-                    let id = Node::from(node).node_id().unwrap();
-                    let alias = checker.alias_symbol_for_type_node(id).unwrap();
-                    assert_eq!(checker.get_type_from_type_node(node), checker.intrinsics.error);
-                    assert_eq!(checker.cached_type_literal(id), None);
-                    checker.variadic_alias_in_progress.insert(alias);
-                    let success = checker.get_type_from_type_node(node);
-                    assert_ne!(success, checker.intrinsics.error);
-                    assert_eq!(checker.get_type_from_type_node(node), success);
-                    checker.variadic_alias_in_progress.remove(&alias);
-                    assert_eq!(checker.get_type_from_type_node(node), checker.intrinsics.error);
-                    checker.variadic_alias_in_progress.insert(alias);
-                    assert_eq!(checker.get_type_from_type_node(node), success);
-                    checker.variadic_alias_in_progress.remove(&alias);
-                }
-            },
-        );
-    }
 
     #[test]
     fn named_function_and_constructor_nodes_keep_alias_spelling_and_shape() {

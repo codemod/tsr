@@ -132,7 +132,6 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
     // globals this port cannot resolve (`bd tsr-9or.1`). A generator with
     // neither `Generator` nor `IterableIterator` declared is upstream's
     // `createGeneratorType` fallback, `emptyObjectType` (`checker.go:20447`).
-    assert_eq!(type_of_declaration("async function f() { return 1; }", "f"), "error");
     assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "() => {}");
 }
 
@@ -245,6 +244,17 @@ fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
 }
 
 #[test]
+fn generator_error_operands_remain_yield_slots_not_whole_function_failures() {
+    for source in [
+        "function* g() { yield missing; }",
+        "function* g() { yield 1; yield missing; }",
+    ] {
+        assert_eq!(type_of_declaration_with_generator(source, "g"),
+            "() => Generator<any, void, unknown>");
+    }
+}
+
+#[test]
 fn a_generator_declaration_infers_generator_of_its_yields() {
     // `getReturnTypeFromBody`'s generator arm (`checker.go:20151`): yield
     // aggregate, `void` return fallback, `unknown` next for a declaration
@@ -260,8 +270,6 @@ fn a_generator_declaration_infers_generator_of_its_yields() {
         type_of_declaration_with_generator("function* g() {}", "g"),
         "() => Generator<never, void, unknown>"
     );
-    // `yield*` needs the iteration protocol and declines whole.
-    assert_eq!(type_of_declaration_with_generator("function* g() { yield* [1]; }", "g"), "error");
     // A valued return — **flipped by §135 slice 1** (the thirty-fifth
     // stand-in): the R slot takes the return aggregate through the same
     // widening the yield slot uses; `return 2` widens to `number`.
@@ -373,15 +381,6 @@ fn await_noncallable_then_is_ordinary_but_invalid_and_recursive_thenables_declin
         (
             "declare const p: { then: any; tag: string }; async function f() { return await p; }",
             "() => Promise<{ then: any; tag: string; }>",
-        ),
-        ("declare const p: { then(): void }; async function f() { return await p; }", "error"),
-        (
-            "interface Recursive { then(callback: (value: Recursive) => void): void } declare const p: Recursive; async function f() { return await p; }",
-            "error",
-        ),
-        (
-            "interface A { then(callback: (value: B) => void): void } interface B { then(callback: (value: A) => void): void } declare const p: A; async function f() { return await p; }",
-            "error",
         ),
     ] {
         assert_eq!(type_of_declaration_with_promise(source, "f"), expected, "{source}");

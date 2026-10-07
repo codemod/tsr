@@ -5120,43 +5120,24 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `replacePrimitivesWithLiterals` (`flow.go:1907`), the string/number
-    /// halves: a kept primitive constituent takes the discriminant's
-    /// literals of that base kind, so `case "a"` narrows a `string` to
-    /// `"a"`.
+    /// replacePrimitivesWithLiterals (5b1047d flow.go:1907), preserving origin
+    /// through the existing map/filter workers; no duplicate constituent image.
     fn replace_primitives_with_literals(&mut self, t: TypeId, literals: TypeId) -> TypeId {
-        let literal_constituents: Vec<TypeId> = match &self.store.get(literals).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![literals],
-        };
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let mut replaced = Vec::with_capacity(constituents.len());
-        for constituent in constituents {
-            let flags = self.store.get(constituent).flags;
-            if flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
-                && !flags.intersects(TypeFlags::UNIT)
-            {
-                let base = self.get_base_type_of_literal_type(constituent);
-                let mut matched = false;
-                for &literal in &literal_constituents {
-                    if self.store.get(literal).flags.intersects(TypeFlags::UNIT)
-                        && self.get_base_type_of_literal_type(literal) == base
-                    {
-                        replaced.push(self.get_regular_type_of_literal_type(literal));
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    replaced.push(constituent);
-                }
-            } else {
-                replaced.push(constituent);
-            }
+        if !self.maybe_type_of_kind(t, TypeFlags::STRING | TypeFlags::TEMPLATE_LITERAL | TypeFlags::NUMBER | TypeFlags::BIG_INT)
+            || !self.maybe_type_of_kind(literals, TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING | TypeFlags::NUMBER_LITERAL | TypeFlags::BIG_INT_LITERAL) {
+            return t;
         }
-        self.get_union_type(&replaced)
+        self.map_narrowing_type(t, &mut |checker, constituent| {
+            let flags = checker.store.get(constituent).flags;
+            let kind = if flags.intersects(TypeFlags::STRING) { TypeFlags::STRING_LIKE }
+                else if checker.is_pattern_template(constituent)
+                    && !checker.maybe_type_of_kind(literals, TypeFlags::STRING | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING) {
+                    TypeFlags::STRING_LITERAL
+                } else if flags.intersects(TypeFlags::NUMBER) { TypeFlags::NUMBER | TypeFlags::NUMBER_LITERAL }
+                else if flags.intersects(TypeFlags::BIG_INT) { TypeFlags::BIG_INT | TypeFlags::BIG_INT_LITERAL }
+                else { return Some(constituent) };
+            Some(checker.filter_type(literals, |checker, literal| checker.store.get(literal).flags.intersects(kind)))
+        }).expect("primitive replacement maps every constituent")
     }
 
     /// §100's door into the narrowing ladder: narrow `initial` (declared as
@@ -7673,18 +7654,9 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            if kept.is_empty() || kept.len() == total {
-                if kept.is_empty() {
-                    // SS155: an emptied filter is `never` on BOTH branches
-                    // (upstream's filterType) — the false branch of
-                    // `x == 1` on `const x = 1` was returning t, and the
-                    // capturedLetConstInLoop family's `never` wants sat
-                    // exactly there.
-                    return self.intrinsics.never;
-                }
-                return t;
-            }
-            let filtered = self.rebuild_union_subset(t, &kept);
+            // Native narrowTypeByEquality replaces primitives even when the
+            // filter kept every constituent.
+            let filtered = if kept.len() == total { t } else { self.rebuild_union_subset(t, &kept) };
             if assume_true {
                 let replaced = self.replace_primitives_with_literals(filtered, value_type);
                 // SS151: the chain strip, after the filter.

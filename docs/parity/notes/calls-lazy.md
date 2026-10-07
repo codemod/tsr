@@ -580,20 +580,96 @@ canonical source vector builders own IDs, not temporary getter copies. Current
 ordered-cache-tests.log is compile-blocked on absent parent fields, not a pass.
 Parent/member readonly/source forwarding contract unchanged; no shared file edits.
 
-## Nonforcing instantiation-expression signature list entry
+## Instantiation-expression integration — tsr-2zk.16.56.1
 
-Applied get_instantiation_expression_signatures(TypeId, SignatureKind) in owned
-calls.rs. Baked lists retain authoritative empty/kind filtering. Anonymous
-function/type sources prepare existing captured pending-return slots before
-get_signatures_of_symbol_for_type; no eager complete_signature_return fallback.
-Class construct metadata uses existing constructor owner. Unsupported type-literal,
-interface, named and composite preparation is None, never an invented empty list.
-Parent resolves structured members before list demand.
+Pinned native operations: `getInstantiationExpressionType` (5b1047d,
+checker.go:10660–10738), `instantiateSignatureEx` (:20619),
+`getTypeAliasInstantiation` (:23641), `instantiateAnonymousType` (:22458), and
+`createAnonymousTypeNodeEx` (nodebuilderimpl.go:2812).
 
-Complete named/heritage/composite coverage still requires signature-owner
-nonforcing shape publication. Current named candidate builder eagerly maps
-returns and cannot be reused unchanged. Parent should publish full ordered vectors
-with canonical original identity/receiver mapper and pending returns before this
-getter. This delivered entry is an integration-dependent supported-source slice,
-not full native-source acceptance. nonforcing-list-final-check is blocked by
-prior shared fields locally; no target/full-parity/perf proof claimed.
+The canonical `head_signatures` list consumer replaces the separate
+instantiation-only helper. Named/interface heritage mapping retains target and
+mapper; the semantic named-candidate API completes returns for existing consumers.
+Return and predicate work occurs at canonical demand, not signature filtering.
+
+The private Checker owns node/captured-binding/source keys. Native keys are
+node/source identities; Rust alias-body re-resolution also requires the existing
+`TypeLiteralKey` binding/template context. Unsupported work remains absent;
+completed filtering publishes before applicability diagnostics. Wrappers retain
+source receiver, static side, member origins, readonly and index metadata.
+Completed empty member/index views support native intersection reduction.
+
+Outer mapping uses the existing source/ordered-map object cache and maps semantic
+signature/source edges, never replays argument AST in a different captured frame.
+Generic original IDs remain stable only for noncontextual shapes. Ordinary
+construction runs once; an actual re-entry publishes annotation/symbol parameter
+slots. Completed original vectors replace retained provisional shapes. Runtime
+mapped parameter cells require mutable Checker input and stay uncomputed until
+canonical demand; unsupported reads do not publish completion. Syntactic default
+presence is distinct from a completed default. Captured original metadata and
+fresh-parameter target mappers retain separate ownership.
+
+Printing is on demand. Identity-matching type queries reuse the existing accessible
+node; unions/intersections recursively serialize constituents with native
+precedence. Abstract constructors split from the ordinary residual object;
+methods and accessor pairs retain node kinds. Recursive visited placeholders print
+`any` under the native baseline's NoTruncation policy.
+
+Observed controls: basic function/class specialization, readonly source retention,
+call/new results, distinct captured string/number factory calls, intersection
+filtering, union parentheses, abstract residual naming, and four exact native
+TS2635/TS2344 CLI messages and positions. Legacy `instantiationExpressionErrors`
+has 221/221 matching type rows; varied `instantiationExpressions` is excluded by
+that historical oracle and is not claimed passed.
+
+The first full type run aborted with stack overflow in
+`selfReferentialFunctionType`. Native original-shape publication and deferred mapped
+parameter slots repair that source; all eight native type rows now match. The
+subsequent full run completes but loses 162 previously RIGHT rows and eight keys,
+plus seven diagnostic passes, so integration remains rejected. Source comparison
+found omitted already-verified parent compiler/diagnostic/flow/unary prerequisites;
+those are restored before fresh gates. No lost pass is waived.
+
+Eleven alternating candidate/prior-TSR domain-model pairs observed median ratio
+0.95175 with equal output/options/scope before the recursive publication changes.
+This is not current-cutover timing, native comparison or complete-work
+certification. The full configured parity and <=0.50 release acceptance remain
+unmet.
+
+### Generic alias constructors and mapped publication — tsr-2zk.16.56.1.4
+
+Native `getDeclaredTypeOfTypeAlias` (:23837) publishes the resolved body;
+`getTypeAliasInstantiation` (:23641), `getObjectTypeInstantiation` (:22304)
+and `instantiateAnonymousType` (:22458) preserve the enclosing alias separately
+from its canonical semantic body. Existing private Checker image keys now include
+alias symbol, ordered alias arguments and canonical source TypeId. Completed
+signature, member, index, tuple, source-node and receiver views remain reachable;
+absent views are not certified completed. Intrinsics and type-parameter body
+substitutions retain native identity rather than acquiring an alias. Homomorphic
+array/tuple normalization retains the alias-free normalized result.
+
+Reserved type-literal completion transfers alias metadata and its canonical body
+edge. Signature, literal, property and mapped-object instantiation apply the
+existing mapper to ordered alias arguments before publishing a newly constructed
+image. This is `instantiateTypeAlias`, not re-resolution of argument syntax or
+retagging of a shared body. Member/signature resolution remains the expensive
+boundary; copied completed-view bytes and broader object-cache equivalence are
+not measured, so no speed or broader reuse claim follows.
+
+Actual native declaration controls and TSR source probes agree on independent
+AliasOne/AliasTwo spellings, Fixed<string> retaining a number argument map,
+string/number factory calls, Pair<string>.first and Tuple<number>[0]. The retained
+regression exercises independent aliases in cold and warm read orders. After
+mapper publication repairs, 130 existing type tests and four instantiation tests
+pass; scoped all-target clippy passes. A frozen arrayConcat3 probe restores Fn<T>
+and Fn<T1> semantics/names but exposes unnecessary alias parentheses, addressed
+at the anonymous node-kind mint rather than expected-output changes.
+
+The earlier frozen alias-constructor full ratchet completed with 1,353 formerly
+RIGHT type losses and four diagnostic losses, zero vanished keys. That candidate
+is rejected. Its native domain-model wall ratio was 1.53257; prior-TSR A/B was
+1.00149. Both had matching diagnostics/options/scope but unverified complete work.
+Repaired-candidate full ratchet and timing are separate pending evidence. No full
+configured 99.9%, native speed lead or <=0.50 release acceptance is established.
+
+

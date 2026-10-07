@@ -58,7 +58,7 @@ mod parameter {
     /// (`checker.go:17042`) resolves one on demand through `getTypeOfSymbol`,
     /// whose `valueSymbolLinks.resolvedType` ([`crate::checker::Checker`]'s
     /// `symbol_types`) is the only owner of the answer.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone)]
     pub(crate) enum Slot {
         /// A resolved type: an annotation, an instantiation's or contextual
         /// assignment's image, or a symbol type read at construction.
@@ -71,6 +71,17 @@ mod parameter {
         /// answers the published type, or closes the native cycle when the
         /// reader runs while that frame is still active.
         Symbol(SymbolId),
+        /// Original annotation read after signature shape publication.
+        Annotation(tsr_ast::NodeId),
+        /// instantiateSymbol retains the original slot and ordered mapper.
+        Mapped(std::sync::Arc<MappedParameter>),
+    }
+
+    #[derive(Debug)]
+    pub(crate) struct MappedParameter {
+        pub(crate) original: super::Parameter,
+        pub(crate) mapper: std::sync::Arc<crate::inference::SignatureMapper>,
+        pub(crate) completed: std::sync::OnceLock<TypeId>,
     }
 
     /// One parameter of a [`super::Signature`], reduced to what a printed
@@ -124,6 +135,19 @@ mod parameter {
         pub(crate) fn of_symbol(name: String, rest: bool, symbol: SymbolId) -> Self {
             Self { name, optional: false, rest, slot: Slot::Symbol(symbol), written_text: None }
         }
+        pub(crate) fn of_annotation(
+            name: String, optional: bool, rest: bool, annotation: tsr_ast::NodeId,
+        ) -> Self {
+            Self { name, optional, rest, slot: Slot::Annotation(annotation), written_text: None }
+        }
+
+        pub(crate) fn mapped(&self, mapper: std::sync::Arc<crate::inference::SignatureMapper>) -> Self {
+            Self { name: self.name.clone(), optional: self.optional, rest: self.rest,
+                written_text: self.written_text, slot: Slot::Mapped(std::sync::Arc::new(MappedParameter {
+                    original: self.clone(), mapper, completed: std::sync::OnceLock::new(),
+                })) }
+        }
+
 
         /// Replace the slot with a resolved type — an instantiation's or a
         /// contextual assignment's image of this parameter.
@@ -139,8 +163,8 @@ mod parameter {
         }
 
         /// The stored slot, for the canonical accessors only.
-        pub(crate) fn slot(&self) -> Slot {
-            self.slot
+        pub(crate) fn slot(&self) -> &Slot {
+            &self.slot
         }
     }
 }
@@ -169,7 +193,22 @@ pub struct TypeParameter {
     pub written_constraint: Option<String>,
     /// The `= T` default, if there is one.
     pub default: Option<TypeId>,
+    /// Native hasTypeParameterDefault reads declaration presence, not completion.
+    pub(crate) has_default: bool,
 }
+
+impl Checker<'_, '_> {
+    pub(crate) fn signature_parameter_default(&mut self, parameter: &TypeParameter) -> Option<TypeId> {
+        let id = parameter.resolved_type?;
+        parameter.default.or_else(|| self.get_default_from_type_parameter(id))
+    }
+
+    pub(crate) fn signature_parameter_constraint(&mut self, parameter: &TypeParameter) -> Option<TypeId> {
+        let id = parameter.resolved_type?;
+        parameter.constraint.or_else(|| self.type_parameter_constraint(id))
+    }
+}
+
 
 /// Whether a signature is a **call** signature or a **construct** one, and if
 /// the latter, whether it is `abstract`.
@@ -236,6 +275,9 @@ pub struct TypePredicate {
 /// see the module docs.
 #[derive(Debug, Clone)]
 pub struct Signature {
+    /// Private Checker identity. Ordinary clones/completion preserve it;
+    /// native newSignature and transformed images mint a fresh monotonic ID.
+    pub(crate) id: u32,
     /// The declaration this signature came from.
     pub declaration: NodeId,
     /// The signature before its latest instantiation (`Signature.target`,
@@ -286,7 +328,15 @@ impl Signature {
     /// Ported from `typePredicateKindsMatch` (`internal/checker/relater.go`).
     /// Missing parameter metadata leaves the comparison unsupported.
     pub(crate) fn predicate_kinds_match(&self, target: &Self) -> Option<bool> {
-        let (source, target_predicate) = (self.predicate.as_ref()?, target.predicate.as_ref()?);
+        self.resolved_predicate_kinds_match(target, self.predicate.as_ref()?, target.predicate.as_ref()?)
+    }
+
+    pub(crate) fn resolved_predicate_kinds_match(
+        &self,
+        target: &Self,
+        source: &TypePredicate,
+        target_predicate: &TypePredicate,
+    ) -> Option<bool> {
         if source.asserts != target_predicate.asserts
             || source.parameter_name.is_some() != target_predicate.parameter_name.is_some()
         {
@@ -304,18 +354,6 @@ impl Signature {
         Some(source_index == target_index)
     }
 
-    /// Ported from `applyToReturnTypes` (`internal/checker/inference.go`):
-    /// matching predicates contribute their asserted types instead of the
-    /// signatures' boolean return types.
-    pub(crate) fn inference_return_types(&self, target: &Self) -> (TypeId, TypeId) {
-        if let (Some(source), Some(target_predicate)) = (&self.predicate, &target.predicate)
-            && self.predicate_kinds_match(target) == Some(true)
-            && let (Some(source_type), Some(target_type)) = (source.r#type, target_predicate.r#type)
-        {
-            return (source_type, target_type);
-        }
-        (self.r#type, target.r#type)
-    }
 }
 
 /// A function-like declaration's body.
@@ -374,6 +412,12 @@ impl<'a> Checker<'a, '_> {
                     .first()
                     .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
                 && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
+    }
+
+    pub(crate) fn new_signature_id(&mut self) -> u32 {
+        let id = self.next_signature_id;
+        self.next_signature_id = id.checked_add(1).expect("signature identity exhausted");
+        id
     }
 
     /// Only parameters with no written type read the contextual fixing mapper.
@@ -495,7 +539,7 @@ impl<'a> Checker<'a, '_> {
             [single] => *single,
             many => self.union_with_subtype_reduction(many)?,
         };
-        let signature = Signature { mapper: None, declaration,
+        let signature = Signature { id: self.new_signature_id(), mapper: None, declaration,
         target: None,
         union_contains_abstract: false,
         non_inferrable: true,
@@ -1047,6 +1091,7 @@ impl<'a> Checker<'a, '_> {
                             self.instantiate_signature(signature, &map, &parameters, &names)?;
                     }
                     signature.type_parameters.clone_from(&type_parameters);
+                    signature.id = self.new_signature_id();
                     signature.r#type = instance;
                     signature.kind = kind;
                     signatures.push(signature);
@@ -1055,6 +1100,7 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(vec![Signature {
+            id: self.new_signature_id(),
             declaration,
             target: None,
             mapper: None,
@@ -1077,16 +1123,32 @@ impl<'a> Checker<'a, '_> {
         callee: TypeId,
         kind: SignatureKind,
     ) -> Option<Vec<Signature>> {
+        self.signature_shape_of_named_type(callee, kind)?
+            .into_iter()
+            .map(|signature| self.complete_signature_return(signature))
+            .collect()
+    }
+
+    /// resolveObjectTypeMembers (5b1047d:19106): map signature inputs and
+    /// retain lazy target/mapper slots. The semantic candidate API completes
+    /// these shapes; head-list consumers do not demand returns or predicates.
+    pub(crate) fn signature_shape_of_named_type(
+        &mut self,
+        callee: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Vec<Signature>> {
         let crate::types::TypeData::Named { members: Some(symbol), .. } =
             self.store.get(callee).data
         else {
             return None;
         };
-        let signatures =
-            self.signature_candidates_of_interface_symbol(symbol, kind, callee, &mut Vec::new())?;
-        signatures
+        let this_argument = self.type_reference_this_arguments.get(&callee)
+            .copied().unwrap_or(callee);
+        self.signature_candidates_of_interface_symbol(symbol, kind, this_argument, &mut Vec::new())?
             .into_iter()
-            .map(|signature| self.instantiate_signature_for_reference(callee, signature))
+            .map(|signature| self.instantiate_signature_for_reference_lazily(
+                callee, this_argument, signature,
+            ))
             .collect()
     }
 
@@ -1149,7 +1211,7 @@ impl<'a> Checker<'a, '_> {
                         this_argument,
                         visiting,
                     )? {
-                        inherited.push(self.instantiate_signature_for_reference_with_this(
+                        inherited.push(self.instantiate_signature_for_reference_lazily(
                             base_type,
                             this_argument,
                             signature,
@@ -1174,6 +1236,10 @@ impl<'a> Checker<'a, '_> {
         for element in elements {
             // An unbuilt declaration is an incomplete set, not an absent
             // signature: callers use an empty set to prove noncallability.
+            let key = self.type_literal_key(element);
+            if !self.signature_returns.contains_key(&key) {
+                self.pending_signature_returns.entry(key).or_insert(LazyReturnState::Pending);
+            }
             candidates.push(self.get_signature_from_declaration(element)?);
         }
         // Own members first, then the bases' — upstream appends the inherited
@@ -1411,6 +1477,74 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         declaration: NodeId,
     ) -> Option<Signature> {
+        let key = self.type_literal_key(declaration);
+        if let Some(shape) = self.active_signature_shapes.get(&key) { return Some(shape.clone()); }
+        if !self.active_signature_builders.insert(key.clone()) {
+            return self.publish_reentrant_signature_shape(declaration, key);
+        }
+        let result = self.get_signature_from_declaration_worker(declaration);
+        if let Some(completed) = &result
+            && let Some(original) = self.active_signature_shapes.get(&key)
+        {
+            let original_id = original.id;
+            for signatures in self.signature_types.values_mut() {
+                for slot in signatures {
+                    if slot.id == original_id && slot.target.is_none() {
+                        *slot = completed.clone();
+                    }
+                }
+            }
+        }
+        self.active_signature_builders.remove(&key);
+        self.active_signature_shapes.remove(&key);
+        result
+    }
+
+    fn publish_reentrant_signature_shape(
+        &mut self, declaration: NodeId, key: crate::declared::TypeLiteralKey,
+    ) -> Option<Signature> {
+        let parts = self.signature_parts_of(declaration)?;
+        let id = self.new_signature_id();
+        let mut type_parameters = Vec::with_capacity(parts.type_parameters.len());
+        for node in &parts.type_parameters {
+            let symbol = self.binder.symbol_of(node.node_id?)?;
+            type_parameters.push(TypeParameter {
+                resolved_type: Some(self.get_declared_type_of_symbol(symbol)),
+                is_const: crate::check::has_modifier(node.modifiers, SyntaxKind::ConstKeyword),
+                name: node.name?.text.to_owned(), constraint: None,
+                written_constraint: None, default: None, has_default: node.default_type.is_some(),
+            });
+        }
+        let mut parameters = Vec::with_capacity(parts.parameters.len());
+        let mut this_parameter = None;
+        for node in parts.parameters {
+            let tsr_ast::BindingName::Identifier(name) = node.name? else {
+                // Destructuring uses the ordinary builder's existing names.
+                return self.get_signature_from_declaration_worker(declaration);
+            };
+            let rest = node.dot_dot_dot_token.is_some();
+            let optional = node.question_token.is_some() || node.initializer.is_some();
+            let parameter = if let Some(annotation) = node.r#type {
+                Parameter::of_annotation(name.text.to_owned(), optional, rest, annotation.node_id()?)
+            } else {
+                let mut parameter = Parameter::of_symbol(name.text.to_owned(), rest,
+                    self.binder.symbol_of(node.node_id?)?);
+                parameter.optional = optional;
+                parameter
+            };
+            if name.text == "this" && parameters.is_empty() { this_parameter = Some(parameter); }
+            else { parameters.push(parameter); }
+        }
+        let shape = Signature { id, declaration, target: None, mapper: None,
+            union_contains_abstract: false, non_inferrable: false,
+            kind: self.signature_kind_of(declaration), type_parameters,
+            this_parameter, parameters, r#type: self.intrinsics.error,
+            written_return: None, predicate: None };
+        self.active_signature_shapes.insert(key, shape.clone());
+        Some(shape)
+    }
+
+    fn get_signature_from_declaration_worker(&mut self, declaration: NodeId) -> Option<Signature> {
         let mut parts = self.signature_parts_of(declaration)?;
         // Signatures can be requested before the declaration's value type.
         // Native's anonymous callable identity exists before either entry
@@ -1675,7 +1809,9 @@ impl<'a> Checker<'a, '_> {
         // §100 (`checker-notes-narrow.md`): with no annotation at all and a
         // BOOLEAN inferred return, a single-return body may refine a
         // parameter (`getTypePredicateFromBody`, `checker.go:20535`).
-        if predicate.is_none() && return_annotation.is_none() {
+        let predicate_key = self.type_literal_key(declaration);
+        if predicate.is_none() && return_annotation.is_none()
+            && self.active_signature_predicates.insert(predicate_key.clone()) {
             predicate = self.infer_type_predicate_from_body(
                 declaration,
                 parameter_nodes,
@@ -1684,6 +1820,7 @@ impl<'a> Checker<'a, '_> {
                 asterisk,
                 r#type,
             );
+            self.active_signature_predicates.remove(&predicate_key);
         }
         // assignContextualParameterTypes copies the contextual `this` slot
         // whenever contextual assignment runs, including functions sensitive
@@ -1706,7 +1843,23 @@ impl<'a> Checker<'a, '_> {
                     Some(Parameter::new("this".to_string(), false, false, inherited, None));
             }
         }
-        Some(Signature { mapper: None, declaration,
+        let id = if let Some(shape) = self.active_signature_shapes.get(&self.type_literal_key(declaration)) {
+            shape.id
+        } else if !type_parameters.is_empty()
+            && !self.is_context_sensitive_function_like(declaration)
+        {
+            let key = self.type_literal_key(declaration);
+            if let Some(id) = self.original_generic_signature_ids.get(&key).copied() {
+                id
+            } else {
+                let id = self.new_signature_id();
+                self.original_generic_signature_ids.insert(key, id);
+                id
+            }
+        } else {
+            self.new_signature_id()
+        };
+        Some(Signature { id, mapper: None, declaration,
         target: None,
         union_contains_abstract: false,
         non_inferrable: false,
@@ -1771,7 +1924,7 @@ impl<'a> Checker<'a, '_> {
     /// `maybeRecord is Record.Instance<any>`, not `is Instance<any>`). One row
     /// is thin evidence for a rule, so only the shortening is carried — every
     /// other predicate type still renders from the computed type.
-    pub(crate) fn type_predicate_to_string(&self, predicate: &TypePredicate) -> String {
+    pub(crate) fn type_predicate_to_string(&mut self, predicate: &TypePredicate) -> String {
         let mut out = String::new();
         if predicate.asserts {
             out.push_str("asserts ");
@@ -1911,8 +2064,21 @@ impl<'a> Checker<'a, '_> {
     /// `getTypeAtPosition` would.
     pub fn parameter_type(&mut self, parameter: &Parameter) -> TypeId {
         match parameter.slot() {
-            parameter::Slot::Resolved(r#type) => r#type,
-            parameter::Slot::Symbol(symbol) => self.get_type_of_symbol(symbol),
+            parameter::Slot::Resolved(r#type) => *r#type,
+            parameter::Slot::Symbol(symbol) => self.get_type_of_symbol(*symbol),
+            parameter::Slot::Annotation(node) => {
+                let Some(node) = self.node_map.get(*node)
+                    .and_then(|node| TypeNode::try_from(node).ok()) else { return self.intrinsics.error };
+                self.get_type_from_type_node(node)
+            }
+            parameter::Slot::Mapped(slot) => {
+                if let Some(&ty) = slot.completed.get() { return ty; }
+                let original = self.parameter_type(&slot.original);
+                let names: Vec<_> = slot.mapper.names.iter().map(String::as_str).collect();
+                let image = self.instantiate_type(original, &slot.mapper.map, &slot.mapper.parameters, &names);
+                if !self.is_error(image) { let _ = slot.completed.set(image); }
+                image
+            }
         }
     }
 
@@ -1922,9 +2088,44 @@ impl<'a> Checker<'a, '_> {
     /// published; such a walk follows no edge for it.
     pub(crate) fn peek_parameter_type(&self, parameter: &Parameter) -> Option<TypeId> {
         match parameter.slot() {
-            parameter::Slot::Resolved(r#type) => Some(r#type),
-            parameter::Slot::Symbol(symbol) => self.symbol_types.get(&symbol).copied(),
+            parameter::Slot::Resolved(r#type) => Some(*r#type),
+            parameter::Slot::Symbol(symbol) => self.symbol_types.get(symbol).copied(),
+            parameter::Slot::Annotation(node) => self.node_types.get(node).copied(),
+            parameter::Slot::Mapped(slot) => slot.completed.get().copied(),
         }
+    }
+
+    /// getNonCircularReturnTypeOfSignature / isResolvingReturnTypeOfSignature
+    /// (5b1047d1, checker.go:20051, relater.go:2112). Private Checker original
+    /// keys retain alias/receiver bindings; mapped images use their fresh ID
+    /// and mapper-owned completed slot. Composite returns are already completed
+    /// by union_signatures; there is no lazy composite edge to traverse here.
+    /// A cycle yields a local any assumption only, without changing frames or
+    /// publishing completion. Ordinary expensive return work stays in the getter.
+    pub(crate) fn get_non_circular_return_type_of_signature(
+        &mut self,
+        signature: &Signature,
+    ) -> Option<TypeId> {
+        use crate::resolution::{PropertyName, ResolutionTarget};
+        let target = if let Some(mapper) = &signature.mapper {
+            if let Some(returned) = mapper.completed_return_type() {
+                return Some(returned);
+            }
+            ResolutionTarget::SignatureImage(signature.id)
+        } else {
+            if signature.r#type != self.intrinsics.error {
+                return self.get_return_type_of_signature(signature);
+            }
+            ResolutionTarget::Signature(self.type_literal_key(signature.declaration))
+        };
+        if self.resolutions.find_cycle_start(
+            &target,
+            PropertyName::ResolvedReturnType,
+            |target, property| self.resolution_has_published_identity(target, property),
+        ).is_some() {
+            return Some(self.intrinsics.any);
+        }
+        self.get_return_type_of_signature(signature)
     }
 
     /// Canonical semantic return accessor. Instantiated/composite signatures
@@ -1936,6 +2137,13 @@ impl<'a> Checker<'a, '_> {
             return self.mapped_signature_return(signature);
         }
         let key = self.type_literal_key(signature.declaration);
+        if signature.target.is_none() && !signature.non_inferrable
+            && signature.r#type == self.intrinsics.error
+            && self.active_signature_shapes.get(&key).is_some_and(|shape| shape.id == signature.id) {
+            let parts = self.signature_parts_of(signature.declaration)?;
+            return self.return_type_of(signature.declaration, parts.return_annotation,
+                parts.body, parts.modifiers, parts.asterisk, parts.may_return_never);
+        }
         if signature.target.is_none()
             && !signature.non_inferrable
             && signature.r#type == self.intrinsics.error
@@ -1975,8 +2183,12 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn get_type_predicate_of_signature(
         &mut self, signature: &Signature,
     ) -> Option<Option<TypePredicate>> {
+        if self.active_signature_predicates.contains(&self.type_literal_key(signature.declaration))
+            && signature.mapper.is_none() {
+            return Some(None);
+        }
         if signature.mapper.is_some() {
-            if let Some(predicate) = self.cached_mapped_signature_predicate(signature) {
+            if let Some(predicate) = Self::cached_mapped_signature_predicate(signature) {
                 return Some(predicate);
             }
             let target = signature.target.as_ref()?;
@@ -2000,13 +2212,23 @@ impl<'a> Checker<'a, '_> {
             && !signature.non_inferrable
             && let Some(&state) = self.pending_signature_returns.get(&key)
         {
-            if state == LazyReturnState::Active {
-                return self.get_signature_from_declaration(signature.declaration);
+            // Native getReturnTypeOfSignature resolves only the return slot;
+            // defaulted parameters may independently call this declaration.
+            let parts = self.signature_parts_of(signature.declaration)?;
+            if state == LazyReturnState::Pending {
+                self.pending_signature_returns.insert(key.clone(), LazyReturnState::Active);
             }
-            self.pending_signature_returns.insert(key.clone(), LazyReturnState::Active);
-            let completed = self.get_signature_from_declaration(signature.declaration);
-            self.pending_signature_returns.remove(&key);
-            signature = completed?;
+            let returned = self.return_type_of(signature.declaration, parts.return_annotation,
+                parts.body, parts.modifiers, parts.asterisk, parts.may_return_never);
+            if state == LazyReturnState::Pending { self.pending_signature_returns.remove(&key); }
+            signature.r#type = returned?;
+            signature.written_return = parts.return_annotation
+                .filter(|annotation| !matches!(annotation, TypeNode::TypePredicateNode(_)))
+                .and_then(|annotation| self.reuse_annotation(annotation, signature.r#type));
+            signature.predicate = match parts.return_annotation {
+                Some(TypeNode::TypePredicateNode(node)) => Some(self.type_predicate_of(node)?),
+                _ => signature.predicate,
+            };
             if let Some(owner) = self.binder.symbol_of(signature.declaration)
                 && let Some(&ty) = self.symbol_types.get(&owner)
                 && let Some(signatures) = self.signature_types.get_mut(&ty)
@@ -2026,49 +2248,6 @@ impl<'a> Checker<'a, '_> {
         Some(signature)
     }
 
-    /// A mapper must not copy an unresolved return or infer "no parameter"
-    /// from pending metadata. Direct mapper hits precede this demand. Active
-    /// originals and unsupported completion decline without storing an image.
-    pub(crate) fn complete_pending_signature_returns_of_type(&mut self, ty: TypeId) -> bool {
-        let Some(signatures) = self.signature_types.get(&ty).cloned() else {
-            return !matches!(self.store.get(ty).data,
-                crate::types::TypeData::Anonymous { symbol, .. }
-                    if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags
-                        .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD));
-        };
-        for signature in signatures {
-            if signature.target.is_some() || signature.non_inferrable {
-                continue;
-            }
-            let key = self.type_literal_key(signature.declaration);
-            match self.pending_signature_returns.get(&key) {
-                Some(LazyReturnState::Active) => return false,
-                Some(LazyReturnState::Pending) => {
-                    if self
-                        .complete_signature_return(signature)
-                        .is_none_or(|signature| signature.r#type == self.intrinsics.error)
-                    {
-                        return false;
-                    }
-                }
-                None if self
-                    .pending_signature_returns
-                    .keys()
-                    .any(|pending| pending.node == key.node) =>
-                {
-                    return false;
-                }
-                None if self.signature_returns.get(&key).is_some_and(|returned| {
-                    returned.is_none_or(|ty| ty == self.intrinsics.error)
-                }) =>
-                {
-                    return false;
-                }
-                None => {}
-            }
-        }
-        true
-    }
 
     /// Native getSignatureFromDeclaration / getTypeOfParameter expose parameter
     /// symbols independently of an active return (checker.go:19836). This
@@ -2134,7 +2313,7 @@ impl<'a> Checker<'a, '_> {
             }
             parameters.push(Parameter::new(name.text.to_string(), false, false, r#type, None));
         }
-        Some(Signature { mapper: None, declaration,
+        Some(Signature { id: self.new_signature_id(), mapper: None, declaration,
         target: None,
         union_contains_abstract: false,
         non_inferrable: false,
@@ -2423,7 +2602,7 @@ impl<'a> Checker<'a, '_> {
 
     /// getReturnTypeOfSignature's failed-pop diagnostic, anchored to the
     /// annotation or declaration name, not the reference that closed the cycle.
-    fn report_return_type_cycle(&mut self, declaration: NodeId, annotation: Option<TypeNode<'a>>) {
+    pub(crate) fn report_return_type_cycle(&mut self, declaration: NodeId, annotation: Option<TypeNode<'a>>) {
         use tsr_diagnostics::{Diagnostic, messages};
         if annotation.is_none() && !self.no_implicit_any {
             return;
@@ -3125,9 +3304,6 @@ impl<'a> Checker<'a, '_> {
                 };
                 let operand_type = self.check_expression(operand);
                 let operand_type = self.const_function_body_expression_type(operand, operand_type);
-                if operand_type == self.intrinsics.error {
-                    return None;
-                }
                 // Dedup on the UNWIDENED type: `yield 1; yield 2` aggregates
                 // two distinct fresh literals whose union regularises to
                 // `1 | 2` — upstream's `getWidenedType` then leaves regular
@@ -6007,6 +6183,7 @@ impl<'a> Checker<'a, '_> {
             constraint,
             written_constraint,
             default,
+            has_default: node.default_type.is_some(),
         })
     }
 
@@ -7298,7 +7475,7 @@ impl<'a> Checker<'a, '_> {
                     out.push_str("const ");
                 }
                 out.push_str(&parameter.name);
-                if let Some(constraint) = parameter.constraint {
+                if let Some(constraint) = self.signature_parameter_constraint(parameter) {
                     out.push_str(" extends ");
                     if let Some(written) = &parameter.written_constraint {
                         out.push_str(written);
@@ -7307,7 +7484,7 @@ impl<'a> Checker<'a, '_> {
                         out.push_str(&text);
                     }
                 }
-                if let Some(default) = parameter.default {
+                if let Some(default) = self.signature_parameter_default(parameter) {
                     out.push_str(" = ");
                     let text = render(self, default);
                     out.push_str(&text);
@@ -7488,14 +7665,15 @@ impl<'a> Checker<'a, '_> {
                     out.push_str("const ");
                 }
                 out.push_str(&parameter.name);
-                if let Some(constraint) = parameter.constraint {
+                if let Some(constraint) = self.signature_parameter_constraint(parameter) {
                     out.push_str(" extends ");
-                    match &parameter.written_constraint {
-                        Some(written) => out.push_str(written),
-                        None => out.push_str(&self.type_to_string(constraint)),
+                    if let Some(written) = &parameter.written_constraint {
+                        out.push_str(written);
+                    } else {
+                        out.push_str(&self.type_to_string(constraint));
                     }
                 }
-                if let Some(default) = parameter.default {
+                if let Some(default) = self.signature_parameter_default(parameter) {
                     out.push_str(" = ");
                     out.push_str(&self.type_to_string(default));
                 }
@@ -7509,9 +7687,12 @@ impl<'a> Checker<'a, '_> {
             if parameter.rest
                 && let Some((elements, _)) = self.tuple_element_lists.get(&parameter_type)
             {
-                let mask = self.tuple_optional_masks.get(&parameter_type);
-                let labels = self.tuple_labels.get(&parameter_type);
-                for (index, &element) in elements.iter().enumerate() {
+                let count = elements.len();
+                for index in 0..count {
+                    let element = self.tuple_element_lists[&parameter_type].0[index];
+                    let optional = self.tuple_optional_masks.get(&parameter_type)
+                        .and_then(|mask| mask.get(index)).copied().unwrap_or(false);
+                    let labels = self.tuple_labels.get(&parameter_type);
                     if emitted {
                         out.push_str(", ");
                     }
@@ -7521,7 +7702,6 @@ impl<'a> Checker<'a, '_> {
                         .flatten()
                         .unwrap_or_else(|| format!("{}_{index}", parameter.name));
                     out.push_str(&name);
-                    let optional = mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false);
                     out.push_str(if optional { "?: " } else { ": " });
                     out.push_str(&self.type_to_string(element));
                     emitted = true;
@@ -7553,13 +7733,14 @@ impl<'a> Checker<'a, '_> {
         // over both the written text and the computed type, and
         // `(x: unknown) => boolean` is never printed for a declaration that
         // wrote `x is string`.
-        let written_return = signature
-            .written_return
-            .and_then(|written| self.site_free_annotation_text(written, signature.r#type));
-        match (&signature.predicate, written_return) {
-            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
+        let predicate = self.get_type_predicate_of_signature(signature).flatten();
+        let returned = self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
+        let written_return = signature.written_return
+            .and_then(|written| self.site_free_annotation_text(written, returned));
+        match (predicate, written_return) {
+            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(&predicate)),
             (None, Some(written)) => out.push_str(&written),
-            (None, None) => out.push_str(&self.type_to_string(signature.r#type)),
+            (None, None) => out.push_str(&self.type_to_string(returned)),
         }
         out
     }

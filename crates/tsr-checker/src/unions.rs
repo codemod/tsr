@@ -109,6 +109,7 @@ use crate::{
 /// (`types.go`). Those bit values are *not* type flags, so reproducing them in
 /// [`TypeFlags`] would put non-types in a set whose numeric values are already
 /// load-bearing for ordering. A struct instead.
+#[allow(clippy::struct_excessive_bools, reason = "independent native IncludesMask bits accumulate across union constituents")]
 #[derive(Debug, Default, Clone, Copy)]
 struct Includes {
     /// The union of every walked type's flags, recorded *before* nullable types
@@ -117,6 +118,8 @@ struct Includes {
     flags: TypeFlags,
     /// `TypeFlagsIncludesError`: one of the constituents was `errorType`.
     error: bool,
+    /// Native `IncludesWildcard` precedes `IncludesError` in literal reduction.
+    wildcard: bool,
     /// A constituent was a union that prints as a name — an enum's declared type
     /// or the body of a named type alias. Upstream keeps those unexpanded
     /// through `origin`; this port has no origin and gaps instead.
@@ -653,10 +656,8 @@ impl Checker<'_, '_> {
 
         if reduce_literals && includes.flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             if includes.flags.contains(TypeFlags::ANY) {
-                // `checker.go:25659`: `IncludesError` wins over `IncludesAny`,
-                // which is upstream's own "a gap in a constituent is a gap in
-                // the union" and needs no deviation from this port.
-                return if includes.error { self.intrinsics.error } else { self.intrinsics.any };
+                return if includes.wildcard { self.intrinsics.wildcard }
+                    else if includes.error { self.intrinsics.error } else { self.intrinsics.any };
             }
             return self.intrinsics.unknown;
         }
@@ -1165,6 +1166,7 @@ impl Checker<'_, '_> {
         if self.is_error(id) {
             includes.error = true;
         }
+        includes.wildcard |= id == self.intrinsics.wildcard;
         // `checker.go:25783`: with `strictNullChecks` off, `null` and
         // `undefined` never enter a union's constituent set — `T | undefined |
         // null` *is* `T` in that mode, and the baselines print it that way
@@ -1560,36 +1562,6 @@ impl crate::checker::Checker<'_, '_> {
             // subtype pass could remove.
             _ => return Some(literal),
         };
-        // §513: constituents with IDENTICAL PRINTED TEXT are one type to
-        // every consumer of this port — print-at-creation is the data model
-        // (ADR-0003) — where upstream reaches the same collapse through
-        // interning. Two per-expression mints of `() => number` reduced this
-        // way is what `contextualTyping32`'s `(() => number)[]` needs; the
-        // pairwise walk below never decided an anonymous pair.
-        let constituents: Vec<crate::types::TypeId> = {
-            let mut seen: Vec<String> = Vec::with_capacity(constituents.len());
-            let mut distinct = Vec::with_capacity(constituents.len());
-            for &constituent in &constituents {
-                // Unique symbols and parameters from different declarations
-                // remain distinct even when their displayed names coincide.
-                if self.store.get(constituent).flags.intersects(
-                    crate::flags::TypeFlags::UNIQUE_ES_SYMBOL
-                        | crate::flags::TypeFlags::TYPE_PARAMETER,
-                ) {
-                    distinct.push(constituent);
-                    continue;
-                }
-                let text = self.type_to_string(constituent);
-                if !seen.contains(&text) {
-                    seen.push(text);
-                    distinct.push(constituent);
-                }
-            }
-            distinct
-        };
-        if let [single] = constituents.as_slice() {
-            return Some(*single);
-        }
         // §357: a PRIMITIVE constituent is never a removal candidate unless an
         // empty object type is present — upstream's gate at the top of the
         // removal loop (`hasEmptyObject || source.flags&StructuredOrInstantiable`,
@@ -1626,7 +1598,7 @@ impl crate::checker::Checker<'_, '_> {
                     ]
                     .into_iter()
                     .all(|kind| {
-                        self.signatures_of_type_kind(constituent, kind)
+                        self.head_signatures(constituent, kind)
                             .is_some_and(|signatures| signatures.is_empty())
                     })
         });

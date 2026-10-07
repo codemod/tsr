@@ -710,7 +710,8 @@ impl Checker<'_, '_> {
             if let Some(&cached) = self.deferred_indexed_access_cache.get(&key) {
                 return Some(cached);
             }
-            let object_text = self.wrap_array_element_text(object, &self.type_to_string(object));
+            let printed_object = self.type_to_string(object);
+            let object_text = self.wrap_array_element_text(object, &printed_object);
             let text = format!("{object_text}[{}]", self.type_to_string(index));
             let id = self.store.new_named(TypeFlags::INDEXED_ACCESS, text, None);
             self.deferred_indexed_access_types.insert(id, key);
@@ -828,7 +829,7 @@ impl Checker<'_, '_> {
     /// Generic object references such as Box<T> are still concrete objects;
     /// only instantiable types, generic mapped types, and generic tuples defer
     /// member selection. Numeric tuple accesses are handled before this query.
-    fn indexed_access_object_is_generic(&mut self, object: TypeId) -> bool {
+    pub(crate) fn indexed_access_object_is_generic(&mut self, object: TypeId) -> bool {
         use crate::flags::TypeFlags;
         if self.store.get(object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
             return true;

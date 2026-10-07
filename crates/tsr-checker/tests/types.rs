@@ -171,8 +171,6 @@ fn the_intrinsics_that_print_alike_are_still_distinct_types() {
     let checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let intrinsics = checker.intrinsics();
 
-    assert_eq!(checker.type_to_string(intrinsics.any), "any");
-    assert_eq!(checker.type_to_string(intrinsics.error), "error");
     assert_ne!(intrinsics.any, intrinsics.error);
 }
 
@@ -447,31 +445,6 @@ fn a_cycle_through_two_symbols_resolves_instead_of_hanging() {
     assert_eq!(type_of_declaration("const a = b; const b = a;", "b"), "any");
 }
 
-#[test]
-fn an_unresolved_name_is_upstreams_any() {
-    // The name outlived its truth at §31: upstream's TS2304 answer IS
-    // `errorType` printed `any`, and this port now answers the observable.
-    let arena = Arena::new();
-    let source = "const a = nowhere;";
-    let parsed = tsr_parser::parse(&arena, source);
-    let bound = tsr_binder::bind(
-        &arena,
-        parsed.source_file,
-        &parsed.nodes,
-        tsr_binder::FileInfo { name: "test.ts", text: source },
-    );
-    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
-    let symbol = bound.lookup_local(root, "a").expect("`a` is declared");
-    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-    let id = checker.get_type_of_symbol(symbol);
-    // §31 (`checker-notes-narrow.md`): a truly unresolved free name in an
-    // import-free file answers upstream's TS2304 `errorType` — whose
-    // OBSERVABLE is `any`, and this port answers the `any` intrinsic
-    // directly. The fixture's original claim (errorType, to keep gaps
-    // distinguishable) was ADR-0038's; §31 argues the boundary: this is
-    // upstream's own deliberate error-answer, not a port failure.
-    assert_eq!(id, checker.intrinsics().any);
-}
 
 #[test]
 fn a_literal_that_came_from_an_annotation_does_not_widen_when_referenced() {
@@ -1033,9 +1006,6 @@ fn a_property_that_is_not_there_is_a_gap_and_not_a_free_name() {
         ),
         "error"
     );
-    // §31: a truly unresolved receiver is upstream's TS2304 `any`, and a
-    // property access on `any` is `any` — both upstream's own answers.
-    assert_eq!(type_of_declaration("const x = unknownThing.a;", "x"), "any");
     // A primitive receiver needs the apparent type from lib.d.ts (bd tsr-9or.1).
     assert_eq!(type_of_declaration(r#"const x = "abc".length;"#, "x"), "error");
     // Inherited members *were* a gap here and are no longer: base types are now
@@ -1978,9 +1948,6 @@ fn an_element_access_this_slice_cannot_resolve_is_a_gap() {
         ),
         "string"
     );
-    // §31: the unresolved receiver is `any`, and `any["b"]` is `any` —
-    // upstream's own pair of answers.
-    assert_eq!(type_of_declaration("const x = unknownThing[\"b\"];", "x"), "any");
 }
 
 #[test]

@@ -6550,7 +6550,7 @@ pub static LEFT_SIDE_OF_COMMA_OPERATOR_IS_UNUSED_AND_HAS_NO_SIDE_EFFECTS: Messag
     Category::Error,
     "Left_side_of_comma_operator_is_unused_and_has_no_side_effects_2695",
     "Left side of comma operator is unused and has no side effects.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `The 'Object' type is assignable to very few other types. Did you mean to use the 'any' type instead?`
@@ -9939,7 +9939,7 @@ pub static _0_IS_DECLARED_BUT_ITS_VALUE_IS_NEVER_READ: Message = Message::new(
     Category::Error,
     "_0_is_declared_but_its_value_is_never_read_6133",
     "'{0}' is declared but its value is never read.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Report errors on unused locals.`
@@ -9986,7 +9986,7 @@ pub static PROPERTY_0_IS_DECLARED_BUT_ITS_VALUE_IS_NEVER_READ: Message = Message
     Category::Error,
     "Property_0_is_declared_but_its_value_is_never_read_6138",
     "Property '{0}' is declared but its value is never read.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Import emit helpers from 'tslib'.`
@@ -10325,7 +10325,7 @@ pub static ALL_IMPORTS_IN_IMPORT_DECLARATION_ARE_UNUSED: Message = Message::new(
     Category::Error,
     "All_imports_in_import_declaration_are_unused_6192",
     "All imports in import declaration are unused.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Found 1 error. Watching for file changes.`
@@ -10362,7 +10362,7 @@ pub static _0_IS_DECLARED_BUT_NEVER_USED: Message = Message::new(
     Category::Error,
     "_0_is_declared_but_never_used_6196",
     "'{0}' is declared but never used.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Include modules imported with '.json' extension`
@@ -10380,7 +10380,7 @@ pub static ALL_DESTRUCTURED_ELEMENTS_ARE_UNUSED: Message = Message::new(
     Category::Error,
     "All_destructured_elements_are_unused_6198",
     "All destructured elements are unused.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `All variables are unused.`
@@ -10389,7 +10389,7 @@ pub static ALL_VARIABLES_ARE_UNUSED: Message = Message::new(
     Category::Error,
     "All_variables_are_unused_6199",
     "All variables are unused.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Definitions of the following identifiers conflict with those in another file: {0}`
@@ -11390,7 +11390,7 @@ pub static _0_IS_DEPRECATED: Message = Message::new(
     Category::Suggestion,
     "_0_is_deprecated_6385",
     "'{0}' is deprecated.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_DEPRECATED,
 );
 
 /// `Performance timings for '--diagnostics' or '--extendedDiagnostics' are not available in this session. A native implementation of the Web Performance API could not be found.`
@@ -11402,7 +11402,7 @@ pub static THE_SIGNATURE_0_OF_1_IS_DEPRECATED: Message = Message::new(
     Category::Suggestion,
     "The_signature_0_of_1_is_deprecated_6387",
     "The signature '{0}' of '{1}' is deprecated.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_DEPRECATED,
 );
 
 /// `Project '{0}' is being forcibly rebuilt`
@@ -13155,7 +13155,7 @@ pub static UNREACHABLE_CODE_DETECTED: Message = Message::new(
     Category::Error,
     "Unreachable_code_detected_7027",
     "Unreachable code detected.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Unused label.`
@@ -13164,7 +13164,7 @@ pub static UNUSED_LABEL: Message = Message::new(
     Category::Error,
     "Unused_label_7028",
     "Unused label.",
-    MessageFlags::empty(),
+    MessageFlags::REPORTS_UNNECESSARY,
 );
 
 /// `Fallthrough case in switch.`
