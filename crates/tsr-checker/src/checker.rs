@@ -3088,7 +3088,25 @@ impl<'a, 'n> Checker<'a, 'n> {
                     reference_file
                         .is_some_and(|file| self.file_mentions_module_specifier(file, stem))
                 };
-                if !same_file && !imported_here && !stem.contains('/') && !stem.is_empty() {
+                // `forEachSymbolTableInScope` (`symbolaccessibility.go`) reads
+                // the reference file's own `exports`; `needsQualification`
+                // stops at the first table holding the name. A same-file
+                // symbol that table does not hold (a conflicting declaration
+                // `declareSymbol` split into its own symbol), or whose name
+                // resolves to another symbol first, reaches the specifier for
+                // its own file. Only an exported symbol whose name did not
+                // resolve at all keeps the decline above.
+                let held_by_exports =
+                    self.binder.symbols().get(parent).exports.get(name).is_some_and(|&held| {
+                        self.binder.merged_symbol(held) == self.binder.merged_symbol(symbol)
+                    });
+                let unresolved_export = same_file
+                    && held_by_exports
+                    && self
+                        .binder
+                        .resolve_name(self.nodes, self.node_map, reference, name, meaning)
+                        .is_none();
+                if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     return Some(format!("import(\"./{stem}\")."));
                 }
             }

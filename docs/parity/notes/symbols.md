@@ -22,3 +22,20 @@ binder's inherited member-owner cursor. `function f() { export = 0 }` no
 longer collides (spurious TS2300) with a file-level `export =`. Reads the
 existing `node_symbols` slot of `self.container`; no new table. Converts
 `compiler/exportInFunction` (1 type row).
+
+## Same-file module container in getSymbolChain (tsr-2zk.16.67)
+
+Native `getSymbolChain` qualifies through the file module when
+`needsQualification` holds; `forEachSymbolTableInScope` reads the reference
+file's own `exports`, and the file module itself has no accessible chain, so
+`getSpecifierForModuleSymbol` spells `import("./self").X`. `symbol_chain`
+declined every same-file container. It now declines only an exported symbol
+whose name `resolve_name` could not resolve (TSR resolution gap, the chain1
+guard); a conflicting declaration split out of the exports table, or a name
+shadowed by another symbol, reaches the specifier. No cache; one extra
+`resolve_name` on the already-qualifying same-file path. Native control
+(`tsgo --declaration`): `interface d {} export class d {}` emits
+`import("./a").d`, a sibling `export class e {}` emits `e`.
+Converts 9 rows: enumAssignmentCompat6 (3), exportInterfaceClassAndValue,
+giant, importedEnumMemberMergedWithExportedAliasIsError, mergedDeclarationExports,
+moduleDuplicateIdentifiers, privacyImportParseErrors.
