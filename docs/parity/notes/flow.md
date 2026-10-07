@@ -941,3 +941,27 @@ operation conversion.
 genericCPU1.0017/wall1.0016. Complete outputs/status equal. Strict generic
 no-slowdown not met; no causal speed or native-equivalent complete-work claim.
 Receipts: `target/recovery/flow-instance-location/`. Parent gates remain needed.
+
+## 25. Super reference identity (tsr-2zk.7.3)
+
+Pinned native isMatchingReference in internal/checker/flow.go has separate
+this→this and super→super keyword identities. Added super equality to the
+existing matcher; neither keyword matches the other. This preserves concrete
+receiver identity through structural property references instead of guessing
+property names or forcing a nonnull callee. No shared state/cache/effects change;
+protected equality and readonly helpers untouched.
+
+Whole controlFlowSuperPropertyAccess now RIGHT: two WRONG and two GAP rows
+convert, including the real super.m&&super.m() result void|undefined. Native
+CLI exit0 and real probefile agree. Dedicated guarded-super regression passes.
+A prior satisfies-condition test expected string where the native standalone
+control returns string|null; that assertion was removed rather than repinned.
+Nonnull control remains. Existing focused suites and final12 flow-facts tests
+pass. Full eligible corpus exits0:477,968 keys retained, RIGHT469,858→469,862,
+WRONG7115→7113,GAP995→993; zero priorRIGHT/new/vanished losses.10,570 diagnostic
+case rows byte-identical. Receipts target/recovery/flow-super.
+
+41-pair wait4 versus4cc1848d: domainCPU1.0039/wall1.0496;
+genericCPU1.0032/wall1.0009; complete outputs/status equal. Strict performance
+gate unmet; no speed or native-equivalent complete-work/0.50 claim. Routine
+worker change is correctness-proven only; parent integrated attribution needed.

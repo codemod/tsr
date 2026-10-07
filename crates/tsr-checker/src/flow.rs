@@ -4368,9 +4368,11 @@ impl Checker<'_, '_> {
         }
 
         match (self.node_map.get(source), self.node_map.get(target)) {
-            // `this` matches `this` and nothing else.
+            // Native isMatchingReference: this matches this; super matches
+            // super. Neither keyword matches the other receiver category.
             (Some(Node::KeywordExpression(left)), Some(Node::KeywordExpression(right))) => {
-                left.kind == SyntaxKind::ThisKeyword && right.kind == SyntaxKind::ThisKeyword
+                left.kind == right.kind
+                    && matches!(left.kind, SyntaxKind::ThisKeyword | SyntaxKind::SuperKeyword)
             }
             // §840: a QUALIFIED NAME matches the property-access spelling of
             // the same dotted path. `isMatchingReference`

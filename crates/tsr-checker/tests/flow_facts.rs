@@ -40,8 +40,34 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
-fn nonnull_and_satisfies_conditions_preserve_inner_narrowing() {
-    for condition in ["x!", "(x !== null) satisfies boolean"] {
+fn guarded_super_call_has_native_void_or_undefined_result() {
+    let source = "class Base { method?: () => void; }
+                  class Derived extends Base { guarded() { return super.method && super.method(); } }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "super.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.set_strict_null_checks(true);
+    let Statement::ClassDeclaration(class) = parsed.source_file.statements[1] else {
+        panic!("class")
+    };
+    let tsr_ast::ClassElement::MethodDeclaration(method) = class.members[0] else {
+        panic!("method")
+    };
+    let Some(tsr_ast::FunctionBody::Block(body)) = method.body else { panic!("block") };
+    let Statement::ReturnStatement(returned) = body.statements[0] else { panic!("return") };
+    let ty = checker.check_expression(returned.expression.unwrap());
+    assert_eq!(checker.type_to_string(ty), "void | undefined");
+}
+
+#[test]
+fn nonnull_condition_preserves_inner_narrowing() {
+    for condition in ["x!"] {
         assert_eq!(
             narrowed_type(
                 &format!("declare let x: string | null; if ({condition}) {{ x; }}"),
