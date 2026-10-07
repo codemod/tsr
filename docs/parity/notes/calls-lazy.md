@@ -461,3 +461,19 @@ Fields/parent getter integration remain absent here; constraint-this-check.log
 is blocked. No runtime exact native control, RIGHT ratchet or performance proof
 claimed. Cache owns private Checker TypeIds/options; publication is only a
 completed reference identity, not completed member computation or relation.
+
+### Explicit receiver discovery edge
+
+mentions_type_parameter_inner also traverses the separate explicit-this receiver
+before ordinary reference arguments. This prevents generic outer mapping from
+skipping a parameter present only on the receiver override. Existing visited
+identities prevent cycles; no printed-name identity or new traversal cache.
+Parent field/method prerequisites still absent locally; receiver-discovery-check
+is blocked and no runtime cold/warm/distinct-map result claimed.
+
+Native cache lifetime remains private Checker lifetime with immutable original
+signature identity. Completing lazy slots/cloning a signature does not retire
+identity; changing semantic signature shape must mint a fresh identity. Pending
+return/predicate is metadata on a completed input image, not a provisional input
+cache result. Unsupported input mapping stores no cache entry. No separate
+stale/active cache heuristic introduced.

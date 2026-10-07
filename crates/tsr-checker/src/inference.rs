@@ -6585,6 +6585,13 @@ impl<'a> Checker<'a, '_> {
                 .iter()
                 .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
         }
+        if let Some(&this_argument) = self.type_reference_this_arguments.get(&id) {
+            visited.push(id);
+            if self.mentions_type_parameter_inner(this_argument, is_parameter, names, visited) {
+                return true;
+            }
+            // Continue ordinary argument traversal; retain the cycle marker.
+        }
         let ty = self.store.get(id);
         if ty.flags.intersects(
             crate::flags::TypeFlags::TYPE_PARAMETER
