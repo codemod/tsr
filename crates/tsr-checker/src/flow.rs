@@ -8126,10 +8126,12 @@ impl Checker<'_, '_> {
     /// (internal/checker/checker.go): propagate callerOnlyNeeds through
     /// constituent workers and return only the requested projection.
     pub(crate) fn get_type_facts_with_mask(&mut self, t: TypeId, mask: TypeFacts) -> TypeFacts {
+        eprintln!("FACTPROBE query mask={}", mask.bits());
         self.get_type_facts_worker(t, mask) & mask
     }
 
     fn get_type_facts_worker(&mut self, t: TypeId, caller_only_needs: TypeFacts) -> TypeFacts {
+        eprintln!("FACTPROBE worker");
         let t = if self
             .store
             .get(t)
@@ -8141,6 +8143,21 @@ impl Checker<'_, '_> {
         } else {
             t
         };
+        if self.store.get(t).flags.intersects(TypeFlags::OBJECT) {
+            // Native possibleFacts is EmptyObjectFacts | FunctionFacts |
+            // ObjectFacts. EmptyObjectFacts already covers the other two:
+            // all facts except genuine null/undefined, and strict nullish EQ.
+            let mut possible_facts = TypeFacts::all() - TypeFacts::IS_UNDEFINED - TypeFacts::IS_NULL;
+            if self.strict_null_checks {
+                possible_facts -= TypeFacts::EQ_UNDEFINED
+                    | TypeFacts::EQ_NULL
+                    | TypeFacts::EQ_UNDEFINED_OR_NULL;
+            }
+            if !caller_only_needs.intersects(possible_facts) {
+                eprintln!("FACTPROBE possible_skip");
+                return TypeFacts::empty();
+            }
+        }
         if self.is_empty_anonymous_object_type(t) {
             let nullable =
                 TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL;
@@ -8377,6 +8394,7 @@ impl Checker<'_, '_> {
             if flags.intersects(TypeFlags::NON_PRIMITIVE)
                 || !(object_strict ^ function_strict).intersects(caller_only_needs)
             {
+                eprintln!("FACTPROBE category_skip");
                 // Empty anonymous objects were handled above. All remaining
                 // object/function categories have the same requested facts;
                 // resolving bind/Function subtype cannot change this projection.
@@ -8403,6 +8421,7 @@ impl Checker<'_, '_> {
                         self.binder.symbols().get(*symbol).declarations.iter().any(
                             |&declaration| self.declaration_has_call_signature_member(declaration),
                         );
+                    eprintln!("FACTPROBE classifier");
                     if has_call_signature || self.is_bind_bearing_function_subtype(t) {
                         function_strict
                     } else {
