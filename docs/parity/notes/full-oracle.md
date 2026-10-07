@@ -1,5 +1,37 @@
 # Full configured native oracle
 
+## Latest loaded-source native fidelity measurement
+
+Completed `target/full-oracle-c8185606-loaded/`: **7,361/14,965 RIGHT
+(49.188106%)**, 7,556 WRONG, 37 native failures and 11 actual failures/deadlines.
+**0/7,211 prior strict RIGHT losses, 0 primary losses, 0 missing rows.**
+The checker remains c8185606 and the ordered-detail comparison is unchanged.
+
+Native failure investigation found 634 of the earlier 671 rows were **oracle
+wrapper defects**, not native compiler failures: `FullOracleTypes` passed input
+files with no loaded source image into `typeWriterWalker.getTypes`, causing nil
+dereferences. Pinned `compilerTest.verifyTypesAndSymbols` filters those files
+with `program.GetSourceFile(f.UnitName) != nil` before invoking the baseline
+walker. The oracle now applies that exact native filter. This does not omit
+cases: all 14,965 configuration rows remain. `APILibCheck.ts` now completes with
+PASS in the actual native worker. All 634 wrapper crashes are recovered; the
+remaining 37 are 29 unknown-option and 8 unknown-value configurations. They
+remain failure rows, not exclusions. Beads `tsr-5qi` retains that unresolved root.
+
+Largest first-difference groups: missing/extra 2,494; type printing/selection
+1,677; TS5108 540; related information 498; TS2322 490; TS5095 163; TS2339 96;
+TS2345 78; chain structure 46. The earlier 7,211 result remains historical.
+
+SHA-256 identities:
+- Native binary: `4a146410a0a0762fe9212a970b7c6256aabe5e8df79846d4edf95394609d3fd6`
+- Actual binary: `4d5a1afe2da4399a4851372a8105c6c170cd39d70ab2132e898b4798322b9ad9`
+- Manifest: `7168cc78a3aea199d4f9321200410971ff99e21a4692d23c49fdeab222e88590`
+- Results: `a23a38cc1a5c5899f56c4f374084bb8748ad4091c82055fa6aba7286add1541a`
+- Summary: `8e3f61e50fe013197bc3453ef87d6651c88b12db5aeaf1625459a026b0fce612`
+
+Full run exercised actual native/TSR producers with immutable workers; example
+checks passed. No newer-main, 99.9% accuracy or <=0.50 performance acceptance.
+
 ## Fetchable complete native type payload
 
 The following gzip/base64 payload decodes to **all 286 ordered native rows**
