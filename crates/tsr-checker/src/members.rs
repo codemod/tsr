@@ -2167,9 +2167,7 @@ impl Checker<'_, '_> {
     /// [`UnionOrIntersectionProperty`]); otherwise the found symbol's own
     /// answer.
     pub(crate) fn is_readonly_property_of_type(&mut self, receiver: TypeId, name: &str) -> bool {
-        if let Some(&source) = self.instantiation_expression_sources.get(&receiver)
-            && self.get_type_of_property_with_this_argument(source, name, source, true).is_some()
-        {
+        if let Some(&source) = self.instantiation_expression_sources.get(&receiver) {
             return self.is_readonly_property_of_type(source, name);
         }
         if let Some(composite) = self.composite_property_of_type(receiver, name, false)
@@ -2208,9 +2206,7 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         name: &str,
     ) -> Option<TypeId> {
-        if let Some(&source) = self.instantiation_expression_sources.get(&receiver)
-            && self.get_type_of_property_with_this_argument(source, name, source, true).is_some()
-        {
+        if let Some(&source) = self.instantiation_expression_sources.get(&receiver) {
             return self.write_type_of_property_of_type(source, name);
         }
         if let Some(composite) = self.composite_property_of_type(receiver, name, false)

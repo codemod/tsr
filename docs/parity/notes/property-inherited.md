@@ -348,6 +348,19 @@ that incidental assertion was removed rather than changing semantics. This
 projection is not an end-to-end expression-mint completion or performance claim.
 Receipts: index-view-smoke.log and index-view-clippy.log.
 
+### Metadata forwarding work boundary correction
+
+Wrapper readonly/write metadata queries now forward directly to the exact source
+supplier. The earlier source-value existence probe was unnecessary and could
+force signature/property values solely to obtain metadata. Removing it avoids
+that duplicate work while retaining source active/unsupported semantics and
+without introducing a cache or equal-empty completion assumption. Source-side
+readonly, setter and declaration/origin handling remain unchanged. Projection
+smoke and strict checker all-target Clippy pass (`metadata-forward-*` receipts).
+The expression worker must dispatch on original source before apparent primitive
+boxing; calls owner must expose the existing raw-list API with both override
+kinds, not add a competing getter or force return types.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
