@@ -216,6 +216,8 @@ pub fn run(
     let stderr = fs::File::create(log)?;
     let start = Instant::now();
     let mut child = command.stdin(Stdio::null()).stdout(stdout).stderr(stderr).spawn()?;
+    // Command retains configured Stdio handles after spawn. Release the parent's copies now.
+    command.stdout(Stdio::null()).stderr(Stdio::null());
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok((status.success(), start.elapsed().as_millis()));

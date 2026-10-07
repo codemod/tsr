@@ -14,7 +14,11 @@ use std::{
 };
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    ensure!(args.len() == 2, "usage: full_oracle_run REPO REPORT_DIRECTORY");
+    ensure!(
+        args.len() == 2 || args.len() == 3,
+        "usage: full_oracle_run REPO REPORT_DIRECTORY [PRIOR_REPORT]"
+    );
+    let prior = args.get(2).map(PathBuf::from);
     let root = Path::new(&args[0]).canonicalize()?;
     let report = Path::new(&args[1]);
     fs::create_dir_all(report)?;
@@ -37,8 +41,27 @@ fn main() -> Result<()> {
         .output()?;
     ensure!(clean.status.success() && clean.stdout.is_empty(), "dirty corpus support inputs");
     let source = Command::new("git").arg("-C").arg(&root).args(["rev-parse", "HEAD"]).output()?;
-    let source = String::from_utf8(source.stdout)?.trim().to_string();
-    ensure!(source.starts_with("c8185606"), "measurement requires c8185606 checker source");
+    let oracle_revision = String::from_utf8(source.stdout)?.trim().to_string();
+    let source = "c8185606e3b972d59d345b6e45d789586d993af8".to_string();
+    let changed = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args([
+            "diff",
+            "--name-only",
+            &source,
+            "--",
+            ".",
+            ":(exclude)crates/tsr-conformance/src/full_oracle*",
+            ":(exclude)crates/tsr-conformance/examples/full_oracle*",
+            ":(exclude)docs/parity/notes/full-oracle.md",
+            ":(exclude).beads",
+        ])
+        .output()?;
+    ensure!(
+        changed.status.success() && changed.stdout.is_empty(),
+        "compiler inputs differ from c8185606"
+    );
     let src = root.join("crates/tsr-conformance/src");
     let overlay = report.join("overlay.json");
     // JSON paths are ASCII on the Box. Reject quotes rather than generating invalid JSON.
@@ -129,6 +152,41 @@ fn main() -> Result<()> {
         ),
     )?;
     let inputs_hash = hash(&report.join("inputs.tsv"))?;
+    let mut previous_right = std::collections::BTreeSet::new();
+    if let Some(prior) = &prior {
+        ensure!(
+            hash(&prior.join("inputs.tsv"))? == inputs_hash,
+            "prior input/configuration set differs"
+        );
+        let manifest = fs::read_to_string(prior.join("manifest.tsv"))?;
+        ensure!(
+            manifest.lines().any(|l| l == format!("source\t{source}")),
+            "prior checker source differs"
+        );
+        let mut ledger = String::new();
+        for i in 0..tasks.len() {
+            let dir = prior.join(format!("{i:05}"));
+            let result = fs::read_to_string(dir.join("result.tsv"))?;
+            if result.starts_with("RIGHT\t") {
+                ensure!(
+                    full_oracle::complete(&dir.join("native.tsv"))
+                        && full_oracle::complete(&dir.join("actual.tsv")),
+                    "incomplete prior RIGHT {i}"
+                );
+                previous_right.insert(i);
+                ledger.push_str(&format!(
+                    "{i}\t{}\t{}\n",
+                    hash(&dir.join("native.tsv"))?,
+                    hash(&dir.join("actual.tsv"))?
+                ));
+            }
+        }
+        write_atomic(&report.join("prior-right.tsv"), &ledger)?;
+    }
+    write_atomic(
+        &report.join("oracle-revision.tsv"),
+        &format!("oracle_revision\t{oracle_revision}\n"),
+    )?;
     let tasks = Arc::new(tasks);
     let next = AtomicUsize::new(0);
     let failures = std::sync::Mutex::new(Vec::new());
@@ -168,7 +226,9 @@ fn main() -> Result<()> {
                             inputs_hash
                         );
                         let mut native_ok = full_oracle::complete(&expected)
-                            && fs::read_to_string(&receipt).is_ok_and(|r| r == bound);
+                            && fs::read_to_string(&receipt).is_ok_and(|r| {
+                                hash(&expected).is_ok_and(|h| r == format!("{bound}{h}\n"))
+                            });
                         let mut native_ms = 0;
                         if !native_ok {
                             if expected.exists() {
@@ -191,7 +251,7 @@ fn main() -> Result<()> {
                             native_ok = ok && full_oracle::complete(&expected);
                             native_ms = ms;
                             if native_ok {
-                                write_atomic(&receipt, &bound)?;
+                                write_atomic(&receipt, &format!("{bound}{}\n", hash(&expected)?))?;
                             }
                         }
                         if !native_ok {
@@ -214,7 +274,15 @@ fn main() -> Result<()> {
                         )?;
                         write_atomic(
                             &dir.join("actual.receipt"),
-                            &format!("{source}\n{actual_hash}\n{bound}"),
+                            &format!(
+                                "{source}\n{actual_hash}\n{bound}request\t{}\noutput\t{}\n",
+                                hash(&expected)?,
+                                if full_oracle::complete(&output) {
+                                    hash(&output)?
+                                } else {
+                                    "INCOMPLETE".into()
+                                }
+                            ),
                         )?;
                         let status = if !ok || !full_oracle::complete(&output) {
                             "FAIL\tactual-failure-or-deadline".into()
@@ -245,9 +313,27 @@ fn main() -> Result<()> {
     });
     let mut counts = full_oracle::Counts::new();
     let mut right = 0;
+    let mut prior_right_losses = 0;
+    let mut missing = 0;
+    let mut ledger = String::new();
     for i in 0..tasks.len() {
-        let result = fs::read_to_string(report.join(format!("{i:05}/result.tsv")))
-            .unwrap_or_else(|_| "FAIL\tinfrastructure".into());
+        let result =
+            fs::read_to_string(report.join(format!("{i:05}/result.tsv"))).unwrap_or_else(|_| {
+                missing += 1;
+                "FAIL\tinfrastructure".into()
+            });
+        if previous_right.contains(&i) && !result.starts_with("RIGHT\t") {
+            prior_right_losses += 1;
+        }
+        ledger.push_str(&format!(
+            "{i}\t{}\t{}\t{}",
+            hex(&tasks[i].0.to_string_lossy()),
+            hex(&tasks[i].1),
+            result
+        ));
+        if !ledger.ends_with('\n') {
+            ledger.push('\n');
+        }
         let p: Vec<_> = result.split('\t').collect();
         if p[0] == "RIGHT" {
             right += 1;
@@ -267,6 +353,8 @@ fn main() -> Result<()> {
     for error in failures.into_inner().unwrap() {
         summary.push_str(&format!("error\t{error}\n"));
     }
+    summary.push_str(&format!("MISSING_ROWS\t{missing}\nPRIOR_RIGHT\t{}\nPRIOR_RIGHT_LOSSES\t{prior_right_losses}\nPRIOR_GATE\t{}\n", previous_right.len(), if prior.is_some() { "measured" } else { "unverified: no prior report supplied" }));
+    write_atomic(&report.join("results.tsv"), &ledger)?;
     write_atomic(&report.join("summary.tsv"), &summary)?;
     print!("{summary}");
     Ok(())
