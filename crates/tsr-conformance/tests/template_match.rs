@@ -59,7 +59,7 @@ export const actionBooleanResult=actionBoolean.payload;
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "splitResult : [\"left\", \"right.more\"]",

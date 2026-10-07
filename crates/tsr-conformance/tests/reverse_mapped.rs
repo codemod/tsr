@@ -38,7 +38,7 @@ const namedTemplate: [string, number] = extractNew({ primitive: "" }, { primitiv
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "object : { a: number; b: string; }",
@@ -90,7 +90,7 @@ export const combined = combine({ inner: combine({ count }) });
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "spec : (...args: any[]) => { sum: number; nested: { mul: string; }; }",
@@ -121,7 +121,7 @@ export const written = numeric({ 1: { value: 1 }, "2": { value: "x" } });
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     let wanted = "written : [{ 1: number; \"2\": string; }, \"1\" | \"2\"]";
     assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -162,7 +162,7 @@ export const manyReads = reversedChain.first.second.third.fourth.fifth;
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -217,7 +217,7 @@ export const ordinaryStrings = strings(ordinary);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)

@@ -28,7 +28,7 @@ fn records(
         .collect();
     let arena = tsr_core::Arena::new();
     let (program, rendered, ids) =
-        types_producer::assertions_for_case_with_ids(&arena, &case, &expected);
+        types_producer::assertions_for_case_with_ids(&arena, &case, &case.files.as_slice());
     let mut checker = types_producer::configured_checker(&program);
     rendered
         .into_iter()

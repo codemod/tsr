@@ -206,15 +206,16 @@ impl Suite for CheckerTypes {
             };
         };
 
-        // One rendered section per baseline section, in the baseline's order, so
-        // position `i` on one side is position `i` on the other.
-        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &files, false)
-            .iter()
-            .zip(&files)
-            .map(|(rendered, expected_file)| {
-                types_producer::to_file_types(&expected_file.file, rendered)
-            })
-            .collect();
+        let arena = tsr_core::Arena::new();
+        let program = types_producer::program_for_case(&arena, &parsed);
+        let units = types_producer::source_units_for_program(&program, &parsed, &parsed.files);
+        let rendered = types_producer::render_case(&program, &parsed, &parsed.files, false, None);
+        // Align only at comparison; the producer never reads expected sections.
+        let ours: Vec<FileTypes> = files.iter().map(|expected| {
+            let assertions = units.iter().position(|unit| crate::binder_suite::same_unit(&unit.name, &expected.file))
+                .and_then(|i| rendered.get(i)).map_or(&[][..], Vec::as_slice);
+            types_producer::to_file_types(&expected.file, assertions)
+        }).collect();
 
         let comparison = compare(&files, &ours);
         Judgement {

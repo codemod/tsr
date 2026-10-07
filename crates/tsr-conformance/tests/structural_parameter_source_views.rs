@@ -22,7 +22,7 @@ fn completed_original_parameter_views_match_all_native_assertions_without_diagno
     ] {
         let case = TestCase::parse("probe/originalParameterSourceViews", name, source);
         let expected = types_baseline::parse(baseline);
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         assert_eq!(actual.len(), expected.len(), "complete file population: {name}");
         let mut count = 0;
         for (wanted, got) in expected.iter().zip(actual) {

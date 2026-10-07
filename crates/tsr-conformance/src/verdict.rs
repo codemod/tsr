@@ -37,10 +37,13 @@ pub fn verdict_rows(filter: &[String]) -> Vec<String> {
             }
             let Ok(parsed) = case.load() else { return out };
             let arena = tsr_core::Arena::new();
-            let (_program, ours, _ids) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            let (program, ours, _ids) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files);
+            let units = types_producer::source_units_for_program(&program, &parsed, &parsed.files);
             for (index, expected_file) in expected.iter().enumerate() {
-                let Some(our_file) = ours.get(index) else { continue };
+                let our_file = units.iter().position(|unit| crate::binder_suite::same_unit(&unit.name, &expected_file.file))
+                    .and_then(|i| ours.get(i));
+                let Some(our_file) = our_file else { continue };
                 for (position, want) in expected_file.assertions.iter().enumerate() {
                     let Some(got) = our_file.get(position) else { continue };
                     let got_line = got.line();

@@ -23,7 +23,7 @@ export function result() { return { baseMethod, derivedMethod, fluent }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "baseMethod : (this: Base, value: number) => string",
@@ -52,7 +52,7 @@ const missing = globalThis.absent;
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["visible : number", "hidden : any", "hiddenClass : any", "missing : any"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");

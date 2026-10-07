@@ -23,7 +23,7 @@ export const twice:Mapper<string,number[][]>=arrayize(arrayize(wrap(deep=>deep.l
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     assert!(
         lines.iter().any(|line| line == "value=>value.length : (value: string) => number"),
@@ -72,7 +72,7 @@ const g: { a: true; b: boolean } = pair(true);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "wrap('foo') : Wrap<\"foo\">",

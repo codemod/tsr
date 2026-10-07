@@ -46,7 +46,7 @@ fn commonjs_module_values_match_every_native_assertion_and_diagnostic() {
     ] {
         let case = TestCase::parse(&format!("probe/commonjs-{name}"), "control.ts", source);
         let expected = types_baseline::parse(types);
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         if actual.len() != expected.len() {
             failures.push(format!(
                 "{name}: file population {} != {}",

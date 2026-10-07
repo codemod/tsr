@@ -358,7 +358,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
 
     let arena = tsr_core::Arena::new();
     let (program, ours, ids) =
-        types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+        types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
     let nodes = program.nodes();
     let node_map = program.node_map();
     let bound = program.binder();

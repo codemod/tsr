@@ -213,7 +213,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Bridge> {
 
     let arena = tsr_core::Arena::new();
     let (_program, ours, ids) =
-        types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+        types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
 
     // The suite's numbers, from the suite's function on the suite's input shape.
     let ours_ft: Vec<FileTypes> = ours

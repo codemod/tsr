@@ -161,7 +161,7 @@ fn main() {
                 return tally;
             }
             let Ok(parsed) = case.load() else { return tally };
-            let ours = types_producer::assertions_for_case(&parsed, &expected, true);
+            let ours = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), true);
             tally.cases = 1;
             let multi_file = expected.len() > 1;
             tally.multi_file_cases = usize::from(multi_file);

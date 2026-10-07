@@ -25,7 +25,7 @@ export const literal=new ConstBox({name:"a",tuple:[1,2]});
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "numeric : Box<number>",
@@ -70,7 +70,7 @@ export const contextualBox:Box<string>=new MakeBox();
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "defaultBox : Box<number>",
@@ -117,7 +117,7 @@ export const constConstructor=new MakeConst({value:["a",1]});
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "emptyList : number[]",
@@ -147,7 +147,7 @@ export const optionalCallback=new MakeCallback<string>(value=>value);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "explicitCallback : Box<number>",
@@ -180,7 +180,7 @@ export async function assigned() {
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     let wanted = "new Promise(resolve=>resolve({count:1})) : Promise<{ count: number; }>";
     assert_eq!(lines.iter().filter(|line| line.as_str() == wanted).count(), 3, "{lines:?}");
@@ -207,7 +207,7 @@ export const d = new DMap([["1", 2]]);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["c : C<number>", "c2 : C<number>", "d : DMap<string, number>"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -233,7 +233,7 @@ export const st = new Set([[1, "a"]]);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "m : Map<symbol, string>",

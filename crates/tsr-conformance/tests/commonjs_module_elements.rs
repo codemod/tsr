@@ -32,7 +32,7 @@ fn commonjs_module_element_diagnostics_match_every_native_occurrence() {
     ] {
         let case = TestCase::parse(&format!("probe/module-element-{name}"), "control.ts", source);
         let expected = types_baseline::parse(types);
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         if actual.len() != expected.len() {
             failures.push(format!(
                 "{name}: file population {} != {}",
@@ -71,7 +71,7 @@ fn commonjs_module_element_diagnostics_match_every_native_occurrence() {
         }
         let arena = tsr_core::Arena::new();
         let (program, _, ids) =
-            types_producer::assertions_for_case_with_ids(&arena, &case, &expected);
+            types_producer::assertions_for_case_with_ids(&arena, &case, &case.files.as_slice());
         let mut checker = types_producer::configured_checker(&program);
         let mut module_sites = Vec::new();
         for id in ids.into_iter().flatten() {

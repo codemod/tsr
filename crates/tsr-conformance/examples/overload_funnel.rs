@@ -111,7 +111,7 @@ fn main() {
             // producing them is what drives the checker over every position
             // the gradient scores.
             let before = concentrated(&counters::snapshot());
-            let _ = types_producer::assertions_for_case(&parsed, &expected, false);
+            let _ = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false);
             // Valid **only** single-threaded: the counters are process-wide, so
             // a delta across a parallel region attributes other cases' calls to
             // this one. Hence the concentration pass runs with one rayon

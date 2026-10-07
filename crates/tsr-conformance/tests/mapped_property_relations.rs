@@ -284,7 +284,7 @@ fn mapped_readonly_orders_subtype_reduction_in_both_directions() {
         let source = format!("// @exactOptionalPropertyTypes: {exact}\n{SOURCE}");
         let case = TestCase::parse("probe/mapped-readonly-reduction", "mapped.ts", &source);
         let expected = vec![FileTypes { file: "mapped.ts".to_owned(), assertions: Vec::new() }];
-        let rows = types_producer::assertions_for_case(&case, &expected, false);
+        let rows = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         for name in ["readonlySourceReduced", "readonlyTargetReduced", "readonlyMappedTarget"] {
             let row =
                 rows.iter().flatten().find(|row| row.text == name).expect("function assertion");

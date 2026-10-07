@@ -50,7 +50,7 @@ const test: TestGeneric = { items: { hello: { type: "string" } } };
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)

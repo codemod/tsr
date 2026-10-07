@@ -81,7 +81,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Vec<Row>> {
         return None;
     }
     let parsed = case.load().ok()?;
-    let ours = types_producer::assertions_for_case(&parsed, &expected, false);
+    let ours = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false);
 
     let mut out = Vec::new();
     for (index, expected_file) in expected.iter().enumerate() {

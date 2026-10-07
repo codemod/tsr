@@ -13,7 +13,7 @@ fn reflect_apply_rechecks_an_empty_array_under_the_inferred_tuple_context() {
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     // The pinned doYouNeedToChangeYourTargetLibraryES2015 baseline records
     // both the return and the array's contextual tuple type.
@@ -37,7 +37,7 @@ fn generic_tuple_indexes_distinguish_guaranteed_positions_from_deferred_reads() 
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for expected in [
         "tuple[0] : string",
@@ -65,7 +65,7 @@ fn iteration_reads_the_resolved_array_constraint_of_a_type_parameter() {
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for expected in ["...values : unknown", "item : string"] {
         assert!(lines.iter().any(|line| line == expected), "missing {expected}: {lines:?}");
@@ -89,7 +89,7 @@ fn tuple_destructuring_slices_flags_and_labels_and_removes_readonly() {
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for expected in [
         "whole : [string, ...T, number]",
@@ -119,7 +119,7 @@ fn tuple_slice_optional_arguments_follow_null_and_exact_optional_options() {
             .iter()
             .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
             .collect();
-        let assertions = types_producer::assertions_for_case(&case, &expected, false);
+        let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         let lines: Vec<_> =
             assertions.iter().flatten().map(types_producer::Assertion::line).collect();
         let wanted = format!("tail : {wanted}");
