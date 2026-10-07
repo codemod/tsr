@@ -61,6 +61,23 @@ impl<'a> Parser<'a> {
         TypePredicateParameterName::Identifier(self.parse_identifier())
     }
 
+    /// typescript-go's `Parser.parseKeywordTypeNode` (`parser.go`).
+    fn parse_keyword_type_node(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        let kind = self.token.kind;
+        self.next_token();
+        TypeNode::KeywordTypeNode(self.finish_node(KeywordTypeNode::new(kind), kind, start))
+    }
+
+    /// The body of `parseTypeAliasDeclaration` (`parser.go:2102`): a lone
+    /// `intrinsic` not followed by `.` is the intrinsic keyword type.
+    pub(crate) fn parse_type_alias_body(&mut self) -> TypeNode<'a> {
+        if self.at(SyntaxKind::IntrinsicKeyword) && !self.next_is_dot() {
+            return self.parse_keyword_type_node();
+        }
+        self.parse_type()
+    }
+
     /// Whether a `.` follows, making a keyword a namespace qualifier.
     fn next_is_dot(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::DotToken)
@@ -252,12 +269,16 @@ impl<'a> Parser<'a> {
             // Keyword types: `string`, `number`, `any`, `void`, … unless a `.`
             // follows, in which case the keyword names a namespace:
             // `var x: string.X` refers to a namespace called `string`.
+            // typescript-go's `parseNonArrayType` gives `void` its own arm with
+            // no dot lookahead: `void.x` is the keyword type, then `.` errors.
+            // `intrinsic` has no arm at all: it is a type reference here, and
+            // a keyword only as a whole type alias body
+            // ([`Parser::parse_type_alias_body`]).
             kind if kind.is_keyword_type()
+                && kind != SyntaxKind::IntrinsicKeyword
                 && (kind == SyntaxKind::VoidKeyword || !self.next_is_dot()) =>
             {
-                self.next_token();
-                let node = self.finish_node(KeywordTypeNode::new(kind), kind, start);
-                TypeNode::KeywordTypeNode(node)
+                self.parse_keyword_type_node()
             }
             // `(` opens either a parenthesised type or a function type's parameter
             // list, and the two diverge only at the `=>`. Speculate, then fall back.

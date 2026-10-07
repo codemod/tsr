@@ -469,3 +469,7 @@ per-file flag must become per-node.
   first, so `asserts is T` names a parameter `asserts`. The first arm of
   `checkTypePredicate` (TS1228 via `getTypePredicateParent`) is in
   `grammar.rs`; JSDoc-hosted predicates still lack the reparser parent.
+- `intrinsic` (`parseTypeAliasDeclaration`, `parseNonArrayType`): a keyword
+  type only as a whole alias body not followed by `.`; elsewhere a type
+  reference (TS2304). `checkTypeAliasDeclaration`'s TS2795 for a
+  non-compiler alias body is in `grammar.rs` (syntactic, no type queries).

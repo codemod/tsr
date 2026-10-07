@@ -612,7 +612,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_identifier();
         let type_parameters = self.parse_type_parameters();
         self.expect(SyntaxKind::EqualsToken);
-        let type_node = self.parse_type();
+        let type_node = self.parse_type_alias_body();
         self.parse_semicolon();
 
         let modifiers = self.arena.alloc_slice(modifiers);
