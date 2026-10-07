@@ -2222,7 +2222,7 @@ impl<'a> Checker<'a, '_> {
     /// list is read without `complete_signature_return` — completing it from
     /// the diagnostic walk re-enters a method's return inference from a call
     /// in its own body. Every other shape goes through the shared resolver.
-    fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
+    pub(crate) fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
         let t = self.apparent_type(t);
         let is_call = kind == SignatureKind::Call;
         if let Some(signatures) = self.signature_types.get(&t) {
