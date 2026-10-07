@@ -77,7 +77,11 @@ invocation PID/args/environment and normal completion. No output suppression.
 
 Native domain-model controls default,serial,explicit two-checker all exited 1
 normally and matched noninstrumented native stdout/stderr/exit exactly. Pool
-counts were 4/1/2, full workers 42 in each; record counts 171709/108845/131222;
+counts were 4/1/2, matching existing TSR checker_pool::checker_count for the
+same default/singleThreaded/explicit-two options and loaded file count. Default
+count identity is explicitly 4, never host core count; file affinity remains
+Program file index modulo selected count. Full workers were 42 in each;
+record counts 171709/108845/131222;
 negative file probes 75/7/43. Every work begin/end paired and each stream ended
 normally. Different query counts demonstrate why serial receipts cannot certify
 production admission. Collector buffering is outside semantic state but adds
