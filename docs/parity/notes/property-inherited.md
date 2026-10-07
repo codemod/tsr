@@ -506,6 +506,27 @@ is unmeasured and must gate parentacceptance. Receipts obj-accessor-* under
 target/recovery/property. Parentreadonly/order/anonexports/computedname helper
 reservations untouched; this is independent late-binding supplier code.
 
+## Union-key indexed writes — tsr-2zk.16.213
+
+Newly owned indexed.rs definite-write dispatcher enumerates semantic union
+keys, obtains each divergent setter type through the existing member supplier
+(or ordinary indexed type), and intersects results, matching 5b1047d
+getIndexedAccessTypeOrUndefined checker.go:26993. Read dispatch is unchanged.
+Original receiver/key TypeIds and existing resolution ownership remain; no
+cache, fake key, dropped failed constituent or alias-resolver edit. The
+query-local vector exists only for union write traversal.
+
+Native control has boolean intersection for writes and number union for reads;
+TSR matches. Completedfull477970types/10570diags adds4RIGHT targetrows with
+0priorRIGHTloss/0vanished;diagnosticcounts unchanged;ClippyPASS. Fifth historical
+row remains: computed symbol getter/setter split symbols; symbols.rs
+write_type_of_accessors reads only its own declarations and misses the matching
+setter when given the getter's symbol. This unowned merged-symbol producer must
+preserve native getWriteTypeOfSymbol context. No computedname/setter exception
+added. Broadtwo-case completion/perf gate unverified; parentacceptance required.
+Receipts accessor-write-* in target/recovery/property. Parent indexedalias/
+printerreceiver and reservedmemberhelpers untouched.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
