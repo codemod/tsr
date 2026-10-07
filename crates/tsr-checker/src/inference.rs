@@ -115,6 +115,10 @@ pub(crate) struct SignatureMapper {
     pub(crate) map: Vec<(TypeId, TypeId)>,
     pub(crate) parameters: Vec<TypeId>,
     pub(crate) names: Vec<String>,
+    // Native resolvedReturnType/resolvedTypePredicate belong to this exact
+    // target+mapper image. Clones share the Arc; unsupported work never sets.
+    return_type: std::sync::OnceLock<TypeId>,
+    predicate: std::sync::OnceLock<Option<crate::signatures::TypePredicate>>,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -2744,7 +2748,7 @@ impl<'a> Checker<'a, '_> {
         let missing = self.intrinsics.error;
         let types = |checker: &mut Self, signature: &Signature| -> Vec<TypeId> {
             [
-                signature.r#type,
+                checker.get_return_type_of_signature(signature).unwrap_or(missing),
                 signature
                     .this_parameter
                     .as_ref()
@@ -6265,6 +6269,8 @@ impl<'a> Checker<'a, '_> {
             map: map.to_vec(),
             parameters: parameters.to_vec(),
             names: names.iter().map(|name| (*name).to_owned()).collect(),
+            return_type: std::sync::OnceLock::new(),
+            predicate: std::sync::OnceLock::new(),
         }));
         Some(signature)
     }
@@ -6273,10 +6279,18 @@ impl<'a> Checker<'a, '_> {
     pub fn mapped_signature_return(&mut self, signature: &Signature) -> Option<TypeId> {
         let mapper = signature.mapper.as_ref()?;
         let target = signature.target.as_ref()?;
+        if let Some(&returned) = mapper.return_type.get() {
+            return Some(returned);
+        }
         let returned = self.get_return_type_of_signature(target)?;
         let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
         let image = self.instantiate_type(returned, &mapper.map, &mapper.parameters, &names);
-        (!self.is_error(image)).then_some(image)
+        if self.is_error(image) {
+            return None;
+        }
+        // Re-entry may publish first; retain that completed image answer.
+        let _ = mapper.return_type.set(image);
+        mapper.return_type.get().copied()
     }
 
     /// Map a completed target predicate; caller owns target predicate demand
@@ -6301,6 +6315,15 @@ impl<'a> Checker<'a, '_> {
         Some(predicate)
     }
 
+    /// Completed image predicate lookup before parent target demand. None is
+    /// uncomputed/unsupported, Some(None) is certified completed absence.
+    pub fn cached_mapped_signature_predicate(
+        &self,
+        signature: &Signature,
+    ) -> Option<Option<crate::signatures::TypePredicate>> {
+        signature.mapper.as_ref()?.predicate.get().cloned()
+    }
+
     /// Consume a completed target predicate result without confusing absence
     /// with unsupported target demand. Parent canonical getter must propagate
     /// unsupported demand before calling this worker.
@@ -6309,13 +6332,17 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         target_predicate: Option<crate::signatures::TypePredicate>,
     ) -> Option<Option<crate::signatures::TypePredicate>> {
-        if signature.mapper.is_none() || signature.target.is_none() {
-            return None;
+        let mapper = signature.mapper.as_ref()?;
+        signature.target.as_ref()?;
+        if let Some(predicate) = mapper.predicate.get() {
+            return Some(predicate.clone());
         }
-        match target_predicate {
-            None => Some(None),
-            Some(predicate) => self.map_signature_predicate(signature, predicate).map(Some),
-        }
+        let predicate = match target_predicate {
+            None => None,
+            Some(predicate) => Some(self.map_signature_predicate(signature, predicate)?),
+        };
+        let _ = mapper.predicate.set(predicate);
+        mapper.predicate.get().cloned()
     }
 
     /// One signature with every carried type substituted, or `None` when any
