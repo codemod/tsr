@@ -243,6 +243,9 @@ pub struct Signature {
     /// parameter types to distinguish an instantiated generic parameter from
     /// a written function parameter.
     pub target: Option<std::sync::Arc<Signature>>,
+    /// Native signature-owned target mapper. None is an ordinary/eager image;
+    /// a retained mapper keeps return/predicate demand lazy in canonical getters.
+    pub(crate) mapper: Option<std::sync::Arc<crate::inference::SignatureMapper>>,
     /// Whether a union composite contains an abstract constructor. Native's
     /// `someSignature` inspects composite members independently of the cloned
     /// signature's own flags (checker.go:8710).
@@ -492,19 +495,17 @@ impl<'a> Checker<'a, '_> {
             [single] => *single,
             many => self.union_with_subtype_reduction(many)?,
         };
-        let signature = Signature {
-            declaration,
-            target: None,
-            union_contains_abstract: false,
-            non_inferrable: true,
-            kind: SignatureKind::Call,
-            type_parameters: Vec::new(),
-            this_parameter: None,
-            parameters: Vec::new(),
-            r#type: returned,
-            predicate: None,
-            written_return: None,
-        };
+        let signature = Signature { mapper: None, declaration,
+        target: None,
+        union_contains_abstract: false,
+        non_inferrable: true,
+        kind: SignatureKind::Call,
+        type_parameters: Vec::new(),
+        this_parameter: None,
+        parameters: Vec::new(),
+        r#type: returned,
+        predicate: None,
+        written_return: None, };
         let text = self.signature_to_string(&signature);
         let id = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
         self.signature_types.insert(id, vec![signature]);
@@ -1056,6 +1057,7 @@ impl<'a> Checker<'a, '_> {
         Some(vec![Signature {
             declaration,
             target: None,
+            mapper: None,
             union_contains_abstract: false,
             non_inferrable: false,
             kind,
@@ -1704,19 +1706,17 @@ impl<'a> Checker<'a, '_> {
                     Some(Parameter::new("this".to_string(), false, false, inherited, None));
             }
         }
-        Some(Signature {
-            declaration,
-            target: None,
-            union_contains_abstract: false,
-            non_inferrable: false,
-            kind: self.signature_kind_of(declaration),
-            type_parameters,
-            this_parameter,
-            parameters,
-            r#type,
-            written_return,
-            predicate,
-        })
+        Some(Signature { mapper: None, declaration,
+        target: None,
+        union_contains_abstract: false,
+        non_inferrable: false,
+        kind: self.signature_kind_of(declaration),
+        type_parameters,
+        this_parameter,
+        parameters,
+        r#type,
+        written_return,
+        predicate, })
     }
 
     /// Ported from `createTypePredicateFromTypePredicateNode`
@@ -1932,6 +1932,9 @@ impl<'a> Checker<'a, '_> {
     /// its completed slot. Context-sensitive declarations retain their checked
     /// result because their assigned context can still change in this port.
     pub(crate) fn get_return_type_of_signature(&mut self, signature: &Signature) -> Option<TypeId> {
+        if signature.mapper.is_some() {
+            return self.mapped_signature_return(signature);
+        }
         let key = self.type_literal_key(signature.declaration);
         if signature.target.is_none()
             && !signature.non_inferrable
@@ -1964,6 +1967,24 @@ impl<'a> Checker<'a, '_> {
             .get(&self.type_literal_key(signature.declaration))
             .copied()
             .unwrap_or(Some(signature.r#type))
+    }
+
+    /// Native `getTypePredicateOfSignature`: map a target predicate on demand.
+    /// Outer None is unsupported; Some(None) is completed predicate absence.
+    #[allow(clippy::option_option)]
+    pub(crate) fn get_type_predicate_of_signature(
+        &mut self, signature: &Signature,
+    ) -> Option<Option<TypePredicate>> {
+        if signature.mapper.is_some() {
+            if let Some(predicate) = self.cached_mapped_signature_predicate(signature) {
+                return Some(predicate);
+            }
+            let target = signature.target.as_ref()?;
+            let predicate = self.get_type_predicate_of_signature(target)?;
+            return self.mapped_signature_predicate(signature, predicate);
+        }
+        let completed = self.complete_signature_return(signature.clone())?;
+        Some(completed.predicate)
     }
 
     /// Complete the original return/predicate before a consumer clones or maps
@@ -1999,6 +2020,9 @@ impl<'a> Checker<'a, '_> {
             return Some(signature);
         }
         signature.r#type = self.get_return_type_of_signature(&signature)?;
+        if signature.mapper.is_some() {
+            signature.predicate = self.get_type_predicate_of_signature(&signature)?;
+        }
         Some(signature)
     }
 
@@ -2110,19 +2134,17 @@ impl<'a> Checker<'a, '_> {
             }
             parameters.push(Parameter::new(name.text.to_string(), false, false, r#type, None));
         }
-        Some(Signature {
-            declaration,
-            target: None,
-            union_contains_abstract: false,
-            non_inferrable: false,
-            kind: SignatureKind::Call,
-            type_parameters: Vec::new(),
-            this_parameter: None,
-            parameters,
-            r#type: self.intrinsics.error,
-            written_return: None,
-            predicate: None,
-        })
+        Some(Signature { mapper: None, declaration,
+        target: None,
+        union_contains_abstract: false,
+        non_inferrable: false,
+        kind: SignatureKind::Call,
+        type_parameters: Vec::new(),
+        this_parameter: None,
+        parameters,
+        r#type: self.intrinsics.error,
+        written_return: None,
+        predicate: None, })
     }
 
     /// getTypeFromTypeQueryNode reads a FUNCTION identity, not its return

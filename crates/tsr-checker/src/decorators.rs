@@ -419,19 +419,17 @@ fn decorator_signature(
     parameters: Vec<Parameter>,
     returned: TypeId,
 ) -> Signature {
-    Signature {
-        declaration,
-        target: None,
-        union_contains_abstract: false,
-        non_inferrable: false,
-        kind: SignatureKind::Call,
-        type_parameters: Vec::new(),
-        this_parameter,
-        parameters,
-        r#type: returned,
-        written_return: None,
-        predicate: None,
-    }
+    Signature { mapper: None, declaration,
+    target: None,
+    union_contains_abstract: false,
+    non_inferrable: false,
+    kind: SignatureKind::Call,
+    type_parameters: Vec::new(),
+    this_parameter,
+    parameters,
+    r#type: returned,
+    written_return: None,
+    predicate: None, }
 }
 
 #[cfg(test)]

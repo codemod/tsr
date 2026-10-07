@@ -249,25 +249,23 @@ impl<'a> Checker<'a, '_> {
                 if arguments == self.intrinsics.error {
                     return None;
                 }
-                let signature = Signature {
-                    declaration: function,
-                    target: None,
-                    union_contains_abstract: false,
-                    non_inferrable: false,
-                    kind: crate::signatures::SignatureKind::Call,
-                    type_parameters: Vec::new(),
-                    this_parameter: None,
-                    parameters: vec![crate::signatures::Parameter::new(
-                        "args".to_owned(),
-                        false,
-                        true,
-                        arguments,
-                        None,
-                    )],
-                    r#type: self.intrinsics.void,
-                    written_return: None,
-                    predicate: None,
-                };
+                let signature = Signature { mapper: None, declaration: function,
+                target: None,
+                union_contains_abstract: false,
+                non_inferrable: false,
+                kind: crate::signatures::SignatureKind::Call,
+                type_parameters: Vec::new(),
+                this_parameter: None,
+                parameters: vec![crate::signatures::Parameter::new(
+                    "args".to_owned(),
+                    false,
+                    true,
+                    arguments,
+                    None,
+                )],
+                r#type: self.intrinsics.void,
+                written_return: None,
+                predicate: None, };
                 let contextual = if parameters[index].dot_dot_dot_token.is_some() {
                     Some(self.signature_rest_type_at_position(&signature, index))
                 } else {

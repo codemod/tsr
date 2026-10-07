@@ -6317,6 +6317,7 @@ impl<'a> Checker<'a, '_> {
 
     /// Completed image predicate lookup before parent target demand. None is
     /// uncomputed/unsupported, Some(None) is certified completed absence.
+    #[must_use]
     pub fn cached_mapped_signature_predicate(
         &self,
         signature: &Signature,
