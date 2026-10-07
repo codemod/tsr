@@ -633,6 +633,12 @@ compile-blocked by absent shared fields here; no passing-after/full16 diagnostic
 or RIGHT/perf acceptance claimed. Parent actual relation/elaboration determines
 messages/spans/order, not a local formatter/suppression.
 
+Constraint regression now pairs incompatible number-bound rejection with a
+compatible string-bound successful instantiation, preventing blanket rejection
+of variable arguments. Compatible path also requires no diagnostic. Parent
+reported crash attribution is not rerun here. variable-compatible-tests remains
+blocked by absent shared fields; no passing-after/native16diag claim.
+
 ### Recovery union and agreement return demand
 
 Overload-failure recovery unions and generic survivor print-agreement recovery
