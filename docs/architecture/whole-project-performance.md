@@ -212,6 +212,46 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Native completed-worker inventory and partial failure evidence
+
+The native reader now requires each full-worker source path to belong to the
+supervising receipt's exact loaded Program inventory. It rejects overlapping
+full-file spans on a private checker, duplicate completed sources even across
+different checker owners, duplicate loaded identities and regressing B/E boundary
+chronology. Metadata timestamps remain legitimately backdated; sampled X events
+are not converted into boundary chronology. Returned worker rows/counters are
+retained even when later spans fail or remain unfinished, explicitly marked
+partial-on-failure. Artifact validity remains false; partial observations cannot
+enter a comparison identity-match gate or release certificate.
+
+33 trace tests passed, including out-of-inventory workers, overlap, cross-owner
+duplicate source and unfinished capture after a real completed worker. The actual
+native large-artifact reader ran. A fresh frozen/hash-bound large-project run
+completed five pairs plus warmups with current script source
+`002b3e53b4633eafb8d0b8cc19d1a14732361708` and the original qualified compiler
+binaries (not a rebuilt parent candidate). Native observed 202 completed initial
+workers; all broader operation/timed-work gates remain false. Latest observed
+ratio **1.4344651882444954**, verified null, 12 unmet obligations,
+**<=0.50 UNMET**; comparable exit 1. Existing 1.379467 observation remains historical.
+
+```json
+{
+  "checkpoint": "/tmp/recover-native-inventory-checkpoint.json",
+  "checkpoint_sha256": "e959f2289f65e041a22f346a77e8ffa3f7904d51e69231f3b1b682157a5f77b6",
+  "harness_sha256": "460951504741b3efdccb1f319c1a50197f22918ccb1850d3352f8e4251793b49",
+  "trace_reader_sha256": "c8f48a13c66ebb73dfba6869c9c97e29725eaa868880730c51db9b44e6105ffa",
+  "source_file_workers_observed": 202,
+  "complete_checker_operation_coverage": false,
+  "actual_timed_work_equivalence": false,
+  "speed_target_verified": false
+}
+```
+
+Full raw evidence: `/tmp/recover-native-inventory-perf.json` and `.json.work/`;
+standalone native validation `/tmp/recover-native-inventory-validation.json`.
+No compiled hot-path allocations or runtime/checker/output-filter changes were
+introduced by these Python capture controls.
+
 ### Assignment-only hot-path correction is not a scope shortcut
 
 The parent reports the initial native import-alias assignment correction added

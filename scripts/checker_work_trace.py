@@ -73,6 +73,11 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
             rows = json.load(stream, object_pairs_hook=unique_object)
         require(isinstance(rows, list) and rows, "missing native trace records")
         stacks, spans, seen, counters = {}, [], set(), {}
+        last_boundary_time = {}
+        loaded = receipt["loaded_files"]
+        require(len(loaded) == len(set(loaded)), "duplicate native loaded identity")
+        result["completed_full_workers"] = spans
+        result["operation_counters"] = counters
         for row in rows:
             require(isinstance(row, dict), "invalid native trace event")
             phase = row["ph"]
@@ -107,7 +112,15 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                 continue
             key = (row["pid"], row["tid"])
             stack = stacks.setdefault(key, [])
+            require(timestamp >= last_boundary_time.get(key, 0), "native boundary chronology regressed")
+            last_boundary_time[key] = timestamp
             if phase == "B":
+                if name == "checkSourceFile":
+                    owner, source = args["checkerId"], args["path"]
+                    require(integer(owner) and isinstance(source, str) and source in loaded,
+                            "native full worker source is outside captured Program inventory")
+                    require(not any(frame.get("name") == "checkSourceFile" for frame in stack),
+                            "overlapping native full workers on one private checker")
                 stack.append(row)
                 continue
             require(stack, "orphan native end event")
@@ -141,8 +154,8 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                 owner, source = args["checkerId"], args["path"]
                 require(integer(owner) and isinstance(source, str) and source,
                         "missing private checker/source identity")
-                require((owner, source) not in seen, "duplicate completed native full worker")
-                seen.add((owner, source))
+                require(source not in seen, "duplicate completed native full worker")
+                seen.add(source)
                 spans.append({"path": source, "checker_id": owner,
                               "duration_ns": round((timestamp - begin["ts"]) * 1000)})
         require(all(not stack for stack in stacks.values()), "unfinished native spans")
@@ -225,6 +238,7 @@ def exclusion(options: dict, file: dict, library_count: int) -> str | None:
 def empty_result() -> dict:
     return {
         "schema_version": 1, "artifact_integrity_valid": False, "reasons": [],
+        "observations_are_partial_on_failure": True,
         "actual_checked_work_verified": False, "complete_input_equivalence_verified": False,
         "complete_provenance_verified": False, "target_verified": False,
         "limitations": ["Supervising-process receipt authenticity is outside this reader.",

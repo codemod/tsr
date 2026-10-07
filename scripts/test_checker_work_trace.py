@@ -115,6 +115,7 @@ class TraceIntegrityTests(unittest.TestCase):
         receipt = copy.deepcopy(self.context)
         receipt.update(oracle_sha=PINNED_NATIVE_SHA, trace_sha256=self.digest(self.trace))
         receipt["child"]["command"] += ["--generateTrace", str(self.root)]
+        receipt["loaded_files"] = ["a.ts", "b.ts", str(self.input)]
         return validate_native_trace(self.trace, receipt)
 
     def test_native_full_workers_preserve_owner_paths_and_unsampled_duration(self):
@@ -138,6 +139,25 @@ class TraceIntegrityTests(unittest.TestCase):
                          rows[:3] + [{**rows[3], "args": {"checkerId": 1, "path": "a.ts"}}]):
             self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
         self.assertFalse(result["actual_checked_work_verified"])
+
+    def test_native_worker_inventory_overlap_and_cross_owner_duplicate_reject(self):
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}
+        end = {**begin, "ph": "E", "ts": 10}
+        outside = {**begin, "args": {"checkerId": 0, "path": "outside.ts"}}
+        overlapping = {**begin, "ts": 1, "args": {"checkerId": 0, "path": "b.ts"}}
+        other_owner = {**begin, "tid": 3, "ts": 11, "args": {"checkerId": 1, "path": "a.ts"}}
+        for rows in ([outside, {**outside, "ph": "E", "ts": 10}],
+                     [begin, overlapping, {**overlapping, "ph": "E", "ts": 5}, end],
+                     [begin, end, other_owner, {**other_owner, "ph": "E", "ts": 20}]):
+            result = self.native_trace_check(rows)
+            self.assertFalse(result["native_trace_valid"], result)
+            self.assertTrue(result["reasons"])
+        incomplete = self.native_trace_check([begin, end, {**begin, "ts": 20}])
+        self.assertFalse(incomplete["native_trace_valid"])
+        self.assertEqual(incomplete["completed_full_workers"],
+                         [{"path": "a.ts", "checker_id": 0, "duration_ns": 10000}])
+        self.assertTrue(incomplete["observations_are_partial_on_failure"])
 
     def test_native_variance_completion_output_is_not_an_identity_change(self):
         begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "checkTypes", "ts": 10,
