@@ -35,6 +35,26 @@ fn parser_js_language_native_unary_recovery() {
 }
 
 #[test]
+fn parser_js_language_native_call_brackets_are_relational() {
+    for name in ["a.js", "a.jsx", "a.ts", "a.tsx"] {
+        let arena = Arena::new();
+        let parsed = parse_with_options(&arena, "f<T>(x);", ParseOptions::for_file(name));
+        assert!(parsed.diagnostics.is_empty(), "{name}: {:?}", parsed.diagnostics);
+        let Statement::ExpressionStatement(statement) = parsed.source_file.statements[0] else {
+            panic!("expected expression statement");
+        };
+        if name.ends_with(".js") || name.ends_with(".jsx") {
+            assert!(matches!(statement.expression, Some(Expression::BinaryExpression(_))));
+        } else {
+            let Some(Expression::CallExpression(call)) = statement.expression else {
+                panic!("expected typed call in {name}");
+            };
+            assert_eq!(call.type_arguments.len(), 1);
+        }
+    }
+}
+
+#[test]
 fn parser_js_language_native_parenthesized_ambiguity() {
     for name in ["a.js", "a.jsx", "a.tsx"] {
         let arena = Arena::new();
