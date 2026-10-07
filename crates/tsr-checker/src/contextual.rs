@@ -2595,7 +2595,15 @@ impl<'a> Checker<'a, '_> {
             }
             _ => self.store.get(member).flags.intersects(crate::flags::TypeFlags::UNIT),
         };
-        if constituents.len() > 1 && unit_leaf {
+        // getTypeOfPropertyOfContextualType maps over the union and a nullable
+        // constituent contributes no property, so `X | undefined` (an optional
+        // tuple slot or member) is a one-constituent walk with nothing to
+        // discriminate.
+        let candidates = constituents
+            .iter()
+            .filter(|&&t| !self.store.get(t).flags.intersects(crate::flags::TypeFlags::NULLABLE))
+            .count();
+        if candidates > 1 && unit_leaf {
             return None;
         }
         Some(member)
