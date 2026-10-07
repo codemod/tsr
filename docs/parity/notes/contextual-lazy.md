@@ -620,4 +620,79 @@ context before any owned mutable-location cutover.
 
 No target conversions, no checker change, no post-change loss or performance
 claim for .16.425. The two cases are blocked scope, not a promise. Prior
-`70f524fc` parity/performance receipts remain the last implemented root.
+`70f524fc` parity/performance receipts remain the last implemented root at
+that investigation's publication.
+
+## GETTER-RETURN-ANNOTATION-CONTEXT
+
+Owned port: `contextual.rs::get_contextual_return_type` now consumes native
+`getReturnTypeFromAnnotation`'s getter annotation, falling back to the bound
+paired setter's first parameter annotation. The getter's own annotation
+wins. No accessor type/signature/body query is added. The authoritative issue
+and two target names remain pending integration's queue; the measured corpus
+case below is not assumed to be either queued target.
+
+Pinned native direct strict declaration-only emit exits 0 for:
+
+```ts
+const annotated = { get value(): { tag: "a" | "b" } { return { tag: "a" }; } };
+const paired = { get value() { return { tag: "a" }; }, set value(v: { tag: "a" | "b" }) {} };
+const divergent = { get value(): { tag: "a" } { return { tag: "a" }; }, set value(v: { tag: "b" }) {} };
+const unannotated = { get value() { return { tag: "a" }; } };
+class Holder { get value() { return { tag: "a" }; } set value(v: { tag: "a" | "b" }) {} }
+```
+
+TSR before: every getter's returned object and tag widen to `{ tag: string;
+}`/string. After: annotated, paired, divergent and class-paired returns retain
+`{ tag: "a"; }`/`"a"`; unannotated getter remains string. Native corpus
+baseline `objectLiteralGettersAndSetters.types` also provides setter-first and
+getter-first callback returns whose parameter is string, not any. The port
+converts six aligned type lines in those controls. Permanent tests
+`contextual_getter_native_annotation.rs` cover getter-before-divergent-setter,
+class paired-setter fallback, and no annotation. No syntactic test-name branch
+or literal heuristic exists.
+
+Identity/owner/publication: function NodeId and its bound Program SymbolId
+select the actual shared accessor declarations. The borrowed declaration type
+node is resolved by the existing private Checker type-node supplier; no new
+cache or accessor answer is published. Absence of annotations remains absent
+context, not a body inference request. Existing active/completed type-node
+publication remains its supplier's responsibility. Setter fallback does not
+mint a member image or collapse getter/read and setter/write types. Distinct
+static/instance symbols, declaration origin and annotation order remain those
+of the bound symbol. Canonical private/late-bound pairing remains with the
+accessor owner; no string-keyed sibling pairing added here.
+
+Expensive work: at most the existing accessor declaration scan and annotation
+resolution, then existing contextual return/member checking. No eager getter
+body or signature work introduced. Actual scan/type-node worker counts remain
+unmeasured; request bounded Beads attribution before expanding this reuse.
+
+Verification: workspace release tests, clippy all-targets -D warnings, fmt
+check, actual type-probe smoke, and all 16 read-only parity suites complete.
+Against the originally frozen unfiltered dump: **469773/477970 RIGHT lines**
+(gain 8 total: prior parentheses 2 plus getter 6), zero missing prior-RIGHT
+keys and zero RIGHT type-line losses. Diagnostic RIGHT/EMPTY_RIGHT case
+verdicts unchanged, with no missing keys. Case coverage unchanged at
+**8043/9538**, diagnostics **4221/5502**, clean **4968/5068**.
+`conformance/objectLiteralGettersAndSetters` is **165/179 lines**, not passing;
+its duplicate/accessor construction prerequisites are not this context port.
+No fully converted getter corpus case claimed.
+
+Candidate CLI SHA-256:
+`8e086daf05d1cc994cb5559bd03970c026f0c392aac2b1547d1a7b8261eac5b0`.
+Fresh-process interleaved frozen-baseline performance, 41 pairs; native, 21:
+
+| Project | Baseline CPU | Baseline observed wall | Native observed wall |
+| --- | --- | --- | --- |
+| domain-model | 0.98489 | 0.98908 | 1.02558 |
+| generic-imports | 1.01056 | 1.00785 | 0.90638 |
+
+No CPU regression above 1.03; wall observations do not prove absolute
+no-slowdown. Diagnostics/options/loaded scopes match, captured inputs stable.
+Complete-input and actual checked-work verification remain false; verified
+ratio null and target false. No verified release ratio claimed. Harness
+source label is `968b02d7`; actual measured implementation is the isolated
+owned getter-context change beyond that commit, identified by binary hash.
+Authoritative target-case acceptance remains pending the queue. Literal
+instantiable `.16.425` remains open/investigation-only.
