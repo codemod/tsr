@@ -467,3 +467,13 @@ now applies the existing `widen_object_literal_freshness` (getWidenedType) in
 exactly those two contexts; detached reads keep the unwidened receiver. Control:
 `[].values()` → `ArrayIterator<any>`, detached `[].values` →
 `() => ArrayIterator<undefined>`, matching tsgo. No cache added.
+
+## 16. Object-literal late-bound accessors (tsr-2zk.16.351)
+
+Native `SymbolFlagsLateBindingContainer` includes object literals
+(`getResolvedMembersOrExportsOfSymbol` / `lateBindMember`,
+`checker.go:15930/16005`). `late_bound_members_of` walked only class,
+interface and type-literal members, so `{ get [k]() {}, set [k](v) {} }` lost
+its computed accessors. Object-literal properties now feed the same worker;
+its existing (owner `SymbolId`, static) cache and publication are unchanged
+and the existing accessor worker merges same-name getter/setter declarations.
