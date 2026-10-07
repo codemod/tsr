@@ -197,3 +197,181 @@ Named targets checked against current code:
 
 Converted cases: none. The release target and all remaining exclusive
 cases remain unverified, not reduced to the controls above.
+
+## INFER-NO-CANDIDATE-GUARD experiment — tsr-2zk.16.61
+
+The integrator subsequently assigned this root to the calls owner. The prior
+oracle-coordination paragraph describes its earlier ownership notification,
+not a competing current claim. `.61` was absent from this Box's local Beads
+DB. `types-triage-2.md` records 20 blocked cases but its detailed sections stop
+before the cluster; the exact issue target list remains an integrator input.
+
+### Native-supported reproduction and experiment
+
+Pinned `Checker.getInferredType` succeeds without candidates: use an
+instantiated default if present, otherwise unknown (any with AnyDefault),
+then apply the instantiated constraint. NoDefault instead uses silentNever.
+`InferenceTypeMapper.Map` in `internal/checker/mapper.go` consumes
+intra-expression sites before fixing, clears non-fixed cached inferences,
+marks the selected inference fixed, and then demands its inferred type.
+Candidate writers in `inferFromTypes` clear non-fixed inference results when
+candidate sets or top-level widening change. `newBackreferenceMapper`
+provides unknown for self/forward default references; earlier references
+use the context's non-fixing mapper.
+
+Current TSR already implements those fallback choices in
+`resolve_inference_with_constraints`; the additional
+`check_generic_call_worker::structural_source_supplied` veto prevents that
+resolver from running. Removing that veto and its now-dead
+`predicate_only_inference_has_no_source` exception was tested, then withdrawn
+because it failed the zero-loss gate. No semantic change or regression test
+from the withdrawn experiment is committed.
+
+Native CLI declaration emit and the TSR corpus producer agreed after the
+experimental cutover on these controls, previously TSR error:
+
+| Declaration and call | Native/candidate result |
+|---|---|
+| `infer<T>(value: { p?: T }): T; infer({})` | `unknown` |
+| `infer<T = string>(value: { p?: T }): T; infer({})` | `string` |
+| `infer<T extends { tag: string }>(value: { p?: T }): T; infer({})` | `{ tag: string; }` |
+| `infer<T = string, U = T>(value: { p?: U }): [T, U]; infer({})` | `[string, string]` |
+| `infer<T extends string = 'fallback'>(value: { p?: T }): T; infer({})` | `"fallback"` |
+
+Distinct supplied-member, contextual-return and fixing controls stayed
+`number`: `{ p: 1 }`, `const result: number = infer({})`, and
+`callbacks(() => 1, value => { const checked: number = value; })`.
+Three new behavioral tests exercised absent optional members, dependent
+non-fixing defaults, and supplied/contextual candidates; all passed in the
+workspace release run. They were removed with the withdrawn implementation,
+not committed as permanently failing tests.
+
+### Publication and work boundary
+
+No new cache, identity or mapper was introduced. Existing private-Checker
+`InferenceInfo` domains are type-parameter TypeIds in the checker's store;
+context includes original signature, ordered parameters, priority,
+covariant/contravariant candidates, fixing state and JS AnyDefault options.
+`resolve_inference_with_constraints` uses its call-local map for provisional
+recursive default/constraint resolution, then completed ordered results.
+`fixed_type` preserves a fixing read; non-fixing reads recompute from current
+candidates. An absent candidate is not an unsupported producer type and is
+not a completed failure. The experiment mistakenly exposed existing
+collector/producer omissions as absent candidates; that distinction is the
+remaining prerequisite, not justification for a new syntax heuristic.
+Written alias context, concrete receiver and diagnostics remain owned by
+existing signature/instantiation consumers. The removed veto performed
+parameter graph walks solely to decline; no count of worker executions or
+result copies was collected. Integrator Beads request: record collector
+unsupported/completed-absence and circular-source boundaries under `.61`
+before broadening reuse. No optimization claim follows from this experiment.
+
+### Completed gates and rejection evidence
+
+Frozen candidate SHA-256:
+`2c077758bb6653573976dc664c0ff3a89108a00198eb4ebed59c6f56759e2332`.
+Both unfiltered verdict invocations completed, with missing-key checks:
+
+- Types: 477,970 IDs before and after; RIGHT 469,765 -> 469,859,
+  GAP 993 -> 911, WRONG 7,212 -> 7,200. Transitions: 39 GAP->RIGHT,
+  58 WRONG->RIGHT, 43 GAP->WRONG, **3 RIGHT->WRONG**. No missing type IDs.
+- Diagnostics: 10,570 IDs before and after; RIGHT 4,221 -> 4,227,
+  EMPTY_RIGHT 4,968 -> 4,965; **3 EMPTY_RIGHT losses**. No missing case IDs.
+- A throwaway read-only runner invoked every existing coverage suite over
+  all 12,444 discovered cases without touching snapshots. All suites
+  completed. `checker_types`: 8,054/9,538 (2,906 skipped), line percentage
+  98.12135197502376; `diagnostics`: 4,227/5,502 (6,942 skipped).
+  These retain the legacy scorer's exclusions, not the strict full-population
+  oracle promised by `parity-full-corpus`.
+- `cargo clippy --workspace --all-targets -- -D warnings` passed.
+  `cargo fmt --all -- --check` passed after formatting the owned changes.
+- `cargo test --workspace --release` failed only when it reached
+  `tsr-conformance/tests/signature_position_prerequisites.rs`: two tests pin
+  native-supported calls to TSR's old `error` refusal. The remaining workspace
+  tail was not run, so the workspace is not reported clean.
+
+The experimental candidate would fully convert 12 legacy-scored type cases:
+`compiler/couldNotSelectGenericOverload`,
+`compiler/declarationEmitOverloadedPrivateInference`,
+`compiler/doYouNeedToChangeYourTargetLibraryES2016Plus`,
+`compiler/implicitIndexSignatures`,
+`compiler/indexSignatureOfTypeUnknownStillRequiresIndexSignature`,
+`compiler/jsxInExtendsClause`,
+`compiler/reverseMappedTypeContextualTypeNotCircular`,
+`compiler/tupleTypeInference2`,
+`conformance/genericCallWithConstructorTypedArguments5`,
+`conformance/indexSignatureTypeInference`, `conformance/inferingFromAny`,
+`conformance/objectLiteralContextualTyping`. These are rejected experimental
+conversions, not delivered gains or completion of the 20-case target list.
+
+### Exact prerequisite failures
+
+1. **Circular source/return completion:** all three formerly-RIGHT type
+   losses are `compiler/circularReferenceInReturnType2` IDs `0:27`, `0:30`,
+   `0:31`. Native directly emits TS7022 for A and TS7023 for fields;
+   `fields` prints `() => any`. Candidate emits no CLI diagnostics and prints
+   `() => { a: Field<unknown, string>; }`. Its field argument's `type: A`
+   producer is `error`, and `inference.rs::infer_from_types_within` ignores
+   error sources, allowing fallback to unknown. The initializer's source
+   resolution must have native semantics before removing the veto.
+   Integrator coordinate `symbols.rs::get_type_of_variable_or_parameter_or_property_worker`
+   / `report_circularity_error` with the owned
+   `signatures.rs::return_type_of` and `calls.rs` resolution consumers.
+   The pinned operations are `getTypeOfVariableOrParameterOrPropertyWorker`,
+   `reportCircularityError`, `getReturnTypeOfSignature`, and
+   `getResolvedSignature`. Merely relabeling all TSR unsupported errors as
+   native any would fabricate inference and is rejected.
+2. **Missed reverse-mapped contravariant candidate:**
+   `compiler/contravariantOnlyInferenceFromAnnotatedFunction` loses
+   EMPTY_RIGHT; native directly emits no diagnostics and infers
+   `[string, { bar: string; }]`; candidate infers
+   `[unknown, { bar: string; }]` and reports TS2322. Owned
+   `inference.rs::infer_to_mapped_constraint_worker` / `infer_from_members`
+   require native `inferToMappedType` and reverse-mapped member inference,
+   not an unconditional default. This is a collector prerequisite to queue
+   under its own root; it is not permission to special-case empty buckets.
+3. **Generic indexed callable source:**
+   `compiler/voidReturnIndexUnionInference` loses EMPTY_RIGHT. Native directly
+   emits no diagnostics; candidate reports two TS2345s for
+   `P["onFoo"] | undefined` / `P["onBar"] | undefined` against callbacks
+   returning unknown. The indexed source's constraint/signature exposure
+   must match native before `inference.rs::infer_from_types_within` /
+   `infer_from_signature_parameters` can collect R. Coordinate the actual
+   indexed-type producer with its owner; no `types.rs`, `members.rs`, or
+   symbol producer edits were authorized here.
+4. **Symbol-indexed member source:** `conformance/symbolProperty61` loses
+   EMPTY_RIGHT. Native directly emits no diagnostics; candidate reports
+   TS2345 for `MyObservable<number>` against `InteropObservable<unknown>`.
+   Its computed-symbol member/index signature image must support native
+   `inferFromProperties` / `inferFromSignatures` before calling an empty T
+   bucket a completed absence. Coordinate member-image production with its
+   owner; `inference.rs::infer_from_members` is the owned consumer.
+5. **Obsolete caller test expectations:** oracle owner must update
+   `signature_position_prerequisites.rs::primitive_array_mismatch_does_not_skip_naked_or_unsupported_generics`
+   (`unsupported` expects error) and
+   `empty_global_arrays_do_not_prove_a_primitive_mismatch`
+   (both empty-array winners expect error). Existing comments already say
+   native accepts/selects these candidates. This lane did not edit the tests.
+
+### Fresh-process performance, experimental candidate only
+
+Harness ran interleaved fresh-process pairs versus frozen TSR and pinned
+native. Initial 21-pair generic-imports baseline measurement was noisy
+(wall 1.067749, CPU 1.046451); repeated with 41 pairs as required.
+
+| Project | candidate/baseline wall | candidate/baseline median child CPU | candidate/native wall (21 pairs) |
+|---|---:|---:|---:|
+| domain-model | 0.960815 (21 pairs) | 0.998643 | 1.120973 |
+| generic-imports | 0.999717 (41 pairs) | 0.998544 | 0.773407 |
+
+Diagnostics match in all measured comparisons. Loaded-file scope matches;
+`complete_input_equivalence_verified=false` and
+`actual_checked_work_verified=false` in every report. These are observed
+ratios only, neither verified comparable-work ratios nor the <=0.50 release
+target. Initial samples ran alongside builds/checks; that noise is explicit.
+The rejected candidate is not a released optimization.
+
+Final disposition: restored the original owned inference implementation and
+removed the experimental permanent tests. Only this evidence record is
+committed. `.61` remains unimplemented; three type and three diagnostic
+losses must be solved faithfully before the cutover can ship.
