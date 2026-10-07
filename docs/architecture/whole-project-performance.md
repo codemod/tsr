@@ -212,6 +212,21 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Observed native owner must fit configured pool selection
+
+The reader derives the pinned checker-pool upper bound from effective
+`singleThreaded`, `checkers` and loaded-file population, with native `[1,256]`
+clamping. Every checker-bearing event must use an owner below that bound and its
+matching synthetic thread. Impossible owners reject even with matching paths.
+Configured limits are not observed constructor counts or safe-memory admission.
+
+46 trace tests passed; actual large native Program gate accepted. Actual default-
+threaded trace paired with a single-threaded receipt saved
+`/tmp/recover-pool-owner-rejection.json` and exited 1. Frozen five-pair/warmup
+capture saved `/tmp/recover-pool-owner-checkpoint.json`, comparable exit 1.
+No local full-corpus zero-loss/missing-case or new-source build receipt was
+provided; prior-source A/B is not native proof, and verified <=0.50 remains unmet.
+
 ### Comparison cannot bypass native envelope validation
 
 Cross-tool `comparison_valid` now always requires the verified native Program/

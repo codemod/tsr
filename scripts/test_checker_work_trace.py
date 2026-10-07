@@ -180,6 +180,14 @@ class TraceIntegrityTests(unittest.TestCase):
         self.assertFalse(result["native_trace_valid"])
         self.assertIn("outside invoked trace directory", result["reasons"][0])
 
+    def test_native_owner_cannot_exceed_configured_pool_limit(self):
+        begin = {"pid": 1, "tid": 6, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 4, "path": "a.ts"}}
+        result = self.native_trace_check([begin, {**begin, "ph": "E", "ts": 10}])
+        self.assertFalse(result["native_trace_valid"])
+        self.assertEqual(result["configured_native_checker_limit"], 3)
+        self.assertTrue(result["reasons"])
+
     def test_native_private_owner_cannot_migrate_synthetic_threads(self):
         begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
                  "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}

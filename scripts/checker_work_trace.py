@@ -89,6 +89,14 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
         result["bound_inventory_verified"] = False
         loaded = receipt["loaded_files"]
         require(len(loaded) == len(set(loaded)), "duplicate native loaded identity")
+        config_options = receipt["show_config"].get("compilerOptions", {})
+        requested = config_options.get("checkers")
+        require(requested is None or type(requested) is int, "invalid configured native checker count")
+        single = config_options.get("singleThreaded")
+        require(single is None or type(single) is bool, "invalid configured native singleThreaded option")
+        checker_limit = max(min(1 if single is True else 4 if requested is None else requested,
+                                len(loaded), 256), 1)
+        result["configured_native_checker_limit"] = checker_limit
         result["completed_full_workers"] = spans
         result["operation_counters"] = counters
         for row in rows:
@@ -106,7 +114,8 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
             require(isinstance(args, dict) and (name is None or isinstance(name, str)),
                     "invalid native operation/arguments")
             if "checkerId" in args:
-                require(integer(args["checkerId"]) and row["tid"] == 2 + args["checkerId"],
+                require(integer(args["checkerId"]) and args["checkerId"] < checker_limit
+                        and row["tid"] == 2 + args["checkerId"],
                         "native private checker/thread identity mismatch")
             if phase == "X":
                 duration = row["dur"]
