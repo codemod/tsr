@@ -336,6 +336,25 @@ class TraceIntegrityTests(unittest.TestCase):
         self.assertEqual(result["observed_full_worker_scope"]["native_only"], [str(self.source)])
         self.assertTrue(result["reasons"])
 
+    def test_comparison_cli_malformed_receipt_does_not_hide_other_producer_failure(self):
+        malformed, empty = self.root / "malformed.json", self.root / "empty.json"
+        malformed.write_text('{"schema_version":')
+        empty.write_text("{}")
+        output = self.root / "comparison.json"
+        for left, right in ((malformed, empty), (empty, malformed)):
+            child = subprocess.run([sys.executable, str(Path(__file__).with_name("checker_work_trace.py")),
+                                    "--trace", str(self.trace), "--receipt", str(left),
+                                    "--compare-native-trace", str(self.trace),
+                                    "--compare-native-receipt", str(right), "--output", str(output)],
+                                   capture_output=True, text=True)
+            self.assertEqual(child.returncode, 1, child.stderr)
+            result = json.loads(output.read_text())
+            self.assertTrue(result["producer_reasons"]["tsr"])
+            self.assertTrue(result["producer_reasons"]["native"])
+            self.assertEqual(result["qualifications"], {})
+            self.assertFalse(result["comparison_valid"])
+            self.assertFalse(result["target_verified"])
+
     def test_comparison_cli_empty_receipts_save_both_validation_failures(self):
         from checker_work_trace import PINNED_NATIVE_SHA
         native_trace = self.root / "native.json"

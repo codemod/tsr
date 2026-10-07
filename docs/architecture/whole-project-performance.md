@@ -212,6 +212,21 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Malformed receipts must not hide the other producer
+
+Comparison CLI receipt parsing/validation now runs independently for TSR and
+native. Malformed JSON or unreadable receipt on one side no longer aborts before
+collecting the other producer's failure. Both original reason arrays survive,
+qualifications remain empty, requested rejection JSON is saved and comparison
+exits 1. This is bounded failure capture, not acceptance of invalid evidence.
+
+37 trace tests passed, including actual malformed-left/empty-right and reverse
+CLI controls. Actual qualified large comparison ran; fresh frozen expected-hash
+five-pair/warmup smoke saved `/tmp/recover-independent-receipt-checkpoint.json`
+and comparable exit 1. No locally qualified full-corpus zero-loss or new-parent
+source-build receipt is available. The native pinned 202-file observation and
+>0.50 large ratios still cannot pass the release certificate.
+
 ### Cross-tool receipt identity enforcement
 
 Comparison acceptance now also requires equal captured effective config objects,

@@ -844,17 +844,30 @@ def main() -> int:
     parser.add_argument("--compare-native-receipt", type=Path)
     args = parser.parse_args()
     try:
-        with regular_file(args.receipt) as stream:
-            receipt = decode(stream.read())
         if args.compare_native_trace is not None:
             if args.compare_native_receipt is None:
                 parser.error("--compare-native-trace requires --compare-native-receipt")
-            with regular_file(args.compare_native_receipt) as stream:
-                native_receipt = decode(stream.read())
-            result = compare_work_captures(
-                validate_worker_activity(args.trace, receipt, "tsr"),
-                validate_native_trace(args.compare_native_trace, native_receipt), receipt, native_receipt)
+            receipts, validations = {}, {}
+            for producer, receipt_path, trace_path in (
+                ("tsr", args.receipt, args.trace),
+                ("native", args.compare_native_receipt, args.compare_native_trace),
+            ):
+                try:
+                    with regular_file(receipt_path) as stream:
+                        receipts[producer] = decode(stream.read())
+                    validations[producer] = (
+                        validate_worker_activity(trace_path, receipts[producer], "tsr")
+                        if producer == "tsr" else validate_native_trace(trace_path, receipts[producer]))
+                except (OSError, ValueError, TypeError, RecursionError) as error:
+                    receipts[producer] = {}
+                    validations[producer] = empty_result()
+                    validations[producer]["reasons"].append(
+                        f"Invalid supervising receipt: {type(error).__name__}: {error}")
+            result = compare_work_captures(validations["tsr"], validations["native"],
+                                          receipts["tsr"], receipts["native"])
         else:
+            with regular_file(args.receipt) as stream:
+                receipt = decode(stream.read())
             result = (validate_native_trace(args.trace, receipt) if args.native_trace else
                   validate_worker_activity(args.trace, receipt, args.worker_producer)
                   if args.worker_producer else validate_trace(args.trace, receipt))
