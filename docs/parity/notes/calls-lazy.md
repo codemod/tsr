@@ -221,3 +221,22 @@ signature-only wrapper. Its source link/cache and members/index forwarding are
 serialized parent/member-owner contracts. Outer mapper support requires the
 actual source-link field and complete parent expression worker before adding an
 owned `instantiate_type_worker` branch; no stub or heuristic image is added.
+
+### Canonical expression-signature outcome
+
+`get_instantiation_expression_signature(&Signature, &[TypeNode]) ->
+Option<InstantiationExpressionSignature>` now provides the native per-signature
+expression operation directly: nongeneric/incorrect arity is `Inapplicable`,
+checked constraint rejection is `ConstraintRejected` (diagnostic emitted,
+original retained by caller), and successful checked substitution is
+`Instantiated(Signature)`. Outer None remains unsupported. It performs real
+arity/default/constraint checking and invokes the completed substitution worker;
+no arity-only winner selection or property/index copies. No redundant expression
+NodeId parameter: argument nodes supply constraint spans and parent owns
+expression identity/cache/TS2635.
+
+Constructor parameter/instance substitution and exact TS2344 rejection with
+unchanged original generic return/parameters are exercised by the existing
+behavioral tests. Target tests and clippy pass (`expression-signature-*.log`).
+Parent's structured source images and end-to-end expression controls remain
+required; this commit does not fabricate a wrapper consumer or full-gate pass.

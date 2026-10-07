@@ -384,6 +384,17 @@ pub mod counters {
     }
 }
 
+/// Native instantiation-expression signature filtering/checking outcome.
+/// Unsupported work is the enclosing Option's None, not an applicable image.
+pub enum InstantiationExpressionSignature {
+    /// Nongeneric signature or incorrect written type-argument arity.
+    Inapplicable,
+    /// Native checkTypeArguments rejected and reported; retain the original.
+    ConstraintRejected,
+    /// Fully substituted call/construct signature with no own parameters.
+    Instantiated(Signature),
+}
+
 /// What `resolveCallExpression`'s head decided before `resolveCall` runs.
 pub(crate) enum CallHead {
     /// The head reported (or another error was already reported); `resolveCall`
@@ -1442,6 +1453,28 @@ impl<'a> Checker<'a, '_> {
     pub fn signature_accepts_type_argument_count(signature: &Signature, count: usize) -> bool {
         count >= Self::min_type_argument_count(&signature.type_parameters)
             && count <= signature.type_parameters.len()
+    }
+
+    /// getInstantiationExpressionType's signature worker (5b1047d:10671).
+    /// Filter first, report constraints, retain the original on rejection.
+    /// The expression node owns the caller's result cache; argument nodes own
+    /// diagnostic spans. No source members/indexes or image cache are copied.
+    pub fn get_instantiation_expression_signature(
+        &mut self,
+        signature: &Signature,
+        arguments: &[tsr_ast::TypeNode<'a>],
+    ) -> Option<InstantiationExpressionSignature> {
+        if signature.type_parameters.is_empty()
+            || !Self::signature_accepts_type_argument_count(signature, arguments.len())
+        {
+            return Some(InstantiationExpressionSignature::Inapplicable);
+        }
+        let Some(type_arguments) = self.check_signature_type_arguments(signature, arguments)?
+        else {
+            return Some(InstantiationExpressionSignature::ConstraintRejected);
+        };
+        self.get_signature_instantiation(signature, &type_arguments)
+            .map(InstantiationExpressionSignature::Instantiated)
     }
 
     /// checkTypeArguments / getSignatureInstantiation, without object/cache
