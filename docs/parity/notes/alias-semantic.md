@@ -157,12 +157,23 @@ answer, so this is not equivalent complete work or a release speed claim. Receip
 `keyword-perf.txt`. TSR declaration CLI returned success without an artifact on
 this control; native declaration evidence is not claimed as TSR emit parity.
 
-TypeQuery migration awaits the integration-owned real
+TypeQuery caller migration is prepared for parent atomic integration with the
+integration-owned real
 `get_instantiation_expression_type(expression_type: TypeId, node: NodeId) -> TypeId`
-API. It must own written-argument checking, constraints, TS2635, and native
-`(NodeId, source TypeId)` publication. The caller will remove its argument refusal,
-resolve the actual expression, invoke that worker, then widen/regularize. No
-fallback or duplicate constraint worker is introduced while the API is absent.
+API. It removes the argument refusal, resolves the actual expression (including
+`this` receiver), invokes the worker with the original node, then follows existing
+widening/regularization. The worker owns canonical raw-list nil/empty/span metadata,
+argument checking, constraints, TS2635, and `(NodeId, source TypeId)` publication.
+No adapter, stub or duplicate constraint worker is introduced.
+
+This caller commit intentionally cannot compile alone: the parent explicitly
+requested a curated hash for atomic integration before publishing the wrapper.
+Fetched main `db726c9c` and calls `0f60df78` do not supply that method. Caller runtime
+verification is therefore pending, not passing. Native typed-argument controls
+already prove direct result `string`, qualified constrained object result,
+TS2635 at (10,39), and TS2344 at (11,47). Receipts: `type-query-native.txt` and
+`native-type-query/type-query-control.d.ts`. Parent must apply caller and actual
+wrapper together before target/full parity/performance verification.
 
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
