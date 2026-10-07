@@ -428,6 +428,14 @@ def main() -> int:
                      stable=inputs.valid_snapshot(after) and after == reference_inputs)
         report["input_observations"].append(event)
         measurement["input_validation"] = event
+        executed_before = next(row for row in before if row["path"] == command[0])
+        executed_after = next(row for row in after if row["path"] == command[0])
+        measurement["executed_binary_identity"] = {
+            "path": command[0], "sha256_before": executed_before.get("sha256"),
+            "sha256_after": executed_after.get("sha256"),
+            "stable": executed_before == executed_after and executed_before.get("kind") == "file",
+            "source_to_binary_provenance_verified": False,
+        }
         if not event["stable"]:
             report.update(status="inputs_changed", inputs_unchanged=False)
         save()

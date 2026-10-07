@@ -468,6 +468,12 @@ class InputEvidenceTests(unittest.TestCase):
                 samples = [tool["samples"][0] for tool in report["tools"].values()]
                 self.assertNotEqual(samples[0]["pid"], samples[1]["pid"])
                 self.assertTrue(all(sample["input_validation"]["stable"] for sample in samples))
+                for sample in samples:
+                    binary_identity = sample["executed_binary_identity"]
+                    self.assertEqual(binary_identity["path"], sample["command"][0])
+                    self.assertEqual(binary_identity["sha256_before"], binary_identity["sha256_after"])
+                    self.assertTrue(binary_identity["stable"])
+                    self.assertFalse(binary_identity["source_to_binary_provenance_verified"])
                 self.assertTrue(all(sample["input_validation"]["before_capture_seconds"] >= 0
                                     for sample in samples))
 

@@ -212,6 +212,24 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Shared build artifacts are not doc/test verification
+
+The parent reports all 201 final-family controls plus tests passed, with a possible
+rustdoc E0460 after concurrent builds reused the same target. This is not evidence
+of a checker bug. Cargo's build lock does not protect the entire subsequent test
+or rustdoc execution from another worktree rebuilding dependency artifacts;
+sccache reuse is separate from shared target mutability. The parent owns serialized
+doc/lint verification after concurrent source-target builds finish. No doc pass,
+skip, or semantic regression is claimed by this scripts-only worker.
+
+Each controlled child now carries `executed_binary_identity` with exact executed
+frozen path, before/after SHA-256, stability and false source-build provenance.
+This applies to preflights, captures, warmups and timed checks. Static operation
+catalogues remain unobserved coverage descriptions, never actual metadata forcing
+flags. 30 harness tests passed and an actual frozen five-pair/warmup capture smoke
+ran; comparable gate exited 1. Evidence `/tmp/recover-child-binary-perf.json`.
+No compiler rebuild was launched here during the parent's serialized verification.
+
 ### Native completed-worker inventory and partial failure evidence
 
 The native reader now requires each full-worker source path to belong to the
