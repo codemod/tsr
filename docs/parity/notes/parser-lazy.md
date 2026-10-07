@@ -170,3 +170,11 @@ Pinned `parseNonArrayType` (parser.go:2785) parses `void` as a keyword type
 unconditionally; only the intrinsic-keyword arm uses `parseKeywordAndNoDot`.
 `var v : void.x` therefore reports TS1005 `',' expected.` at [12,13), while
 `string.x`/`any.x` stay qualified type references.
+
+### Private identifiers as parameter and variable names (tsr-2zk.2)
+
+Pinned `parseParameterEx` (parser.go:3366) and `parseVariableDeclarationWorker`
+(parser.go:1615) pass a private-name message to
+`createIdentifierWithDiagnostic`, whose `KindPrivateIdentifier` arm reports
+TS18009/TS18029 at the current token and then consumes it as an identifier, so
+the written name, type annotation and initializer survive.
