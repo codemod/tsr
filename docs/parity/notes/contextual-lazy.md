@@ -509,6 +509,24 @@ native operations. Issue remains open with exact boundary; no whole-target,
 full prior-RIGHT/performance acceptance claimed for the reverted probe.
 Receipts boolean-mapper-*; owned source unchanged, format passes.
 
+## Super contextual candidate not retained — tsr-2zk.16.154
+
+Claimed existing four-target root. Owned sole-base-signature probe uses existing
+check_super_expression-produced constructor type and single_call_or_construct_signature
+before contextual_argument_type; no overload arity heuristic. Focused result:
+targetTypeBaseCalls29/29, other targets9/15,10/13,20/26. Actual pinned-native
+control and full mirror dump exercised. Full mirror shows78priorRIGHT losses,
+3gains,zero vanished,1diagnostic gain. **Confounded:** mirror still contains the
+previous effective-rest probe, so losses are not attributed solely to super.
+Owned super probe reverted; no target win/performance acceptance retained.
+
+Native getResolvedSignature(superCall) must publish the actual base constructor
+candidate, type arguments and resolving state in calls owner. Parent signature
+fields are reserved; no second stateless constructor resolution is landed from
+this partial control. Need coherent baseline and calls producer cutover before
+retesting; existing issue notes carry exact limitation. Receipts super-*;
+owned source unchanged and format passes.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
