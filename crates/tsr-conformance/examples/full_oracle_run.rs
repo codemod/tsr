@@ -33,6 +33,11 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("run") => run(&args[1..]),
+        Some("summarize") => {
+            ensure!(args.len() == 2, "usage: full_oracle_run summarize REPORT");
+            print!("{}", summarize(Path::new(&args[1]))?);
+            Ok(())
+        }
         Some("gate") => {
             ensure!(args.len() == 3, "usage: full_oracle_run gate BASE_REPORT CANDIDATE_REPORT");
             let (text, ok) = oracle::gate(Path::new(&args[1]), Path::new(&args[2]))?;
@@ -573,5 +578,74 @@ fn summarize(report: &Path) -> Result<String> {
     table(&mut s, "Primary class (diagnostic half first, else type half)", &primary)?;
     table(&mut s, "Diagnostic half, all WRONG cases with a diagnostic difference", &diag)?;
     table(&mut s, "Type half, all WRONG cases with a type difference", &types)?;
+
+    // Per code, from the stored artifacts of every WRONG case.
+    let mut by_code: BTreeMap<String, [Vec<String>; 3]> = BTreeMap::new();
+    let mut answers: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r[3] == "WRONG") {
+        let key = readable_key(&format!("{}\t{}", r[1], r[2]));
+        let dir = report.join(format!("cases/{:05}", r[0].parse::<usize>()?));
+        let native_text = fs::read_to_string(dir.join("native.tsv"))?;
+        let tsr_text = fs::read_to_string(dir.join("actual.tsv"))?;
+        let (native_stream, tsr_stream) = (Stream::parse(&native_text), Stream::parse(&tsr_text));
+        if !r[6].is_empty() {
+            for (code, how) in oracle::diagnostic_code_profile(&native_stream, &tsr_stream) {
+                let slot = match how {
+                    "missing" => 0,
+                    "extra" => 1,
+                    _ => 2,
+                };
+                by_code.entry(code).or_default()[slot].push(key.clone());
+            }
+        }
+        if let Some((native_type, tsr_type)) = oracle::first_type_text(&native_stream, &tsr_stream)
+        {
+            // Top-level `|` members in another order: a report-only split, the
+            // verdict stays WRONG.
+            let members = |t: &str| {
+                let mut m: Vec<String> = t.split(" | ").map(str::to_string).collect();
+                m.sort();
+                m
+            };
+            let answer = match (native_type.as_str(), tsr_type.as_str()) {
+                (_, "error") => "TSR prints `error` (no answer)",
+                (_, "any") => "TSR prints `any`, native a type",
+                ("any" | "error", _) => "native prints `any`/`error`, TSR a type",
+                (n, t) if n.contains(" | ") && members(n) == members(t) => {
+                    "same union members, other order"
+                }
+                _ => "both print a type; printing or inference differs",
+            };
+            answers.entry(answer).or_default().push(key);
+        }
+    }
+    let mut v: Vec<_> = by_code.iter().collect();
+    let size = |c: &[Vec<String>; 3]| c[0].len() + c[1].len() + c[2].len();
+    v.sort_by(|a, b| size(b.1).cmp(&size(a.1)).then(a.0.cmp(b.0)));
+    writeln!(
+        s,
+        "\n### Diagnostic codes in differences (cases; a case counts once per code and kind)\n\n| code | missing | extra | same location, other text/chain/related | examples |\n|---|---|---|---|---|"
+    )?;
+    for (code, c) in v.iter().take(40) {
+        let ex: Vec<_> = c.iter().flatten().take(3).map(|e| format!("`{e}`")).collect();
+        writeln!(
+            s,
+            "| {code} | {} | {} | {} | {} |",
+            c[0].len(),
+            c[1].len(),
+            c[2].len(),
+            ex.join(", ")
+        )?;
+    }
+    writeln!(
+        s,
+        "\n### First `types:type-text` difference by answer\n\n| answer | cases | examples |\n|---|---|---|"
+    )?;
+    let mut v: Vec<_> = answers.iter().collect();
+    v.sort_by_key(|entry| std::cmp::Reverse(entry.1.len()));
+    for (k, ids) in v {
+        let ex: Vec<_> = ids.iter().take(3).map(|e| format!("`{e}`")).collect();
+        writeln!(s, "| {k} | {} | {} |", ids.len(), ex.join(", "))?;
+    }
     Ok(s)
 }

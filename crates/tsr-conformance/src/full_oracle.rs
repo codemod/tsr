@@ -737,6 +737,45 @@ pub fn compare(native: &Stream<'_>, tsr: &Stream<'_>) -> Verdict {
     }
 }
 
+/// Every diagnostic code involved in a difference, with how: `missing` (a native
+/// location TSR lacks), `extra` (a TSR location native lacks), `detail` (the same
+/// location published with another message, category, chain or related list).
+/// Order-only differences contribute nothing. Sorted, one entry per pair.
+#[must_use]
+pub fn diagnostic_code_profile(
+    native: &Stream<'_>,
+    tsr: &Stream<'_>,
+) -> Vec<(String, &'static str)> {
+    let (n_loc, t_loc) = (
+        multiset(native.groups.iter().map(Group::location)),
+        multiset(tsr.groups.iter().map(Group::location)),
+    );
+    let mut out: Vec<(String, &'static str)> = Vec::new();
+    out.extend(surplus(&n_loc, &t_loc).into_iter().map(|l| (format!("TS{}", l.3), "missing")));
+    out.extend(surplus(&t_loc, &n_loc).into_iter().map(|l| (format!("TS{}", l.3), "extra")));
+    let (n_all, t_all) =
+        (multiset(native.groups.iter().cloned()), multiset(tsr.groups.iter().cloned()));
+    let changed = surplus(&n_all, &t_all);
+    let tsr_side = multiset(surplus(&t_all, &n_all).iter().map(Group::location));
+    for group in changed {
+        // A location present on both sides whose published group differs.
+        if tsr_side.contains_key(&group.location()) {
+            out.push((group.code(), "detail"));
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// The full `(native, tsr)` type texts of the first row that differs only in its
+/// type, when the first type-half difference is of that kind.
+#[must_use]
+pub fn first_type_text(native: &Stream<'_>, tsr: &Stream<'_>) -> Option<(String, String)> {
+    let (a, b) = native.rows.iter().zip(&tsr.rows).find(|(a, b)| a != b)?;
+    (a[..3] == b[..3]).then(|| (unhex(a[3]).unwrap_or_default(), unhex(b[3]).unwrap_or_default()))
+}
+
 /// One `results.tsv` row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultRow {
