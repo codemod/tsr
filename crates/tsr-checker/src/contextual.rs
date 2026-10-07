@@ -171,6 +171,23 @@ impl ContextualSignature {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// resolveObjectTypeMembers/getTypeWithThisArgument contextual member
+    /// image. The supplier owns ordinary arguments and formal this identity;
+    /// the original receiver owns the replacement this. Reuse the canonical
+    /// member mapper before contextual signature selection/assignment.
+    pub(crate) fn contextual_type_with_this_argument(
+        &mut self,
+        supplying_reference: TypeId,
+        declared_context: TypeId,
+        this_argument: TypeId,
+    ) -> TypeId {
+        self.instantiate_for_reference_with_this(
+            supplying_reference,
+            declared_context,
+            this_argument,
+        )
+    }
+
     /// checkExpressionWithContextualType/getContextNode for JSX attributes.
     /// The existing canonical JSX worker owns SkipContextSensitive and
     /// ContextChecked publication; this scope never publishes a checked image.
@@ -2542,27 +2559,16 @@ impl<'a> Checker<'a, '_> {
             self.contextual_property_type(contextual, &name)?
         } else {
             match self.get_property_of_type(contextual, &name) {
-                Some(_)
-                    if !self.type_reference_targets.contains_key(&contextual)
-                        && self
-                            .anonymous_properties
-                            .get(&contextual)
-                            .is_some_and(|(_, instantiated)| *instantiated) =>
-                {
-                    // Instantiated anonymous properties retain their declaration
-                    // origins, but their semantic values are already substituted.
+                Some(_) => {
+                    // getTypeOfConcretePropertyOfContextualType consumes the
+                    // instantiated member, never its raw declaration symbol.
+                    // The canonical producer owns supplying-reference arguments
+                    // and original derived this; mapping only the receiving
+                    // owner here would erase inherited contextual signatures.
                     self.get_type_of_property_of_type(contextual, &name)?
                 }
-                Some(property) => self.get_type_of_symbol(property),
                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
             }
-        };
-        // SS141: a reference context's member instantiates through the
-        // reference (Computed<T>'s read serves () => T_call, not the
-        // target's own parameter).
-        let property_type = {
-            let image = self.instantiate_for_reference(contextual, property_type);
-            if image == self.intrinsics.error { property_type } else { image }
         };
         // SS135: a member of a literal re-checking under a serve memo reads
         // its type through the pass-1 substitution - the object parameter

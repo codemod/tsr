@@ -173,6 +173,43 @@ owner's authoritative existing issue rather than guessing test names.
 Fetched `origin/box/recover-calls` through `0f60df78`: no JSX provider/shared
 state changes are published there yet. Cross-worker messaging is not exposed
 by the Box tools, so exact contracts were sent in commentary for parent relay.
+## Inherited-this contextual supplier — tsr-2zk.16.225
+
+Pinned native `getTypeOfConcretePropertyOfContextualType` consumes instantiated
+property values, not the original property's declaration symbol. Owned
+object-member contextual selection now uses `get_type_of_property_of_type`
+for concrete properties and removes its redundant receiver-only remapping.
+The canonical member producer retains supplying-reference arguments, original
+receiver this and written alias metadata. Existing mapped/intersection/union
+context roads remain separate; no additional heritage traversal or cache.
+
+Owned `contextual_type_with_this_argument(supplying_reference, declared_context,
+this_argument) -> TypeId` exposes the domain seam for native
+`resolveObjectTypeMembers`/`getTypeWithThisArgument` before contextual signature
+selection and assignment. It delegates to property's existing canonical
+`instantiate_for_reference_with_this`, made checker-visible by reviewed
+property commit `16ff7c45`. The supplier identifies the formal-this parameter
+and ordered generic arguments; the derived receiver identifies its replacement.
+Passing the derived receiver as the supplier is incorrect for inherited members.
+Calls must retain the substituted contextual signature across ContextChecked
+publication, using the existing fixing/non-fixing mapper and active candidate
+root. No new per-callback state or guessed declaration-owner traversal.
+
+Focused native `contextualThisType.ts` declaration emit completes without errors.
+An ignored coherent source mirror exercised the owned concrete-property read
+change without the unavailable JSX cutover. Its target remains four WRONG rows
+(base `this` instead of Y): canonical member production still needs the supplied
+receiver mapper. This is **not** a target conversion or full-gate pass. An
+accidental unfiltered mirror dump timed out; its partial TSV is not evidence.
+
+Current production `cargo check` additionally reports the missing public member
+mapper seam (E0624), alongside the previously missing JSX field/worker.
+Receipt `this-provider-prerequisites.log`; source is not standalone buildable.
+Integrate reviewed property `16ff7c45` plus the actual calls/parent APIs, then
+exercise derived Left/Right with distinct generic arguments and inherited
+callbacks, all previous RIGHT keys and equivalent-work performance once coherent.
+No previously recorded gate is attributed to this continuation.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
