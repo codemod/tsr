@@ -848,3 +848,76 @@ claimed current conversion; the authoritative two-target receipt governs
 acceptance. Before-RIGHT IDs remain controls, never conversions.
 No candidate, new tests or code gates were fabricated for this blocked root.
 The prior `.9.8` verified delivery remains unchanged.
+
+## INFERENCE-REVERSE-MAPPED-MEMBER receipt
+
+Assigned next owned root: two current blocked cases, exact authoritative
+issue/target receipt pending. Direct native controls before any semantic edit:
+
+```typescript
+export type Boxified<T> = { [P in keyof T]: { value: T[P] } };
+export declare function nested<T, K extends keyof T>(value: Boxified<Pick<T, K>>): T;
+export declare function intersect<T, U, K extends keyof (T & U)>(value: Boxified<Pick<T & U, K>>): T & U;
+export const result = nested({ foo: { value: 42 }, bar: { value: 'hello' } });
+export const combined = intersect({ foo: { value: 42 }, bar: { value: 'hello' } });
+```
+
+Pinned native declaration output: result `{ foo: number; bar: string; }`,
+combined that object intersected with itself. TSR producer: result
+`{ foo: unknown; bar: unknown; }`, combined two unknown-member objects.
+No literal-name or printed-type comparison was used to infer the cause.
+
+Annotated contravariant control was reproduced again as a distinct required
+result: native `foo({bar:{fn:(a:string)=>{},thing:'asd'}})` infers
+`[string, { bar: string; }]`; TSR remains error. A separate indexed mapped
+control `indexed<T,K extends keyof T>(value: Picked<T,K>[K]): T;
+indexed(42)` yields native unknown, TSR error. These controls distinguish
+actual reversed member types from genuine no-candidate fallback and
+contextual fixing; they are not permission to map unknown to a guessed type.
+
+### Native collector order and exact missing API
+
+Read pinned `inferToMappedType`, `inferReverseMappedTypeWorker`,
+`resolveReverseMappedTypeMembers`, `getTypeOfReverseMappedSymbol`,
+`inferFromProperties`, and `inferFromTypes` indexed simplification.
+Native reverse mapping shares the indexed access formed from its constraint
+operand and mapped parameter as the inference identity. Before structural
+dispatch, `inferFromTypes` asks `getSimplifiedType(target, writing=false)`;
+a mapped indexed target substitutes the index into the original mapped
+template through its captured mapper and applies mapped optionality.
+`getTypeOfReverseMappedSymbol` separately publishes member demand results.
+
+Current `inference.rs::reverse_mapped_member_type_worker` constructs the
+shared indexed variable and calls the collector, but that collector has no
+simplified-indexed-target arm. Outside-owned
+`indexed.rs::resolved_indexed_access_type` deliberately captures a generic
+object/index access as a deferred identity before any mapped-template
+substitution. No `getSimplifiedType` / `substituteIndexedMappedType` API
+exists elsewhere in the current checker.
+
+Required indexed/mapped-owner API: canonical semantic simplified-type demand
+accepting TypeId and reading/writing mode, preserving original object/index
+identity, captured mapped target/mapper, mapped name-remapping policy,
+constraint/default context and combined optionality. Port pinned
+`getSimplifiedIndexedAccessTypeWorker` (object/index distributions, generic
+tuple slice, generic mapped substitution) and
+`substituteIndexedMappedType` (original mapped template plus composed mapper
+and optional-property policy). Publication belongs to the private Checker,
+keyed by original indexed TypeId plus reading/writing mode; active recursion
+must remain distinct from completed unchanged type and unsupported work.
+The owned `infer_from_types_within` can then invoke the canonical getter
+before IndexedAccess/IndexedAccess and object dispatch, including native's
+instantiable-index distribution retry. Do not duplicate template substitution
+inside reverse-member inference or use rendered shell text as identity.
+
+The member-image owner must preserve lazy reverse-symbol/member completion
+when this API exposes a nested template; `complete_reverse_mapped_type`
+currently removes pending state before eagerly demanding all members.
+Changing fixing order alone without the missing indexed operation would not
+expose the shared variable and is not a supported fix for these controls.
+No empty-bucket fallback, speculative extra template walk, new cache or
+outside-owned edit was added. This root is blocked on the exact canonical
+indexed/mapped API; no semantic candidate, tests or conversion claim.
+Historical isomorphicMappedTypeInference attribution is not an authoritative
+current target receipt. `.9.8` verified delivery and `.16.420` canonical
+union-regularization handoff remain unchanged.
