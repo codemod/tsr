@@ -440,6 +440,24 @@ Incremental 41pair x60 complete-parse wall/CPU 1.001429/1.001222 parser.ts,
 retained; candidate not accepted or claimed as complete target conversion.
 No shared AST/scanner/checker edits.
 
+### Void keyword type versus namespace head (tsr-2zk.2)
+
+Pinned parseNonArrayType VoidKeyword arm always parses a keyword type; the
+keyword-dot namespace disambiguation applies to the earlier intrinsic-keyword
+case but not void. TSR's shared keyword guard incorrectly fell through on
+void.x. Candidate preserves void as keyword while string.x/any.x controls stay
+qualified references. Native var v : void.x reports TS1005 [12,13) comma expected;
+parser target/full tests, clippy and fmt pass in the isolated pre-metadata source.
+parservoidInQualifiedName1 converts diagnostic and type rows RIGHT. Incremental
+previous RIGHT/EMPTY_RIGHT and keys preserved; prior method-body candidate's two
+diagnostic losses remain in the cumulative checkout and are not accepted here.
+
+41pair x60 complete-parse incremental wall/CPU 1.008768/1.006428 parser.ts,
+0.972451/0.971427 dom; equal output counts and full JSDoc/diagnostic work. Parent
+must assess the small parser.ts increase and rerun baseline-isolated acceptance;
+no threshold waiver or verified whole-checker <=0.50 claim. No AST/scanner/shared
+checker changes.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

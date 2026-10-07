@@ -277,7 +277,9 @@ impl<'a> Parser<'a> {
             // Keyword types: `string`, `number`, `any`, `void`, … unless a `.`
             // follows, in which case the keyword names a namespace:
             // `var x: string.X` refers to a namespace called `string`.
-            kind if kind.is_keyword_type() && !self.next_is_dot() => {
+            kind if kind.is_keyword_type()
+                && (kind == SyntaxKind::VoidKeyword || !self.next_is_dot()) =>
+            {
                 self.next_token();
                 let node = self.finish_node(KeywordTypeNode::new(kind), kind, start);
                 TypeNode::KeywordTypeNode(node)
