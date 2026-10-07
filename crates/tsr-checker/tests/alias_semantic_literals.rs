@@ -182,6 +182,18 @@ fn parameter_body_alias_maps_its_actual_ordered_owner() {
 }
 
 #[test]
+fn mapped_identity_parenthesized_constraint_and_template_preserve_primitive() {
+    assert_eq!(
+        declared_and_reference(
+            "type Copy<T> = { [K in (keyof T)]: ((T[K])) }; declare let value: Copy<string>;",
+            "Copy",
+        )
+        .1,
+        "string",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

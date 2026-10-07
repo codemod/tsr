@@ -326,6 +326,18 @@ Seven fresh-process samples: after/before 0.99963, after/native 1.60427; complet
 checked-work equivalence and release performance remain uncertified. Receipts
 `parameter-owner-*`; parent wrapper blocks and TypeQuery entry untouched.
 
+## Mapped constraint/template transparent resolution
+
+The identity-template projection unwraps parentheses around the `keyof` constraint
+and indexed-access template, matching native type-node resolution before
+homomorphic mapper selection. Binder-owner checks and existing mapped worker/
+publication are unchanged. Regression fails before and passes after; related
+mapped/variadic targets pass. Native CLI diagnostic text/spans compare byte-for-byte.
+Existing unfiltered 477,970-assertion oracle unchanged, zero former RIGHT losses/
+vanished keys; no case gain claimed. Seven fresh-process samples: after/before
+0.96994, after/native 1.56847; equivalent work/no-hotpath/release performance remain
+uncertified. Receipts `mapped-template-*`; parent wrapper/TypeQuery entry untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

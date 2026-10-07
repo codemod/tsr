@@ -4152,14 +4152,24 @@ impl<'a> Checker<'a, '_> {
             && let Some(key_owner) = mapped_parameter.node_id.and_then(|id| self.binder.symbol_of(id))
             // The constraint must be `keyof T` for the alias's own parameter —
             // upstream's `isHomomorphicMappedType` test, syntactically.
-            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
+            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint.and_then(|mut node| {
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+                    node = parenthesized.r#type?;
+                }
+                Some(node)
+            })
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
             && self.mapped_identity_operand_owner(operator.r#type) == Some(parameter_owner)
             // No `as` clause: a key remapping changes the NAMES, which is
             // exactly what reusing the source's owner cannot express.
             && mapped.name_type.is_none()
             // The template must be `T[P]` — the identity.
-            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
+            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type.and_then(|mut node| {
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+                    node = parenthesized.r#type?;
+                }
+                Some(node)
+            })
             && self.mapped_identity_operand_owner(access.object_type) == Some(parameter_owner)
             && self.mapped_identity_operand_owner(access.index_type) == Some(key_owner)
         {
