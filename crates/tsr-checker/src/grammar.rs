@@ -7,7 +7,7 @@
 
 use tsr_ast::{
     Expression, ModifierLike, Node, NodeFlags, NodeId, ObjectLiteralElementLike, Statement,
-    SyntaxKind,
+    SyntaxKind, TypeNode,
 };
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -235,6 +235,35 @@ impl Checker<'_, '_> {
             && let Some(declaration) = clause.variable_declaration.and_then(|d| d.node_id)
         {
             self.check_catch_clause_declaration(declaration);
+        }
+        // `Checker.checkTypeAliasDeclaration` (`checker.go:6888`): the parser
+        // makes `intrinsic` a keyword type only as a whole alias body, and
+        // only `BuiltinIteratorReturn` (no type parameters) and the one-
+        // parameter `intrinsicTypeKinds` names may use it (a `c.error`).
+        if let Node::TypeAliasDeclaration(alias) = typed
+            && let Some(TypeNode::KeywordTypeNode(keyword)) = alias.r#type
+            && keyword.kind == SyntaxKind::IntrinsicKeyword
+            && let Some(id) = keyword.node_id
+        {
+            let name = alias.name.map_or("", |name| name.text);
+            let allowed = match alias.type_parameters.len() {
+                0 => name == "BuiltinIteratorReturn",
+                1 => matches!(
+                    name,
+                    "Uppercase" | "Lowercase" | "Capitalize" | "Uncapitalize" | "NoInfer"
+                ),
+                _ => false,
+            };
+            if !allowed && let Some(file) = self.source_file_of_for_diagnostics(id) {
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::THE_INTRINSIC_KEYWORD_CAN_ONLY_BE_USED_TO_DECLARE_COMPILER_PROVIDED_INTRINSIC_TYPES,
+                        span,
+                    ),
+                );
+            }
         }
         // The first arm of `Checker.checkTypePredicate` (`checker.go:3055`):
         // the parser builds a predicate in any type position, and one outside
