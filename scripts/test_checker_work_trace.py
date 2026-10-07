@@ -369,6 +369,23 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertTrue(result["reasons"])
             self.assertNotIn("Traceback", child.stderr)
 
+    def test_comparison_rejects_equal_workers_with_changed_options_inputs_or_loaded_scope(self):
+        from checker_work_trace import compare_work_captures
+        ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
+                "checked_file_ids": [0], "program_files": [self.rows[2]]}
+        native = {"artifact_integrity_valid": True, "native_trace_valid": True,
+                  "completed_full_workers": [{"path": str(self.input), "checker_id": 0}]}
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        for key, value, flag in (("show_config", {"compilerOptions": {"noCheck": True}}, "captured_options_match"),
+                                 ("inputs_before", [], "captured_inputs_match"),
+                                 ("loaded_files", [str(self.input), str(self.source)], "captured_loaded_scope_match")):
+            other = {**receipt, key: value}
+            result = compare_work_captures(ours, native, receipt, other)
+            self.assertTrue(result["observed_full_worker_scope"]["identity_sets_match"])
+            self.assertFalse(result[flag])
+            self.assertFalse(result["comparison_valid"])
+            self.assertTrue(result["reasons"])
+
     def test_comparison_preserves_both_producers_rejection_reasons(self):
         from checker_work_trace import compare_work_captures
         receipt = {**self.context, "trace_sha256": "0" * 64}

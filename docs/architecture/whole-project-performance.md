@@ -212,6 +212,26 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Cross-tool receipt identity enforcement
+
+Comparison acceptance now also requires equal captured effective config objects,
+equal input snapshot rows and matching normalized loaded Program identity sets.
+Matching completed worker paths alone cannot pass with changed options, captured
+input bytes or a different loaded population. Invalid producer receipts short-
+circuit these accesses; all existing worker/scope/receipt rejection gates remain.
+The raw equality is deliberately conservative: serializer differences are not
+silently treated as equivalent compiler semantics.
+
+36 trace tests passed, including equal-worker controls with different options,
+inputs or loaded scope. Actual CLI changed-option receipt saved rejection JSON
+and exited 1 at `/tmp/recover-cross-option-rejection.json`; matched existing large
+captures passed only bounded comparison acceptance. Fresh frozen expected-hash
+five-pair/warmup capture smoke saved `/tmp/recover-cross-identity-checkpoint.json`
+and exited 1 for unverified complete-work comparability. No full-corpus zero-loss
+or source-to-build attestation is available locally; those release requirements
+remain false, not replaced by the native 202 completed-worker observation.
+Verified <=0.50 remains unmet.
+
 ### Comparison command must reject differing completed scopes
 
 `artifact_integrity_valid` describes bounded producer captures, not cross-tool

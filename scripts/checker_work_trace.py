@@ -769,11 +769,23 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
                 "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
             }
     scope_match = valid and bool(checked) and set(checked) == set(native_checked)
+    options_match = valid and tsr_receipt["show_config"] == native_receipt["show_config"]
+    input_capture_match = valid and tsr_receipt["inputs_before"] == native_receipt["inputs_before"]
+    loaded_scope_match = valid and {identity(path) for path in tsr_receipt["loaded_files"]} == {
+        identity(path) for path in native_receipt["loaded_files"]}
+    if valid and not options_match:
+        reasons.append("Captured effective options differ across tools")
+    if valid and not input_capture_match:
+        reasons.append("Captured input identities differ across tools")
+    if valid and not loaded_scope_match:
+        reasons.append("Captured loaded Program identity sets differ across tools")
     if valid and not scope_match:
         reasons.append("Observed completed full-worker path scopes differ or are empty")
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
-        "comparison_valid": valid and scope_match,
+        "comparison_valid": valid and scope_match and options_match and input_capture_match and loaded_scope_match,
+        "captured_options_match": options_match, "captured_inputs_match": input_capture_match,
+        "captured_loaded_scope_match": loaded_scope_match,
         "reasons": reasons, "producer_reasons": producer_reasons,
         "producer_validation": {
             "tsr_artifact_integrity_valid": tsr.get("artifact_integrity_valid") is True,
