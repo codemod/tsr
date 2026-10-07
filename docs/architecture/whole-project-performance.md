@@ -78,6 +78,139 @@ correctness verification is separately required before the epic can close.
 unverified. Until the missing coverage and worker controls are implemented, use
 reports as observations; this flag cannot currently produce a passing speed gate.
 
+## Current trace capture and equivalence certificate (tsr-2zk.17 / tsr-1yb)
+
+`--capture-work` runs separate **untimed** current-binary invocations before
+warmups and pairs. Build TSR once with `cargo build --release --bin tsr
+--features work-trace`; supply the prebuilt pinned native binary. Capture writes
+fresh `<output>.work/{tsr,tsgo}/` directories, raw traces and supervising receipts.
+The report retains complete CLI stdout/stderr, warmups, observed input snapshot
+rows, effective configs, source/producer hashes and full trace file identities.
+Never reuse an artifact directory. Capture overhead, type dumping and builds are
+outside the five-or-more fresh-process median pairs. Ambient `TSR_WORK_TRACE`
+and its binary-hash claim are removed from ordinary children: otherwise a shell
+setting silently forces serial checking in timed runs. No security settings are
+changed. `fresh_launch_delay` is a separate, unmeasured/null row on this Linux Box;
+it is not a measured macOS launch-delay correction.
+
+```sh
+python3 scripts/whole_project_perf.py \
+  --project benches/projects/domain-model-large/tsconfig.json \
+  --tsgo target/tsgo-pinned --capture-work --samples 5 --warmups 1 \
+  --output /tmp/current-perf.json
+python3 scripts/checker_work_trace.py --native-trace \
+  --trace /tmp/current-perf.json.work/tsgo/trace.json \
+  --receipt /tmp/current-perf.json.work/tsgo/receipt.json \
+  --output /tmp/native-validation.json
+```
+
+### Pinned native operation and ownership
+
+At native `5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
+`Program.GetSemanticDiagnostics` calls `collectCheckerDiagnostics` and grouped
+`collectCheckerDiagnosticsFromFiles`. `checkerPool.forEachCheckerGroupDo` retains
+one task and exclusive lock per private checker, original per-owner file order,
+and Program file identity association `i % checkerCount`. `createCheckers` waits
+for all constructors before publishing associations. Options select four
+checkers by default, one for `singleThreaded`, or the requested `checkers`, clamped
+to `[1, min(fileCount, 256)]` (at least one even for an empty Program).
+
+`getBindAndCheckDiagnosticsWithChecker` applies `SkipTypeChecking`, retrieves
+bind plus `Checker.GetDiagnostics`, handles plain JS/JSDoc and comment directives;
+`getSemanticDiagnosticsWithChecker` applies no-emit filtering and adds include
+processor diagnostics. `SkipTypeChecking` includes project-reference sources
+and native default-library identity, not just declaration-file counts.
+`Checker.getDiagnostics` calls `checkSourceFile`; its private `sourceFileLinks`
+key is the concrete Program `*ast.SourceFile`, with `typeChecked` and
+`unusedChecked` separate publication states. The full worker performs grammar,
+source elements, deferred nodes/diagnostics and exports before publishing
+`typeChecked`; cancellation must be observed separately, not inferred from a
+returning trace span. The unsampled `checkSourceFile` B/E span lies **inside**
+`!links.typeChecked`; it counts actual initial workers, not all queries or hits.
+
+`--generateTrace` preserves native threading. `checker.Tracer` attaches private
+`checkerId`; trace `pid=1`/`tid` are synthetic, not OS identities. The supervisor
+binds raw bytes, actual child PID/command, binary hash, source files and stable
+observed inputs. `getVariancesWorker` B/E end args legitimately add `variances`;
+the reader preserves input identity rather than rejecting that output field.
+`checkExpression`, `structuredTypeRelatedTo` and other X events are 10 ms sampled:
+never reinterpret sampled counts as all executions, hits or exclusive inner
+worker cost. The longest full-file duration includes nested work and scheduling.
+
+TSR's shipped producer instead observes a single private checker and forces
+pool size one when tracing. Its full inventory retains declaration/JS/JSON,
+parsed directive, source-node identity, byte count and eligible/excluded policy
+facts; begun and completed counts are distinct for full-file, symbol-type,
+declared-type and variable-type-worker operations. Symbol/declared queries are
+not cache misses. Native `getTypeOfSymbol` dispatches by concrete symbol flags;
+`getTypeOfVariableOrParameterOrProperty` consults private `valueSymbolLinks`,
+executes its worker only for absent `resolvedType`, and may defer publication
+for context-sensitive parameters or prefer a type published during recursion.
+Receiver, instantiated target/mapper and written alias identity are not captured
+by these counters and cannot authorize cross-symbol/checker reuse. This harness
+adds no semantic cache or mutable semantic table.
+
+### Evidence and remaining proof
+
+The recovery Box has no `tsr-1yb` row or history; `tsr-2zk.17` is the live related
+performance issue (already claimed by the parent). Do not replace that issue or
+close it on an observation. The certificate enumerates 14 independent obligations
+and reports an explicit unmet-constraint count, never accepts caller booleans as
+proof, and remains false for empty checks or matching coarse fingerprints.
+
+Recovery large-project run, source `62b3caf7a9f4aed279381c10a7fc983e5b7f86bb`,
+Linux x86_64, pinned native revision above, one warmup per tool and five
+alternating fresh pairs, unchanged observed inputs, matching effective options,
+loaded identities and the complete intentional TS2322 diagnostic text:
+
+```json
+{
+  "issue": "tsr-2zk.17",
+  "source_sha": "62b3caf7a9f4aed279381c10a7fc983e5b7f86bb",
+  "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "project": "benches/projects/domain-model-large/tsconfig.json",
+  "binary_sha256": {
+    "tsr": "b2e104692f21571c489d3c88ad636fb11b6a64c957f219ec92bf47bcf6150fa3",
+    "tsgo": "8c7a0a760284a95e69eb55df16a2ed2472a30924ba00e226cfcd1e80d4af5400"
+  },
+  "pairs": 5,
+  "warmups_per_tool": 1,
+  "median_wall_seconds": {"tsr": 0.8182695000000422, "tsgo": 0.5722015000000056},
+  "observed_wall_ratio": 1.4300373207690547,
+  "verified_wall_ratio": null,
+  "target_verified": false,
+  "proof_gap_count": 8,
+  "untimed_full_worker_completions": {"tsr_serial": 202, "native_threaded": 202},
+  "tsr_untimed_query_completions": {
+    "declared_type_query": 411443, "symbol_type_query": 176462,
+    "variable_type_worker": 14249
+  },
+  "highest_observed_native_full_worker": {
+    "path": "benches/projects/domain-model-large/src/main.ts",
+    "checker_id": 0, "duration_ns": 100021100
+  }
+}
+```
+
+Eight unmet proof obligations: source-to-binary build attestation; complete
+cross-tool query inputs and bundled library bytes; actual **timed** Program
+inventory/eligibility; timed full worker completion/cancellation; initialization
+and all metadata forcing; thread-preserving private-checker ownership; structured
+diagnostic spans/chains/related information/filtering; full-corpus >=99.9% exact
+parity with no prior RIGHT loss. Implementing their producers requires the
+checker/compiler/oracle owners: this scripts-only slice cannot faithfully add
+facts that those producers do not emit. No accepted equivalent-work certificate
+or speed win exists. The public smoke's observed ratio 0.938068 is likewise not
+a verified ratio. Raw local evidence is `/tmp/recover-performance-{smoke,large}.json`
+and their `.json.work` directories; these machine-local paths are not portable
+attestations. The separate single-threaded large-project run also completed five
+pairs plus warmups, both trace readers accepted its actual CLI captures, and
+`--require-comparable` exited 1 as required: observed ratio 2.222994513623873,
+verified ratio null. Verification: 24 trace-reader and 27 harness tests passed;
+the native and TSR trace-reader CLIs accepted the default large-project artifacts.
+The large TSR NDJSON is about 145 MiB, so it is not committed as a script fixture. The embedded JSON preserves the source-qualified observation after
+Box destruction; full transient capture must be exported by the parent if needed.
+
 ## Resolver input manifests
 
 `bd tsr-1yb.1.2.1` adds `--input-manifest /tmp/inputs.json`. Supply paths from

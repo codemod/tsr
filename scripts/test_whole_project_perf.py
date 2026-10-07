@@ -82,6 +82,27 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertIn("skipLibCheck", option_differences(
             {"compilerOptions": {}}, {"compilerOptions": {"skipLibCheck": True}}))
 
+    def test_ambient_trace_cannot_silently_serialize_timed_children(self):
+        with patch.dict(os.environ, {"TSR_WORK_TRACE": "/ambient/trace", "TSR_WORK_TRACE_BINARY_SHA256": "ambient"}):
+            sample = process([sys.executable, "-c",
+                              "import os,json; print(json.dumps({k:v for k,v in os.environ.items() if k.startswith('TSR_WORK_TRACE')}))"],
+                             Path.cwd(), 10)
+        self.assertEqual(json.loads(sample["stdout"]), {})
+
+    def test_matching_counts_and_caller_claims_cannot_discharge_work_certificate(self):
+        from whole_project_perf import equivalence_certificate
+        report = {"sampling_protocol_verified": True, "scope_match": True, "options_match": True,
+                  "diagnostics_stable": True, "diagnostics_match": True, "inputs_unchanged": True,
+                  "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+                  "actual_checked_work_verified": True, "complete_input_equivalence_verified": True,
+                  "build_provenance_verified": True}
+        certificate = equivalence_certificate(report)
+        self.assertFalse(certificate["verified"])
+        self.assertEqual(certificate["proof_gap_count"], 8)
+        self.assertIn("actual_timed_full_worker_completion_and_cancellation", certificate["unmet_constraints"])
+        report["sampling_protocol_verified"] = False
+        self.assertIn("five_fresh_pairs_and_warmups", equivalence_certificate(report)["unmet_constraints"])
+
     def test_resources_and_diagnostics_belong_to_the_child(self):
         sample = process([sys.executable, "-c", "print('error TS2322: control'); raise SystemExit(1)"],
                          Path.cwd(), 10)

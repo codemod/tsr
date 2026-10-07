@@ -25,6 +25,103 @@ snapshot, valid_snapshot = inputs.snapshot, inputs.valid_snapshot
 OPERATIONS = {"source_file_check", "symbol_type_query", "declared_type_query",
               "variable_type_worker"}
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+PINNED_NATIVE_SHA = "5b1047d10d32e7d5b446be4de56b126ff42f82bb"
+
+
+def qualified_source_paths(root: Path, producer: str) -> list[Path]:
+    """Exact observed writers and policy consumers, not binary-build attestation."""
+    native = root / "vendor/typescript-go/internal"
+    if producer == "tsgo":
+        return [native / path for path in (
+            "compiler/program.go", "compiler/checkerpool.go", "checker/checker.go",
+            "checker/tracer.go", "checker/relater.go", "tracing/tracing.go", "execute/tsc.go")]
+    return [root / path for path in (
+        "crates/tsr-execute/src/compile.rs", "crates/tsr-execute/src/checker_pool.rs",
+        "crates/tsr-execute/src/work_trace.rs", "crates/tsr-execute/src/os_system.rs",
+        "crates/tsr-checker/src/work_trace.rs", "crates/tsr-checker/src/checker.rs",
+        "crates/tsr-checker/src/symbols.rs",
+        "crates/tsr-checker/src/declared.rs")]
+
+
+def validate_native_trace(path: Path, receipt: dict) -> dict:
+    """Read pinned --generateTrace's unsampled full workers, not query counts.
+
+    Synthetic pid=1/tid values are not OS identities. The supervising receipt
+    binds this fresh file to the actual child. X events are sampled and cannot
+    establish all worker executions or any cache hit/miss/publication policy.
+    """
+    result = empty_result()
+    result.update(native_trace_valid=False, completed_full_workers=[], operation_counters={},
+                  highest_observed_native_worker=None)
+    try:
+        child = validate_receipt(receipt, "Failed to")
+        require(receipt["oracle_sha"] == PINNED_NATIVE_SHA, "native revision is not pinned")
+        require("--generateTrace" in child["command"], "missing native trace invocation")
+        require(file_hash(path) == receipt["trace_sha256"], "native trace artifact changed")
+        with regular_file(path) as stream:
+            rows = json.load(stream, object_pairs_hook=unique_object)
+        require(isinstance(rows, list) and rows, "missing native trace records")
+        stacks, spans, seen, counters = {}, [], set(), {}
+        for row in rows:
+            require(isinstance(row, dict), "invalid native trace event")
+            phase = row["ph"]
+            timestamp = row["ts"]
+            require(type(timestamp) in (int, float) and timestamp >= 0
+                    and timestamp < float("inf"), "invalid native timestamp")
+            if phase == "M":
+                continue  # Metadata timestamps are intentionally backdated.
+            require(phase in ("B", "E", "X", "I"), "unsupported native event phase")
+            require(integer(row["pid"]) and integer(row["tid"]), "invalid synthetic native identity")
+            name, args = row.get("name"), row.get("args", {})
+            require(isinstance(args, dict) and (name is None or isinstance(name, str)),
+                    "invalid native operation/arguments")
+            if phase == "X":
+                duration = row["dur"]
+                require(type(duration) in (int, float) and 0 <= duration < float("inf"),
+                        "invalid sampled native duration")
+            if name is not None:
+                counter = counters.setdefault(name, {"begins": 0, "completed": 0, "sampled": 0})
+                if phase == "B":
+                    counter["begins"] += 1
+                elif phase == "X":
+                    counter["sampled"] += 1
+            if phase not in ("B", "E"):
+                continue
+            key = (row["pid"], row["tid"])
+            stack = stacks.setdefault(key, [])
+            if phase == "B":
+                stack.append(row)
+                continue
+            require(stack, "orphan native end event")
+            begin = stack.pop()
+            begin_args = begin.get("args", {})
+            # relater.getVariancesWorker adds its completed output to end args.
+            end_identity = {key: value for key, value in args.items()
+                            if not (name == "getVariancesWorker" and key == "variances")}
+            require(name == begin.get("name") and end_identity == begin_args
+                    and row["cat"] == begin["cat"] and timestamp >= begin["ts"],
+                    "native end differs from begun operation")
+            counters[name]["completed"] += 1
+            if name == "checkSourceFile":
+                owner, source = args["checkerId"], args["path"]
+                require(integer(owner) and isinstance(source, str) and source,
+                        "missing private checker/source identity")
+                require((owner, source) not in seen, "duplicate completed native full worker")
+                seen.add((owner, source))
+                spans.append({"path": source, "checker_id": owner,
+                              "duration_ns": round((timestamp - begin["ts"]) * 1000)})
+        require(all(not stack for stack in stacks.values()), "unfinished native spans")
+        result.update(native_trace_valid=True, artifact_integrity_valid=True,
+                      completed_full_workers=spans, operation_counters=counters,
+                      highest_observed_native_worker=max(spans, key=lambda row: row["duration_ns"], default=None))
+        result["limitations"].extend([
+            "Native trace does not publish eligibility, cancellation, query/cache counters or Program diagnostics metadata.",
+            "checkSourceFile duration includes nested checking; sampled X events cannot rank all inner workers.",
+            "Separate trace invocation is not proof of actual work in timed invocations.",
+        ])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:
+        result["reasons"].append(f"{type(error).__name__}: {error}")
+    return result
 
 
 def require(condition: bool, reason: str) -> None:
@@ -84,7 +181,8 @@ def empty_result() -> dict:
                         "Source file hashes do not prove a binary was built from those files.",
                         "Input snapshots are partial and cannot detect all transient mutations.",
                         "Initialization/all forcing and native worker admission remain unverified."],
-        "checked_file_ids": [], "checker_instances_created": 0,
+        "checked_file_ids": [], "program_files": [], "operation_counters": {},
+        "checker_instances_created": 0,
         "unmapped_queries_observed": False,
     }
 
@@ -203,6 +301,7 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                     require(row["full_check_exclusion"] == reason and row["full_check_eligible"] is (reason is None),
                             "file eligibility/exclusion contradicts qualified policy facts")
                     files.append(row)
+                    result["program_files"].append(row)
                 elif event == "checker_created":
                     require(phase == "files", "duplicate or reordered checker construction")
                     require([file["path"] for file in files] == receipt["loaded_files"],
@@ -246,11 +345,15 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                         peak = max(peak, full_active)
                     result["unmapped_queries_observed"] |= bool(unmapped)
                     active[token] = operation
+                    counter = result["operation_counters"].setdefault(operation, {"begins": 0, "completed": 0})
+                    counter["begins"] += 1
                 elif event == "work_end":
                     require(phase == "work" and integer(row["span_id"]) and row["span_id"] in active,
                             "orphan or duplicate completion")
                     require(row["outcome"] == "returned", "work panicked or did not return")
-                    if active.pop(row["span_id"]) == "source_file_check":
+                    operation = active.pop(row["span_id"])
+                    result["operation_counters"][operation]["completed"] += 1
+                    if operation == "source_file_check":
                         full_active -= 1
                 elif event == "invocation_end":
                     require((phase == "files" if inventory_only else phase == "work")
@@ -534,11 +637,13 @@ def main() -> int:
     parser.add_argument("--receipt", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--worker-producer", choices=("tsr", "native"))
+    parser.add_argument("--native-trace", action="store_true", help="read pinned native --generateTrace JSON")
     args = parser.parse_args()
     try:
         with regular_file(args.receipt) as stream:
             receipt = decode(stream.read())
-        result = (validate_worker_activity(args.trace, receipt, args.worker_producer)
+        result = (validate_native_trace(args.trace, receipt) if args.native_trace else
+                  validate_worker_activity(args.trace, receipt, args.worker_producer)
                   if args.worker_producer else validate_trace(args.trace, receipt))
     except (OSError, ValueError, TypeError, RecursionError) as error:
         result = empty_result()

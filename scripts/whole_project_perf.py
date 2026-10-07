@@ -46,14 +46,16 @@ def revision(path: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def process(command: list[str], cwd: Path, timeout: float) -> dict:
+def process(command: list[str], cwd: Path, timeout: float, *, environment: dict | None = None) -> dict:
     """Temporary files avoid pipe deadlocks; wait4 owns reaping this child."""
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         started_at_unix_ns = time.time_ns()
         start = time.perf_counter()
         child = subprocess.Popen(
             command, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True,
-            env={**os.environ, "NO_COLOR": "1"},
+            env={**{key: value for key, value in os.environ.items()
+                    if key not in ("TSR_WORK_TRACE", "TSR_WORK_TRACE_BINARY_SHA256")},
+                 "NO_COLOR": "1", **(environment or {})},
         )
         timed_out = threading.Event()
 
@@ -161,6 +163,35 @@ def option_differences(left: dict, right: dict) -> dict:
             for key in sorted(a.keys() | b.keys()) if a.get(key) != b.get(key)}
 
 
+def equivalence_certificate(report: dict) -> dict:
+    """Inventory independent obligations; partial traces never discharge them."""
+    constraints = {
+        "five_fresh_pairs_and_warmups": report.get("sampling_protocol_verified") is True,
+        "matching_full_loaded_scope": report.get("scope_match") is True,
+        "matching_effective_options": report.get("options_match") is True,
+        "stable_complete_cli_diagnostic_text": (report.get("diagnostics_stable") is True
+                                                 and report.get("diagnostics_match") is True),
+        "observed_inputs_unchanged": report.get("inputs_unchanged") is True,
+        "pinned_native_revision": report.get("oracle_sha") == "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+        # Neither current producer observes these obligations. Do not accept
+        # externally supplied booleans as complete-work evidence.
+        "source_to_binary_build_provenance": False,
+        "complete_cross_tool_query_and_bundled_library_bytes": False,
+        "actual_timed_program_inventory_and_eligibility": False,
+        "actual_timed_full_worker_completion_and_cancellation": False,
+        "initialization_and_all_metadata_forcing": False,
+        "thread_preserving_private_checker_ownership": False,
+        "diagnostic_spans_chains_related_information_and_filtering": False,
+        "full_corpus_exact_parity_ge_99_9_and_no_prior_RIGHT_loss": False,
+    }
+    missing = [name for name, satisfied in constraints.items() if not satisfied]
+    return {"schema_version": 1, "verified": not missing, "constraints": constraints,
+            "proof_gap_count": len(missing), "unmet_constraints": missing,
+            "source_qualification": {"source_sha": report.get("source_sha"),
+                                     "oracle_sha": report.get("oracle_sha"),
+                                     "harness_sha256": report.get("harness_sha256")}}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True, help="tsconfig.json path")
@@ -174,6 +205,8 @@ def main() -> int:
     parser.add_argument("--input-manifest", type=Path,
                         help="source-qualified JSON paths observed by resolver/config/host queries")
     parser.add_argument("--require-comparable", action="store_true")
+    parser.add_argument("--capture-work", action="store_true",
+                        help="capture separate untimed current TSR/native traces; never certify timed work from them")
     args = parser.parse_args()
     if args.samples < 1 or args.warmups < 0 or args.timeout <= 0:
         parser.error("samples and timeout must be positive; warmups must be nonnegative")
@@ -210,7 +243,11 @@ def main() -> int:
         "input_setup_capture_seconds": setup_capture_seconds,
         "input_discovery_observations": [],
         "harness_sha256": {name: inputs.file_hash(ROOT / "scripts" / name)
-                           for name in ("whole_project_perf.py", "benchmark_inputs.py")},
+                           for name in ("whole_project_perf.py", "benchmark_inputs.py", "checker_work_trace.py")},
+        "warmups": [], "work_captures": {},
+        "fresh_launch_delay": {"platform": sys.platform, "measured_separately": False,
+                               "seconds": None, "security_settings_changed": False},
+        "build_provenance_verified": False,
         "complete_input_equivalence_verified": False,
         "actual_checked_work_verified": False,
         "input_limits": [
@@ -238,7 +275,7 @@ def main() -> int:
                 "kind_counts": {kind: sum(row.get("kind") == kind for row in rows)
                                 for kind in ("file", "directory", "missing", "other")}}
 
-    def controlled_process(command: list[str]) -> dict | None:
+    def controlled_process(command: list[str], *, environment: dict | None = None) -> dict | None:
         started = time.perf_counter()
         before = inputs.snapshot(input_paths)
         before_seconds = time.perf_counter() - started
@@ -250,7 +287,7 @@ def main() -> int:
             report.update(status="inputs_changed", inputs_unchanged=False)
             save()
             return None
-        measurement = process(command, cwd, args.timeout)
+        measurement = process(command, cwd, args.timeout, environment=environment)
         started = time.perf_counter()
         after = inputs.snapshot(input_paths)
         event.update(after=input_check(after), after_capture_seconds=time.perf_counter() - started,
@@ -284,6 +321,7 @@ def main() -> int:
             save()
             return False
         reference_inputs = extended
+        report["input_reference_rows"] = reference_inputs
         report["input_reference"] = input_check(reference_inputs)
         save()
         return True
@@ -292,6 +330,7 @@ def main() -> int:
         report.update(status="invalid_inputs", inputs_unchanged=False)
         save()
         return 1
+    report["input_reference_rows"] = reference_inputs
     report["input_reference"] = input_check(reference_inputs)
     save()
     for name, binary in binaries.items():
@@ -329,16 +368,78 @@ def main() -> int:
         "tsgo_only": sorted(set(theirs["loaded_files"]) - set(ours["loaded_files"])),
     }
     report["option_differences"] = option_differences(ours["effective_config"], theirs["effective_config"])
+    if args.capture_work:
+        spec = importlib.util.spec_from_file_location("checker_work_trace", ROOT / "scripts/checker_work_trace.py")
+        work = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(work)
+        artifacts = args.output.resolve().with_suffix(args.output.suffix + ".work")
+        # Native truncates existing trace files. Never reuse a capture directory.
+        artifacts.mkdir(parents=True, exist_ok=False)
+        for name in ("tsr", "tsgo"):
+            directory = artifacts / name
+            directory.mkdir()
+            trace = directory / ("work.ndjson" if name == "tsr" else "trace.json")
+            command = [str(binaries[name]), *flags]
+            environment = {}
+            if name == "tsr":
+                environment = {"TSR_WORK_TRACE": str(trace),
+                               "TSR_WORK_TRACE_BINARY_SHA256": report["tools"][name]["binary_sha256"]}
+            else:
+                command += ["--generateTrace", str(directory)]
+            before = inputs.snapshot(input_paths)
+            child = controlled_process(command, environment=environment)
+            if child is None:
+                return 1
+            after = inputs.snapshot(input_paths)
+            source_paths = work.qualified_source_paths(ROOT, name)
+            receipt = {
+                "schema_version": 1, "child": child, "current_directory": str(cwd),
+                "source_sha": report["source_sha"], "oracle_sha": report["oracle_sha"],
+                "binary_sha256": report["tools"][name]["binary_sha256"],
+                "source_files_sha256": {str(path): inputs.file_hash(path) for path in source_paths},
+                "inputs_before": before, "inputs_after": after,
+                "loaded_files": [line for line in report["tools"][name]["loaded_files"]],
+                "show_config": report["tools"][name]["effective_config"],
+                "requested_checkers": report["tools"][name]["effective_config"].get("compilerOptions", {}).get("checkers"),
+                "requested_single_threaded": True if args.mode == "single" else None,
+                "trace_sha256": inputs.file_hash(trace) if trace.is_file() else None,
+            }
+            if name == "tsr" and trace.is_file():
+                with work.regular_file(trace) as stream:
+                    receipt["invocation_id"] = work.decode(stream.readline())["invocation_id"]
+                # Program paths, not listFilesOnly's normalized cross-tool names.
+                with work.regular_file(trace) as stream:
+                    receipt["loaded_files"] = [row["path"] for row in map(work.decode, stream)
+                                               if row.get("event") == "program_file"]
+                result = work.validate_worker_activity(trace, receipt, "tsr")
+            elif name == "tsgo" and trace.is_file():
+                result = work.validate_native_trace(trace, receipt)
+            else:
+                result = work.empty_result()
+                result["reasons"].append("Compiler did not produce a current work trace")
+            receipt_path = directory / "receipt.json"
+            receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+            report["work_captures"][name] = {
+                "trace": str(trace), "receipt": str(receipt_path), "validation": result,
+                "diagnostics": diagnostics(child["stdout"], cwd),
+                "outside_timing": True, "same_binary": True,
+                "timed_threading_equivalence_verified": False,
+            }
+            save()
+            if not child["input_validation"]["stable"]:
+                return 1
     for index in range(args.warmups + args.samples):
         order = ("tsr", "tsgo") if index % 2 == 0 else ("tsgo", "tsr")
         for name in order:
             measurement = controlled_process([str(binaries[name]), *flags])
             if measurement is None:
                 return 1
-            measurement["diagnostics"] = diagnostics(measurement.pop("stdout"), cwd)
+            measurement["diagnostics"] = diagnostics(measurement["stdout"], cwd)
             if index >= args.warmups:
                 report["tools"][name]["samples"].append(measurement)
-                save()  # Preserve every measurement before running another process.
+            else:
+                report["warmups"].append({"tool": name, "measurement": measurement})
+            save()  # Preserve every measurement before running another process.
             if not measurement["input_validation"]["stable"]:
                 report["rejected_measurement"] = measurement
                 save()
@@ -371,7 +472,11 @@ def main() -> int:
     report["scope_match"] = ours["loaded_files_fingerprint"] == theirs["loaded_files_fingerprint"]
     report["options_match"] = not report["option_differences"]
     report["inputs_unchanged"] = all(event["stable"] for event in report["input_observations"])
-    report["work_comparable"] = (report["scope_match"] and report["options_match"]
+    report["sampling_protocol_verified"] = args.samples >= 5 and args.warmups >= 1
+    report["equivalent_work_certificate"] = equivalence_certificate(report)
+    report["work_comparable"] = (report["sampling_protocol_verified"]
+                                 and report["build_provenance_verified"]
+                                 and report["scope_match"] and report["options_match"]
                                  and report["diagnostics_stable"] and report["diagnostics_match"]
                                  and report["inputs_unchanged"]
                                  and report["complete_input_equivalence_verified"]
@@ -380,6 +485,7 @@ def main() -> int:
         "Complete cross-tool query-input coverage is unverified.",
         "Actual performed checker work and worker budgets are unverified.",
     ]
+    report["comparability_reasons"].extend(report["equivalent_work_certificate"]["unmet_constraints"])
     for field in ("scope_match", "options_match", "diagnostics_stable", "diagnostics_match"):
         if not report[field]:
             report["comparability_reasons"].append(f"{field} is false.")

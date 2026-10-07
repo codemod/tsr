@@ -109,6 +109,54 @@ class TraceIntegrityTests(unittest.TestCase):
                      "complete_provenance_verified", "target_verified"):
             self.assertIs(result[gate], False)
 
+    def native_trace_check(self, rows):
+        from checker_work_trace import PINNED_NATIVE_SHA, validate_native_trace
+        self.trace.write_text(json.dumps(rows))
+        receipt = copy.deepcopy(self.context)
+        receipt.update(oracle_sha=PINNED_NATIVE_SHA, trace_sha256=self.digest(self.trace))
+        receipt["child"]["command"] += ["--generateTrace", str(self.root)]
+        return validate_native_trace(self.trace, receipt)
+
+    def test_native_full_workers_preserve_owner_paths_and_unsampled_duration(self):
+        rows = [
+            {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 10,
+             "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}},
+            {"pid": 1, "tid": 3, "ph": "B", "cat": "check", "ts": 12,
+             "name": "checkSourceFile", "args": {"checkerId": 1, "path": "b.ts"}},
+            {"pid": 1, "tid": 3, "ph": "E", "cat": "check", "ts": 20,
+             "name": "checkSourceFile", "args": {"checkerId": 1, "path": "b.ts"}},
+            {"pid": 1, "tid": 2, "ph": "E", "cat": "check", "ts": 30,
+             "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}},
+        ]
+        result = self.native_trace_check(rows)
+        self.assertTrue(result["native_trace_valid"], result)
+        self.assertEqual(result["highest_observed_native_worker"],
+                         {"path": "a.ts", "checker_id": 0, "duration_ns": 20000})
+        self.assertEqual(result["operation_counters"]["checkSourceFile"],
+                         {"begins": 2, "completed": 2, "sampled": 0})
+        for mutation in (rows[:-1], rows + rows,
+                         rows[:3] + [{**rows[3], "args": {"checkerId": 1, "path": "a.ts"}}]):
+            self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
+        self.assertFalse(result["actual_checked_work_verified"])
+
+    def test_native_variance_completion_output_is_not_an_identity_change(self):
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "checkTypes", "ts": 10,
+                 "name": "getVariancesWorker", "args": {"checkerId": 0, "id": 99, "arity": 1}}
+        end = {**begin, "ph": "E", "ts": 20,
+               "args": {**begin["args"], "variances": ["out"]}}
+        self.assertTrue(self.native_trace_check([begin, end])["native_trace_valid"])
+        end["args"]["id"] = 100
+        self.assertFalse(self.native_trace_check([begin, end])["native_trace_valid"])
+
+    def test_native_sampled_and_empty_work_cannot_certify_complete_checking(self):
+        row = {"pid": 1, "tid": 2, "ph": "X", "cat": "check", "ts": 10,
+               "dur": 100, "name": "checkExpression", "args": {"checkerId": 0, "path": "a.ts"}}
+        result = self.native_trace_check([row])
+        self.assertTrue(result["native_trace_valid"], result)
+        self.assertEqual(result["completed_full_workers"], [])
+        self.assertIsNone(result["highest_observed_native_worker"])
+        self.assertFalse(result["actual_checked_work_verified"])
+
     def activity_rows(self):
         rows = copy.deepcopy(self.rows)
         rows[0].update(worker_activity_schema_version=1, activity_clock="monotonic_elapsed_ns")
