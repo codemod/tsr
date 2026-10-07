@@ -150,6 +150,68 @@ Receiver, instantiated target/mapper and written alias identity are not captured
 by these counters and cannot authorize cross-symbol/checker reuse. This harness
 adds no semantic cache or mutable semantic table.
 
+### Native inner-operation checkpoint and next boundary
+
+`--checkpoint-output /tmp/checkpoint.json` exports a curated source-qualified
+handoff: certifier hashes, binary/config identities, all median pairs and warmup
+count, receipt/trace hashes, qualified producer source hashes, observed operation
+counters and explicit incomplete gates. It does not import caller acceptance
+claims. `native_operation_boundaries` retains unsampled checker spans with
+begin/end args, concrete private checker ID, native type ID, parent operation,
+containing full-source path and inclusive duration. Sampled checker spans are
+retained separately; they cannot enter the unsampled ranking or satisfy missing
+worker counters. Equal 202 full-file completions do not prove complete checker
+operation equivalence.
+
+Pinned `checker/relater.go:getVariancesWorker` is the currently observable
+unsampled inner boundary: `c.varianceLinks.Get(symbol)` is private-Checker-owned,
+keyed by concrete native `*ast.Symbol`. Absent `variances` enters the worker;
+publication first writes an empty provisional slice so recursive re-entry returns
+that active image, then publishes the completed ordered variance vector.
+`createMarkerType` uses concrete symbol/type-parameter identity and an ordered
+simple mapper, with separate alias-vs-interface instantiation. Relation reliability
+flags and `inVarianceComputation`/resolution stack context are preserved/restored.
+Trace args use the declared type ID plus checker ID and arity; these **do not**
+uniquely reconstruct the symbol, alias, mapper, receiver or publication state.
+The trace lies inside the absent-cache branch and records no completed hits or
+active repeats. No cross-checker cache or table reuse is added by this reader.
+
+Latest Linux large-project checkpoint, same prebuilt binaries and source
+`62b3caf7a9f4aed279381c10a7fc983e5b7f86bb`: five alternating fresh pairs plus
+warmups, medians TSR 0.8077273999999761 s / native 0.585535899999968 s,
+**observed ratio 1.3794669122764638; <=0.50 UNMET**. Native capture has 202
+completed initial full workers, 15 completed variance workers and 203 completed
+emit-entry spans. Its largest observed unsampled inner worker was variance,
+checker 2 / native type 180 / arity 1, `src/model002.ts`, 465200 ns inclusive,
+completed vector `["out"]`. This is not the globally most expensive inner
+operation: 348 sampled `structuredTypeRelatedTo` events cannot establish all
+relation executions, and native symbol/declared/variable workers and metadata
+forcing have no corresponding current counter. The next expensive-work root is
+therefore **complete relation-worker attribution**, not optimization of the
+smallest available unsampled span. The existing runtime/checker owner must emit
+query/hit/active-repeat/worker/publication counters at those native boundaries;
+this scripts-only worker cannot create that evidence by counting sampled wrappers.
+
+```json
+{
+  "checkpoint": "/tmp/recover-native-current-checkpoint.json",
+  "whole_project_perf_sha256": "9f596f250dbcc6a35c91969834bf21b1ea3ef237e0bfbaf2612721e1f54f08a1",
+  "checker_work_trace_sha256": "c4decf980b1dfd631530c2f85b0371fd5e39a7573c3388d8517bf14c8357072c",
+  "observed_wall_ratio": 1.3794669122764638,
+  "verified_wall_ratio": null,
+  "complete_checker_operation_coverage": false,
+  "actual_timed_work_equivalence": false,
+  "speed_target_verified": false,
+  "proof_gap_count": 9
+}
+```
+
+26 trace-reader and 27 harness tests passed; actual native reader and latest
+five-pair capture/checkpoint CLI ran. `--require-comparable` exited 1. Mac parent
+reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
+fresh-launch observations, not Linux checker timings or semantic completion
+proof. No macOS security setting changes or launch-delay subtraction occurred.
+
 ### Emit eligibility is not checking eligibility or output equivalence
 
 The parent owns the runtime `noEmit`/list-only cutover. Current TSR has no

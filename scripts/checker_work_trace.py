@@ -52,7 +52,18 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
     """
     result = empty_result()
     result.update(native_trace_valid=False, completed_full_workers=[], operation_counters={},
-                  highest_observed_native_worker=None, completed_emit_operations=[])
+                  highest_observed_native_worker=None, completed_emit_operations=[],
+                  native_operation_boundaries=[], sampled_native_operations=[],
+                  native_operation_coverage={
+                      "source_file_check": "unsampled initial worker only; hits/cancellation unobserved",
+                      "variance_worker": "unsampled absent-cache worker; hits/active repeats unobserved",
+                      "structured_relation_worker": "sampled relation wrapper; not complete worker count",
+                      "symbol_type_query": "unobserved",
+                      "declared_type_query": "unobserved",
+                      "variable_type_worker": "unobserved",
+                      "initialization_forcing": "unobserved",
+                      "metadata_forcing": "unobserved",
+                  })
     try:
         child = validate_receipt(receipt, "Failed to")
         require(receipt["oracle_sha"] == PINNED_NATIVE_SHA, "native revision is not pinned")
@@ -85,6 +96,13 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                     counter["begins"] += 1
                 elif phase == "X":
                     counter["sampled"] += 1
+                    if "checkerId" in args:
+                        require(integer(args["checkerId"]), "invalid sampled private checker identity")
+                        result["sampled_native_operations"].append({
+                            "operation": name, "args": args,
+                            "duration_ns": round(duration * 1000),
+                            "all_executions_observed": False,
+                        })
             if phase not in ("B", "E"):
                 continue
             key = (row["pid"], row["tid"])
@@ -102,6 +120,18 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                     and row["cat"] == begin["cat"] and timestamp >= begin["ts"],
                     "native end differs from begun operation")
             counters[name]["completed"] += 1
+            if "checkerId" in begin_args:
+                require(integer(begin_args["checkerId"]), "invalid private checker boundary identity")
+                result["native_operation_boundaries"].append({
+                    "operation": name, "args_begin": begin_args, "args_end": args,
+                    "duration_ns": round((timestamp - begin["ts"]) * 1000),
+                    "inclusive_duration": True, "unsampled": True,
+                    "native_parent_operation": stack[-1].get("name") if stack else None,
+                    "full_source_path": next((frame.get("args", {}).get("path")
+                                              for frame in reversed(stack)
+                                              if frame.get("name") == "checkSourceFile"),
+                                             begin_args.get("path") if name == "checkSourceFile" else None),
+                })
             if name == "emit":
                 result["completed_emit_operations"].append({
                     "args_begin": begin_args, "args_end": args,
@@ -119,6 +149,20 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
         result.update(native_trace_valid=True, artifact_integrity_valid=True,
                       completed_full_workers=spans, operation_counters=counters,
                       highest_observed_native_worker=max(spans, key=lambda row: row["duration_ns"], default=None))
+        inner = [row for row in result["native_operation_boundaries"]
+                 if row["operation"] != "checkSourceFile"]
+        result["highest_observed_unsampled_inner_boundary"] = max(
+            inner, key=lambda row: row["duration_ns"], default=None)
+        result["unsampled_inner_boundary_ranking"] = sorted(
+            inner, key=lambda row: row["duration_ns"], reverse=True)
+        result["native_current_checkpoint_gates"] = {
+            "artifact_integrity": True,
+            "completed_create_program": counters.get("createProgram", {}).get("completed") == 1,
+            "completed_full_file_workers_observed": len(spans),
+            "complete_checker_operation_coverage": False,
+            "actual_timed_work_equivalence": False,
+            "speed_target_verified": False,
+        }
         result["limitations"].extend([
             "Native trace does not publish eligibility, cancellation, query/cache counters or Program diagnostics metadata.",
             "checkSourceFile duration includes nested checking; sampled X events cannot rank all inner workers.",

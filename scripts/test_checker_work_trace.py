@@ -148,6 +148,27 @@ class TraceIntegrityTests(unittest.TestCase):
         end["args"]["id"] = 100
         self.assertFalse(self.native_trace_check([begin, end])["native_trace_valid"])
 
+    def test_native_inner_worker_ranking_preserves_private_identity_and_full_source(self):
+        full = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}
+        variance = {**full, "cat": "checkTypes", "ts": 10, "name": "getVariancesWorker",
+                    "args": {"checkerId": 0, "id": 99, "arity": 1}}
+        sampled = {**full, "ph": "X", "ts": 11, "dur": 500,
+                   "name": "structuredTypeRelatedTo", "args": {"checkerId": 0, "sourceId": 1, "targetId": 2}}
+        rows = [full, variance, sampled,
+                {**variance, "ph": "E", "ts": 30, "args": {**variance["args"], "variances": ["out"]}},
+                {**full, "ph": "E", "ts": 40}]
+        result = self.native_trace_check(rows)
+        self.assertTrue(result["native_trace_valid"], result)
+        boundary = result["highest_observed_unsampled_inner_boundary"]
+        self.assertEqual(boundary["operation"], "getVariancesWorker")
+        self.assertEqual(boundary["duration_ns"], 20000)
+        self.assertEqual(boundary["full_source_path"], "a.ts")
+        self.assertEqual(boundary["args_begin"]["id"], 99)
+        self.assertEqual(boundary["args_end"]["variances"], ["out"])
+        self.assertEqual(result["sampled_native_operations"][0]["duration_ns"], 500000)
+        self.assertFalse(result["native_current_checkpoint_gates"]["complete_checker_operation_coverage"])
+
     def test_native_emit_spans_do_not_claim_output_or_emission_equivalence(self):
         begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "emit", "ts": 10,
                  "name": "emit", "args": {"path": "a.ts"}}

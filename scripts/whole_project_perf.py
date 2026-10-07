@@ -197,6 +197,41 @@ def equivalence_certificate(report: dict) -> dict:
                                      "harness_sha256": report.get("harness_sha256")}}
 
 
+def qualified_checkpoint(report: dict) -> dict:
+    """Curated handoff preserves artifact bindings without copying raw trace rows."""
+    captures = {}
+    for name, capture in report.get("work_captures", {}).items():
+        validation = capture["validation"]
+        receipt_path = Path(capture["receipt"])
+        receipt = json.loads(receipt_path.read_text())
+        captures[name] = {
+            "trace": capture["trace"], "trace_sha256": receipt["trace_sha256"],
+            "receipt": str(receipt_path), "receipt_sha256": inputs.file_hash(receipt_path),
+            "source_files_sha256": receipt["source_files_sha256"],
+            "command": receipt["child"]["command"], "pid": receipt["child"]["pid"],
+            "artifact_integrity_valid": validation["artifact_integrity_valid"],
+            "operation_counters": validation["operation_counters"],
+            "native_current_checkpoint_gates": validation.get("native_current_checkpoint_gates"),
+            "highest_observed_unsampled_inner_boundary": validation.get("highest_observed_unsampled_inner_boundary"),
+            "outside_timing": capture["outside_timing"],
+        }
+    return {
+        "schema_version": 1, "issue": "tsr-2zk.17", "source_sha": report["source_sha"],
+        "oracle_sha": report["oracle_sha"], "certifier_sha256": report["harness_sha256"],
+        "project": report["project"], "project_config_sha256": report["project_config_sha256"],
+        "mode": report["mode"], "flags": report["flags"],
+        "binaries": {name: {"path": tool["binary"], "sha256": tool["binary_sha256"],
+                            "effective_config": tool["effective_config"],
+                            "median_wall_seconds": tool["summary"]["wall_seconds"]["median"]}
+                     for name, tool in report["tools"].items()},
+        "pairs": report["pairs"], "warmup_count": len(report["warmups"]),
+        "observed_wall_ratio": report["observed_wall_ratio"],
+        "verified_wall_ratio": report["verified_wall_ratio"], "target_verified": report["target_verified"],
+        "equivalent_work_certificate": report["equivalent_work_certificate"], "captures": captures,
+        "fresh_launch_delay": report["fresh_launch_delay"],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, required=True, help="tsconfig.json path")
@@ -210,6 +245,7 @@ def main() -> int:
     parser.add_argument("--input-manifest", type=Path,
                         help="source-qualified JSON paths observed by resolver/config/host queries")
     parser.add_argument("--require-comparable", action="store_true")
+    parser.add_argument("--checkpoint-output", type=Path, help="write curated source-qualified handoff JSON")
     parser.add_argument("--capture-work", action="store_true",
                         help="capture separate untimed current TSR/native traces; never certify timed work from them")
     args = parser.parse_args()
@@ -499,6 +535,9 @@ def main() -> int:
     report["target_verified"] = report["work_comparable"] and report["diagnostics_match"] and report["observed_wall_ratio"] <= 0.5
     report["status"] = "completed"
     save()
+    if args.checkpoint_output is not None:
+        args.checkpoint_output.parent.mkdir(parents=True, exist_ok=True)
+        args.checkpoint_output.write_text(json.dumps(qualified_checkpoint(report), indent=2) + "\n")
     print(json.dumps({key: report[key] for key in (
         "observed_wall_ratio", "verified_wall_ratio", "scope_match", "options_match",
         "diagnostics_stable", "diagnostics_match", "target_verified",
