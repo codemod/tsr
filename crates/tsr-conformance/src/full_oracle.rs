@@ -196,6 +196,8 @@ pub fn native_population(upstream: &Path, dir: &Path, selection: Option<&str>) -
             let text = std::fs::read_to_string(case_output)?;
             let records: Vec<_> = text.lines().filter(|line| line.split('\t').count() == 7 && line.starts_with("52\t")).collect();
             if records.len() != 1 { bail!("expected one completed configuration record, got {}", records.len()); }
+            let published_id = unhex(records[0].split('\t').nth(1).context("published identity")?)?;
+            if published_id != config.id { bail!("worker published {published_id}, expected {}", config.id); }
             Ok(format!("{}\n", records[0]))
         };
         let row = match run_case() {

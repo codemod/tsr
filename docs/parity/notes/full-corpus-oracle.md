@@ -18,7 +18,9 @@ Ten worker leases; 30-second compiler deadlines; a 180-second native build
 deadline; file-backed stdout/stderr; timed
 out children killed and reaped. Nonzero native exit invalidates a completed row.
 Native records are fsynced on publication and appended durably to the aggregate
-as each process settles. Actual artifacts and verdicts are checkpointed per
+as each process settles. A worker's published identity must equal its leased
+case/configuration ID; a foreign result becomes that lease's explicit process
+failure event instead of poisoning aggregate decoding or redirecting the outcome. Actual artifacts and verdicts are checkpointed per
 configuration. Missing/crashed configurations stay in the denominator.
 
 `full_oracle_run` requires the real sibling `full_oracle_actual` executable;
