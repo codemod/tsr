@@ -486,7 +486,10 @@ diagnostic outputs agree among checkpoint/candidate/native on both projects.
 | generic-imports | 0.1144116 | 0.1227134 | 0.1235722 | 1.0726 |
 
 The generic-imports wall result is a measured slowdown, not a verified hotpath
-regression attribution. No no-slowdown claim is made. Candidate/native ratios
+regression attribution. CPU distributions were not collected and cannot be
+reconstructed; full-precision wall arrays are retained in `flow/perf.json`.
+Scalar source is `7d47ec72`, baseline `0e7824dd`; their binary/source hashes are
+in `flow/identities.sha256`. Performance acceptance remains blocked. No no-slowdown claim is made. Candidate/native ratios
 are 1.0007 and 0.9931, respectively, **unverified for equivalent complete
 work**, and do not meet 0.50 even as raw timings. The native extended diagnostic
 output lacks a checked-file count; complete checked-scope and input equivalence
@@ -503,19 +506,36 @@ circularities; other callees retain their original optional/non-null receiver
 context. Do not share by callee symbol, type or printed name: overload choice,
 ordered arguments and written aliases belong to the original call node.
 
-Exact serialized integration-owner state request (not applied here):
+Serialized integration-owner state proposal (not applied; **not safe to accept
+until completion provenance is proved**). The earlier `Option<Signature>`
+proposal is withdrawn: TSR `None` conflates native negative completion with
+unsupported/deferred work.
 
 ```rust
+pub(crate) enum EffectsSignatureCompletion {
+    Effect(crate::signatures::Signature),
+    Unknown,
+}
+
+// Checker field:
 pub(crate) effects_signatures:
-    FxHashMap<NodeId, Option<crate::signatures::Signature>>,
+    rustc_hash::FxHashMap<
+        tsr_ast::NodeId,
+        crate::flow::EffectsSignatureCompletion,
+    >,
 // Checker constructor:
-effects_signatures: FxHashMap::default(),
+effects_signatures: rustc_hash::FxHashMap::default(),
 ```
 
 Owner/lifetime: private Checker, original call `NodeId`, fixed checker options.
-Absent = uncomputed; present `Some` = completed effect; present `None` = completed
-unknown. Existing eager return completion and the no-effects preflight must not
-publish an unsupported/provisional result. Reuse must bound the existing dotted
+Absent = uncomputed/active/unsupported/deferred; present `Effect` = completed
+effect; present `Unknown` = native completed negative. Never publish unsupported
+or deferred work as `Unknown`. Receiver `this`, optional/non-null context,
+written alias, ordered arguments/type arguments, overload choice and fixing
+mapper must remain those of the original call. Incomplete flow/loop-fixpoint
+results cannot be published in a NodeId-only map; existing loop/reference flow
+caches do not prove that independence. Existing eager return completion and the
+no-effects preflight must not publish an unsupported/provisional result. Reuse must bound the existing dotted
 callee/signature-resolution worker, not add a parallel cache. Query/hit/worker
 counts are not measured; preserve the existing `tsr-1yb.11.3` boundary issue.
 
