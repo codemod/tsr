@@ -17,7 +17,16 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     checker.set_strict_null_checks(strict_null_checks);
-    let Statement::IfStatement(condition) = parsed.source_file.statements.last().unwrap() else {
+    let statements = match parsed.source_file.statements.last().unwrap() {
+        Statement::FunctionDeclaration(function) => {
+            let Some(tsr_ast::FunctionBody::Block(body)) = function.body else {
+                panic!("fixture requires a function block");
+            };
+            body.statements
+        }
+        _ => parsed.source_file.statements,
+    };
+    let Statement::IfStatement(condition) = statements.last().unwrap() else {
         panic!("fixture must end in an if statement");
     };
     let Some(Statement::Block(block)) = condition.then_statement else {
@@ -28,6 +37,26 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
     };
     let ty = checker.check_expression(reference.expression.unwrap());
     checker.type_to_string(ty)
+}
+
+#[test]
+fn unknown_in_property_intersects_original_receiver_with_global_record() {
+    assert_eq!(
+        narrowed_type(
+            "type Record<K extends keyof any, V> = { [P in K]: V };
+             function f<T extends object>(x: T) { if ('field' in x) { x; } }",
+            true,
+        ),
+        "T & Record<\"field\", unknown>"
+    );
+    assert_eq!(
+        narrowed_type(
+            "type Record<K extends keyof any, V> = { [P in K]: V };
+             function f<T extends object>(x: T) { if (!('field' in x)) { x; } }",
+            true,
+        ),
+        "T"
+    );
 }
 
 #[test]

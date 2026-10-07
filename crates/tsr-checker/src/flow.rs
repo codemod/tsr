@@ -5388,7 +5388,7 @@ impl Checker<'_, '_> {
                     if self.is_matching_reference(state, right_node) {
                         let key = self.check_expression(left);
                         if let Some(name) = self.property_name_from_index(key) {
-                            return self.narrow_type_by_in_keyword(t, &name, assume_true);
+                            return self.narrow_type_by_in_keyword(t, key, &name, assume_true);
                         }
                     }
                     return t;
@@ -7673,14 +7673,17 @@ impl Checker<'_, '_> {
         self.get_adjusted_type_with_facts(t, facts)
     }
 
-    /// `narrowTypeByInKeyword` (`flow.go:1001`), the known-property half:
-    /// when some constituent declares the property, filter by
-    /// `isTypePresencePossible`. The unknown-property half intersects with
-    /// `Record<X, unknown>` through the global `Record` alias; alias
-    /// instantiation is unported, and upstream itself answers `t` unchanged
-    /// when that symbol is missing, so the same fallback is taken here by
-    /// construction rather than by approximation.
-    fn narrow_type_by_in_keyword(&mut self, t: TypeId, name: &str, assume_true: bool) -> TypeId {
+    /// Ported from typescript-go's narrowTypeByInKeyword (internal/checker/flow.go).
+    /// Known properties filter by presence; unknown properties on the true
+    /// branch intersect with the global Record alias instantiated with the
+    /// original key type. Missing global Record leaves the type unchanged.
+    fn narrow_type_by_in_keyword(
+        &mut self,
+        t: TypeId,
+        name_type: TypeId,
+        name: &str,
+        assume_true: bool,
+    ) -> TypeId {
         let constituents: Vec<TypeId> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![t],
@@ -7693,6 +7696,13 @@ impl Checker<'_, '_> {
             }
         }
         if !known {
+            if assume_true
+                && let Some(record) = self.global_type_symbol_with_arity("Record", 2)
+            {
+                let record_type =
+                    self.create_type_reference(record, vec![name_type, self.intrinsics.unknown]);
+                return self.get_intersection_type(&[t, record_type], None);
+            }
             return t;
         }
         // `filterType`, unrolled: this port's `filter_type` takes a pure

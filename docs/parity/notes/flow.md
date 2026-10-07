@@ -744,3 +744,46 @@ propagation, native possible-facts guard and allocation-free constituent
 traversal only. Receipts: `target/recovery/flow-native-mask/`. This correction
 establishes no runtime complete-work or speed claim; parent integrated counts
 and CPU gate remain mandatory.
+
+## 19. Unknown-property `in` narrows through global Record (tsr-2zk.16.178)
+
+Pinned native `narrowTypeByInKeyword` (`internal/checker/flow.go`) first queries
+presence in constituents. Known properties keep the existing presence filter.
+An unknown property on the true branch intersects with the global two-parameter
+`Record` alias instantiated with the **original key TypeId** and `unknown`.
+False branches and missing global Record remain unchanged. The flow call now
+retains key identity instead of passing only its printed property name.
+
+Identity/owner/work: existing private Checker global symbol lookup,
+`create_type_reference` alias/reference factory, and `get_intersection_type`
+factory. No Record-shaped synthetic fallback or parallel cache is added.
+Arguments remain ordered `[name_type, unknown]`; the original receiver and
+written alias are preserved by intersection. Existing factory publication and
+mapper contracts own alias completion; the flow worker adds no provisional
+completion or inferred predicate publication. Presence queries/alias work are
+performed only at native's unknown-property true-branch boundary. Existing
+complete-negative effects state on main is not modified by this change.
+
+Native direct controls exit 0 and emit generic receiver
+`T & Record<"field", unknown>`, nested ordered Record intersections, unchanged
+false-branch T, and the known-property union's original constituent. Real Box
+`probefile` produces these same function/reference types. Permanent flow control
+checks true/false generic receiver boundaries against native. All 114 focused
+tests pass; checker-library Clippy and dedicated formatting pass.
+
+Fresh full eligible corpus: both child exits 0, 10,570 diagnostics keys and
+477,968 type keys retained. RIGHT types 469,797 → 469,806; WRONG 7,176 → 7,167;
+GAP 995 unchanged. Zero RIGHT losses or vanished/new keys. Three extra TS2322
+errors disappear from `conditionalTypeDoesntSpinForever`; that case remains
+WRONG because the separate missing overload diagnostic persists. Inference/
+enum target residue is not suppressed or claimed solved. Full configuration,
+exact diagnostic text/order and parent historical-key limitations still apply.
+Receipts: ignored `target/recovery/flow-in/`.
+
+Fresh 41-pair wait4 CPU/wall cohort, baseline pinned in isolated worktree at
+`cb4fa05a`, candidate source hash retained separately; build/corpus work excluded:
+domain-model wall ratio 0.9576, CPU 1.0003; generic-imports wall 1.0148, CPU
+1.0161. Complete stdout/stderr/status agree in every child. The generic CPU
+result does not meet strict no-slowdown; no hotpath causal attribution, speed
+acceptance or equivalent native complete-work/0.50 claim is made. Parent
+performance reconciliation remains required before campaign acceptance.
