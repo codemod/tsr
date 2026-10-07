@@ -522,6 +522,24 @@ full declareModuleMember merge/conflict identity and merged-tag branches remain
 prerequisites. Durable patch: typedef-implicit-export-zero-impact.patch.
 No callable/function-template block changes; both existing issues updated.
 
+## CommonJS export lexical-value exclusion (tsr-2zk.6.16)
+
+Native NameResolver.Resolve refuses non-Type source exports as lexical names
+when SourceFile.CommonJSModuleIndicator is published. Binder now publishes that
+exact fact into existing Program SourceFile NodeFacts from set_commonjs_module_indicator;
+resolver reads it in constant time. No local/name scan or semantic alias cache.
+Publication occurs on first actual CommonJS indicator; ES modules remain excluded
+by the existing writer guard. Binding owner/lifetime is Program SourceFile.
+
+exports.value=10 does not declare unqualified value; semantic regression fails
+before and passes after, while module export remains present. Full scan-based
+prototype added no RIGHT/vanished losses or corpus gains; final constant-time
+fact uses the same condition, with focused test/clippy pass. Existing 12 held
+JSDoc naming losses remain; parent integrated loss proof is required. Native CLI
+expression unknown mismatch is still separate and not claimed fixed. Linux
+21-sample CPU new/base 1.0049/1.0012. Actual modules remain correctly populated;
+no compiler/signature/template/callable region touched.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including

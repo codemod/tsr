@@ -112,6 +112,8 @@ bitflags::bitflags! {
         const UNUSED_LABEL = 1 << 4;
         /// Ambient module context computed by binding, including declaration files.
         const AMBIENT_MODULE_CONTEXT = 1 << 5;
+        /// Native SourceFile.CommonJSModuleIndicator publication from binding.
+        const COMMONJS_MODULE = 1 << 6;
     }
 }
 
@@ -1317,7 +1319,11 @@ impl<'a> BindResult<'a> {
             {
                 let found = self.merged_symbol(found);
                 let entry = self.symbols.get(found);
-                if entry.flags.intersects(meaning & mask) {
+                if entry.flags.intersects(meaning & mask)
+                    && !(nodes.kind(node) == SyntaxKind::SourceFile
+                        && self.facts(node).contains(NodeFacts::COMMONJS_MODULE)
+                        && !entry.flags.intersects(SymbolFlags::TYPE))
+                {
                     return Some(found);
                 }
                 if !nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)

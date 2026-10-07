@@ -3596,6 +3596,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         if !self.commonjs_module {
             self.commonjs_module = true;
             let file = self.file_node;
+            self.facts.entry(file).or_default().insert(NodeFacts::COMMONJS_MODULE);
             self.bind_source_file_as_external_module(file);
         }
         true
