@@ -1,0 +1,192 @@
+# Type-parameter constraint node reuse (`tsr-2zk.16.69`)
+
+## Source-bound investigation
+
+Source: `c8185606e3b972d59d345b6e45d789586d993af8`.
+Native: `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
+No checker implementation changes or case conversions in this investigation.
+The existing visitor is sufficient for the reproduced constraint; its caller
+and stored representation are outside this worker's ownership.
+
+Native binary SHA-256:
+`0121c87324737d04a4d0728f05b8ca73d25002234d672cdffc13dcdec3bf9b1c`.
+TSR CLI SHA-256:
+`50fd451ef234b67b97b7458a1024a5832fa09058ec51affd6e4b519634470aff`.
+Built with the repository's Rust 1.96.0 toolchain, release profile.
+
+## Actual pinned operation
+
+`typeParameterToDeclaration` (`nodebuilderimpl.go:1611`) obtains
+`getConstraintOfTypeParameter(parameter)` and the written constraint from
+`getConstraintDeclaration` (`checker.go:29132`). The latter walks the
+parameter symbol's declarations in order and returns the first type-parameter
+constraint node.
+
+`typeToTypeNodeHelperWithPossibleReusableTypeNode`
+(`nodebuilderimpl.go:1597`) reuses that node only when the builder is not
+actively expanding and `getTypeFromTypeNode(node, false) == constraint`.
+Successful `tryReuseExistingNodeHelper` is followed by
+`checkTypeExpandability`; otherwise the constraint is serialized from its type.
+This gate is **strict identity**, not the error-type charity of
+`pseudoTypeEquivalentToType` used for parameter/return annotations.
+
+`typeParameterToDeclarationWithConstraint` (`nodebuilderimpl.go:1329`) is
+not the reuse decision. It temporarily clears
+`FlagsWriteTypeParametersInQualifiedName`, builds modifiers and the parameter
+name, serializes the default from its type, restores flags, and assembles the
+provided constraint node into the declaration.
+
+The existing-node visitor inserts keyword `any` into an untyped parameter
+with no initializer (`nodecopy.go:660`), including a rest parameter. Its
+semantic type can still be `any[]`; the reused node prints `...args: any`.
+
+## Direct native and actual TSR controls
+
+Ran both actual CLIs with `--noEmit --pretty false` on:
+
+```typescript
+type Keys = "a" | "b";
+declare function aliases<K extends Keys>(): K;
+declare function rest<T extends (...args) => void>(): T;
+declare function callable<T extends { (...args): void }>(): T;
+const a: never = aliases;
+const b: never = rest;
+const c: never = callable;
+```
+
+Both emit TS7019 at `(3,34)` and `(4,40)`:
+`Rest parameter 'args' implicitly has an 'any[]' type.`
+Both then emit TS2322 at `(5,7)`, `(6,7)`, `(7,7)`, in that order.
+The first message agrees:
+`Type '<K extends Keys>() => K' is not assignable to type 'never'.`
+Native's remaining messages are:
+
+```text
+Type '<T extends (...args: any) => void>() => T' is not assignable to type 'never'.
+Type '<T extends { (...args: any): void; }>() => T' is not assignable to type 'never'.
+```
+
+TSR substitutes `...args: any[]` in both messages. The actual corpus
+`probefile` pipeline reproduces the same difference on the ad-hoc control and
+on `compiler/declFileRestParametersOfFunctionAndFunctionType`.
+
+An additional throwaway Rust executable used the actual parsed/bound `Checker`
+on a function returning `<K extends Keys, T extends (...args) => void>() => T`.
+Its existing `Signature::written_return`, rendered by
+`site_free_annotation_text`, produced exactly:
+
+```text
+<K extends Keys, T extends (...args: any) => void>() => T
+```
+
+Replacing the current type with the intrinsic `number` refused reuse. Thus the
+owned visitor is runnable and already preserves the alias and inserts native
+`any`; top-level constraint dispatch is the missing prerequisite.
+
+## Serialized parent prerequisite
+
+Parent owns `signatures.rs`; this worker did not modify it.
+`TypeParameter::written_constraint` currently stores `Option<String>`.
+`type_parameter_of` uses `written_annotation_text` plus a tuple-reference
+fallback. `signature_to_string_at_worker` and the site-free signature renderer
+copy that string directly. They neither retain a constraint node/type pair nor
+run the existing-node visitor at the eventual print site.
+
+Required parent contract: retain the written node and its original semantic
+identity, migrate all `TypeParameter` constructors/instantiations/printers, and
+apply the strict native constraint gate before site-aware visitor rendering.
+Do not extend the annotation error-charity gate to constraints. Do not add an
+unused renderer or relax a syntax heuristic in this worker: neither routes the
+actual top-level constraint through the native operation.
+
+### Ownership and work boundaries for that cutover
+
+- **Native operation/consumer:** the helper and declaration builder above;
+  consumed while signatures' type parameters are serialized.
+- **Identity/owner:** the written constraint node and the constraint's semantic
+  `TypeId`, belonging to the same Program/Checker stores. Printed text is not
+  identity. Instantiated constraints must be compared with the original node's
+  type, not accepted merely because a string was copied with the signature.
+- **Publication:** no new cache is justified. A retained node/type pair is a
+  reuse candidate, not a completed print or successful access result. The
+  visitor completes success or refuses at the consumer's site; active expansion
+  must retain the native fresh-serialization path. A provisional constraint
+  resolution must not be published as completed reuse.
+- **Context:** preserve print-site alias accessibility and type-parameter naming;
+  mapper images must not reuse a moved constraint by accident. The existing
+  visitor already tracks alias frames and reference-site name identity.
+  `WrittenAnnotation`'s annotation charity is not the constraint identity rule.
+- **Expensive work:** retain IDs during signature construction; perform the
+  existing annotation-subtree walk only when the constraint is printed. Existing
+  node-cached semantic resolution and site renderer handle refused subnodes.
+  No duplicate cache or rendered-string side table is proposed. Expansion-state
+  and type-parameter-renaming equivalence remain parent prerequisites, not
+  measured optimization claims.
+
+## Fresh whole-case and legacy receipts
+
+Ran unfiltered `verdictdump`, `diagverdictdump`, and `casedelta` from the source
+above. Also ran both actual `Suite::judge` implementations over every discovered
+case in a throwaway executable, preserving skipped and unsupported outcomes.
+That whole-case oracle is not a filtered line tally.
+
+| Surface | Fresh result |
+| --- | --- |
+| Discovered whole-case oracle IDs | 12,444 per suite |
+| Types whole-case oracle | 8,054 RIGHT; 1,484 WRONG; 2,906 SKIPPED |
+| Diagnostics whole-case oracle | 4,224 RIGHT; 1,278 WRONG; 6,942 SKIPPED |
+| Judged types cases | 8,054 / 9,538 = 84.44% |
+| Judged diagnostics cases | 4,224 / 5,502 = 76.77% |
+| Types positional matched / expected | 469,839 / 478,855 |
+| Types aligned legacy verdicts | 469,839 RIGHT; 7,175 WRONG; 964 GAP |
+| Diagnostics legacy verdicts | 4,224 RIGHT; 4,968 EMPTY_RIGHT; 1,278 WRONG; 100 EMPTY_WRONG |
+
+All 16 named cases remain whole-case WRONG. Their aligned lines are below;
+these include other unresolved operations in the same cases, not a prediction
+that constraint reuse alone converts every line.
+
+| Case | RIGHT | WRONG | GAP |
+| --- | ---: | ---: | ---: |
+| compiler/cannotIndexGenericWritingError | 21 | 1 | 0 |
+| compiler/circularContextualReturnType | 7 | 4 | 0 |
+| compiler/contextualSignatureInObjectFreeze | 5 | 2 | 0 |
+| compiler/correlatedUnions | 452 | 19 | 14 |
+| compiler/declFileRestParametersOfFunctionAndFunctionType | 15 | 2 | 0 |
+| compiler/divideAndConquerIntersections | 83 | 5 | 2 |
+| compiler/genericFunctionsAndConditionalInference | 77 | 9 | 0 |
+| compiler/inlinedAliasAssignableToConstraintSameAsAlias | 10 | 1 | 0 |
+| compiler/mappedTypeIndexedAccessConstraint | 105 | 50 | 0 |
+| compiler/objectFreeze | 44 | 24 | 0 |
+| compiler/objectFreezeLiteralsDontWiden | 3 | 16 | 0 |
+| compiler/objectFromEntries | 62 | 15 | 0 |
+| compiler/styledComponentsInstantiaionLimitNotReached | 118 | 3 | 0 |
+| compiler/typeParameterConstraints1 | 24 | 2 | 0 |
+| conformance/noUncheckedIndexedAccess | 256 | 8 | 0 |
+| conformance/spreadObjectOrFalsy | 46 | 1 | 0 |
+| **Total** | **1,512** | **162** | **16** |
+
+Repeated both legacy dumps unfiltered on the unchanged implementation:
+**0 verdict changes, 0 RIGHT/EMPTY_RIGHT losses, 0 missing IDs, 0 new IDs**.
+The aligned types denominator is 477,978. Some raw printed type strings contain
+newlines/tabs; row parsing recognizes actual verdict columns rather than
+mistaking continuation text for extra IDs. No source/binary changes occurred
+between the paired runs.
+
+## Native performance receipt: release gate not met
+
+Ran `scripts/whole_project_perf.py` against the pinned native binary, nine
+fresh-process samples per tool plus the harness warmups, after builds and corpus
+processes completed. Both project scopes were unchanged; no reduced fixture.
+
+| Project | Observed median wall TSR/tsgo | Scope/options/diagnostics match | Verified wall ratio |
+| --- | ---: | --- | --- |
+| benches/projects/domain-model | 0.996843 | true / true / true | null |
+| benches/projects/generic-imports | 0.943428 | true / true / true | null |
+
+Both reports retain `complete_input_equivalence_verified: false`,
+`actual_checked_work_verified: false`, `work_comparable: false`, and
+`target_verified: false`. These are observed CLI timings, **not verified
+complete-equivalent-work performance**. The requested verified <=0.50 release
+gate and 99.9% parity are not established. The parent must retain these missing
+measurement prerequisites alongside the shared constraint-dispatch prerequisite
+in Beads; this investigation does not close `tsr-2zk.16.69`.
