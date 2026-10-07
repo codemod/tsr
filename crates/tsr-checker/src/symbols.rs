@@ -3688,7 +3688,13 @@ impl<'a> Checker<'a, '_> {
         let symbols = self.binder.symbols();
         let contributes_a_property =
             |&member: &SymbolId| symbols.get(member).flags.intersects(SymbolFlags::VALUE);
-        if symbol_data.members.values().any(contributes_a_property) {
+        // Native resolveAnonymousTypeMembers uses exports for the callable
+        // value; merged interface members belong only to its instance/type side.
+        // Non-interface constructor/prototype members still require the separate
+        // JavaScript constructor resolution worker.
+        if !symbol_data.flags.intersects(SymbolFlags::INTERFACE)
+            && symbol_data.members.values().any(contributes_a_property)
+        {
             return self.intrinsics.error;
         }
         let Some(export_properties) = self.callable_export_properties(symbol) else {

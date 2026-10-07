@@ -213,6 +213,65 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Owned fallback root: merged function/interface value boundary
+
+Original alias completion tsr-1yb.7.7.3 still requires one serialized cutover:
+checker owner adds private store-qualified alias-link state and initialization;
+this lane supplies resolveAlias/resolveIndirectionAlias/AliasTarget consumers;
+circular diagnostic and type-only consumers migrate together. Resolutions owns
+active frames only, not completed private targets/unknown or type-only origins.
+No hidden cache or dead state struct is introduced in owned resolution.rs.
+
+Class-expression local-name fallback is already native-faithful for the direct
+control: named Inner self-reference/type, static value access, outside-scope
+missing name and a shadowing local. Candidate/native outputs match; no patch.
+Selected next owned root is MERGED-FUNCTION-INTERFACE (integrator bounded issue
+assignment requested, committed under lane issue tsr-2zk.38).
+
+Native getTypeOfFuncClassEnumModuleWorker creates the anonymous callable value;
+resolveAnonymousTypeMembers reads exports, not merged interface instance members.
+TSR's callable worker rejected any symbol with value-bearing members. It now
+retains the instance-member unsupported decline only for non-interface symbols;
+actual INTERFACE meaning establishes the separate declared-type side. No
+syntax/test-name or printed-type guess. Non-interface JavaScript constructor /
+prototype worker remains its existing unsupported boundary.
+
+Direct native control: Merged():number plus interface Merged{instanceOnly:string},
+wrong string assignment of Merged() and Merged.instanceOnly access. Before TSR
+emits nothing; native emits TS2322 main.ts(4,7) complete number-to-string message
+and TS2339 main.ts(5,24) complete missing-instanceOnly callable message. Candidate
+now matches TS2322; TS2339 remains missing in external check.rs diagnostic policy.
+Permanent regression asserts callable value prints () => number, has no
+instanceOnly property, and declared interface type does have that property.
+No diagnostic suppression or fake property table is added.
+
+Owner/publication: existing Program merged SymbolId and actual flags decide
+value versus declared type. Existing privateChecker symbol_types/declared_types
+remain distinct. No new cache/table/graph traversal is introduced; native callable
+worker previously refused by instance-table presence now executes. The callable
+exports worker preserves receiver/export aliases and its existing completion.
+Actual target executions/count attribution remain unmeasured; integrator bounded
+follow-up before extending reuse; correctness is not a speed claim.
+
+Full unfiltered comparison to preceding attributes root: 19 type rows gain RIGHT,
+zero previously RIGHT losses, zero missing/extra keys. Three previously GAP rows
+become WRONG in contextualParamTypeVsNestedReturnTypeInference2/3/4; their
+return-context/type producers remain outside this boundary, not claimed fixed.
+Totals RIGHT 469791, WRONG 7198, GAP 981 over 477970 verdict keys. Diagnostics
+10570 keys unchanged (no RIGHT/EMPTY_RIGHT losses). Full coverage all 12444
+sources completes, checker_types 8047/9538 and diagnostics 4222/5502. Newly
+passing emitted type case functionAndInterfaceWithSeparateErrors; eight RIGHT
+row gains in complexRecursiveCollections do not convert that multi-root case.
+Workspace release tests, focused regression, strict clippy, fmt and anchors pass.
+Generated snapshot changes removed, never committed.
+
+Fresh-process 21-pair candidate/baseline wall 1.006171/0.994402; domain CPU noise
+1.068786 required 41-pair repeat: wall 0.993076/0.987238, CPU 0.971215/0.995176.
+Native 21-pair observed wall 1.030911/0.918480; complete query-input and actual
+checker-work proof unavailable (work_comparable=false), no <=0.50 certification.
+Semantic caller/property-diagnostic and contextual-return prerequisites remain
+explicit. This is not alias completion or full module-augmentation parity.
+
 ### GlobalThis symbol root (tsr-2zk.16.97): owned-file boundary
 
 Authoritative integration target set: compiler/globalThisDeclarationEmit3,
