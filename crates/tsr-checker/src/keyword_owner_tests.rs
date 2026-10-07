@@ -335,7 +335,8 @@ fn active_mapped_and_unsupported_contexts_keep_their_existing_routes() {
     let parenthesized = owner("Parenthesized");
     assert!(checker.original_generic_keyword_alias_body(parenthesized).is_some());
     let reference = checker.create_type_reference(parenthesized, vec![checker.intrinsics.string]);
-    assert_eq!(checker.type_to_string(reference), "Parenthesized<string>");
+    // getTypeFromTypeAliasReference: an intrinsic body carries no alias.
+    assert_eq!(reference, checker.intrinsics.number);
     assert!(!checker.declared_types.contains_key(&parenthesized));
     let union =
         checker.create_type_reference(owner("BooleanUnion"), vec![checker.intrinsics.string]);

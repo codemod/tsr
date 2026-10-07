@@ -1,6 +1,6 @@
 //! Native getSignatureFromDeclaration/contextuallyCheckFunctionExpressionOrObjectLiteralMethod,
 //! pinned to tsgo 5b1047d10d32e7d5b446be4de56b126ff42f82bb. Keep duplicate
-//! diagnostic bags, including the known unrelated computed-key prerequisite, visible.
+//! diagnostic bags visible.
 use tsr_conformance::{TestCase, diagnostics_suite};
 
 #[test]
@@ -19,10 +19,7 @@ fn recursive_declarations_original_entry_does_not_add_either_circular_return_occ
         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
         .collect();
     actual.sort_unstable();
-    // Native has an empty bag. The prefix51a6 checkpoint already has this
-    // unrelated TS2464; the complete occurrence gate keeps it as rejected
-    // prerequisite evidence, not as an expected native diagnostic. This
-    // successor must remove both new TS7024 (8,20)/(11,13), not hide them in
-    // the already-WRONG bucket or discard another diagnostic occurrence.
-    assert_eq!(actual, [(13, 82, 2464)]);
+    // Native has an empty bag: neither circular-return TS7024 (8,20)/(11,13)
+    // nor the `unique symbol` computed-key TS2464 (13,82).
+    assert_eq!(actual, []);
 }
