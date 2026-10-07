@@ -1344,6 +1344,11 @@ impl<'a, 'n> Binder<'a, 'n> {
                 || has_declare(module.modifiers)
                 || matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)));
             self.in_ambient_module = ambient;
+            // Native parser ambient context feeds NameResolver's default-local
+            // lookup; publish the exact context already used to bind members.
+            if ambient {
+                self.facts.entry(id).or_default().insert(NodeFacts::AMBIENT_MODULE_CONTEXT);
+            }
             self.export_context = ambient && !has_export_declarations(module);
         }
 

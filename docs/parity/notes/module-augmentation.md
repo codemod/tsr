@@ -406,6 +406,29 @@ one whole diagnostic case. No prior RIGHT or vanished keys. Coverage types
 Binder test/clippy and formatting pass; Linux 21-sample CPU new/base 1.0014
 and 1.0181. Native complete-work acceptance remains unverified.
 
+## Ambient default-local context publication (tsr-2zk.6)
+
+Recovered coherent owned 82945169 writer/consumer boundary. Binder already
+computes ambient from declaration-file, enclosing ambient module and declare/
+quoted-module syntax. Publish that exact context as AMBIENT_MODULE_CONTEXT on
+module NodeFacts; NameResolver default-local lookup consumes it alongside native
+NodeFlagsAmbient. Key is Program module NodeId, owner BindResult, lifetime bound
+Program; publication occurs during module binding before lexical lookup. This
+is a context fact, not an alias target/type cache; no repeated semantic worker.
+Actual default export identity, meaning and shadowing remain distinct.
+
+Behavior regression omits fact-wiring assertions: ambient Foo resolves its
+actual default symbol in value/type, not namespace, and inner parameter Foo
+shadows it. Fails before/passes after. Native re-exported class assignment
+control: TSR emitted none before, after matches sole native TS2322 exactly.
+Full diagnostics EMPTY_WRONG->EMPTY_RIGHT for es5ExportDefaultClassDeclaration4;
+no type-case gain, no prior RIGHT/missing-key losses. Coverage type cases
+unchanged 8,063/9,538; nonempty diagnostics unchanged 4,224/5,502 (empty success
+count +1). Native ES5 is unsupported by the pin; ES2015 direct control supplies
+native evidence rather than pretending ES5 equivalent work.
+Binder tests/clippy/format pass; Linux CPU new/base 1.0049/0.9984 (21 samples).
+Callable publication region untouched; campaign/native complete-work goal open.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
