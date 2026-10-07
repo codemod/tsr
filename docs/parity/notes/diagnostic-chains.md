@@ -240,3 +240,27 @@ newly loaded CommonJS source rows still expose separate unsupported exports and
 unresolved-assignment roots. Source-matched 41-pair project checks preserve full
 output/options/scope without a hot-path slowdown; these are not a <=0.50 native
 speed certificate or full configured-parity acceptance.
+
+## Collector and pool-observer rebase — tsr-2zk.22.1
+
+Integration preserves the pool-observer changes from `8091f493` alongside native
+list-only diagnostic collection. Ordinary checks retain private pool ownership.
+JavaScript list-only syntax uses one checker and records its construction as
+owner zero; TypeScript list-only collection creates no checker.
+
+Actual CLI controls retain the domain-model TS2322, distinct extended-config
+diagnostics, positioned missing-config diagnostic and list-only semantic exclusion.
+The physical JavaScript trace finishes with one constructed checker, zero full
+checks and no unfinished spans. Thirteen execute trace/config controls and two
+physical CLI trace controls pass; scoped all-target clippy passes.
+
+Frozen full legacy dumps retain every protected RIGHT type and RIGHT/EMPTY_RIGHT
+diagnostic key, zero losses and zero missing keys. Current counts are 469,892 RIGHT
+type rows, 7,124 WRONG and 960 GAP; diagnostics are 4,224 RIGHT, 1,278 WRONG,
+4,968 EMPTY_RIGHT and 100 EMPTY_WRONG. These are not full-configuration parity.
+
+Twenty-one prior-TSR pairs observe wall ratio 1.00781; eleven pinned-native pairs
+observe 1.56656. Diagnostics, options and loaded scope agree; complete performed
+work remains unverified. Neither observation proves no slowdown, native speed
+lead or the <=0.50 release target.
+

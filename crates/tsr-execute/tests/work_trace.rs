@@ -80,13 +80,13 @@ fn fixture() -> Baseline {
 }
 
 fn run(flags: &[&str], enabled: bool) -> (ExitStatus, String, Vec<Value>) {
-    run_fixture(flags, enabled, fixture())
+    run_fixture(flags, enabled, &fixture())
 }
 
 fn run_fixture(
     flags: &[&str],
     enabled: bool,
-    fixture: Baseline,
+    fixture: &Baseline,
 ) -> (ExitStatus, String, Vec<Value>) {
     let capture = Capture::default();
     let trace = enabled.then(|| {
@@ -100,7 +100,7 @@ fn run_fixture(
             },
         ))
     });
-    let mut host = Host { baseline: BaselineSystem::new(&fixture), trace, warnings: Vec::new() };
+    let mut host = Host { baseline: BaselineSystem::new(fixture), trace, warnings: Vec::new() };
     let args: Vec<_> = ["--project", "/project/tsconfig.json", "--pretty", "false", "--listFiles"]
         .into_iter()
         .chain(flags.iter().copied())
@@ -416,7 +416,7 @@ fn list_only_js_syntax_observes_checker_lifetime_without_semantic_work() {
         ],
         ..Baseline::default()
     };
-    let (status, output, records) = run_fixture(&["--listFilesOnly"], true, baseline);
+    let (status, output, records) = run_fixture(&["--listFilesOnly"], true, &baseline);
     assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped);
     assert!(output.contains("TS8010:"), "{output}");
     let end = records.last().unwrap();
