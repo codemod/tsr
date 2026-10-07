@@ -497,6 +497,17 @@ were not established. Parent performance-owner investigation remains required.
 
 ### Effects publication prerequisite (tsr-1yb.11.3)
 
+**Superseded state proposal:** concurrent main commit `e744714c` was fetched
+and reviewed after the proposal below. It implements the bounded completed
+negative slice in `completed_no_effects_calls: FxHashSet<NodeId>`, requiring
+original alias/mapped-template context and materialized, written, nonpredicate,
+nonerror/nonnever, noncontext-sensitive signatures. Inferred/deferred/positive
+work remains absent. Its contract is
+`docs/architecture/checker-effects-completion.md` on main. This worker adds no
+effects state and does not replay its `checker.rs`/flow changes; parent owns
+serialized integration. The proposal below is historical, not a requested
+additional cache.
+
 Pinned `getEffectsSignature` (`internal/checker/flow.go`) reads/writes only
 `signatureLinks.effectsSignature`. Native publishes a selected effect or
 `unknownSignature` only after resolution. There is no active/provisional
@@ -636,3 +647,26 @@ credit. The validator also confirms retained target-suite result trailers and
 zero RIGHT losses/vanished keys in both comparisons. Corpus gates were not
 rerun. These receipts certify only the eligible scope already described, not
 the parent's full-configuration or historical RIGHT gates.
+
+### Scalar CPU attribution cohort, not performance acceptance
+
+After the original scalar wall gate failed, a distinct attribution experiment
+ran retained baseline `0e7824dd` and scalar-only `7d47ec72` binaries with the
+same hashes listed in `flow/identities.sha256`. It does **not** supersede the
+failed gate or establish a regression fix. Each foreground child was reaped
+with `wait4`, recording wall, user, system, CPU and exit status; 41 alternating
+measured pairs after one warmup pair per project. Durable runner exit: 0.
+Full distributions: `target/recovery/flow/cpu-attribution.json`.
+
+| Project | Baseline wall | Scalar wall | Wall ratio | Baseline CPU | Scalar CPU | CPU ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| domain-model | 0.2151609 | 0.2188929 | 1.0173 | 0.421839 | 0.422250 | 1.0010 |
+| generic-imports | 0.0986249 | 0.0986781 | 1.0005 | 0.089232 | 0.088750 | 0.9946 |
+
+Complete stdout/stderr/status agree in every child. Both projects contain no
+source bigint or symbol uses; this fact alone is not proof of zero worker hits.
+The original 1.0726 generic-imports wall excess is not reproduced as CPU excess
+in this cohort, but no hotpath causal attribution or no-slowdown acceptance is
+claimed. Reverting faithful native facts to change these timings is not a
+regression fix. Parent performance owner must reconcile the failed gate with
+complete-work, accepted-threshold measurements on its integrated source.
