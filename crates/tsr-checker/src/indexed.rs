@@ -184,8 +184,15 @@ impl Checker<'_, '_> {
                     }
                     self.get_intersection_type(&writes, None)
                 } else {
-                    self.property_name_from_index(index_type)
-                        .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
+                    let name = self.property_name_from_index(index_type).or_else(|| {
+                        self.type_of(index_type)
+                            .flags
+                            .intersects(crate::flags::TypeFlags::ES_SYMBOL_LIKE)
+                            .then(|| crate::objects::entity_name_expression_text(&index))
+                            .flatten()
+                            .map(|entity| format!("[{entity}]"))
+                    });
+                    name.and_then(|name| self.write_type_of_property_of_type(object_type, &name))
                         .unwrap_or(computed)
                 }
             } else {

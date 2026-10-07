@@ -545,6 +545,23 @@ string|undefined versus number|undefined and reject wrongnumber-to-string.
 StrictClippyPASS. Perf is unmeasured; parentno-slowdowngate pending before issue
 closure. Receipts write-instantiation-* under target/recovery/property.
 
+## Computed accessor write provenance — tsr-2zk.16.213
+
+The remaining computedPropertiesWithSetterAssignment row now follows the
+existing semantic symbol-entity key in indexed definite-write dispatch, then
+write_type_of_property_of_type selects the setter declaration from the existing
+late-bound (owner,static,name) partition. Native lateBindMember merges that pair
+into one symbol; this binder keeps split symbols. Original declaration identity
+and receiver mapper are retained; no synthetic alias key, cache, value forcing
+or reserved indexed resolver change. Ordinary literal-key dispatch unchanged.
+
+Wholecomputed setter targettypes+diagnostics match; directnativeCLI exit0.
+Completedfull477970types/10570diags exactly1RIGHTgain,0priorRIGHTloss/0vanished,
+diagcountsunchanged;ClippyPASS. Broader divergentAccessorsTypes8 stillWRONG for
+independent single-key/contextual failures; no whole-two-case acceptanceclaim.
+Computed-only latebinding query work remains performance-unmeasured and must be
+qualified by parent. Receipts paired-setter-* in target/recovery/property.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:

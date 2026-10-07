@@ -2289,7 +2289,28 @@ impl Checker<'_, '_> {
                 self.get_intersection_type(&write_types, None)
             });
         }
-        let property = self.get_property_of_type(receiver, name)?;
+        let mut property = self.get_property_of_type(receiver, name)?;
+        // Native lateBindMember gives a computed accessor pair one declaration
+        // set. The binder retains split symbols; select the setter from the
+        // existing late-bound owner/name partition without inventing a symbol.
+        if self.binder.symbols().get(property).name == "__computed"
+            && let Some(owner) = self.binder.symbols().get(property).parent
+        {
+            let is_static =
+                self.property_has_modifier(property, tsr_ast::SyntaxKind::StaticKeyword);
+            for (key, declaration) in self.late_bound_members_of(owner, is_static) {
+                if key == name
+                    && matches!(
+                        self.node_map.get(declaration),
+                        Some(Node::SetAccessorDeclaration(_))
+                    )
+                    && let Some(setter) = self.binder.symbol_of(declaration)
+                {
+                    property = setter;
+                    break;
+                }
+            }
+        }
         let written = self.write_type_of_accessors(property)?;
         // getWriteTypeOfInstantiatedSymbol (5b1047d): setter values use the
         // same ordered reference mapper as reads. Existing instantiation owns
