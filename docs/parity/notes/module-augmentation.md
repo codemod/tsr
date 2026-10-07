@@ -315,6 +315,16 @@ at the reference/printing consumer: the bound source identity is already correct
 No forbidden expression/compiler/loader files changed here. Integrated populated
 root/full-oracle proof remains required before clearing tsr-2zk.6.16.
 
+Follow-up exports provenance smoke: exports_type_equal_module=true,
+raw type prints typeof node_modules/c, type_to_string_at returns None. The
+remaining typeof import("c") mismatch is checker.rs::module_specifier_for_symbol's
+explicit node_modules package-name decline, not CJS type/symbol publication.
+Native nodebuilderimpl.getSpecifierForModuleSymbol uses Program module-specifier
+resolution. Required integration contract maps actual module/source identity and
+reference source to native package/export-map-aware specifier; never trim the
+node_modules path or infer package from leaf name. No symbols type shortcut is
+appropriate. Bare unresolved c assignment remains expression-owned.
+
 ## JSDoc export annotation next-root experiment (tsr-2zk.16.105)
 
 After parent took the native non-variable assignment gate, scoped the next owned
