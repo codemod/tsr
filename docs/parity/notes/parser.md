@@ -442,3 +442,9 @@ JSDoc reparsing (`reparser.go`) is enabled. Whether the reparser exists is
 How we would know the shape is wrong: if a consumer needs the fact for a node
 whose file cannot be reached cheaply (a synthesized node with no parent), the
 per-file flag must become per-node.
+
+## Carried parser recovery ports (box/lane-parser)
+
+- `void` in type position (`parseNonArrayType`): `void` has its own arm with
+  no keyword-dot lookahead, so `void.x` is the keyword type followed by a
+  TS1005 at `.`; `string.x`/`any.x` stay dotted type references.
