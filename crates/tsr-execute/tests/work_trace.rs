@@ -80,6 +80,14 @@ fn fixture() -> Baseline {
 }
 
 fn run(flags: &[&str], enabled: bool) -> (ExitStatus, String, Vec<Value>) {
+    run_fixture(flags, enabled, fixture())
+}
+
+fn run_fixture(
+    flags: &[&str],
+    enabled: bool,
+    fixture: Baseline,
+) -> (ExitStatus, String, Vec<Value>) {
     let capture = Capture::default();
     let trace = enabled.then(|| {
         Arc::new(WorkTrace::new(
@@ -92,7 +100,7 @@ fn run(flags: &[&str], enabled: bool) -> (ExitStatus, String, Vec<Value>) {
             },
         ))
     });
-    let mut host = Host { baseline: BaselineSystem::new(&fixture()), trace, warnings: Vec::new() };
+    let mut host = Host { baseline: BaselineSystem::new(&fixture), trace, warnings: Vec::new() };
     let args: Vec<_> = ["--project", "/project/tsconfig.json", "--pretty", "false", "--listFiles"]
         .into_iter()
         .chain(flags.iter().copied())
@@ -392,6 +400,34 @@ fn list_files_only_loads_a_program_without_creating_a_checker() {
     assert_intervals(&records);
     assert_eq!(records.last().unwrap()["peak_observed_checkers"], 0);
     assert_eq!(records.last().unwrap()["peak_constructing_checkers"], 0);
+}
+
+#[test]
+fn list_only_js_syntax_observes_checker_lifetime_without_semantic_work() {
+    let baseline = Baseline {
+        current_directory: "/project".into(),
+        use_case_sensitive_file_names: true,
+        files: vec![
+            (
+                "/project/tsconfig.json".into(),
+                r#"{"compilerOptions":{"allowJs":true},"files":["main.js"]}"#.into(),
+            ),
+            ("/project/main.js".into(), "const value: number = 1;".into()),
+        ],
+        ..Baseline::default()
+    };
+    let (status, output, records) = run_fixture(&["--listFilesOnly"], true, baseline);
+    assert_eq!(status, ExitStatus::DiagnosticsPresentOutputsSkipped);
+    assert!(output.contains("TS8010:"), "{output}");
+    let end = records.last().unwrap();
+    assert_eq!(end["checker_instances_created"], 1);
+    assert_eq!(end["state"], "complete");
+    assert!(
+        !records
+            .iter()
+            .any(|row| row["event"] == "work_begin" && row["operation"] == "source_file_check")
+    );
+    assert_intervals(&records);
 }
 
 /// Fail after the flushed header, while preserving the bytes already written.

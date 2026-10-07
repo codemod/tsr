@@ -129,15 +129,14 @@ payloads. Checker does not mutate those two fields. Therefore the existing TSR
 Diagnostic constructors are the actual semantic writer, not a serialization-time
 flag inference. Checker comma diagnostics use that constructor and publish
 TS2695 from their generated input; generic relation heads/children publish
-both false. A new actual comma-producer regression exposed incorrect TSR generated
-input: TS2695 has `MessageFlags::empty()` although pinned native has unnecessary
-true. The failing test receipt is `first-failure-tests.log`; it is not a pass.
-Required non-owned fix: generated/messages.rs TS2695 flags to
-`MessageFlags::REPORTS_UNNECESSARY`, plus generator/input fidelity audit. No
-code-based payload inference or special-case semantic setter was substituted. Deprecated suggestions also use NewDiagnostic in non-owned native
-checker suggestion writers; their missing TSR producer is not filled with guessed
-flags or a fabricated fallback. Oracle must call stored getters for every node,
-including globals and related notes. Explicit payload setters already exist.
+both false. The comma-producer regression exposed an input-schema bug: the
+generator omitted serde's native `reportsUnnecessary`/`reportsDeprecated` names.
+The canonical generator now reads those two camelCase fields; regeneration
+corrects eleven catalogue entries, including TS2695. No code-based flag setter
+or serialization-time inference replaces the native constructor. Actual comma
+production retains its unnecessary flag; explicit deserialization setters remain
+separate. Deprecated suggestion producers still require their own native ports.
+The full oracle must read stored getters for every chain node and related note.
 
 Current native/TSR control reproduced a chain overwrite for one source signature
 with three required parameters and target overloads of one then two parameters.
@@ -161,9 +160,12 @@ native <=0.50 or literal zero-regression release claim.
 
 ## Serialized integration prerequisites
 
-1. Integration owner: replace execute's head-only collector sorting/dedup with
-   full native comparison/equality/related merge; attach shared Program source
-   images, not a source copy per diagnostic. Config dedup needs the same audit.
+1. The execute collector now consumes the canonical owned `(path, Diagnostic)`
+   tuple sort/merge. Recoverable config errors continue into syntax and semantic
+   checking while retaining extended-file origins. Positioned extends TS6053 and
+   TS18002 use actual parsed initializer spans; an unreadable resolved `.json`
+   path instead reports global TS5083. Each duplicate extends property contributes
+   its own resolution errors, but only the last property's resolved paths load.
 2. Oracle owner: consume runtime getters and compare complete flattened trees,
    native spans/lengths/order and independently located related information across
    all configurations. Historical/legacy scores cannot certify these payloads.
@@ -182,3 +184,59 @@ native <=0.50 or literal zero-regression release claim.
 
 Issue remains in progress. Recovery is a bounded owned implementation, not
 campaign completion or permission to merge the saved branch wholesale.
+
+## Config reporting and source eligibility cutover — tsr-2zk.22.1.1
+
+Pinned operations: `GetDiagnosticsOfAnyProgram` (program.go:1782–1827),
+`EmitFilesAndReportErrors` (execute/tsc/emit.go:73–131), `sourceFileMayBeEmitted`
+(emitter.go:452–504), and `filesParser.start` (filesparser.go:245–301).
+
+List-only output retains config and syntax diagnostics, skips semantics, then
+prints files before the pretty summary. TypeScript-only lists create no checker;
+the existing JavaScript syntax worker still needs one private checker, whose
+actual construction is observed. No semantic worker is invoked in that branch.
+The canonical no-input producer now uses `!files && !references` only at the
+top-level config; the driver no longer inserts a second unconditional TS18003.
+
+External-source classification lives in the existing completed Program metadata
+vector, aligned with retained source files. Its key is the retained source's
+canonical path/task identity, not a printed pathname or package alias. The
+existing claimed task owns optional minimum depth and started-subtask state.
+Minimum depth publishes before recursion/elision. An unloaded task can be revived
+by an equal-depth non-eliding reference; already-started children do not restart,
+matching the pinned native gate. Package aliases never overwrite the replay-first
+source's classification. The expensive work remains source loading/parsing and
+its existing bounded preparation; no second membership cache or member image.
+
+Declaration and external sources are non-emittable. JSON sources require outDir
+and native common-directory/output identity rules. NoEmit is a later per-emitter
+decision, not source eligibility. An actually empty emitter set has an unskipped
+native result and diagnostics exit 2; list-only and noEmitOnError instead exit 1.
+Nonempty emission remains unsupported by the driver. Project-reference redirects
+and the internal NoEmitForJsFiles option have no producer here; this change does
+not certify those surfaces or complete native emission work.
+
+Actual native/TSR CLI controls match output and status for positioned extends,
+declaration-only empty emit, non-object empty config, duplicate extends, and
+list-only config plus syntax. Receipts are retained under `.git/tsr-recovery/`.
+Fresh executable launch stalls were sampled at `_dyld_start`, before Rust main;
+those delays are retained separately, not attributed to checker work. Full
+configured exact parity and verified <=0.50 performance remain unmet.
+
+## Imported assignment semantic result — tsr-2zk.22.1.1.1
+
+Correct root loading exposed a previously RIGHT imported `c++` operand becoming
+any. Native `checkIdentifier` (5b1047d:11076–11094) tests the local/export symbol's
+Variable flag, not an alias target's value type. The semantic getter now returns
+errorType for every non-variable assignment target except JavaScript ValueModule;
+the existing diagnostic walk retains the sole reporter. The old partial semantic
+test covering only functions/classes/enums/namespaces is removed.
+
+Ordinary reads do not fetch extra local/export flags: that work stays inside the
+assignment-kind branch. The regression distinguishes imported value reads from
+increment/assignment targets. Actual CLI reports native TS2632 at both targets.
+The repaired full legacy population retains all formerly RIGHT IDs and all keys;
+newly loaded CommonJS source rows still expose separate unsupported exports and
+unresolved-assignment roots. Source-matched 41-pair project checks preserve full
+output/options/scope without a hot-path slowdown; these are not a <=0.50 native
+speed certificate or full configured-parity acceptance.
