@@ -2649,7 +2649,16 @@ impl<'a> Parser<'a> {
         } else {
             self.error_at(&messages::IDENTIFIER_EXPECTED, span);
         }
-        self.missing_identifier()
+        // Native createMissingIdentifier uses nodePos(), including trivia,
+        // for both ends. A missing JSX tag name must remain before the trivia
+        // so parseJsxChild's min(SkipTrivia(pos), end) reports that empty span.
+        let full_start = self.node_end();
+        self.finish_node_with_end(
+            Identifier::new(""),
+            SyntaxKind::Identifier,
+            full_start,
+            full_start,
+        )
     }
 
     fn parse_member_name(&mut self) -> MemberName<'a> {
