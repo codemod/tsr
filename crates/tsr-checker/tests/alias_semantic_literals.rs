@@ -240,6 +240,37 @@ fn unique_operator_requires_symbol_operand() {
 }
 
 #[test]
+fn resolved_literal_groups_call_before_construct_signatures() {
+    assert_eq!(
+        declared_and_reference(
+            "type Unused = string; declare let value: { new (x: number): number; (x: string): string; new (x: boolean): boolean; (x: number): number; item: string };",
+            "Unused",
+        ).1,
+        "{ (x: string): string; (x: number): number; new (x: number): number; new (x: boolean): boolean; item: string; }",
+    );
+}
+
+#[test]
+fn semantic_signature_vector_groups_calls_before_constructors() {
+    let source = "declare const f: { new(x: number): number; (x: string): string; new(x: boolean): boolean; (x: number): number };";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let ty = checker.get_type_of_symbol(bound.lookup_local(root, "f").unwrap());
+    let kinds: Vec<_> =
+        checker.signatures_of_type(ty).unwrap().iter().map(|signature| signature.kind).collect();
+    use tsr_checker::signatures::SignatureKind::{Call, Construct};
+    assert_eq!(kinds, [Call, Call, Construct, Construct]);
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

@@ -2344,11 +2344,13 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let mut signatures = Vec::new();
+        let mut construct_signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
         let mut typed_properties: Vec<crate::objects::AnonymousProperty> =
             Vec::with_capacity(node.members.len());
         let mut typed_signatures = Vec::new();
+        let mut typed_construct_signatures = Vec::new();
         let mut typed_indexes = Vec::new();
         let mut seen_index_keys: Vec<TypeId> = Vec::new();
         // A merged duplicate member (below) changes the type's structure, but
@@ -2460,6 +2462,7 @@ impl<'a> Checker<'a, '_> {
                     return error;
                 };
                 let text = crate::objects::signature_member_text(self, &signature);
+                let construct = signature.kind == crate::signatures::SignatureKind::Construct;
                 let name = name.unwrap_or_default();
                 if is_property {
                     let Some(symbol) = self.binder.symbol_of(id) else { return error };
@@ -2514,10 +2517,18 @@ impl<'a> Checker<'a, '_> {
                     } else {
                         typed_properties.push(property);
                     }
+                } else if construct {
+                    typed_construct_signatures.push(signature);
                 } else {
                     typed_signatures.push(signature);
                 }
-                let bucket = if is_property { &mut properties } else { &mut signatures };
+                let bucket = if is_property {
+                    &mut properties
+                } else if construct {
+                    &mut construct_signatures
+                } else {
+                    &mut signatures
+                };
                 bucket.push(crate::objects::Member::Signature {
                     printed: format!("{prefix}{name}{text}"),
                 });
@@ -2832,6 +2843,10 @@ impl<'a> Checker<'a, '_> {
         {
             self.qualified_written_text.entry(id).or_insert(text);
         }
+        // Native createTypeNodesFromResolvedType groups CALL, CONSTRUCT, index
+        // and property members; source order remains within each signature set.
+        signatures.append(&mut construct_signatures);
+        typed_signatures.append(&mut typed_construct_signatures);
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
         let members = signatures;

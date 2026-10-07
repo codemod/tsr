@@ -370,6 +370,22 @@ after/before 1.00203, after/native 1.63265; full checked-work/release performanc
 remain uncertified. Receipts `unique-operand-*`. Constrained homomorphic `any` was
 also probed and already passes; only its behavior control is retained.
 
+## Type literal call/construct grouping
+
+Native `createTypeNodesFromResolvedType` emits CALL signatures, then CONSTRUCT,
+then index infos, then properties. `build_type_literal` now keeps separate
+construct buckets for rendered members and semantic signatures and appends them
+after calls, preserving source overload order within each set. No signature-kind
+field added to Member, no source-name/test exception, and no wrapper entry change.
+
+Source rendering fails before and passes after; semantic vector control confirms
+CALL,CALL,CONSTRUCT,CONSTRUCT for interleaved source. Signature-member/constructor
+targets pass. Native CLI overload call/construct consumers and rejection diagnostics
+compare byte-for-byte. Available unfiltered oracle: 3 WRONG→RIGHT, zero former
+RIGHT losses/vanished keys (`typeName1` one, generic overloaded constructor arguments
+two). Seven fresh-process samples after/before 1.01599, after/native 1.58315;
+no-hotpath/release performance not certified. Receipts `literal-signature-order-*`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
