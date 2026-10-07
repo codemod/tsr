@@ -271,6 +271,17 @@ fn semantic_signature_vector_groups_calls_before_constructors() {
 }
 
 #[test]
+fn keyof_parenthesized_parameter_retains_deferred_operand() {
+    assert_eq!(
+        declared_and_reference(
+            "type Keys<T> = keyof ((T)); declare let value: Keys<{ item: string }>;",
+            "Keys",
+        ),
+        ("keyof T".into(), "\"item\"".into()),
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

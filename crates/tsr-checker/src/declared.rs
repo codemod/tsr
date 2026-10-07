@@ -893,7 +893,7 @@ impl<'a> Checker<'a, '_> {
                         return keys;
                     }
                 }
-                let deferred = match node.r#type {
+                let deferred = match direct_operand {
                     Some(TypeNode::TypeReferenceNode(operand))
                         if operand.type_arguments.is_empty() =>
                     {
@@ -941,7 +941,7 @@ impl<'a> Checker<'a, '_> {
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
-                        if let Some(operand) = node.r#type {
+                        if let Some(operand) = direct_operand {
                             let operand = self.get_type_from_type_node(operand);
                             if operand != self.intrinsics.error {
                                 self.deferred_keyof_operands.insert(id, operand);

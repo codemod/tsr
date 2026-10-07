@@ -386,6 +386,18 @@ RIGHT losses/vanished keys (`typeName1` one, generic overloaded constructor argu
 two). Seven fresh-process samples after/before 1.01599, after/native 1.58315;
 no-hotpath/release performance not certified. Receipts `literal-signature-order-*`.
 
+## Deferred keyof operand identity
+
+The fallback `keyof` producer now uses its already-unwrapped `direct_operand` for
+parameter identification and deferred operand publication, rather than reverting
+to the wrapped syntax. Native type-node resolution is parenthesis-transparent;
+existing deferred key/operand owner and publication unchanged. Regression fails
+before and passes after; related targets pass. Native literal-key consumer diagnostic
+text/spans compare byte-for-byte. Existing unfiltered oracle unchanged, zero former
+RIGHT losses/vanished keys. Seven fresh-process samples after/before 0.96492,
+after/native 1.55823; complete-work/no-hotpath/release performance uncertified.
+Receipts `keyof-operand-*`; reserved wrapper/query/literal-bucket regions untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
