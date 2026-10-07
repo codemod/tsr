@@ -84,18 +84,33 @@ fn main() -> Result<()> {
             paths[3].display()
         ),
     )?;
-    let binary = report.join("native-oracle");
+    let built_native = report.join("native-oracle-build");
     let status = Command::new("go")
         .current_dir(&native)
         .arg("test")
         .arg(format!("-overlay={}", overlay.display()))
         .args(["-c", "-o"])
-        .arg(&binary)
+        .arg(&built_native)
         .arg("./internal/testrunner")
         .status()?;
     ensure!(status.success(), "native build failed");
-    let actual = std::env::current_exe()?.with_file_name("full_oracle_actual");
-    ensure!(actual.is_file(), "build full_oracle_actual first");
+    let built_actual = std::env::current_exe()?.with_file_name("full_oracle_actual");
+    ensure!(built_actual.is_file(), "build full_oracle_actual first");
+    let native_hash = hash(&built_native)?;
+    let actual_hash = hash(&built_actual)?;
+    let binary = full_oracle::freeze_worker(&built_native, &report, &native_hash)?;
+    let actual = full_oracle::freeze_worker(&built_actual, &report, &actual_hash)?;
+    fs::remove_file(&built_native)?;
+    let producer_sources =
+        ["full_oracle.rs", "full_oracle_native.go", "full_oracle_native_types.go"];
+    let mut producer_receipt = format!(
+        "checker_source\t{source}\nnative_binary\t{native_hash}\nactual_binary\t{actual_hash}\n"
+    );
+    for file in producer_sources {
+        producer_receipt
+            .push_str(&format!("producer_source\t{file}\t{}\n", hash(&src.join(file))?));
+    }
+    write_atomic(&report.join("producer-sources.tsv"), &producer_receipt)?;
     let corpus = native.join("_submodules/TypeScript/tests/cases");
     let plan = report.join("plan.tsv");
     let mut cmd = Command::new(&binary);
@@ -122,8 +137,6 @@ fn main() -> Result<()> {
         })
         .collect::<Result<_>>()?;
     ensure!(!tasks.is_empty(), "empty corpus");
-    let native_hash = hash(&binary)?;
-    let actual_hash = hash(&actual)?;
     let mut source_hashes = std::collections::BTreeMap::new();
     let unique: std::collections::BTreeSet<_> = tasks.iter().map(|(p, _)| p).collect();
     let hashes = Command::new("sha256sum").args(unique).output()?;

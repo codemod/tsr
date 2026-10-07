@@ -231,6 +231,28 @@ pub fn run(
     }
 }
 
+/// Copy, never hard-link, an executable into a content-addressed read-only worker image.
+/// Rebuilding the original path cannot change the bytes subsequently spawned.
+pub fn freeze_worker(
+    source: &Path,
+    directory: &Path,
+    expected_hash: &str,
+) -> Result<std::path::PathBuf> {
+    let destination = directory.join(format!("worker-{expected_hash}"));
+    if destination.exists() {
+        anyhow::ensure!(hash(&destination)? == expected_hash, "worker image hash mismatch");
+        return Ok(destination);
+    }
+    let temporary = destination.with_extension("copying");
+    fs::copy(source, &temporary)?;
+    anyhow::ensure!(hash(&temporary)? == expected_hash, "worker changed during snapshot");
+    let mut permissions = fs::metadata(&temporary)?.permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&temporary, permissions)?;
+    fs::rename(&temporary, &destination)?;
+    Ok(destination)
+}
+
 pub fn records(s: &str) -> Vec<&str> {
     s.lines().filter(|l| l.starts_with("D\t") || l.starts_with("T\t")).collect()
 }
