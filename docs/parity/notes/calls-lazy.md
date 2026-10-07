@@ -723,3 +723,69 @@ or duplicate side cache was added. This root therefore needs serialized
 whole-file metadata ownership. Integrator issue request: untyped-JS signature
 minimum publication, current witness jsFileFunctionParametersAsOptional.
 The verified rest-pattern commit remains delivered; this next root is open.
+
+### Complete rest-pattern diagnostic cutover
+
+The integrator required both iterableArrayPattern17/26 to pass, not merely
+removal of TSR-only TS2554. Further inline tracing found the remaining
+prerequisite wholly inside owned `calls.rs`: `check_resolve_call_arity`
+returned Undecided for every binding-pattern rest signature via
+`has_binding_pattern_rest`, based on the now-obsolete implicit any[] producer
+assumption. Deleted that decline and its helper. Existing semantic arity and
+applicability consumers now use the corrected signature parameter type;
+no shared-file patch, shim or added special case was necessary. This
+supersedes the earlier speculative shared diagnostic prerequisite.
+
+Final candidate native proof:
+
+- `iterableArrayPattern17`: CLI TS2741 at `(19,5)` with exact text
+  `Property 'x' is missing in type 'FooIterator' but required in type 'Bar'.`
+- `iterableArrayPattern26`: CLI TS2345 at `(3,21)` with exact text
+  `Argument of type 'Map<string, number>' is not assignable to parameter of type '[string, number]'.`
+- Both target CLI outputs compare byte-for-byte with pinned native; corpus
+  directive-adjusted positions are `(17,5)` and `(2,21)` respectively.
+- Optional tuple `[number,string?]`, variable rest `[number,...string[]]`,
+  tuple spread and invalid array-spread controls also compare byte-for-byte,
+  retaining native TS2554/TS2555/TS2556. These controls establish distinct
+  required, optional and effective-spread behavior, not added case branches.
+
+Final cumulative matrix against frozen parent baseline:
+
+| Gate | Before | After | Losses / missing IDs |
+|---|---:|---:|---:|
+| Type IDs | 477,970 | 477,970 | 0 / 0 |
+| Type RIGHT | 469,765 | 469,766 | 0 |
+| Diagnostic case IDs | 10,570 | 10,570 | 0 missing |
+| Diagnostic RIGHT | 4,221 | 4,223 | 0 |
+| Diagnostic EMPTY_RIGHT | 4,968 | 4,968 | 0 |
+
+Only diagnostic verdict transitions are WRONG->RIGHT for
+`conformance/iterableArrayPattern17` and
+`conformance/iterableArrayPattern26`. Only type transition remains
+`compiler/restParameterWithBindingPattern1:0:0` WRONG->RIGHT. No target type
+IDs were lost; type corpus case conversions are not claimed.
+
+All existing coverage suites completed read-only over 12,444 discovered
+cases. checker_types 8,042/9,538 (2,906 skipped), line percentage
+98.10193064706435; diagnostics 4,223/5,502 (6,942 skipped). Workspace release
+tests, all-target clippy with warnings denied, and fmt check passed. No
+conformance sources or snapshots were changed. The existing scorer's
+population/message/length/order limits remain; strict >=99.9% parity is not
+asserted.
+
+Final candidate SHA-256:
+`3f655c0928d24a2bf65a8d4768b540fd8e40c768d7a71171adb229d638ca8f11`.
+Final interleaved fresh-process baseline measurements: domain-model noisy
+21-pair CPU ratio 1.043765 repeated with 41 pairs, wall 0.990918 and CPU
+0.998618; generic-imports 21 pairs, wall 1.008520 and CPU 1.007970.
+Diagnostics and loaded scope match. Pinned-native observed wall at 21 pairs:
+1.019135 domain-model, 0.945059 generic-imports. Complete-input equivalence
+and actual checked-work proof flags remain false; no verified native ratio
+or <=0.50 claim. The no-slowdown baseline gate passed after the required
+noise repeat.
+
+Dedicated issue ID is pending the integrator's announced receipt; commit
+references the existing parent tsr-2zk.9 until that ID is supplied. Delivered
+rest-pattern root now includes both target diagnostic conversions, semantic
+parameter preparation, removal of both obsolete helpers/declines, and the
+permanent native arity controls. Shared lazy-parameter roots stay open.
