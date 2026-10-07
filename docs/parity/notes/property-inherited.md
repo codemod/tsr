@@ -611,6 +611,46 @@ performed work are unverified (`work_comparable=false`, `target_verified=false`)
 No release-speed claim. Dedicated single-root Beads issue requested from integrator;
 parent `.4.12.1` in the delivery message does not close inherited readonly work.
 
+## Normal-read resolved-base probe — tsr-2zk.16.225 / tsr-2zk.16.88
+
+A query-only normal-read experiment inserted existing `get_base_types` and
+`get_type_of_property_with_this_argument` after the symbol lookup miss, without
+exposing new symbols or modifying shared producers. Concrete non-generic value
+alias control (`class Derived extends Alias`, Alias = Base, inherited number
+field and self-return) agrees with native. A generic instantiation-expression
+alias control contradicted the presumed producer: native reports TS2314 for
+`class Derived extends Alias` where Alias = Base<number>, then TS2339 for the
+members, whereas TSR resolves the base. This is an existing
+`base_types.rs::resolve_base_types_of_class` / heritage argument producer gap,
+not grounds for treating every checked constructor expression as a valid base.
+No alias-spelling exception was added.
+
+Both unfiltered verdict runs completed, comparing against the completed
+checked-JS setter port: 477,970 type keys / 10,570 diagnostic cases, zero vanished
+protected keys. **Two prior RIGHT type losses:**
+`compiler/readonlyAssignmentInSubclassOfClassExpression:0:8,10` change native
+error-any to number. **Eight GAP→WRONG plus six changed-still-WRONG rows** in
+`conformance/intersectionThisTypes` retain Thing4 rather than Thing5, as the
+previously recorded row inventory details. Diagnostic protected keys have no
+changed verdict; `compiler/genericDefaults` removes extraneous TS2415 but stays
+WRONG. Overall type totals improve to 469,855 RIGHT, 971 GAP, 7,144 WRONG,
+which does not make this probe acceptable. No changes from this probe are shipped.
+
+Exact still-owned prerequisite contracts:
+`members.rs::property_type_via_shape` must substitute the concrete derived this
+through the intersection base constituents without replacing it by the base
+intersection in the recursive read; `readonly_target.rs::is_assignment_to_readonly_property`
+must consume the resolved inherited mapped readonly image, not merely an
+absent binder root from the syntax-only member walk. Shared mapper and synthetic
+member identities must remain coherent with normal reads, not a write-specific
+second scan. The generic-this probe above separately exposed the unowned erased
+receiver-relation prerequisite. Complete native image cutover remains required;
+no receiver-specific fallback or suppression is approved.
+
+The two-case count for `.16.225` is the integrator's current triage scope, not a
+verified converted-case count; current brief does not name both exact case IDs.
+No performance or full-root completion claim is made for this rejected probe.
+
 ## Release-target limits
 
 Observed 21-pair fresh-process interleaved comparisons after reverting the
