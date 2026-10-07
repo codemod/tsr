@@ -139,7 +139,9 @@ fn semantic_diagnostic(file: Option<&str>, texts: &std::collections::BTreeMap<St
         (before.encode_utf16().count(), marked.encode_utf16().count())
     } else { (0, 0) };
     let flags = d.message.flags();
-    let mut out = format!("{},{},{},{},{},{},{},{},{},{},{},false,[", hex(file.unwrap_or("")),
+    // This model does not expose native per-diagnostic flags. Preserve observed
+    // message defaults separately; unknown dynamic state must never claim false.
+    let mut out = format!("{},{},{},{},{},{},{},{},{},message-default:{},message-default:{},unavailable:skippedOnNoEmit,[", hex(file.unwrap_or("")),
         d.span.start, d.span.len(), start, length, d.message.code(), d.message.category() as u8,
         hex(d.message.key()), hex(&d.text()), flags.contains(MessageFlags::REPORTS_UNNECESSARY), flags.contains(MessageFlags::REPORTS_DEPRECATED));
     for arg in &d.args { out.push_str(&hex(arg)); out.push(';'); }

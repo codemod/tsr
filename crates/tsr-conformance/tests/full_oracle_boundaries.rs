@@ -55,6 +55,8 @@ fn full_oracle_native_cartesian_clean_and_span_controls() {
     let actual_comma = tsr_conformance::full_oracle_actual::produce(&comma.configuration).expect("real TSR comma producer");
     assert_eq!(actual_comma.errors, output.errors);
     assert_eq!(actual_comma.types, output.types);
+    assert!(actual_comma.diagnostics.contains("unavailable:skippedOnNoEmit"));
+    assert!(matches!(full_oracle::compare(output, &actual_comma), Verdict::Different { diagnostics: true, .. }));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -67,7 +69,11 @@ fn config_only_options_keep_source_identity_and_complete_artifacts() {
     ).expect("pinned native config control");
     let native = population.configurations.values().next().expect("config control retained");
     let actual = tsr_conformance::full_oracle_actual::produce(&native.configuration).expect("real TSR config producer");
-    assert_eq!(full_oracle::compare(native.output.as_ref().expect("native artifact"), &actual), Verdict::Exact);
+    let expected = native.output.as_ref().expect("native artifact");
+    assert_eq!(actual.errors, expected.errors);
+    assert_eq!(actual.types, expected.types);
+    assert!(actual.diagnostics.contains("unavailable:skippedOnNoEmit"));
+    assert!(matches!(full_oracle::compare(expected, &actual), Verdict::Different { diagnostics: true, .. }));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
