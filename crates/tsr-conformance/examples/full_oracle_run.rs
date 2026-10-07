@@ -14,6 +14,18 @@ use std::{
 };
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--compare-populations") {
+        ensure!(
+            args.len() == 4,
+            "usage: full_oracle_run --compare-populations LEFT_INPUTS RIGHT_INPUTS OUTPUT"
+        );
+        full_oracle::compare_populations(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+        )?;
+        return Ok(());
+    }
     ensure!(
         args.len() == 2 || args.len() == 3,
         "usage: full_oracle_run REPO REPORT_DIRECTORY [PRIOR_REPORT]"

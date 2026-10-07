@@ -339,4 +339,65 @@ pub fn cluster(expected: &str, actual: &str) -> String {
         _ => "missing-or-extra-records".into(),
     }
 }
+/// Reconcile recorded input manifests without executing or inferring compiler work.
+pub fn compare_populations(left: &Path, right: &Path, output: &Path) -> Result<()> {
+    let load = |path: &Path| -> Result<BTreeMap<(String, String), String>> {
+        let mut rows = BTreeMap::new();
+        for line in fs::read_to_string(path)?.lines() {
+            let fields: Vec<_> = line.split('\t').collect();
+            anyhow::ensure!(fields.len() == 3, "invalid input manifest row");
+            let source = unhex(fields[0])?;
+            // Workspace prefixes differ; compiler/conformance identity is suite-relative.
+            let relative = source.split_once("/tests/cases/").map_or(source.as_str(), |(_, r)| r);
+            anyhow::ensure!(
+                relative.starts_with("compiler/") || relative.starts_with("conformance/"),
+                "unknown suite identity"
+            );
+            let key = (relative.to_string(), unhex(fields[1])?);
+            anyhow::ensure!(
+                rows.insert(key, fields[2].to_string()).is_none(),
+                "duplicate configured identity"
+            );
+        }
+        Ok(rows)
+    };
+    let a = load(left)?;
+    let b = load(right)?;
+    let mut out = format!(
+        "LEFT_SHA256\t{}\nRIGHT_SHA256\t{}\nLEFT_ROWS\t{}\nRIGHT_ROWS\t{}\n",
+        hash(left)?,
+        hash(right)?,
+        a.len(),
+        b.len()
+    );
+    let mut missing = 0;
+    let mut extra = 0;
+    let mut changed = 0;
+    for ((source, variant), h) in &a {
+        match b.get(&(source.clone(), variant.clone())) {
+            None => {
+                missing += 1;
+                out.push_str(&format!("MISSING_RIGHT\t{}\t{}\t{h}\n", hex(source), hex(variant)));
+            }
+            Some(other) if other != h => {
+                changed += 1;
+                out.push_str(&format!(
+                    "CHANGED_INPUT\t{}\t{}\t{h}\t{other}\n",
+                    hex(source),
+                    hex(variant)
+                ));
+            }
+            _ => {}
+        }
+    }
+    for ((source, variant), h) in &b {
+        if !a.contains_key(&(source.clone(), variant.clone())) {
+            extra += 1;
+            out.push_str(&format!("EXTRA_RIGHT\t{}\t{}\t{h}\n", hex(source), hex(variant)));
+        }
+    }
+    out.push_str(&format!("MISSING_RIGHT_COUNT\t{missing}\nEXTRA_RIGHT_COUNT\t{extra}\nCHANGED_INPUT_COUNT\t{changed}\n"));
+    write_atomic(output, &out)
+}
+
 pub type Counts = BTreeMap<String, usize>;

@@ -1,5 +1,22 @@
 # Full configured native oracle
 
+## Recorded-population reconciliation tool
+
+```sh
+target/release/examples/full_oracle_run --compare-populations \
+  <left-inputs.tsv> <right-inputs.tsv> <output.tsv>
+```
+
+This mode reads recorded manifests only, identifies suite-relative source plus
+exact variant, rejects duplicate configured identities, binds both manifest
+SHA-256 values and emits exact missing/extra IDs and changed source hashes.
+Workspace prefixes are not case identity. It neither runs producers nor
+reconstructs expectations. Actual smoke: completed r2 versus loaded-source
+manifests gives 0 missing/extra/changed; a throwaway manifest missing one source
+configuration reports exactly 1 missing ID. The external 15,323 manifest remains
+unavailable, so the 358-row gap is not yet attributable. The latest complete
+measurement is still the explicitly frozen c818 14,965 receipt.
+
 ## Exact population/discovery boundary
 
 A fresh native **discovery-only** run (not a rerun of completed measurements)
