@@ -87,6 +87,67 @@ diagnostics. Full-corpus dumps compare only the existing normalized oracle;
 complete message/chains/length/order and full variant coverage need the exclusive
 conformance-owner strict oracle.
 
+## Augmented-symbol import-type root: integration contract
+
+Pinned native `internal/checker/symbolaccessibility.go` supplies the semantic
+container algorithm, not the node builder's rendered name:
+`getContainersOfSymbol` → `getWithAlternativeContainers` →
+`getFileSymbolIfFileSymbolExportEqualsContainer` / `getExternalModuleContainer`,
+with `getSymbolIfSameReference` in `internal/checker/checker.go`.
+
+Existing producer metadata is sufficient for the immediate root identity:
+Symbol.parent, Symbol.declarations and Symbol.export_symbol are Program-store
+SymbolIds/NodeIds; BindResult.merged_symbol supplies completed merge redirects.
+Do not introduce a second parent/root cache or store a printed import specifier
+as identity. Native getParentOfSymbol canonicalizes the parent (and forces its
+late-bound symbol); native same-reference comparison canonicalizes both sides,
+resolves aliases, then canonicalizes the resolved targets. A comparison of raw
+parents or equal names is not that algorithm.
+
+Exact cross-owner serialization request to integrator/parity-printing:
+
+1. Agree the semantic producer API before wiring the printer. The native-shaped
+   candidate is `get_containers_of_symbol(symbol: SymbolId,
+   enclosing: Option<NodeId>, meaning: SymbolFlags) -> Vec<SymbolId>` in owned
+   symbols.rs. Result order is significant; this is *not* an API for one guessed
+   import-type root. The enclosing declaration and meaning must remain inputs.
+   Implement the whole reachable native contract, not a printer-specific shim.
+2. `getWithAlternativeContainers` preserves the real namespace first when an
+   accessible namespace chain exists, otherwise prefers export-equals file
+   containers before the real parent. It appends reexport and object-literal
+   alternatives, and considers instance-side variables only for native VALUE
+   meaning. `getAlternativeContainingModules` uses imports in the enclosing
+   file and getAliasForSymbolInContainer; this requires the accessible-symbol
+   chain/alias producer to be audited before a faithful full API is published.
+3. For an export-equals namespace member, derive the alternative module from
+   the parent's actual declarations and ancestor module node, then compare its
+   export-equals target by native same-reference semantics. This returns the
+   ambient or SourceFile *module SymbolId*, preserving the merged function /
+   namespace's own identity. Neither the augmentation's string-literal name nor
+   the target namespace's text independently certifies that container.
+4. Printer owner consumes ordered semantic container candidates and retains the
+   written alias/origin/enclosing declaration for import-type rendering. The
+   existing `printing.rs::export_equals_class_text_at` is class-only and derives
+   a SourceFile container; it cannot establish the augmented ambient namespace
+   member contract for augmentExportEquals5 or angular. Do not broaden it using
+   its rooted single-directory string rendering as semantic evidence.
+5. If memoization is required, native symbolContainerLinks.extendedContainersByFile
+   is privateChecker-owned, keyed by canonical SymbolId then enclosing SourceFile
+   NodeId; options and bound Program are fixed for that checker. Absent versus
+   completed empty must be distinguishable. Do not publish an active recursive
+   assumption as completed. Actual alias/container/accessible-chain worker counts
+   are unmeasured here: request a bounded Beads follow-up before extending reuse.
+
+No unused candidate API or checker state field is added in this lane commit.
+The integration owner must serialize symbols producer, checker state if needed,
+accessible-chain dependencies, and printing consumer together. This keeps a
+partial implementation from claiming to have native container ordering.
+
+Integration update reports current main coverage 8046/9538 types over 12444
+source cases. That is not this worker's frozen/verified 8042/9538 snapshot; the
+counts below remain attributed to the measured parent. Expanded/native-only
+configuration coverage belongs exclusively to parity-full-corpus.
+
 ## Verification after the external import-equals port
 
 - Actual rebuilt TSR CLI matches the pinned native control's sole diagnostic:
