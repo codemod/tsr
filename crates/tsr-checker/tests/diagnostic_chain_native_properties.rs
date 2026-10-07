@@ -240,3 +240,26 @@ fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains()
     );
     assert!(ds.is_empty(), "{ds:?}");
 }
+#[test]
+fn union_source_reports_first_failed_constituent_like_each_type_related_to_type() {
+    let ds = diagnostics(
+        "declare let lit: \"a\" | 1; let ln: boolean = lit; declare let fu: ((a: number) => void) | ((b: string) => number); let fv: (a: number) => number = fu; declare let bo: boolean; let sn: string = bo; declare let po: { p: string | number }; let pt: { p: string } = po;",
+    );
+    let actual = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, d, "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual,
+        [
+            "Type 'string | number' is not assignable to type 'boolean'.\n  Type 'string' is not assignable to type 'boolean'.",
+            "Type '((a: number) => void) | ((b: string) => number)' is not assignable to type '(a: number) => number'.\n  Type '(a: number) => void' is not assignable to type '(a: number) => number'.\n    Type 'void' is not assignable to type 'number'.",
+            "Type 'boolean' is not assignable to type 'string'.",
+            "Type '{ p: string | number; }' is not assignable to type '{ p: string; }'.\n  Types of property 'p' are incompatible.\n    Type 'string | number' is not assignable to type 'string'.\n      Type 'number' is not assignable to type 'string'.",
+        ]
+    );
+}

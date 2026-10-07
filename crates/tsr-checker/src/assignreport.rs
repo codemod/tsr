@@ -1998,7 +1998,10 @@ impl<'a> Checker<'a, '_> {
         let source_flags = self.type_of(source).flags;
         if self.exact_optional_property_types
             || (source_flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
-                && !self.type_of(target).flags.intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
+                && !self
+                    .type_of(target)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
             || (source_flags.contains(TypeFlags::TYPE_PARAMETER)
                 && self.base_constraint_of_type(source).is_none())
         {

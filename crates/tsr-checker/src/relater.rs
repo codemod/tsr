@@ -3002,7 +3002,8 @@ impl Relater<'_, '_, '_> {
             let saved_simple = std::mem::take(&mut self.simple_error);
             let saved_marker = self.return_marker.take();
             self.diagnostic_pair = decided.then_some((constituent, target));
-            let related = self.is_related_to_with_flags(constituent, target, RecursionFlags::SOURCE);
+            let related =
+                self.is_related_to_with_flags(constituent, target, RecursionFlags::SOURCE);
             self.diagnostic_pair = saved_pair;
             if related == RelationResult::NotRelated {
                 let child = self.property_error.take().or_else(|| {
@@ -3072,11 +3073,8 @@ impl Relater<'_, '_, '_> {
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE));
-            let result = if comparable {
-                RelationResult::any(parts)
-            } else {
-                RelationResult::all(parts)
-            };
+            let result =
+                if comparable { RelationResult::any(parts) } else { RelationResult::all(parts) };
             // With nested reporting off, the pair's own reportRelationError
             // link is the whole explanation.
             self.simple_error |= reporting && result == RelationResult::NotRelated;
