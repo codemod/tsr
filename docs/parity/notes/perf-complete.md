@@ -108,6 +108,15 @@ but do not demonstrate eager repeated resolver work or scheduler overhead as a
 root cause; no duplicate cache, semantic cutover, or timer movement is justified.
 Actual worker counts and complete forcing remain unmeasured prerequisites.
 
+Next owned boundary inspected: Program::bind_source_files uses private file
+binder results and serial publish_file relocation/ordered global merging;
+pinned Program.BindSourceFiles queues each unbound file and waits for workers.
+PreparedNames::new has 0.14% self samples in the existing production profile.
+Removing publication would require unowned binder symbol/flow identity changes,
+not merely a compiler scheduler patch. No such cutover or extra cache is made.
+A bounded binder-owner follow-up must measure publish_file relocation/copy work
+and worker executions before changing this boundary.
+
 The integrator's available-core default hypothesis needs qualification against
 the pinned compiler implementation: checkerpool.go newCheckerPoolWithTracing
 sets checkerCount to 4, singleThreaded to 1, or explicit Options().Checkers,
@@ -174,6 +183,12 @@ lockfile, checker, parser or binder file is edited by this lane.
 - Full unfiltered before/after dumps have identical keys and verdict counts;
   zero before-RIGHT type-line losses, zero before-RIGHT/EMPTY_RIGHT diagnostic
   case losses. No named compiler target cases were assigned or converted.
+  A fresh post-root rerun additionally captured actual child exit receipts using
+  subprocess.run with 1800-second deadlines: type dump exit 0 (250.136 s),
+  diagnostic dump exit 0 (222.197 s), full scratch-bound coverage exit 0
+  (776.315 s); none timed out. Both post-root verdict key sets/counts match the
+  frozen baseline and both loss counts are zero. Earlier kill-0 wait timeouts
+  were not exit receipts and are not used as corpus completion evidence.
 - Full coverage completed over all 12444 discovered sources: checker_types
   8042/9538 (84.32%, 98.10% lines), diagnostics 4221/5502 (76.72%). Skipped
   populations remain 2906 and 6942 respectively; these are not strict full
