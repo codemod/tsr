@@ -3864,6 +3864,32 @@ mod property_name_tests {
     }
 
     #[test]
+    fn callable_computed_name_uses_unique_symbol_origin_not_string_spelling() {
+        with_checker(
+            "declare const key: unique symbol; interface Source { [key]: number; 'Symbol.species': string }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Source").unwrap();
+                let declaration = checker.binder.symbols().get(owner).declarations[0];
+                let tsr_ast::Node::InterfaceDeclaration(interface) =
+                    checker.node_map.get(declaration).unwrap()
+                else {
+                    panic!("interface")
+                };
+                let computed = checker
+                    .binder
+                    .symbol_of(tsr_ast::Node::from(interface.members[0]).node_id().unwrap())
+                    .unwrap();
+                assert_eq!(checker.callable_property_name(computed, "[key]"), "[key]");
+                let written = checker.binder.symbols().get(owner).members["Symbol.species"];
+                assert_eq!(
+                    checker.callable_property_name(written, "Symbol.species"),
+                    "\"Symbol.species\""
+                );
+            },
+        );
+    }
+
+    #[test]
     fn supplying_reference_mapper_preserves_outer_arguments_and_derived_this() {
         with_checker(
             "interface Base<T> { fn: (p: this, value: T) => this } interface Left extends Base<string> { left: number } interface Right extends Base<number> { right: string }",

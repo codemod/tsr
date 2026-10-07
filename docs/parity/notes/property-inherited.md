@@ -464,6 +464,27 @@ performance/no-hotpath-regression measurement is claimed; parent gate required.
 Receipts: receiver-widen-* in target/recovery/property. This is a bounded native
 member consumer delivery, not closure of broad issue acceptance.
 
+## Computed callable property names — tsr-2zk.16.45
+
+Parent requested callable_property_name helper-only ownership in
+callable_expandos.rs. The helper now reads the original ComputedPropertyName
+and semantic UNIQUE_ES_SYMBOL type before quoting a nonidentifier name,
+matching getPropertyNameNodeForSymbolFromNameType (5b1047d
+nodebuilderimpl.go:2455). The existing entity-expression renderer provides
+computed spelling; no raw display-string parsing or alias-name exception.
+A literal 'Symbol.species' remains a quoted string, not a computed member.
+No new name cache, table image or metadata fallback is introduced.
+
+Focused computed-unique versus written-string control passes. Strict checker
+Clippy passes. Completed full477970 type/10570 diagnostic pair is unchanged,
+zero prior RIGHT losses and zero vanished keys. This is a dynamic wrapper-print
+prerequisite, not a measured named corpus conversion. Parent Array wrapper
+[Symbol.species] print smoke and source-qualified alias tracking must be
+qualified at the actual renderer site. Expression name-type query remains at
+print boundary; no complete-work perf claim. Receipts computed-name-* in
+target/recovery/property; parent-reserved Signature/AST/readonly/order suppliers
+are untouched.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:

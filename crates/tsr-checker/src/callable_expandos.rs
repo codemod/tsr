@@ -60,11 +60,28 @@ impl Checker<'_, '_> {
     /// `getPropertyNameNodeForSymbol` / `classifyPropertyName`
     /// (internal/checker/nodebuilderimpl.go): numeric names retain the
     /// distinction between string-named and numeric declarations.
-    pub(crate) fn callable_property_name(&self, symbol: SymbolId, name: &str) -> String {
+    pub(crate) fn callable_property_name(&mut self, symbol: SymbolId, name: &str) -> String {
+        // getPropertyNameNodeForSymbolFromNameType (5b1047d): a unique-symbol
+        // key is a computed property, not a quoted display-name string. Read
+        // declaration identity and semantic name type, never bracket spelling.
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        for declaration in &declarations {
+            let Some(Node::ComputedPropertyName(computed)) =
+                self.declaration_name_of(*declaration).and_then(|node| self.node_map.get(node))
+            else {
+                continue;
+            };
+            let Some(expression) = computed.expression else { continue };
+            let name_type = self.check_expression(expression);
+            if self.type_of(name_type).flags.contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+                && let Some(entity) = crate::objects::entity_name_expression_text(&expression)
+            {
+                return format!("[{entity}]");
+            }
+        }
         if crate::objects::is_identifier_text(name) {
             return name.to_owned();
         }
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
         let string_named = !declarations.is_empty()
             && declarations.iter().all(|&declaration| {
                 let name = match self.node_map.get(declaration) {
