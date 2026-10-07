@@ -93,6 +93,18 @@ observer synchronization/allocations: instrumented runs are correctness-only,
 never timed ratios. Initial unbuffered large-project capture timed out at 180s,
 801878 records, no completion: rejected, not proof. Buffered controls completed.
 
+Expanded input overlay additionally observes embedded bundled-library reads with
+actual returned bytes, module resolver queries before cache admission (name,
+containing-file,mode,redirect identity), completed cache hits versus completed
+workers, and OS-system environment query results. Expanded default domain-model
+control exited 1 normally with exact noninstrumented stdout/stderr/exit agreement:
+63 bundled reads,264 module queries,223 completed hits,41 completed resolutions.
+The environment hook observed no calls in this control; this is not proof of
+all environment access. Completion is recorded; complete-input flags stay false
+pending remaining type-reference/config/cache/Stat/WalkDir coverage and cross-tool
+query-result correspondence. No full-corpus rebuild was needed for these temporary
+native-only probes; no instrumented speed measurement was taken.
+
 ### Minimal serialized TSR checker interface request
 
 Integrator must route these additions through ONE checker owner; this lane edits
