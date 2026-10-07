@@ -1,5 +1,5 @@
 //! Native JavaScript JSX boundaries and nested type-list publication.
-use tsr_ast::{Expression, Statement};
+use tsr_ast::{Expression, HasNodeId, Statement};
 use tsr_core::Arena;
 use tsr_parser::{ParseOptions, parse_with_options};
 
@@ -20,7 +20,8 @@ fn javascript_unary_jsx_recovery_preserves_diagnostics() {
                 .collect();
             assert_eq!(actual, expected, "{name}: {source:?}");
             if source.starts_with('!') {
-                let messages: Vec<_> = parsed.diagnostics.iter().map(|d| d.text()).collect();
+                let messages: Vec<_> =
+                    parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect();
                 assert_eq!(
                     messages,
                     [
@@ -111,7 +112,6 @@ fn published_type_arguments_survive_the_private_parser_owner() {
                     panic!("expected nested identifier");
                 };
                 assert_eq!(argument_name.text, "C");
-                use tsr_ast::HasNodeId;
                 let argument_id = argument.node_id().unwrap();
                 assert!(published.node_range.contains(&argument_id.as_u32()));
                 assert_eq!(nodes.parent(argument_id), Some(id));
