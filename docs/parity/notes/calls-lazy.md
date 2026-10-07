@@ -102,3 +102,31 @@ Fresh receipts in `target/recovery/calls`:
 
 No current-native full-configuration or performance acceptance is inferred
 from these focused controls and historical harness ratchets.
+
+## F6/G6 query-return signature prerequisite
+
+Parent reported `type F6 = ({ a: string }) => typeof string` collapsing its
+callable body; constructor `G6` has the same boundary. Reproduction showed
+parameter construction succeeds, but `return_type_of_worker` declines because
+the existing unresolved-annotation spelling channel excludes type queries.
+Native `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` publishes the
+anonymous identity before members; `getSignatureFromDeclaration` preserves
+shape and `getReturnTypeFromAnnotation` resolves the return independently.
+
+Owned change: the established unresolved return annotation path also consults
+`type_query_written_text` for a query with no type arguments. This retains
+its existing any/error-return representation and written-node channel rather
+than declining the entire signature. It applies equally to function and
+constructor signatures, not alias names. Instantiated queries remain outside
+this spelling seam. No new identity table, cache, mapper or shared field.
+Existing captured declaration keys and `signature_returns` own completion;
+`qualified_written_text` retains annotation presentation. This does not change
+the alias owner's anonymous publication or certify broader lazy admission.
+
+Receipts: `f6-test-before2.log` fails with `error`; `f6-test-after.log` passes
+exact `F6`/`G6` expectations. `f6-native.log` and `f6-cli.log` are byte-identical
+actual CLI diagnostics. Complete checker tests/clippy pass (`f6-tests.log`,
+`f6-clippy-final.log`). Case `renamingDestructuredPropertyInFunctionType` moves
+156/177 to 162/177 type lines, with F10 still the first mismatch. Full existing
+12,444-key types/diagnostics ratchets retain all prior passes and keys
+(`f6-ratchet.json`); no new whole-case pass or release/perf claim.

@@ -2471,7 +2471,13 @@ impl<'a> Checker<'a, '_> {
             let mut single_quoted = false;
             let mut array_headed = false;
             let spelled =
-                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)?;
+                Self::written_type_text(annotation, &mut single_quoted, &mut array_headed)
+                    .or_else(|| match annotation {
+                        TypeNode::TypeQueryNode(query) if query.type_arguments.is_empty() => {
+                            Self::type_query_written_text(annotation)
+                        }
+                        _ => None,
+                    })?;
             if let Some(id) = tsr_ast::Node::from(annotation).node_id() {
                 self.qualified_written_text.insert(id, spelled);
             }
