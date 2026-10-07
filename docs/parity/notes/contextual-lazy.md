@@ -468,6 +468,28 @@ or candidate results. Only rest-*-after successful-build receipts qualify the
 zero-change observation. Existing Array constructor pattern was reused on the
 second build. Owned source reverted exactly; format passes.
 
+## Conditional and generator contextual prerequisites — .16.227/.16.229
+
+Claimed existing .16.227. Fresh owned apparent-context delegation probe removes
+preemptive base-constraint-to-unknown conversion and calls canonical apparent_type.
+Targets remain **21/29 and5/10**, no target change. Reverted; conditional branch
+capture/default-constraint production in constraints.rs owns the absent context,
+not a contextual branch fallback. Actual pinned target control exercised, no
+full/perf acceptance inferred from unchanged focused rows.
+
+Claimed existing .16.229. Current generator targets **46/51 and91/105**.
+Read pinned getContextualReturnType and checked owned keep-mask: it already
+matches ANY|UNKNOWN|VOID|INSTANTIABLE_NON_PRIMITIVE exactly. Failed async
+sequence/yield rows are GAP, not a wrong keep-mask. Canonical iteration.rs
+`generator_instantiation_assignable_to_return_type` constructs actual yield,
+return,next slots then returns Unsupported on unknown relation. That iteration/
+relation/signature producer is outside contextual ownership. Do not convert
+Unknown to true/false or widen the union mask. Actual pinned esnext sequence
+control clean; no generator implementation needed/retained by this investigation.
+Receipts conditional-* and generator-native.log. Both existing issues remain
+open with exact owner prerequisites; owned source unchanged, format passes.
+No whole-case/full no-loss/performance pass claimed for these investigations.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
