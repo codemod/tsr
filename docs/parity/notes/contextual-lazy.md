@@ -328,6 +328,31 @@ production JSX cutover; integration must rerun coherent branch-level gates.
 Receipts explicit-this-*; existing .16.289 claimed and remains open for full
 campaign acceptance, despite this whole target conversion.
 
+## Object spread operand context — tsr-2zk.16.182
+
+Pinned getContextualType's SpreadAssignment arm forwards the containing literal
+context to its operand. Owned contextual query now follows exactly that parent
+arm, retaining the same candidate/inference, receiver and alias identities.
+No new mapper/cache/publication or extra signature resolution; downstream work
+and checked-member completion remain with existing object/calls producers.
+
+Whole target contextualTypeObjectSpreadExpression converts **8/8 RIGHT**.
+Other named targets remain incomplete: reverseMappedTypeIntersectionConstraint
+199/227, intraExpressionInferences 599/626. Full coherent mirror type comparison
+**+7 RIGHT**, zero prior RIGHT losses or vanished keys; diagnostics **+1 correct
+case**, zero prior-correct losses or vanished keys. Actual native target CLI
+is clean. Complete checker release tests and dedicated callback spread regression
+pass; format check passes. Mirror uses real reviewed member visibility, parameter
+context and explicit-this changes, not an unavailable JSX worker mock.
+
+Fresh interleaved domain 41 pairs wall **0.98459**, generic 21 pairs **0.98505**
+versus verified 0eda302c base; harness matched observed scope/options/diagnostics.
+Complete-work proof remains false, verified ratio null. No release acceptance
+or exhaustive hotpath claim. Current production still needs serialized
+JSX/shared integration before branch-level gates. Receipts spread-* under
+ignored target/recovery/contextual. Existing .16.182 claimed; remains open
+because all named targets and campaign criteria are not complete.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.

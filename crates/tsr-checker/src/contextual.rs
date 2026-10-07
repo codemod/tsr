@@ -1407,6 +1407,10 @@ impl<'a> Checker<'a, '_> {
             Node::JsxExpression(_)
             | Node::ParenthesizedExpression(_)
             | Node::NonNullExpression(_) => self.get_contextual_type(parent),
+            // Native getContextualType's SpreadAssignment arm forwards the
+            // containing object's context to the operand, including literal
+            // constraints and the same active inference/receiver identities.
+            Node::SpreadAssignment(_) => self.get_contextual_type(self.nodes.parent(parent)?),
             Node::JsxAttribute(_) | Node::JsxSpreadAttribute(_) => {
                 self.jsx_attribute_context(parent)
             }
@@ -2535,7 +2539,8 @@ impl<'a> Checker<'a, '_> {
     /// - **`ShorthandPropertyAssignment`**, which shares upstream's arm
     ///   (`checker.go:29376`) but cannot hold a function expression, so it could
     ///   never reach [`Checker::get_contextually_typed_parameter_type`].
-    /// - **A `SpreadAssignment`**, a separate upstream branch (`checker.go:29378`).
+    /// SpreadAssignment uses get_contextual_type's separate native parent arm
+    /// rather than named-element property projection (checker.go:29378).
     fn contextual_type_for_object_literal_element(
         &mut self,
         element: NodeId,
