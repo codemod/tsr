@@ -3,8 +3,17 @@
 ## Result: candidate rejected; production unchanged
 
 Recovery source was `0e7824ddb2f06af1dd4cbbe9779e0a17b720a0f3`.
-The supplied `box/parity-property` ref was not included in this Box's refs or
-object-name resolution. No old branch or unverified snapshot was merged.
+The supplied `box/parity-property` ref was initially absent. After the parent
+published it, explicit `git fetch origin box/parity-property` succeeded at
+`6ab60e38b2bc6240a08ac54bf124aeff3c6b658a`. Its `.16.225` commits
+`754c2d4d` and `6ab60e38` record rejected probes and the same contextual consumer
+seam; they contain no recoverable inherited-this implementation. Its earlier
+`a1780220` also records a reverted receiver-only experiment with erased-signature
+and interface-heritage losses. The only post-checkpoint `members.rs` implementation
+is `bfca6e08`, the separately scoped protected-origin port (`tsr-2zk.4.14`).
+Constructor and checked-JS setter changes also belong to separate issues.
+No unrelated issue scope, entire old branch, or `5f26bb1f` box-uncommitted
+snapshot was cherry-picked.
 Native source is pinned to `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
 
 A reconstructed owned-file candidate forwarded the original concrete receiver
@@ -90,7 +99,11 @@ candidate; neither >=99.9% exact parity nor median wall ratio <=0.50 is claimed.
    instantiates under the receiving owner. It bypasses the semantic member-type
    supplier; this explains the remaining `contextualThisType` rows. The
    contextual owner must consume `get_type_of_property_of_type` while preserving
-   its optionality, union-discrimination and mapper context.
+   its optionality, union-discrimination and mapper context. Exact minimal hunk:
+   replace `Some(property) => self.get_type_of_symbol(property)` with
+   `Some(_) => self.get_type_of_property_of_type(contextual, &name)?` in
+   `contextual_type_for_object_literal_named_element`. This uses an existing
+   semantic API; no additional helper or shared field is required.
 2. `declared.rs::collect_keyof_property_names` refuses generic bases via
    `base_symbols_of`. Newly demanded `keyof this` substitution reaches this gap.
    Native `getLiteralTypeFromProperties` reads winning declaration metadata;
