@@ -426,6 +426,59 @@ these harness runs, but complete input capture and actual checked-worker work
 remain unverified: `work_comparable=false`, `target_verified=false`. These are
 observed ratios, not a verified performance target or optimization claim.
 
+## INDEX-SYMBOL-UNION-KEY-INFOS investigation (no semantic delivery)
+
+Current `index_infos_of_declaration` already enumerates `TypeData::Union`
+constituents, filters with `is_valid_index_key_type`, and callers deduplicate
+by semantic key TypeId across declarations. It does not treat printed union
+text as a single key. Native `getIndexInfosOfIndexSymbol` uses `forEachType`,
+`isValidIndexKeyType`, and pointer identity `findIndexInfo`: string, number,
+ES symbol, pattern literal, or nongeneric intersection with a valid constituent.
+Existing TSR predicate uses primitive flags, existing pattern metadata and
+existing generic-signature metadata; no alternative key heuristic was added.
+
+One actual native discrepancy reproduced by ordinary CLI:
+
+```ts
+interface Missing { [key: string | symbol]; }
+```
+
+Native reports TS1021 `An index signature must have a type annotation.` at
+(1,21); TSR reports none. Exact external prerequisite:
+`check.rs::check_index_signature_key_type` (around 2704) currently nests the
+TS1021 guard under primitive `KeywordTypeNode` key recognition. Move native
+`checkGrammarIndexSignature`'s missing-return-annotation requirement out of that
+semantic key-shape branch, preserving grammar prerequisite ordering/span. Union
+keys must not bypass it. `check.rs` is unowned; no parallel diagnostic collector
+or suppression was introduced.
+
+Native also retains valid key IndexInfos when the return annotation is absent
+(default any) or resolves to error. An owned experiment removed the collector's
+value-error refusal and adopted native default any. Complete unfiltered dumps
+finished: 477,970 type keys and 10,570 diagnostic keys, zero vanished/changed
+protected keys and zero changed payloads of any verdict. Full coverage finished
+unchanged (8042/9538 types, 4221/5502 diagnostics). Clippy passed after a doc
+markup correction; workspace test run failed an experimental assertion that
+unresolved index access returns the intrinsic error TypeId: actual accesses
+return alias-owned TypeIds instead. That assertion was not converted into a
+representation/default test. The experiment and test were removed; no change
+to the unowned alias/indexed representation is justified by this observation.
+No named case or real index-value consumer conversion was proved, no candidate
+performance claim or verified root completion is made.
+
+Publication/work boundary for a future port: declaration collection is a private
+Checker query, ordered by declaration then union constituent, producing each
+valid key with value/readonly/source-declaration provenance. Existing caches own
+resolved type metadata; this query-local vector adds no cache. Key identity is
+store-local semantic TypeId, not alias spelling; declaration owner and static
+side remain separate. A missing/error value is not absent key publication.
+Expensive work is type-node resolution plus valid-key filtering and caller
+identity dedup; actual worker executions/hits/copy bytes remain unmeasured.
+Bounded Beads follow-up request: count those operations on primitive, union,
+pattern/intersection, duplicate-key and unresolved-value controls before
+extending reuse. The current queued failed-case ID was not supplied; the
+reproduced grammar control and exact external hunk are recorded independently.
+
 ## Release-target limits
 
 Observed 21-pair fresh-process interleaved comparisons after reverting the
