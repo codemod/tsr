@@ -98,7 +98,8 @@ def process(command: list[str], cwd: Path, timeout: float) -> dict:
 
 
 def diagnostics(output: str, cwd: Path) -> dict:
-    # Preserve multiline messages; sort complete diagnostics, never their lines.
+    # Native Program.SortAndDeduplicateDiagnostics establishes output order.
+    # Preserve it and multiline messages: a reordered check is not exact parity.
     entries: list[str] = []
     in_diagnostic = False
     for line in ANSI_CSI.sub("", output).splitlines():
@@ -115,7 +116,7 @@ def diagnostics(output: str, cwd: Path) -> dict:
             # summary/phase heading ends that block; its subsequent indented
             # rows must not become part of the preceding diagnostic.
             in_diagnostic = False
-    return {"count": len(entries), "fingerprint": fingerprint(sorted(entries)), "entries": entries}
+    return {"count": len(entries), "fingerprint": fingerprint(entries), "entries": entries}
 
 
 def file_identity(name: str, cwd: Path) -> str:

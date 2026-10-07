@@ -15,11 +15,11 @@ from whole_project_perf import ROOT, diagnostics, file_identity, option_differen
 
 
 class BenchmarkEvidenceTests(unittest.TestCase):
-    def test_diagnostics_retain_continuations_and_ignore_order(self):
+    def test_performance_r2_diagnostics_retain_continuations_and_native_order(self):
         first = "a.ts(1,1): error TS2322: incompatible\n  nested detail\nb.ts(2,2): error TS2345: argument\n"
         second = "b.ts(2,2): error TS2345: argument\na.ts(1,1): error TS2322: incompatible\n  nested detail\n"
-        self.assertEqual(diagnostics(first, Path("/repo"))["fingerprint"],
-                         diagnostics(second, Path("/repo"))["fingerprint"])
+        self.assertNotEqual(diagnostics(first, Path("/repo"))["fingerprint"],
+                            diagnostics(second, Path("/repo"))["fingerprint"])
         self.assertNotEqual(diagnostics(first, Path("/repo"))["fingerprint"],
                             diagnostics(first.replace("nested detail", "different"), Path("/repo"))["fingerprint"])
 
