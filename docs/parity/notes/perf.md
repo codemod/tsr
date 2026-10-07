@@ -238,3 +238,24 @@ identical on all four generated projects.
 Against tsgo's 863 ms median (§3) the combined probe would move
 domain-model-large from 1.04 to roughly 0.94–0.97 observed. Real progress, and
 an order of magnitude short of 0.50: see §8 C4.
+
+## §10 Verified ratio (round 5, base `6539256c`)
+
+`whole_project_perf.py` now publishes `verified_wall_ratio` (supersedes §2):
+diagnostics, `--showConfig`, loaded lists and loaded-file bytes must agree,
+and an untimed traced run per tool must report the same `(file, checker)`
+check list — tsgo's `--generateTrace` `checkSourceFile` spans against TSR's
+`TSR_WORK_TRACE` `source_file_check` spans. The measured TSR must therefore be
+a `--features work-trace` build. A/A against the default build on
+domain-model-large, 11 pairs: wall ratio 1.005, median CPU ratio 1.000, so the
+feature costs nothing measurable when the variable is unset. The previous
+branch's receipt/qualification layers (`box/recover-performance-r4`, 42
+commits) were not carried forward: none is needed for this verdict.
+
+14-CPU Linux box, pinned tsgo `target/tsgo-pinned`, 21 pairs, all verified:
+
+| Project | TSR wall | tsgo wall | Verified ratio | TSR CPU | tsgo CPU |
+|---|---:|---:|---:|---:|---:|
+| generic-imports | 106 ms | 113 ms | 0.94 | 97 ms | 222 ms |
+| domain-model | 212 ms | 210 ms | 1.01 | 414 ms | 742 ms |
+| domain-model-large | 821 ms | 572 ms | 1.44 | 1808 ms | 2563 ms |
