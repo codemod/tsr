@@ -121,7 +121,7 @@ Commands used offline release builds; Cargo/config/lockfiles unchanged.
 
 - Built every tsr-conformance example after caller migration.
 - Library tests: 137 passed.
-- `full_oracle_boundaries`: 5 passed, including real native/TSR clean control,
+- `full_oracle_boundaries`: 6 passed, including real native/TSR clean control,
   native Cartesian/span control, a hung-process deadline/reaping control, and
   config-only options with exact error/type artifacts and explicit unavailable
   semantic metadata. The earlier exact config result predates metadata labeling.
@@ -150,6 +150,10 @@ No full compilation run, prior-RIGHT preservation certificate, or whole-project
 median performance measurement was performed. Prior exact-ID ledger comparison is
 available, but historical line/diagnostic RIGHT mapping requires integration.
 Missing exact IDs are losses. An empty prior ledger does not certify no losses.
+Duplicate configuration/result publication and orphan results are rejected by
+regression controls; an unpublished discovered configuration remains a failure,
+never an implicit empty expected artifact. Checker type/error differences remain
+failures; there is no path/order/code/any blanket normalization.
 
 ## Run
 

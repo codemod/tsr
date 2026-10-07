@@ -95,6 +95,24 @@ fn native_disabled_type_output_does_not_hide_semantic_metadata_failure() {
 }
 
 #[test]
+fn duplicate_configuration_and_orphan_results_cannot_replace_manifest_identity() {
+    let path = std::env::temp_dir().join(format!("full-oracle-identities-{}.tsv", std::process::id()));
+    let record = |fields: &[&str]| fields.iter().map(|field| full_oracle::hex(field)).collect::<Vec<_>>().join("\t") + "\n";
+    let configuration = record(&["C", "local/compiler/control.ts(strict=true)", "/control.ts", "strict=true", "strict=74727565\n"]);
+    std::fs::write(&path, format!("{configuration}{configuration}")).unwrap();
+    assert!(full_oracle::read_population(&path).unwrap_err().to_string().contains("duplicate native configuration"));
+    let failure = record(&["R", "local/compiler/control.ts(strict=true)", "panic", "crash", "", "", ""]);
+    std::fs::write(&path, &failure).unwrap();
+    assert!(full_oracle::read_population(&path).unwrap_err().to_string().contains("native result without configuration"));
+    std::fs::write(&path, format!("{configuration}{failure}{failure}")).unwrap();
+    assert!(full_oracle::read_population(&path).unwrap_err().to_string().contains("duplicate native result"));
+    std::fs::write(&path, &configuration).unwrap();
+    let unpublished = full_oracle::read_population(&path).unwrap();
+    assert!(unpublished.configurations.values().next().unwrap().output.is_err());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn process_deadline_reaps_hung_compiler_and_retains_output() {
     let path = std::env::temp_dir().join(format!("full-oracle-deadline-{}", std::process::id()));
     let status = full_oracle::run_bounded(std::process::Command::new("sh").args(["-c", "echo started; exec sleep 10"]),
