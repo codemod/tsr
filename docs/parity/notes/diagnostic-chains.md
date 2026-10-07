@@ -120,6 +120,45 @@ independent attached shared images. Merged nonempty related lists are the only
 compaction publication that needs diagnostic details. The existing Program/file
 image owner remains responsible for source text and line maps at rendering.
 
+## Runtime writer audit and first-failure chain correction
+
+At the pinned native revision, `reportsUnnecessary`/`reportsDeprecated` have
+exactly two writers: `ast.NewDiagnostic` copies the respective Message booleans
+into per-diagnostic fields; `NewDiagnosticFromSerialized` copies explicit runtime
+payloads. Checker does not mutate those two fields. Therefore the existing TSR
+Diagnostic constructors are the actual semantic writer, not a serialization-time
+flag inference. Checker comma diagnostics use that constructor and publish
+TS2695 from their generated input; generic relation heads/children publish
+both false. A new actual comma-producer regression exposed incorrect TSR generated
+input: TS2695 has `MessageFlags::empty()` although pinned native has unnecessary
+true. The failing test receipt is `first-failure-tests.log`; it is not a pass.
+Required non-owned fix: generated/messages.rs TS2695 flags to
+`MessageFlags::REPORTS_UNNECESSARY`, plus generator/input fidelity audit. No
+code-based payload inference or special-case semantic setter was substituted. Deprecated suggestions also use NewDiagnostic in non-owned native
+checker suggestion writers; their missing TSR producer is not filled with guessed
+flags or a fabricated fallback. Oracle must call stored getters for every node,
+including globals and related notes. Explicit payload setters already exist.
+
+Current native/TSR control reproduced a chain overwrite for one source signature
+with three required parameters and target overloads of one then two parameters.
+TSR reported TS2849 got 2; native got 1. Owned signatures worker now returns at
+the first fully failed target as native signaturesRelatedTo does, preserving that
+first explanation and avoiding subsequent target comparisons. Unknown still
+retains the existing unsupported-state policy; successful alternatives restore
+saved reporting state. This changes no cache/key/receiver context. A permanent
+regression covers the competing failure counts. The temporary failing semantic
+flag probe was removed from the permanent suite pending the generated-message
+owner's cutover; its observed failure remains recorded, not repinned to false.
+
+Current correction gates: actual overload/comma CLI bytes match pinned native
+including first target's got 1 child; dedicated tests, workspace release tests and
+scoped all-target clippy pass. Fresh dumps preserve 469785 RIGHT type keys and
+9190 RIGHT/EMPTY_RIGHT diagnostic keys, zero missing/changed. Sixteen read-only
+suites rerun; this remains legacy coverage, not strict metadata parity. Fresh
+21-pair domain-model candidate/recovery-baseline observed wall ratio 0.9642,
+diagnostic fingerprints match; complete-work verified ratio remains null. No
+native <=0.50 or literal zero-regression release claim.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
