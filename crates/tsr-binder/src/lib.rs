@@ -66,7 +66,10 @@
 mod binder;
 mod container;
 mod flow;
+mod names;
 mod narrowing;
+#[cfg(test)]
+mod parallel_tests;
 mod symbol;
 
 use rustc_hash::FxHashMap;
@@ -77,6 +80,7 @@ use tsr_diagnostics::Diagnostic;
 pub use binder::{is_declaration_file, is_external_module};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
+pub use names::PreparedNames;
 pub use symbol::{
     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
 };
@@ -168,6 +172,47 @@ pub struct BindResult<'a> {
     end_flow: FxHashMap<NodeId, FlowId>,
     return_flow: FxHashMap<NodeId, FlowId>,
     fallthrough_flow: FxHashMap<NodeId, FlowId>,
+}
+
+/// An unpublished file-local bind. Its IDs cannot be read by a checker.
+/// AST identities already belong to the program; symbols and flow remain private.
+pub struct FileBindResult<'a, 'n> {
+    nodes: &'n NodeTable,
+    bindings: BindResult<'a>,
+    node_base: usize,
+    root: NodeId,
+    is_module: bool,
+    commonjs_module: bool,
+    global_augmentations: Vec<SymbolId>,
+}
+
+/// Bind one published AST using only private, file-sized mutable tables.
+/// UMD export declarations retain the serial path because the accumulating
+/// binder reuses previously declared UMD aliases during declaration itself.
+#[must_use]
+pub fn bind_file<'a, 'n>(
+    names: &'n PreparedNames<'a>,
+    nodes: &'n NodeTable,
+    file: &'a SourceFile<'a>,
+    info: FileInfo<'a>,
+    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    node_range: std::ops::Range<u32>,
+) -> FileBindResult<'a, 'n> {
+    binder::Binder::bind_independent(names, nodes, file, info, jsdoc, node_range)
+}
+
+impl<'a> BindResult<'a> {
+    /// Publish one completed file in program order, including the ordered
+    /// global merge and first-file synthetic undefined boundary.
+    #[must_use]
+    pub fn publish_file(
+        self,
+        arena: &'a tsr_core::Arena,
+        nodes: &NodeTable,
+        local: FileBindResult<'a, '_>,
+    ) -> Self {
+        binder::Binder::publish_file(arena, nodes, self, local)
+    }
 }
 
 impl<'a> BindResult<'a> {
@@ -1035,7 +1080,17 @@ impl<'a> BindResult<'a> {
             // `GetContainerFlags`), so no node ever owns both tables and swapping
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
-            if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
+            // `!ast.IsGlobalSourceFile(location)` (`binder/nameresolver.go:50`):
+            // a script file's locals are never consulted — every one of them
+            // was merged into `globals` (`merge_globals`), and a name whose
+            // merge was refused resolves to the global that refused it, as
+            // upstream's walk reaches `c.globals` instead. A script source
+            // file is the one without a file symbol
+            // (`bindSourceFileIfExternalModule`).
+            let global_source_file =
+                nodes.kind(node) == SyntaxKind::SourceFile && self.symbol_of(node).is_none();
+            if !global_source_file
+                && let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning)
                 // `getSymbol`'s alias arm (`checker.go:2183`) on the locals
                 // table: an alias whose own flags lack `meaning` is a hit only
                 // when its target's flags carry it. Asked of the checker

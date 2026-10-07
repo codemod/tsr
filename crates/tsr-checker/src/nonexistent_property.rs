@@ -465,15 +465,121 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
         let span = self.error_span(name_id);
-        let printed = self.type_to_string(receiver_type);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
-                span,
-                [name_text.to_string(), printed],
-            ),
-        );
+        // typeToString (TypeFormatFlagsNoTypeReduction unset) prints
+        // getReducedType of the containing type: a never-reduced
+        // intersection, whose certified apparent type is `never`, is 'never'.
+        // elaborateNeverIntersection's chain (checker.go:21868) is message
+        // text this diagnostic model does not carry.
+        let shown = if apparent_receiver == self.intrinsics.never
+            && self.store.get(receiver_type).flags.contains(crate::flags::TypeFlags::INTERSECTION)
+        {
+            apparent_receiver
+        } else {
+            receiver_type
+        };
+        let printed = self.type_to_string(shown);
+        // reportNonexistentProperty's last arm (checker.go:11580); the
+        // element-access fallthrough to here is getPropertyTypeForIndexType's
+        // plain TS2339, not this report.
+        let dom = if matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_))) {
+            let Some(dom) = self.container_seems_to_be_empty_dom_element(receiver_type) else {
+                return;
+            };
+            dom
+        } else {
+            false
+        };
+        let message = if dom {
+            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_INCLUDE_DOM
+        } else {
+            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1
+        };
+        self.report(file, Diagnostic::with_args(message, span, [name_text.to_string(), printed]));
+    }
+
+    /// `containerSeemsToBeEmptyDomElement` (`checker.go:11654`): the explicit
+    /// `lib` list does not name `lib.dom.d.ts`, every contained type
+    /// (`everyContainedType`: each union or intersection constituent, else
+    /// the type) has a common DOM type name (`hasCommonDomTypeName`), and the
+    /// type `isEmptyObjectType`. `None` when the emptiness of a DOM-named
+    /// container cannot be certified.
+    fn container_seems_to_be_empty_dom_element(&mut self, containing: TypeId) -> Option<bool> {
+        if self.lib_includes_dom {
+            return Some(false);
+        }
+        let contained = match &self.store.get(containing).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => types.clone(),
+            _ => vec![containing],
+        };
+        if !contained.iter().all(|&t| self.has_common_dom_type_name(t)) {
+            return Some(false);
+        }
+        self.is_empty_object_type(containing)
+    }
+
+    /// `hasCommonDomTypeName` (`checker.go:11658`), by the type's symbol.
+    fn has_common_dom_type_name(&self, t: TypeId) -> bool {
+        let symbol = match &self.store.get(t).data {
+            crate::types::TypeData::Named { members: Some(owner), .. } => *owner,
+            crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => return false,
+        };
+        let name = self.binder.symbols().get(symbol).name;
+        name == "EventTarget"
+            || name == "Node"
+            || name == "Element"
+            || name.starts_with("HTML") && name.ends_with("Element")
+    }
+
+    /// `isEmptyObjectType` (`checker.go:26485`) for the containers
+    /// [`Checker::container_seems_to_be_empty_dom_element`] admits: an object
+    /// type is empty when its resolved members have no properties, index
+    /// infos or signatures (`isEmptyResolvedType`). A DOM-named object is an
+    /// interface, class or `typeof` object, never a generic mapped type.
+    /// `None` when a table cannot be read.
+    fn is_empty_object_type(&mut self, t: TypeId) -> Option<bool> {
+        use crate::flags::TypeFlags;
+        let flags = self.store.get(t).flags;
+        if flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return Some(true);
+        }
+        match &self.store.get(t).data {
+            crate::types::TypeData::Union { types, .. } => {
+                let types = types.clone();
+                let mut any = false;
+                for part in types {
+                    any |= self.is_empty_object_type(part)?;
+                }
+                return Some(any);
+            }
+            crate::types::TypeData::Intersection { types, .. } => {
+                let types = types.clone();
+                let mut all = true;
+                for part in types {
+                    all &= self.is_empty_object_type(part)?;
+                }
+                return Some(all);
+            }
+            crate::types::TypeData::Named { .. } | crate::types::TypeData::Anonymous { .. } => {}
+            _ => return Some(false),
+        }
+        if !flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        if !self.get_property_names_of_type(t)?.is_empty()
+            || !self.get_index_infos_of_type(t)?.is_empty()
+        {
+            return Some(false);
+        }
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            if !self.signatures_of_type_kind(t, kind)?.is_empty() {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// Is `name` certainly absent from `getPropertyOfType(getApparentType(
@@ -512,22 +618,43 @@ impl Checker<'_, '_> {
         // getApparentType(never) is never, whose getPropertyOfType misses with
         // no index info; only silentNeverType is any-like
         // (checkPropertyAccessExpressionOrQualifiedName, checker.go:11280).
-        // getFlowTypeOfReference (flow.go:111) answers the declared type, not
-        // unreachableNeverType, and for the operand of `x!` whenever narrowing
-        // left only null/undefined. This port's flow walk has neither rule
-        // yet, so a `never` reached through either is not certified.
+        // getFlowTypeOfReferenceEx (flow.go:111) answers the declared type, not
+        // unreachableNeverType, and for the operand of `x!` when the walk's
+        // result is not `never` but getTypeWithFacts(NEUndefinedOrNull) of it
+        // is. This port's flow walk lacks the `x!` half, so such a receiver is
+        // certified only when the operand's own flow type is already `never`,
+        // where the rule's `resultType.flags&TypeFlagsNever == 0` arm is false.
         // `docs/parity/notes/property.md` §3.
         if flags.contains(TypeFlags::NEVER) {
-            let receiver_is_non_null = match self.node_map.get(access) {
+            let non_null_operand = match self.node_map.get(access) {
                 Some(Node::PropertyAccessExpression(node)) => node.expression,
                 Some(Node::ElementAccessExpression(node)) => node.expression,
                 _ => None,
             }
             .and_then(|receiver| receiver.node_id())
-            .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::NonNullExpression);
+            .and_then(|receiver| match self.node_map.get(receiver) {
+                Some(Node::NonNullExpression(node)) => Some(node.expression),
+                _ => None,
+            });
+            if let Some(operand) = non_null_operand {
+                let operand = operand?;
+                let operand_type = self.check_expression(operand);
+                if !self.store.get(operand_type).flags.contains(TypeFlags::NEVER) {
+                    return None;
+                }
+            }
             let silent = self.silent_never_type == Some(receiver)
                 || receiver == self.intrinsics.unreachable_never;
-            return (!silent && !receiver_is_non_null).then_some(receiver);
+            return (!silent).then_some(receiver);
+        }
+        // getPropertyOfTypeEx (checker.go:18899) starts from
+        // getReducedApparentType: an intersection getReducedType reduces to
+        // `never` (a never-typed discriminant or a conflicting private
+        // property, checker.go:21830) has no properties and no index infos.
+        if matches!(self.store.get(receiver).data, crate::types::TypeData::Intersection { .. })
+            && self.intersection_has_never_discriminant(receiver)
+        {
+            return Some(self.intrinsics.never);
         }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
@@ -767,6 +894,62 @@ impl Checker<'_, '_> {
         self.apparent_type_lacks_at(apparent, name, 0)
     }
 
+    /// The miss certificate for the static side (`typeof C`) of `class`, a
+    /// class with a base, which the completeness walk declines.
+    ///
+    /// `resolveAnonymousTypeMembers`' class arm (`checker.go:20685`) makes the
+    /// static members the class symbol's exports plus, by `addInheritedMembers`,
+    /// `getPropertiesOfType(getBaseConstructorTypeOfClass(classType))` when
+    /// that type is an object, intersection or type variable; an `any` base
+    /// adds `anyBaseTypeIndexInfo` instead, and any other base adds nothing.
+    /// The index infos are the class's own `static [k: …]` signatures (a base's
+    /// are not inherited). So the name is absent when the own exports miss it
+    /// (the caller's `getPropertyOfType` miss, which already read both), no
+    /// own index signature admits it, and the base constructor type certainly
+    /// lacks it. Declarations other than class and namespace bodies decline,
+    /// as does an error base. No cache: one lookup per base after the miss.
+    fn class_static_side_lacks(
+        &mut self,
+        apparent: TypeId,
+        class: SymbolIdAlias,
+        name: &str,
+        depth: u32,
+    ) -> Option<bool> {
+        let declarations = self.binder.symbols().get(class).declarations.to_vec();
+        let readable = declarations.iter().all(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::ClassDeclaration(_) | Node::ModuleDeclaration(_))
+            )
+        });
+        if !readable || depth >= MAX_COMPOSITION_DEPTH {
+            return None;
+        }
+        if self.no_index_signature_admits(apparent, name) != Some(true) {
+            return None;
+        }
+        let base = self.get_base_constructor_type_of_class(class);
+        if base == self.intrinsics.any {
+            return Some(false);
+        }
+        if self.is_error(base) {
+            return None;
+        }
+        // `TypeFlagsTypeVariable` is `TypeParameter | IndexedAccess`.
+        if !self.store.get(base).flags.intersects(
+            crate::flags::TypeFlags::OBJECT
+                | crate::flags::TypeFlags::INTERSECTION
+                | crate::flags::TypeFlags::TYPE_PARAMETER
+                | crate::flags::TypeFlags::INDEXED_ACCESS,
+        ) {
+            return Some(true);
+        }
+        // A base holding the name the inherited lookup missed is this port's
+        // gap, not upstream's absence: decline rather than answer present.
+        let base = self.apparent_type(base);
+        (self.apparent_type_lacks_at(base, name, depth + 1) == Some(true)).then_some(true)
+    }
+
     fn apparent_type_lacks_at(&mut self, apparent: TypeId, name: &str, depth: u32) -> Option<bool> {
         // A found property needs no certificate; the completeness walks are
         // the expensive half and only a miss pays for them.
@@ -780,6 +963,9 @@ impl Checker<'_, '_> {
             // A class's static side is certified without reading its
             // `static [k: string]` signatures; ask them per name too.
             return self.no_index_signature_admits(apparent, name);
+        }
+        if let Some(class) = self.class_static_symbol(apparent) {
+            return self.class_static_side_lacks(apparent, class, name, depth);
         }
         // A captured member image is `getPropertiesOfType`'s complete list
         // (`resolveStructuredTypeMembers` already ran when it was published),
@@ -1208,10 +1394,11 @@ impl Checker<'_, '_> {
     ///
     /// Three shapes are declined, each with its case:
     ///
-    /// - **A call receiver.** `c.foo().bar()` — `fluentClasses` — returns the
-    ///   polymorphic `this` type, which this port does not model. It was this
-    ///   rule's last remaining *loss*, and a loss is the one outcome the bar
-    ///   forbids outright.
+    /// - **A call receiver**, unless its type is `never`. `c.foo().bar()` —
+    ///   `fluentClasses`, `superPropertyAccessNoError` — returns the
+    ///   polymorphic `this` type, which this port does not model; a `never`
+    ///   result (`inferentiallyTypingAnEmptyArray`, an overload failure in
+    ///   `orderMattersForSignatureGroupIdentity`) cannot be that type.
     /// - ~~**A dotted name.**~~ **DELETED, §37's audit, +2.** It was declined
     ///   because `narrowingOfDottedNames` narrows `a.b` by a guard on `a.b`
     ///   itself and this port's flow graph keys on a narrower set of references.
@@ -1237,7 +1424,11 @@ impl Checker<'_, '_> {
             return false;
         }
         match self.node_map.get(receiver) {
-            Some(Node::CallExpression(_)) => false,
+            // A `never` result carries no members whatever the return
+            // modelling; `getApparentType(never)` misses every name.
+            Some(Node::CallExpression(_)) => {
+                self.store.get(flowed).flags.contains(crate::flags::TypeFlags::NEVER)
+            }
             Some(Node::Identifier(identifier)) => {
                 let text = identifier.text;
                 let Some(symbol) = self.binder.resolve_name(

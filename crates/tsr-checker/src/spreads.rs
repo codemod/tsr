@@ -6,7 +6,7 @@ use crate::{
     Checker,
     flags::TypeFlags,
     index_signatures::IndexInfo,
-    objects::{AnonymousProperty, Member, render_object_type},
+    objects::{AnonymousProperty, Member, PrintedSlot, PropertySlot, render_object_type},
     types::{TypeData, TypeId},
 };
 
@@ -182,10 +182,10 @@ impl Checker<'_, '_> {
                 properties.iter_mut().find(|p| p.name == left_property.name)
             {
                 if right_property.optional {
-                    let left_type = left_property.r#type;
+                    let left_type = self.property_type(&left_property);
                     let left_present = self.remove_missing_or_undefined_type(left_type);
-                    let right_present =
-                        self.remove_missing_or_undefined_type(right_property.r#type);
+                    let right_type = self.property_type(right_property);
+                    let right_present = self.remove_missing_or_undefined_type(right_type);
                     let value = if left_present == right_present {
                         left_type
                     } else {
@@ -197,13 +197,14 @@ impl Checker<'_, '_> {
                         value
                     };
                     *right_property = left_property;
-                    right_property.r#type = value;
+                    right_property.slot = PropertySlot::resolved(value);
                     // A collision creates a new property symbol without Readonly.
                     right_property.readonly = false;
                     right_property.method = false;
                     right_property.accessor_write = None;
                     let displayed = self.remove_missing_type(value);
-                    right_property.printed_type = self.type_to_string(displayed);
+                    right_property.printed_slot =
+                        PrintedSlot::printed(self.type_to_string(displayed));
                 }
             } else {
                 properties.push(left_property);
@@ -328,11 +329,11 @@ impl Checker<'_, '_> {
                     origin,
                     checked_declaration: None,
                     printed_name: self.spread_property_name(origin?, &name)?,
-                    printed_type: self.type_to_string(displayed),
+                    printed_slot: PrintedSlot::printed(self.type_to_string(displayed)),
                     optional: origin.is_some_and(|symbol| self.property_is_optional(symbol)),
                     readonly: origin.is_some_and(|symbol| self.is_readonly_symbol(symbol)),
                     name,
-                    r#type: value,
+                    slot: PropertySlot::resolved(value),
                 }
             };
             // getSpreadSymbol reuses a method symbol only if readonly agrees.
@@ -342,10 +343,11 @@ impl Checker<'_, '_> {
             }
             property.readonly = readonly;
             if set_only {
-                property.r#type = self.intrinsics.undefined;
-                "undefined".clone_into(&mut property.printed_type);
+                property.slot = PropertySlot::resolved(self.intrinsics.undefined);
+                property.printed_slot = PrintedSlot::printed("undefined".to_owned());
             } else if property.optional && self.strict_null_checks {
-                property.r#type = self.get_optional_type(property.r#type, true);
+                let property_type = self.property_type(&property);
+                property.slot = PropertySlot::resolved(self.get_optional_type(property_type, true));
             }
             properties.push(property);
         }
@@ -391,7 +393,8 @@ impl Checker<'_, '_> {
                 properties.extend(group);
                 continue;
             }
-            let value_types: Vec<TypeId> = group.iter().map(|property| property.r#type).collect();
+            let value_types: Vec<TypeId> =
+                group.iter().map(|property| self.property_type(property)).collect();
             let value = self.get_intersection_type(&value_types, None);
             if value == self.intrinsics.error {
                 return None;
@@ -400,9 +403,9 @@ impl Checker<'_, '_> {
             combined.optional = group.iter().all(|property| property.optional);
             combined.method = false;
             combined.accessor_write = None;
-            combined.r#type = value;
+            combined.slot = PropertySlot::resolved(value);
             let displayed = self.remove_missing_type(value);
-            combined.printed_type = self.type_to_string(displayed);
+            combined.printed_slot = PrintedSlot::printed(self.type_to_string(displayed));
             properties.push(combined);
         }
         Some((properties, skipped_private))
@@ -498,28 +501,28 @@ impl Checker<'_, '_> {
         for property in properties {
             if let Some(write) = &property.accessor_write
                 && !property.readonly
-                && write.r#type != property.r#type
+                && self.parameter_type(write) != self.property_type(property)
             {
+                let write_type = self.parameter_type(write);
                 let name = &property.printed_name;
                 members.push(Member::Signature {
-                    printed: format!("get {name}(): {}", property.printed_type),
+                    printed: format!("get {name}(): {}", self.property_printed_type(property)),
                 });
                 members.push(Member::Signature {
                     printed: format!(
                         "set {name}({}: {})",
                         write.name,
-                        self.type_to_string(write.r#type)
+                        self.type_to_string(write_type)
                     ),
                 });
                 continue;
             }
             if !property.method || property.readonly {
-                members.extend(crate::callable_expandos::property_members(std::slice::from_ref(
-                    property,
-                )));
+                members.extend(self.property_members(std::slice::from_ref(property)));
                 continue;
             }
-            let value = self.remove_missing_or_undefined_type(property.r#type);
+            let property_type = self.property_type(property);
+            let value = self.remove_missing_or_undefined_type(property_type);
             let signatures = if let Some(signatures) = self.signature_types.get(&value) {
                 signatures.clone()
             } else {

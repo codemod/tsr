@@ -515,8 +515,10 @@ impl Checker<'_, '_> {
         if let (Some(source_this), Some(target_this)) =
             (&source.this_parameter, &target.this_parameter)
         {
-            let source_this = self.instantiate_identity_part(source_this.r#type, &map);
-            let related = self.identical_to(source_this, target_this.r#type, walk);
+            let source_this = self.parameter_type(source_this);
+            let source_this = self.instantiate_identity_part(source_this, &map);
+            let target_this = self.parameter_type(target_this);
+            let related = self.identical_to(source_this, target_this, walk);
             if related == Ternary::NotRelated {
                 return related;
             }

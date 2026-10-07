@@ -419,7 +419,7 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go:20118`). Reading `node.r#type` for both would silently
     /// answer `None` for every setter, since a setter's own `r#type` slot is
     /// only ever filled by a grammar error.
-    fn accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+    pub(crate) fn accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         match self.node_map.get(declaration)? {
             Node::GetAccessorDeclaration(node) => node.r#type,
             Node::SetAccessorDeclaration(node) => node.parameters.first()?.r#type,
@@ -706,15 +706,13 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: "default".to_owned(),
                     printed_name: "default".to_owned(),
-                    printed_type: self.type_to_string(value),
+                    printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(value)),
                     optional: false,
                     readonly: false,
-                    r#type: value,
+                    slot: crate::objects::PropertySlot::resolved(value),
                 });
             }
-            text = crate::objects::render_object_type(&crate::callable_expandos::property_members(
-                &properties,
-            ));
+            text = crate::objects::render_object_type(&self.property_members(&properties));
             Some(properties)
         };
         let flags = self.store.get(value).flags;
@@ -3562,7 +3560,15 @@ impl<'a> Checker<'a, '_> {
         // be a two-line declaration walk, not per-site context. Gated to class
         // expressions: a nameless default-export CLASS DECLARATION spells
         // `default` through a different leg of the same function, unported.
-        if self.has_a_name_no_type_query_can_spell(symbol) {
+        //
+        // Only the `typeof` kinds need a name: `getTypeOfFuncClassEnumModuleWorker`
+        // (`checker.go:16912`) builds the anonymous object type for a
+        // FUNCTION/METHOD symbol whatever its name, and that type prints
+        // structurally — a parser-recovered nameless function or a `[""]`
+        // method takes the signature road below.
+        if self.has_a_name_no_type_query_can_spell(symbol)
+            && flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
+        {
             if flags.intersects(SymbolFlags::CLASS)
                 && let Some(written) = self.anonymous_class_written_name(symbol)
             {
@@ -3691,7 +3697,7 @@ impl<'a> Checker<'a, '_> {
         let Some(export_properties) = self.callable_export_properties(symbol) else {
             return self.intrinsics.error;
         };
-        let export_members = crate::callable_expandos::property_members(&export_properties);
+        let export_members = self.property_members(&export_properties);
         // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
         // `FunctionTypeNode` only for a resolved type with exactly one call
         // signature and no construct signatures (`nodebuilderimpl.go:2706`).
@@ -4489,7 +4495,7 @@ impl<'a> Checker<'a, '_> {
                     if parameter.rest {
                         return None;
                     }
-                    let mut t = parameter.r#type;
+                    let mut t = self.parameter_type(parameter);
                     t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
                         if t == self.intrinsics.error {
@@ -5064,6 +5070,25 @@ impl<'a> Checker<'a, '_> {
     fn report_circularity_error(&mut self, symbol: SymbolId, declaration: NodeId) -> TypeId {
         use tsr_diagnostics::{Diagnostic, messages};
         if self.type_annotation_of(declaration).is_none() {
+            // `reportCircularityError` (`checker.go:18822`): an unannotated
+            // variable whose initializer circularly references the variable
+            // itself reports TS7022 under noImplicitAny (`checker.go:18831`).
+            if self.no_implicit_any
+                && (self.nodes.kind(declaration) != SyntaxKind::Parameter
+                    || self.initializer_of(declaration).is_some())
+                && let Some(file) = self.source_file_of_for_diagnostics(declaration)
+                && self.circularity_reported.insert(declaration)
+            {
+                let name = self.binder.symbols().get(symbol).name.to_string();
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION_AND_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_ITS_OWN_INITIALIZER,
+                        self.error_span(declaration),
+                        [name],
+                    ),
+                );
+            }
             return self.intrinsics.any;
         }
         if let Some(file) = self.source_file_of_for_diagnostics(declaration)
@@ -7150,10 +7175,12 @@ mod tests {
                                         checked_declaration: None,
                                         name: "x".into(),
                                         printed_name: "x".into(),
-                                        printed_type: "V".into(),
+                                        printed_slot: crate::objects::PrintedSlot::printed(
+                                            "V".into(),
+                                        ),
                                         optional: synthetic_optional,
                                         readonly: false,
-                                        r#type: missing_value,
+                                        slot: crate::objects::PropertySlot::resolved(missing_value),
                                     }],
                                     instantiated,
                                 ),

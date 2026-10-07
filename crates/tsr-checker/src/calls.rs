@@ -836,7 +836,8 @@ impl Checker<'_, '_> {
         signature: &Signature,
         report: bool,
     ) -> Ternary {
-        let Some(this_type) = signature.this_parameter.as_ref().map(|parameter| parameter.r#type)
+        let Some(this_type) =
+            signature.this_parameter.as_ref().map(|parameter| self.parameter_type(parameter))
         else {
             return Ternary::Related;
         };
@@ -918,8 +919,9 @@ impl Checker<'_, '_> {
             if !candidate.type_parameters.is_empty()
                 || self.nodes.parent(candidate.declaration) != parent
                 || candidate.parameters.iter().any(|parameter| {
+                    let parameter_type = self.parameter_type(parameter);
                     self.store
-                        .get(parameter.r#type)
+                        .get(parameter_type)
                         .flags
                         .intersects(TypeFlags::LITERAL | TypeFlags::NULL)
                 })
@@ -2207,7 +2209,8 @@ impl Checker<'_, '_> {
             return signatures.iter().any(|signature| {
                 !signature.type_parameters.is_empty()
                     || signature.parameters.iter().any(|parameter| {
-                        self.head_could_contain_type_variables(parameter.r#type, depth - 1)
+                        let parameter_type = self.parameter_type(parameter);
+                        self.head_could_contain_type_variables(parameter_type, depth - 1)
                     })
                     || self.head_could_contain_type_variables(signature.r#type, depth - 1)
             });
@@ -3768,9 +3771,14 @@ impl Checker<'_, '_> {
                 // generic does. `docs/parity/notes/calls-inference.md` §3.
                 if candidates.len() > 1 && survivor.type_parameters.is_empty() {
                     let mut verdict = Ternary::Related;
+                    let call = self.call_for_overload_arguments(arguments);
                     for (index, &argument) in arguments.iter().enumerate() {
                         let Some(parameter) = survivor.parameters.get(index) else { break };
-                        let argument_type = self.check_expression(argument);
+                        let argument_type = self.check_argument_in_candidate_context(
+                            call,
+                            Some(&survivor),
+                            argument,
+                        );
                         if !self.strict_null_checks
                             && self
                                 .type_of(argument_type)
@@ -3783,9 +3791,10 @@ impl Checker<'_, '_> {
                         {
                             continue;
                         }
+                        let parameter_type = self.parameter_type(parameter);
                         match self.relate_ternary(
                             argument_type,
-                            parameter.r#type,
+                            parameter_type,
                             Relation::Assignable,
                         ) {
                             Ternary::NotRelated => {
@@ -3815,6 +3824,20 @@ impl Checker<'_, '_> {
                         failure.r#type = self.get_intersection_type(&returns, None);
                         return Some(failure);
                     }
+                }
+                // A generic survivor of an overloaded set still runs
+                // `resolveCall`'s two passes (`checker.go:8922-8928`): with a
+                // context-sensitive argument, the subtype pass can context-check
+                // it and reject the candidate, and the assignable pass then
+                // infers from the retained check, not a fresh one.
+                if candidates.len() > 1
+                    && !survivor.type_parameters.is_empty()
+                    && !has_type_arguments
+                    && arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                    && let Some(picked) =
+                        self.transcribed_generic_set_walk(candidates, arguments, call)
+                {
+                    return Some(picked);
                 }
                 return Some(survivor);
             }
@@ -4006,7 +4029,8 @@ impl Checker<'_, '_> {
                 {
                     continue;
                 }
-                match self.relate_ternary(argument, parameter.r#type, Relation::Assignable) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(argument, parameter_type, Relation::Assignable) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
                         break;
@@ -4368,12 +4392,17 @@ impl Checker<'_, '_> {
         // specialized candidate is gone (`docs/parity/notes/calls-inference.md`
         // §3).
         let prefix = &candidates[..clean_len];
+        // `isSignatureApplicable` checks each argument under the candidate's
+        // parameter type; the first arity-matching candidate's check is the
+        // argument's first, so it is made under that context.
+        let first = candidates.iter().find(|c| has_correct_arity(c, arguments.len()));
+        let call = self.call_for_overload_arguments(arguments);
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
                 return SubtypePassOutcome::Undecidable;
             }
-            argument_types.push(self.check_expression(argument));
+            argument_types.push(self.check_argument_in_candidate_context(call, first, argument));
         }
         let all_decidable = clean_len == candidates.len();
         for candidate in prefix {
@@ -4382,7 +4411,8 @@ impl Checker<'_, '_> {
             }
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
-                match self.relate_ternary(argument, parameter.r#type, Relation::Subtype) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(argument, parameter_type, Relation::Subtype) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
                         break;
@@ -4404,6 +4434,43 @@ impl Checker<'_, '_> {
         } else {
             SubtypePassOutcome::Undecidable
         }
+    }
+
+    /// `checkExpressionWithContextualType(arg, paramType, nil, checkMode)`
+    /// as `isSignatureApplicable` (`checker.go:9256`) calls it for a
+    /// non-generic candidate, when that call is the argument's first check.
+    ///
+    /// Upstream checks every argument under each candidate's parameter type;
+    /// what an argument resolves inside that check (its own call's
+    /// `resolvedSignature`, a variance measured by contextual return
+    /// inference) is cached by the first candidate's check and reused by every
+    /// later one. This port caches the argument's type in `node_types`, so
+    /// only the first check is made under a context: it publishes `candidate`
+    /// as the call's memo ([`Checker::call_inference_signatures`], read by
+    /// `contextual_type_for_argument`) for the duration of one
+    /// `check_expression`. An already-checked argument, a context-sensitive
+    /// one (the walk's retention owns those), a generic candidate (its
+    /// context is inference's), a synthesized argument list, and a call
+    /// whose memo is already set keep the context-free `check_expression`.
+    fn check_argument_in_candidate_context(
+        &mut self,
+        call: Option<tsr_ast::NodeId>,
+        candidate: Option<&Signature>,
+        argument: Expression<'_>,
+    ) -> TypeId {
+        if let Some(candidate) = candidate
+            && candidate.type_parameters.is_empty()
+            && argument.node_id().is_some_and(|id| !self.node_types.contains_key(&id))
+            && !self.is_context_sensitive_argument(&argument)
+            && let Some(call) = call
+            && !self.call_inference_signatures.contains_key(&call)
+        {
+            self.call_inference_signatures.insert(call, candidate.clone());
+            let checked = self.check_expression(argument);
+            self.call_inference_signatures.remove(&call);
+            return checked;
+        }
+        self.check_expression(argument)
     }
 
     /// §273's admission test, shared with the `new`-expression road: the
@@ -4541,6 +4608,11 @@ impl Checker<'_, '_> {
             }
         }
         let result = self.transcribed_generic_set_walk_worker(candidates, arguments, call);
+        for argument in arguments {
+            if let Some(id) = argument.node_id() {
+                self.context_checked_arguments.remove(&id);
+            }
+        }
         if result.is_none() {
             for (id, ty, signature, symbol) in cached {
                 self.node_types.remove(&id);
@@ -4680,7 +4752,11 @@ impl Checker<'_, '_> {
         instantiated
     }
 
-    fn longest_candidate_index(&self, candidates: &[Signature], argument_count: usize) -> usize {
+    fn longest_candidate_index(
+        &mut self,
+        candidates: &[Signature],
+        argument_count: usize,
+    ) -> usize {
         candidates
             .iter()
             .position(|c| {
@@ -4698,6 +4774,75 @@ impl Checker<'_, '_> {
                 }
                 best
             })
+    }
+
+    /// `getCandidateForOverloadFailure` (`checker.go:9498`) for the failure
+    /// this port can decide before choosing: the call's written type
+    /// arguments fit no candidate (`hasCorrectTypeArgumentArity`,
+    /// `checker.go:9214`), so `chooseOverload` rejects every one. A
+    /// non-generic overload set is combined
+    /// (`createUnionOfSignaturesForOverloadFailure`); otherwise
+    /// `pickLongestCandidateSignature` (`:9510`) instantiates the longest
+    /// candidate with `getTypeArgumentsFromNodes` (`:9557`): the written
+    /// arguments truncated to its type parameters, the tail filled with each
+    /// parameter's default, else its constraint, else `unknown`
+    /// (`new C<Date, Date>()` on `class C<T>` is `C<Date>`).
+    ///
+    /// `call` is the `new` or call node, read through `node_map` for the
+    /// written argument nodes. `None` when some candidate admits the written
+    /// count (the ordinary resolution owns that call) or the candidate cannot
+    /// be instantiated.
+    pub(crate) fn written_type_argument_arity_failure(
+        &mut self,
+        candidates: &[Signature],
+        call: tsr_ast::NodeId,
+        argument_count: usize,
+    ) -> Option<Signature> {
+        let written = match self.node_map.get(call)? {
+            tsr_ast::Node::NewExpression(node) => node.type_arguments,
+            tsr_ast::Node::CallExpression(node) => node.type_arguments,
+            _ => return None,
+        };
+        if written.is_empty()
+            || candidates.is_empty()
+            || candidates.iter().any(|candidate| {
+                written.len() >= Self::min_type_argument_count(&candidate.type_parameters)
+                    && written.len() <= candidate.type_parameters.len()
+            })
+        {
+            return None;
+        }
+        if candidates.len() > 1
+            && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
+        {
+            return self.union_signature_for_overload_failure(candidates);
+        }
+        let best = candidates[self.longest_candidate_index(candidates, argument_count)].clone();
+        if best.type_parameters.is_empty() {
+            return Some(best);
+        }
+        let parameters = self.type_parameter_types(&best)?;
+        let mut arguments: Vec<TypeId> = written
+            .iter()
+            .take(parameters.len())
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        while let Some(&parameter) = parameters.get(arguments.len()) {
+            let filled = match self.get_default_from_type_parameter(parameter) {
+                Some(default) => default,
+                None => {
+                    self.type_parameter_constraint(parameter).unwrap_or(self.intrinsics.unknown)
+                }
+            };
+            arguments.push(filled);
+        }
+        let names: Vec<String> =
+            best.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let map: Vec<(TypeId, TypeId)> = parameters.iter().copied().zip(arguments).collect();
+        let mut instance = best;
+        instance.type_parameters.clear();
+        self.instantiate_signature(instance, &map, &parameters, &names)
     }
 
     /// The containing call for an actual argument list. Synthesized argument
@@ -4756,9 +4901,13 @@ impl Checker<'_, '_> {
             let contextual =
                 arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
             if contextual {
+                // A context-sensitive argument is checked under a candidate
+                // once (`NodeCheckFlagsContextChecked`, `checker.go:10155`);
+                // only an argument no candidate has checked yet loses its
+                // context-free answer.
                 for (index, argument) in arguments.iter().enumerate() {
                     if self.is_context_sensitive_argument(argument)
-                        && (!retain_context || checked_contexts[index].is_none())
+                        && checked_contexts[index].is_none()
                         && let Some(id) = argument.node_id()
                     {
                         self.evict_subtree(id);
@@ -4829,12 +4978,12 @@ impl Checker<'_, '_> {
                     arguments,
                     Some(&mut instantiated),
                 );
-                match instantiated {
-                    Some(signature) => signature,
+                let Some(signature) = instantiated else {
                     // Inference could not decide this candidate, so no later
                     // candidate may be trusted against it.
-                    None => return OverloadPass::Undecidable,
-                }
+                    return OverloadPass::Undecidable;
+                };
+                signature
             };
             // chooseOverload rechecks arity after instantiating a non-array
             // rest parameter (checker.go:9067).
@@ -4852,11 +5001,12 @@ impl Checker<'_, '_> {
             // the candidate, but must not hide an independently known failure.
             let mut receiver_relation_unknown = false;
             if let Some(parameter) = &concrete.this_parameter
-                && parameter.r#type != self.intrinsics.void
+                && self.parameter_type(parameter) != self.intrinsics.void
             {
                 let Some(call) = call else { return OverloadPass::Undecidable };
                 let receiver = self.this_argument_type_of_call(Some(call));
-                match self.relate_ternary(receiver, parameter.r#type, relation) {
+                let parameter_type = self.parameter_type(parameter);
+                match self.relate_ternary(receiver, parameter_type, relation) {
                     Ternary::NotRelated => {
                         failures.push(Some(concrete.clone()), vec![None; arguments.len()]);
                         continue;
@@ -4896,13 +5046,27 @@ impl Checker<'_, '_> {
                 })
                 .collect();
             let contextual = contextual_arguments.iter().any(|&needed| needed);
-            // SkipContextSensitive: reject a candidate from ordinary arguments
-            // before assigning callback parameter types. Generic inference has
-            // its own staged checks; this retained context is the non-generic
-            // NodeCheckFlagsContextChecked path (checker.go:10155).
-            if retain_context && contextual && checked_contexts.iter().all(Option::is_none) {
+            // SkipContextSensitive (`chooseOverload`'s `argCheckMode`,
+            // `checker.go:9025`): while no context-sensitive argument has been
+            // checked under a candidate, a candidate is rejected from its
+            // ordinary arguments before any callback parameter types are
+            // assigned; the first candidate that passes switches the walk to
+            // the normal mode and its context check is retained
+            // (NodeCheckFlagsContextChecked, checker.go:10155). A generic
+            // candidate's skipped arguments are `anyFunctionType`, which
+            // relates; its instantiation is the full inference's.
+            let skip_mode = checked_contexts.iter().all(Option::is_none)
+                && if candidate.type_parameters.is_empty() {
+                    contextual
+                } else {
+                    arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                };
+            if skip_mode {
                 for (index, &argument) in argument_types.iter().enumerate() {
                     let argument = if self.is_context_sensitive_argument(&arguments[index]) {
+                        if !candidate.type_parameters.is_empty() {
+                            continue;
+                        }
                         let Some(skipped) =
                             self.context_free_object_inference_type(arguments[index])
                         else {
@@ -4926,6 +5090,22 @@ impl Checker<'_, '_> {
                     }
                 }
             }
+            if skip_mode && !candidate.type_parameters.is_empty() {
+                // The candidate passed the skipped check, so inference's
+                // context check of its context-sensitive arguments is the
+                // one later candidates and the next relation reuse rather
+                // than re-assigning parameter types
+                // (`contextuallyCheckFunctionExpressionOrObjectLiteralMethod`).
+                for (index, argument) in arguments.iter().enumerate() {
+                    if self.is_context_sensitive_argument(argument)
+                        && let Some(id) = argument.node_id()
+                        && let Some(&checked) = self.node_types.get(&id)
+                    {
+                        checked_contexts[index] = Some(checked);
+                        self.context_checked_arguments.insert(id);
+                    }
+                }
+            }
             let mut checked_arguments = argument_types.to_vec();
             if contextual {
                 let Some(call) = call else { return OverloadPass::Undecidable };
@@ -4938,10 +5118,12 @@ impl Checker<'_, '_> {
                         // Literal-only objects lack NodeCheckFlagsContextChecked
                         // (5b1047d checker.go:10155). Their literal context can
                         // differ between candidates, so only the existing
-                        // context-sensitive/array retention may reuse a result.
-                        let retain_argument_context = retain_context
-                            && (!matches!(argument, Expression::ObjectLiteralExpression(_))
-                                || self.is_context_sensitive_argument(argument));
+                        // context-sensitive/array retention may reuse a result;
+                        // a context-sensitive argument keeps its first check
+                        // under every candidate, generic or not.
+                        let retain_argument_context = self.is_context_sensitive_argument(argument)
+                            || (retain_context
+                                && !matches!(argument, Expression::ObjectLiteralExpression(_)));
                         if retain_argument_context && let Some(checked) = checked_contexts[index] {
                             checked_arguments[index] = checked;
                             continue;
@@ -4959,6 +5141,11 @@ impl Checker<'_, '_> {
                         checked_arguments[index] = checked;
                         if retain_argument_context {
                             checked_contexts[index] = Some(checked);
+                            if self.is_context_sensitive_argument(argument)
+                                && let Some(id) = argument.node_id()
+                            {
+                                self.context_checked_arguments.insert(id);
+                            }
                         }
                     }
                 }
@@ -5149,7 +5336,7 @@ mod tests {
                         } else {
                             let signature = signature.expect("explicit worker completion");
                             assert!(signature.type_parameters.is_empty());
-                            assert_eq!(signature.parameters[0].r#type, expected);
+                            assert_eq!(checker.parameter_type(&signature.parameters[0]), expected);
                             assert_eq!(signature.r#type, expected);
                             let target = signature.target.as_ref().unwrap();
                             assert_eq!(target.declaration, original.declaration);
@@ -5159,7 +5346,10 @@ mod tests {
                                 checker.type_parameter_types(target).unwrap(),
                                 original_parameters
                             );
-                            assert_eq!(target.parameters[0].r#type, original_parameters[0]);
+                            assert_eq!(
+                                checker.parameter_type(&target.parameters[0]),
+                                original_parameters[0]
+                            );
                             assert_eq!(target.r#type, original_parameters[0]);
                             assert_eq!(format!("{target:?}"), format!("{original:?}"));
                             if stage == "worker" {

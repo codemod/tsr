@@ -224,15 +224,17 @@ impl Checker<'_, '_> {
                         let target = self
                             .get_type_of_property_of_type(base, &property.name)
                             .unwrap_or(self.intrinsics.unknown);
+                        let current = self.property_type(property);
                         let image = self.const_literal_inference_source(
                             initializer,
-                            property.r#type,
+                            current,
                             target,
                             in_const_context,
                         );
-                        changed |= image != property.r#type;
-                        property.r#type = image;
-                        property.printed_type = self.type_to_string(property.r#type);
+                        changed |= image != current;
+                        property.slot = crate::objects::PropertySlot::resolved(image);
+                        property.printed_slot =
+                            crate::objects::PrintedSlot::printed(self.type_to_string(image));
                     }
                     changed |= in_const_context && !property.readonly;
                     property.readonly |= in_const_context;
@@ -246,7 +248,7 @@ impl Checker<'_, '_> {
                         name: property.printed_name.clone(),
                         optional: property.optional,
                         readonly: property.readonly,
-                        printed: property.printed_type.clone(),
+                        printed: self.property_printed_type(property).into_owned(),
                     })
                     .collect();
                 let owner = match self.store.get(source).data {

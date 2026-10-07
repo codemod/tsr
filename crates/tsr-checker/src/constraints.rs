@@ -626,17 +626,19 @@ impl Checker<'_, '_> {
             {
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+            // `checkTypeAssignableTo(typeArgument, constraint, typeArgNode,
+            // Type_0_does_not_satisfy_the_constraint_1)` (`checker.go:3016`):
+            // `reportRelationError` (`relater.go:4751`) drops the TS2344 head
+            // when the chain ends in the pair's missing-property message, so
+            // the shared reporter chooses TS2741/TS2739/TS2740 or the head.
             let span = self.error_span(at);
-            let source_text = self.type_to_string(source);
-            let target_text = self.type_to_string(target);
-            self.report(
-                file,
-                tsr_diagnostics::Diagnostic::with_args(
-                    &tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1,
-                    span,
-                    [source_text, target_text],
-                ),
+            self.report_relation_failure(
+                at,
+                span,
+                None,
+                source,
+                target,
+                Some(&tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
             );
             // `result = result && checkTypeAssignableTo(...)` short-circuits:
             // the first failing argument ends the check.

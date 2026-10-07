@@ -394,15 +394,14 @@ impl<'a> Checker<'a, '_> {
             checked_declaration: None,
             name: name.to_owned(),
             printed_name: name.to_owned(),
-            printed_type: self.type_to_string(ty),
+            printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
             optional: false,
             readonly: false,
-            r#type: ty,
+            slot: crate::objects::PropertySlot::resolved(ty),
         })
         .collect::<Vec<_>>();
-        let text = crate::objects::render_object_type(&crate::callable_expandos::property_members(
-            &properties,
-        ));
+        let members = self.property_members(&properties);
+        let text = crate::objects::render_object_type(&members);
         let ty = self.store.new_named(TypeFlags::OBJECT, text, None);
         self.anonymous_properties.insert(ty, (properties, true));
         self.decorator_types.overrides.insert(key, ty);
@@ -411,13 +410,7 @@ impl<'a> Checker<'a, '_> {
 }
 
 fn decorator_parameter(name: &str, ty: TypeId) -> Parameter {
-    Parameter {
-        name: name.to_owned(),
-        optional: false,
-        rest: false,
-        r#type: ty,
-        written_text: None,
-    }
+    Parameter::new(name.to_owned(), false, false, ty, None)
 }
 
 fn decorator_signature(
@@ -495,11 +488,10 @@ mod tests {
         with_checker(SOURCE, false, |c, decorators| {
             assert_eq!(decorators.len(), 16);
             let class = signature(c, decorators[0]);
-            assert_eq!(c.type_to_string(class.parameters[0].r#type), "typeof Vessel");
-            assert_eq!(
-                c.type_to_string(class.parameters[1].r#type),
-                "ClassDecoratorContext<typeof Vessel>"
-            );
+            let class_type = c.parameter_type(&class.parameters[0]);
+            assert_eq!(c.type_to_string(class_type), "typeof Vessel");
+            let context_type = c.parameter_type(&class.parameters[1]);
+            assert_eq!(c.type_to_string(context_type), "ClassDecoratorContext<typeof Vessel>");
             assert!(
                 c.contextual_type_for_decorator(decorators[1]).is_none(),
                 "ES parameter decorator has no signature"
@@ -550,8 +542,9 @@ mod tests {
                 (14, "undefined", "Parcel<T>", "Wrapped<T>", "\"item\"", "false", "false"),
             ] {
                 let sig = signature(c, decorators[index]);
-                assert_eq!(c.type_to_string(sig.parameters[0].r#type), target);
-                let context = sig.parameters[1].r#type;
+                let target_type = c.parameter_type(&sig.parameters[0]);
+                assert_eq!(c.type_to_string(target_type), target);
+                let context = c.parameter_type(&sig.parameters[1]);
                 assert_eq!(property(c, context, "receiver"), receiver);
                 assert_eq!(property(c, context, "value"), value);
                 assert_eq!(property(c, context, "name"), name);
@@ -565,14 +558,14 @@ mod tests {
             let mutator =
                 parts.iter().find_map(|part| c.signature_types.get(part)).unwrap()[0].clone();
             assert_eq!(
-                mutator.this_parameter.unwrap().r#type,
+                c.parameter_type(mutator.this_parameter.as_ref().unwrap()),
                 c.get_declared_type_of_symbol(
                     c.binder
                         .symbol_of(c.nodes.parent(c.nodes.parent(decorators[9]).unwrap()).unwrap())
                         .unwrap()
                 )
             );
-            assert_eq!(mutator.parameters[0].r#type, c.intrinsics.boolean);
+            assert_eq!(c.parameter_type(&mutator.parameters[0]), c.intrinsics.boolean);
             assert_eq!(mutator.r#type, c.intrinsics.boolean);
         });
     }
@@ -605,11 +598,14 @@ mod tests {
                 (14, "Parcel<T>", "\"item\"", None),
             ] {
                 let sig = signature(c, decorators[index]);
-                assert_eq!(c.type_to_string(sig.parameters[0].r#type), target);
-                assert_eq!(c.type_to_string(sig.parameters[1].r#type), key);
+                let target_type = c.parameter_type(&sig.parameters[0]);
+                assert_eq!(c.type_to_string(target_type), target);
+                let key_type = c.parameter_type(&sig.parameters[1]);
+                assert_eq!(c.type_to_string(key_type), key);
                 assert_eq!(sig.parameters.len(), if descriptor.is_some() { 3 } else { 2 });
                 if let Some(descriptor) = descriptor {
-                    assert_eq!(c.type_to_string(sig.parameters[2].r#type), descriptor);
+                    let descriptor_type = c.parameter_type(&sig.parameters[2]);
+                    assert_eq!(c.type_to_string(descriptor_type), descriptor);
                 }
             }
             assert_eq!(

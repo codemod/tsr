@@ -316,6 +316,20 @@ impl Checker<'_, '_> {
                 if let Some(name) = declaration.name.and_then(|n| n.node_id()) {
                     self.check_module_augmentation_name(node, name);
                 }
+                // `checkModuleDeclaration` (`checker.go:5161`), reached only
+                // past `checkGrammarModuleElementContext`'s bail-out
+                // (`:5146`): a module declaration in an illegal context is not
+                // checked further.
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::SourceFile
+                            | SyntaxKind::ModuleBlock
+                            | SyntaxKind::ModuleDeclaration
+                    )
+                }) {
+                    self.check_exports_on_merged_declarations(node);
+                }
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     || self.is_ambient_module_node(node)
@@ -327,7 +341,6 @@ impl Checker<'_, '_> {
             Node::FunctionDeclaration(declaration) => {
                 self.check_class_function_merge(node);
                 self.check_function_or_constructor_symbol(node, ambient);
-                self.check_overload_ambient_agreement(node);
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_implicit_any_parameters(node, ambient);
@@ -410,6 +423,7 @@ impl Checker<'_, '_> {
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
                 self.check_annotated_initializer(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::PropertySignatureDeclaration(_) => {
@@ -445,6 +459,7 @@ impl Checker<'_, '_> {
                 self.check_renamed_binding_element_in_signature(node);
                 self.check_binding_element_initializer(node, ambient);
                 self.check_binding_element_accessibility(node, ambient);
+                self.check_subsequent_declaration_type(node);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {
@@ -555,8 +570,6 @@ impl Checker<'_, '_> {
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
                 self.check_function_or_constructor_symbol(node, ambient);
-                self.check_overload_ambient_agreement(node);
-                self.check_overload_accessibility_agreement(node);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 // **A member's own `declare` is an ambient context for its
@@ -572,6 +585,7 @@ impl Checker<'_, '_> {
             // §81. No walk arm claimed this kind before, which is what §49's
             // trap says to check before pricing a rule that measures zero.
             Node::MethodSignatureDeclaration(_) => {
+                self.check_function_or_constructor_symbol(node, ambient);
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 ambient
@@ -767,7 +781,10 @@ impl Checker<'_, '_> {
         // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
         // is the statement-level shape and is declined, §103.
         match typed {
-            Node::YieldExpression(_) => self.check_yield_grammar(node),
+            Node::YieldExpression(_) => {
+                self.check_yield_grammar(node);
+                self.check_yield_expression_assignability(node);
+            }
             Node::AwaitExpression(_) => {
                 self.check_await_in_parameter_initializer(node);
                 self.check_await_in_non_async_function(node);
@@ -1017,7 +1034,10 @@ impl Checker<'_, '_> {
                 self.check_jsx_children_specified_twice(node);
             }
             Node::JsxExpression(_) => self.check_jsx_expression(node),
-            Node::YieldExpression(_) => self.check_yield_star_iteration(node),
+            Node::YieldExpression(_) => {
+                self.check_yield_star_iteration(node);
+                self.check_implicit_any_yield_expression(node);
+            }
             _ => {}
         }
         if matches!(typed, Node::ExportDeclaration(_)) {
@@ -1030,7 +1050,7 @@ impl Checker<'_, '_> {
             self.check_index_signature_key_type(node);
         }
         if matches!(typed, Node::ExportAssignment(_)) {
-            self.check_export_assignment_alone(node);
+            self.check_export_assignment_alone(node, ambient);
             self.check_jsdoc_annotated_initializer(node, ambient);
         }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
@@ -1439,7 +1459,7 @@ impl Checker<'_, '_> {
             && !self.is_ambient_module_declaration(container)
     }
 
-    fn check_export_assignment_alone(&mut self, node: NodeId) {
+    fn check_export_assignment_alone(&mut self, node: NodeId, ambient: bool) {
         // `checkExternalModuleExports` resolves the module's `export=` symbol,
         // which is where an `export = self` cycle reports. Not grammar, so
         // ahead of the parse-error bail below.
@@ -1480,6 +1500,33 @@ impl Checker<'_, '_> {
             self.report(
                 file,
                 Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
+            );
+        }
+        // Ported from typescript-go's `checkExportAssignment`
+        // (`internal/checker/checker.go:5666`, pinned `5b1047d`): ambient
+        // assignment expressions must be entity-name expressions. The caller
+        // carries the parser's Ambient context through the existing walk.
+        if ambient
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::SourceFile
+                        | SyntaxKind::ModuleBlock
+                        | SyntaxKind::ModuleDeclaration
+                )
+            })
+            && !self.is_contained_by_namespace(node)
+            && let Some(expression) = assignment.expression.and_then(|e| e.node_id())
+            && !self.is_entity_name_expression(expression)
+            && let Some(file) = self.source_file_of_for_diagnostics(expression)
+        {
+            let span = self.error_span(expression);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THE_EXPRESSION_OF_AN_EXPORT_ASSIGNMENT_MUST_BE_AN_IDENTIFIER_OR_QUALIFIED_NAME_IN_AN_AMBIENT_CONTEXT,
+                    span,
+                ),
             );
         }
         if !assignment.is_export_equals {
@@ -8743,8 +8790,9 @@ impl Checker<'_, '_> {
     /// have identical modifiers.`
     ///
     /// `checkVariableLikeDeclaration`'s merged-declaration arms
-    /// (`checker.go:5893-5935`), for variable declarations, property
-    /// declarations and property signatures. On the symbol's primary
+    /// (`checker.go:5893-5935`), for variable declarations, parameters,
+    /// binding elements, property declarations and property signatures. On
+    /// the symbol's primary
     /// declaration (`symbol.ValueDeclaration`): TS2687 when another
     /// variable-like declaration's flags differ (`areDeclarationFlagsIdentical`).
     /// On a secondary one: `t := getTypeOfSymbol(symbol)` against the
@@ -8753,21 +8801,34 @@ impl Checker<'_, '_> {
     /// the primary. A type pair the identity relation cannot decide is not
     /// reported.
     ///
+    /// A parameter property's symbol is the class member it declares (the
+    /// binder lets the property win as the node's symbol, as upstream's
+    /// `bindParameter` does), so `y: number; constructor(private y: number)`
+    /// is a secondary declaration with different modifiers — TS2687.
+    ///
+    /// No parse-error gate: upstream checks a file with syntax errors too
+    /// (`asyncArrowFunction9_es2017`, `negateOperatorInvalidOperations`).
+    ///
     /// **`any` and `unknown` are trusted only where written.** In this port
     /// `any` is *"no better answer"* as often as it is the type the user wrote
     /// (§338; §865 measured −34 cases admitting it unconditionally), so a
     /// top-level `any`/`unknown` takes part only when the declaration's own
     /// annotation is that keyword.
     fn check_subsequent_declaration_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (name, annotated, is_property) = match self.node_map.get(node) {
             Some(Node::VariableDeclaration(declaration)) => (
                 declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
                 declaration.r#type.is_some(),
                 false,
             ),
+            Some(Node::ParameterDeclaration(declaration)) => (
+                declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+                declaration.r#type.is_some(),
+                false,
+            ),
+            Some(Node::BindingElement(element)) => {
+                (element.name.as_ref().and_then(tsr_ast::BindingName::node_id), false, false)
+            }
             Some(Node::PropertyDeclaration(declaration)) => {
                 (declaration.name.node_id(), declaration.r#type.is_some(), true)
             }
@@ -8777,8 +8838,17 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(name) = name else { return };
-        let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return };
-        let text = identifier.text.to_string();
+        // `scanner.DeclarationNameToString` for the name kinds that reach the
+        // merge arms (a binding pattern returned earlier upstream). Upstream
+        // reads the source text; a string literal is respelled with double
+        // quotes here, which only the message argument can tell apart.
+        let text = match self.node_map.get(name) {
+            Some(Node::Identifier(identifier)) => identifier.text.to_string(),
+            Some(Node::PrivateIdentifier(identifier)) => identifier.text.to_string(),
+            Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),
+            Some(Node::NumericLiteral(literal)) => literal.text.to_string(),
+            _ => return,
+        };
         let Some(own) = self.binder.symbol_of(node) else { return };
         // **A merge the excludes forbid did not happen upstream.**
         // `mergeSymbol` reports `reportMergeSymbolError` and leaves the source
@@ -12578,186 +12648,164 @@ impl Checker<'_, '_> {
         false
     }
 
-    /// `checkFlagAgreementBetweenOverloads` (`checker.go:3497`), the **Ambient**
-    /// arm.
+    /// `checkFunctionOrConstructorSymbolWorker`'s agreement arms
+    /// (`checker.go:3684-3686`): when the symbol has an overload (a
+    /// function-like declaration without a body), `checkFlagAgreementBetweenOverloads`
+    /// (`:3497`) and `checkQuestionTokenAgreementBetweenOverloads` (`:3539`)
+    /// over **all** of the symbol's declarations.
     ///
-    /// TS2384 `Overload signatures must all be ambient or non-ambient.`
+    /// | code | deviation from the canonical overload |
+    /// |---|---|
+    /// | TS2383 | `export`, within one file |
+    /// | TS2384 | ambience, within one file |
+    /// | TS2385 | `private`/`protected` |
+    /// | TS2386 | the `?` postfix |
+    /// | TS2512 | `abstract` |
     ///
-    /// Separate from [`Self::check_function_or_constructor_symbol`] because
-    /// upstream runs the agreement check unconditionally (`checker.go:3685`),
-    /// outside the different-container and class-merge bounds that rule draws
-    /// for the implementation-presence arms — and one of this row's three cases
-    /// is precisely a different-container symbol.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §673.
-    /// TS2385 — `Overload signatures must all be public, private or protected.`
-    ///
-    /// `checkFunctionOrConstructorSymbol` (`checker.go:3530`): each overload's
-    /// accessibility flags are compared against the **canonical** declaration's
-    /// — the implementation, or the first if there is none — and any deviation
-    /// in `private` or `protected` is the error.
-    ///
-    /// A sibling of [`Self::check_overload_ambient_agreement`] rather than an
-    /// arm inside it: that function exits as soon as the ambient flags agree,
-    /// which they do in every fixture this one is about. §1021.
-    fn check_overload_accessibility_agreement(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
-        if !self.overload_accessibility_checked.insert(symbol) {
-            return;
-        }
-        let declarations: Vec<NodeId> =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
-        if declarations.len() < 2 {
-            return;
-        }
-        if !declarations.iter().all(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::MethodDeclaration | SyntaxKind::Constructor
-            )
-        }) {
-            return;
-        }
-        let canonical = declarations
+    /// The canonical overload is `getCanonicalOverload`: the implementation
+    /// when it shares a parent with the first declaration, else the first.
+    /// The `switch` is ordered and reports at most one deviation per
+    /// declaration. Run before the worker's single-file and same-parent
+    /// bounds, which concern only the implementation-presence arms: upstream
+    /// groups by file here itself.
+    fn check_overload_agreement(&mut self, declarations: &[NodeId], current_file: NodeId) {
+        let function_like: Vec<NodeId> = declarations
             .iter()
             .copied()
-            .find(|&d| self.declaration_has_body(d))
-            .unwrap_or(declarations[0]);
-        let canonical_flags = self.accessibility_of(canonical);
-        let canonical_abstract = self.is_abstract_declaration(canonical);
-        // **Upstream's `switch` is ordered**: accessibility first, abstract
-        // second, and only one case fires per overload. Two functions would
-        // report both on an overload deviating in both, which under multiset
-        // comparison fails a case exactly as a wrong code does. §1023.
-        let mut reports: Vec<(NodeId, bool)> = Vec::new();
-        for &declaration in &declarations {
-            if declaration == canonical || self.declaration_has_body(declaration) {
-                continue;
-            }
-            if self.accessibility_of(declaration) != canonical_flags {
-                reports.push((declaration, false));
-            } else if self.is_abstract_declaration(declaration) != canonical_abstract {
-                reports.push((declaration, true));
-            }
-        }
-        for (declaration, is_abstract_deviation) in reports {
-            // **A constructor has no name**, so the error node is the
-            // declaration — `OrElse(GetNameOfDeclaration(overload), overload)`.
-            let at = self.declaration_name_of(declaration).unwrap_or(declaration);
-            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
-            let span = self.nodes.span(at);
-            let message = if is_abstract_deviation {
-                &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_ABSTRACT_OR_NON_ABSTRACT
-            } else {
-                &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_PUBLIC_PRIVATE_OR_PROTECTED
-            };
-            self.report(file, Diagnostic::new(message, span));
-        }
-    }
-
-    /// Does this declaration carry `abstract`? §1023.
-    fn is_abstract_declaration(&self, declaration: NodeId) -> bool {
-        self.node_map
-            .get(declaration)
-            .and_then(modifiers_of)
-            .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AbstractKeyword))
-    }
-
-    /// `(private, protected)` — absent accessibility is `public`. §1021.
-    fn accessibility_of(&self, declaration: NodeId) -> (bool, bool) {
-        let Some(modifiers) = self.node_map.get(declaration).and_then(modifiers_of) else {
-            return (false, false);
-        };
-        (
-            has_modifier(modifiers, SyntaxKind::PrivateKeyword),
-            has_modifier(modifiers, SyntaxKind::ProtectedKeyword),
-        )
-    }
-
-    fn check_overload_ambient_agreement(&mut self, node: NodeId) {
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
-        if !self.overload_agreement_checked.insert(symbol) {
-            return;
-        }
-        let declarations: Vec<NodeId> =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
-        if declarations.len() < 2 {
-            return;
-        }
-        if !declarations.iter().all(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::FunctionDeclaration
-                    | SyntaxKind::MethodDeclaration
-                    | SyntaxKind::MethodSignature
-                    | SyntaxKind::Constructor
-            )
-        }) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // The single-file bound, as in §64: upstream groups by file and takes a
-        // per-file canonical, and a cross-file group needs each file's own
-        // ambient context.
-        if declarations
-            .iter()
-            .any(|&declaration| self.source_file_of_for_diagnostics(declaration) != Some(file))
-        {
-            return;
-        }
-        let ambients: Vec<bool> =
-            declarations.iter().map(|&d| self.is_in_ambient_context_for_overloads(d)).collect();
-        // `someOverloadFlags ^ allOverloadFlags` for a single flag is exactly
-        // "the declarations disagree".
-        if ambients.iter().all(|&a| a) || ambients.iter().all(|&a| !a) {
-            return;
-        }
-        // Upstream's `switch` reaches the **export** arm before the ambient one
-        // and emits TS2395 there. Rather than guess which fires, a symbol whose
-        // declarations also disagree on `export` is declined whole.
-        let exports: Vec<bool> = declarations
-            .iter()
-            .map(|&d| {
-                self.node_map
-                    .get(d)
-                    .and_then(modifiers_of)
-                    .is_some_and(|m| tsr_ast::has_syntactic_modifier(m, SyntaxKind::ExportKeyword))
-            })
+            .filter(|&declaration| self.is_function_or_method_or_constructor(declaration))
             .collect();
-        if !(exports.iter().all(|&e| e) || exports.iter().all(|&e| !e)) {
+        if !function_like.iter().any(|&declaration| !self.declaration_has_body(declaration)) {
             return;
         }
-        // `getCanonicalOverload`: the implementation's flags when it shares a
-        // container with the first declaration, and the first declaration's
-        // otherwise.
-        let implementation = declarations.iter().position(|&d| self.declaration_has_body(d));
-        let canonical = match implementation {
-            Some(index)
-                if self.nodes.parent(declarations[index]) == self.nodes.parent(declarations[0]) =>
-            {
-                index
+        let implementation = function_like
+            .iter()
+            .copied()
+            .find(|&declaration| self.declaration_has_body(declaration));
+        let canonical_of = |checker: &Self, overloads: &[NodeId]| -> NodeId {
+            match implementation {
+                Some(body) if checker.nodes.parent(body) == checker.nodes.parent(overloads[0]) => {
+                    body
+                }
+                _ => overloads[0],
             }
-            _ => 0,
         };
-        for (index, &declaration) in declarations.iter().enumerate() {
-            if ambients[index] == ambients[canonical] {
-                continue;
-            }
-            let Some(name) = self.declaration_name_of(declaration) else { continue };
-            let span = self.nodes.span(name);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_AMBIENT_OR_NON_AMBIENT,
-                    span,
-                ),
-            );
+        let (mut some, mut all) = (0u8, OverloadFlags::ALL);
+        let (mut some_optional, mut all_optional) = (false, true);
+        for &declaration in &function_like {
+            let flags = self.overload_effective_flags(declaration, current_file);
+            some |= flags;
+            all &= flags;
+            let optional = self.declaration_is_optional(declaration);
+            some_optional |= optional;
+            all_optional &= optional;
         }
+        if some ^ all != 0 {
+            let canonical =
+                self.overload_effective_flags(canonical_of(self, declarations), current_file);
+            let mut groups: Vec<(Option<NodeId>, Vec<NodeId>)> = Vec::new();
+            for &declaration in declarations {
+                let file = self.source_file_of_for_diagnostics(declaration);
+                match groups.iter_mut().find(|(each, _)| *each == file) {
+                    Some((_, members)) => members.push(declaration),
+                    None => groups.push((file, vec![declaration])),
+                }
+            }
+            for (_, overloads) in &groups {
+                let canonical_for_file =
+                    self.overload_effective_flags(canonical_of(self, overloads), current_file);
+                for &overload in overloads {
+                    let flags = self.overload_effective_flags(overload, current_file);
+                    let deviation = flags ^ canonical;
+                    let deviation_in_file = flags ^ canonical_for_file;
+                    let name = self.declaration_name_of(overload);
+                    let (message, at) = if deviation_in_file & OverloadFlags::EXPORT != 0 {
+                        (&messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_EXPORTED_OR_NON_EXPORTED, name)
+                    } else if deviation_in_file & OverloadFlags::AMBIENT != 0 {
+                        (&messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_AMBIENT_OR_NON_AMBIENT, name)
+                    } else if deviation & (OverloadFlags::PRIVATE | OverloadFlags::PROTECTED) != 0 {
+                        (
+                            &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_PUBLIC_PRIVATE_OR_PROTECTED,
+                            Some(name.unwrap_or(overload)),
+                        )
+                    } else if deviation & OverloadFlags::ABSTRACT != 0 {
+                        (&messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_ABSTRACT_OR_NON_ABSTRACT, name)
+                    } else {
+                        continue;
+                    };
+                    // A nameless error node is a location-less diagnostic
+                    // upstream, which this collection has no slot for.
+                    let Some(at) = at else { continue };
+                    let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+                    let span = self.nodes.span(at);
+                    self.report(file, Diagnostic::new(message, span));
+                }
+            }
+        }
+        if some_optional != all_optional {
+            let canonical_optional = self.declaration_is_optional(canonical_of(self, declarations));
+            for &overload in declarations {
+                if self.declaration_is_optional(overload) == canonical_optional {
+                    continue;
+                }
+                let Some(at) = self.declaration_name_of(overload) else { continue };
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+                let span = self.nodes.span(at);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::OVERLOAD_SIGNATURES_MUST_ALL_BE_OPTIONAL_OR_REQUIRED,
+                        span,
+                    ),
+                );
+            }
+        }
+    }
+
+    /// `getEffectiveDeclarationFlags(n, Export|Ambient|Private|Protected|Abstract)`
+    /// (`checker.go:3701`): the declaration's own modifiers, and outside a
+    /// class or interface body an ambient declaration is `Ambient`, and
+    /// `Export` too in an ambient export context
+    /// ([`Self::is_exported_by_ambient_export_context`]). A declaration of
+    /// the file being checked reads the walk's ambient state; one of another
+    /// file asks [`Self::is_ambient_declaration`].
+    fn overload_effective_flags(&self, declaration: NodeId, current_file: NodeId) -> u8 {
+        let modifiers = self.node_map.get(declaration).and_then(modifiers_of);
+        let has = |kind| modifiers.is_some_and(|modifiers| has_modifier(modifiers, kind));
+        let mut flags = 0;
+        for (kind, flag) in [
+            (SyntaxKind::ExportKeyword, OverloadFlags::EXPORT),
+            (SyntaxKind::DeclareKeyword, OverloadFlags::AMBIENT),
+            (SyntaxKind::PrivateKeyword, OverloadFlags::PRIVATE),
+            (SyntaxKind::ProtectedKeyword, OverloadFlags::PROTECTED),
+            (SyntaxKind::AbstractKeyword, OverloadFlags::ABSTRACT),
+        ] {
+            if has(kind) {
+                flags |= flag;
+            }
+        }
+        let in_class_like = self.nodes.parent(declaration).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::InterfaceDeclaration
+                    | SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+            )
+        });
+        if !in_class_like {
+            let ambient = if self.source_file_of_for_diagnostics(declaration) == Some(current_file)
+            {
+                self.is_in_ambient_context_for_overloads(declaration)
+            } else {
+                self.is_ambient_declaration(declaration)
+            };
+            if ambient {
+                if self.is_exported_by_ambient_export_context(declaration) {
+                    flags |= OverloadFlags::EXPORT;
+                }
+                flags |= OverloadFlags::AMBIENT;
+            }
+        }
+        flags
     }
 
     /// `node.Flags & ast.NodeFlagsAmbient` for an overload declaration — the
@@ -12778,8 +12826,7 @@ impl Checker<'_, '_> {
         false
     }
 
-    /// `checkFunctionOrConstructorSymbol` (`checker.go:3461`) — the
-    /// **implementation-expected** arms only.
+    /// `checkFunctionOrConstructorSymbol` (`checker.go:3461`).
     ///
     /// | code | message |
     /// |---|---|
@@ -12788,13 +12835,15 @@ impl Checker<'_, '_> {
     /// | TS2392 | `Multiple constructor implementations are not allowed.` |
     /// | TS2393 | `Duplicate function implementation.` |
     /// | TS2389 | `Function implementation name must be '{0}'.` |
-    /// | TS2384 | `Overload signatures must all be ambient or non-ambient.` — *not ported* |
+    /// | TS2387/TS2388 | `Function overload must (not) be static.` |
+    /// | TS2383–TS2386, TS2512 | overload agreement, [`Self::check_overload_agreement`] |
+    /// | TS2394 | [`Self::check_overloads_compatible_with_implementation`] |
     ///
-    /// Upstream's worker (`checker.go:3469`) is 240 lines doing five unrelated
-    /// jobs: implementation presence, modifier agreement across overloads,
-    /// question-token agreement, class/function merging, and an
-    /// implementation-versus-overload *relation* check. Only the first is
-    /// ported; the rest are their own items and the last needs the relation.
+    /// Upstream's worker (`checker.go:3469`) does five jobs: implementation
+    /// presence, modifier agreement across overloads, question-token
+    /// agreement, class/function merging (`crate::class_function_merge`) and
+    /// the implementation-versus-overload relation check. The agreement arms
+    /// run on every declaration; the bounds below apply to the rest.
     ///
     /// # Two bounds, both refusals rather than approximations
     ///
@@ -12808,7 +12857,19 @@ impl Checker<'_, '_> {
     ///   `links.functionOrConstructorChecked` (`checker.go:3463`). Without it a
     ///   three-overload function reports three times, and the suite compares
     ///   multisets.
+    ///
+    /// `checkFunctionOrMethodDeclaration` (`checker.go:3422-3436`) calls the
+    /// worker only for a declaration with a **bindable name** (a dynamic name
+    /// that is not late-bindable — `[e]` with `e` unresolved, `[sym]` with
+    /// `sym: symbol` — is skipped), and twice for an exported one: on
+    /// `node.LocalSymbol()`, the local half that holds only this container's
+    /// declarations, and on the export symbol, which holds every merged
+    /// block's. Both runs can report the same line; upstream's diagnostic
+    /// collection deduplicates, so this does too.
     fn check_function_or_constructor_symbol(&mut self, node: NodeId, ambient: bool) {
+        if self.non_bindable_computed_name(node).is_some() {
+            return;
+        }
         // A **constructor has no symbol in this binder**. Upstream binds one as
         // `__constructor` in the class's member table; here `symbol_of` answers
         // `None`, so an overload set of constructors had nothing to gather its
@@ -12818,20 +12879,61 @@ impl Checker<'_, '_> {
         // class's constructor members in source order, and the dedup
         // `function_symbol_checked` gives a symbol is given here by running
         // only for the first of them.
-        let mut declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
-            let symbol = self.binder.merged_symbol(symbol);
-            if !self.function_symbol_checked.insert(symbol) {
-                return;
+        let mut lists: Vec<Vec<NodeId>> = Vec::new();
+        if let Some(own) = self.binder.symbol_of(node) {
+            let symbol = self.binder.merged_symbol(own);
+            let local = self
+                .declaration_name_of(node)
+                .and_then(|name| self.identifier_text(name))
+                .map(str::to_string)
+                .and_then(|name| self.export_merge_local_symbol(node, own, &name))
+                .filter(|&local| local != own && local != symbol);
+            for checked in local.into_iter().chain(std::iter::once(symbol)) {
+                if self.function_symbol_checked.insert(checked) {
+                    lists.push(
+                        self.binder.symbols().get(checked).declarations.iter().copied().collect(),
+                    );
+                }
             }
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect()
         } else {
             let siblings = self.constructor_siblings_of(node);
-            if siblings.first() != Some(&node) {
-                return;
+            if siblings.first() == Some(&node) {
+                lists.push(siblings);
             }
-            siblings
-        };
+        }
+        let start = self.diagnostics.len();
+        for declarations in lists {
+            self.check_function_or_constructor_declarations(node, declarations, ambient);
+        }
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut index = start;
+        while index < self.diagnostics.len() {
+            let (file, diagnostic) = &self.diagnostics[index];
+            let key = (
+                *file,
+                diagnostic.span.start,
+                diagnostic.span.end,
+                diagnostic.message.code(),
+                diagnostic.args.clone(),
+            );
+            if seen.insert(key) {
+                index += 1;
+            } else {
+                self.diagnostics.remove(index);
+            }
+        }
+    }
+
+    /// `checkFunctionOrConstructorSymbolWorker` over one symbol's
+    /// declarations; see [`Self::check_function_or_constructor_symbol`].
+    fn check_function_or_constructor_declarations(
+        &mut self,
+        node: NodeId,
+        mut declarations: Vec<NodeId>,
+        ambient: bool,
+    ) {
         let Some(mut file) = self.source_file_of_for_diagnostics(node) else { return };
+        self.check_overload_agreement(&declarations, file);
         let mut ambient = ambient;
         // A module augmentation (`mergeModuleAugmentation`,
         // `docs/parity/notes/names-modules.md` §4) adds ambient declarations
@@ -13150,9 +13252,9 @@ impl Checker<'_, '_> {
         let mut pairs = Vec::new();
         if let (Some(source_this), Some(target_this)) =
             (&source.this_parameter, &target.this_parameter)
-            && source_this.r#type != self.intrinsics.void
+            && self.parameter_type(source_this) != self.intrinsics.void
         {
-            pairs.push((source_this.r#type, target_this.r#type));
+            pairs.push((self.parameter_type(source_this), self.parameter_type(target_this)));
         }
         let count = self.signature_parameter_count(source).max(target_count);
         for position in 0..count {
@@ -13221,38 +13323,82 @@ impl Checker<'_, '_> {
         Some(erased)
     }
 
-    /// `reportImplementationExpectedError` (`checker.go:3549`), reduced to its
-    /// two terminal messages.
+    /// `reportImplementationExpectedError` (`checker.go:3549`).
     ///
-    /// The subsequent-node scan above them selects TS2389
-    /// `Function implementation name must be '{0}'` and the static/instance
-    /// overload pair, and needs the *parent's* child order. It is not ported;
-    /// the effect is that a case wanting TS2389 gets TS2391 instead, which is a
-    /// wrong code — so the scan's guard is reproduced instead: if the next
-    /// sibling is adjacent, of the same kind and carries a body, say nothing.
+    /// The subsequent-node scan: when the declaration's next sibling (upstream
+    /// tests `subsequentNode.Pos() == node.End()`; see [`Self::next_sibling`])
+    /// is of the same kind, either the names match — then a method whose
+    /// `static`-ness differs from the next one's is TS2387/TS2388 at the next
+    /// one's name, and otherwise nothing is said, since the binder already
+    /// reported whatever kept them from merging — or the next one carries a
+    /// body and is the misnamed implementation, TS2389. Only past both does
+    /// the terminal message (TS2390/TS2391/TS2516) fall.
     fn report_implementation_expected(&mut self, node: NodeId, is_constructor: bool) {
-        // TS2389 first: an adjacent subsequent declaration of the same kind
-        // that **carries a body** and does **not** share this one's name is
-        // the implementation, misnamed (`checker.go:3585`). The error node is
-        // the *subsequent* declaration's name and the argument is this one's —
-        // `checker-notes-diag2.md` §63.
-        if let Some((at, expected)) = self.misnamed_implementation(node) {
-            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-            let span = self.error_span(at);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::FUNCTION_IMPLEMENTATION_NAME_MUST_BE_0,
-                    span,
-                    [expected],
-                ),
-            );
+        let name = self.declaration_name_of(node);
+        // `name != nil && ast.NodeIsMissing(name)`: a name the parser had to
+        // invent (an empty span here) says nothing.
+        if name.is_some_and(|name| {
+            let span = self.nodes.span(name);
+            span.start == span.end
+        }) {
             return;
         }
-        if self.next_sibling_is_the_implementation(node) {
-            return;
+        if let Some(next) = self.next_sibling(node)
+            && self.nodes.kind(next) == self.nodes.kind(node)
+        {
+            let subsequent = self.declaration_name_of(next);
+            let at = subsequent.unwrap_or(next);
+            if let (Some(name), Some(subsequent)) = (name, subsequent) {
+                match self.overload_names_identical(name, subsequent) {
+                    Some(true) => {
+                        let is_static = |checker: &Self, declaration: NodeId| {
+                            checker.node_map.get(declaration).and_then(modifiers_of).is_some_and(
+                                |modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword),
+                            )
+                        };
+                        let node_is_static = is_static(self, node);
+                        if matches!(
+                            self.nodes.kind(node),
+                            SyntaxKind::MethodDeclaration | SyntaxKind::MethodSignature
+                        ) && node_is_static != is_static(self, next)
+                            && let Some(file) = self.source_file_of_for_diagnostics(at)
+                        {
+                            let message = if node_is_static {
+                                &messages::FUNCTION_OVERLOAD_MUST_BE_STATIC
+                            } else {
+                                &messages::FUNCTION_OVERLOAD_MUST_NOT_BE_STATIC
+                            };
+                            let span = self.error_span(at);
+                            self.report(file, Diagnostic::new(message, span));
+                        }
+                        return;
+                    }
+                    Some(false) => {}
+                    // A computed pair the identity relation cannot decide.
+                    None => return,
+                }
+            }
+            if self.declaration_has_body(next) {
+                // `scanner.DeclarationNameToString(name)`; a declaration
+                // without a name (a constructor) has nothing to print.
+                let Some(expected) = name.and_then(|name| self.overload_name_to_string(name))
+                else {
+                    return;
+                };
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                let span = self.error_span(at);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::FUNCTION_IMPLEMENTATION_NAME_MUST_BE_0,
+                        span,
+                        [expected],
+                    ),
+                );
+                return;
+            }
         }
-        let at = self.declaration_name_of(node).unwrap_or(node);
+        let at = name.unwrap_or(node);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         let message = if is_constructor {
@@ -13263,6 +13409,87 @@ impl Checker<'_, '_> {
             &messages::FUNCTION_IMPLEMENTATION_IS_MISSING_OR_NOT_IMMEDIATELY_FOLLOWING_THE_DECLARATION
         };
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The name test of `reportImplementationExpectedError`
+    /// (`checker.go:3570-3573`): two private names with one text, two
+    /// computed names whose `checkComputedPropertyName` types are identical,
+    /// or two property-name literals (identifier, string, numeric,
+    /// no-substitution template) with one `Text()` — a numeric literal's text
+    /// is its canonical value, as the scanner stores it. `None` when the
+    /// identity of two computed-name types is undecidable here.
+    fn overload_names_identical(&mut self, name: NodeId, subsequent: NodeId) -> Option<bool> {
+        let literal_text = |checker: &Self, node: NodeId| -> Option<String> {
+            match checker.node_map.get(node)? {
+                Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                Node::StringLiteral(literal) => Some(literal.text.to_string()),
+                Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text.to_string()),
+                Node::NumericLiteral(literal) => {
+                    Some(tsr_core::jsnum::canonical_numeric_text(literal.text))
+                }
+                _ => None,
+            }
+        };
+        match (self.node_map.get(name), self.node_map.get(subsequent)) {
+            (Some(Node::PrivateIdentifier(left)), Some(Node::PrivateIdentifier(right))) => {
+                Some(left.text == right.text)
+            }
+            (Some(Node::ComputedPropertyName(left)), Some(Node::ComputedPropertyName(right))) => {
+                let (Some(left), Some(right)) = (left.expression, right.expression) else {
+                    return Some(false);
+                };
+                let left = self.check_expression(left);
+                let right = self.check_expression(right);
+                let left = self.get_regular_type_of_literal_type(left);
+                let right = self.get_regular_type_of_literal_type(right);
+                if left == right {
+                    return Some(true);
+                }
+                // Literal and unique-symbol types are interned: two distinct
+                // ids are two distinct types.
+                let unit = TypeFlags::STRING_LITERAL
+                    | TypeFlags::NUMBER_LITERAL
+                    | TypeFlags::BIG_INT_LITERAL
+                    | TypeFlags::BOOLEAN_LITERAL
+                    | TypeFlags::UNIQUE_ES_SYMBOL;
+                if self.type_of(left).flags.intersects(unit)
+                    && self.type_of(right).flags.intersects(unit)
+                {
+                    return Some(false);
+                }
+                match self.is_type_identical_to(left, right) {
+                    Ternary::Related => Some(true),
+                    Ternary::NotRelated => Some(false),
+                    Ternary::Unknown => None,
+                }
+            }
+            _ => match (literal_text(self, name), literal_text(self, subsequent)) {
+                (Some(left), Some(right)) => Some(left == right),
+                _ => Some(false),
+            },
+        }
+    }
+
+    /// `scanner.DeclarationNameToString` for an overload's name. Upstream
+    /// prints the source text; a string literal is respelled with double
+    /// quotes and a computed name from its expression, which only the
+    /// message argument can tell apart.
+    fn overload_name_to_string(&self, name: NodeId) -> Option<String> {
+        match self.node_map.get(name)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::PrivateIdentifier(identifier) => Some(identifier.text.to_string()),
+            Node::NumericLiteral(literal) => Some(literal.text.to_string()),
+            Node::StringLiteral(literal) => Some(format!("\"{}\"", literal.text)),
+            Node::ComputedPropertyName(computed) => {
+                let inner = match computed.expression? {
+                    tsr_ast::Expression::StringLiteral(literal) => format!("\"{}\"", literal.text),
+                    tsr_ast::Expression::NumericLiteral(literal) => literal.text.to_string(),
+                    _ => self.computed_name_spelling(name)?,
+                };
+                Some(format!("[{inner}]"))
+            }
+            _ => None,
+        }
     }
 
     /// Every `constructor` member of the class enclosing `node`, in source
@@ -13286,51 +13513,6 @@ impl Checker<'_, '_> {
                 _ => None,
             })
             .collect()
-    }
-
-    /// The subsequent declaration's name node and this one's written name,
-    /// when the pair is upstream's TS2389 shape: adjacent, same kind, the
-    /// subsequent one has a body, and the names differ.
-    ///
-    /// `None` for every other shape, including the name-matching one — that is
-    /// the static/instance arm (TS2387/TS2388), which is its own row and stays
-    /// declined. See `checker-notes-diag2.md` §63.
-    fn misnamed_implementation(&self, node: NodeId) -> Option<(NodeId, String)> {
-        let next = self.next_sibling(node)?;
-        if self.nodes.kind(next) != self.nodes.kind(node) || !self.declaration_has_body(next) {
-            return None;
-        }
-        let name = self.declaration_name_of(node)?;
-        let subsequent = self.declaration_name_of(next)?;
-        let written = self.identifier_text(name)?;
-        if self.identifier_text(subsequent) == Some(written) {
-            return None;
-        }
-        Some((subsequent, written.to_string()))
-    }
-
-    /// The guard `reportImplementationExpectedError` puts in front of its
-    /// terminal messages (`checker.go:3566`): a *subsequent* node that starts
-    /// exactly where this one ends, of the same kind, carrying a body, is the
-    /// implementation — upstream reports TS2389 there instead, and this port
-    /// stays silent rather than report the wrong code.
-    fn next_sibling_is_the_implementation(&self, node: NodeId) -> bool {
-        let Some(next) = self.next_sibling(node) else { return false };
-        if self.nodes.kind(next) != self.nodes.kind(node) {
-            return false;
-        }
-        // Upstream's branch structure at `checker.go:3567`, read exactly: with
-        // an adjacent subsequent node of the **same kind**, it reports the
-        // static/instance mismatch (TS2387/TS2388) or returns when the names
-        // match, and TS2389 `Function implementation name must be '{0}'` when
-        // they do not and the subsequent node has a body. In none of those does
-        // it reach TS2391. So the decline is exact rather than approximate: the
-        // only path that falls through is *different name, no body*.
-        let names_match = match (self.declaration_name_of(node), self.declaration_name_of(next)) {
-            (Some(left), Some(right)) => self.identifier_text(left) == self.identifier_text(right),
-            _ => false,
-        };
-        names_match || self.declaration_has_body(next)
     }
 
     /// The text of an identifier or private identifier used as a declaration
@@ -14732,6 +14914,19 @@ fn entity_text_of(expression: tsr_ast::Expression<'_>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The `ModifierFlags` `checkFunctionOrConstructorSymbolWorker` checks for
+/// agreement (`flagsToCheck`, `checker.go:3470`), as bits of a `u8`.
+struct OverloadFlags;
+
+impl OverloadFlags {
+    const EXPORT: u8 = 1;
+    const AMBIENT: u8 = 1 << 1;
+    const PRIVATE: u8 = 1 << 2;
+    const PROTECTED: u8 = 1 << 3;
+    const ABSTRACT: u8 = 1 << 4;
+    const ALL: u8 = Self::EXPORT | Self::AMBIENT | Self::PRIVATE | Self::PROTECTED | Self::ABSTRACT;
 }
 
 /// `scanner.DeclarationNameToString` (`internal/scanner/utilities.go`),

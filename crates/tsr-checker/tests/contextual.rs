@@ -1155,12 +1155,13 @@ fn iife_parameter_ids(
                 checker.check_expression(tsr_ast::Expression::try_from(function).unwrap());
             // Public signatures already carry declaration-widened parameter
             // types. Raw helper identities are tested inside contextual.rs.
-            let signature_type = checker.signatures_of_type(function_type).unwrap()[0]
+            let parameter = checker.signatures_of_type(function_type).unwrap()[0]
                 .parameters
                 .iter()
                 .find(|p| p.name == name)
                 .unwrap()
-                .r#type;
+                .clone();
+            let signature_type = checker.parameter_type(&parameter);
             let symbol_type = checker.get_type_of_symbol(bound.symbol_of(id).unwrap());
             return (signature_type, symbol_type, *checker.intrinsics());
         }

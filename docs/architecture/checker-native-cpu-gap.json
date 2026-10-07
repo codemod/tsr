@@ -1,0 +1,4011 @@
+{
+  "schema_version": 1,
+  "task": "tsr-1yb.11.2",
+  "source_binding": {
+    "source_sha": "8817b95b1e36efda18d1124977b45b707af4c36f",
+    "runtime_source": "5dd3bad84d12991e1ba169d2d5687321e1989740",
+    "native_pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "binaries": {
+      "tsr": {
+        "original_path": "/tmp/tsr-front-end-candidate-target/release/tsr",
+        "sha256": "b25267b075ace8b87c8e3ded256261bc59773692adecff56c3cd4aaf32e5f3a6"
+      },
+      "tsgo": {
+        "original_path": "/private/tmp/tsr-native-symbol-completion-5b/clean",
+        "sha256": "6340b230f887095fb7c82fedb41eecadd7dc49e4baa65a05ef4abb8ab4b74bc4"
+      }
+    }
+  },
+  "host": {
+    "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+    "cpu_count": 16,
+    "runtime_environment": {
+      "GOGC": null,
+      "GOMEMLIMIT": null,
+      "GOMAXPROCS": null,
+      "GODEBUG": null
+    }
+  },
+  "archive": "/tmp/tsr-native-gap-profile",
+  "ordinary_batches": {
+    "generated": {
+      "raw_sha256": "6f7d4f5a37c0fb42b1f15052cb417a08ff0dc5ddfc7b2c8d7bffb091b0261b14",
+      "preflight_sha256": "4d9f2253061ba628051bf0caf554ed358b46ba174ef7fea0faf2cd1fd898f41d",
+      "input_fingerprint": "ced5c7daaf4acc103fdbe167c3fd460cc1a3e54b9db0580122ad9809b01a9564",
+      "loaded_counts": {
+        "tsr": 465,
+        "tsgo": 465
+      },
+      "scope_match": true,
+      "options_match": true,
+      "option_difference_keys": [],
+      "diagnostics_match": true,
+      "completed": true,
+      "cohorts": [
+        {
+          "number": 0,
+          "warmup": true,
+          "load_average": [
+            16.39501953125,
+            34.46044921875,
+            56.28271484375
+          ],
+          "order": [
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ],
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ]
+          ]
+        },
+        {
+          "number": 1,
+          "warmup": false,
+          "load_average": [
+            19.20361328125,
+            34.4755859375,
+            56.033203125
+          ],
+          "order": [
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ],
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ]
+          ]
+        },
+        {
+          "number": 2,
+          "warmup": false,
+          "load_average": [
+            17.86181640625,
+            33.685546875,
+            55.50048828125
+          ],
+          "order": [
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ],
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ]
+          ]
+        },
+        {
+          "number": 3,
+          "warmup": false,
+          "load_average": [
+            17.79248046875,
+            33.408203125,
+            55.2744140625
+          ],
+          "order": [
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ],
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ]
+          ]
+        },
+        {
+          "number": 4,
+          "warmup": false,
+          "load_average": [
+            16.28662109375,
+            32.5712890625,
+            54.7216796875
+          ],
+          "order": [
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ],
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ]
+          ]
+        },
+        {
+          "number": 5,
+          "warmup": false,
+          "load_average": [
+            15.22216796875,
+            32.080078125,
+            54.41845703125
+          ],
+          "order": [
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ],
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ]
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "pid": 42129,
+          "started_at_unix_ns": 1791346339696950000,
+          "wall_seconds": 3.0340575420414098,
+          "user_seconds": 5.19518,
+          "system_seconds": 0.218772,
+          "peak_rss_bytes": 278151168,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 5.413952,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42135,
+          "started_at_unix_ns": 1791346342836992000,
+          "wall_seconds": 0.6773311250144616,
+          "user_seconds": 1.8000129999999999,
+          "system_seconds": 0.135534,
+          "peak_rss_bytes": 398278656,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 1.935547,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42137,
+          "started_at_unix_ns": 1791346343627732000,
+          "wall_seconds": 0.9360172920278274,
+          "user_seconds": 1.13587,
+          "system_seconds": 0.088118,
+          "peak_rss_bytes": 266518528,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 1.2239879999999999,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42139,
+          "started_at_unix_ns": 1791346344683117000,
+          "wall_seconds": 5.532767124997918,
+          "user_seconds": 5.369924,
+          "system_seconds": 0.12146499999999999,
+          "peak_rss_bytes": 283492352,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 5.491389,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42163,
+          "started_at_unix_ns": 1791346350300447000,
+          "wall_seconds": 0.5680853340309113,
+          "user_seconds": 0.8066829999999999,
+          "system_seconds": 0.07806199999999999,
+          "peak_rss_bytes": 268419072,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 0.8847449999999999,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42165,
+          "started_at_unix_ns": 1791346350939565000,
+          "wall_seconds": 3.59946595801739,
+          "user_seconds": 3.575236,
+          "system_seconds": 0.089211,
+          "peak_rss_bytes": 285130752,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 3.664447,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42173,
+          "started_at_unix_ns": 1791346354626091000,
+          "wall_seconds": 2.4524122920120135,
+          "user_seconds": 4.21751,
+          "system_seconds": 0.202508,
+          "peak_rss_bytes": 282673152,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 4.420018,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42181,
+          "started_at_unix_ns": 1791346357164921000,
+          "wall_seconds": 0.500507207994815,
+          "user_seconds": 1.441948,
+          "system_seconds": 0.13859,
+          "peak_rss_bytes": 403570688,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 1.580538,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42183,
+          "started_at_unix_ns": 1791346357760275000,
+          "wall_seconds": 2.1104855830199085,
+          "user_seconds": 3.960154,
+          "system_seconds": 0.16921799999999998,
+          "peak_rss_bytes": 281378816,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 4.129372,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42186,
+          "started_at_unix_ns": 1791346359944789000,
+          "wall_seconds": 0.37004683300619945,
+          "user_seconds": 1.20377,
+          "system_seconds": 0.108858,
+          "peak_rss_bytes": 398229504,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 1.312628,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42187,
+          "started_at_unix_ns": 1791346360384855000,
+          "wall_seconds": 0.542007541982457,
+          "user_seconds": 0.778416,
+          "system_seconds": 0.081412,
+          "peak_rss_bytes": 266698752,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 0.859828,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42204,
+          "started_at_unix_ns": 1791346360995656000,
+          "wall_seconds": 3.5187688340083696,
+          "user_seconds": 3.473152,
+          "system_seconds": 0.105016,
+          "peak_rss_bytes": 279101440,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 3.578168,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42209,
+          "started_at_unix_ns": 1791346364582331000,
+          "wall_seconds": 0.5382437080261298,
+          "user_seconds": 0.755331,
+          "system_seconds": 0.073697,
+          "peak_rss_bytes": 269762560,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 0.829028,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42210,
+          "started_at_unix_ns": 1791346365187809000,
+          "wall_seconds": 3.629796624998562,
+          "user_seconds": 3.597157,
+          "system_seconds": 0.09566999999999999,
+          "peak_rss_bytes": 286310400,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 3.6928270000000003,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42213,
+          "started_at_unix_ns": 1791346368887282000,
+          "wall_seconds": 1.808554874965921,
+          "user_seconds": 3.246774,
+          "system_seconds": 0.12379599999999999,
+          "peak_rss_bytes": 278036480,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 3.37057,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42216,
+          "started_at_unix_ns": 1791346370766967000,
+          "wall_seconds": 0.355733375006821,
+          "user_seconds": 1.173694,
+          "system_seconds": 0.09419899999999999,
+          "peak_rss_bytes": 395034624,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 1.267893,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42232,
+          "started_at_unix_ns": 1791346371197848000,
+          "wall_seconds": 1.7900555419619195,
+          "user_seconds": 3.13853,
+          "system_seconds": 0.14457499999999998,
+          "peak_rss_bytes": 273481728,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 4,
+          "warmup": false,
+          "cpu_seconds": 3.283105,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42262,
+          "started_at_unix_ns": 1791346373057002000,
+          "wall_seconds": 0.3446365419658832,
+          "user_seconds": 1.124735,
+          "system_seconds": 0.089031,
+          "peak_rss_bytes": 399196160,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 4,
+          "warmup": false,
+          "cpu_seconds": 1.2137660000000001,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42263,
+          "started_at_unix_ns": 1791346373469264000,
+          "wall_seconds": 0.4922571659553796,
+          "user_seconds": 0.7148749999999999,
+          "system_seconds": 0.06859,
+          "peak_rss_bytes": 270696448,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 4,
+          "warmup": false,
+          "cpu_seconds": 0.783465,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42264,
+          "started_at_unix_ns": 1791346374030800000,
+          "wall_seconds": 3.4266754160053097,
+          "user_seconds": 3.407523,
+          "system_seconds": 0.077626,
+          "peak_rss_bytes": 286867456,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 4,
+          "warmup": false,
+          "cpu_seconds": 3.485149,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42267,
+          "started_at_unix_ns": 1791346377527010000,
+          "wall_seconds": 0.5005990830250084,
+          "user_seconds": 0.749435,
+          "system_seconds": 0.07914399999999999,
+          "peak_rss_bytes": 268845056,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 5,
+          "warmup": false,
+          "cpu_seconds": 0.828579,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42280,
+          "started_at_unix_ns": 1791346378093421000,
+          "wall_seconds": 3.4172334169852547,
+          "user_seconds": 3.39764,
+          "system_seconds": 0.09888699999999999,
+          "peak_rss_bytes": 272580608,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 5,
+          "warmup": false,
+          "cpu_seconds": 3.496527,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42282,
+          "started_at_unix_ns": 1791346381579382000,
+          "wall_seconds": 1.777719541976694,
+          "user_seconds": 3.168361,
+          "system_seconds": 0.140366,
+          "peak_rss_bytes": 275939328,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 5,
+          "warmup": false,
+          "cpu_seconds": 3.308727,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 42360,
+          "started_at_unix_ns": 1791346383428258000,
+          "wall_seconds": 0.3822107909945771,
+          "user_seconds": 1.179603,
+          "system_seconds": 0.102061,
+          "peak_rss_bytes": 401899520,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 5,
+          "warmup": false,
+          "cpu_seconds": 1.281664,
+          "diagnostics": {
+            "count": 1,
+            "fingerprint": "7a6118f63c2717631cdbf3c09de4536a85cbc24c2eb3999cc430305de35fd7c1"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "summaries": {
+        "tsr-1": {
+          "wall_seconds": {
+            "median": 3.5187688340083696,
+            "p95": 3.629796624998562,
+            "min": 3.4172334169852547,
+            "max": 3.629796624998562
+          },
+          "user_seconds": {
+            "median": 3.473152,
+            "p95": 3.597157,
+            "min": 3.39764,
+            "max": 3.597157
+          },
+          "system_seconds": {
+            "median": 0.09566999999999999,
+            "p95": 0.105016,
+            "min": 0.077626,
+            "max": 0.105016
+          },
+          "peak_rss_bytes": {
+            "median": 285130752,
+            "p95": 286867456,
+            "min": 272580608,
+            "max": 286867456
+          },
+          "cpu_seconds_median": 3.578168
+        },
+        "tsr-4": {
+          "wall_seconds": {
+            "median": 1.808554874965921,
+            "p95": 2.4524122920120135,
+            "min": 1.777719541976694,
+            "max": 2.4524122920120135
+          },
+          "user_seconds": {
+            "median": 3.246774,
+            "p95": 4.21751,
+            "min": 3.13853,
+            "max": 4.21751
+          },
+          "system_seconds": {
+            "median": 0.14457499999999998,
+            "p95": 0.202508,
+            "min": 0.12379599999999999,
+            "max": 0.202508
+          },
+          "peak_rss_bytes": {
+            "median": 278036480,
+            "p95": 282673152,
+            "min": 273481728,
+            "max": 282673152
+          },
+          "cpu_seconds_median": 3.37057
+        },
+        "tsgo-1": {
+          "wall_seconds": {
+            "median": 0.5382437080261298,
+            "p95": 0.5680853340309113,
+            "min": 0.4922571659553796,
+            "max": 0.5680853340309113
+          },
+          "user_seconds": {
+            "median": 0.755331,
+            "p95": 0.8066829999999999,
+            "min": 0.7148749999999999,
+            "max": 0.8066829999999999
+          },
+          "system_seconds": {
+            "median": 0.07806199999999999,
+            "p95": 0.081412,
+            "min": 0.06859,
+            "max": 0.081412
+          },
+          "peak_rss_bytes": {
+            "median": 268845056,
+            "p95": 270696448,
+            "min": 266698752,
+            "max": 270696448
+          },
+          "cpu_seconds_median": 0.829028
+        },
+        "tsgo-4": {
+          "wall_seconds": {
+            "median": 0.37004683300619945,
+            "p95": 0.500507207994815,
+            "min": 0.3446365419658832,
+            "max": 0.500507207994815
+          },
+          "user_seconds": {
+            "median": 1.179603,
+            "p95": 1.441948,
+            "min": 1.124735,
+            "max": 1.441948
+          },
+          "system_seconds": {
+            "median": 0.102061,
+            "p95": 0.13859,
+            "min": 0.089031,
+            "max": 0.13859
+          },
+          "peak_rss_bytes": {
+            "median": 399196160,
+            "p95": 403570688,
+            "min": 395034624,
+            "max": 403570688
+          },
+          "cpu_seconds_median": 1.281664
+        }
+      },
+      "observed_wall_ratios": {
+        "1": 6.537501101336694,
+        "4": 4.887367526627696
+      }
+    },
+    "api": {
+      "raw_sha256": "00c82935029b49bc595adbcfc34bdd09ac138098185fb9ff93ee46e8fd892fdf",
+      "preflight_sha256": "c1dccfd015301735c98b457df07de565c2481bca36f3051ab51d07fbf95e24ae",
+      "input_fingerprint": "7e948e78be8bc04e345d7f8e779c59816125e0032d26ed94d1897a2fe814154e",
+      "loaded_counts": {
+        "tsr": 9861,
+        "tsgo": 9861
+      },
+      "scope_match": true,
+      "options_match": false,
+      "option_difference_keys": [
+        "allowImportingTsExtensions",
+        "declarationMap",
+        "disableSourceOfProjectReferenceRedirect",
+        "emitDeclarationOnly",
+        "paths",
+        "tsBuildInfoFile"
+      ],
+      "diagnostics_match": false,
+      "completed": true,
+      "cohorts": [
+        {
+          "number": 0,
+          "warmup": true,
+          "load_average": [
+            9.20703125,
+            27.47900390625,
+            51.30126953125
+          ],
+          "order": [
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ],
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ]
+          ]
+        },
+        {
+          "number": 1,
+          "warmup": false,
+          "load_average": [
+            9.3662109375,
+            25.2861328125,
+            49.4072265625
+          ],
+          "order": [
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ],
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ]
+          ]
+        },
+        {
+          "number": 2,
+          "warmup": false,
+          "load_average": [
+            8.96728515625,
+            23.1181640625,
+            47.50048828125
+          ],
+          "order": [
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ],
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ]
+          ]
+        },
+        {
+          "number": 3,
+          "warmup": false,
+          "load_average": [
+            9.54736328125,
+            21.46337890625,
+            45.771484375
+          ],
+          "order": [
+            [
+              "tsgo",
+              1
+            ],
+            [
+              "tsr",
+              1
+            ],
+            [
+              "tsr",
+              4
+            ],
+            [
+              "tsgo",
+              4
+            ]
+          ]
+        }
+      ],
+      "samples": [
+        {
+          "pid": 43097,
+          "started_at_unix_ns": 1791346431312505000,
+          "wall_seconds": 9.861043167009484,
+          "user_seconds": 18.782184,
+          "system_seconds": 2.296913,
+          "peak_rss_bytes": 1673461760,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 21.079097,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43131,
+          "started_at_unix_ns": 1791346443213545000,
+          "wall_seconds": 3.842436374980025,
+          "user_seconds": 13.603409,
+          "system_seconds": 1.959155,
+          "peak_rss_bytes": 3840491520,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 15.562563999999998,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43208,
+          "started_at_unix_ns": 1791346449292221000,
+          "wall_seconds": 4.448196083016228,
+          "user_seconds": 6.193884,
+          "system_seconds": 1.165483,
+          "peak_rss_bytes": 1942667264,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 7.359367,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43231,
+          "started_at_unix_ns": 1791346456117457000,
+          "wall_seconds": 14.46017675002804,
+          "user_seconds": 11.844697,
+          "system_seconds": 1.371316,
+          "peak_rss_bytes": 1770799104,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 0,
+          "warmup": true,
+          "cpu_seconds": 13.216013,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43308,
+          "started_at_unix_ns": 1791346472614758000,
+          "wall_seconds": 3.906445749977138,
+          "user_seconds": 5.868343,
+          "system_seconds": 1.155769,
+          "peak_rss_bytes": 1941929984,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 7.024112000000001,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43313,
+          "started_at_unix_ns": 1791346478601083000,
+          "wall_seconds": 13.500753958011046,
+          "user_seconds": 11.301433,
+          "system_seconds": 1.176877,
+          "peak_rss_bytes": 1783005184,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 12.478309999999999,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43377,
+          "started_at_unix_ns": 1791346494531647000,
+          "wall_seconds": 9.759509916009847,
+          "user_seconds": 19.198265,
+          "system_seconds": 2.125392,
+          "peak_rss_bytes": 1674641408,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 21.323657,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43455,
+          "started_at_unix_ns": 1791346506444821000,
+          "wall_seconds": 3.991835249995347,
+          "user_seconds": 15.049585,
+          "system_seconds": 2.253639,
+          "peak_rss_bytes": 3824517120,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 1,
+          "warmup": false,
+          "cpu_seconds": 17.303224,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43491,
+          "started_at_unix_ns": 1791346513213748000,
+          "wall_seconds": 10.245823959005065,
+          "user_seconds": 19.472979,
+          "system_seconds": 2.377352,
+          "peak_rss_bytes": 1637810176,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 21.850330999999997,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43529,
+          "started_at_unix_ns": 1791346525512006000,
+          "wall_seconds": 3.557079749996774,
+          "user_seconds": 13.902328,
+          "system_seconds": 2.081097,
+          "peak_rss_bytes": 3652370432,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 15.983425,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43547,
+          "started_at_unix_ns": 1791346531213080000,
+          "wall_seconds": 4.274224666005466,
+          "user_seconds": 5.91503,
+          "system_seconds": 1.237001,
+          "peak_rss_bytes": 2018525184,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 7.152031,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43781,
+          "started_at_unix_ns": 1791346538255798000,
+          "wall_seconds": 13.822971416986547,
+          "user_seconds": 11.521233,
+          "system_seconds": 1.254287,
+          "peak_rss_bytes": 1765163008,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 2,
+          "warmup": false,
+          "cpu_seconds": 12.77552,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 43990,
+          "started_at_unix_ns": 1791346554143103000,
+          "wall_seconds": 3.853089874959551,
+          "user_seconds": 5.893863,
+          "system_seconds": 1.075663,
+          "peak_rss_bytes": 1940783104,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 1,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 6.969526,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 44031,
+          "started_at_unix_ns": 1791346560260285000,
+          "wall_seconds": 13.45224979199702,
+          "user_seconds": 11.527911,
+          "system_seconds": 1.11862,
+          "peak_rss_bytes": 1761935360,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 1,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 12.646531,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 44246,
+          "started_at_unix_ns": 1791346575779873000,
+          "wall_seconds": 9.408209000015631,
+          "user_seconds": 18.83616,
+          "system_seconds": 1.948621,
+          "peak_rss_bytes": 1688436736,
+          "exit_code": 1,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsr",
+          "checkers": 4,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 20.784781,
+          "diagnostics": {
+            "count": 4,
+            "fingerprint": "cfc216d2031fd1e90d10e54d3e2d68f740ac92b3b85b3e93307db4efb3ea91db"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "pid": 44394,
+          "started_at_unix_ns": 1791346587314491000,
+          "wall_seconds": 3.5034115000162274,
+          "user_seconds": 14.0344,
+          "system_seconds": 1.71481,
+          "peak_rss_bytes": 3652370432,
+          "exit_code": 0,
+          "timed_out": false,
+          "input_stable": true,
+          "tool": "tsgo",
+          "checkers": 4,
+          "cohort": 3,
+          "warmup": false,
+          "cpu_seconds": 15.74921,
+          "diagnostics": {
+            "count": 0,
+            "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "summaries": {
+        "tsr-1": {
+          "wall_seconds": {
+            "median": 13.500753958011046,
+            "p95": 13.822971416986547,
+            "min": 13.45224979199702,
+            "max": 13.822971416986547
+          },
+          "user_seconds": {
+            "median": 11.521233,
+            "p95": 11.527911,
+            "min": 11.301433,
+            "max": 11.527911
+          },
+          "system_seconds": {
+            "median": 1.176877,
+            "p95": 1.254287,
+            "min": 1.11862,
+            "max": 1.254287
+          },
+          "peak_rss_bytes": {
+            "median": 1765163008,
+            "p95": 1783005184,
+            "min": 1761935360,
+            "max": 1783005184
+          },
+          "cpu_seconds_median": 12.646531
+        },
+        "tsr-4": {
+          "wall_seconds": {
+            "median": 9.759509916009847,
+            "p95": 10.245823959005065,
+            "min": 9.408209000015631,
+            "max": 10.245823959005065
+          },
+          "user_seconds": {
+            "median": 19.198265,
+            "p95": 19.472979,
+            "min": 18.83616,
+            "max": 19.472979
+          },
+          "system_seconds": {
+            "median": 2.125392,
+            "p95": 2.377352,
+            "min": 1.948621,
+            "max": 2.377352
+          },
+          "peak_rss_bytes": {
+            "median": 1674641408,
+            "p95": 1688436736,
+            "min": 1637810176,
+            "max": 1688436736
+          },
+          "cpu_seconds_median": 21.323657
+        },
+        "tsgo-1": {
+          "wall_seconds": {
+            "median": 3.906445749977138,
+            "p95": 4.274224666005466,
+            "min": 3.853089874959551,
+            "max": 4.274224666005466
+          },
+          "user_seconds": {
+            "median": 5.893863,
+            "p95": 5.91503,
+            "min": 5.868343,
+            "max": 5.91503
+          },
+          "system_seconds": {
+            "median": 1.155769,
+            "p95": 1.237001,
+            "min": 1.075663,
+            "max": 1.237001
+          },
+          "peak_rss_bytes": {
+            "median": 1941929984,
+            "p95": 2018525184,
+            "min": 1940783104,
+            "max": 2018525184
+          },
+          "cpu_seconds_median": 7.024112000000001
+        },
+        "tsgo-4": {
+          "wall_seconds": {
+            "median": 3.557079749996774,
+            "p95": 3.991835249995347,
+            "min": 3.5034115000162274,
+            "max": 3.991835249995347
+          },
+          "user_seconds": {
+            "median": 14.0344,
+            "p95": 15.049585,
+            "min": 13.902328,
+            "max": 15.049585
+          },
+          "system_seconds": {
+            "median": 2.081097,
+            "p95": 2.253639,
+            "min": 1.71481,
+            "max": 2.253639
+          },
+          "peak_rss_bytes": {
+            "median": 3652370432,
+            "p95": 3824517120,
+            "min": 3652370432,
+            "max": 3824517120
+          },
+          "cpu_seconds_median": 15.983425
+        }
+      },
+      "observed_wall_ratios": {
+        "1": 3.456019825205574,
+        "4": 2.743686001422571
+      }
+    }
+  },
+  "tsr_cpu_profiles": {
+    "generated": {
+      "xml_sha256": "1b345c10d26ffc33e94d81ff07166631a1d80f51035f9c81ce61fe195631e372",
+      "running_samples": 11412,
+      "sample_weight_ns": 11412000000,
+      "states_ns": {
+        "Running": 11412000000
+      },
+      "categories_ns": {
+        "parser": 201000000,
+        "alloc_leaf": 3046000000,
+        "binder": 1983000000,
+        "checker": 10665000000,
+        "alias": 1666000000,
+        "members": 4455000000,
+        "declared": 1981000000,
+        "instantiate": 877000000,
+        "receiver_instantiation": 885000000,
+        "symbol_type": 1079000000,
+        "mentions": 387000000,
+        "relation": 1459000000,
+        "member_names": 248000000,
+        "printing": 1868000000,
+        "effects": 1998000000
+      },
+      "threads": {
+        "main  0x2415b83 (tsr, pid: 31467)": {
+          "cpu_ns": 237000000,
+          "first_ns": 1903665375,
+          "last_ns": 27787662750,
+          "samples": 237
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2b (tsr, pid: 31467)": {
+          "cpu_ns": 2000000,
+          "first_ns": 2005664875,
+          "last_ns": 2024663916,
+          "samples": 2
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f37 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 2006664916,
+          "last_ns": 2147664125,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2c (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2009662000,
+          "last_ns": 2129661750,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f36 (tsr, pid: 31467)": {
+          "cpu_ns": 2000000,
+          "first_ns": 2009664083,
+          "last_ns": 2128661708,
+          "samples": 2
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2e (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2009667583,
+          "last_ns": 2141661833,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2d (tsr, pid: 31467)": {
+          "cpu_ns": 6000000,
+          "first_ns": 2010663708,
+          "last_ns": 2147664166,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f38 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2014662750,
+          "last_ns": 2144663791,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f35 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2015664375,
+          "last_ns": 2154664375,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f29 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2024663916,
+          "last_ns": 2139662875,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2a (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 2025665041,
+          "last_ns": 2150665791,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f33 (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2025665083,
+          "last_ns": 2025665083,
+          "samples": 1
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f34 (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2032664541,
+          "last_ns": 2032664541,
+          "samples": 1
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f30 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2073665583,
+          "last_ns": 2154664375,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f32 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2074665458,
+          "last_ns": 2150665791,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f2f (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2148664458,
+          "last_ns": 2148664458,
+          "samples": 1
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f31 (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2158663750,
+          "last_ns": 2158663750,
+          "samples": 1
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f41 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2165664750,
+          "last_ns": 2278673000,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f40 (tsr, pid: 31467)": {
+          "cpu_ns": 14000000,
+          "first_ns": 2165664750,
+          "last_ns": 2323665250,
+          "samples": 14
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f3f (tsr, pid: 31467)": {
+          "cpu_ns": 9000000,
+          "first_ns": 2165664750,
+          "last_ns": 2322665291,
+          "samples": 9
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f44 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2166663625,
+          "last_ns": 2288665208,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f4b (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 2169664875,
+          "last_ns": 2359663541,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f4c (tsr, pid: 31467)": {
+          "cpu_ns": 8000000,
+          "first_ns": 2171664458,
+          "last_ns": 2280665083,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f47 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2172670833,
+          "last_ns": 2281664500,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f48 (tsr, pid: 31467)": {
+          "cpu_ns": 8000000,
+          "first_ns": 2180664416,
+          "last_ns": 2375664666,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f46 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2180664583,
+          "last_ns": 2276663750,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f4d (tsr, pid: 31467)": {
+          "cpu_ns": 6000000,
+          "first_ns": 2182663416,
+          "last_ns": 2357664541,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f45 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 2186664583,
+          "last_ns": 2331667083,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f42 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2187663291,
+          "last_ns": 2284662166,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f4e (tsr, pid: 31467)": {
+          "cpu_ns": 6000000,
+          "first_ns": 2187663333,
+          "last_ns": 2370664375,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f4a (tsr, pid: 31467)": {
+          "cpu_ns": 9000000,
+          "first_ns": 2191664416,
+          "last_ns": 2359663583,
+          "samples": 9
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f43 (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 2235665791,
+          "last_ns": 2274665750,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415f49 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 2270664458,
+          "last_ns": 2371664458,
+          "samples": 5
+        },
+        "tsr-dependency-parse  0x2415f72 (tsr, pid: 31467)": {
+          "cpu_ns": 2000000,
+          "first_ns": 2760667625,
+          "last_ns": 2844664333,
+          "samples": 2
+        },
+        "tsr-dependency-parse  0x2415f6d (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 2799664250,
+          "last_ns": 2806664791,
+          "samples": 5
+        },
+        "tsr-dependency-parse  0x2415f6e (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2831663958,
+          "last_ns": 2831663958,
+          "samples": 1
+        },
+        "tsr-dependency-parse  0x2415f71 (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 2832664625,
+          "last_ns": 2832664625,
+          "samples": 1
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fbe (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 3157665000,
+          "last_ns": 3399662250,
+          "samples": 3
+        },
+        "__thread_selfid  0x2415fc2 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 3158665250,
+          "last_ns": 3544665000,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fbd (tsr, pid: 31467)": {
+          "cpu_ns": 7000000,
+          "first_ns": 3159663916,
+          "last_ns": 3588663541,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc6 (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 3159664000,
+          "last_ns": 3573664833,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fcc (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 3169664375,
+          "last_ns": 3454662375,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc7 (tsr, pid: 31467)": {
+          "cpu_ns": 17000000,
+          "first_ns": 3173665041,
+          "last_ns": 3452663833,
+          "samples": 17
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fca (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 3277664041,
+          "last_ns": 3414664708,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fce (tsr, pid: 31467)": {
+          "cpu_ns": 3000000,
+          "first_ns": 3279664333,
+          "last_ns": 3373662916,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc9 (tsr, pid: 31467)": {
+          "cpu_ns": 2000000,
+          "first_ns": 3282664750,
+          "last_ns": 3299665208,
+          "samples": 2
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc8 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 3298664333,
+          "last_ns": 3516665125,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc4 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 3304663291,
+          "last_ns": 3513664250,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc3 (tsr, pid: 31467)": {
+          "cpu_ns": 5000000,
+          "first_ns": 3304664958,
+          "last_ns": 3455664750,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc1 (tsr, pid: 31467)": {
+          "cpu_ns": 2000000,
+          "first_ns": 3325664666,
+          "last_ns": 3498665375,
+          "samples": 2
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fcd (tsr, pid: 31467)": {
+          "cpu_ns": 4000000,
+          "first_ns": 3388663708,
+          "last_ns": 3588664125,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2415fc5 (tsr, pid: 31467)": {
+          "cpu_ns": 1000000,
+          "first_ns": 3404664416,
+          "last_ns": 3404664416,
+          "samples": 1
+        },
+        "checker-1  0x2415fef (tsr, pid: 31467)": {
+          "cpu_ns": 1450000000,
+          "first_ns": 3603664875,
+          "last_ns": 12368661916,
+          "samples": 1450
+        },
+        "checker-3  0x2415ff1 (tsr, pid: 31467)": {
+          "cpu_ns": 1462000000,
+          "first_ns": 3604664458,
+          "last_ns": 12785664416,
+          "samples": 1462
+        },
+        "checker-0  0x2415fed (tsr, pid: 31467)": {
+          "cpu_ns": 6573000000,
+          "first_ns": 3605663125,
+          "last_ns": 23151663708,
+          "samples": 6573
+        },
+        "checker-2  0x2415ff0 (tsr, pid: 31467)": {
+          "cpu_ns": 1468000000,
+          "first_ns": 3611663208,
+          "last_ns": 12612663875,
+          "samples": 1468
+        }
+      },
+      "flat": [
+        [
+          "tsr_binder::BindResult::resolve_name",
+          862000000
+        ],
+        [
+          "tiny_malloc_from_free_list",
+          690000000
+        ],
+        [
+          "free_tiny",
+          561000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_at_flow_node",
+          461000000
+        ],
+        [
+          "tiny_free_no_lock",
+          405000000
+        ],
+        [
+          "tsr_binder::BindResult::lookup_scoped",
+          340000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_external_module_name",
+          329000000
+        ],
+        [
+          "tsr_binder::symbol::SymbolTableField::get",
+          326000000
+        ],
+        [
+          "tiny_free_list_add_ptr",
+          289000000
+        ],
+        [
+          "_platform_memcmp",
+          262000000
+        ],
+        [
+          "tiny_malloc_should_clear",
+          225000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_alias",
+          181000000
+        ],
+        [
+          "_szone_free",
+          175000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mentions_type_parameter_inner",
+          169000000
+        ],
+        [
+          "_platform_memmove",
+          159000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_node",
+          149000000
+        ],
+        [
+          "_malloc_zone_malloc",
+          127000000
+        ],
+        [
+          "tsr_binder::BindResult::merged_symbol",
+          121000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::declaration_of_alias_symbol",
+          105000000
+        ],
+        [
+          "get_tiny_previous_free_msize",
+          103000000
+        ],
+        [
+          "tsr_compiler::Program::source_file_by_path",
+          103000000
+        ],
+        [
+          "tiny_free_list_remove_ptr",
+          102000000
+        ],
+        [
+          "_platform_memset",
+          102000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::module_resolution_mode",
+          94000000
+        ],
+        [
+          "tsr_compiler::Program::resolution",
+          91000000
+        ],
+        [
+          "tsr_compiler::Program::mode_for_usage_location",
+          91000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter_nested..SpecFromIterNested$LT$T$C$I$GT$$GT$::from_iter",
+          87000000
+        ],
+        [
+          "__findenv_locked",
+          85000000
+        ],
+        [
+          "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::get",
+          85000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_dotted_name",
+          84000000
+        ],
+        [
+          "_free",
+          81000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_effects_signature",
+          81000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_symbol",
+          78000000
+        ],
+        [
+          "szone_malloc_should_clear",
+          74000000
+        ],
+        [
+          "tsr_checker::checker::Checker::best_name",
+          74000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_external_module_member",
+          70000000
+        ],
+        [
+          "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::insert",
+          65000000
+        ],
+        [
+          "tsr_ast::generated::alias::Expression::node_id",
+          61000000
+        ],
+        [
+          "_$LT$core..iter..adapters..chain..Chain$LT$A$C$B$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::try_fold",
+          60000000
+        ],
+        [
+          "tsr_checker::printing::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::object_literal_text_at",
+          58000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_interface_symbol",
+          56000000
+        ],
+        [
+          "tsr_binder::BindResult::resolve_name_with_alias_meaning",
+          53000000
+        ],
+        [
+          "_$LT$alloc..vec..into_iter..IntoIter$LT$T$C$A$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::try_fold",
+          52000000
+        ],
+        [
+          "tsr_checker::expressions::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_expression",
+          48000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_type",
+          48000000
+        ],
+        [
+          "rack_get_thread_index",
+          45000000
+        ],
+        [
+          "alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow",
+          45000000
+        ],
+        [
+          "__ulock_wait2",
+          44000000
+        ],
+        [
+          "tsr_ast::generated::alias::Node::node_id",
+          40000000
+        ],
+        [
+          "hashbrown::raw::RawTable$LT$T$C$A$GT$::reserve_rehash",
+          40000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$core..clone..Clone$GT$::clone",
+          40000000
+        ],
+        [
+          "_tiny_check_and_zero_inline_meta_from_freelist",
+          38000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signatures_of_type_kind",
+          37000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_property_of_type_ex",
+          37000000
+        ],
+        [
+          "tsr_checker::checker::Checker::alias_in_scope_for",
+          36000000
+        ],
+        [
+          "_$LT$hashbrown..map..HashMap$LT$K$C$V$C$S$C$A$GT$$u20$as$u20$core..iter..traits..collect..Extend$LT$$LP$K$C$V$RP$$GT$$GT$::extend",
+          36000000
+        ],
+        [
+          "_RNvCsGIExRX8pES_7___rustc11___rdl_alloc",
+          35000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::collect_structured_property_names",
+          33000000
+        ],
+        [
+          "tsr_path::extension::file_extension_is_one_of",
+          31000000
+        ],
+        [
+          "DYLD-STUB$$malloc",
+          30000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_generic_call_worker",
+          30000000
+        ],
+        [
+          "tsr_binder::symbol::SymbolTableField::iter",
+          30000000
+        ],
+        [
+          "tsr_checker::constraints::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::base_constraint_of_type",
+          29000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::local_type_parameters_of",
+          29000000
+        ],
+        [
+          "_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next",
+          29000000
+        ],
+        [
+          "tsr_ast::generated::visit::for_each_child_id",
+          28000000
+        ],
+        [
+          "_$LT$tsr_checker..types..TypeData$u20$as$u20$core..clone..Clone$GT$::clone",
+          27000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::create_type_reference_with_display",
+          27000000
+        ],
+        [
+          "_$LT$tsr_checker..signatures..Signature$u20$as$u20$core..clone..Clone$GT$::clone",
+          27000000
+        ],
+        [
+          "__ulock_wake",
+          26000000
+        ]
+      ],
+      "inclusive": [
+        [
+          "std::sys::backtrace::__rust_begin_short_backtrace",
+          10031000000
+        ],
+        [
+          "core::ops::function::FnOnce::call_once$u7b$$u7b$vtable.shim$u7d$$u7d$",
+          9806000000
+        ],
+        [
+          "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start",
+          9800000000
+        ],
+        [
+          "thread_start",
+          9797000000
+        ],
+        [
+          "_pthread_start",
+          9797000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_node",
+          9337000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_source_file",
+          9302000000
+        ],
+        [
+          "tsr_checker::expressions::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_expression",
+          5891000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_call_expression_diagnostics",
+          4734000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_at_flow_node",
+          3036000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_single_candidate_arguments",
+          2560000000
+        ],
+        [
+          "tsr_checker::objects::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_object_literal_members",
+          2138000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_property_with_this_argument",
+          2095000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_property_access_expression",
+          2041000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_effects_signature",
+          1998000000
+        ],
+        [
+          "tsr_checker::checker::Checker::type_to_string_at_worker",
+          1868000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_flow_type_of_reference_ex",
+          1784000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_alias",
+          1666000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_call_expression",
+          1659000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_from_type_node_worker",
+          1610000000
+        ],
+        [
+          "free_tiny",
+          1532000000
+        ],
+        [
+          "tsr_checker::assignreport::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_return_statement",
+          1500000000
+        ],
+        [
+          "tsr_checker::relater::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::relate_ternary",
+          1455000000
+        ],
+        [
+          "tsr_checker::relater::Relater::is_related_to_with_flags",
+          1438000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_external_module_member",
+          1387000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_instantiated_type_reference",
+          1365000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_dotted_name",
+          1306000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_flow_type_of_reference",
+          1261000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::evaluate_conditional_node",
+          1247000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_generic_call_with_mode",
+          1217000000
+        ],
+        [
+          "tsr_binder::BindResult::resolve_name",
+          1210000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::evaluate_conditional_alias",
+          1204000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_generic_call_worker",
+          1204000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::access_member_lookup",
+          1172000000
+        ],
+        [
+          "szone_malloc_should_clear",
+          1162000000
+        ],
+        [
+          "tsr_checker::relater::Relater::recursive_type_related_to",
+          1156000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_property_of_type_ex",
+          1141000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_symbol",
+          1079000000
+        ],
+        [
+          "tiny_malloc_should_clear",
+          1075000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_external_module_name",
+          1017000000
+        ],
+        [
+          "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+          987000000
+        ],
+        [
+          "tsr_checker::checker::Checker::symbol_chain",
+          917000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_for_reference_with_this",
+          885000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_type",
+          877000000
+        ],
+        [
+          "tsr_checker::checker::Checker::best_name",
+          869000000
+        ],
+        [
+          "tiny_free_no_lock",
+          843000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_declared_type_of_symbol",
+          818000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_func_class_enum_module_worker",
+          796000000
+        ],
+        [
+          "tiny_malloc_from_free_list",
+          794000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_signature_from_declaration",
+          779000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_from_types_within",
+          773000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_signatures_of_symbol_for_type",
+          763000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_function_expression",
+          754000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_from_members",
+          727000000
+        ],
+        [
+          "tsr_checker::constraints::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_type_argument_constraints",
+          640000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_named_type",
+          608000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::return_type_from_body",
+          591000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signatures_of_type_kind",
+          575000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_interface_symbol",
+          565000000
+        ],
+        [
+          "tsr_checker::checker::Checker::alias_in_scope_for",
+          469000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_instantiated_candidate_arguments",
+          464000000
+        ],
+        [
+          "alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow",
+          463000000
+        ],
+        [
+          "tsr_checker::checker::Checker::module_alias_at",
+          445000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature_type",
+          407000000
+        ],
+        [
+          "alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one",
+          402000000
+        ],
+        [
+          "_RNvXs4_NtCs8dnTdrJsiec_5alloc6stringNtB5_6StringNtNtCs6sq8b9ugfBC_4core5clone5Clone5clone",
+          398000000
+        ],
+        [
+          "tsr_binder::BindResult::lookup_scoped",
+          394000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mentions_type_parameter_inner",
+          387000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiated_heritage_base",
+          384000000
+        ],
+        [
+          "tsr_binder::symbol::SymbolTableField::get",
+          369000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::module_resolution_mode",
+          368000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::generic_heritage_member",
+          367000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_conditional_parameters",
+          357000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$core..clone..Clone$GT$::clone",
+          306000000
+        ],
+        [
+          "_$LT$tsr_checker..signatures..Signature$u20$as$u20$core..clone..Clone$GT$::clone",
+          302000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::narrow_type",
+          293000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_property_names_of_type",
+          293000000
+        ],
+        [
+          "tiny_free_list_add_ptr",
+          289000000
+        ],
+        [
+          "_$LT$tsr_compiler..Program$u20$as$u20$tsr_checker..resolution..ModuleHost$GT$::resolved_module_in_mode",
+          284000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::type_mentions_literal",
+          278000000
+        ],
+        [
+          "tsr_checker::relater::Relater::is_pure_signature_type",
+          275000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter_nested..SpecFromIterNested$LT$T$C$I$GT$$GT$::from_iter",
+          273000000
+        ],
+        [
+          "_platform_memcmp",
+          262000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature",
+          257000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_widened_type_for_variable_like_declaration",
+          250000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::collect_structured_property_names",
+          248000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature_with_fresh_parameters",
+          246000000
+        ],
+        [
+          "tsr_checker::flow::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_facts",
+          243000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::create_type_reference_with_display",
+          241000000
+        ],
+        [
+          "core::ptr::drop_in_place$LT$tsr_checker..signatures..Signature$GT$",
+          239000000
+        ],
+        [
+          "_$LT$core..iter..adapters..chain..Chain$LT$A$C$B$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::try_fold",
+          231000000
+        ],
+        [
+          "start",
+          226000000
+        ],
+        [
+          "tsr_compiler::Program::mode_for_usage_location",
+          225000000
+        ],
+        [
+          "main",
+          222000000
+        ],
+        [
+          "_RNvNtCsaLOjE9VYtxK_3std2rt19lang_start_internal",
+          222000000
+        ],
+        [
+          "tsr_execute::command_line",
+          221000000
+        ],
+        [
+          "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$",
+          221000000
+        ],
+        [
+          "tsr::main",
+          221000000
+        ],
+        [
+          "tsr_execute::compile::run_compilation",
+          221000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_new_expression_diagnostics",
+          220000000
+        ]
+      ],
+      "toc_sha256": "2272a52e9a6da47547da1233c55d23625042863f0ed7ee38ce268f793816d928",
+      "category_percentages": {
+        "parser": 1.76130389064143,
+        "alloc_leaf": 26.691202243252718,
+        "binder": 17.37644584647739,
+        "checker": 93.45425867507886,
+        "alias": 14.598668068699615,
+        "members": 39.03785488958991,
+        "declared": 17.358920434630214,
+        "instantiate": 7.684893094987732,
+        "receiver_instantiation": 7.754994742376446,
+        "symbol_type": 9.454959691552752,
+        "mentions": 3.391167192429022,
+        "relation": 12.78478794251665,
+        "member_names": 2.173151069050123,
+        "printing": 16.368734665264633,
+        "effects": 17.50788643533123
+      },
+      "trace_complete": "target exited with expected status1",
+      "running_threads_only": true,
+      "configured_period_us": 1000
+    },
+    "api": {
+      "xml_sha256": "b3e309f1cacdc2c88824f17856e820acdc1457af1d7b8eafd6d2651f6be03220",
+      "running_samples": 37512,
+      "sample_weight_ns": 37512000000,
+      "states_ns": {
+        "Running": 37512000000
+      },
+      "categories_ns": {
+        "alloc_leaf": 14973000000,
+        "parser": 1332000000,
+        "binder": 3911000000,
+        "checker": 29524000000,
+        "symbol_type": 11855000000,
+        "members": 19122000000,
+        "declared": 14863000000,
+        "relation": 5330000000,
+        "printing": 766000000,
+        "instantiate": 8505000000,
+        "receiver_instantiation": 7108000000,
+        "alias": 1440000000,
+        "member_names": 739000000,
+        "mentions": 2482000000,
+        "effects": 66000000
+      },
+      "threads": {
+        "main  0x243183d (tsr, pid: 35922)": {
+          "cpu_ns": 2725000000,
+          "first_ns": 603796958,
+          "last_ns": 21634799958,
+          "samples": 2725
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc4 (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 662795083,
+          "last_ns": 678799958,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc9 (tsr, pid: 35922)": {
+          "cpu_ns": 10000000,
+          "first_ns": 662795833,
+          "last_ns": 677801666,
+          "samples": 10
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431ccc (tsr, pid: 35922)": {
+          "cpu_ns": 11000000,
+          "first_ns": 662797708,
+          "last_ns": 678802416,
+          "samples": 11
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc0 (tsr, pid: 35922)": {
+          "cpu_ns": 9000000,
+          "first_ns": 662797708,
+          "last_ns": 676795500,
+          "samples": 9
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431ccb (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 662797916,
+          "last_ns": 670799791,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc3 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 662798125,
+          "last_ns": 672798708,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc2 (tsr, pid: 35922)": {
+          "cpu_ns": 11000000,
+          "first_ns": 662799833,
+          "last_ns": 678798750,
+          "samples": 11
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431ccd (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 662800458,
+          "last_ns": 676801333,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc6 (tsr, pid: 35922)": {
+          "cpu_ns": 5000000,
+          "first_ns": 662800666,
+          "last_ns": 677801250,
+          "samples": 5
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc8 (tsr, pid: 35922)": {
+          "cpu_ns": 4000000,
+          "first_ns": 662801166,
+          "last_ns": 677801916,
+          "samples": 4
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cbf (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 663799166,
+          "last_ns": 678802375,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc5 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 663799500,
+          "last_ns": 671800166,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cca (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 663800666,
+          "last_ns": 676795958,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cce (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 663800958,
+          "last_ns": 678800958,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc7 (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 663801291,
+          "last_ns": 676798791,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cc1 (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 664802083,
+          "last_ns": 677801416,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431ccf (tsr, pid: 35922)": {
+          "cpu_ns": 15000000,
+          "first_ns": 680801041,
+          "last_ns": 701797083,
+          "samples": 15
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cda (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 681796375,
+          "last_ns": 700797208,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd5 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 681797250,
+          "last_ns": 700800291,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd2 (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 681798166,
+          "last_ns": 700801291,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd3 (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 681799416,
+          "last_ns": 695801166,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cde (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 681799708,
+          "last_ns": 693802875,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd7 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 681801375,
+          "last_ns": 696797875,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd4 (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 681801458,
+          "last_ns": 700800875,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd1 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 681801833,
+          "last_ns": 695802166,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd9 (tsr, pid: 35922)": {
+          "cpu_ns": 6000000,
+          "first_ns": 681801833,
+          "last_ns": 695802458,
+          "samples": 6
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd0 (tsr, pid: 35922)": {
+          "cpu_ns": 10000000,
+          "first_ns": 682797916,
+          "last_ns": 698795208,
+          "samples": 10
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd8 (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 682800666,
+          "last_ns": 700796458,
+          "samples": 8
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cdb (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 682801708,
+          "last_ns": 700799250,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cd6 (tsr, pid: 35922)": {
+          "cpu_ns": 3000000,
+          "first_ns": 683801208,
+          "last_ns": 699801125,
+          "samples": 3
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cdd (tsr, pid: 35922)": {
+          "cpu_ns": 7000000,
+          "first_ns": 683801291,
+          "last_ns": 700800708,
+          "samples": 7
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2431cdc (tsr, pid: 35922)": {
+          "cpu_ns": 8000000,
+          "first_ns": 685800208,
+          "last_ns": 700801250,
+          "samples": 8
+        },
+        "tsr-dependency-parse  0x2431cea (tsr, pid: 35922)": {
+          "cpu_ns": 49000000,
+          "first_ns": 740800250,
+          "last_ns": 4770801916,
+          "samples": 49
+        },
+        "tsr-dependency-parse  0x2431ce9 (tsr, pid: 35922)": {
+          "cpu_ns": 56000000,
+          "first_ns": 740801833,
+          "last_ns": 4763799833,
+          "samples": 56
+        },
+        "tsr-dependency-parse  0x2431cec (tsr, pid: 35922)": {
+          "cpu_ns": 83000000,
+          "first_ns": 752801250,
+          "last_ns": 4870798000,
+          "samples": 83
+        },
+        "tsr-dependency-parse  0x2431ced (tsr, pid: 35922)": {
+          "cpu_ns": 58000000,
+          "first_ns": 760796416,
+          "last_ns": 4801798833,
+          "samples": 58
+        },
+        "tsr-dependency-parse  0x2431cee (tsr, pid: 35922)": {
+          "cpu_ns": 61000000,
+          "first_ns": 770798125,
+          "last_ns": 4812798708,
+          "samples": 61
+        },
+        "tsr-dependency-parse  0x2431ce8 (tsr, pid: 35922)": {
+          "cpu_ns": 50000000,
+          "first_ns": 778797875,
+          "last_ns": 4803798000,
+          "samples": 50
+        },
+        "tsr-dependency-parse  0x2431cef (tsr, pid: 35922)": {
+          "cpu_ns": 41000000,
+          "first_ns": 778798666,
+          "last_ns": 4836800958,
+          "samples": 41
+        },
+        "tsr-dependency-parse  0x2431ceb (tsr, pid: 35922)": {
+          "cpu_ns": 51000000,
+          "first_ns": 813795333,
+          "last_ns": 4831800208,
+          "samples": 51
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432510 (tsr, pid: 35922)": {
+          "cpu_ns": 27000000,
+          "first_ns": 5113799583,
+          "last_ns": 5435799750,
+          "samples": 27
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432507 (tsr, pid: 35922)": {
+          "cpu_ns": 22000000,
+          "first_ns": 5114799375,
+          "last_ns": 5434800541,
+          "samples": 22
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432516 (tsr, pid: 35922)": {
+          "cpu_ns": 21000000,
+          "first_ns": 5131798041,
+          "last_ns": 5439794708,
+          "samples": 21
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250f (tsr, pid: 35922)": {
+          "cpu_ns": 16000000,
+          "first_ns": 5132796708,
+          "last_ns": 5425797166,
+          "samples": 16
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250c (tsr, pid: 35922)": {
+          "cpu_ns": 28000000,
+          "first_ns": 5132797875,
+          "last_ns": 5432795708,
+          "samples": 28
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432513 (tsr, pid: 35922)": {
+          "cpu_ns": 19000000,
+          "first_ns": 5133794708,
+          "last_ns": 5435797083,
+          "samples": 19
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432514 (tsr, pid: 35922)": {
+          "cpu_ns": 20000000,
+          "first_ns": 5133796166,
+          "last_ns": 5352800458,
+          "samples": 20
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432509 (tsr, pid: 35922)": {
+          "cpu_ns": 14000000,
+          "first_ns": 5133796541,
+          "last_ns": 5436799083,
+          "samples": 14
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250a (tsr, pid: 35922)": {
+          "cpu_ns": 27000000,
+          "first_ns": 5133797583,
+          "last_ns": 5437794791,
+          "samples": 27
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250e (tsr, pid: 35922)": {
+          "cpu_ns": 16000000,
+          "first_ns": 5133798500,
+          "last_ns": 5402797416,
+          "samples": 16
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432508 (tsr, pid: 35922)": {
+          "cpu_ns": 19000000,
+          "first_ns": 5137795500,
+          "last_ns": 5433797791,
+          "samples": 19
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250b (tsr, pid: 35922)": {
+          "cpu_ns": 17000000,
+          "first_ns": 5137798250,
+          "last_ns": 5434795125,
+          "samples": 17
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x243250d (tsr, pid: 35922)": {
+          "cpu_ns": 26000000,
+          "first_ns": 5137798541,
+          "last_ns": 5436800583,
+          "samples": 26
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432511 (tsr, pid: 35922)": {
+          "cpu_ns": 30000000,
+          "first_ns": 5141794791,
+          "last_ns": 5438799083,
+          "samples": 30
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432512 (tsr, pid: 35922)": {
+          "cpu_ns": 37000000,
+          "first_ns": 5141796291,
+          "last_ns": 5439799708,
+          "samples": 37
+        },
+        "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start  0x2432515 (tsr, pid: 35922)": {
+          "cpu_ns": 23000000,
+          "first_ns": 5151796083,
+          "last_ns": 5439797083,
+          "samples": 23
+        },
+        "checker-0  0x243256f (tsr, pid: 35922)": {
+          "cpu_ns": 12568000000,
+          "first_ns": 5451800500,
+          "last_ns": 21467798291,
+          "samples": 12568
+        },
+        "checker-3  0x2432572 (tsr, pid: 35922)": {
+          "cpu_ns": 5281000000,
+          "first_ns": 5453799791,
+          "last_ns": 11939796375,
+          "samples": 5281
+        },
+        "checker-1  0x2432570 (tsr, pid: 35922)": {
+          "cpu_ns": 12242000000,
+          "first_ns": 5453800375,
+          "last_ns": 21274798625,
+          "samples": 12242
+        },
+        "checker-2  0x2432571 (tsr, pid: 35922)": {
+          "cpu_ns": 3645000000,
+          "first_ns": 5454799625,
+          "last_ns": 9899796291,
+          "samples": 3645
+        }
+      },
+      "flat": [
+        [
+          "tiny_malloc_from_free_list",
+          2562000000
+        ],
+        [
+          "free_tiny",
+          2527000000
+        ],
+        [
+          "tiny_free_no_lock",
+          2421000000
+        ],
+        [
+          "tiny_free_list_add_ptr",
+          1828000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mentions_type_parameter_inner",
+          1208000000
+        ],
+        [
+          "_platform_memmove",
+          932000000
+        ],
+        [
+          "tiny_malloc_should_clear",
+          926000000
+        ],
+        [
+          "_platform_memset",
+          895000000
+        ],
+        [
+          "_szone_free",
+          816000000
+        ],
+        [
+          "__ulock_wait2",
+          769000000
+        ],
+        [
+          "get_tiny_previous_free_msize",
+          737000000
+        ],
+        [
+          "tsr_binder::BindResult::lookup_scoped",
+          680000000
+        ],
+        [
+          "tsr_binder::BindResult::resolve_name_with_alias_meaning",
+          664000000
+        ],
+        [
+          "__ulock_wake",
+          658000000
+        ],
+        [
+          "tsr_binder::BindResult::resolve_name",
+          595000000
+        ],
+        [
+          "_malloc_zone_malloc",
+          549000000
+        ],
+        [
+          "tsr_binder::symbol::SymbolTableField::get",
+          534000000
+        ],
+        [
+          "_platform_memcmp",
+          533000000
+        ],
+        [
+          "tiny_free_list_remove_ptr",
+          477000000
+        ],
+        [
+          "_free",
+          459000000
+        ],
+        [
+          "__open",
+          453000000
+        ],
+        [
+          "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::get",
+          453000000
+        ],
+        [
+          "__findenv_locked",
+          452000000
+        ],
+        [
+          "szone_malloc_should_clear",
+          391000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_type",
+          372000000
+        ],
+        [
+          "stat",
+          324000000
+        ],
+        [
+          "_os_unfair_lock_lock_slow",
+          276000000
+        ],
+        [
+          "rack_get_thread_index",
+          258000000
+        ],
+        [
+          "read",
+          246000000
+        ],
+        [
+          "hashbrown::map::HashMap$LT$K$C$V$C$S$C$A$GT$::insert",
+          227000000
+        ],
+        [
+          "_tiny_check_and_zero_inline_meta_from_freelist",
+          225000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_from_type_node_worker",
+          205000000
+        ],
+        [
+          "_RNvCsGIExRX8pES_7___rustc11___rdl_alloc",
+          194000000
+        ],
+        [
+          "hashbrown::raw::RawTable$LT$T$C$A$GT$::reserve_rehash",
+          191000000
+        ],
+        [
+          "DYLD-STUB$$free",
+          189000000
+        ],
+        [
+          "alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow",
+          188000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter_nested..SpecFromIterNested$LT$T$C$I$GT$$GT$::from_iter",
+          187000000
+        ],
+        [
+          "tsr_compiler::Program::resolution",
+          184000000
+        ],
+        [
+          "tsr_scanner::Scanner::scan",
+          181000000
+        ],
+        [
+          "tsr_binder::BindResult::merged_symbol",
+          170000000
+        ],
+        [
+          "tsr_checker::printing::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::object_literal_text_at",
+          168000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_interface_symbol",
+          167000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_declared_type_of_symbol",
+          163000000
+        ],
+        [
+          "_RNvMsu_NtNtCs6sq8b9ugfBC_4core3str7patternNtB5_11StrSearcher3new",
+          148000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_instantiated_type_reference",
+          143000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_export_from_star_worker",
+          142000000
+        ],
+        [
+          "tiny_size",
+          136000000
+        ],
+        [
+          "_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$core..clone..Clone$GT$::clone",
+          135000000
+        ],
+        [
+          "tsr_compiler::Program::source_file_by_path",
+          134000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_node",
+          132000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::create_type_reference_with_display",
+          132000000
+        ],
+        [
+          "madvise",
+          129000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_external_module_name",
+          129000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_property_with_this_argument",
+          129000000
+        ],
+        [
+          "tiny_free_detach_region",
+          126000000
+        ],
+        [
+          "_$LT$core..iter..adapters..chain..Chain$LT$A$C$B$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::try_fold",
+          122000000
+        ],
+        [
+          "tiny_try_realloc_in_place",
+          117000000
+        ],
+        [
+          "_RNvXs4_NtCs8dnTdrJsiec_5alloc6stringNtB5_6StringNtNtCs6sq8b9ugfBC_4core5clone5Clone5clone",
+          117000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::module_resolution_mode",
+          117000000
+        ],
+        [
+          "tsr_ast::generated::visit::push_children",
+          116000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::collect_structured_property_names",
+          116000000
+        ],
+        [
+          "tiny_free_reattach_region",
+          102000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_symbol",
+          101000000
+        ],
+        [
+          "tsr_compiler::Program::mode_for_usage_location",
+          95000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::base_symbols_of_ex",
+          93000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::local_type_parameters_of",
+          91000000
+        ],
+        [
+          "alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one",
+          89000000
+        ],
+        [
+          "_$LT$tsr_checker..signatures..Signature$u20$as$u20$core..clone..Clone$GT$::clone",
+          88000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiated_heritage_base",
+          88000000
+        ],
+        [
+          "tsr_ast::generated::alias::Node::node_id",
+          86000000
+        ]
+      ],
+      "inclusive": [
+        [
+          "std::sys::backtrace::__rust_begin_short_backtrace",
+          36382000000
+        ],
+        [
+          "core::ops::function::FnOnce::call_once$u7b$$u7b$vtable.shim$u7d$$u7d$",
+          33686000000
+        ],
+        [
+          "_RNvNvMs0_NtNtNtCsaLOjE9VYtxK_3std3sys6thread4unixNtB7_6Thread3new12thread_start",
+          33683000000
+        ],
+        [
+          "thread_start",
+          33682000000
+        ],
+        [
+          "_pthread_start",
+          33682000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_node",
+          28417000000
+        ],
+        [
+          "tsr_checker::check::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_source_file",
+          28414000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_call_expression_diagnostics",
+          20763000000
+        ],
+        [
+          "tsr_checker::expressions::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_expression",
+          20437000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_generic_call_worker",
+          17616000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_generic_call_with_mode",
+          17604000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_call_expression",
+          17304000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_property_with_this_argument",
+          15414000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_call_signature_at",
+          14999000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_from_types_within",
+          14820000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_from_members",
+          14743000000
+        ],
+        [
+          "tsr_checker::objects::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_object_literal_members",
+          14249000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::transcribed_generic_set_walk",
+          14124000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::choose_ordered_overload",
+          14088000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_to_union",
+          13499000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::choose_overload",
+          13459000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_signature_from_declaration",
+          13145000000
+        ],
+        [
+          "tsr_checker::objects::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_expression_for_mutable_location",
+          12865000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_symbol",
+          11855000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_from_type_node_worker",
+          10945000000
+        ],
+        [
+          "tsr_checker::array_literals::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::literal_in_const_type_variable_context",
+          10754000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::annotation_member_context",
+          10694000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_func_class_enum_module_worker",
+          10088000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_signatures_of_symbol_for_type",
+          10085000000
+        ],
+        [
+          "free_tiny",
+          9748000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_of_alias",
+          9624000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::return_type_from_body",
+          9605000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::generic_heritage_member",
+          9353000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_named_type",
+          9146000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_type",
+          8505000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_for_reference_with_this",
+          7108000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::signature_candidates_of_interface_symbol",
+          6747000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_widened_type_for_variable_like_declaration",
+          6665000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_single_candidate_arguments",
+          5419000000
+        ],
+        [
+          "tiny_free_no_lock",
+          5320000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_property_of_type_ex",
+          5305000000
+        ],
+        [
+          "tsr_checker::relater::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::relate_ternary",
+          5204000000
+        ],
+        [
+          "tsr_checker::relater::Relater::is_related_to_with_flags",
+          5178000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::evaluate_conditional_alias",
+          5117000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiated_heritage_base",
+          5097000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::evaluate_conditional_node",
+          4935000000
+        ],
+        [
+          "szone_malloc_should_clear",
+          4868000000
+        ],
+        [
+          "tsr_checker::expressions::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_await_expression",
+          4850000000
+        ],
+        [
+          "tsr_checker::relater::Relater::recursive_type_related_to",
+          4779000000
+        ],
+        [
+          "tsr_checker::objects::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_object_literal",
+          4608000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature_with_fresh_parameters",
+          4393000000
+        ],
+        [
+          "tiny_malloc_should_clear",
+          4355000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_instantiated_type_reference",
+          4306000000
+        ],
+        [
+          "tsr_checker::assertions::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_assertion",
+          4277000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature",
+          4189000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::report_overload_argument_failure",
+          4067000000
+        ],
+        [
+          "tsr_checker::relater::Relater::properties_related_to_with_optionals",
+          3888000000
+        ],
+        [
+          "tsr_checker::members::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_property_access_expression",
+          3874000000
+        ],
+        [
+          "_$LT$hashbrown..raw..RawTable$LT$T$C$A$GT$$u20$as$u20$core..ops..drop..Drop$GT$::drop",
+          3498000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature_type",
+          3376000000
+        ],
+        [
+          "tsr_checker::contextual::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_contextual_type",
+          3227000000
+        ],
+        [
+          "tiny_malloc_from_free_list",
+          3082000000
+        ],
+        [
+          "tsr_checker::contextual::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::contextual_type_for_argument",
+          3024000000
+        ],
+        [
+          "tsr_checker::contextual::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::contextual_type_for_argument_resolving",
+          3002000000
+        ],
+        [
+          "start",
+          2701000000
+        ],
+        [
+          "tsr::main",
+          2698000000
+        ],
+        [
+          "_RNvNtCsaLOjE9VYtxK_3std2rt19lang_start_internal",
+          2698000000
+        ],
+        [
+          "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$",
+          2698000000
+        ],
+        [
+          "main",
+          2698000000
+        ],
+        [
+          "tsr_execute::command_line",
+          2696000000
+        ],
+        [
+          "tsr_execute::compile::run_compilation",
+          2696000000
+        ],
+        [
+          "tsr_checker::contextual::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::contextual_signature_result",
+          2646000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::create_type_reference_with_display",
+          2633000000
+        ],
+        [
+          "tsr_checker::relater::Relater::related_signatures",
+          2564000000
+        ],
+        [
+          "tsr_checker::relater::Relater::related_signature_kind",
+          2560000000
+        ],
+        [
+          "tsr_compiler::Program::from_root_files",
+          2554000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mentions_type_parameter_inner",
+          2482000000
+        ],
+        [
+          "tsr_compiler::loader::FileLoader::load",
+          2376000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::instantiate_signature_for_reference",
+          2351000000
+        ],
+        [
+          "alloc::vec::in_place_collect::from_iter_in_place",
+          2335000000
+        ],
+        [
+          "tsr_compiler::loader::FileLoader::process_task",
+          2289000000
+        ],
+        [
+          "tsr_checker::signatures::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::type_parameter_of",
+          2156000000
+        ],
+        [
+          "tsr_checker::inference::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::infer_conditional_parameters",
+          2116000000
+        ],
+        [
+          "tiny_free_list_add_ptr",
+          1828000000
+        ],
+        [
+          "tsr_checker::relater::Relater::one_signature_related_to",
+          1782000000
+        ],
+        [
+          "alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow",
+          1733000000
+        ],
+        [
+          "tsr_binder::BindResult::resolve_name_with_alias_meaning",
+          1670000000
+        ],
+        [
+          "_RNvXs4_NtCs8dnTdrJsiec_5alloc6stringNtB5_6StringNtNtCs6sq8b9ugfBC_4core5clone5Clone5clone",
+          1661000000
+        ],
+        [
+          "tsr_compiler::loader::FileLoader::load_task",
+          1638000000
+        ],
+        [
+          "tsr_checker::contextual::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_contextually_typed_parameter_type",
+          1622000000
+        ],
+        [
+          "tsr_checker::implicit_any::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::check_implicit_any_parameters",
+          1573000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::get_type_from_type_node",
+          1562000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_name_with_export_alias",
+          1545000000
+        ],
+        [
+          "alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one",
+          1470000000
+        ],
+        [
+          "tsr_checker::symbols::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::resolve_alias",
+          1440000000
+        ],
+        [
+          "tsr_checker::calls::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::is_untyped_function_typed_callee",
+          1362000000
+        ],
+        [
+          "tsr_checker::mapped::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mapped_type_info",
+          1330000000
+        ],
+        [
+          "tsr_checker::mapped::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::capture_mapped_type",
+          1330000000
+        ],
+        [
+          "tsr_checker::mapped::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::mapped_constraint_type",
+          1286000000
+        ],
+        [
+          "tsr_checker::declared::_$LT$impl$u20$tsr_checker..checker..Checker$GT$::qualified_type_reference",
+          1272000000
+        ]
+      ],
+      "toc_sha256": "c08be3864ca0c4c2abdd7dd5d6e8172e445fcfb2afe65e75135b1e393ef8c93d",
+      "category_percentages": {
+        "alloc_leaf": 39.915227127319255,
+        "parser": 3.5508637236084453,
+        "binder": 10.425997014288761,
+        "checker": 78.70548091277458,
+        "symbol_type": 31.603220302836426,
+        "members": 50.97568777991043,
+        "declared": 39.621987630624865,
+        "relation": 14.208786521646406,
+        "printing": 2.042013222435487,
+        "instantiate": 22.67274472168906,
+        "receiver_instantiation": 18.94860311367029,
+        "alias": 3.838771593090211,
+        "member_names": 1.9700362550650459,
+        "mentions": 6.616549370867989,
+        "effects": 0.17594369801663468
+      },
+      "trace_complete": "target exited with expected status1",
+      "running_threads_only": true,
+      "configured_period_us": 1000
+    }
+  },
+  "native_cpu_profiles": {
+    "generated4": {
+      "profile_count": 5,
+      "cpu_all_sha256": "d53ed93d140a18e3282f8dbc140364295e15140bafe44a6c77970b773c307bbd",
+      "header": [
+        "File: tsgo",
+        "Type: cpu",
+        "Time: 2026-10-06 20:56:52 PDT",
+        "Duration: 16.15s, Total samples = 16.06s (99.41%)",
+        "Showing nodes accounting for 16.06s, 100% of 16.06s total",
+        "      flat  flat%   sum%        cum   cum%"
+      ],
+      "selected": {
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).instantiateTypeWithAlias": {
+          "flat": "0.15s",
+          "flat_pct": 0.93,
+          "cumulative": "1.89s",
+          "cumulative_pct": 11.77
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveObjectTypeMembers": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.90s",
+          "cumulative_pct": 5.6
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).checkObjectLiteral": {
+          "flat": "0.01s",
+          "flat_pct": 0.062,
+          "cumulative": "0.31s",
+          "cumulative_pct": 1.93
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getEffectsSignature": {
+          "flat": "0.03s",
+          "flat_pct": 0.19,
+          "cumulative": "0.26s",
+          "cumulative_pct": 1.62
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getTypeOfInstantiatedSymbol": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.22s",
+          "cumulative_pct": 1.37
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAlias": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.19s",
+          "cumulative_pct": 1.18
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).couldContainTypeVariablesWorker": {
+          "flat": "0.02s",
+          "flat_pct": 0.12,
+          "cumulative": "0.03s",
+          "cumulative_pct": 0.19
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAliasWithDeprecationCheck": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.03s",
+          "cumulative_pct": 0.19
+        }
+      }
+    },
+    "generated1": {
+      "profile_count": 3,
+      "cpu_all_sha256": "b811eacb3f788d7cd4cf1ac5e23d90a71e2fb336fbc09047c72c4e97c39fc91a",
+      "header": [
+        "File: tsgo",
+        "Type: cpu",
+        "Time: 2026-10-06 20:57:09 PDT",
+        "Duration: 10s, Total samples = 6.15s (61.48%)",
+        "Showing nodes accounting for 6.15s, 100% of 6.15s total",
+        "      flat  flat%   sum%        cum   cum%"
+      ],
+      "selected": {
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).instantiateTypeWithAlias": {
+          "flat": "0.01s",
+          "flat_pct": 0.16,
+          "cumulative": "0.31s",
+          "cumulative_pct": 5.04
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).checkObjectLiteral": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.26s",
+          "cumulative_pct": 4.23
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveObjectTypeMembers": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.20s",
+          "cumulative_pct": 3.25
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getEffectsSignature": {
+          "flat": "0.01s",
+          "flat_pct": 0.16,
+          "cumulative": "0.15s",
+          "cumulative_pct": 2.44
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getTypeOfInstantiatedSymbol": {
+          "flat": "0.01s",
+          "flat_pct": 0.16,
+          "cumulative": "0.09s",
+          "cumulative_pct": 1.46
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAlias": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.09s",
+          "cumulative_pct": 1.46
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAliasWithDeprecationCheck": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.02s",
+          "cumulative_pct": 0.33
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).checkObjectLiteral.func1": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.01s",
+          "cumulative_pct": 0.16
+        }
+      }
+    },
+    "api4": {
+      "profile_count": 1,
+      "cpu_all_sha256": "314e9b439660e912280c1aa1a432ee8547f299588c892add35df8b6fe712b26f",
+      "header": [
+        "File: tsgo",
+        "Type: cpu",
+        "Time: 2026-10-06 20:57:19 PDT",
+        "Duration: 30.65s, Total samples = 35.59s (116.12%)",
+        "Showing nodes accounting for 35.59s, 100% of 35.59s total",
+        "      flat  flat%   sum%        cum   cum%"
+      ],
+      "selected": {
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).instantiateTypeWithAlias": {
+          "flat": "0.34s",
+          "flat_pct": 0.96,
+          "cumulative": "6.83s",
+          "cumulative_pct": 19.19
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveObjectTypeMembers": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "2.94s",
+          "cumulative_pct": 8.26
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).checkObjectLiteral": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "2.90s",
+          "cumulative_pct": 8.15
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getTypeOfInstantiatedSymbol": {
+          "flat": "0.05s",
+          "flat_pct": 0.14,
+          "cumulative": "2.79s",
+          "cumulative_pct": 7.84
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAlias": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.38s",
+          "cumulative_pct": 1.07
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).couldContainTypeVariablesWorker": {
+          "flat": "0.18s",
+          "flat_pct": 0.51,
+          "cumulative": "0.18s",
+          "cumulative_pct": 0.51
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).checkObjectLiteral.func1": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.07s",
+          "cumulative_pct": 0.2
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).resolveAliasWithDeprecationCheck": {
+          "flat": "0.01s",
+          "flat_pct": 0.028,
+          "cumulative": "0.06s",
+          "cumulative_pct": 0.17
+        },
+        "github.com/microsoft/typescript-go/internal/checker.(*Checker).getEffectsSignature": {
+          "flat": "0",
+          "flat_pct": 0.0,
+          "cumulative": "0.04s",
+          "cumulative_pct": 0.11
+        }
+      }
+    }
+  },
+  "input_and_work_limits": [
+    "Loaded paths/config/binary snapshots cover observed inputs, not every resolver/environment query or bundled-library byte.",
+    "Before/after snapshots do not detect all transient input changes.",
+    "Profiling children were separate from final interleaved timing.",
+    "Concurrent external builds and host load affected runs; these are descriptive timings, not release qualification.",
+    "Equal file order and pool policy do not prove equal lazy semantic work.",
+    "API diagnostics differ: four TSR TS1005 errors, zero native diagnostics.",
+    "CPU profiles are observer-on sampled attribution, not ordinary CPU durations or saved-wall bounds.",
+    "Inclusive categories overlap. Running-state syscall frames do not establish waiting duration.",
+    "Native allocs profiles are sampled cumulative allocator data with publication lag; they are not RSS or exact allocation traffic."
+  ],
+  "verified_wall_ratio": null,
+  "target_verified": false,
+  "file_order": {
+    "generated": {
+      "count": 465,
+      "order_equal": true,
+      "owner_mismatches4": 0,
+      "main_program_index": 464,
+      "main_checker": 0,
+      "fingerprint": "7e0e674904859e7051c7613c1850936946460b389c0398a8e536b8bc977efd7b"
+    },
+    "api": {
+      "counts": {
+        "tsr": 9861,
+        "tsgo": 9861
+      },
+      "set_equal": true,
+      "order_equal": true,
+      "position_mismatches": 0,
+      "owner_mismatches4": 0,
+      "fingerprints": {
+        "tsr": "3ff8766c974c929b15d7bb380b26fa933c19ea88e2b8b624a4d6ed117815a6ab",
+        "tsgo": "3ff8766c974c929b15d7bb380b26fa933c19ea88e2b8b624a4d6ed117815a6ab"
+      }
+    }
+  },
+  "native_activity": {
+    "generated": {
+      "source_contract": "native-worker-activity.md/json/patch",
+      "probe_sha256": "4199141cf395e81208deb975256f163aefbd0a7e9ed97ea362a65fceb5915ba5",
+      "trace_sha256": "339225f71e9213ebac8627ec91499c0734ad19f225435abd3651bfcc08f829be",
+      "instances": 4,
+      "peaks": {
+        "constructing": 4,
+        "semantic": 4,
+        "full": 4,
+        "leased": 4,
+        "observed": 4
+      },
+      "first_full_file_checks": 402,
+      "events": 1642089,
+      "full_output_control_matches": true,
+      "off_wall_seconds": 0.6295486249728128,
+      "on_wall_seconds": 15.788645624998026,
+      "timing_usable": false
+    },
+    "api": {
+      "completed": false,
+      "reason": "Intrusive query observer stopped; no qualified worker-duration result.",
+      "partial_sidecar_sha256": "2eadc828a6a41cb212d58e25ff33df917acde0adf044cdfb5618a98c11a09fcf"
+    }
+  },
+  "rejected_timing_batches": {
+    "generated-4": {
+      "sha256": "46744d4e1e39a78f387f958eaf2005603219597ce2c1c43ecf62e489c8595d84",
+      "reason": "Non-interleaved and/or overlapping compiler load; preserved locating evidence, not selected final timings."
+    },
+    "generated-1": {
+      "sha256": "a154733fc1fe169a051d2870a08d996a20f5e149049c1be581666038befecac9",
+      "reason": "Non-interleaved and/or overlapping compiler load; preserved locating evidence, not selected final timings."
+    },
+    "generated-4-repeat": {
+      "sha256": "4d9f2253061ba628051bf0caf554ed358b46ba174ef7fea0faf2cd1fd898f41d",
+      "reason": "Non-interleaved and/or overlapping compiler load; preserved locating evidence, not selected final timings."
+    },
+    "generated-1-repeat": {
+      "sha256": "b5eb398ad99e87161ef81dbe87b60f830ae73060f69945f205af7a38890a149d",
+      "reason": "Non-interleaved and/or overlapping compiler load; preserved locating evidence, not selected final timings."
+    },
+    "api-4": {
+      "sha256": "c1dccfd015301735c98b457df07de565c2481bca36f3051ab51d07fbf95e24ae",
+      "reason": "Non-interleaved and/or overlapping compiler load; preserved locating evidence, not selected final timings."
+    }
+  },
+  "launch_controls": {
+    "tsr": {
+      "pid": 46888,
+      "started_at_unix_ns": 1791346782209735000,
+      "wall_seconds": 0.0048965419991873205,
+      "user_seconds": 0.0009519999999999999,
+      "system_seconds": 0.001811,
+      "peak_rss_bytes": 1900544,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "Version 5.9.0\n",
+      "stderr": ""
+    },
+    "tsgo": {
+      "pid": 46889,
+      "started_at_unix_ns": 1791346782215437000,
+      "wall_seconds": 0.008537375018931925,
+      "user_seconds": 0.003074,
+      "system_seconds": 0.003417,
+      "peak_rss_bytes": 13533184,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "Version 7.1.0-dev\n",
+      "stderr": ""
+    }
+  },
+  "profile_provenance": {
+    "native_children": [
+      {
+        "label": "generated4",
+        "run": 0,
+        "pid": 34538,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34538-cpuprofile.pb.gz": "e2e72c66da49638591e1a78aa88bd04c3605239453793fee44c5b40e8f1ee230",
+          "34538-memprofile.pb.gz": "dbcdb535a08919d8f723b6054fa6c4a0f223cac3bdaeb43cef7bf882ceeba2c7"
+        }
+      },
+      {
+        "label": "generated4",
+        "run": 1,
+        "pid": 34557,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34557-cpuprofile.pb.gz": "90d518c5c049ada5740f4f43b1cc61d293e718d974c084cf534fd37306c1b122",
+          "34557-memprofile.pb.gz": "b5d50947cba4e4549c411686f4acf2858915929f0ba6038ab5e9bcda68857368"
+        }
+      },
+      {
+        "label": "generated4",
+        "run": 2,
+        "pid": 34564,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34564-memprofile.pb.gz": "516eeacf70e5423819c489da43b607cbfd55f350602fdf17dbabaab7d93592e5",
+          "34564-cpuprofile.pb.gz": "e3faa665762f6e7041cc0e70e6b425c22b5a519971998b3cc905cb675a519ec9"
+        }
+      },
+      {
+        "label": "generated4",
+        "run": 3,
+        "pid": 34596,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34596-memprofile.pb.gz": "d42645be30c429d0e1e43cb30f06c755ff8f40d8e9a51a8d97592887bba07add",
+          "34596-cpuprofile.pb.gz": "b2f6b88c913efc3b61a46b2c5cc5b91893dd8f8c087e3234b0132c9afb724995"
+        }
+      },
+      {
+        "label": "generated4",
+        "run": 4,
+        "pid": 34625,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34625-memprofile.pb.gz": "9a29348409bcc7655f633eea569f2cf46515589c7c9ebd963ec3ac236f3f5fbe",
+          "34625-cpuprofile.pb.gz": "715301bcaa1240d98b9a8cdb12aebc9ce5e488d3aa6d7a287d66689ee1a5f32f"
+        }
+      },
+      {
+        "label": "generated1",
+        "run": 0,
+        "pid": 34629,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34629-cpuprofile.pb.gz": "4b3334913e9d2e54698b1cd0ddcef6fc9aaa6215071b7c6744f43cf913c21865",
+          "34629-memprofile.pb.gz": "885b320e435427797920212b5976e68b34e605bbf4fe40f601bd139402b7c448"
+        }
+      },
+      {
+        "label": "generated1",
+        "run": 1,
+        "pid": 34650,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34650-cpuprofile.pb.gz": "d4a18c392e4b5e7809d4da3700d0ca17f56226a8f12889b6aae75cae12d7900f",
+          "34650-memprofile.pb.gz": "ef72857c04e712dfcb1ad5879b4b63d5c5046fe485cca5fafa9716a9d65e17f0"
+        }
+      },
+      {
+        "label": "generated1",
+        "run": 2,
+        "pid": 34676,
+        "exit_code": 1,
+        "timed_out": false,
+        "profiles": {
+          "34676-memprofile.pb.gz": "3841ceedc550b07cdf3c2280832c56bd609ece5a4a51d6f0f292baead2d0d256",
+          "34676-cpuprofile.pb.gz": "486f247235ebe2aa1bf4526d5c68a12e9cfb67ed696bd6d9a96eba67877cacbf"
+        }
+      },
+      {
+        "label": "api4",
+        "run": 0,
+        "pid": 34700,
+        "exit_code": 0,
+        "timed_out": false,
+        "profiles": {
+          "34700-memprofile.pb.gz": "e1979d000f53a69a60b9152b49d7ce2457bec721ffd6a67f9e9b1d76a49fcb02",
+          "34700-cpuprofile.pb.gz": "f682a6489bb1c28367efa8b4f6a599d5d3c2ef098772dd4e6605ab7bce8ab113"
+        }
+      }
+    ],
+    "normal_performance_helper_sha256": "e9baf9a8cb32a9bd33b05c072511572ffafa62204d3b8a5a44e9cc663d38ee48",
+    "inputs_helper_sha256": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2",
+    "private_preflight_helper_sha256": "c547a3657a416345c0a6073cc1f0a9ce4576cc8ed65999b6d905f69779d5c6e6",
+    "render_callers_sha256": "9557503d2e49945be993429b39d8bb8eef82fbf33dfb39e64343fd49c1bbb545"
+  },
+  "followups": {
+    "new": [
+      "tsr-1yb.11.3",
+      "tsr-1yb.16.3.10"
+    ],
+    "existing": [
+      "tsr-1yb.7.7.3",
+      "tsr-1yb.4.2.1",
+      "tsr-1yb.33.1",
+      "tsr-1yb.4.1.2",
+      "tsr-1yb.7.10"
+    ],
+    "runtime_changes": false
+  },
+  "replay_helpers": {
+    "checker-native-cpu-gap.timing.py": "d594a1a6dce8a4ae6e04412f252d1627ca46304d2a1af95ae0b478f1bfb15f4b",
+    "checker-native-cpu-gap.cpu.py": "857198a14a2fca8235af271a1e25c41465ed9577f7d632211602a0b9a1415fb3"
+  }
+}

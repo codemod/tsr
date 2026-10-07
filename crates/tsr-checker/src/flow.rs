@@ -1674,9 +1674,7 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self
-                    .get_property_of_type(receiver_type, name.text)
-                    .is_some_and(|property| self.is_readonly_symbol(property));
+                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
@@ -1694,9 +1692,7 @@ impl Checker<'_, '_> {
                 };
                 let Some(expression) = access.expression else { return false };
                 let receiver_type = self.check_expression(expression);
-                let readonly = self
-                    .get_property_of_type(receiver_type, key.text)
-                    .is_some_and(|property| self.is_readonly_symbol(property));
+                let readonly = self.is_readonly_property_of_type(receiver_type, key.text);
                 readonly && self.is_constant_reference(receiver)
             }
             _ => {
@@ -3446,26 +3442,20 @@ impl Checker<'_, '_> {
         let mut types: Vec<TypeId> = Vec::new();
         let never = self.intrinsics.never;
         let mut subtype_reduction = false;
+        // `getTypeAtFlowBranchLabel` (`flow.go:1253`): the **bypass**
+        // antecedent — the path where a `switch` with no `default` matched no
+        // clause — is set aside and processed after every other antecedent
+        // (`flow.go:1260`, `:1287`).
+        let mut bypass = None;
         for antecedent in antecedents {
-            // `!c.isExhaustiveSwitchStatement(bypassFlow.…SwitchStatement)`
-            // (`flow.go:1292`). The **bypass** antecedent is the path where the
-            // `switch` matched no clause; when every value of the discriminant
-            // is covered there is no such path, and its contribution must not
-            // join the union. Without this,
-            //
-            // ```ts
-            // let g: string;
-            // switch (interval) {          // "day" | "week" | "month"
-            //   case "day": g = "d"; break;
-            //   case "week": g = "w"; break;
-            //   case "month": g = "m"; break;
-            // }
-            // return g;                    // TS2454, wrongly
-            // ```
-            //
-            // the bypass path carries the pre-switch `undefined` into the join
-            // and every exhaustive switch reports "used before being assigned".
-            if self.bypass_of_exhaustive_switch(antecedent) {
+            if bypass.is_none()
+                && self
+                    .binder
+                    .flow()
+                    .switch_clause(antecedent)
+                    .is_some_and(tsr_binder::SwitchClause::is_empty)
+            {
+                bypass = Some(antecedent);
                 continue;
             }
             let t = self.get_type_at_flow_node(state, antecedent).t;
@@ -3482,6 +3472,39 @@ impl Checker<'_, '_> {
             // loop label already does.
             if !self.is_type_subset_of(t, state.initial_type) {
                 subtype_reduction = true;
+            }
+        }
+        // `flow.go:1287-1292`: the bypass contributes only a type not yet
+        // seen, and only when the switch is not exhaustive. "Since
+        // exhaustiveness checks increase the risk of circularities, we only
+        // want to perform them when they make a difference" — asking first
+        // reached the discriminant's own symbol while it resolved
+        // (`exhaustiveSwitchStatements1`'s `const stats = foo` in a loop).
+        // When every value of the discriminant is covered there is no such
+        // path, and its contribution must not join the union. Without that,
+        //
+        // ```ts
+        // let g: string;
+        // switch (interval) {          // "day" | "week" | "month"
+        //   case "day": g = "d"; break;
+        //   case "week": g = "w"; break;
+        //   case "month": g = "m"; break;
+        // }
+        // return g;                    // TS2454, wrongly
+        // ```
+        //
+        // the bypass path carries the pre-switch `undefined` into the join
+        // and every exhaustive switch reports "used before being assigned".
+        if let Some(bypass) = bypass {
+            let t = self.get_type_at_flow_node(state, bypass).t;
+            if !self.store.get(t).flags.contains(TypeFlags::NEVER)
+                && !types.contains(&t)
+                && !self.bypass_of_exhaustive_switch(bypass)
+            {
+                types.push(t);
+                if !self.is_type_subset_of(t, state.initial_type) {
+                    subtype_reduction = true;
+                }
             }
         }
         // §744: upstream appends EVERY antecedent type and hands the list to
@@ -6725,7 +6748,7 @@ impl Checker<'_, '_> {
     }
 
     /// `isLiteralType` (`checker.go:25393`).
-    fn is_literal_type(&self, t: TypeId) -> bool {
+    pub(crate) fn is_literal_type(&self, t: TypeId) -> bool {
         let ty = self.store.get(t);
         if ty.flags.intersects(TypeFlags::BOOLEAN) {
             return true;

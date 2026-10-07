@@ -72,6 +72,20 @@ pub struct JSDocTable<'a> {
 }
 
 impl<'a> JSDocTable<'a> {
+    pub(crate) fn publish<'b>(
+        &self,
+        publication: &mut tsr_ast::publication::Publication<'b>,
+    ) -> JSDocTable<'b> {
+        use tsr_ast::publication::Publish;
+        JSDocTable {
+            entries: self
+                .entries
+                .iter()
+                .map(|(host, docs)| (publication.id(*host), docs.publish(publication)))
+                .collect(),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
     /// The JSDoc attached to `node`, or an empty slice.
     #[must_use]
     pub fn get(&self, node: tsr_ast::NodeId) -> &'a [&'a tsr_ast::JSDoc<'a>] {

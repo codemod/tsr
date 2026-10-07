@@ -36,6 +36,17 @@ install_rust() {
   rustc --version
 }
 
+install_offline_python() {
+  # Debian's externally managed Python and older distro tomlkit cannot run the
+  # directory-source assembler. Keep its pinned dependency in a private venv.
+  local root="$HOME/.local/share/tsr/offline-python"
+  python3 -m venv "$root"
+  "$root/bin/python3" -m pip install --disable-pip-version-check --require-hashes \
+    -r scripts/offline-cargo/requirements.txt
+  "$root/bin/python3" -c 'import tomlkit; print("offline bootstrap tomlkit", tomlkit.__version__)'
+  export PATH="$root/bin:$PATH"
+}
+
 persist_path() {
   # Login shells (Amp, supervised services) need cargo and ~/.local/bin on PATH.
   local marker="# tsr orb toolchain"
@@ -54,6 +65,14 @@ EOF
 # tsr orb rust homes
 export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"
+EOF
+  fi
+  local python_marker="# tsr offline bootstrap Python"
+  if ! grep -Fqx "$python_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >>"$HOME/.bash_profile" <<'EOF'
+
+# tsr offline bootstrap Python
+case ":$PATH:" in *":$HOME/.local/share/tsr/offline-python/bin:"*) ;; *) export PATH="$HOME/.local/share/tsr/offline-python/bin:$PATH" ;; esac
 EOF
   fi
 }
@@ -116,6 +135,7 @@ build_tsgo() {
 }
 
 step "rust toolchain" install_rust
+step "offline bootstrap Python" install_offline_python
 step "login shell PATH" persist_path
 step "git submodules" init_submodules
 step "tsgo oracle toolchain" install_go

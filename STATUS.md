@@ -22,6 +22,142 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Current member-field attribution, frozen `53896fa4`: private publication removes
+593,159 default declared lookups, but ordinary inclusive root interval is only
+36.831ms with clocks/nested work; typed forcing remains similar. Publication is
+99.06% completed hits. The private store creates 56,360 members and reserves
+12,058,624 inline bytes, versus ordinary four sentinels/736 bytes; this is not
+total heap/RSS attribution. Five clone sites copy 963,043 string-payload bytes.
+All 106 observer CLI children preserve role outputs and repeat counts. Existing
+`.7.7.1.2` owns private storage/access costs; no extra memo, runtime retention,
+full corpus or speed win. `.4.2.1`/`.33.1`/`.34` and complete-work 2x stay open.
+[Source-bound costs and limits](docs/architecture/checker-member-field-cost.md).
+
+Current CLI diagnosis / member selection, frozen `bb982558`: fresh copies
+reproduce 6.66–15.55s before `main`, including outside the agent; repeats enter
+in ~3ms. Scoped XProtect results finish near entry, and version-only native
+also delays. Exact PR #5/user-invocation causality remains unproven. Current
+member replay initially adds 799 false TS2445; private imported-base alias
+repair matches five native controls in both modes. Warm public retention is
+rejected: default 1.196 ->1.384s, single 3.015 ->3.289s, higher CPU/RSS; two
+measured pairs per mode, uncontrolled host. No canonical runtime or speed win.
+`.34`, `.33.1`, `.4.2.1` and complete-work 2x target stay unfinished.
+[Source-bound diagnosis and rejected replay](docs/architecture/checker-member-builder-current.md).
+
+Current construction-cost selection (`tsr-1yb.4.2.1`), frozen `3cf33564`:
+the existing class/interface reference cache serves 3,566,827 of 3,666,301
+requests; 99,474 actual final mints have distinct private ordered keys and zero
+repeats. Root intervals total 0.412486s across four owners; declared mint body
+0.001384s. Thirty fixed CLI controls preserve complete output. Natural
+single-mode observation stops on app input drift; failed gate retained. No
+second cache, canonical runtime or speed win. Broader native member builder,
+PR #5 regression `tsr-1yb.34` and 2x target remain unfinished.
+[Cost selection and exact limits](docs/architecture/checker-concrete-builder-cost.md).
+
+Mapped contextual prerequisite (`tsr-1yb.33.1`), frozen `0b18d357` / native
+`5b1047d`: private member-plus-signature replay now preserves all prior passing
+477,970 type rows and 10,570 diagnostic cases, improving 49 type rows and six
+cases. One compiling raw-reader mutant is detected; 205 library tests pass
+on exact restoration. Corrected complete checker package has 1,523 passes and
+three existing ignored tests over 101 blocks. The 344-child public matrix has
+66/86 native agreements versus main56, with zero lost agreement; an additional
+36 children qualify explicit old-gap/circular-shortcut test corrections.
+Canonical runtime and headline coverage remain unchanged. Current construction
+cost, broad metadata and complete-work benefit gates remain; `.33.1` stays in
+progress. [Exact replay and remaining boundaries](docs/architecture/checker-member-mapped-contextual.md).
+
+Compiling signature prerequisite (`tsr-1yb.27` / `.28`), frozen `f2325620`:
+189 library/package/strict-Clippy checks; 204 combined member library checks,
+four compiling mutants, six fresh native budget controls. Final 120 CLI children
+restore merged/subtypesOfUnion TS2411: member native agreements 16 -> 20/24,
+zero bounded agreement losses. Handoff complete, no production or speed retention.
+[Source-bound replay and remaining full gates](docs/architecture/checker-signature-admission-rust.md).
+
+Native signature prerequisite (`tsr-1yb.27`) at `51960e07` / native `5b1047d`:
+80 parsed controls and three compiling mutations qualify deferred signature/
+return forcing, including missing metadata with supported no-op identity. Full
+4,988 Go files and 108 libraries restored; 60 CLI children, 18/20 main native
+agreements and 16/20 private replay agreements. The compiling seam was pending
+at that receipt; the completed handoff is above. No runtime or speed change.
+[Contract and exact remaining gates](docs/architecture/checker-signature-admission-native.md).
+
+Member prerequisite continuation (`tsr-1yb.33.1`), frozen `53826afe`: native
+reference admission and actual instantiated contextual reads pass200 restored
+library tests. Fresh full corpora reduce losses from49/four to18 type assertions
+and one diagnostic case; retention remains **refused**. Final CLI312 children,
+62/78 main output pairs equal,56 native-aligned; two previous main agreements
+are lost on missing subtypesOfUnion TS2411. No runtime/coverage/speed gain.
+[Current replay and gates](docs/architecture/checker-member-admission-contextual-read.md).
+
+Declared-reference continuation (`tsr-1yb.33.1`), frozen `0fd93183` / native
+`5b1047d`: actual declared-class and inherited-interface formal-this admission
+repair collection inference and derived receiver projections privately. Two
+red/green controls, six fresh native orders and two final compiling mutations
+qualify these paths; all 198 library tests pass after exact restoration. Wider
+retention remains **refused**: 49 previously RIGHT type losses /477,970 rows and
+four passing diagnostic losses /10,570 cases. `subtypesOfUnion` is a new diagnostic
+loss relative to the class-only version (62 type/six diagnostic losses).
+Two CLI batches total 384 terminal children; final 54/66 full output pairs equal,
+ten changed pairs match native and two remain wrong. False derived-interface
+TS2430 remains on both baseline and candidate. No main runtime, coverage or speed
+gain; `.33.1` stays in progress. [Current replay and limits](docs/architecture/checker-declared-member-references.md).
+
+Natural structured-member progress (`tsr-1yb.33.1`), frozen `d417a8c9` / native
+`5b1047d`: the previously pending circular-default control now reproduces own
+publication, reset, fresh/outer completion and exactly one TS2310 in three orders.
+Nonempty inherited signature/index fields and late-bound suppliers have focused
+native controls. All 196 private library tests pass after six detected compiling
+mutations restore. Wider retention remains **refused**: 63 previous RIGHT type
+losses over 477,970 aligned rows and eight passing diagnostic losses over 10,570
+cases. The initial candidate lost 611 type rows; raw/reference registry and
+late-bound writer corrections reduce that failure. Two CLI batches total 336
+terminal children; final 46/56 output pairs stay equal and all ten changed pairs
+improve to native, but that bounded matrix does not overrule the corpus losses.
+Canonical runtime unchanged; no coverage or speed gain. The task remains in
+progress. [Replay, full changes and limits](docs/architecture/checker-natural-member-publication.md).
+
+Prepared-reference progress (`tsr-1yb.33.1`), frozen `55ed1a2a` / native
+`5b1047d`: actual raw/reduced/apparent TypeIds and final original-this arguments
+now preserve scalar Single/Merged/Single, including readonly/private variants.
+Native supplier/result and containing-type IDs correct two earlier assertions;
+the `.33` distinct-self result was already correct. Exact-optional metadata/write
+controls expose a genuine gap and pass after the private writer repair. The
+library has 192 passes/one ignored pending control, which is explicitly run and
+fails all three natural circular-default orders on missing TS2310. Natural
+active `[Root]` continues to completed `[Root, Later]` without a synthetic frame.
+Full structured-member fields/reset continuation and production fidelity/cost/
+benefit gates remain; `.33.1` stays in progress. Canonical runtime unchanged,
+no coverage or speed gain. [Progress and corrections](docs/architecture/checker-private-member-publication.md).
+
+Historical private-member experiment (`tsr-1yb.33`), frozen `88a0d3ce`, remains
+rejected on scalar Merged/Merged/Single. Its 188 passes/two reported failures,
+five detected mutants, 162 CLI invocations/54 equal output pairs and exact
+650-file restoration are preserved. **Corrected:** three distinct-self result
+projections used a native supplier expectation; they were not parity failures.
+All 185 restored baseline tests passed. The fresh three-order native constructor
+trace identified the real missing preparation path; its property-access anchor
+is corrected from alias marking to the actual apparent-first entry.
+
+Published-member contract (`tsr-1yb.32`), inventory frozen `abbaa1d9` / native
+`5b1047d`: 58 source anchors and 69 fresh parsed native controls bind actual
+symbol publication, scalar Single/Merged/Single history, first accessor write
+and both reset completion paths. Both native archives restore exactly; no
+Rust runtime changes or new corpus/timing result. The proposed private member
+links and active-frame/revision protocol remain unimplemented. `.33` can
+compile-check the writer/read seam; `.4.2.1` still requires current costly
+builder attribution. [Contract and receipt](docs/architecture/checker-published-members.md).
+
+Late-bound copy attribution (`tsr-1yb.16.2.3`), frozen `48e300a4` / native
+`5b1047d`: 104 baseline and 78 candidate controls preserve complete output and
+1,397 actual Next.js checks. The lookup prototype `.7.5.1.1` removes exactly
+25.34MB / 843,476 allocations default and 17.31MB / 597,299 single, but its
+ordinary public wall gate fails: savings 1.38/-9.16ms against baseline, below
+the required 20ms. CPU/RSS pass; 187 candidate library tests pass. All 674
+baseline files and the ordinary CLI hash are restored. No runtime change,
+full-corpus qualification or retained speedup. The reported PR #5 slowdown
+(`.34`) remains unreproduced; its exact failing invocation is still needed.
+[Evidence and rejected prototype](docs/architecture/checker-late-bound-copy.md).
+
 Intersection admission (`tsr-1yb.16.3.6`), frozen `4cfe2340`: 56 ordinary/probe
 controls preserve output; exact clone traffic repeats at 2.20M allocations /
 176.69MB default and 1.03M / 70.37MB single on Next.js. The `.16.3.7` ordinary
@@ -3065,6 +3201,12 @@ gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 
 ## 3. What is ported
 
+The `48e300a4` late-bound observer/prototype is archived evidence only. No
+checker API migration is retained. Real recursive-marker and unsupported-key
+controls qualify state attribution; stored-empty results are not native
+completed member images. Existing public diagnostic gaps remain `tsr-6.55`,
+`tsr-6.72` and `tsr-6.73`; no new coverage or RIGHT-preservation score is claimed.
+
 The intersection-admission payload candidate remains an archived rejection.
 Selecting the variant before cloning does not add reuse or change publication;
 its required ordinary benefit is unconfirmed, so production is unchanged.
@@ -3304,6 +3446,47 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Frozen `53896fa4` selects existing `tsr-1yb.7.7.1.2` for private symbol capacity
+and publication design, coordinated with `.33.1`; avoid a duplicate task or
+another member memo with 99.06% hits. The 12.06MB inline capacity belongs to the private
+prototype, not ordinary main's sentinel-only stores. `.4.2.1` still needs costly
+eligible worker attribution; small declaration intervals on one public workload
+do not close its general gate. Full fidelity/complete-work benefit remains.
+[Current attribution and ownership](docs/architecture/checker-member-field-cost.md).
+
+At frozen `bb982558`, do not retain the current completed-member replay as a
+speed optimization: warm default and single walls/CPU/RSS are worse in the
+bounded public comparison. Next `.4.2.1` choice needs actual field/consumer and
+retained-storage attribution before another implementation. `.33.1` owns the
+broader correctness/current integration gates; private imported-base alias
+repair only qualifies five native controls. `.34` has a reproduced OS launch
+delay, while exact user invocation and PR-specific source cause remain open.
+[Current decision and local startup check](docs/architecture/checker-member-builder-current.md).
+
+Construction-cost follow-through (`tsr-1yb.4.2.1`): frozen `3cf33564` excludes
+a second class/interface reference cache (97.29% existing hits, zero repeated
+actual mints). Next family must measure actual completed member-field
+population/consumers and retain native active/reset and broader `.33.1` gates.
+Live Next.js input drift prevents the remaining natural-mode comparisons; do
+not reuse earlier counts as native completion misses.
+[Evidence](docs/architecture/checker-concrete-builder-cost.md).
+
+At frozen `0b18d357`, member-plus-signature `.33.1` no longer loses prior
+passing corpus rows. Builder `tsr-1yb.4.2.1` should consume the exact private
+12-path replay for current expensive construction attribution, preserving
+publication/receiver/mapper/natural reset boundaries. Full metadata, canonical
+integration, strict lint/format and equivalent-work cost/benefit remain gates;
+no main runtime or speed improvement is delivered. PR5 `.34` remains unresolved.
+[Current prerequisite](docs/architecture/checker-member-mapped-contextual.md).
+
+Late-bound lookup measurement `.16.2.3` supplies a material allocation site,
+but prototype `.7.5.1.1` is rejected by its unchanged public timing policy.
+Do not repeat it without new workload evidence or a separately settled policy
+(`tsr-1yb.13.1`). Broader member publication/receiver lanes retain their
+prerequisites. Regression `.34` still needs the reported failing invocation;
+computed accessor-write and circular-key diagnostic follow-ups are `tsr-6.72`
+and `tsr-6.73`. [Bounded handoff](docs/architecture/checker-late-bound-copy.md).
+
 After the restored `.16.3.7` rejection, `.16.3.8` attributes anonymous property
 copies to actual existing cache outcomes. Keep mapper/print context gates and
 measure complete hits before moving payload copying. The borrowed-name `.5`
@@ -3325,8 +3508,42 @@ orders; declaration origin plus supplying reference is not an accepted identity.
 The existing builder `tsr-1yb.4.2.1`, receiver repair `tsr-6.69.2` and signature
 admission `.27`/`.28` retain their production gates and owners. This architectural
 handoff assigns no new reachability score or measured performance benefit.
-New P1 contract `tsr-1yb.32` can start now; compiling consumer `tsr-1yb.33`
-depends on it, and the concrete builder depends on that consumer.
+Contract `tsr-1yb.32` now binds the actual writer/read seam at `abbaa1d9`.
+The compiling private-symbol attempt `tsr-1yb.33` is now rejected at `88a0d3ce`:
+actual handles and retained clone history are insufficient without native
+raw/reduced/apparent construction paths. `tsr-1yb.33.1` owns the next repair;
+the concrete builder depends on it and current expensive construction counts.
+The `.33.1` preparation seam now passes scalar history and corrected
+supplier/clone identities at frozen `55ed1a2a`; natural partial-base observation
+also passes. It remains in progress for field-complete natural reset/continuation
+and diagnostic admission. Do not restart the rejected declaration classifier or
+repeat the incorrect distinct-self result expectation.
+The `d417a8c9` continuation now passes the natural default/reset sequence and
+focused nonempty fields. Raw/reference classification and late-bound suppliers
+are repaired privately. Broader retention still fails on 63 type/eight diagnostic
+RIGHT losses; those exact corpus rows are the next repair, preserving existing
+receiver/signature owners. No production builder or speed improvement lands.
+The current `0fd93183` continuation repairs declared-class and inherited-interface
+this admission with 198 library passes and six fresh native observations. Its
+remaining 49 type/four diagnostic losses replace the older source's counts as the
+current repair gate, including a new `subtypesOfUnion` diagnostic loss. Derived
+public inheritance still has false TS2430; stored interface call/construct this
+mapping remains unqualified. Preserve receiver/signature owners and qualify the
+actual writer before builder reuse. [Current source-bound handoff](docs/architecture/checker-declared-member-references.md).
+The current `53826afe` replay now has200 passing library tests, with18
+thislessFunctionsNotContextSensitive3 type losses and one subtypesOfUnion
+diagnostic loss. Correct these actual paths before builder reuse; reference
+admission and contextual reads repaired earlier JSX/override/temporal losses.
+[Current source-bound continuation](docs/architecture/checker-member-admission-contextual-read.md).
+Signature native `.27` and compiling `.28` handoffs are complete at frozen
+`f2325620`: bounded no-outer-parameter identity restores merged/subtypesOfUnion
+TS2411 while retaining pending/active guards and native resource limits. Consume
+[the exact Rust seam](docs/architecture/checker-signature-admission-rust.md) with
+`.33.1`; refresh full no-RIGHT-loss gates before production. Circular return-
+annotation TS2577 remains `tsr-6.74`; no cache expansion or speed acceptance.
+Native's 69 replayed controls establish semantics, not a saved-wall ceiling.
+[Published identity and reset contract](docs/architecture/checker-published-members.md).
+[Compiled failure and native constructor trace](docs/architecture/checker-private-member-publication.md).
 
 Parity round 2 (`tsr-2zk`): cross-lane blockers named by round-1 boxes come
 first because each unblocks several lanes — module-augmentation merge
@@ -6801,6 +7018,106 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `53896fa4`: no additional declaration/member cache selected. Private
+publication avoids 593,159 declared calls, but ordinary inclusive root interval
+is 36.831ms and overlapping clocks/work cannot be counted as saved wall/CPU.
+Typed calls increase 233,754 ->245,519. Repeated counts and 106 terminal controls
+qualify attribution only; prior warm retention rejection remains frozen `bb982558`.
+No fresh full-corpus/native-ratio certificate or canonical runtime change.
+[Measured boundaries](docs/architecture/checker-member-field-cost.md).
+
+Frozen `bb982558`: current member builder first fails public fidelity on799
+extra protected-access errors. A narrow imported-base alias repair passes30
+native/main/replay control children, retaining required TS2445/TS2446; original
+failure preserved. Repaired warm public wall is1.384s versus1.196s baseline
+default,3.289s versus3.015s single; CPU/RSS also increase. No performance
+retention or current full-corpus claim. Initial cold-mixed baseline is excluded
+from checker comparisons, and fresh startup is diagnosed separately.
+[Rejected current-source replay](docs/architecture/checker-member-builder-current.md).
+
+Frozen `3cf33564`: no added class/interface reference memo under
+`tsr-1yb.4.2.1`. Actual 99,474 minted keys are unique; the existing owner already
+serves 3,566,827 hits. Timed root interval is 0.412486s across workers, declared
+body 0.001384s. The single/off app child fails the physical-input stability gate
+despite identical diagnostics; it supplies no qualified counter/timing
+comparison. Broader member builder remains open.
+[Qualified refusal](docs/architecture/checker-concrete-builder-cost.md).
+
+New frozen `0b18d357` runs supersede the old no-RIGHT-loss failure as a current
+gate: zero losses over 477,970/10,570 rows, while historical eighteen/one remains
+unchanged below. Production is still unretained: 20/86 full public case/mode
+pairs differ, the archived containing-field warning and unformatted source
+remain, and current complete-work cost/benefit is unmeasured. The initial
+three integration failures are preserved and explicitly corrected against
+native controls; the final package passes with three pre-existing ignores.
+[Source-bound qualification](docs/architecture/checker-member-mapped-contextual.md).
+
+Signature seam/member integration at `f2325620` is not production-qualified:
+20/24 bounded case/mode comparisons agree, with TS2577 and thisless cases still
+mismatched; fresh full no-RIGHT-loss corpora are unrun. The frozen `53826afe`
+18/one refusal is preserved below. [Exact handoff limits](docs/architecture/checker-signature-admission-rust.md).
+
+At frozen `53826afe`, member prerequisite production retention remains refused
+on18 previous RIGHT type losses /477970 and one passing diagnostic loss /10570,
+despite200 library passes and three detected compiling mutations. Final CLI
+matrix loses two main native-agreement pairs on missing subtypesOfUnion TS2411;
+all changed and already-WRONG outputs remain recorded. No runtime speed gain.
+[Current rejection](docs/architecture/checker-member-admission-contextual-read.md).
+
+At frozen `0fd93183`, the private declared-reference continuation is refused
+for production retention on **49 previous RIGHT type losses and four passing
+diagnostic losses**, despite 198 library passes and two final detected compiling
+mutations. Class-only 62/six losses become 49/four after inherited-this admission;
+`subtypesOfUnion` adds a new diagnostic loss. All 101 type and 12 diagnostic changed
+rows, including already-WRONG cases, are preserved. The public derived-interface
+positive retains false TS2430 on baseline and candidate; two changed negative
+pairs remain wrong. No runtime or speed gain. [Current rejection](docs/architecture/checker-declared-member-references.md).
+
+At frozen `d417a8c9`, the natural structured-member candidate is refused for
+production retention on **63 previous RIGHT type assertion losses and eight
+passing diagnostic case losses**, despite 196 passing library tests and ten
+native-aligned CLI improvements. Its initial version lost 611 type assertions
+and emitted false shared-self TS2430; writer registry and late-bound table
+repairs correct those paths but do not clear the full gate. All 108 final changed
+type rows and 14 diagnostic case changes, including already-WRONG changes, are
+preserved. The natural circular-default control now passes; do not repeat the
+older missing-TS2310 diagnosis on this newer private source. No main runtime or
+speed gain. [Source-bound rejection](docs/architecture/checker-natural-member-publication.md).
+
+The historical private-symbol prototype (`tsr-1yb.33`, frozen `88a0d3ce`)
+remains refused on Merged/Merged/Single versus native Single/Merged/Single.
+**Corrected:** its three distinct-self result mismatches were bad assertions,
+not native parity losses; native suppliers read Both while the result/expression
+is Left & Right. The original 188 library passes/two reported failures, five
+detected mutants and 54 identical output pairs remain recorded, alongside
+650-file restoration and 185 baseline passes.
+
+At frozen `55ed1a2a`, the private `.33.1` preparation repair closes scalar
+history and the corrected supplier/clone identity controls. Production reuse
+remains unqualified: the explicitly executed circular-default control still
+misses TS2310 in all three orders. Its property-only state cannot certify native
+MembersResolved, and signatures/indexes/reset continuation remain unfinished.
+The initial exact-optional test used different options; its native-aligned red
+failure is preserved before the optional writer repair. No full-corpus or speed
+qualification. [Source-bound progress](docs/architecture/checker-private-member-publication.md).
+
+Member identity reconstruction remains refused: `.32` replays the native
+Single/Merged/Single scalar sequence across three orders, whereas rejected
+`.31` reconstructed Merged/Merged/Merged. Pre-forcing reads, treating a link
+target as getTargetSymbol without INSTANTIATED, or requiring a fresh worker
+after every reset would repeat those semantic failures. The 69 native controls
+provide no cost-qualified production reuse candidate on `abbaa1d9`.
+[Required publication boundary](docs/architecture/checker-published-members.md).
+
+Late-bound borrowed instance lookup (`tsr-1yb.7.5.1.1`, frozen `48e300a4`):
+default public median0.555741s versus base0.557122s/A-A0.564955s saves only
+1.38/9.21ms; single1.291063s versus1.281903s/1.292044s saves -9.16/0.98ms.
+Both fail the required20ms wall gate; CPU/RSS pass. All36 ordinary children
+complete with identical output. No app candidate ordinary timing, second
+round or full-corpus audit after this refusal. All674 baseline files and
+ordinary binary hash restored; allocation reduction is not retained speed
+success. [Receipt](docs/architecture/checker-late-bound-copy.md).
 
 Intersection payload candidate `.16.3.7`, frozen `4cfe2340`, fails first public
 confirmation: default candidate1.124708s misses base1.109090s/A-A0.889130s by
@@ -13477,6 +13794,49 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 
 ## 7. Session log
 
+2026-10-06, frozen `53896fa4`: private query/copy/store observers qualify 40 public
+and 66 control children, with complete outputs, partial input snapshots, repeated
+per-owner counters and fresh exact five/fourteen-file patch replays. Original
+setup failures and unmeasured partial build retained. Default replay reserves
+12,058,624 inline symbol bytes while ordinary stores retain 736; no total heap/RSS
+claim. Cache 99.06% hits, cheap declared intervals and similar typed forcing select
+existing `.7.7.1.2` storage/publication attribution, not another memo. Reset control
+preserves native/replay TS2310 that main misses. No full package/corpus/current
+speed win; `.4.2.1`/`.33.1`/`.34` and equivalent-work <=0.50 remain unfinished.
+[Complete passive receipt](docs/architecture/checker-member-field-cost.md).
+
+2026-10-06, frozen `bb982558`: current-source launch/member investigation.
+Fresh ordinary copies and private first-statement probes reproduce pre-main
+delays; outside-agent and version-only native controls confirm startup scope,
+and two own-path XProtect log events qualify the OS-scan inference. Original
+cold-mixed baseline and setup failures retained. Current 12-source replay
+builds but adds799 false TS2445; private13-source alias repair passes30 fixed
+control children after12 red children. Twelve warm public comparison children
+preserve output/partial observed inputs yet fail performance selection in both
+modes, with higher CPU/RSS. No canonical runtime, security-setting change,
+current full corpus or speed gain. `.34`/`.33.1`/`.4.2.1` remain unfinished;
+complete equivalent-work TSR/native<=0.50 remains unmet.
+[Receipt and remaining boundaries](docs/architecture/checker-member-builder-current.md).
+
+2026-10-06, frozen `3cf33564`: concrete-reference cost locator under
+`tsr-1yb.4.2.1`. Four normal full checks, four failed sandbox attach children,
+one successful unsandbox profile and one exited-child attach, three qualified
+default observer children plus one retained input-drift failure, and 30 fixed
+controls. Two release builds and two-file replay qualify the private observer;
+count-partition mutation detected. No canonical runtime, full-corpus or speed
+claim. This family has a no-change decision; broader `.4.2.1`/`.4.2` and PR #5
+regression `.34` remain unfinished.
+[Receipt](docs/architecture/checker-concrete-builder-cost.md).
+
+2026-10-06 — `tsr-1yb.16.2.3` / `.7.5.1.1`, frozen `48e300a4`:104 baseline
+controls,78 candidate controls and22 public native runs finish. Exact lookup
+copy removal is25.34MB/default17.31MB/single; retained capacity and actual
+1,397 app checks stay unchanged.187 candidate library tests pass; public
+five-pair wall gate fails in both modes despite passing CPU/RSS. All674 files
+and ordinary CLI hash restored. No runtime/corpus/speed gain. Follow-ups
+`tsr-6.72`/`.73`; PR #5 regression `.34` still awaits its failing command.
+[Evidence](docs/architecture/checker-late-bound-copy.md).
+
 2026-10-05/06 — `tsr-2zk` cloud integration round 1, `06f25e0` → merged
 with `main`: offline cargo/tsgo bootstrap, box protocol, 20 cloud boxes on
 disjoint lanes (two rounds), lane merges each gated on zero losses and CPU
@@ -14592,3 +14952,21 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-03 | `HEAD` | **95.75%** | **7,084/9,538** | **Generic alias keyof operands (tsr-6.42): +36 assertions vs exact cfcbcfab, zero RIGHT losses or population changes.** 458,508/478,855; aligned 474,251 total, 458,508 RIGHT, 2,433 GAP, 13,310 WRONG. 34 W→R, 2 G→R, one exposed G→W and 17 changed already-WRONG payloads. Alias-body evaluation, semantic empty-object deferral and retained remapped-alias operands follow pinned tsgo; concrete substitutions are tested. Diagnostics unchanged at 2,800/5,488. All 227 release workspace result blocks, strict clippy, fmt, 3,400 anchors and 16,642 section citations pass on the rebased source. The issue-ID gate still reports 197 missing historical records; Dolt adoption remains unapproved. 15,559 matches remain to 99%; recursive mapped keys, computed-symbol keys and circular-alias diagnostics remain in tsr-6.43. [Evidence](docs/architecture/checker-99-union-key-access.md). |
 
 | 2026-10-03 | `19677867` | **95.93%** | **7,147/9,538** | **Third eight-orb integration plus preserved upstream work: +909 assertions and +63 complete cases vs exact 8a65762e.** 459,381/478,855; aligned 474,251 total, 459,381 RIGHT, 2,198 GAP, 12,672 WRONG. 690 W→R, 219 G→R, zero RIGHT losses/new/removed rows, 19 G→W and 76 changed-WRONG payloads. Eight units alone add 873 matches against preserved 25007101; the other 36 are independently verified generic-alias keyof work. Diagnostics 2,808/5,488 (+8); parser, binder and declaration suites unchanged. All 2,630 release workspace tests/229 result blocks, three worker-diagnostic controls, nine performance-script tests, strict clippy, fmt, 3,400 anchors and 16,633 section citations pass. The 197 historical issue-ID failures and unconfigured Dolt remote remain explicit. 14,686 matches remain to 99%; review refusals and semantic follow-ups are recorded in §§4–5. |
+
+| 2026-10-06 | `abbaa1d9` (Rust inventory) / native `5b1047d` | — | — | **Published-member contract, tsr-1yb.32:** 58 source anchors and 69 fresh native parsed controls preserve actual scalar Single/Merged/Single history, clone target/flag/parent/first mapper/write, active prefixes and both natural reset completion paths. Both native archives restore exactly. Private member links and active-frame/revision protocol are proposed, not implemented; .33 owns compiling qualification and .4.2.1 requires current expensive builder attribution. No runtime, new corpus or speed claim. [Contract](docs/architecture/checker-published-members.md). |
+
+| 2026-10-06 | `88a0d3ce` / native `5b1047d` | — | — | **Actual private-member prototype, tsr-1yb.33: compiled and rejected.** 188 library passes/two reported failures; scalar Merged/Merged/Single. Corrected by the following preparation entry: the three distinct-self result expectations confused native supplier reads with the synthesized result, so those were false parity failures. Five mutants detected; 162 ordinary invocations preserve all 54 baseline/prototype full-output pairs. Three fresh native constructor orders preserve Single/Merged/Single and isolate missing raw/reduced/apparent preparation. All 650 baseline Rust files restore; 185 baseline library tests pass. Native touched files restore and three qualified hashes match; no new full-archive hash claim. .33.1 gates builder4.2.1; no runtime, corpus or speed gain. [Evidence](docs/architecture/checker-private-member-publication.md). |
+
+| 2026-10-06 | `55ed1a2a` / native `5b1047d` | — | — | **Prepared reference progress, tsr-1yb.33.1, still in progress.** Concrete final original-this arguments and raw/reduced/apparent forcing preserve Single/Merged/Single; exact-optional declaration flags and ordinary writes are repaired privately. Fresh native 39 controls correct the previous false distinct-self and clone-containing assertions. Final library 192 passes/one ignored; the ignored natural-default test is also executed and misses TS2310 in all three matched-option orders. A real unresolved base re-entry exposes [Root] before completed [Root, Later]. Three compiling mutations are detected, restored, then 192 passes repeat. Two CLI batches total 324 completed invocations; each preserves all 54 baseline/prototype output pairs and the same 11 existing native mismatch families. No canonical runtime retention, full corpus or speed claim; natural field-complete completion/reset remains the prerequisite for builder4.2.1. [Replay and limits](docs/architecture/checker-private-member-publication.md#prepared-reference-progress-at-55ed1a2a). |
+
+| 2026-10-06 | `d417a8c9` / native `5b1047d` | — | — | **Natural structured-member progress, tsr-1yb.33.1; retention refused.** Actual own-field publication/reset and fresh-or-outer completion reproduce exactly one TS2310 across three matched orders. Fresh native 30 recursive controls,39 shared controls plus6 enumeration projections,3 nonempty-field controls and42 resolved-member controls qualify bounded behavior. Raw declaration/reference classification and late-bound suppliers correct genuine broader failures. Final196 library passes after6 compiling mutants detect faults and exact restoration. Two CLI batches336 terminal children: final46/56 full output pairs equal,10 changed pairs improve to native, no bounded native agreement loss. Unfiltered477970 type rows still lose63 previously RIGHT assertions(initial611);10570 diagnostic cases lose8. Full changed rows include already-WRONG cases. No canonical runtime retention, coverage or speed gain; task remains in progress and builder4.2.1 gated. [Replay and limits](docs/architecture/checker-natural-member-publication.md). |
+
+| 2026-10-06 | `0fd93183` / native `5b1047d` | — | — | **Declared-reference progress, tsr-1yb.33.1; retention refused.** Class and inherited-interface formal-this admission repaired privately; two red/green controls, six fresh native orders, two final compiling mutants detected and exact restoration then 198 library passes. Two CLI batches total 384 terminal children; final 54/66 output pairs equal, ten changed pairs native-aligned, two derived negative pairs still wrong; no bounded native agreement loss. Unfiltered 477970 type rows lose 49 previously RIGHT, 10570 diagnostic cases lose four, including new subtypesOfUnion relative to class-only 62/six. All 101/12 changed rows retained. False public derived TS2430 and stored interface signature-this mapping remain unqualified. No main runtime retention, coverage or speed gain; builder 4.2.1 gated. [Replay and limits](docs/architecture/checker-declared-member-references.md). |
+
+| 2026-10-06 | `53826afe` / native `5b1047d` | — | — | **Member admission/contextual-read progress, tsr-1yb.33.1; retention refused.** Two actual paths repaired privately;15 fresh native observations,200 restored library passes, three compiling mutants detected. Fresh477970/10570 corpora reduce entry49/four losses to18/one; all74/9 changed rows retained. Two CLI matrices608 children plus8 exploratory; final62/78 main outputs equal,56 native agreements, two main agreements lost on missing subtypesOfUnion TS2411. No main runtime, coverage or speed gain;4.2.1 gated and PR5 regression34 unresolved. [Replay and limits](docs/architecture/checker-member-admission-contextual-read.md). |
+
+| 2026-10-06 | `51960e07` / native `5b1047d` | — | — | **Native signature-admission progress, tsr-1yb.27.** 80 fresh parsed controls; three compiling mutants detect eager return, skipped signature completion and premature success. Exact qualified rerun passes 80 controls; all 4,988 Go files and 108 libraries restored. 60 CLI children/20 pairs: main has 18 native agreements and private replay has 16. Merged generic TS2411 loss reproduced; missing circular TS2577 filed as tsr-6.74. False direct-recursion any expectation corrected explicitly from native never; original failed run retained. Compiling Rust seam pending; .27 in progress, .28 open, no runtime, coverage or speed gain. [Contract](docs/architecture/checker-signature-admission-native.md). |
+
+| 2026-10-06 | `f2325620` / native `5b1047d` | — | — | **Compiling signature-admission handoff, tsr-1yb.27/.28.** Final 189 library/package/strict-Clippy/fmt checks, 204 combined member library checks, four compiling mutants detected and exact restoration. Six parsed native injected-budget controls expose/fix early identity resource bypass; all 4,988 Go files restored. Three public matrices total 360 terminal children; final 20/24 baseline/seam/member-plus-seam case/mode native agreements versus member16, zero bounded agreement losses. Merged and original subtypesOfUnion TS2411 restored; TS2577/thisless still differ. No fresh full corpus, runtime retention, coverage or speed gain; previous18/one remains frozen538. [Replay](docs/architecture/checker-signature-admission-rust.md). |
+
+| 2026-10-06 | `0b18d357` / native `5b1047d` | — | — | **Mapped contextual ownership prerequisite, tsr-1yb.33.1.** Existing semantic contextual reader fixes Partial-wrapped inherited option inference privately; qualified red/green and one compiling raw-reader mutant, exact restoration and 205 library passes. Fresh477970 type rows improve49 and10570 diagnostic cases improve6, zero prior passing losses; all54/6 changed rows kept.344 public children: final66/86 native agreements versus main56, no lost agreement and172 full mode pairs equal;36 additional native contract children qualify explicit old-gap/circular-shortcut test corrections. Corrected full checker package1523pass/3pre-existing ignored over101blocks. Release/full corpus11-source and test-corrected12-source boundaries remain separate. No main runtime, strict-lint, CPU/RSS or speed claim;4.2.1 cost/benefit and PR5 regression34 remain. [Replay and limits](docs/architecture/checker-member-mapped-contextual.md). |

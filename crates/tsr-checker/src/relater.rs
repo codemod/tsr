@@ -87,7 +87,7 @@
 //! checker-local metadata-lifetime contracts (tsr-1yb.4.1.3).
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
@@ -476,7 +476,59 @@ bitflags::bitflags! {
     }
 }
 
+/// A type reference's `(target, typeArguments)`, as
+/// [`Checker::type_reference_targets`] stores it.
+type ReferenceParts = (SymbolId, Vec<TypeId>);
+
 impl Checker<'_, '_> {
+    /// The `(target, typeArguments)` pairs of two type references, as
+    /// `structuredTypeRelatedToWorker`'s same-target arm (`relater.go:3821`)
+    /// and `inferFromTypes`' reference arm read them.
+    /// [`Checker::type_reference_targets`] interns only instantiations; the
+    /// declared type of a generic class or interface is a reference too —
+    /// `getDeclaredTypeOfClassOrInterface` (`checker.go:17319`) sets its
+    /// `target` to itself and its `resolvedTypeArguments` to its own type
+    /// parameters — so a class's `this` type, constrained to that declared
+    /// type, meets `Bar<any>` through `getVariances` rather than member by
+    /// member. It is recognised from the other side's target symbol,
+    /// read-only over `declared_types`; nothing is cached.
+    pub(crate) fn same_target_references(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<(ReferenceParts, ReferenceParts)> {
+        match (
+            self.type_reference_targets.get(&source).cloned(),
+            self.type_reference_targets.get(&target).cloned(),
+        ) {
+            (Some(source), Some(target)) => Some((source, target)),
+            (Some(source), None) => {
+                let target = self.declared_self_reference(target, source.0)?;
+                Some((source, target))
+            }
+            (None, Some(target)) => {
+                let source = self.declared_self_reference(source, target.0)?;
+                Some((source, target))
+            }
+            (None, None) => None,
+        }
+    }
+
+    /// `ty` as the self-reference of `symbol`'s generic declared type, keyed
+    /// by `symbol` as the other side spells it (see
+    /// [`Checker::same_target_references`]).
+    fn declared_self_reference(&mut self, ty: TypeId, symbol: SymbolId) -> Option<ReferenceParts> {
+        let merged = self.binder.merged_symbol(symbol);
+        if self.declared_types.get(&merged) != Some(&ty) {
+            return None;
+        }
+        let parameters = self.local_type_parameter_types_of(merged)?;
+        if parameters.is_empty() {
+            return None;
+        }
+        Some((symbol, parameters.into_iter().map(|(parameter, _)| parameter).collect()))
+    }
+
     /// getRecursionIdentity (internal/checker/relater.go). Shapes whose native
     /// origin is not represented keep their unique type identity.
     fn relation_recursion_identity(&self, ty: TypeId) -> RecursionIdentity {
@@ -1241,6 +1293,58 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::NotRelated;
         }
+        // structuredTypeRelatedToWorker's indexed-access target arm
+        // (relater.go:3443) for a source that is not itself a type variable:
+        // under the assignable/comparable relations `S -> T[K]` relates only
+        // through the write constraint `getIndexedAccessTypeOrUndefined(
+        // baseConstraintOrType(T), baseConstraintOrType(K), Writing |
+        // (NoIndexSignatures when T had a constraint))`, and only when neither
+        // base is still generic; no later arm relates a concrete object,
+        // primitive or `unknown` source to an indexed access (the object arm
+        // needs an object target). A generic base is a definite failure, and
+        // so is a constrained object read through a key with no property-name
+        // constituent (`keyof T`'s base is `string | number | symbol`): with
+        // index signatures excluded no member can be selected, so the
+        // constraint is nil. Any other write constraint is not built here and
+        // the pair stays undecided.
+        if t.contains(TypeFlags::INDEXED_ACCESS)
+            && s.intersects(TypeFlags::OBJECT | TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+            && matches!(
+                self.relation,
+                Relation::Assignable | Relation::Subtype | Relation::StrictSubtype
+            )
+            && !self.checker.mapped_types.contains_key(&source)
+            && !self.is_qualified_alias_mint(source)
+            && let Some(&(object, index, _)) =
+                self.checker.deferred_indexed_access_types.get(&target)
+        {
+            if matches!(self.relation, Relation::Assignable) {
+                let base_object = self.checker.base_constraint_or_type(object);
+                let base_index = self.checker.base_constraint_or_type(index);
+                let object_flags = self.checker.type_of(base_object).flags;
+                let generic = object_flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || self.checker.indexed_access_index_is_generic(base_index);
+                if !generic {
+                    let key_parts =
+                        self.union_constituents(base_index).unwrap_or_else(|| vec![base_index]);
+                    let no_member_key = key_parts.iter().all(|&part| {
+                        let flags = self.checker.type_of(part).flags;
+                        flags.intersects(
+                            TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::ES_SYMBOL,
+                        ) && !flags.intersects(
+                            TypeFlags::STRING_LITERAL
+                                | TypeFlags::NUMBER_LITERAL
+                                | TypeFlags::UNIQUE_ES_SYMBOL,
+                        )
+                    });
+                    let constrained = base_object != object;
+                    if !(constrained && no_member_key && !object_flags.intersects(TypeFlags::ANY)) {
+                        return RelationResult::Unknown;
+                    }
+                }
+            }
+            return RelationResult::NotRelated;
+        }
         // structuredTypeRelatedToWorker (relater.go:3261): under strict null
         // checks `null`/`undefined`/`void` fail isSimpleTypeRelatedTo against
         // an object target, their apparent type stays primitive, and no
@@ -1575,7 +1679,9 @@ impl Relater<'_, '_, '_> {
         if self.checker.is_generic_homomorphic_mapped_type(id)
             && let Some((properties, true)) = self.checker.anonymous_properties.get(&id)
             && properties.iter().all(|property| {
-                !self.checker.is_error(property.r#type)
+                self.checker
+                    .peek_property_type(property)
+                    .is_none_or(|ty| !self.checker.is_error(ty))
                     && property.origin.is_some_and(|origin| {
                         !self
                             .checker
@@ -1919,19 +2025,18 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::with_capacity(parameter_count + 1);
         if let (Some(source_this), Some(target_this)) =
             (&source_signature.this_parameter, &target_signature.this_parameter)
-            && source_this.r#type != self.checker.intrinsics.void
+            && self.checker.parameter_type(source_this) != self.checker.intrinsics.void
         {
+            let source_this = self.checker.parameter_type(source_this);
+            let target_this = self.checker.parameter_type(target_this);
             parts.push(if strict_variance {
-                self.is_related_to(target_this.r#type, source_this.r#type)
+                self.is_related_to(target_this, source_this)
             } else {
-                let forward = self.is_related_to(source_this.r#type, target_this.r#type);
+                let forward = self.is_related_to(source_this, target_this);
                 if forward.is_success() {
                     forward
                 } else {
-                    RelationResult::any([
-                        forward,
-                        self.is_related_to(target_this.r#type, source_this.r#type),
-                    ])
+                    RelationResult::any([forward, self.is_related_to(target_this, source_this)])
                 }
             });
             if parts.last() == Some(&RelationResult::NotRelated) {
@@ -3069,13 +3174,8 @@ impl Relater<'_, '_, '_> {
         // instances and an active recursive measurement compare structurally.
         if !self.checker.variance_marker_types.contains(&source)
             && !self.checker.variance_marker_types.contains(&target)
-            && let (
-                Some((source_symbol, source_arguments)),
-                Some((target_symbol, target_arguments)),
-            ) = (
-                self.checker.type_reference_targets.get(&source).cloned(),
-                self.checker.type_reference_targets.get(&target).cloned(),
-            )
+            && let Some(((source_symbol, source_arguments), (target_symbol, target_arguments))) =
+                self.checker.same_target_references(source, target)
             && source_symbol == target_symbol
             && source_arguments.len() == target_arguments.len()
         {
@@ -3524,10 +3624,36 @@ impl Relater<'_, '_, '_> {
             // `None` still means *no such property* — a property that exists
             // and does not type answers `Some(errorType)` — so the existence
             // test below is unchanged.
-            let (Some(target_type), Some(source_type)) = (
-                self.checker.get_type_of_property_of_type(target, &name),
-                self.checker.get_type_of_property_of_type(source, &name),
-            ) else {
+            let target_type = self.checker.get_type_of_property_of_type(target, &name);
+            // isPropertySymbolTypeRelated (relater.go:4334) relates an `any`
+            // target property (outside the strict subtype relation also an
+            // `unknown` one) before it reads the source property's type, so
+            // an existing source member is not resolved for it. Existence is
+            // the source's named members, as getPropertyOfObjectType answers.
+            let type_related_unread = target_type.is_some_and(|target_type| {
+                let target_type = if self.checker.exact_optional_property_types {
+                    self.checker.remove_missing_type(target_type)
+                } else {
+                    target_type
+                };
+                let top = if self.relation == Relation::StrictSubtype {
+                    TypeFlags::ANY
+                } else {
+                    TypeFlags::ANY_OR_UNKNOWN
+                };
+                self.checker.store.get(target_type).flags.intersects(top)
+            }) && intersection_names
+                .clone()
+                .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
+                .is_some_and(|names| names.contains(&name));
+            // An unread source member stands in as the target's type; the
+            // type comparison below answers Related without relating it.
+            let source_type = if type_related_unread {
+                target_type
+            } else {
+                self.checker.get_type_of_property_of_type(source, &name)
+            };
+            let (Some(target_type), Some(source_type)) = (target_type, source_type) else {
                 // Row 2 of `checker-notes-assign.md` §2, half-answered by §15:
                 // a target property with no source counterpart is fine when
                 // the target property is OPTIONAL — under assignability
@@ -3677,7 +3803,11 @@ impl Relater<'_, '_, '_> {
             // resolved member types, including parameters and their constraints.
             // get_type_of_property_of_type has already applied receiver maps;
             // a surviving parameter can be the intended semantic member type.
-            parts.push(self.is_related_to(source_type, target_type));
+            parts.push(if type_related_unread {
+                RelationResult::Related
+            } else {
+                self.is_related_to(source_type, target_type)
+            });
         }
         RelationResult::all(parts)
     }

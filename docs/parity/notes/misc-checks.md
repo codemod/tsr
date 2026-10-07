@@ -399,3 +399,46 @@ three wrong TS17009/TS17011 lines removed in `checkSuperCallBeforeThisAccess`
 (still owing TS2855 and the declines above); none lost. A first draft with
 the leaf rule "the leaf holds no `super()`" lost 19 lines over 11 cases
 (`super(this)` in `thisInSuperCall*`, `derivedClassSuperCallsWithThisArg`).
+
+## Ambient export assignment expressions (`tsr-2zk.15.4`)
+
+Pinned native `5b1047d`, `checkExportAssignment`
+(`internal/checker/checker.go:5666-5667`) reports TS2714 when an ambient
+export assignment's expression is not `ast.IsEntityNameExpression`.
+`check_export_assignment_alone` now receives the existing traversal's ambient
+context; TSR's parser does not yet stamp that context on every node. Both
+`export default` and `export =` use the same expression predicate and existing
+diagnostic source/span worker. Native module-element admission and the earlier
+namespace return remain distinct from this check; parse diagnostics suppress
+this grammar diagnostic exactly as native `grammarErrorOnNode` does.
+
+Direct native controls report the complete TS2714 message on an object
+expression at line 2 column 20 and line 5 column 14, while the old TSR CLI
+reports no diagnostics. Native accepts identifier and qualified-name exports;
+parenthesized identifiers, calls and element access still receive TS2714.
+A namespace export assignment reports TS1063 before this expression check.
+
+No semantic cache, side table or new traversal is introduced. The existing
+Program node identity and checker diagnostic collection own the result;
+the existing entity-name predicate and expression-span worker perform the
+work. Full-corpus transition and performance evidence are required before
+integration; these reproductions alone do not certify release parity.
+
+Isolated full legacy corpus at the UMD-port parent: type assertions unchanged
+(469,785 RIGHT; 7,190 WRONG; 995 GAP), no vanished keys or lost RIGHT lines.
+Diagnostics convert `compiler/ambientExportDefaultErrors` from WRONG to RIGHT;
+all 9,189 previously RIGHT/EMPTY_RIGHT keys remain present and passing.
+Coverage: 8,051/9,538 type cases and 4,222/5,502 diagnostic cases.
+Three focused release tests, checker clippy and formatting pass. Actual CLI
+output matches native byte-for-byte for object/binary, parenthesized, call and
+element-access expressions, legal entity names, and the namespace short circuit.
+The existing CLI grammar-error exit status still differs (TSR 1 versus native 2);
+this diagnostic port does not claim to fix that separate driver contract.
+
+Full isolated workspace release verification passes 3,128 tests, clippy and
+formatting. Forty-one alternating fresh-process candidate/parent pairs keep
+scope, effective options and diagnostic fingerprints equal; median CPU ratio
+0.99495, observed wall ratio 0.81662. External workload widened wall samples;
+this is a no-slowdown observation, not an equivalent-work native speed claim.
+
+

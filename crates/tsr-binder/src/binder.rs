@@ -142,7 +142,7 @@ pub(crate) struct Binder<'a, 'n> {
     /// source, and the exceptions are the canonical numeric spellings
     /// upstream's scanner computes into its token value
     /// (`scanner.go:2194`, `jsnum.FromString(…).String()`).
-    arena: &'a tsr_core::Arena,
+    arena: crate::names::Names<'a, 'n>,
     /// Current and peak `bind()` recursion depth. Measured, not bounded; see the
     /// note above this struct and `bd tsr-el3.3`.
     depth: u32,
@@ -151,6 +151,7 @@ pub(crate) struct Binder<'a, 'n> {
     symbols: SymbolStore<'a>,
     /// `node -> the symbol it declares`. Dense, because node ids are dense.
     node_symbols: Vec<Option<SymbolId>>,
+    node_base: usize,
     /// `container node -> its locals`. Sparse: most nodes are not containers.
     locals: rustc_hash::FxHashMap<NodeId, SymbolTable<'a>>,
     diagnostics: Vec<Diagnostic>,
@@ -354,6 +355,136 @@ pub(crate) struct Binder<'a, 'n> {
 }
 
 impl<'a, 'n> Binder<'a, 'n> {
+    pub(crate) fn bind_independent(
+        names: &'n crate::PreparedNames<'a>,
+        nodes: &'n NodeTable,
+        file: &'a SourceFile<'a>,
+        info: FileInfo<'a>,
+        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+        range: std::ops::Range<u32>,
+    ) -> crate::FileBindResult<'a, 'n> {
+        assert!(
+            range.start <= range.end && range.end as usize <= nodes.len(),
+            "invalid file node range"
+        );
+        assert!(
+            file.node_id.is_some_and(|id| range.contains(&id.as_u32())),
+            "source file is outside its node range"
+        );
+        let mut binder = Self::resuming_with_names(
+            crate::names::Names::Prepared(names),
+            nodes,
+            BindResult::empty(),
+            range.start as usize,
+            (range.end - range.start) as usize,
+        )
+        .bind_file_body(file, info, jsdoc);
+        assert!(binder.global_exports.is_empty(), "UMD alias declarations require ordered binding");
+        let root = file.node_id.expect("registered source file");
+        let node_base = binder.node_base;
+        let is_module = binder.is_module;
+        let commonjs_module = binder.commonjs_module;
+        let global_augmentations = std::mem::take(&mut binder.global_augmentations);
+        crate::FileBindResult {
+            nodes,
+            bindings: binder.into_result(),
+            node_base,
+            root,
+            is_module,
+            commonjs_module,
+            global_augmentations,
+        }
+    }
+
+    pub(crate) fn publish_file(
+        arena: &'a tsr_core::Arena,
+        nodes: &'n NodeTable,
+        previous: BindResult<'a>,
+        local: crate::FileBindResult<'a, '_>,
+    ) -> BindResult<'a> {
+        assert!(std::ptr::eq(nodes, local.nodes), "file bind belongs to a different node table");
+        let mut binder = Self::resuming(arena, nodes, previous);
+        let crate::FileBindResult {
+            nodes: _,
+            bindings,
+            node_base,
+            root,
+            is_module,
+            commonjs_module,
+            global_augmentations,
+        } = local;
+        let BindResult {
+            max_depth,
+            symbols,
+            node_symbols,
+            locals,
+            global_exports,
+            globals,
+            merged,
+            merge_conflicts,
+            module_augmentations,
+            pattern_ambient_module_augmentations,
+            undefined_symbol,
+            computed_names,
+            diagnostics,
+            flow,
+            node_flow,
+            facts,
+            end_flow,
+            return_flow,
+            fallthrough_flow,
+        } = bindings;
+        assert!(globals.is_empty() && global_exports.is_empty() && undefined_symbol.is_none());
+        let symbol_base = binder.symbols.append(symbols);
+        let symbol = |id: SymbolId| id.relocated(symbol_base);
+        let flow_base = binder.flow.append(flow);
+        let flow = |id| crate::flow::relocate_flow(id, flow_base);
+        binder.max_depth = binder.max_depth.max(max_depth);
+        for (slot, id) in binder.node_symbols[node_base..node_base + node_symbols.len()]
+            .iter_mut()
+            .zip(node_symbols)
+        {
+            *slot = id.map(symbol);
+        }
+        for (slot, id) in
+            binder.node_flow[node_base..node_base + node_flow.len()].iter_mut().zip(node_flow)
+        {
+            *slot = id.map(flow);
+        }
+        binder.locals.extend(locals.into_iter().map(|(node, mut table)| {
+            for id in table.values_mut() {
+                *id = symbol(*id);
+            }
+            (node, table)
+        }));
+        binder
+            .merged
+            .extend(merged.into_iter().map(|(source, target)| (symbol(source), symbol(target))));
+        binder.merge_conflicts.extend(
+            merge_conflicts.into_iter().map(|(target, source)| (symbol(target), symbol(source))),
+        );
+        binder.module_augmentations.extend(module_augmentations.into_iter().map(
+            |mut augmentation| {
+                augmentation.symbol = symbol(augmentation.symbol);
+                augmentation
+            },
+        ));
+        binder.pattern_ambient_module_augmentations.extend(
+            pattern_ambient_module_augmentations.into_iter().map(|(name, id)| (name, symbol(id))),
+        );
+        binder.computed_names.extend(computed_names);
+        binder.diagnostics.extend(diagnostics);
+        binder.facts.extend(facts);
+        binder.end_flow.extend(end_flow.into_iter().map(|(node, id)| (node, flow(id))));
+        binder.return_flow.extend(return_flow.into_iter().map(|(node, id)| (node, flow(id))));
+        binder
+            .fallthrough_flow
+            .extend(fallthrough_flow.into_iter().map(|(node, id)| (node, flow(id))));
+        binder.is_module = is_module;
+        binder.commonjs_module = commonjs_module;
+        binder.global_augmentations = global_augmentations.into_iter().map(symbol).collect();
+        binder.finish_file(root)
+    }
     /// A binder that **adds to** what an earlier file of the same program
     /// produced.
     ///
@@ -376,6 +507,22 @@ impl<'a, 'n> Binder<'a, 'n> {
         arena: &'a tsr_core::Arena,
         nodes: &'n NodeTable,
         previous: BindResult<'a>,
+    ) -> Self {
+        Self::resuming_with_names(
+            crate::names::Names::Arena(arena),
+            nodes,
+            previous,
+            0,
+            nodes.len(),
+        )
+    }
+
+    fn resuming_with_names(
+        arena: crate::names::Names<'a, 'n>,
+        nodes: &'n NodeTable,
+        previous: BindResult<'a>,
+        node_base: usize,
+        node_count: usize,
     ) -> Self {
         let BindResult {
             max_depth,
@@ -409,15 +556,15 @@ impl<'a, 'n> Binder<'a, 'n> {
         // against nothing much afterwards. Reserving the difference rather than
         // the total is what keeps this linear: sizing a fresh dense vector per
         // file would be O(files × program nodes).
-        flow.reserve((nodes.len() / 5 + 16).saturating_sub(flow.len()));
+        flow.reserve((node_count / 5 + 16).saturating_sub(flow.len()));
         let unreachable = flow.unreachable();
 
         // `resize`, not `vec![None; …]`: the earlier files' entries must survive,
         // and only the new file's rows are added. Same reason as above.
         let mut node_symbols = node_symbols;
         let mut node_flow = node_flow;
-        node_symbols.resize(nodes.len(), None);
-        node_flow.resize(nodes.len(), None);
+        node_symbols.resize(node_count, None);
+        node_flow.resize(node_count, None);
 
         Self {
             arena,
@@ -428,6 +575,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             nodes,
             symbols,
             node_symbols,
+            node_base,
             locals,
             diagnostics,
             container: NodeId::ZERO,
@@ -492,11 +640,21 @@ impl<'a, 'n> Binder<'a, 'n> {
     }
 
     pub(crate) fn bind_source_file_with_jsdoc(
-        mut self,
+        self,
         file: &'a SourceFile<'a>,
         info: FileInfo<'a>,
         jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
     ) -> BindResult<'a> {
+        self.bind_file_body(file, info, jsdoc)
+            .finish_file(file.node_id.expect("registered source file"))
+    }
+
+    fn bind_file_body(
+        mut self,
+        file: &'a SourceFile<'a>,
+        info: FileInfo<'a>,
+        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    ) -> Self {
         let file_name = info.name;
         self.source = info.text;
         let root = Node::SourceFile(file);
@@ -550,7 +708,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             );
             // declareSymbol sets the declaration's symbol to the property;
             // upstream restores the source file's original module symbol.
-            self.node_symbols[root_id.index()] = Some(module);
+            self.node_symbols[root_id.index() - self.node_base] = Some(module);
         }
 
         self.bind(root);
@@ -576,6 +734,10 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.bind_jsdoc_declarations(root_id, jsdoc);
         }
 
+        self
+    }
+
+    fn finish_file(mut self, root_id: NodeId) -> BindResult<'a> {
         self.merge_globals(root_id);
         self.declare_synthesised_globals();
         self.into_result()
@@ -851,13 +1013,6 @@ impl<'a, 'n> Binder<'a, 'n> {
         if target == source || depth > MAX_MERGE_DEPTH {
             return;
         }
-        // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
-        // which upstream calls from `mergeSymbol` for exactly this reason: after
-        // the union, `source` is a symbol nothing should ever be answered from
-        // again, and every read of it has to be redirected. Recorded **before**
-        // the early-outs below have any chance to skip it and before the
-        // recursion, so the map covers every level the union touches.
-        self.merged.insert(source, target);
         let (source_flags, target_flags) =
             (self.symbols.get(source).flags, self.symbols.get(target).flags);
         if (source_flags | target_flags).intersects(SymbolFlags::ALIAS) {
@@ -890,6 +1045,16 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.merge_conflicts.push((target, source));
             return;
         }
+        // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
+        // which upstream calls from `mergeSymbol`'s union branch only
+        // (`checker.go:14185`): after the union, `source` is a symbol nothing
+        // should ever be answered from again, and every read of it has to be
+        // redirected. A declined merge (the alias decline and the excludes
+        // conflict above) records nothing, so each side keeps answering for
+        // its own declarations, as upstream's `return source` /
+        // `reportMergeSymbolError` arms leave them. Recorded before the
+        // recursion, which upstream does after it; the map is order-blind.
+        self.merged.insert(source, target);
 
         // Read everything needed from `source` before touching `target`: the two
         // are entries in one store, so the borrows cannot overlap.
@@ -902,6 +1067,27 @@ impl<'a, 'n> Binder<'a, 'n> {
         let exports: Vec<(&'a str, SymbolId)> =
             self.symbols.get(source).exports.iter().map(|(n, s)| (*n, *s)).collect();
 
+        // `binder.SetValueDeclaration(target, source.ValueDeclaration)`
+        // (`binder/binder.go:2531`): a non-assignment declaration displaces an
+        // assignment one (`ExpandoMerge.p8 = false` yields to a namespace's
+        // `export var p8 = 6`), and a non-namespace declaration displaces a
+        // namespace; otherwise the target keeps its first one.
+        let replace_value_declaration = value_declaration.is_some_and(|node| {
+            match self.symbols.get(target).value_declaration {
+                None => true,
+                Some(current) => {
+                    let (current_kind, node_kind) =
+                        (self.nodes.kind(current), self.nodes.kind(node));
+                    (is_assignment_declaration_kind(current_kind)
+                        && !is_assignment_declaration_kind(node_kind))
+                        || (current_kind != node_kind
+                            && matches!(
+                                current_kind,
+                                SyntaxKind::ModuleDeclaration | SyntaxKind::Identifier
+                            ))
+                }
+            }
+        });
         {
             let entry = self.symbols.get_mut(target);
             entry.flags |= source_flags;
@@ -912,9 +1098,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 entry.exports.initialize();
             }
             entry.declarations.extend(declarations);
-            // `SetValueDeclaration` keeps the first one; upstream only replaces
-            // when the target has none.
-            if entry.value_declaration.is_none() {
+            if replace_value_declaration {
                 entry.value_declaration = value_declaration;
             }
         }
@@ -946,14 +1130,6 @@ impl<'a, 'n> Binder<'a, 'n> {
     pub(crate) fn merge_pairs(mut self, merges: &[(SymbolId, SymbolId)]) -> BindResult<'a> {
         for &(target, source) in merges {
             self.merge_symbol(target, source, 0);
-            // A refused top-level merge records no redirect upstream:
-            // `recordMergedSymbol` runs only on the union path, and the
-            // refusal reports TS2649 or the duplicate (`checker.go`
-            // `mergeSymbol`). [`Binder::merge_symbol`] records first for the
-            // globals' sake, so the augmentation's redirect is taken back.
-            if self.merge_conflicts.last() == Some(&(target, source)) {
-                self.merged.remove(&source);
-            }
         }
         self.into_result()
     }
@@ -1402,15 +1578,15 @@ impl<'a, 'n> Binder<'a, 'n> {
             | Node::MethodDeclaration(_)
             | Node::GetAccessorDeclaration(_)
             | Node::SetAccessorDeclaration(_) => {
-                self.node_flow[id.index()] = Some(self.current_flow);
+                self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
             }
             Node::KeywordExpression(keyword) => match keyword.kind {
                 SyntaxKind::ThisKeyword => {
                     self.seen_this_keyword = true;
-                    self.node_flow[id.index()] = Some(self.current_flow);
+                    self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
                 }
                 SyntaxKind::SuperKeyword => {
-                    self.node_flow[id.index()] = Some(self.current_flow);
+                    self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
                 }
                 _ => {}
             },
@@ -1418,12 +1594,12 @@ impl<'a, 'n> Binder<'a, 'n> {
             // denotes a value that narrowing can have changed.
             Node::QualifiedName(_) => {
                 if self.is_part_of_type_query(id) {
-                    self.node_flow[id.index()] = Some(self.current_flow);
+                    self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
                 }
             }
             Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_) => {
                 if is_narrowable_reference(node) {
-                    self.node_flow[id.index()] = Some(self.current_flow);
+                    self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
                 }
             }
             Node::ThisTypeNode(_) => self.seen_this_keyword = true,
@@ -1444,7 +1620,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         if self.current_flow == self.flow.unreachable() {
             // Unreachable code gets no flow node — there is no "what was known
             // here", because control never arrives.
-            self.node_flow[id.index()] = None;
+            self.node_flow[id.index() - self.node_base] = None;
             if is_potentially_executable_node(node, self.nodes) {
                 self.set_fact(id, NodeFacts::UNREACHABLE, true);
             }
@@ -1457,7 +1633,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         if (SyntaxKind::FIRST_STATEMENT as u16) <= (kind as u16)
             && (kind as u16) <= (SyntaxKind::LAST_STATEMENT as u16)
         {
-            self.node_flow[id.index()] = Some(self.current_flow);
+            self.node_flow[id.index() - self.node_base] = Some(self.current_flow);
         }
 
         match node {
@@ -3239,7 +3415,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                             let Some(id) = property.node_id else { continue };
                             let symbol = self.symbols.create(name, SymbolFlags::PROPERTY);
                             self.symbols.get_mut(symbol).declarations.push(id);
-                            self.node_symbols[id.index()] = Some(symbol);
+                            self.node_symbols[id.index() - self.node_base] = Some(symbol);
                         }
                         // `@this {{ n: number }}`, `@returns` and `@type`
                         // braced types are parsed syntax too (`thisTag1`).
@@ -3256,7 +3432,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 let symbol =
                                     self.symbols.create(INTERNAL_MISSING, SymbolFlags::VARIABLE);
                                 self.symbols.get_mut(symbol).declarations.push(id);
-                                self.node_symbols[id.index()] = Some(symbol);
+                                self.node_symbols[id.index() - self.node_base] = Some(symbol);
                             }
                         }
                         JSDocTag::JSDocReturnTag(return_tag) => {
@@ -3278,7 +3454,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                         }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
-                            if let Some(symbol) = self.node_symbols[host.index()] {
+                            if let Some(symbol) = self.node_symbols[host.index() - self.node_base] {
                                 self.symbols.get_mut(symbol).declarations.push(id);
                             }
                         }
@@ -3302,13 +3478,13 @@ impl<'a, 'n> Binder<'a, 'n> {
             let entry = self.symbols.get_mut(existing);
             if entry.flags.intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::TYPE_PARAMETER) {
                 entry.declarations.push(declaration);
-                self.node_symbols[declaration.index()] = Some(existing);
+                self.node_symbols[declaration.index() - self.node_base] = Some(existing);
                 return;
             }
         }
         let symbol = self.symbols.create(name, flags);
         self.symbols.get_mut(symbol).declarations.push(declaration);
-        self.node_symbols[declaration.index()] = Some(symbol);
+        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
         self.locals.entry(root).or_default().entry(name).or_insert(symbol);
     }
 
@@ -3323,7 +3499,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         let entry = self.symbols.get_mut(symbol);
         entry.declarations.push(file);
         entry.value_declaration = Some(file);
-        self.node_symbols[file.index()] = Some(symbol);
+        self.node_symbols[file.index() - self.node_base] = Some(symbol);
         self.module_symbol = Some(symbol);
         symbol
     }
@@ -3649,7 +3825,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT,
             id,
         );
-        self.node_symbols[id.index()] = Some(declared);
+        self.node_symbols[id.index() - self.node_base] = Some(declared);
         Some(())
     }
 
@@ -3685,15 +3861,13 @@ impl<'a, 'n> Binder<'a, 'n> {
             // was given, so the export is recovered through the node rather than
             // stored a second time on the local.
             let local = *local;
-            let exported = self
-                .symbols
-                .get(local)
-                .declarations
-                .first()
-                .and_then(|declaration| self.node_symbols[declaration.index()]);
+            let exported =
+                self.symbols.get(local).declarations.first().and_then(|declaration| {
+                    self.node_symbols[declaration.index() - self.node_base]
+                });
             return Some(exported.unwrap_or(local));
         }
-        let owner = self.node_symbols[container.index()]?;
+        let owner = self.node_symbols[container.index() - self.node_base]?;
         self.symbols.get(owner).exports.get(name).copied()
     }
 
@@ -3723,7 +3897,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             SyntaxKind::VariableDeclaration | SyntaxKind::BinaryExpression => self
                 .expando_initializers
                 .get(&declaration)
-                .and_then(|initializer| self.node_symbols[initializer.index()]),
+                .and_then(|initializer| self.node_symbols[initializer.index() - self.node_base]),
             _ => None,
         }
     }
@@ -3839,7 +4013,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some(kind) = self.assignment_declaration_kind(node) {
             let symbol = self.bind_assignment_declaration(kind, node, id);
             if let Some(symbol) = symbol {
-                self.node_symbols[id.index()] = Some(symbol);
+                self.node_symbols[id.index() - self.node_base] = Some(symbol);
             }
             return symbol;
         }
@@ -3870,7 +4044,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             if matches!(node, Node::FunctionExpression(_)) {
                 self.symbols.get_mut(symbol).value_declaration = Some(id);
             }
-            self.node_symbols[id.index()] = Some(symbol);
+            self.node_symbols[id.index() - self.node_base] = Some(symbol);
             return Some(symbol);
         }
 
@@ -3902,7 +4076,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 self.symbols.get_mut(symbol).declarations.push(id);
                 symbol
             };
-            self.node_symbols[id.index()] = Some(symbol);
+            self.node_symbols[id.index() - self.node_base] = Some(symbol);
             return Some(symbol);
         }
 
@@ -3926,7 +4100,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             if flags.intersects(SymbolFlags::VALUE) {
                 self.symbols.get_mut(symbol).value_declaration = Some(id);
             }
-            self.node_symbols[id.index()] = Some(symbol);
+            self.node_symbols[id.index() - self.node_base] = Some(symbol);
             if let Some(computed_id) = computed.node_id {
                 self.computed_names.insert(id, computed_id);
             }
@@ -3961,7 +4135,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                     flags,
                     id,
                 );
-                self.node_symbols[id.index()] = Some(exported);
+                self.node_symbols[id.index() - self.node_base] = Some(exported);
                 return Some(exported);
             }
 
@@ -4024,7 +4198,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
             // The export symbol is the node's symbol, so a class's members land
             // on the thing `M.C` names rather than on the shadow local.
-            self.node_symbols[id.index()] = Some(exported);
+            self.node_symbols[id.index() - self.node_base] = Some(exported);
             return Some(exported);
         }
 
@@ -4035,7 +4209,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         let Some(name) = name else {
             let symbol = self.symbols.create(INTERNAL_MISSING, SymbolFlags::empty());
             self.symbols.get_mut(symbol).declarations.push(id);
-            self.node_symbols[id.index()] = Some(symbol);
+            self.node_symbols[id.index() - self.node_base] = Some(symbol);
             return Some(symbol);
         };
         let table_owner = match destination {
@@ -4080,7 +4254,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             excludes,
             id,
         );
-        self.node_symbols[id.index()] = Some(symbol);
+        self.node_symbols[id.index() - self.node_base] = Some(symbol);
         self.record_expando_initializer(node, id);
         // `{ ['a']: 1 }` declares `a` statically, but it was still *written* as a
         // computed name, and upstream prints it back the way it was written.
@@ -4103,7 +4277,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 SymbolFlags::PROPERTY,
                 id,
             );
-            self.node_symbols[id.index()] = Some(property);
+            self.node_symbols[id.index() - self.node_base] = Some(property);
             return Some(property);
         }
         Some(symbol)
@@ -4427,6 +4601,19 @@ fn this_property_table<'s, 'a>(
     exports: bool,
 ) -> &'s mut SymbolTable<'a> {
     if exports { symbol.exports.initialize() } else { symbol.members.initialize() }
+}
+
+/// `isAssignmentDeclaration` (`binder/binder.go:2767`), on a declaration's
+/// kind.
+fn is_assignment_declaration_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::BinaryExpression
+            | SyntaxKind::PropertyAccessExpression
+            | SyntaxKind::ElementAccessExpression
+            | SyntaxKind::Identifier
+            | SyntaxKind::CallExpression
+    )
 }
 
 /// Whether `child` is the condition of `parent` (`isStatementCondition`).
@@ -4780,7 +4967,7 @@ fn computed_property_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyNa
 /// ported, because building the name needs an owned string where every name here
 /// borrows from the source.
 fn dynamic_name<'a>(
-    arena: &'a tsr_core::Arena,
+    arena: crate::names::Names<'a, '_>,
     node: Node<'a>,
 ) -> Option<&'a tsr_ast::ComputedPropertyName<'a>> {
     let computed = computed_property_name(node)?;
@@ -4789,7 +4976,10 @@ fn dynamic_name<'a>(
 
 /// The text of a string or numeric literal, which is what a statically-named
 /// `Object.defineProperty` call and a bracketed access carry.
-fn string_or_numeric_text<'a>(arena: &'a tsr_core::Arena, node: Node<'a>) -> Option<&'a str> {
+fn string_or_numeric_text<'a>(
+    arena: crate::names::Names<'a, '_>,
+    node: Node<'a>,
+) -> Option<&'a str> {
     match skip_parentheses(node) {
         Node::StringLiteral(literal) => Some(literal.text),
         Node::NumericLiteral(literal) => Some(canonical_numeric(arena, literal.text)),
@@ -4802,7 +4992,7 @@ fn string_or_numeric_text<'a>(arena: &'a tsr_core::Arena, node: Node<'a>) -> Opt
 /// token value (`scanner.go:2194`, `jsnum.FromString(…).String()`): `0b11`
 /// binds as `3`, `1.0` as `1`. The node keeps the source spelling for the
 /// printer; the *name* is the value's.
-fn canonical_numeric<'a>(arena: &'a tsr_core::Arena, text: &'a str) -> &'a str {
+fn canonical_numeric<'a>(arena: crate::names::Names<'a, '_>, text: &'a str) -> &'a str {
     let canonical = tsr_core::jsnum::canonical_numeric_text(text);
     if canonical == text { text } else { arena.alloc_str(&canonical) }
 }
@@ -4881,7 +5071,10 @@ fn access_name_source(expression: Expression<'_>) -> Option<&str> {
     }
 }
 
-fn access_name<'a>(arena: &'a tsr_core::Arena, expression: Expression<'a>) -> Option<&'a str> {
+fn access_name<'a>(
+    arena: crate::names::Names<'a, '_>,
+    expression: Expression<'a>,
+) -> Option<&'a str> {
     match expression {
         Expression::PropertyAccessExpression(access) => match access.name? {
             tsr_ast::MemberName::Identifier(identifier) => Some(identifier.text),
@@ -5153,7 +5346,7 @@ fn name_node_of(node: Node<'_>) -> Option<NodeId> {
 }
 
 fn declaration_name<'a>(
-    arena: &'a tsr_core::Arena,
+    arena: crate::names::Names<'a, '_>,
     node: Node<'a>,
     nodes: &NodeTable,
     source: &'a str,
@@ -5346,7 +5539,7 @@ fn jsx_attribute_name<'a>(
 /// (`ast/utilities.go:3170`); the arena supplies the owned string that used to
 /// keep it late-bound here.
 fn computed_name<'a>(
-    arena: &'a tsr_core::Arena,
+    arena: crate::names::Names<'a, '_>,
     computed: &'a tsr_ast::ComputedPropertyName<'a>,
 ) -> Option<&'a str> {
     match computed.expression? {
@@ -5431,7 +5624,7 @@ fn computed_name<'a>(
 /// internal prefix. Renaming would mean teaching the suite to strip it back,
 /// against a suite currently at 100%, for no behaviour. Recorded so the
 /// divergence is a decision rather than an omission.
-fn quoted_module_name<'a>(arena: &'a tsr_core::Arena, text: &str) -> &'a str {
+fn quoted_module_name<'a>(arena: crate::names::Names<'a, '_>, text: &str) -> &'a str {
     arena.alloc_str(&format!("\"{text}\""))
 }
 

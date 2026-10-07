@@ -49,6 +49,83 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+pub(crate) use property_slot::{PrintedSlot, PropertySlot};
+
+mod property_slot {
+    use tsr_binder::SymbolId;
+
+    use crate::types::TypeId;
+
+    /// An [`super::AnonymousProperty`]'s type slot and its publication state.
+    /// Private: every reader goes through
+    /// [`crate::checker::Checker::property_type`] (or, for a `&self`
+    /// structural walk, [`crate::checker::Checker::peek_property_type`]), the
+    /// port of native `getTypeOfSymbol` on the property symbol, so the slot's
+    /// publication state is decided in one place.
+    ///
+    /// Native `checkObjectLiteral` (`checker.go:13144`) puts an object-literal
+    /// accessor's own symbol in the member table and only defers a check of
+    /// its declaration (`checkNodeDeferred`, `checker.go:13315`); the type is
+    /// `getTypeOfAccessors` (`checker.go:18511`) on the first read. The owner
+    /// of that answer is the accessor symbol's `symbol_types` entry, so an
+    /// [`Slot::Accessor`] holds no copy and costs no work until read.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) struct PropertySlot(Slot);
+
+    #[derive(Clone, Copy, Debug)]
+    pub(super) enum Slot {
+        /// A resolved property type.
+        Resolved(TypeId),
+        /// An object-literal accessor whose type was not read when the literal
+        /// was built, because a resolution the getter body can re-enter was in
+        /// progress (the accessor's own, or a variable whose initializer holds
+        /// the literal) — a re-entry native never makes. Read on demand.
+        Accessor(SymbolId),
+    }
+
+    impl PropertySlot {
+        /// A resolved property type.
+        pub(crate) fn resolved(r#type: TypeId) -> Self {
+            Self(Slot::Resolved(r#type))
+        }
+
+        /// The type of an object-literal accessor symbol, read on demand.
+        pub(crate) fn of_accessor(symbol: SymbolId) -> Self {
+            Self(Slot::Accessor(symbol))
+        }
+
+        /// The stored slot, for the canonical accessors only.
+        pub(super) fn get(self) -> Slot {
+            self.0
+        }
+    }
+
+    /// An [`super::AnonymousProperty`]'s printed type. Private: every reader
+    /// goes through [`crate::checker::Checker::property_printed_type`], the
+    /// node builder's `serializeTypeForDeclaration` of the property type.
+    /// `None` is a slot whose type is read on demand
+    /// ([`PropertySlot::of_accessor`]); it is printed from that type.
+    #[derive(Clone, Debug)]
+    pub(crate) struct PrintedSlot(Option<String>);
+
+    impl PrintedSlot {
+        /// Text printed by the property's producer.
+        pub(crate) fn printed(text: String) -> Self {
+            Self(Some(text))
+        }
+
+        /// No producer text: printed from the type read on demand.
+        pub(crate) fn on_demand() -> Self {
+            Self(None)
+        }
+
+        /// The stored text, for the canonical accessor only.
+        pub(super) fn get(&self) -> Option<&str> {
+            self.0.as_deref()
+        }
+    }
+}
+
 /// An anonymous object's typed properties and method flags, retained for
 /// `instantiateAnonymousType` and `instantiateSymbol` (checker.go).
 #[derive(Clone)]
@@ -74,10 +151,116 @@ pub(crate) struct AnonymousProperty {
     pub(crate) checked_declaration: Option<tsr_ast::NodeId>,
     pub(crate) name: String,
     pub(crate) printed_name: String,
-    pub(crate) printed_type: String,
+    /// Read only through [`crate::checker::Checker::property_printed_type`].
+    pub(crate) printed_slot: PrintedSlot,
     pub(crate) optional: bool,
     pub(crate) readonly: bool,
-    pub(crate) r#type: TypeId,
+    /// Read only through [`crate::checker::Checker::property_type`].
+    pub(crate) slot: PropertySlot,
+}
+
+impl AnonymousProperty {
+    /// Whether the type slot is read on demand ([`PropertySlot::of_accessor`]).
+    pub(crate) fn reads_on_demand(&self) -> bool {
+        matches!(self.slot.get(), property_slot::Slot::Accessor(_))
+    }
+}
+
+/// The text an on-demand accessor member bakes into its literal's
+/// print-at-creation display. Its type is unread at the mint; the site
+/// renderer (`object_literal_text_at`) prints the read type instead. `any` is
+/// native's own spelling for the one shape that reaches it — the literal's
+/// image re-entered through its accessor, which the node builder elides to
+/// `any` (`createAnonymousTypeNode`'s visited check).
+const DEFERRED_ACCESSOR_TEXT: &str = "any";
+
+impl Checker<'_, '_> {
+    /// The type of one anonymous-object property — the canonical reader of an
+    /// [`AnonymousProperty`]'s slot: native `getTypeOfSymbol` on the property
+    /// symbol (`checker.go:16493`), which every native consumer reaches
+    /// through the member table.
+    pub(crate) fn property_type(&mut self, property: &AnonymousProperty) -> TypeId {
+        self.property_slot_type(property.slot)
+    }
+
+    /// [`Checker::property_type`] of a bare slot. An accessor slot asks
+    /// `getTypeOfSymbol` (→ `getTypeOfAccessors`) at the read: the work runs
+    /// once, in the accessor symbol's frame, and a read while that frame is
+    /// still active closes native's cycle exactly where native's read would.
+    pub(crate) fn property_slot_type(&mut self, slot: PropertySlot) -> TypeId {
+        match slot.get() {
+            property_slot::Slot::Resolved(r#type) => r#type,
+            property_slot::Slot::Accessor(symbol) => self.get_type_of_symbol(symbol),
+        }
+    }
+
+    /// The type of one anonymous-object property for a read that cannot
+    /// resolve — a `&self` structural walk over completed types. `None` is an
+    /// accessor slot whose symbol type is not yet published; such a walk
+    /// follows no edge for it.
+    pub(crate) fn peek_property_type(&self, property: &AnonymousProperty) -> Option<TypeId> {
+        match property.slot.get() {
+            property_slot::Slot::Resolved(r#type) => Some(r#type),
+            property_slot::Slot::Accessor(symbol) => self.symbol_types.get(&symbol).copied(),
+        }
+    }
+
+    /// The printed type of one anonymous-object property — the canonical
+    /// reader of [`AnonymousProperty`]'s printed slot. An on-demand slot
+    /// prints its type read at this point.
+    pub(crate) fn property_printed_type<'p>(
+        &mut self,
+        property: &'p AnonymousProperty,
+    ) -> std::borrow::Cow<'p, str> {
+        if let Some(text) = property.printed_slot.get() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            let r#type = self.property_type(property);
+            std::borrow::Cow::Owned(self.type_to_string(r#type))
+        }
+    }
+
+    /// Whether an object-literal accessor's type is left to its first reader
+    /// ([`PropertySlot::of_accessor`]) instead of being read while the literal
+    /// is built.
+    ///
+    /// Native `checkObjectLiteral` never reads it (`checkNodeDeferred`,
+    /// `checker.go:13315`); this port reads it to print the member, which is
+    /// indistinguishable except when the getter body re-enters a resolution
+    /// in progress: the accessor's own type, or the type of a variable whose
+    /// initializer holds this literal, as in
+    /// `const a = { get self() { return a; } }` (native reads `self` only
+    /// after `a` is published). Only an accessor with no annotation can be
+    /// there: its type is the getter body's (`getTypeOfAccessors`,
+    /// `checker.go:18511`). Its member text is then a placeholder that the
+    /// site renderer (`object_literal_text_at`) prints from the type read
+    /// at that point.
+    pub(crate) fn accessor_type_deferred(&self, symbol: SymbolId) -> bool {
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        !self.symbol_types.contains_key(&symbol)
+            && (self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+                || declarations
+                    .iter()
+                    .any(|&declaration| self.enclosing_variable_resolving(declaration)))
+            && declarations
+                .iter()
+                .all(|&declaration| self.accessor_annotation(declaration).is_none())
+    }
+
+    /// Whether a variable declaration enclosing `node` has its type resolving.
+    pub(crate) fn enclosing_variable_resolving(&self, node: tsr_ast::NodeId) -> bool {
+        let mut parent = self.nodes.parent(node);
+        while let Some(node) = parent {
+            if self.nodes.kind(node) == tsr_ast::SyntaxKind::VariableDeclaration
+                && let Some(symbol) = self.binder.symbol_of(node)
+                && self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            {
+                return true;
+            }
+            parent = self.nodes.parent(node);
+        }
+        false
+    }
 }
 
 /// One rendered member of a structural object type.
@@ -220,7 +403,10 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
 /// waiting for the day the caller's arm is reused. `abstract` is deliberately
 /// **not** emitted: the grammar admits it on a constructor *type node* only, so
 /// an abstract construct signature member is a state upstream cannot produce.
-pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signature) -> String {
+pub(crate) fn signature_member_text(
+    checker: &mut Checker<'_, '_>,
+    signature: &Signature,
+) -> String {
     let mut out = match signature.kind {
         crate::signatures::SignatureKind::Call => String::new(),
         crate::signatures::SignatureKind::Construct
@@ -262,12 +448,15 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
         }
         out.push_str(&parameter.name);
         out.push_str(if parameter.optional { "?: " } else { ": " });
-        // The node-reuse rule on `Parameter::written_text`: a `typeof a`
-        // annotation prints as written, in this form exactly as in the
-        // `FunctionTypeNode` form.
-        match &parameter.written_text {
-            Some(written) => out.push_str(written),
-            None => out.push_str(&checker.type_to_string(parameter.r#type)),
+        // The node-reuse rule on `Parameter::written_text`
+        // (`crate::node_reuse`), for a printer with no print site.
+        let parameter_type = checker.parameter_type(parameter);
+        match parameter
+            .written_text
+            .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
+        {
+            Some(written) => out.push_str(&written),
+            None => out.push_str(&checker.type_to_string(parameter_type)),
         }
     }
     out.push_str("): ");
@@ -276,9 +465,12 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
     // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
     // node the builder is filling. `interface I { m(): this is S[]; }` is the
     // form that needs it, and the corpus records it on lib's `every`.
-    match (&signature.predicate, &signature.written_return) {
+    let written_return = signature
+        .written_return
+        .and_then(|written| checker.site_free_annotation_text(written, signature.r#type));
+    match (&signature.predicate, written_return) {
         (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
-        (None, Some(written)) => out.push_str(written),
+        (None, Some(written)) => out.push_str(&written),
         (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
     }
     out
@@ -362,9 +554,9 @@ impl Checker<'_, '_> {
                         origin: symbol,
                         checked_declaration: None,
                         printed_name: name.clone(),
-                        printed_type: self.type_to_string(ty),
+                        printed_slot: PrintedSlot::printed(self.type_to_string(ty)),
                         name,
-                        r#type: ty,
+                        slot: PropertySlot::resolved(ty),
                         optional: symbol.is_some_and(|symbol| self.property_is_optional(symbol)),
                         readonly: symbol.is_some_and(|symbol| self.is_readonly_property(symbol)),
                     })
@@ -373,7 +565,16 @@ impl Checker<'_, '_> {
         }
         if let Some(mut properties) = properties {
             for property in &mut properties {
-                property.r#type = self.get_regular_type_of_object_literal(property.r#type);
+                // transformTypeOfMembers reads getTypeOfSymbol of every member;
+                // an accessor's type is its getter's widened return, which
+                // regularization leaves unchanged, so the on-demand slot is
+                // carried over unread instead of being forced at the copy.
+                if property.reads_on_demand() {
+                    continue;
+                }
+                let r#type = self.property_type(property);
+                property.slot =
+                    PropertySlot::resolved(self.get_regular_type_of_object_literal(r#type));
             }
             self.anonymous_properties.insert(regular, (properties, true));
         }
@@ -1244,10 +1445,6 @@ impl Checker<'_, '_> {
                     if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-                        let member_type = self.get_type_of_symbol(symbol);
-                        if member_type == error {
-                            return error;
-                        }
                         let setter_sibling =
                             node.properties.iter().find_map(|sibling| match sibling {
                                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
@@ -1260,6 +1457,28 @@ impl Checker<'_, '_> {
                                 }
                                 _ => None,
                             });
+                        if self.accessor_type_deferred(symbol) {
+                            upsert_member(
+                                &mut members,
+                                Member::Property {
+                                    name: name.text.to_string(),
+                                    optional: false,
+                                    readonly: const_context || setter_sibling.is_none(),
+                                    printed: DEFERRED_ACCESSOR_TEXT.to_string(),
+                                },
+                            );
+                            capture_complete &= self.capture_checked_object_member(
+                                property,
+                                const_context,
+                                &mut typed_properties,
+                                &mut checked_members,
+                            );
+                            continue;
+                        }
+                        let member_type = self.get_type_of_symbol(symbol);
+                        if member_type == error {
+                            return error;
+                        }
                         // §417: a pair whose getter and setter types DIFFER
                         // prints the accessor forms —
                         // `{ get x(): string; set x(a: number); }`
@@ -1405,6 +1624,24 @@ impl Checker<'_, '_> {
                     if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        if self.accessor_type_deferred(symbol) {
+                            upsert_member(
+                                &mut members,
+                                Member::Property {
+                                    name: name.text.to_string(),
+                                    optional: false,
+                                    readonly: const_context,
+                                    printed: DEFERRED_ACCESSOR_TEXT.to_string(),
+                                },
+                            );
+                            capture_complete &= self.capture_checked_object_member(
+                                property,
+                                const_context,
+                                &mut typed_properties,
+                                &mut checked_members,
+                            );
+                            continue;
+                        }
                         let member_type = self.get_type_of_symbol(symbol);
                         if member_type == error {
                             return error;
@@ -1504,7 +1741,9 @@ impl Checker<'_, '_> {
                             let member_type = signature
                                 .parameters
                                 .first()
-                                .map_or(self.intrinsics.any, |parameter| parameter.r#type);
+                                .map_or(self.intrinsics.any, |parameter| {
+                                    self.parameter_type(parameter)
+                                });
                             let printed = self.member_text_at(member_type, node.node_id);
                             if unique {
                                 accessor_members.push((name.clone(), members.len()));
@@ -1785,7 +2024,7 @@ impl Checker<'_, '_> {
             // §735 — see [`Checker::member_text_at`].
             let printed = reused.unwrap_or_else(|| self.member_text_at(member_type, node.node_id));
             if let Some(id) = property.node_id() {
-                checked_members.push((id, member_type));
+                checked_members.push((id, PropertySlot::resolved(member_type)));
             } else {
                 capture_complete = false;
             }
@@ -1834,10 +2073,10 @@ impl Checker<'_, '_> {
                         .flatten(),
                         name: semantic_name,
                         printed_name: name.clone(),
-                        printed_type: printed.clone(),
+                        printed_slot: PrintedSlot::printed(printed.clone()),
                         optional: member_optional,
                         readonly: const_context,
-                        r#type: member_type,
+                        slot: PropertySlot::resolved(member_type),
                     };
                     if let Some(index) =
                         typed_properties.iter().position(|p| p.name == property.name)
@@ -1908,7 +2147,7 @@ impl Checker<'_, '_> {
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 _ => left.name.cmp(&right.name),
             });
-            members = crate::callable_expandos::property_members(&typed_properties);
+            members = self.property_members(&typed_properties);
         }
         index_members.extend(members);
         let members = index_members;
@@ -1966,7 +2205,7 @@ impl Checker<'_, '_> {
     /// propertiesArray independently for each requested primitive key kind.
     fn object_literal_indexes(
         &mut self,
-        checked_members: &[(tsr_ast::NodeId, TypeId)],
+        checked_members: &[(tsr_ast::NodeId, PropertySlot)],
         readonly: bool,
     ) -> Option<Vec<crate::index_signatures::IndexInfo>> {
         let mut needed = [false; 3];
@@ -2015,7 +2254,9 @@ impl Checker<'_, '_> {
                     1 => numeric,
                     _ => symbol,
                 } {
-                    values.push(value);
+                    // getObjectLiteralIndexInfo reads getTypeOfSymbol of each
+                    // contributing member here, so an accessor slot resolves.
+                    values.push(self.property_slot_type(value));
                     components.extend(component);
                 }
             }
@@ -2056,7 +2297,7 @@ impl Checker<'_, '_> {
         member: &tsr_ast::ObjectLiteralElementLike<'_>,
         readonly: bool,
         properties: &mut Vec<AnonymousProperty>,
-        checked_members: &mut Vec<(tsr_ast::NodeId, TypeId)>,
+        checked_members: &mut Vec<(tsr_ast::NodeId, PropertySlot)>,
     ) -> bool {
         let (name, method) = match member {
             tsr_ast::ObjectLiteralElementLike::MethodDeclaration(node) => (node.name, true),
@@ -2081,20 +2322,32 @@ impl Checker<'_, '_> {
             };
             let printed = self.signature_to_string(&signature);
             let value = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, true);
-            self.contextual_this_parameters
-                .insert(id, signature.this_parameter.as_ref().map(|parameter| parameter.r#type));
+            let this_type =
+                signature.this_parameter.as_ref().map(|parameter| self.parameter_type(parameter));
+            self.contextual_this_parameters.insert(id, this_type);
             self.signature_types.insert(value, vec![signature]);
-            value
+            Some(value)
+        } else if !matches!(name, tsr_ast::PropertyName::ComputedPropertyName(_))
+            && self.accessor_type_deferred(symbol)
+        {
+            // A computed (late-bound) name's binder symbol is this one
+            // declaration's, not the merged get/set member native reads
+            // (`lateBindMember`), so only a named accessor slot is deferred.
+            None
         } else {
-            self.get_type_of_symbol(symbol)
+            Some(self.get_type_of_symbol(symbol))
         };
-        if value == self.intrinsics.error {
+        if value == Some(self.intrinsics.error) {
             return false;
         }
-        if method && self.is_context_sensitive_function_like(id) {
+        if method
+            && let Some(value) = value
+            && self.is_context_sensitive_function_like(id)
+        {
             self.add_intra_expression_inference_site(id, value);
         }
-        checked_members.push((id, value));
+        let slot = value.map_or(PropertySlot::of_accessor(symbol), PropertySlot::resolved);
+        checked_members.push((id, slot));
         let (name, printed_name) =
             if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
                 match self.computed_member_index_key(computed) {
@@ -2122,8 +2375,11 @@ impl Checker<'_, '_> {
             method,
             name,
             printed_name,
-            printed_type: self.type_to_string(value),
-            r#type: value,
+            printed_slot: match value {
+                Some(value) => PrintedSlot::printed(self.type_to_string(value)),
+                None => PrintedSlot::on_demand(),
+            },
+            slot,
             optional: self.property_is_optional(symbol),
             readonly: readonly || self.is_readonly_symbol(symbol),
         };
@@ -2229,12 +2485,14 @@ impl Checker<'_, '_> {
             property.accessor_write = None;
             property.optional = true;
             if self.strict_null_checks {
-                property.r#type = self.get_optional_type(property.r#type, true);
+                let r#type = self.property_type(property);
+                property.slot = PropertySlot::resolved(self.get_optional_type(r#type, true));
             }
-            let displayed = self.remove_missing_type(property.r#type);
-            property.printed_type = self.type_to_string(displayed);
+            let r#type = self.property_type(property);
+            let displayed = self.remove_missing_type(r#type);
+            property.printed_slot = PrintedSlot::printed(self.type_to_string(displayed));
         }
-        partial_members.extend(crate::callable_expandos::property_members(&properties));
+        partial_members.extend(self.property_members(&properties));
         let owner = match self.store.get(first).data {
             TypeData::Named { members, .. } => members,
             _ => None,
@@ -2816,7 +3074,8 @@ mod display_source_tests {
                             else {
                                 panic!();
                             };
-                            let signature = checker.signature_types[&property.r#type][0].clone();
+                            let ty = checker.peek_property_type(property).unwrap();
+                            let signature = checker.signature_types[&ty][0].clone();
                             assert_eq!(
                                 signature.declaration,
                                 assignment.initializer.unwrap().node_id().unwrap()
@@ -2838,8 +3097,8 @@ mod display_source_tests {
                         .0
                         .iter()
                         .find(|property| property.name == "nested")
+                        .and_then(|property| checker.peek_property_type(property))
                         .unwrap()
-                        .r#type
                 };
                 assert_ne!(
                     nested(fresh),
@@ -2859,7 +3118,10 @@ mod display_source_tests {
                             assert_eq!(current.origin, original.origin);
                             assert_eq!(current.name, original.name);
                             assert_eq!(current.checked_declaration, original.checked_declaration);
-                            assert_eq!(current.r#type, original.r#type);
+                            assert_eq!(
+                                checker.peek_property_type(current),
+                                checker.peek_property_type(original)
+                            );
                         }
                     }
                 }

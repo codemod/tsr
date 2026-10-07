@@ -178,6 +178,60 @@ impl Default for FlowStore {
 }
 
 impl FlowStore {
+    #[cfg(test)]
+    pub(crate) fn graph_image(&self) -> String {
+        // Scratch is a reusable temporary list, never a graph edge. Private
+        // worker scratch is deliberately dropped at publication.
+        format!("{:?}", (&self.records, &self.cells, &self.clauses, &self.reductions))
+    }
+    /// Append a file-local graph. `NodeId`s are already published AST identities;
+    /// all flow/list/clause/reduction edges are private until relocated here.
+    pub(crate) fn append(&mut self, local: Self) -> usize {
+        let base = self.records.len() - 1;
+        for count in [
+            base + local.records.len(),
+            self.cells.len() + local.cells.len(),
+            self.clauses.len() + local.clauses.len(),
+            self.reductions.len() + local.reductions.len(),
+        ] {
+            u32::try_from(count).expect("flow graph count exceeds u32");
+        }
+        let cell_base = u32::try_from(self.cells.len()).expect("cell count exceeds u32");
+        let clause_base = u32::try_from(self.clauses.len()).expect("clause count exceeds u32");
+        let reduction_base =
+            u32::try_from(self.reductions.len()).expect("reduce count exceeds u32");
+        let relocate_cell = |cell: CellId| {
+            CellId::new(cell.as_u32().checked_add(cell_base).expect("cell count exceeds u32"))
+        };
+        if self.records[0].flags.contains(FlowFlags::REFERENCED)
+            && local.records[0].flags.contains(FlowFlags::REFERENCED)
+        {
+            self.records[0].flags |= FlowFlags::SHARED;
+        }
+        self.records[0].flags |= local.records[0].flags;
+        self.records.extend(local.records.into_iter().skip(1).map(|mut record| {
+            record.antecedent = record.antecedent.map(|id| relocate_flow(id, base));
+            if record.flags.intersects(FlowFlags::LABEL) {
+                record.aux = pack(unpack(record.aux).map(relocate_cell));
+            } else if record.flags.contains(FlowFlags::SWITCH_CLAUSE) {
+                record.aux = record.aux.checked_add(clause_base).expect("clause count exceeds u32");
+            } else if record.flags.contains(FlowFlags::REDUCE_LABEL) {
+                record.aux =
+                    record.aux.checked_add(reduction_base).expect("reduce count exceeds u32");
+            }
+            record
+        }));
+        self.cells.extend(local.cells.into_iter().map(|cell| Cell {
+            flow: relocate_flow(cell.flow, base),
+            next: cell.next.map(relocate_cell),
+        }));
+        self.clauses.extend(local.clauses);
+        self.reductions.extend(local.reductions.into_iter().map(|reduction| ReduceLabel {
+            target: relocate_flow(reduction.target, base),
+            antecedents: reduction.antecedents.map(relocate_cell),
+        }));
+        base
+    }
     /// A store holding only the unreachable node.
     #[must_use]
     pub fn new() -> Self {
@@ -510,6 +564,17 @@ impl FlowStore {
     }
 }
 
+pub(crate) fn relocate_flow(id: FlowId, base: usize) -> FlowId {
+    if id == FlowId::ZERO {
+        id
+    } else {
+        FlowId::new(
+            u32::try_from(base.checked_add(id.index()).expect("flow count overflow"))
+                .expect("flow count exceeds u32"),
+        )
+    }
+}
+
 /// `u32::MAX` is the empty list, matching the niche `Option<CellId>` uses.
 fn unpack(aux: u32) -> Option<CellId> {
     (aux != u32::MAX).then(|| CellId::new(aux))
@@ -539,6 +604,19 @@ impl Iterator for Antecedents<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publication_combines_references_to_the_canonical_unreachable_node() {
+        let mut published = FlowStore::new();
+        let mut first = FlowStore::new();
+        let mut second = FlowStore::new();
+        first.set_referenced(FlowId::ZERO);
+        second.set_referenced(FlowId::ZERO);
+        published.append(first);
+        published.append(second);
+        assert_eq!(published.records.len(), 1);
+        assert!(published.flags(FlowId::ZERO).contains(FlowFlags::REFERENCED | FlowFlags::SHARED));
+    }
 
     #[test]
     fn the_unreachable_node_is_id_zero_and_unique() {

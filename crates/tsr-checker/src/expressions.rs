@@ -576,7 +576,8 @@ impl Checker<'_, '_> {
         // contextual_signature applies the existing live non-fixing mapper
         // for a generic rest. Resolve its apparent constraint and alias image
         // before checking the tuple-union shape, as getReducedApparentType does.
-        let rest_type = self.apparent_type(rest.r#type);
+        let rest_type = self.parameter_type(rest);
+        let rest_type = self.apparent_type(rest_type);
         let rest_type = self.binding_type_alias_body(rest_type);
         let TypeData::Union { types, .. } = &self.store.get(rest_type).data else {
             return None;
@@ -684,6 +685,16 @@ impl Checker<'_, '_> {
                 // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
                 // what keeps an enclosing class's type parameter from being
                 // resolved here — see `BindResult::resolve_name`.
+                // `getResolvedSymbol` (`checker.go:13890`) resolves nothing for
+                // a missing identifier (`!ast.NodeIsMissing(node)`): parser
+                // recovery's empty name must not find a declaration whose name
+                // was also lost. `unknownSymbol` makes `checkIdentifier` answer
+                // `errorType`, printed `any` — deterministically, so the §31
+                // "the port might be the one failing to resolve it" gate below
+                // does not apply (the same reasoning as its §475 arm).
+                if node.text.is_empty() {
+                    return self.intrinsics.any;
+                }
                 let resolved =
                     self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);
                 if let Some(symbol) = resolved {
@@ -1608,7 +1619,7 @@ impl Checker<'_, '_> {
         if let Some(signature) = self.contextual_signature(function)
             && let Some(parameter) = signature.this_parameter
         {
-            return Some(parameter.r#type);
+            return Some(self.parameter_type(&parameter));
         }
         // The existing assignment fallback covers a context not always
         // reachable through getContextualType's expression dispatch.
@@ -1626,7 +1637,8 @@ impl Checker<'_, '_> {
         }
         let declared = self.check_expression(binary.left?);
         let signature = self.contextual_signature_of_type(declared)?;
-        Some(signature.this_parameter?.r#type)
+        let this_parameter = signature.this_parameter?;
+        Some(self.parameter_type(&this_parameter))
     }
 
     pub(crate) fn check_this_expression(&mut self, node: NodeId) -> TypeId {
@@ -2462,6 +2474,19 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
             let candidates = self.reorder_candidates(candidates);
+            // `resolveCall`'s overload failure when the written type
+            // arguments fit no candidate (`getCandidateForOverloadFailure`).
+            if let Some(call) = node.node_id
+                && let Some(failure) = self.written_type_argument_arity_failure(
+                    &candidates,
+                    call,
+                    node.arguments.len(),
+                )
+            {
+                let returned = failure.r#type;
+                self.resolved_call_signatures.insert(call, failure);
+                return returned;
+            }
             let selected = match candidates.as_slice() {
                 [single] => Some(single.clone()),
                 _ => self.choose_construct_overload(
@@ -3359,9 +3384,10 @@ impl Checker<'_, '_> {
         let mut callbacks = Vec::new();
         for signature in signatures {
             if let Some(this) = &signature.this_parameter
-                && this.r#type != self.intrinsics.void
+                && self.parameter_type(this) != self.intrinsics.void
             {
-                match self.relate_ternary(id, this.r#type, Relation::Subtype) {
+                let this_type = self.parameter_type(this);
+                match self.relate_ternary(id, this_type, Relation::Subtype) {
                     Ternary::Related => {}
                     Ternary::NotRelated => continue,
                     Ternary::Unknown => return None,

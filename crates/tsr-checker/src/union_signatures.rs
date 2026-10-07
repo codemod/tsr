@@ -39,7 +39,7 @@ impl Checker<'_, '_> {
             if types.iter().any(|&ty| self.is_error(ty)) {
                 return None;
             }
-            first.r#type = self.union_with_subtype_reduction(&types)?;
+            first.set_type(self.union_with_subtype_reduction(&types)?);
             first.optional = index >= minimum;
             first.rest = false;
             first.written_text = None;
@@ -62,7 +62,7 @@ impl Checker<'_, '_> {
             }
             let element = self.union_with_subtype_reduction(&types)?;
             let array = self.global_type_symbol("Array")?;
-            rest.r#type = self.create_type_reference(array, vec![element]);
+            rest.set_type(self.create_type_reference(array, vec![element]));
             rest.optional = false;
             rest.written_text = None;
             parameters.push(rest);
@@ -71,9 +71,9 @@ impl Checker<'_, '_> {
             if let Some(mut first) = candidates.iter().find_map(|s| s.this_parameter.clone()) {
                 let types: Vec<_> = candidates
                     .iter()
-                    .filter_map(|s| s.this_parameter.as_ref().map(|p| p.r#type))
+                    .filter_map(|s| s.this_parameter.as_ref().map(|p| self.parameter_type(p)))
                     .collect();
-                first.r#type = self.union_with_subtype_reduction(&types)?;
+                first.set_type(self.union_with_subtype_reduction(&types)?);
                 first.written_text = None;
                 Some(first)
             } else {
@@ -171,10 +171,11 @@ impl Checker<'_, '_> {
     fn is_mixin_constructor_signatures(&mut self, signatures: &[Signature]) -> bool {
         let [signature] = signatures else { return false };
         let [parameter] = signature.parameters.as_slice() else { return false };
-        signature.type_parameters.is_empty()
-            && parameter.rest
-            && (self.store.get(parameter.r#type).flags.contains(crate::flags::TypeFlags::ANY)
-                || self.signature_array_element(parameter.r#type) == Some(self.intrinsics.any))
+        signature.type_parameters.is_empty() && parameter.rest && {
+            let parameter_type = self.parameter_type(parameter);
+            self.store.get(parameter_type).flags.contains(crate::flags::TypeFlags::ANY)
+                || self.signature_array_element(parameter_type) == Some(self.intrinsics.any)
+        }
     }
 
     /// resolveUnionTypeMembers caches both signature kinds and applies the
@@ -401,12 +402,16 @@ impl Checker<'_, '_> {
         };
         if let (Some(source_this), Some(target_this)) =
             (&source.this_parameter, &target.this_parameter)
-            && !self.union_signature_types_match(
-                source_this.r#type,
-                target_this.r#type,
-                partial,
-                depth + 1,
-            )
+            && !{
+                let source_this_type = self.parameter_type(source_this);
+                let target_this_type = self.parameter_type(target_this);
+                self.union_signature_types_match(
+                    source_this_type,
+                    target_this_type,
+                    partial,
+                    depth + 1,
+                )
+            }
         {
             return false;
         }
@@ -550,9 +555,11 @@ impl Checker<'_, '_> {
 
     fn union_this_parameter(&mut self, signatures: &[Signature]) -> Option<Parameter> {
         let mut first = signatures.iter().find_map(|s| s.this_parameter.clone())?;
-        let types: Vec<_> =
-            signatures.iter().filter_map(|s| s.this_parameter.as_ref().map(|p| p.r#type)).collect();
-        first.r#type = self.get_intersection_type(&types, None);
+        let types: Vec<_> = signatures
+            .iter()
+            .filter_map(|s| s.this_parameter.as_ref().map(|p| self.parameter_type(p)))
+            .collect();
+        first.set_type(self.get_intersection_type(&types, None));
         first.written_text = None;
         Some(first)
     }
@@ -670,13 +677,7 @@ impl Checker<'_, '_> {
                 (Some(a), None) | (None, Some(a)) => a.to_owned(),
                 _ => format!("arg{index}"),
             };
-            parameters.push(Parameter {
-                name,
-                optional: index >= minimum && !is_rest,
-                rest: is_rest,
-                r#type: ty,
-                written_text: None,
-            });
+            parameters.push(Parameter::new(name, index >= minimum && !is_rest, is_rest, ty, None));
         }
         if extra_rest {
             let ty = self.signature_type_at_position(shorter, count)?;
@@ -684,13 +685,13 @@ impl Checker<'_, '_> {
                 return None;
             }
             let array = self.global_type_symbol("Array")?;
-            parameters.push(Parameter {
-                name: "args".to_owned(),
-                optional: false,
-                rest: true,
-                r#type: self.create_type_reference(array, vec![ty]),
-                written_text: None,
-            });
+            parameters.push(Parameter::new(
+                "args".to_owned(),
+                false,
+                true,
+                self.create_type_reference(array, vec![ty]),
+                None,
+            ));
         }
         let mut result = left.clone();
         result.parameters = parameters;

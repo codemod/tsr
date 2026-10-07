@@ -888,4 +888,88 @@ impl Checker<'_, '_> {
             ),
         );
     }
+
+    /// TS7057 — `'yield' expression implicitly results in an 'any' type
+    /// because its containing generator lacks a return-type annotation.`
+    ///
+    /// `checkYieldExpression`'s last arm (`checker.go:11005`): a non-`yield*`
+    /// yield in a generator with no return-type annotation and no contextual
+    /// NEXT iteration type (`getContextualIterationType`, the same
+    /// [`Checker::get_contextual_iteration_type`] `check_yield_expression`
+    /// answers from) is `anyType`, reported under `noImplicitAny` unless the
+    /// result is unused (`expressionResultIsUnused`, `utilities.go:1159`) or
+    /// the yield's own contextual type is present and not `any`. Where this
+    /// port cannot finish either contextual lookup — an unsupported
+    /// iteration lookup, or a yield position neither
+    /// [`Checker::get_contextual_type`] answers nor
+    /// [`Checker::has_no_contextual_type`] proves empty — nothing is
+    /// reported.
+    pub(crate) fn check_implicit_any_yield_expression(&mut self, node: NodeId) {
+        if !self.no_implicit_any {
+            return;
+        }
+        let Some(Node::YieldExpression(expression)) = self.node_map.get(node) else { return };
+        if expression.asterisk_token.is_some() {
+            return;
+        }
+        let Some(container) = self.containing_function(node) else { return };
+        let (asterisk, annotation) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.r#type),
+            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.r#type),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.r#type),
+            _ => return,
+        };
+        if asterisk.is_none() || annotation.is_some() || self.expression_result_is_unused(node) {
+            return;
+        }
+        if !matches!(
+            self.get_contextual_iteration_type(
+                crate::iteration::IterationTypeKind::Next,
+                container
+            ),
+            Ok(None)
+        ) {
+            return;
+        }
+        let uncontextualised = self.has_no_contextual_type(node)
+            || self.get_contextual_type(node).is_some_and(|contextual| {
+                self.store.get(contextual).flags.contains(crate::flags::TypeFlags::ANY)
+            });
+        if !uncontextualised {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::YIELD_EXPRESSION_IMPLICITLY_RESULTS_IN_AN_ANY_TYPE_BECAUSE_ITS_CONTAINING_GENERATOR_LACKS_A_RETURN_TYPE_ANNOTATION,
+                span,
+            ),
+        );
+    }
+
+    /// `expressionResultIsUnused` (`utilities.go:1159`).
+    fn expression_result_is_unused(&self, mut node: NodeId) -> bool {
+        while let Some(parent) = self.nodes.parent(node) {
+            match self.node_map.get(parent) {
+                Some(Node::ParenthesizedExpression(_)) => node = parent,
+                Some(Node::ExpressionStatement(_) | Node::VoidExpression(_)) => return true,
+                Some(Node::ForStatement(statement)) => {
+                    return statement.initializer.and_then(|n| n.node_id()) == Some(node)
+                        || statement.incrementor.and_then(|n| n.node_id()) == Some(node);
+                }
+                Some(Node::BinaryExpression(binary))
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
+                {
+                    if binary.left.and_then(|n| n.node_id()) == Some(node) {
+                        return true;
+                    }
+                    node = parent;
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
 }

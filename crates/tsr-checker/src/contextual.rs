@@ -257,13 +257,13 @@ impl<'a> Checker<'a, '_> {
                     kind: crate::signatures::SignatureKind::Call,
                     type_parameters: Vec::new(),
                     this_parameter: None,
-                    parameters: vec![crate::signatures::Parameter {
-                        name: "args".to_owned(),
-                        optional: false,
-                        rest: true,
-                        r#type: arguments,
-                        written_text: None,
-                    }],
+                    parameters: vec![crate::signatures::Parameter::new(
+                        "args".to_owned(),
+                        false,
+                        true,
+                        arguments,
+                        None,
+                    )],
                     r#type: self.intrinsics.void,
                     written_return: None,
                     predicate: None,
@@ -332,14 +332,20 @@ impl<'a> Checker<'a, '_> {
         // (assignContextualParameterTypes, checker.go). Pattern parameters have
         // no binder symbol here, so recover their stored type from the checked
         // function signature instead of recomputing a consumed context.
-        if let Some(signature) =
-            self.node_types.get(&function).and_then(|ty| self.signature_types.get(ty)).and_then(
-                |signatures| signatures.iter().find(|signature| signature.declaration == function),
-            )
-            && let Some(parameter) = signature.parameters.get(index)
-            && parameter.r#type != self.intrinsics.error
+        if let Some(parameter) = self
+            .node_types
+            .get(&function)
+            .and_then(|ty| self.signature_types.get(ty))
+            .and_then(|signatures| {
+                signatures.iter().find(|signature| signature.declaration == function)
+            })
+            .and_then(|signature| signature.parameters.get(index))
+            .cloned()
         {
-            return Some(parameter.r#type);
+            let parameter_type = self.parameter_type(&parameter);
+            if parameter_type != self.intrinsics.error {
+                return Some(parameter_type);
+            }
         }
         let signature = self.contextual_signature(function)?;
         // getContextuallyTypedParameterType delegates both ordinary and rest
@@ -458,7 +464,7 @@ impl<'a> Checker<'a, '_> {
     /// would compare two *different* parameter symbols and wrongly say "not
     /// identical" — or, worse, wrongly say identical if they happen to intern
     /// together. A decline is the honest answer for a test this cannot make.
-    fn signatures_identical(left: &Signature, right: &Signature) -> bool {
+    fn signatures_identical(&mut self, left: &Signature, right: &Signature) -> bool {
         if left.kind != right.kind
             || !left.type_parameters.is_empty()
             || !right.type_parameters.is_empty()
@@ -466,10 +472,15 @@ impl<'a> Checker<'a, '_> {
         {
             return false;
         }
-        left.parameters
-            .iter()
-            .zip(&right.parameters)
-            .all(|(a, b)| a.r#type == b.r#type && a.optional == b.optional && a.rest == b.rest)
+        for (a, b) in left.parameters.iter().zip(&right.parameters) {
+            if !(self.parameter_type(a) == self.parameter_type(b)
+                && a.optional == b.optional
+                && a.rest == b.rest)
+            {
+                return false;
+            }
+        }
+        true
     }
 
     pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
@@ -490,12 +501,13 @@ impl<'a> Checker<'a, '_> {
         if self.live_inference_context(function).is_some() {
             self.infer_contextual_annotations(function, &signature);
             let non_fixing_rest = signature.parameters.last().is_some_and(|parameter| {
-                parameter.rest
-                    && self
-                        .store
-                        .get(parameter.r#type)
+                parameter.rest && {
+                    let parameter_type = self.parameter_type(parameter);
+                    self.store
+                        .get(parameter_type)
                         .flags
                         .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                }
             });
             let consumed = if non_fixing_rest {
                 Vec::new()
@@ -855,7 +867,7 @@ impl<'a> Checker<'a, '_> {
                 if let Some(existing) = &found {
                     // getContextualSignature compares parameters while ignoring
                     // this and return types, then unions the return types.
-                    if !Self::signatures_identical(existing, &signature) {
+                    if !self.signatures_identical(existing, &signature) {
                         return Some(ContextualSignature::Absent);
                     }
                     let return_type = self.get_union_type(&[existing.r#type, signature.r#type]);
@@ -902,7 +914,7 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 if let Some(previous) = &found
-                    && !Self::signatures_identical(previous, &signature)
+                    && !self.signatures_identical(previous, &signature)
                 {
                     return None;
                 }
@@ -982,34 +994,34 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `getExpandedParameters` (checker.go), the fixed tuple-rest case.
-    fn expand_contextual_tuple_rest(&self, mut signature: Signature) -> Signature {
+    fn expand_contextual_tuple_rest(&mut self, mut signature: Signature) -> Signature {
         let Some(rest) = signature.parameters.last().filter(|p| p.rest) else {
             return signature;
         };
-        let Some((elements, _)) = self.tuple_element_lists.get(&rest.r#type) else {
+        let rest_type = self.parameter_type(rest);
+        let Some((elements, _)) = self.tuple_element_lists.get(&rest_type) else {
             return signature;
         };
-        let rest_type = rest.r#type;
         let rest_name = rest.name.clone();
         let expanded: Vec<_> = elements
             .iter()
             .enumerate()
-            .map(|(i, &t)| crate::signatures::Parameter {
-                name: self
-                    .tuple_labels
-                    .get(&rest_type)
-                    .and_then(|labels| labels.get(i))
-                    .and_then(Clone::clone)
-                    .unwrap_or_else(|| format!("{rest_name}_{i}")),
-                optional: self
-                    .tuple_optional_masks
-                    .get(&rest_type)
-                    .and_then(|mask| mask.get(i))
-                    .copied()
-                    .unwrap_or(false),
-                rest: false,
-                r#type: t,
-                written_text: None,
+            .map(|(i, &t)| {
+                crate::signatures::Parameter::new(
+                    self.tuple_labels
+                        .get(&rest_type)
+                        .and_then(|labels| labels.get(i))
+                        .and_then(Clone::clone)
+                        .unwrap_or_else(|| format!("{rest_name}_{i}")),
+                    self.tuple_optional_masks
+                        .get(&rest_type)
+                        .and_then(|mask| mask.get(i))
+                        .copied()
+                        .unwrap_or(false),
+                    false,
+                    t,
+                    None,
+                )
             })
             .collect();
         signature.parameters.pop();
@@ -1046,20 +1058,22 @@ impl<'a> Checker<'a, '_> {
                 (None, Some(b)) => b.name.clone(),
                 _ => format!("arg{i}"),
             };
-            let a_type = a.map_or(self.intrinsics.unknown, |p| p.r#type);
-            let b_type = b.map_or(self.intrinsics.unknown, |p| p.r#type);
-            parameters.push(crate::signatures::Parameter {
+            let a_type = a.map_or(self.intrinsics.unknown, |p| self.parameter_type(p));
+            let b_type = b.map_or(self.intrinsics.unknown, |p| self.parameter_type(p));
+            parameters.push(crate::signatures::Parameter::new(
                 name,
-                optional: i >= left_min && i >= right_min,
-                rest: false,
-                r#type: self.get_union_type(&[a_type, b_type]),
-                written_text: None,
-            });
+                i >= left_min && i >= right_min,
+                false,
+                self.get_union_type(&[a_type, b_type]),
+                None,
+            ));
         }
         left.parameters = parameters;
         left.this_parameter = match (left.this_parameter, right.this_parameter) {
             (Some(mut a), Some(b)) => {
-                a.r#type = self.get_union_type(&[a.r#type, b.r#type]);
+                let a_type = self.parameter_type(&a);
+                let b_type = self.parameter_type(&b);
+                a.set_type(self.get_union_type(&[a_type, b_type]));
                 a.written_text = None;
                 Some(a)
             }
@@ -2260,31 +2274,23 @@ impl<'a> Checker<'a, '_> {
         if let Some(rest) = rest
             && index >= rest
         {
-            if self
-                .store
-                .get(signature.parameters[rest].r#type)
-                .flags
-                .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
-            {
+            let rest_type = self.parameter_type(&signature.parameters[rest]);
+            if self.store.get(rest_type).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
                 let index_type = self.store.intern(
                     crate::flags::TypeFlags::NUMBER_LITERAL,
                     crate::types::TypeData::NumberLiteral((index - rest).to_string()),
                 );
-                return self.resolved_indexed_access_type(
-                    signature.parameters[rest].r#type,
-                    index_type,
-                    false,
-                );
+                return self.resolved_indexed_access_type(rest_type, index_type, false);
             }
             return self.contextual_type_for_element_expression(
-                signature.parameters[rest].r#type,
+                rest_type,
                 index - rest,
                 Some(argument_count - rest),
                 None,
                 None,
             );
         }
-        signature.parameters.get(index).map(|parameter| parameter.r#type)
+        signature.parameters.get(index).map(|parameter| self.parameter_type(parameter))
     }
 
     /// The type an object literal's property assignment is expected to have.
@@ -2616,6 +2622,24 @@ impl<'a> Checker<'a, '_> {
         // its arguments, which is the immediately invoked function expression
         // upstream handles at `checker.go:29463` from the argument expressions.
         let index = call.arguments.iter().position(|a| a.node_id() == Some(argument))?;
+        // getContextualTypeForArgumentAtIndex's import-call arm
+        // (`checker.go:29773`): `import(specifier, options)` resolves no
+        // signature — the specifier is `string`, the options
+        // `getGlobalImportCallOptionsType` (the empty object type when the
+        // library lacks it), any further argument `any`.
+        if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
+            if keyword.kind == tsr_ast::SyntaxKind::ImportKeyword)
+        {
+            return Some(match index {
+                0 => self.intrinsics.string,
+                1 => self
+                    .global_type_symbol("ImportCallOptions")
+                    .map_or(self.intrinsics.empty_object, |options| {
+                        self.get_declared_type_of_symbol(options)
+                    }),
+                _ => self.intrinsics.any,
+            });
+        }
 
         // The const/freshness query needs parameter identities before the
         // fixing mapper, including after a completed call memo is available.
@@ -2851,11 +2875,10 @@ impl<'a> Checker<'a, '_> {
             let signatures = signatures.clone();
             for signature in &signatures {
                 if signature.type_parameters.is_empty()
-                    && (signature
-                        .parameters
-                        .iter()
-                        .any(|p| self.mentions_any_type_parameter(p.r#type, depth - 1))
-                        || self.mentions_any_type_parameter(signature.r#type, depth - 1))
+                    && (signature.parameters.iter().any(|p| {
+                        let parameter_type = self.parameter_type(p);
+                        self.mentions_any_type_parameter(parameter_type, depth - 1)
+                    }) || self.mentions_any_type_parameter(signature.r#type, depth - 1))
                 {
                     return true;
                 }
@@ -3626,7 +3649,8 @@ function f(c: I<"right"> = class { static x = { a: "right" }; }) {}"#;
         // Some(error) is an existing semantic value, not an absent property or
         // permission to fall back to the original declaration's type parameter.
         let error = checker.intrinsics.error;
-        checker.anonymous_properties.get_mut(&context).expect("captured").0[0].r#type = error;
+        checker.anonymous_properties.get_mut(&context).expect("captured").0[0].slot =
+            crate::objects::PropertySlot::resolved(error);
         assert_eq!(checker.get_contextual_type(literal), Some(error));
     }
 }

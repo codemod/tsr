@@ -1,0 +1,202 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 3ed0de98..044fa661 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -255,6 +255,8 @@ pub struct Checker<'a, 'n> {
+     /// it has no entry and no rebuild — see
+     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
+     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
++    pub(crate) prepared_receiver_mappers:
++        FxHashMap<(TypeId, TypeId), std::sync::Arc<crate::members::PreparedReceiverMapper<'a>>>,
+     /// ADR-0045's alias attribute, first writer: upstream's `Type.alias`
+     /// (`symbol` + `typeArguments`) for a type built by an alias-accepting
+     /// constructor. Written once, at creation, by
+@@ -1364,6 +1366,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             constrained_type_variables: FxHashMap::default(),
+             instantiations: FxHashMap::default(),
+             type_reference_targets: FxHashMap::default(),
++            prepared_receiver_mappers: FxHashMap::default(),
+             alias_of: FxHashMap::default(),
+             deferred_alias_references: FxHashMap::default(),
+             reference_display_arity: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index bd4ef13b..f4601c18 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -13,6 +13,17 @@ use crate::{
+     types::{TypeData, TypeId},
+ };
+ 
++/// Private preparation only: never caches a member result or publication state.
++pub(crate) struct PreparedReceiverMapper<'a> {
++    symbol: SymbolId,
++    arguments: Option<Vec<TypeId>>,
++    parameters: Vec<TypeId>,
++    this_type: Option<TypeId>,
++    names: Vec<&'a str>,
++    types: Vec<TypeId>,
++    map: Vec<(TypeId, TypeId)>,
++}
++
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+ pub(crate) struct TypeParameterConstraintKey {
+     parameter: TypeId,
+@@ -1947,6 +1958,56 @@ impl Checker<'_, '_> {
+         declared: TypeId,
+         this_argument: TypeId,
+     ) -> TypeId {
++        let key = (receiver, this_argument);
++        if let Some(prepared) = self.prepared_receiver_mappers.get(&key).cloned() {
++            let target_matches = if let Some((symbol, arguments)) =
++                self.type_reference_targets.get(&receiver)
++            {
++                *symbol == prepared.symbol && prepared.arguments.as_ref() == Some(arguments)
++            } else {
++                prepared.arguments.is_none()
++                    && self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
++                    && matches!(self.store.get(receiver).data, TypeData::Named { members: Some(symbol), .. } if symbol == prepared.symbol)
++                    && self
++                        .binder
++                        .symbols()
++                        .get(prepared.symbol)
++                        .flags
++                        .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++            };
++            if target_matches {
++                let declarations = self.local_type_parameters_of(prepared.symbol);
++                let mut matches = declarations.len() == prepared.parameters.len();
++                // Force the same declaration types in the same order as the
++                // uncached path. Never infer completion from a cached mapper.
++                for (index, declaration) in declarations.iter().enumerate() {
++                    let Some(_) = declaration.name else { return self.intrinsics.error };
++                    let Some(parameter) =
++                        declaration.node_id.and_then(|id| self.binder.symbol_of(id))
++                    else {
++                        return self.intrinsics.error;
++                    };
++                    let declared_parameter = self.get_declared_type_of_symbol(parameter);
++                    if declared_parameter == self.intrinsics.error {
++                        return self.intrinsics.error;
++                    }
++                    matches &= prepared.parameters.get(index) == Some(&declared_parameter);
++                }
++                let this_type = self.receiver_mapper_this_type(prepared.symbol);
++                if matches && prepared.this_type == this_type {
++                    return if prepared.map.is_empty() {
++                        declared
++                    } else {
++                        self.instantiate_type(
++                            declared,
++                            &prepared.map,
++                            &prepared.types,
++                            &prepared.names,
++                        )
++                    };
++                }
++            }
++        }
+         // resolveTypeReferenceMembers also supplies a this argument for a
+         // non-generic class or interface. The port keeps those as Named types
+         // rather than entries in type_reference_targets.
+@@ -1981,23 +2042,17 @@ impl Checker<'_, '_> {
+         let mut names: Vec<&str> = Vec::new();
+         let mut types: Vec<TypeId> = Vec::new();
+         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
+-        for (index, (parameter, name)) in parameters.iter().enumerate() {
++        let declarations = self.local_type_parameters_of(symbol);
++        for (index, (parameter, _name)) in parameters.iter().enumerate() {
+             if *parameter != arguments[index] {
+-                names.push(name.as_str());
++                names.push(declarations[index].name.expect("parameter name was resolved").text);
+                 types.push(*parameter);
+                 map.push((*parameter, arguments[index]));
+             }
+         }
+         // resolveTypeReferenceMembers pads the type arguments with the
+         // reference itself for the target's polymorphic this parameter.
+-        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
+-            self.binder
+-                .symbols()
+-                .get(symbol)
+-                .declarations
+-                .iter()
+-                .find_map(|node| self.this_type_nodes.get(node).copied())
+-        });
++        let this_type = self.receiver_mapper_this_type(symbol);
+         if let Some(this_type) = this_type
+             && this_type != this_argument
+         {
+@@ -2005,10 +2060,35 @@ impl Checker<'_, '_> {
+             map.push((this_type, this_argument));
+         }
+         // A reference without type parameters or a polymorphic this needs no map.
+-        if map.is_empty() {
+-            return declared;
++        let prepared = std::sync::Arc::new(PreparedReceiverMapper {
++            symbol,
++            arguments: self
++                .type_reference_targets
++                .get(&receiver)
++                .map(|(_, arguments)| arguments.clone()),
++            parameters: parameters.iter().map(|(parameter, _)| *parameter).collect(),
++            this_type,
++            names,
++            types,
++            map,
++        });
++        self.prepared_receiver_mappers.insert(key, prepared.clone());
++        if prepared.map.is_empty() {
++            declared
++        } else {
++            self.instantiate_type(declared, &prepared.map, &prepared.types, &prepared.names)
+         }
+-        self.instantiate_type(declared, &map, &types, &names)
++    }
++
++    fn receiver_mapper_this_type(&self, symbol: SymbolId) -> Option<TypeId> {
++        self.this_types.get(&symbol).copied().or_else(|| {
++            self.binder
++                .symbols()
++                .get(symbol)
++                .declarations
++                .iter()
++                .find_map(|node| self.this_type_nodes.get(node).copied())
++        })
+     }
+ 
+     /// `getPropertyOfTypeEx`'s union and intersection arms
+@@ -3825,6 +3905,34 @@ mod property_name_tests {
+         );
+     }
+ 
++    #[test]
++    fn receiver_preparation_revalidates_declared_parameter_identity_and_failure() {
++        with_checker(
++            "interface Box<T> { value: T } type TextBox = Box<string>;",
++            |checker, root| {
++                let owner = checker.binder.lookup_local(root, "Box").unwrap();
++                let alias = checker.binder.lookup_local(root, "TextBox").unwrap();
++                let receiver = checker.get_declared_type_of_symbol(alias);
++                let declaration = checker.local_type_parameters_of(owner)[0];
++                let parameter = checker.binder.symbol_of(declaration.node_id.unwrap()).unwrap();
++                let first = checker.get_declared_type_of_symbol(parameter);
++                let string = checker.intrinsics.string;
++                assert_eq!(checker.instantiate_for_reference(receiver, first), string);
++                checker.declared_types.remove(&parameter);
++                let second = checker.get_declared_type_of_symbol(parameter);
++                assert_ne!(first, second);
++                assert_eq!(checker.instantiate_for_reference(receiver, second), string);
++                checker.declared_types.insert(parameter, checker.intrinsics.error);
++                assert_eq!(
++                    checker.instantiate_for_reference(receiver, second),
++                    checker.intrinsics.error
++                );
++                checker.declared_types.insert(parameter, second);
++                assert_eq!(checker.instantiate_for_reference(receiver, second), string);
++            },
++        );
++    }
++
+     #[test]
+     fn active_late_bound_entry_does_not_complete_the_outer_name_list() {
+         with_checker(

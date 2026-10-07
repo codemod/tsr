@@ -1,0 +1,84 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 3ed0de98..6a9c85f7 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -255,6 +255,7 @@ pub struct Checker<'a, 'n> {
+     /// it has no entry and no rebuild — see
+     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
+     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
++    pub(crate) receiver_probe: crate::members::ReceiverProbe,
+     /// ADR-0045's alias attribute, first writer: upstream's `Type.alias`
+     /// (`symbol` + `typeArguments`) for a type built by an alias-accepting
+     /// constructor. Written once, at creation, by
+@@ -1364,6 +1365,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             constrained_type_variables: FxHashMap::default(),
+             instantiations: FxHashMap::default(),
+             type_reference_targets: FxHashMap::default(),
++            receiver_probe: crate::members::ReceiverProbe::default(),
+             alias_of: FxHashMap::default(),
+             deferred_alias_references: FxHashMap::default(),
+             reference_display_arity: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index bd4ef13b..f734208d 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -13,6 +13,24 @@ use crate::{
+     types::{TypeData, TypeId},
+ };
+ 
++#[derive(Default)]
++pub(crate) struct ReceiverProbe {
++    rows: rustc_hash::FxHashMap<(TypeId, TypeId, TypeId), (u64, u64, TypeId)>,
++    preparations: u64,
++    changed_maps: u64,
++    changed_results: u64,
++    preparation_ns: u128,
++    substitution_ns: u128,
++}
++
++impl Drop for ReceiverProbe {
++    fn drop(&mut self) {
++        if !self.rows.is_empty() {
++            eprintln!("RECEIVER_PROBE\t{}\t{}\t{}\t{}\t{}\t{}", self.preparations, self.rows.len(), self.changed_maps, self.changed_results, self.preparation_ns, self.substitution_ns);
++        }
++    }
++}
++
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+ pub(crate) struct TypeParameterConstraintKey {
+     parameter: TypeId,
+@@ -1947,6 +1965,7 @@ impl Checker<'_, '_> {
+         declared: TypeId,
+         this_argument: TypeId,
+     ) -> TypeId {
++        let probe_start = std::env::var_os("TSR_RECEIVER_PROBE").map(|_| std::time::Instant::now());
+         // resolveTypeReferenceMembers also supplies a this argument for a
+         // non-generic class or interface. The port keeps those as Named types
+         // rather than entries in type_reference_targets.
+@@ -2005,10 +2024,22 @@ impl Checker<'_, '_> {
+             map.push((this_type, this_argument));
+         }
+         // A reference without type parameters or a polymorphic this needs no map.
+-        if map.is_empty() {
+-            return declared;
+-        }
+-        self.instantiate_type(declared, &map, &types, &names)
++        let prepared = std::time::Instant::now();
++        let result = if map.is_empty() { declared } else { self.instantiate_type(declared, &map, &types, &names) };
++        if let Some(start) = probe_start {
++            use std::hash::{Hash, Hasher};
++            let mut hash = rustc_hash::FxHasher::default();
++            (&map, &types, &names).hash(&mut hash);
++            let hash = hash.finish();
++            let row = self.receiver_probe.rows.entry((receiver, declared, this_argument)).or_insert((0, hash, result));
++            self.receiver_probe.changed_maps += u64::from(row.1 != hash);
++            self.receiver_probe.changed_results += u64::from(row.2 != result);
++            row.0 += 1;
++            self.receiver_probe.preparations += 1;
++            self.receiver_probe.preparation_ns += prepared.duration_since(start).as_nanos();
++            self.receiver_probe.substitution_ns += prepared.elapsed().as_nanos();
++        }
++        result
+     }
+ 
+     /// `getPropertyOfTypeEx`'s union and intersection arms

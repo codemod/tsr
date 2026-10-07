@@ -120,20 +120,21 @@ fn compose(
         }
         out.push_str(&parameter.name);
         out.push_str(if parameter.optional { "?: " } else { ": " });
-        if let Some(written) = &parameter.written_text {
-            out.push_str(written);
-        } else {
-            let text = render(checker, parameter.r#type, site);
-            out.push_str(&text);
-        }
-    }
-    out.push_str(") => ");
-    if let Some(written) = &signature.written_return {
-        out.push_str(written);
-    } else {
-        let text = render(checker, signature.r#type, site);
+        let parameter_type = checker.parameter_type(parameter);
+        let written = parameter.written_text.and_then(|written| match site {
+            Some(site) => checker.written_annotation_text_at(written, parameter_type, site),
+            None => checker.site_free_annotation_text(written, parameter_type),
+        });
+        let text = written.unwrap_or_else(|| render(checker, parameter_type, site));
         out.push_str(&text);
     }
+    out.push_str(") => ");
+    let written = signature.written_return.and_then(|written| match site {
+        Some(site) => checker.written_annotation_text_at(written, signature.r#type, site),
+        None => checker.site_free_annotation_text(written, signature.r#type),
+    });
+    let text = written.unwrap_or_else(|| render(checker, signature.r#type, site));
+    out.push_str(&text);
     out
 }
 

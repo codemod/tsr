@@ -99,17 +99,22 @@ impl ParsedFile {
     /// [`ScriptKind::from_file_name`](crate::ScriptKind::from_file_name).
     #[must_use]
     pub fn parse_with_script_kind(source: String, script_kind: crate::ScriptKind) -> Self {
+        Self::parse_with_options(source, crate::ParseOptions { script_kind, ..Default::default() })
+    }
+
+    /// Parse privately using the same options as program-owned parsing.
+    #[must_use]
+    pub fn parse_with_options(source: String, options: crate::ParseOptions) -> Self {
         let mut diagnostics = Vec::new();
         let mut nodes = NodeTable::new();
 
         let cell = Cell::new(Owner { arena: Arena::new(), source }, |owner| {
             // `source` is borrowed from the owner, so the AST's `&'a str`s point
             // into storage the cell keeps alive.
-            let mut parser =
-                crate::Parser::with_script_kind(&owner.arena, &owner.source, script_kind);
+            let mut parser = crate::Parser::with_options(&owner.arena, &owner.source, options);
             // JSON is not a dialect of the statement grammar: a document is one
             // value, so it needs its own entry point rather than a flag.
-            let source_file = if script_kind == crate::ScriptKind::Json {
+            let source_file = if options.script_kind == crate::ScriptKind::Json {
                 parser.parse_json_text()
             } else {
                 parser.parse_source_file()
@@ -121,6 +126,35 @@ impl ParsedFile {
         });
 
         Self { cell, diagnostics: diagnostics.into(), nodes: Arc::new(nodes) }
+    }
+
+    /// Publish into the caller's arena and ordered program tables. The private
+    /// owner remains alive throughout copying and can be dropped immediately
+    /// afterwards. No reference in the result borrows from this owner.
+    pub fn publish<'a>(
+        &self,
+        arena: &'a Arena,
+        source: &'a str,
+        nodes: &mut NodeTable,
+        node_map: &mut tsr_ast::NodeMap<'a>,
+    ) -> crate::ParsedInto<'a> {
+        use tsr_ast::publication::{Publication, Publish};
+        assert_eq!(source, self.source(), "publication source differs from parsed source");
+        let node_range = nodes.append_relocated(&self.nodes);
+        self.cell.with_dependent(|owner, ast| {
+            let mut publication =
+                Publication::new(arena, &owner.source, source, node_range.start, self.nodes.len());
+            publication.finish(&ast.node_map, node_map);
+            let source_file = ast.source_file.publish(&mut publication);
+            let jsdoc = ast.jsdoc.publish(&mut publication);
+            crate::ParsedInto {
+                source_file,
+                diagnostics: self.diagnostics.to_vec(),
+                jsdoc,
+                file_references: crate::pragma::parse_file_references(source),
+                node_range,
+            }
+        })
     }
 
     /// The source text.

@@ -152,8 +152,12 @@ fn annotated_binding_defaults_preserve_null_and_undefined_target_adjustment() {
     assert!(assignment_sites(nullable, true, true, false, "a.ts").is_empty());
 }
 
+/// Sources upstream accepts: a structured default typed under a nullable
+/// element context (the port declines it, see `check_binding_element_initializer`),
+/// a self reference, an unannotated root (the default joins the element type)
+/// and an `unknown` root.
 #[test]
-fn binding_default_reporter_declines_structured_and_nonliteral_sources() {
+fn binding_default_reporter_accepts_what_upstream_accepts() {
     for source in [
         r#"interface I { tag: "right" } declare const input: [I?];
             let [chosen = { tag: "right" }]: [I?] = input;"#,
@@ -163,18 +167,9 @@ fn binding_default_reporter_declines_structured_and_nonliteral_sources() {
             let [chosen = class { static x = { a: "right" } }]: [J?] = input;"#,
         r#"interface J { x: { a: "right" } } declare const input: [(J | undefined)?];
             let [chosen = class { static x = { a: "right" } }]: [(J | undefined)?] = input;"#,
-        r#"declare const input: ["right"]; const other: "wrong" = "wrong";
-            let [chosen = other]: ["right"] = input;"#,
         r#"declare const input: ["right"]; let [chosen = chosen]: ["right"] = input;"#,
-        r#"declare const input: ["right"]; let [chosen = ("wrong")]: ["right"] = input;"#,
         r#"declare const input: ["right"]; let [chosen = "wrong"] = input;"#,
-        r#"declare const input: { x: "right" }; let { ["x"]: chosen = "wrong" }: { x: "right" } = input;"#,
         r#"declare const input: unknown; let [chosen = "wrong"]: unknown = input;"#,
-        r#"declare const input: [number]; let [chosen = "wrong"]: [number] = input;"#,
-        r#"declare const input: ["right" | number];
-            let [chosen = "wrong"]: ["right" | number] = input;"#,
-        r#"declare const input: ["right"]; function f(undefined: "wrong") {
-            let [chosen = undefined]: ["right"] = input; }"#,
     ] {
         for (strict, exact) in [(false, false), (true, false), (true, true)] {
             for warm in [false, true] {
@@ -187,10 +182,42 @@ fn binding_default_reporter_declines_structured_and_nonliteral_sources() {
     }
 }
 
+/// `checkVariableLikeDeclaration` checks every default of a primary binding
+/// element against its element type, whatever the source expression, and
+/// reports at the element (pinned tsgo reports each of these at `chosen`).
 #[test]
-fn binding_default_reporter_excludes_parameters_secondary_and_file_declines() {
+fn binding_default_reporter_checks_every_source_expression() {
     for source in [
-        r#"function f([chosen = "wrong"]: ["right"?]) {}"#,
+        r#"declare const input: ["right"]; const other: "wrong" = "wrong";
+            let [chosen = other]: ["right"] = input;"#,
+        r#"declare const input: ["right"]; let [chosen = ("wrong")]: ["right"] = input;"#,
+        r#"declare const input: { x: "right" }; let { ["x"]: chosen = "wrong" }: { x: "right" } = input;"#,
+        r#"declare const input: [number]; let [chosen = "wrong"]: [number] = input;"#,
+        r#"declare const input: ["right" | number];
+            let [chosen = "wrong"]: ["right" | number] = input;"#,
+        r#"declare const input: ["right"]; function f(undefined: "wrong") {
+            let [chosen = undefined]: ["right"] = input; }"#,
+    ] {
+        for (strict, exact) in [(false, false), (true, false), (true, true)] {
+            for warm in [false, true] {
+                assert_eq!(
+                    assignment_sites(source, strict, exact, warm, "a.ts"),
+                    vec![site(source, "chosen")],
+                    "strict={strict} exact={exact} warm={warm}: {source}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn binding_default_reporter_checks_parameters_and_keeps_file_declines() {
+    let parameter = r#"function f([chosen = "wrong"]: ["right"?]) {}"#;
+    assert_eq!(
+        assignment_sites(parameter, true, true, false, "a.ts"),
+        vec![site(parameter, "chosen")]
+    );
+    for source in [
         r#"declare function f([chosen = "wrong"]: ["right"?]): void;"#,
         r#"declare const input: { x: "right" };
             var { x: chosen }: { x: "right" } = input;

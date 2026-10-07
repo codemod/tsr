@@ -7,6 +7,12 @@
       "type": "cargo-downloads",
       "keyFiles": ["Cargo.lock"],
       "restore": "compatible"
+    },
+    {
+      "name": "offline-python",
+      "type": "pip-downloads",
+      "keyFiles": ["scripts/offline-cargo/requirements.txt"],
+      "restore": "compatible"
     }
   ]
 }

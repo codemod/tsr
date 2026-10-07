@@ -71,9 +71,18 @@ fn parameter_only_typeof_sources_keep_identity_and_complete_calls_in_either_orde
                     let bar_signature = checker.get_signatures_of_symbol(bar).unwrap().remove(0);
                     assert_eq!(foo_signature.parameters.len(), 1);
                     assert_eq!(bar_signature.parameters.len(), 2);
-                    assert_eq!(foo_signature.parameters[0].r#type, checker.intrinsics().string);
-                    assert_eq!(bar_signature.parameters[0].r#type, checker.intrinsics().string);
-                    assert_eq!(bar_signature.parameters[1].r#type, checker.intrinsics().number);
+                    assert_eq!(
+                        checker.parameter_type(&foo_signature.parameters[0]),
+                        checker.intrinsics().string
+                    );
+                    assert_eq!(
+                        checker.parameter_type(&bar_signature.parameters[0]),
+                        checker.intrinsics().string
+                    );
+                    assert_eq!(
+                        checker.parameter_type(&bar_signature.parameters[1]),
+                        checker.intrinsics().number
+                    );
                     assert_eq!(foo_signature.r#type, checker.intrinsics().string);
                     assert_eq!(bar_signature.r#type, checker.intrinsics().string);
                     assert_eq!(checker.get_type_of_symbol(foo), foo_type);
@@ -195,7 +204,7 @@ fn lazy_captured_generic_returns_do_not_publish_guessed_recursive_mapper_images(
                 let bar = checker.get_type_of_property_of_type(original, "bar").unwrap();
                 let signature = checker.resolve_call_signature(bar, None).unwrap();
                 assert_eq!(signature.r#type, original);
-                let parameter = signature.parameters[0].r#type;
+                let parameter = checker.parameter_type(&signature.parameters[0]);
                 assert_eq!(checker.type_to_string(parameter), "T");
                 // A direct mapper hit must win without forcing pending metadata.
                 let image = checker.intrinsics().string;

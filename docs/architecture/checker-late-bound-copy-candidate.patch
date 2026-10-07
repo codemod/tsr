@@ -1,0 +1,68 @@
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3119,12 +3119,18 @@
+         }
+         // getPropertyOfType searches the resolved member table for every
+         // semantic key, including string and numeric late-bound names.
+-        for (key, member) in self.late_bound_members_of(owner, false) {
+-            if key == name
+-                && let Some(symbol) = self.binder.symbol_of(member)
+-            {
+-                return Some(symbol);
+-            }
++        let cache_key = (owner, false);
++        if !self.late_bound_member_names.contains_key(&cache_key) {
++            // Force exactly the existing miss path, including its re-entry marker.
++            // The published vector retains the same ordered declarations as the result.
++            let _ = self.late_bound_members_of(owner, false);
++        }
++        if let Some(symbol) = self.late_bound_member_names.get(&cache_key).and_then(|members| {
++            members.iter().find_map(|(key, member)| {
++                if key == name { self.binder.symbol_of(*member) } else { None }
++            })
++        }) {
++            return Some(symbol);
+         }
+         for base in self.base_symbols_of(owner)? {
+             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
+@@ -3473,6 +3479,40 @@
+         let root = parsed.source_file.node_id().unwrap();
+         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+         test(&mut checker, root)
++    }
++
++    #[test]
++    fn late_bound_lookup_skips_unbound_duplicate_declarations() {
++        with_checker("const key = 'late'; class Shape { [key] = 1 }", |checker, root| {
++            let owner = checker.binder.lookup_local(root, "Shape").unwrap();
++            let members = checker.late_bound_members_of(owner, false);
++            assert_eq!(members.len(), 1);
++            let member = members[0].1;
++            let expected = checker.binder.symbol_of(member).unwrap();
++            assert!(checker.binder.symbol_of(root).is_none());
++            checker.late_bound_member_names.insert(
++                (owner, false), vec![("late".into(), root), ("late".into(), member)]);
++            for _ in 0..2 {
++                assert_eq!(checker.get_property_of_declared_symbol(owner, "late", &mut Vec::new()), Some(expected));
++                assert_eq!(checker.get_property_of_declared_symbol(owner, "absent", &mut Vec::new()), None);
++            }
++        });
++    }
++
++    #[test]
++    fn late_bound_lookup_preserves_marker_then_recovers_inherited_identity() {
++        with_checker("const key = 'late'; class Base { [key] = 1 } class Derived extends Base {}", |checker, root| {
++            let base = checker.binder.lookup_local(root, "Base").unwrap();
++            let derived = checker.binder.lookup_local(root, "Derived").unwrap();
++            let expected = checker.get_property_of_declared_symbol(derived, "late", &mut Vec::new()).unwrap();
++            checker.late_bound_member_names.insert((base, false), Vec::new());
++            assert_eq!(checker.get_property_of_declared_symbol(derived, "late", &mut Vec::new()), None);
++            // Test-only reset: production has no invalidation writer for this cache.
++            checker.late_bound_member_names.remove(&(base, false));
++            for _ in 0..2 {
++                assert_eq!(checker.get_property_of_declared_symbol(derived, "late", &mut Vec::new()), Some(expected));
++            }
++        });
+     }
+ 
+     #[test]

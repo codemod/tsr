@@ -123,13 +123,13 @@ export function inherited(value: Child[keyof Child]) { return value; }
         source,
         &[
             "recursive : (value: Rec[\"item\"]) => string | undefined",
-            "length : (value: 2) => 2",
+            "length : (value: Length<[string, number]>) => 2",
             "terminal : (value: Tree<string>) => string",
             "union : (value: AB) => AB",
             "empty : (value: Values[never]) => never",
             "symbolic : <T, K extends keyof T>(value: Entry<T, K>) => Entry<T, K>",
-            "text : (value: string) => string",
-            "number : (value: number) => number",
+            "text : (value: Lookup<string>) => string",
+            "number : (value: Lookup<number>) => number",
             "inherited : (value: Child[keyof Child]) => string | number",
         ],
     );
@@ -157,11 +157,11 @@ export function requiredField(value: HasValue<() => void>) { return value; }
         &[
             "data.name : string",
             "data.count : number",
-            "arrow : (value: true) => true",
-            "constructor : (value: true) => true",
+            "arrow : (value: IsFunction<() => void>) => true",
+            "constructor : (value: IsFunction<new () => object>) => true",
             "primitive : (value: IsFunction<string>) => false",
             "plainObject : (value: IsFunction<{ value: number; }>) => false",
-            "requiredField : (value: false) => false",
+            "requiredField : (value: HasValue<() => void>) => false",
         ],
     );
 }
@@ -213,8 +213,8 @@ export const asyncConcrete = deferredAsync({ select: "yes" });
             "intersection : <T extends { a: string; }>(value: (T & { b: number; })[\"a\"]) => (T & { b: number; })[\"a\"]",
             "fixed : <T extends unknown[]>(value: [string, ...T][0]) => string",
             "rest : <T extends unknown[]>(value: [string, ...T][1]) => [string, ...T][1]",
-            "pattern : (value: number) => number",
-            "stringIndex : <T extends string>(value: number) => number",
+            "pattern : (value: { [key: `a${string}`]: number; }[`a${string}`]) => number",
+            "stringIndex : <T extends string>(value: { [key: string]: number; }[T]) => number",
             "box : <T>(value: Box<T>[\"item\"]) => T",
             "concrete : { item: \"literal\"; }",
             "conditionalConcrete : 1",

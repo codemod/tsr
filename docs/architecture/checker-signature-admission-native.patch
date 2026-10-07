@@ -1,0 +1,327 @@
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -19835,9 +19835,11 @@
+ 
+ func (c *Checker) getSignatureFromDeclaration(declaration *ast.Node) *Signature {
+ 	links := c.signatureLinks.Get(declaration)
++	nativeAdmissionEvent(c, "signature-entry", nil, links.resolvedSignature)
+ 	if links.resolvedSignature != nil {
+ 		return links.resolvedSignature
+ 	}
++	nativeAdmissionEvent(c, "signature-worker", nil, nil)
+ 	var parameters []*ast.Symbol
+ 	var flags SignatureFlags
+ 	var thisParameter *ast.Symbol
+@@ -19999,12 +20001,15 @@
+ }
+ 
+ func (c *Checker) getReturnTypeOfSignature(sig *Signature) *Type {
++	nativeAdmissionEvent(c, "return-entry", nil, sig)
+ 	if sig.resolvedReturnType != nil {
+ 		return sig.resolvedReturnType
+ 	}
+ 	if !c.pushTypeResolution(sig, TypeSystemPropertyNameResolvedReturnType) {
++		nativeAdmissionEvent(c, "return-reentry-error", nil, sig)
+ 		return c.errorType
+ 	}
++	nativeAdmissionEvent(c, "return-worker", nil, sig)
+ 	var t *Type
+ 	switch {
+ 	case sig.target != nil:
+@@ -20045,6 +20050,7 @@
+ 	if sig.resolvedReturnType == nil {
+ 		sig.resolvedReturnType = t
+ 	}
++	nativeAdmissionEvent(c, "return-publish", nil, sig)
+ 	return sig.resolvedReturnType
+ }
+ 
+@@ -20648,6 +20654,8 @@
+ }
+ 
+ func (c *Checker) resolveAnonymousTypeMembers(t *Type) {
++	nativeAdmissionEvent(c, "anonymous-worker", t, nil)
++	defer nativeAdmissionEvent(c, "anonymous-exit", t, nil)
+ 	d := t.AsObjectType()
+ 	if d.target != nil {
+ 		c.setStructuredTypeMembers(t, nil, nil, nil, nil)
+@@ -22102,6 +22110,7 @@
+ }
+ 
+ func (c *Checker) instantiateTypeWithAlias(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
++	nativeAdmissionEvent(c, "instantiate-entry", t, nil)
+ 	// Check for type variables in the alias, so things like `type Brand<T> = number & {}` can potentially be copied with new alias type args, despite them being unreferenced.
+ 	// This is the behavior most people using aliases expect, and prevents the cache from leaking type parameters outside their scope of validity.
+ 	// tests/cases/compiler/declarationEmitArrowFunctionNoRenaming.ts contains an example of this, which previously only worked in strada via some input node reuse logic instead.
+@@ -22182,6 +22191,7 @@
+ // we perform type inference (i.e. a type parameter of a generic function). We cache
+ // results for union and intersection types for performance reasons.
+ func (c *Checker) couldContainTypeVariablesWorker(t *Type) bool {
++	nativeAdmissionEvent(c, "could-contain-worker", t, nil)
+ 	if t.flags&TypeFlagsStructuredOrInstantiable == 0 {
+ 		return false
+ 	}
+@@ -22302,6 +22312,7 @@
+ // InstantiationExpressionType (ObjectFlagsInstantiationExpressionType)
+ // MappedType (ObjectFlagsMapped)
+ func (c *Checker) getObjectTypeInstantiation(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
++	nativeAdmissionEvent(c, "object-instantiation-worker", t, nil)
+ 	var declaration *ast.Node
+ 	var target *Type
+ 	var typeParameters []*Type
+--- /dev/null
++++ b/internal/checker/native_admission_contract.go
+@@ -0,0 +1,119 @@
++package checker
++
++import (
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"sync"
++)
++
++// A test-only observer on a fresh pinned archive. Event snapshots read fields
++// and the actual resolution stack; they never ask another semantic question.
++type nativeAdmissionTrace struct{ events []map[string]any }
++
++var nativeAdmissionTraces sync.Map
++
++func nativeAdmissionEvent(c *Checker, event string, t *Type, sig *Signature) {
++	v, ok := nativeAdmissionTraces.Load(c)
++	if !ok {
++		return
++	}
++	row := map[string]any{"event": event, "checker": fmt.Sprintf("%p", c), "resolution_depth": len(c.typeResolutions)}
++	if t != nil {
++		row["type_id"] = uint32(t.id)
++		row["object_flags"] = uint32(t.objectFlags)
++		if t.flags&TypeFlagsObject != 0 {
++			row["members_resolved"] = t.objectFlags&ObjectFlagsMembersResolved != 0
++			row["signature_count"] = len(t.AsStructuredType().signatures)
++		}
++		if t.symbol != nil {
++			row["symbol"] = t.symbol.Name
++		}
++	}
++	if sig != nil {
++		row["signature_id"] = uint32(sig.id)
++		row["return_resolved"] = sig.resolvedReturnType != nil
++		active := false
++		for _, r := range c.typeResolutions {
++			if r.target == sig && r.propertyName == TypeSystemPropertyNameResolvedReturnType {
++				active = true
++			}
++		}
++		row["return_active"] = active
++		row["has_target"] = sig.target != nil
++		if sig.declaration != nil && sig.declaration.Name() != nil {
++			row["declaration"] = sig.declaration.Name().Text()
++		}
++	}
++	trace := v.(*nativeAdmissionTrace)
++	trace.events = append(trace.events, row)
++}
++
++func (c *Checker) NativeAdmissionContract(fn, owner *ast.Node, order, mapperKind string) map[string]any {
++	trace := &nativeAdmissionTrace{}
++	nativeAdmissionTraces.Store(c, trace)
++	defer nativeAdmissionTraces.Delete(c)
++	t := c.getTypeOfSymbol(c.getMergedSymbol(fn.Symbol()))
++	state := func(t *Type) map[string]any {
++		d := t.AsStructuredType()
++		returns := []bool{}
++		for _, s := range d.signatures {
++			returns = append(returns, s.resolvedReturnType != nil)
++		}
++		return map[string]any{"type_id": uint32(t.id), "members_resolved": t.objectFlags&ObjectFlagsMembersResolved != 0, "signature_count": len(d.signatures), "returns_resolved": returns}
++	}
++	var signatures []*Signature
++	if order == "signatures-first" || order == "return-first" {
++		signatures = c.getSignaturesOfType(t, SignatureKindCall)
++	}
++	if order == "return-first" {
++		for _, s := range signatures {
++			c.getReturnTypeOfSignature(s)
++		}
++	}
++	before := state(t)
++	var mapper *TypeMapper
++	switch mapperKind {
++	case "this-only":
++		d := c.getDeclaredTypeOfClassOrInterface(c.getMergedSymbol(owner.Symbol()))
++		mapper = newTypeMapper([]*Type{d.AsInterfaceType().thisType}, []*Type{d})
++	case "outer-number", "outer-no-op":
++		ps := c.getOuterTypeParameters(fn, true)
++		args := make([]*Type, len(ps))
++		for i, p := range ps {
++			args[i] = c.numberType
++			if mapperKind == "outer-no-op" {
++				args[i] = p
++			}
++		}
++		mapper = newTypeMapper(ps, args)
++	case "nil":
++	default:
++		panic(mapperKind)
++	}
++	start := len(trace.events)
++	image := c.instantiateTypeWithAlias(t, mapper, nil)
++	afterMap := state(image)
++	originalAfterMap := state(t)
++	mapEvents := append([]map[string]any{}, trace.events[start:]...)
++	repeated := c.instantiateTypeWithAlias(t, mapper, nil)
++	signatures = c.getSignaturesOfType(image, SignatureKindCall)
++	afterSignatures := state(image)
++	returnTypes := []string{}
++	returnError := []bool{}
++	targets := []bool{}
++	ownParameters := []int{}
++	for _, sig := range signatures {
++		targets = append(targets, sig.target != nil)
++		ownParameters = append(ownParameters, len(sig.typeParameters))
++		ret := c.getReturnTypeOfSignature(sig)
++		returnTypes = append(returnTypes, c.TypeToString(ret))
++		returnError = append(returnError, ret == c.errorType)
++	}
++	beforeWarm := len(trace.events)
++	repeatedSignatures := c.getSignaturesOfType(image, SignatureKindCall)
++	for _, sig := range repeatedSignatures {
++		c.getReturnTypeOfSignature(sig)
++	}
++	warmEvents := append([]map[string]any{}, trace.events[beforeWarm:]...)
++	return map[string]any{"checker": fmt.Sprintf("%p", c), "before": before, "after_map": afterMap, "original_after_map": originalAfterMap, "after_signatures": afterSignatures, "after_returns": state(image), "same_identity": image == t, "repeat_same_identity": repeated == image, "return_types": returnTypes, "return_error": returnError, "signature_targets": targets, "own_parameter_counts": ownParameters, "map_events": mapEvents, "warm_events": warmEvents, "all_events": trace.events}
++}
+--- /dev/null
++++ b/internal/checker/native_admission_contract_test.go
+@@ -0,0 +1,131 @@
++package checker_test
++
++import (
++	"encoding/json"
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/compiler"
++	"github.com/microsoft/typescript-go/internal/core"
++	"github.com/microsoft/typescript-go/internal/tsoptions"
++	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
++	"testing"
++)
++
++func TestNativeSignatureAdmissionParsed(t *testing.T) {
++	cases := []struct {
++		name, body, expected string
++		nested, recursive    bool
++	}{
++		{"merged", "function f(){return 1} namespace f {export const bar=1}", "number", false, false},
++		{"plain", "function f(){return 1}", "number", false, false},
++		{"annotated", "function f():number{return 1}", "number", false, false},
++		{"ambient", "declare function f():number;", "number", false, false},
++		{"recursive-never", "function f(){return f()}", "never", false, false},
++		{"recursive-annotation", "function f():ReturnType<typeof f>{return f()}", "any", false, true},
++		{"unresolved", "function f(){return missingValue}", "any", false, false},
++		{"nested-generic", "function outer<T>(x:T){function f(){return x} return f}", "number", true, false},
++		{"nested-shadow", "function outer<T>(x:T){function f<U>(u:U){return u} return f}", "U", true, false},
++	}
++	for _, tc := range cases {
++		for _, order := range []string{"cold", "signatures-first", "return-first", "checked-first"} {
++			mappers := []string{"this-only", "nil"}
++			if tc.nested {
++				mappers = []string{"outer-number", "outer-no-op", "nil"}
++			}
++			for _, mapperKind := range mappers {
++				t.Run(tc.name+"/"+order+"/"+mapperKind, func(t *testing.T) {
++					body := tc.body + " interface Owner<T>{value:T}"
++					config := `{"compilerOptions":{"strict":true,"target":"es2020","types":[],"skipLibCheck":true,"noEmit":true,"incremental":false,"composite":false,"singleThreaded":true},"files":["input.ts"]}`
++					fs := bundled.WrapFS(vfstest.FromMap(map[string]string{"/input.ts": body, "/tsconfig.json": config}, false))
++					host := compiler.NewCompilerHost("/", fs, bundled.LibPath(), nil, nil)
++					parsed, errors := tsoptions.GetParsedCommandLineOfConfigFile("/tsconfig.json", &core.CompilerOptions{}, nil, host, nil)
++					if len(errors) != 0 {
++						t.Fatal(errors)
++					}
++					p := compiler.NewProgram(compiler.ProgramOptions{Config: parsed, Host: host})
++					p.BindSourceFiles()
++					file := p.GetSourceFile("/input.ts")
++					if order == "checked-first" {
++						p.GetSemanticDiagnostics(t.Context(), file)
++					}
++					var fn, owner *ast.Node
++					var visit func(*ast.Node) bool
++					visit = func(n *ast.Node) bool {
++						if n.Kind == ast.KindFunctionDeclaration && n.Name() != nil && n.Name().Text() == "f" {
++							fn = n
++						}
++						if n.Kind == ast.KindInterfaceDeclaration && n.Name().Text() == "Owner" {
++							owner = n
++						}
++						n.ForEachChild(visit)
++						return false
++					}
++					file.ForEachChild(visit)
++					if fn == nil || owner == nil {
++						t.Fatal("missing declaration")
++					}
++					c, done := p.GetTypeChecker(t.Context())
++					defer done()
++					row := c.NativeAdmissionContract(fn, owner, order, mapperKind)
++					row["case"] = tc.name
++					row["order"] = order
++					row["mapper"] = mapperKind
++					row["body"] = body
++					row["program"] = fmt.Sprintf("%p", p)
++					raw, _ := json.Marshal(row)
++					t.Logf("NATIVE_ADMISSION %s", raw)
++					expected := tc.expected
++					if tc.name == "nested-generic" && mapperKind != "outer-number" {
++						expected = "T"
++					}
++					returns := row["return_types"].([]string)
++					if len(returns) != 1 || returns[0] != expected {
++						t.Fatalf("return mismatch: %v", row)
++					}
++					if row["repeat_same_identity"] != true {
++						t.Fatal("warm mapper identity", row)
++					}
++					if !tc.nested || mapperKind != "outer-number" {
++						if row["same_identity"] != true {
++							t.Fatal("nongeneric/no-op identity", row)
++						}
++					} else if row["same_identity"] != false {
++						t.Fatal("required generic instantiation missing", row)
++					}
++					for _, e := range row["map_events"].([]map[string]any) {
++						if e["event"] == "return-worker" || e["event"] == "signature-worker" || e["event"] == "anonymous-worker" {
++							t.Fatal("instantiation eagerly forced signatures or return", row)
++						}
++					}
++					if order == "cold" {
++						b := row["before"].(map[string]any)
++						if b["members_resolved"] != false || b["signature_count"] != 0 {
++							t.Fatal("cold metadata was already forced", row)
++						}
++					}
++					for _, e := range row["warm_events"].([]map[string]any) {
++						if e["event"] == "return-worker" || e["event"] == "signature-worker" || e["event"] == "anonymous-worker" {
++							t.Fatal("warm demand repeats actual work", row)
++						}
++					}
++					if tc.recursive && order != "checked-first" {
++						active := false
++						reentry := false
++						for _, e := range row["all_events"].([]map[string]any) {
++							if e["return_active"] == true {
++								active = true
++							}
++							if e["event"] == "return-reentry-error" {
++								reentry = true
++							}
++						}
++						if !active || !reentry {
++							t.Fatal("actual recursive return admission not observed", row)
++						}
++					}
++				})
++			}
++		}
++	}
++}

@@ -412,6 +412,17 @@ pub struct Checker<'a, 'n> {
     /// stack when return inference joined that road. A call node present here
     /// answers `any` on re-entry rather than resolving again.
     pub(crate) resolving_signature_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// `NodeCheckFlagsContextChecked` (`checker.go:10155`,
+    /// `contextuallyCheckFunctionExpressionOrObjectLiteralMethod`) for the
+    /// context-sensitive arguments of the overload walk in progress: an
+    /// argument here was already checked under an earlier candidate of its
+    /// call, so its parameter and return types are fixed and inference reads
+    /// its published type instead of evicting and re-checking it. Keyed by
+    /// the argument node; owner `calls.rs` `transcribed_generic_set_walk`,
+    /// which inserts after a generic candidate's inference checked the
+    /// argument and removes its arguments when the walk ends. No work happens
+    /// on publication.
+    pub(crate) context_checked_arguments: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// Active synchronous iterable resolution, guarding recursive protocols.
     pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
     /// `getResolvedMembersOrExportsOfSymbol` / `lateBindMember`: semantic names,
@@ -682,6 +693,11 @@ pub struct Checker<'a, 'n> {
     /// cached and what would have to land first.
     pub(crate) exhaustive_switches: rustc_hash::FxHashSet<NodeId>,
     pub(crate) no_implicit_any: bool,
+    /// `slices.Contains(c.compilerOptions.Lib, "lib.dom.d.ts")`, read by
+    /// `containerSeemsToBeEmptyDomElement` (`checker.go:11654`): the explicit
+    /// `lib` list names the DOM lib (`"dom"` maps to `lib.dom.d.ts` in
+    /// `tsoptions.LibMap`; both spellings, case-insensitively).
+    pub(crate) lib_includes_dom: bool,
     /// Object-literal types created in a JS file — upstream's
     /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
@@ -898,8 +914,6 @@ pub struct Checker<'a, 'n> {
     pub(crate) enum_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Once per symbol for `checkExportsOnMergedDeclarations`. §960.
     pub(crate) merged_spaces_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Once per symbol for TS2385. §1021.
-    pub(crate) overload_accessibility_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Symbols `checkFunctionOrConstructorSymbol` has already visited.
     ///
     /// Upstream's `links.functionOrConstructorChecked` (`checker.go:3463`,
@@ -907,8 +921,6 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Symbols whose overload ambient agreement has been checked. §673.
-    pub(crate) overload_agreement_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Nodes for which `check_modifier_order` — this port's slice of upstream's
     /// `checkGrammarModifiers` — has already reported. Upstream's callers are
     /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
@@ -1374,6 +1386,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
+            context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
@@ -1436,6 +1449,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
+            lib_includes_dom: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
@@ -1489,9 +1503,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             enum_checked: rustc_hash::FxHashSet::default(),
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
-            overload_accessibility_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
-            overload_agreement_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
             decorator_error_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
@@ -1657,6 +1669,10 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+        self.lib_includes_dom = options
+            .lib
+            .iter()
+            .any(|lib| lib.eq_ignore_ascii_case("dom") || lib.eq_ignore_ascii_case("lib.dom.d.ts"));
 
         // `getJsxNamespace`'s three-way default (`jsx.go:1372-1382`): `React`,
         // unless `jsxFactory` names an entity — in which case its **first**
@@ -2526,23 +2542,30 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            if let Some(written) = &parameter.written_text {
-                out.push_str(written);
+            let parameter_type = self.parameter_type(parameter);
+            if let Some(text) = parameter.written_text.and_then(|written| {
+                self.written_annotation_text_at(written, parameter_type, reference)
+            }) {
+                out.push_str(&text);
             } else if let Some(text) =
                 self.signature_parameter_alias_text_at(signature, parameter, reference)
             {
                 out.push_str(&text);
             } else {
                 let rendered = self
-                    .type_to_string_at(parameter.r#type, reference)
-                    .unwrap_or_else(|| self.type_to_string(parameter.r#type));
+                    .type_to_string_at(parameter_type, reference)
+                    .unwrap_or_else(|| self.type_to_string(parameter_type));
                 out.push_str(&rendered);
             }
         }
         out.push_str("): ");
-        match (&signature.predicate, &signature.written_return) {
+        let written_return = signature.written_return.and_then(|written| {
+            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
+            self.written_annotation_text_at(written, current, reference)
+        });
+        match (&signature.predicate, written_return) {
             (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
-            (None, Some(written)) => out.push_str(written),
+            (None, Some(text)) => out.push_str(&text),
             (None, None) => {
                 let return_type =
                     self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
@@ -2947,7 +2970,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   288 lines that get a different container than upstream's; every one of
     ///   them is a line that is wrong today and stays wrong, so the omission
     ///   costs conversions rather than manufacturing losses.
-    fn symbol_chain(
+    pub(crate) fn symbol_chain(
         &mut self,
         symbol: SymbolId,
         reference: NodeId,
@@ -3159,7 +3182,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// correction. Dropping the merge here re-introduces those 13 lines as real
     /// losses, and `symbol_chain_does_not_split_a_merged_declaration` is the
     /// test that says so.
-    fn needs_qualification(
+    pub(crate) fn needs_qualification(
         &self,
         symbol: SymbolId,
         name: &str,
@@ -3650,6 +3673,26 @@ impl<'a, 'n> Checker<'a, 'n> {
                     .get(candidate)
                     .flags
                     .intersects(tsr_binder::SymbolFlags::ALIAS)
+                {
+                    continue;
+                }
+                // Ported from typescript-go's `trySymbolTable`
+                // (`internal/checker/symbolaccessibility.go`), pinned 5b1047d:
+                // this is a local-name lookup, not a qualified exports lookup.
+                let entry = self.binder.symbols().get(candidate);
+                if entry.name == "default"
+                    || entry.name == "export="
+                    || entry.declarations.iter().any(|&declaration| {
+                        self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier
+                            || matches!(self.node_map.get(declaration), Some(Node::NamespaceExport(_)))
+                                && self.nodes.parent(declaration).and_then(|parent| self.node_map.get(parent))
+                                    .is_some_and(|parent| matches!(parent, Node::ExportDeclaration(export) if export.module_specifier.is_some()))
+                    })
+                    || (entry.declarations.first().is_some_and(|&declaration| {
+                        self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+                    }) && self.source_file_of(reference).and_then(|file| self.node_map.get(file))
+                        .is_some_and(|file| matches!(file, Node::SourceFile(source)
+                            if tsr_binder::is_external_module(source))))
                 {
                     continue;
                 }

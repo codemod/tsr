@@ -1591,6 +1591,77 @@ impl<'a> Checker<'a, '_> {
         .is_some()
     }
 
+    /// `getIntendedTypeFromJSDocTypeReference` (`checker.go:23020`): inside
+    /// JSDoc, `String`/`Number`/`BigInt`/`Boolean`/`Void`/`Undefined`/`Null`
+    /// name the primitives, `Function`/`function` the global `Function` type,
+    /// and (without `noImplicitAny`) bare `array`/`promise`/`Object` are
+    /// `any[]`/`Promise<any>`/`any`. `None` everywhere else, including
+    /// outside JSDoc. Upstream's `NodeFlagsJSDoc` is a parse flag this
+    /// parser does not set; a JSDoc type is the one with a JSDoc ancestor,
+    /// asked only after the name gate so ordinary references pay nothing.
+    ///
+    /// Not ported: the `Object.<K, V>` arm, which answers
+    /// `getTypeAliasInstantiation(Record, [K, V])`. This port has no alias
+    /// instantiation by type list, so that arm declines and the reference
+    /// resolves as written, as it did before this function existed.
+    fn get_intended_type_from_jsdoc_type_reference(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        name: &str,
+        id: NodeId,
+    ) -> Option<TypeId> {
+        let arguments = node.type_arguments.len();
+        let intended = match name {
+            "String" | "Number" | "BigInt" | "Boolean" | "Void" | "Undefined" | "Null"
+            | "Function" | "function" => true,
+            "array" | "promise" => arguments == 0 && !self.no_implicit_any,
+            "Object" => arguments != 2 && !self.no_implicit_any,
+            _ => false,
+        };
+        if !intended {
+            return None;
+        }
+        let mut current = self.nodes.parent(id);
+        loop {
+            let ancestor = current?;
+            let kind = self.nodes.kind(ancestor);
+            if (SyntaxKind::JSDocTypeExpression..=SyntaxKind::JSDocImportTag).contains(&kind) {
+                break;
+            }
+            if kind == SyntaxKind::SourceFile {
+                return None;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        // `checkNoTypeArguments` on the primitive arms reports TS2315 and
+        // still answers the primitive; the diagnostic is not reported here.
+        let intrinsics = &self.intrinsics;
+        Some(match name {
+            "String" => intrinsics.string,
+            "Number" => intrinsics.number,
+            "BigInt" => intrinsics.bigint,
+            "Boolean" => intrinsics.boolean,
+            "Void" => intrinsics.void,
+            "Undefined" => intrinsics.undefined,
+            "Null" => intrinsics.null,
+            "Function" | "function" => {
+                let function = self.global_type_symbol_with_arity("Function", 0)?;
+                self.get_declared_type_of_symbol(function)
+            }
+            "array" => {
+                let array = self.global_type_symbol_with_arity("Array", 1)?;
+                let any = self.intrinsics.any;
+                self.create_type_reference(array, vec![any])
+            }
+            "promise" => {
+                let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+                let any = self.intrinsics.any;
+                self.create_type_reference(promise, vec![any])
+            }
+            _ => self.intrinsics.any,
+        })
+    }
+
     /// Ported from `Checker.getTypeFromTypeReference` into
     /// `getTypeReferenceType` (`checker.go:23146`).
     ///
@@ -1648,6 +1719,13 @@ impl<'a> Checker<'a, '_> {
             None => return error,
         };
         let Some(id) = name.node_id else { return error };
+        // `getTypeFromTypeReference` (`checker.go:23003`) asks
+        // `getIntendedTypeFromJSDocTypeReference` before resolving the name.
+        if let Some(intended) =
+            self.get_intended_type_from_jsdoc_type_reference(node, name.text, id)
+        {
+            return intended;
+        }
         // `SymbolFlags::TYPE` is upstream's meaning for a type reference
         // (`resolveTypeReferenceName`). It is what lets the resolver consult an
         // enclosing class's or interface's `members` for a type parameter — see
@@ -2009,13 +2087,18 @@ impl<'a> Checker<'a, '_> {
         self.instantiated_objects.insert(cache_key.clone(), reserved);
         let mut failed = false;
         for property in properties.iter_mut().flatten() {
-            property.r#type = self.instantiate_type(property.r#type, map, parameters, names);
+            let current = self.property_type(property);
+            let instantiated = self.instantiate_type(current, map, parameters, names);
+            property.slot = crate::objects::PropertySlot::resolved(instantiated);
             if let Some(write) = &mut property.accessor_write {
-                write.r#type = self.instantiate_type(write.r#type, map, parameters, names);
-                failed |= write.r#type == self.intrinsics.error;
+                let write_type = self.parameter_type(write);
+                let write_type = self.instantiate_type(write_type, map, parameters, names);
+                write.set_type(write_type);
+                failed |= self.parameter_type(write) == self.intrinsics.error;
             }
-            failed |= property.r#type == self.intrinsics.error;
-            property.printed_type = self.type_to_string(property.r#type);
+            failed |= instantiated == self.intrinsics.error;
+            property.printed_slot =
+                crate::objects::PrintedSlot::printed(self.type_to_string(instantiated));
         }
         let signatures: Option<Vec<_>> = original_signatures
             .unwrap_or_default()
@@ -2091,8 +2174,8 @@ impl<'a> Checker<'a, '_> {
                 };
                 self.type_literal_member_key(method.name, symbol, &printed) == property.name
             });
-            if is_method
-                && let Some(overloads) = self.signature_types.get(&property.r#type).cloned()
+            let property_type = self.property_type(property);
+            if is_method && let Some(overloads) = self.signature_types.get(&property_type).cloned()
             {
                 for signature in overloads {
                     members.push(crate::objects::Member::Signature {
@@ -2109,7 +2192,7 @@ impl<'a> Checker<'a, '_> {
                     name: property.printed_name.clone(),
                     optional: property.optional,
                     readonly: property.readonly,
-                    printed: property.printed_type.clone(),
+                    printed: self.property_printed_type(property).into_owned(),
                 });
             }
         }
@@ -2385,7 +2468,8 @@ impl<'a> Checker<'a, '_> {
                     let existing =
                         typed_properties.iter().position(|property| property.name == key);
                     let mut overloads = existing
-                        .and_then(|index| self.signature_types.get(&typed_properties[index].r#type))
+                        .map(|index| self.property_type(&typed_properties[index]))
+                        .and_then(|property_type| self.signature_types.get(&property_type))
                         .cloned()
                         .unwrap_or_default();
                     overloads.push(signature);
@@ -2414,10 +2498,10 @@ impl<'a> Checker<'a, '_> {
                         checked_declaration: None,
                         name: key,
                         printed_name,
-                        printed_type,
+                        printed_slot: crate::objects::PrintedSlot::printed(printed_type),
                         optional,
                         readonly: false,
-                        r#type: method_type,
+                        slot: crate::objects::PropertySlot::resolved(method_type),
                     };
                     if let Some(index) = existing {
                         typed_properties[index] = property;
@@ -2551,10 +2635,10 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: accessor_name.text.to_string(),
                     printed_name: accessor_name.text.to_string(),
-                    printed_type: printed.clone(),
+                    printed_slot: crate::objects::PrintedSlot::printed(printed.clone()),
                     optional: false,
                     readonly: is_getter && !paired,
-                    r#type: member_type,
+                    slot: crate::objects::PropertySlot::resolved(member_type),
                 });
                 properties.push(crate::objects::Member::Property {
                     name: accessor_name.text.to_string(),
@@ -2638,34 +2722,10 @@ impl<'a> Checker<'a, '_> {
             // annotation does not resolve used to decline the WHOLE literal —
             // `{ a: string; b: Array }` printed `error`, losing `a` as well.
             // Upstream's member carries `errorType` and the node builder reuses
-            // the written annotation node, exactly as it does for a parameter.
-            //
-            // Recorded in the same channel (`qualified_written_text`), so the
-            // `printed` slot below picks it up through
-            // `written_annotation_text` for the three annotation shapes it
-            // already consults, and `unresolved_printed` carries the rest.
-            let mut unresolved_printed = None;
+            // the written annotation node, exactly as it does for a parameter
+            // (`pseudoTypeEquivalentToType`'s error charity).
             let member_type = match property.r#type {
-                Some(annotation) => {
-                    let member_type = self.get_type_from_type_node(annotation);
-                    if member_type == error {
-                        let mut single_quoted = false;
-                        let mut array_headed = false;
-                        let Some(spelled) = Self::written_type_text(
-                            annotation,
-                            &mut single_quoted,
-                            &mut array_headed,
-                        ) else {
-                            // No printable spelling: still a whole-literal
-                            // decline, because inventing one would be worse.
-                            return error;
-                        };
-                        unresolved_printed = Some(spelled);
-                        self.intrinsics.any
-                    } else {
-                        member_type
-                    }
-                }
+                Some(annotation) => self.get_type_from_type_node(annotation),
                 None => self.intrinsics.any,
             };
             // `?` on a property signature; `!` cannot appear on one, so the
@@ -2675,32 +2735,22 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
-            // A property *written* with a single-member literal keeps its
-            // braces text, the same carriage the parameter slot takes —
-            // `bd tsr-d4li`; the second measurement's 55 residual losses were
-            // exactly this slot. Restricted to the literal shape so nothing
-            // else changes spelling here.
-            // §517 adds the UNION spelling: a member annotation `number |
-            // string` whose union interned under the other order prints the
-            // WRITTEN order (`functionOverloads43-45`'s
-            // `{ a: number | string; }`); `written_annotation_text`'s §137
-            // gate admits ONLY same-set-different-order unions, so nothing
-            // else changes spelling.
-            let printed = match (unresolved_printed, property.r#type) {
-                // §930: the annotation did not resolve; its written spelling is
-                // the answer, whatever shape the node is.
-                (Some(spelled), _) => spelled,
-                (
-                    None,
-                    Some(
-                        annotation @ (tsr_ast::TypeNode::TypeLiteralNode(_)
-                        | tsr_ast::TypeNode::ArrayTypeNode(_)
-                        | tsr_ast::TypeNode::UnionTypeNode(_)),
-                    ),
-                ) => self
-                    .written_annotation_text(annotation)
-                    .unwrap_or_else(|| self.type_to_string(member_type)),
-                _ => self.type_to_string(member_type),
+            // `addPropertyToElementList` (`nodebuilderimpl.go:2486`) prints
+            // the member through `serializeTypeForDeclaration`, whose reuse
+            // arm keeps the WRITTEN annotation node when it is equivalent to
+            // the member's type (`crate::node_reuse`).
+            let reused = property
+                .r#type
+                .and_then(|annotation| self.reused_annotation_text(annotation, member_type));
+            let (member_type, printed) = if member_type == error {
+                // No reusable node: still a whole-literal decline, because
+                // inventing a spelling would be worse. Otherwise this port's
+                // stand-in for `errorType` at printing positions is `any`.
+                let Some(reused) = reused else { return error };
+                (self.intrinsics.any, reused)
+            } else {
+                let printed = reused.unwrap_or_else(|| self.type_to_string(member_type));
+                (member_type, printed)
             };
             if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
                 // declareSymbolEx (binder.go:152): `PropertyExcludes` is
@@ -2720,10 +2770,10 @@ impl<'a> Checker<'a, '_> {
                     checked_declaration: None,
                     name: self.type_literal_member_key(property.name, symbol, &name),
                     printed_name: name.clone(),
-                    printed_type: printed.clone(),
+                    printed_slot: crate::objects::PrintedSlot::printed(printed.clone()),
                     optional,
                     readonly,
-                    r#type: member_type,
+                    slot: crate::objects::PropertySlot::resolved(member_type),
                 });
             }
             properties.push(crate::objects::Member::Property { name, optional, readonly, printed });
@@ -4449,7 +4499,24 @@ impl<'a> Checker<'a, '_> {
         // partially-written list has to choose which position the default fills
         // and that choice is visible in print; a bare list fills every position
         // and has no choice to get wrong.
-        let fillable = partially_written || bare_and_fully_defaulted;
+        // `getTypeFromClassOrInterfaceReference` (`checker.go:23169`): in a
+        // JavaScript file a class or interface reference short of its
+        // arguments still instantiates — the arity error is reported and
+        // `fillMissingTypeArguments(…, isJs)` fills the tail with `any`
+        // (`@type {Array}` is `any[]`). An alias reference has no such arm.
+        let js_fill = node.type_arguments.len() < parameters
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
+            // `ast.IsInJSFile(node)`: the file flag, reached through the
+            // JSDoc host edge for a reference written in a JSDoc comment.
+            && node.node_id.and_then(|id| self.source_file_of(id)).is_some_and(|file| {
+                self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+            });
+        let fillable = partially_written || bare_and_fully_defaulted || js_fill;
         if node.type_arguments.len() != parameters && !fillable {
             return error;
         }
@@ -4522,9 +4589,28 @@ impl<'a> Checker<'a, '_> {
             let written = arguments.len();
             for index in written..parameters {
                 let frames = std::mem::take(&mut self.alias_evaluation_bindings);
-                let declared = self
-                    .get_default_from_type_parameter(types[index])
-                    .unwrap_or(self.intrinsics.unknown);
+                let mut declared = self.get_default_from_type_parameter(types[index]);
+                // `fillMissingTypeArguments`' JavaScript arm: a default
+                // identical to `unknown` or `{}` is `any`, and an absent one is
+                // `getDefaultTypeArgumentType(true)` = `any`.
+                if js_fill
+                    && let Some(default) = declared
+                    && default != error
+                {
+                    let (unknown, empty) = (self.intrinsics.unknown, self.intrinsics.empty_object);
+                    if self.is_type_identical_to(default, unknown)
+                        == crate::relater::Ternary::Related
+                        || self.is_type_identical_to(default, empty)
+                            == crate::relater::Ternary::Related
+                    {
+                        declared = Some(self.intrinsics.any);
+                    }
+                }
+                let declared = declared.unwrap_or(if js_fill {
+                    self.intrinsics.any
+                } else {
+                    self.intrinsics.unknown
+                });
                 self.alias_evaluation_bindings = frames;
                 if declared == error {
                     return error;
@@ -4535,9 +4621,12 @@ impl<'a> Checker<'a, '_> {
                     filled.resize(parameters, self.intrinsics.any);
                     (declared, types.iter().copied().zip(filled).collect::<Vec<_>>())
                 } else {
-                    let resolved = self
-                        .get_default_from_type_parameter(types[index])
-                        .unwrap_or(self.intrinsics.unknown);
+                    let resolved = if js_fill {
+                        declared
+                    } else {
+                        self.get_default_from_type_parameter(types[index])
+                            .unwrap_or(self.intrinsics.unknown)
+                    };
                     if resolved == error {
                         return error;
                     }
