@@ -440,6 +440,21 @@ Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
 Seven fresh-process samples after/before 0.99696, after/native 1.59184; complete-work/
 no-hotpath/release performance uncertified. Receipts `tuple-optional-tail-*`.
 
+## Nested variadic tuple spread
+
+Source tuple normalization now routes spread operands with existing variadic tuple
+metadata through the same semantic normalizer as union operands. Native normalization
+flattens fixed elements and array rests before the outer required tail. Existing
+metadata owner, bounds, labels and readonly context retained; no alias constructors
+or cache additions.
+
+Tuple/variadic targets pass; native CLI tuple assignability/index diagnostics compare
+byte-for-byte. Available unfiltered oracle: 4 WRONG→RIGHT, zero former RIGHT losses/
+vanished keys. Seven fresh-process samples after/before 0.98192, after/native 1.60137;
+complete-work/no-hotpath/release performance uncertified. Receipts
+`tuple-nested-rest-*`; test supplies the required Array global. Reserved functions
+remain untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

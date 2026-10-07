@@ -3628,7 +3628,9 @@ impl<'a> Checker<'a, '_> {
                 pieces.push(format!("{prefix}{printed}{suffix}"));
             }
             if resolved_elements.iter().any(|element| {
-                element.spread && self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
+                element.spread
+                    && (self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
+                        || self.variadic_tuple_elements.contains_key(&element.r#type))
             }) {
                 // Native createNormalizedTupleTypeEx distributes variadic union
                 // operands before positional normalization. Reuse the existing
