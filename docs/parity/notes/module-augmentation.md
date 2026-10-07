@@ -429,6 +429,33 @@ native evidence rather than pretending ES5 equivalent work.
 Binder tests/clippy/format pass; Linux CPU new/base 1.0049/0.9984 (21 samples).
 Callable publication region untouched; campaign/native complete-work goal open.
 
+## Function-owned gathered JSDoc templates (tsr-2zk.16.107)
+
+Parent identified same-named gathered function parameters merging in file-root
+locals. Native gatherTypeParameters clones each declaration into the function
+host; typedef/callback comments retain their own type owner. Owned experiment
+binds non-typedef templates under native getFunctionLikeHost routes and exposes
+the same SymbolId to detached comment annotations. No default/constraint field
+copies or semantic name-keyed cache. Existing declaration identity drives U=T.
+
+Consumer regression with typedef T default string, first function T/U=T and
+second function T default number fails before/passes after: function T symbols
+are distinct, each has one declaration, no root T, and U's default resolves to
+its own function T. Binder clippy passed. Full current corpus, however, loses
+12 previously RIGHT jsdocTemplateTag6 rows: declared <T> parameters/returns
+render T_1. Zero keys vanish. This is not an accepted cutover or performance
+claim. Applied experiment was removed from production; patch/test preserved in
+ignored recovery receipts.
+
+Required serialized consumer identity: signature's gathered type parameter and
+its parameter/return type must share original declaration/SymbolId ownership;
+function locals and detached-comment bridge must not allocate a second printed
+T owner. Parent owns signatures/printing/callable region. Real function binding
+ownership must not be replaced by copied fields or a typedef/name specialcase.
+Non-direct host lookup work remains a source walk in the experiment and needs
+bounded single-pass host preparation before accepting performance; no speed
+claim. Native full annotation/reparser host cutover remains incomplete.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
