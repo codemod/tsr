@@ -6309,6 +6309,23 @@ impl<'a> Checker<'a, '_> {
         Some(predicate)
     }
 
+    /// Consume a completed target predicate result without confusing absence
+    /// with unsupported target demand. Parent canonical getter must propagate
+    /// unsupported demand before calling this worker.
+    pub fn mapped_signature_predicate(
+        &mut self,
+        signature: &Signature,
+        target_predicate: Option<crate::signatures::TypePredicate>,
+    ) -> Option<Option<crate::signatures::TypePredicate>> {
+        if signature.mapper.is_none() || signature.target.is_none() {
+            return None;
+        }
+        match target_predicate {
+            None => Some(None),
+            Some(predicate) => self.map_signature_predicate(signature, predicate).map(Some),
+        }
+    }
+
     /// One signature with every carried type substituted, or `None` when any
     /// part refuses.
     pub(crate) fn instantiate_signature(

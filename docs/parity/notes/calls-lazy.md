@@ -376,3 +376,18 @@ placeholder installed, no passing-after/runtime/full-parity/perf claim. Native
 signature-identity ordered-argument cache and complete predicate publication
 remain unresolved integration obligations; the writer alone is not complete
 feature acceptance.
+
+### Remaining direct consumer and predicate-state cutover
+
+Owned nongeneric ordinary-call return consumers now demand the canonical return
+before type-argument recovery, unique-symbol checks, counters and concrete-this
+return handling; nongeneric tagged templates use the same getter. No name or
+source-echo heuristic. Public mapped_signature_predicate(signature,
+completed_target_predicate) -> Option<Option<TypePredicate>> preserves unsupported
+mapping, completed absence and mapped success. Parent must propagate unsupported
+target predicate demand before invoking it. No new cache or declaration lookup.
+
+Source applied, but parent Signature.mapper field/getter and outer source fields
+are still absent, so predicate-consumer-check.log is not a passing compile/run.
+No identity/publication/performance proof fabricated; actual parent integration
+is required before ordered-mapper/distinct-context on-demand controls can run.
