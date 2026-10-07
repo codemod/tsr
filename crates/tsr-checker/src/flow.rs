@@ -2714,8 +2714,10 @@ impl Checker<'_, '_> {
     /// (an `asserts` predicate or a `never` return) a CALL flow node
     /// carries, or `None` when the call has none.
     ///
-    /// Upstream caches this per node in `signatureLinks.effectsSignature`;
-    /// this port recomputes — the walk memoises per flow node already.
+    /// Native caches completion per call in `signatureLinks.effectsSignature`.
+    /// This port retains completed negatives for written signatures. Inferred
+    /// predicates and unsupported/deferred signature work remain uncomputed;
+    /// their lazy publication is tracked in tsr-1yb.11.3.2.
     /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
     /// `instanceof` flow-call nodes in this binder).
     fn get_effects_signature(
@@ -2723,6 +2725,11 @@ impl Checker<'_, '_> {
         call_node: NodeId,
         call: &tsr_ast::CallExpression<'_>,
     ) -> Option<crate::signatures::Signature> {
+        if self.effects_completion_context_is_original()
+            && self.completed_no_effects_calls.contains(&call_node)
+        {
+            return None;
+        }
         let callee = call.expression?;
         let callee_id = callee.node_id()?;
         // Native signatures retain lazy returns when checking effects. This
@@ -2770,9 +2777,11 @@ impl Checker<'_, '_> {
                 !call.type_arguments.is_empty(),
             )?
         } else {
+            self.complete_written_no_effects_call(call_node, &signatures);
             return None;
         };
         if !self.has_type_predicate_or_never_return(&signature) {
+            self.complete_written_no_effects_call(call_node, std::slice::from_ref(&signature));
             return None;
         }
         if !signature.type_parameters.is_empty() {
@@ -2788,6 +2797,55 @@ impl Checker<'_, '_> {
         Some(signature)
     }
 
+    /// Native keys effects by the call node. TSR can also evaluate that AST
+    /// under captured alias or mapped-template contexts, so this bounded port
+    /// only retains and reads completion in the original evaluation context.
+    fn effects_completion_context_is_original(&self) -> bool {
+        self.alias_evaluation_bindings.is_empty() && self.mapped_template_depth == 0
+    }
+
+    /// Publish the native completed-unknown boundary only when every signature
+    /// has a written non-predicate annotation and completed return. Such a
+    /// signature cannot later acquire an inferred predicate. Empty, erroneous,
+    /// deferred or context-sensitive views do not certify this completion.
+    fn complete_written_no_effects_call(
+        &mut self,
+        call: NodeId,
+        signatures: &[crate::signatures::Signature],
+    ) {
+        if !self.effects_completion_context_is_original()
+            || signatures.is_empty()
+            || !signatures.iter().all(|signature| {
+                if signature.predicate.is_some()
+                    || signature.r#type == self.intrinsics.error
+                    || self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
+                    || self.is_context_sensitive_function_like(signature.declaration)
+                {
+                    return false;
+                }
+                self.effects_return_annotation(signature.declaration).is_some_and(|annotation| {
+                    !matches!(annotation, tsr_ast::TypeNode::TypePredicateNode(_))
+                })
+            })
+        {
+            return;
+        }
+        self.completed_no_effects_calls.insert(call);
+    }
+
+    fn effects_return_annotation(&self, declaration: NodeId) -> Option<tsr_ast::TypeNode<'_>> {
+        match self.node_map.get(declaration) {
+            Some(Node::FunctionDeclaration(node)) => node.r#type,
+            Some(Node::MethodDeclaration(node)) => node.r#type,
+            Some(Node::FunctionExpression(node)) => node.r#type,
+            Some(Node::ArrowFunction(node)) => node.r#type,
+            Some(Node::FunctionTypeNode(node)) => node.r#type,
+            Some(Node::MethodSignatureDeclaration(node)) => node.r#type,
+            Some(Node::CallSignatureDeclaration(node)) => node.r#type,
+            _ => None,
+        }
+    }
+
     /// `hasTypePredicateOrNeverReturnType` (`flow.go:2211`): a predicate, or
     /// an ANNOTATED return that is `never`. Upstream reads the annotation
     /// (`getReturnTypeFromAnnotation`), never the inferred return — a
@@ -2800,17 +2858,7 @@ impl Checker<'_, '_> {
         if signature.predicate.is_some() {
             return true;
         }
-        let annotated = match self.node_map.get(signature.declaration) {
-            Some(Node::FunctionDeclaration(f)) => f.r#type.is_some(),
-            Some(Node::MethodDeclaration(m)) => m.r#type.is_some(),
-            Some(Node::FunctionExpression(f)) => f.r#type.is_some(),
-            Some(Node::ArrowFunction(f)) => f.r#type.is_some(),
-            Some(Node::FunctionTypeNode(f)) => f.r#type.is_some(),
-            Some(Node::MethodSignatureDeclaration(m)) => m.r#type.is_some(),
-            Some(Node::CallSignatureDeclaration(c)) => c.r#type.is_some(),
-            _ => false,
-        };
-        if annotated {
+        if self.effects_return_annotation(signature.declaration).is_some() {
             return self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER);
         }
         // A JSDoc return node is not copied into this AST's type field. Native
@@ -8762,3 +8810,7 @@ mod query_this_tests;
 #[cfg(test)]
 #[path = "flow_object_facts_tests.rs"]
 mod object_facts_tests;
+
+#[cfg(test)]
+#[path = "flow_effects_completion_tests.rs"]
+mod effects_completion_tests;

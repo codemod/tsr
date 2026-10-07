@@ -386,6 +386,13 @@ pub struct Checker<'a, 'n> {
     /// sensitive arguments. Later contextual reads use the selected signature.
     pub(crate) resolved_call_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// Native 5b1047d `signatureLinks.effectsSignature == unknownSignature`.
+    /// Private Checker / call `NodeId` completion, currently admitted only after
+    /// materializing explicitly annotated, noncontextual signatures with no
+    /// predicate or never effect. Absence includes deferred and inferred work;
+    /// no active/provisional `None` is published here. See
+    /// docs/architecture/checker-effects-completion.md.
+    pub(crate) completed_no_effects_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `CallState.candidatesForArgumentError` (`checker.go:8838`) as the
     /// final (assignable) pass of the §487 overload walk left it when both
     /// passes rejected every candidate, keyed by the CALL node. Owner:
@@ -1383,6 +1390,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+            completed_no_effects_calls: rustc_hash::FxHashSet::default(),
             overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),

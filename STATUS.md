@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Completed-negative call effects, frozen `f0b075b8` versus `b027f09d`: two
+five-pair ordinary rounds retain 13–14% generated400 wall improvement with one
+checker and 26% with four (1.700/1.704 ->1.256/1.259s). API medians do not regress;
+all median peak RSS ratios <=1.031. Actual signature workers fall
+1,127,194 ->2,400 on generated and19,145 ->6,032 on API, with identical complete
+outputs and checked scope. Historical complete type/diagnostic corpora are
+byte-identical (477,970 assertions /10,570 cases), no prior RIGHT losses; temporary
+raw corpus logs were lost, explicitly recorded. Fresh restored189+1 tests,
+strict workspace Clippy and formatting pass. General lazy predicate effects and
+native complete-work <=0.50 target remain open.
+[Source-bound retained slice and evidence](docs/architecture/checker-effects-completion.md).
+
 Current member-field attribution, frozen `53896fa4`: private publication removes
 593,159 default declared lookups, but ordinary inclusive root interval is only
 36.831ms with clocks/nested work; typed forcing remains similar. Publication is
@@ -3424,6 +3436,15 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+`tsr-1yb.11.3.1` characterization and `.11.3.3` bounded completed-negative
+reuse are qualified at frozen `f0b075b8`; the original-context written-signature
+cache passes two ordinary retention confirmations. `.11.3.2` remains the exact
+lazy predicate publication prerequisite for general native effects reuse.
+Keep target-refusal/empty/inferred/foreign-context results uncomputed until
+qualified. Object-literal display `.16.3.10`, alias targets `.7.7.3`, mapper
+identity `.4.1.2`, and member owners `.4.2.1`/`.33.1` remain separate tasks.
+[Effects boundary and measurements](docs/architecture/checker-effects-completion.md).
 
 Frozen `53896fa4` selects existing `tsr-1yb.7.7.1.2` for private symbol capacity
 and publication design, coordinated with `.33.1`; avoid a duplicate task or
@@ -6997,6 +7018,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Broadly retaining every effects `None` is refused at `f0b075b8`: the compiling
+premature-None mutant fails1/1 foreign-frame refusal test (exit101), preventing
+the later inferred string predicate. Restoration passes189 library+1 public
+query test. Use only completed written ordinary signatures in original context;
+no positive/inferred/unsupported result is certified by this slice. Both
+ordinary confirmations pass the bounded retention gates; no equivalent native
+2x speed claim follows from TSR/TSR agreement.
+[Replayable failing mutation](docs/architecture/checker-effects-completion.md).
 
 Frozen `53896fa4`: no additional declaration/member cache selected. Private
 publication avoids 593,159 declared calls, but ordinary inclusive root interval
@@ -13772,6 +13802,27 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-06 integration addendum: effects landing rebases cleanly onto `0e7824dd`
+with concurrent native JSDoc/ambient-export fixes. Combined189+1+3 checker tests
+and1 scanner control pass; strict workspace Clippy/fmt pass. Combined ordinary
+CLI preserves both workload diagnostic/status/stderr and file-scope controls.
+Historical full corpus/timing claims stay bound to `b027f09d`/`f0b075b8`.
+[Separate integration evidence](docs/architecture/checker-effects-completion.json).
+
+2026-10-06, frozen `f0b075b8` / baseline `b027f09d`: retained private per-call
+completed-negative effects for written ordinary signatures. Two alternating
+five-pair rounds give generated1 3.324/3.322 ->2.853/2.884s and generated4
+1.700/1.704 ->1.256/1.259s; API4 7.079/7.260 ->7.001/7.139s, no median regression.
+All60 timed children preserve complete outputs/config/observed inputs; separate
+scope counts preserve465/465/402 generated and9861/10555/615 API. Reuse-disabled
+worker proof and two enabled repetitions qualify1,124,794 /13,113 avoided
+signature executions. Premature-None mutant compiles and fails; restored189+1,
+strict workspace Clippy/fmt pass. Historical full corpora have zero RIGHT losses;
+lost temporary raw artifacts are explicitly distinguished from recovered data.
+Local review has0 findings and no independence claim after automatic approval
+blocked external Claude source transmission. Broader `.11.3.2` and native2x
+remain open. [Retained evidence](docs/architecture/checker-effects-completion.md).
 
 2026-10-06, frozen `53896fa4`: private query/copy/store observers qualify 40 public
 and 66 control children, with complete outputs, partial input snapshots, repeated

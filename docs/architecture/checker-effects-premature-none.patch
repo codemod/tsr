@@ -1,0 +1,25 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -2721,6 +2721,21 @@
+     /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
+     /// `instanceof` flow-call nodes in this binder).
+     fn get_effects_signature(
++        &mut self,
++        call_node: NodeId,
++        call: &tsr_ast::CallExpression<'_>,
++    ) -> Option<crate::signatures::Signature> {
++        if self.completed_no_effects_calls.contains(&call_node) {
++            return None;
++        }
++        let result = self.effects_refusal_mutant_worker(call_node, call);
++        if result.is_none() {
++            self.completed_no_effects_calls.insert(call_node);
++        }
++        result
++    }
++
++    fn effects_refusal_mutant_worker(
+         &mut self,
+         call_node: NodeId,
+         call: &tsr_ast::CallExpression<'_>,
