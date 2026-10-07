@@ -400,3 +400,50 @@ inferences (`infer_contextual_annotations`) and native fixing/intra-expression
 consumers. No speculative extra walk, unknown-to-any substitution or
 unpublished-edge skip was added. Any eventual code port retains all full
 verification gates; investigation notes have no doc-only tests.
+
+### Next owned cluster: generic arity-survivor overload recovery
+
+After the integrator requested continued owned work, this control reproduced
+against the pinned CLI and the current corpus producer:
+
+```typescript
+export declare function select<T>(value: { item: T }, extra: number): T;
+export declare function select<T>(value: T[]): T[];
+export const bad = select('wrong');
+export declare function make<T>(values: T[]): T[];
+export const tooMany = make(1, 'extra');
+```
+
+Native declaration emit prints `bad: unknown` and `tooMany: unknown[]`.
+TSR prints `bad: unknown[]` and `tooMany: unknown[]`. The latter is a distinct
+already-correct control, not a conversion. In
+`calls.rs::choose_ordered_overload`, the sole generic arity survivor bypasses
+`transcribed_generic_set_walk` unless an argument is context-sensitive.
+Native `chooseOverload` still checks its instantiated applicability. When
+that survivor fails, `getCandidateForOverloadFailure` calls
+`pickLongestCandidateSignature`, whose `getLongestCandidateIndex` chooses
+the first signature covering the argument count (the first declaration in
+this control), not the rejected sole arity survivor.
+
+Exact owned API seam: route all generic arity survivors through the existing
+candidate applicability walk and perform recovery via
+`inference.rs::check_generic_call_with_mode(..., overload_failure=true)`
+when all candidates are definitely rejected. Preserve ordered candidates,
+written type arguments, fresh failure inference context and previously
+assigned contextual argument types. Current `.61` veto blocks this recovery
+for the selected `{ item: T }` candidate with a string source; fixing only
+selection replaces `unknown[]` with `error`, not native `unknown`. No partial
+selection fix was applied. This cluster therefore depends on the measured
+no-candidate cutover and its loss prerequisites, not an annotation peek or
+an any-vs-unknown heuristic.
+
+Native `contextuallyCheckFunctionExpressionOrObjectLiteralMethod` also
+requires a completed contextual signature before
+`inferFromAnnotatedParametersAndReturn`; its target parameter and return
+reads are semantic demands (`getTypeAtPosition`, `getReturnTypeOfSignature`).
+The current `contextual.rs::contextual_signature_result` invokes owned
+`infer_contextual_annotations` while obtaining contextual signatures.
+`.9.7.1` lazy parameter completion must preserve that re-entry order;
+annotation syntax alone cannot certify an unpublished target edge. Route
+that atomic signature-demand contract to the future single lazy-cutover
+owner. No new cache or completion claim was introduced.
