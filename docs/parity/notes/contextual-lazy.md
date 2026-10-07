@@ -444,6 +444,30 @@ native control and rejected full dumps/comparisons retained under union-*.
 No implementation, target conversion or performance claim for this rejection;
 owned source returns exactly to previous committed behavior. Format passes.
 
+## Contextual effective-rest probe not retained — tsr-2zk.16.175
+
+Read pinned combineUnionOrIntersectionParameters and implemented an owned
+nongeneric array-rest combination probe using signature_type_at_position and
+existing Array type-reference construction. Fresh successful-build unfiltered
+mirror dumps show **zero verdict changes, zero prior RIGHT losses or vanished
+keys**. Three named targets remain22/24,18/22,17/21. Reverted the unproven
+extension; no partial second rest/generic convention retained.
+
+signatureCombiningRestParameters2's four remaining rows are optional/effective
+rest shape: native `(args_0?: any, ...args: any[]) => void` and
+`[any?, ...any[]]`, TSR `(...args: [arg0: any, ...optionalParams: any[]]) => void`
+and required arg0 tuple. The existing signature supplier/variadic rest and
+minimum-argument metadata owns that producer; parent signature/parameter model
+is reserved. This probe did not establish a missing array-rest combiner as the
+root. Native strict target CLI is clean. Existing .16.175 claimed/open with
+exact target evidence; no gain/performance claim.
+
+First build failed on a nonexistent create_array_type API; commands then ran
+old binaries. Those first rest dumps/comparisons are **invalid**, not passes
+or candidate results. Only rest-*-after successful-build receipts qualify the
+zero-change observation. Existing Array constructor pattern was reused on the
+second build. Owned source reverted exactly; format passes.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
