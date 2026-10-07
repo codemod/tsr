@@ -1,5 +1,30 @@
 # Full configured native oracle
 
+## Immutable-worker rerun (r3)
+
+The full c8185606 rerun in `target/full-oracle-c8185606-r3/` completed with
+**7,598/14,965 RIGHT**, 6,685 WRONG, 671 native failures/deadlines and 11 TSR
+failures/deadlines. Prior r2 RIGHT retention: **0/7,598 losses; 0 missing rows**.
+Workers execute read-only content-addressed **copies**, not build paths or hard
+links; rebuilding examples cannot change the executable used by a running
+measurement. `producer-sources.tsv` records producer source hashes.
+
+- Native binary: `ce73346778b98c91f3d042ad052ed9dd82fca0b602e9111b7598e8817fa69936`
+- Actual binary: `7f644d0e4467e2260b19eb9f95fe7722e690f1dc1859d458a29dd5618d733594`
+- Manifest: `0f3465e5ae6ef2884ad6b63d925486fc7332909bb417b6a785cfc24d007c2cde`
+- Results: `313a4e7b92935d12d52a19e851f813c33c15b9dadc98489ad6c85a54abfbf0dc`
+- Summary: `b14ccab91dbf03090780d8006c01926e990eb7c43c62b72211fd69b91fc87e8a`
+
+Fresh full native `instantiationExpressions.ts` output (target es2015, strict
+true, declaration true) contains 286 type rows and 16 diagnostics. Rows 202/203
+are `fs` and `f<string>`, both printing
+`((a: string) => string) | { x: string; }`. The bundled reversed ordering is not
+current-pin authority; no comparator was changed to fit it. Full receipt:
+`target/native-instantiationExpressions-currentpin/receipt.tsv`; artifact SHA-256
+`594197cc6af8083070ed47a53d8bfdd33c73e3c9a5601e4548f92742ce8093ed`, source
+SHA-256 `86cdd089559185d1d1df073e20c9a1bc57c15c75fba6faac5502354a3ff50235`.
+
+
 ## Measurement: c8185606
 
 Checker source: `c8185606e3b972d59d345b6e45d789586d993af8`.
