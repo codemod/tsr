@@ -433,7 +433,7 @@ enum NonNullCallee {
     Unknown,
 }
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The diagnostic half of `resolveCallExpression` (`checker.go:8471`) up
     /// to `resolveCall`: the non-null check on the callee
     /// (`checkNonNullTypeWithReporter` with
@@ -1355,9 +1355,22 @@ impl Checker<'_, '_> {
         let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
             return None;
         };
-        let nodes = call.type_arguments;
+        self.check_signature_type_arguments(candidate, call.type_arguments)
+            .map(|arguments| arguments.is_some())
+    }
+
+    /// Native checkTypeArguments; arbitrary instantiation/call/query node list.
+    #[expect(
+        clippy::option_option,
+        reason = "unsupported differs from native constraint rejection"
+    )]
+    pub(crate) fn check_signature_type_arguments(
+        &mut self,
+        candidate: &Signature,
+        nodes: &[tsr_ast::TypeNode<'a>],
+    ) -> Option<Option<Vec<TypeId>>> {
         let parameters = self.type_parameter_types(candidate)?;
-        if nodes.len() > parameters.len() {
+        if !Self::signature_accepts_type_argument_count(candidate, nodes.len()) {
             return None;
         }
         let names: Vec<String> =
@@ -1403,11 +1416,41 @@ impl Checker<'_, '_> {
                         target,
                         Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
                     );
-                    return Some(false);
+                    return Some(None);
                 }
             }
         }
-        Some(true)
+        Some(Some(map.into_iter().map(|(_, argument)| argument).collect()))
+    }
+
+    /// hasCorrectTypeArgumentArity (5b1047d): required prefix through the last
+    /// parameter without a default. The instantiation-expression consumer also
+    /// requires a nonempty generic parameter list before calling this helper.
+    #[must_use]
+    pub fn signature_accepts_type_argument_count(signature: &Signature, count: usize) -> bool {
+        count >= Self::min_type_argument_count(&signature.type_parameters)
+            && count <= signature.type_parameters.len()
+    }
+
+    /// checkTypeArguments / getSignatureInstantiation, without object/cache
+    /// publication. None is unsupported; Some(None) is a reported rejection,
+    /// whose consumer must retain the original signature as native does.
+    pub fn instantiate_signature_with_type_arguments(
+        &mut self,
+        signature: &Signature,
+        nodes: &[tsr_ast::TypeNode<'a>],
+    ) -> Option<Option<Signature>> {
+        let Some(arguments) = self.check_signature_type_arguments(signature, nodes)? else {
+            return Some(None);
+        };
+        let signature = self.complete_signature_return(signature.clone())?;
+        let parameters = self.type_parameter_types(&signature)?;
+        let names: Vec<_> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+        let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
+        let mut image = self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+        image.type_parameters.clear();
+        Some(Some(image))
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an

@@ -130,3 +130,36 @@ actual CLI diagnostics. Complete checker tests/clippy pass (`f6-tests.log`,
 156/177 to 162/177 type lines, with F10 still the first mismatch. Full existing
 12,444-key types/diagnostics ratchets retain all prior passes and keys
 (`f6-ratchet.json`); no new whole-case pass or release/perf claim.
+
+## Instantiation-expression signature entry
+
+Parent owns `tsr-2zk.16.56.1`, pinned `getInstantiationExpressionType`
+(checker.go:10660–10738), including object members/indexes, union/intersection
+applicability, TS2635 and the private `(NodeId, source TypeId)` cache.
+
+Owned API:
+
+- `Checker::signature_accepts_type_argument_count(&Signature, usize)` implements
+  the existing required-prefix/default arity rule. Parent additionally filters
+  nongeneric signatures, exactly as native.
+- `instantiate_signature_with_type_arguments(&Signature, &[TypeNode]) ->
+  Option<Option<Signature>>`: outer `None` means unsupported/incomplete;
+  `Some(None)` means a reported native constraint rejection, so the parent keeps
+  the original signature; `Some(Some(image))` is the substituted image.
+
+The existing call constraint worker now accepts an arbitrary written node list
+and returns its filled argument vector. Instantiation consumes that same vector,
+completes the original return through the canonical getter, substitutes with
+existing `instantiate_signature`, and clears the image's own parameters. No new
+cache or object image. Declaration/captured mapper identity and existing return
+publication remain authoritative. Bounds with unsupported relations still
+return outer `None`; this API does not certify all native constraint forms.
+
+`calls_instantiation_arguments.rs` exercises dependent defaults (`U = T`) in
+parameter and return, exact arity bounds, and a rejected string constraint with
+TS2344. Full checker tests/clippy pass. Both complete 12,444-key harness ratchets
+retain all prior passes/keys (`instantiation-ratchet.json`). Actual native CLI
+control emits TS2344; TSR's standalone CLI still exits zero because the parent's
+expression integration is absent here. Thus the signature API is verified, not
+end-to-end instantiation expressions. Native complete-work/perf gates remain
+unmet; no new whole-case pass is claimed.
