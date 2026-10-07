@@ -340,6 +340,16 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
         }
+        // isAssignmentToReadonlyEntity's namespace-import branch (5b1047d
+        // checker.go:27279). Reuse alias/declaration identity, not module shape;
+        // the existing readonly diagnostic owner reports TS2540 separately.
+        if node.node_id.is_some_and(|id| {
+            self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+        }) && self.receiver_alias_is_namespace_import(receiver) == Some(true)
+            && self.get_property_of_type(stripped, name).is_some()
+        {
+            return self.intrinsics.any;
+        }
         // `isAssignmentToReadonlyEntity` (`checker.go:11377`): a readonly
         // property as an assignment target answers upstream's `errorType`,
         // printed `any` (`checker-notes-narrow.md` §27).

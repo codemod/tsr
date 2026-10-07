@@ -501,3 +501,14 @@ raw declared setter type, so `T | undefined` escaped through `Box<string>`.
 It now applies the existing `instantiate_for_reference` to the setter type;
 no write-only mapper or cache. Control: `Box<string>`/`Box<number>` setters
 keep `string | undefined` vs `number | undefined`.
+
+## 19. Writes through a namespace import answer `errorType` (tsr-2zk.4.4)
+
+`isAssignmentToReadonlyEntity` (`checker.go:27314`) treats an access whose
+parenthesis-stripped receiver resolves to an alias declared by a
+`NamespaceImport` as readonly, so `checkPropertyAccessExpressionOrQualifiedName`
+and the element-access twin return `errorType` (printed `any`) for a found
+member written through `import * as ns`. The existing
+`receiver_alias_is_namespace_import` (readonly_target.rs, now crate-visible)
+answers the alias question in both property and element assignment typing; the
+TS2540 reporter is unchanged. Local namespaces stay writable (control).
