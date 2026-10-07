@@ -1,0 +1,50 @@
+{
+  "issue": "tsr-2zk.16.56.1.4",
+  "status": "rejected-isolated-candidate",
+  "source_commit": "c4adbb2fcf48e58fb662caa4e30cdd2240e97045",
+  "source_tree": "efbe4f6003e85942608b60de19dd7401ba92da1a",
+  "snapshot": "f7faed0c8fb639e41636e3caa00b67394422308a",
+  "native": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "sha256": {
+    "native_binary": "09aeb36358515058872c2cedd1d89be71f03a7f20088c80404482caaf6b14ba4",
+    "verdictdump_binary": "309e996415f1c84e7b8da596d50f0e7c8321fbd6e6859fcafdb183fc1bb7ea35",
+    "probefile_binary": "1bebc24fd79656b4e013b079a7d66006737977a6ed35e147e60bbc9a54c93728",
+    "runtime_input": "a9954555799640d2aeefa1613b585280ee24099a2068884573aefdc529014d20",
+    "runtime_output": "85675ded75fbcaf809170d0dd1c671f209b2ed49a85745097045f785d598efa3",
+    "snapshot_type_verdicts": "4b8f05fda98af15aeaec4c1a311804cc1fd83a13044f0efaa1014afba871b733",
+    "candidate_type_verdicts": "60e29587ff72611989b9c65428b069ba06a744a0a06b05125b9cf81cac8eb746",
+    "corpus_summary": "ee494c6c04e5515606b65bcf83e4486216d9b7db2173170d6ee6cddb5b207e88",
+    "focused_tests": "bb444d248bf7f785557d3a6fe3d3bebd69a184331836ce5cceb71f27e8f5980d"
+  },
+  "comparison_to_rejected_snapshot": {
+    "right_to_wrong": 8,
+    "wrong_to_right": 45,
+    "gap_to_right": 14,
+    "gap_to_wrong": 14,
+    "missing_rows": 0,
+    "new_rows": 0
+  },
+  "existing_corpus": {
+    "discovered": 12444,
+    "types_passed": 8110,
+    "types_total": 9538,
+    "types_skipped": 2906,
+    "diagnostics_passed": 4236,
+    "diagnostics_total": 5502,
+    "diagnostics_skipped": 6942,
+    "configured_exact": false
+  },
+  "focused_tests_passed": 29,
+  "acceptance_blockers": [
+    "Eight additional RIGHT losses vs rejected snapshot; original accepted frozen receipts absent",
+    "Existing corpus excludes configuration-varied and unavailable baselines; configured-exact gate not exercised",
+    "Full library remains failing; last run 16 failures versus 15 in snapshot",
+    "Affected hotpath and equivalent-complete-work native performance not measured"
+  ],
+  "remaining_semantic_roots": [
+    "distributiveConditionalTypeConstraints conditional intersection constraint",
+    "generic Prepend and T05 rest signature inference",
+    "infiniteConstraints indexed object mapper"
+  ],
+  "release_ratio_0_50_certified": false
+}
