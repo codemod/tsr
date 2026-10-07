@@ -221,15 +221,41 @@ before the run and again after all pairs, outside child timing; mismatch prevent
 comparability. This does not detect transient edits. Nested submodule deltas are
 not recursively audited; the pinned native repository is captured independently.
 Neither a clean HEAD nor equal checkout identities attests that supplied binaries
-were built from them. `build_provenance_verified` and
-`causal_baseline_verified` remain false.
+were built from them. The scripts' `build_provenance_verified` and
+`causal_baseline_verified` remain false; the parent-reported matched causal
+experiment below is separately qualified and does not promote these gates.
 
-Parent's mixed AST candidate (unmerged mask/unary changes) and reported AB41 CPU
-ratios domain 1.0308 / generic 1.0098 are **not** attributed to the diagnostic
-patch or labeled a speed win. Frozen source patch plus binary/build qualification
-and a causal same-source control are required before that comparison can be
-accepted. No parent patch or new runtime binary is present on this worker yet;
-the scripts-only identity smoke uses the original prebuilt binaries.
+Parent's earlier mixed AST candidate (unmerged mask/unary changes) and reported
+AB41 CPU ratios domain 1.0308 / generic 1.0098 were **not** attributed to the
+diagnostic patch or labeled a speed win. The earlier binding comparison
+(domain wall 1.117 / CPU 1.031) was confounded by pending semantic files and is
+not diagnostic-causal evidence.
+
+The parent subsequently reports a matched causal baseline `9bc2c9dd`, identical
+pending flow/binary/expressions/AST five-source SHA-256 identities, and 41 pairs
+for the final diagnostic/config/loader candidate:
+
+| Parent-reported causal candidate/baseline | Domain | Generic |
+|---|---:|---:|
+| Median wall ratio | 0.9958165 | 0.9860849 |
+| Median CPU ratio | 1.001948 | 0.995279 |
+
+Complete output, loaded scope and effective options were stable. This supports
+**no evidenced genuine diagnostic hot-path regression**, not a speed win or
+release-equivalence claim. Source-qualified parent receipts are retained under
+`.git/tsr-recovery/diagnostic-causal*` on the parent machine; they are absent from
+this Box and were not independently inspected here. Exact five-source hashes,
+commands and binary identities must come from those receipts, not guessed from
+the baseline revision. The scripts-only identity smoke below still uses the
+original prebuilt binaries and does not locally reproduce the parent's candidate.
+
+The parent also reports one full-parity prior-RIGHT loss after corrected JS
+source population exposed an unresolved CommonJS symbol root, assigned to a
+runtime worker. No-prior-RIGHT-loss acceptance is therefore unmet; do not revert
+correct source population or relax the performance scope to hide the loss.
+The Linux large-project ratio 1.379467 and verified TSR/native <=0.50 target
+remain unmet. Nothing in the matched diagnostic control establishes broader
+semantic operation completion or clears the native worker-counter proof gaps.
 
 28 harness tests passed, including equal-HEAD staged/unstaged/untracked source
 controls. Actual five-pair/warmup smoke with capture/checkpoint completed, checkout
