@@ -838,6 +838,26 @@ missing-ID pair and performance observations recorded for the emitted-node
 precedence correction apply to this unchanged implementation. No extra
 conversion or performance certification is claimed.
 
+## Simple-operand native emit falsifier (`tsr-2zk.16.69`)
+
+Revisited `tryVisitSimpleTypeNode` (`nodecopy.go:452`) with actual native emit,
+rather than inferring an edit solely from its `SkipParentheses` branch. Both an
+annotated exported function and a derived exported constant preserve
+`keyof ((Obj))`, `((Obj))["key"]`, and `(1)` in native declaration output.
+The internal branch alone therefore does not justify stripping source
+parentheses globally in the owned visitor.
+
+The actual TSR corpus pipeline for the derived constant instead prints
+`<K extends "key", V extends string, L extends 1>() => V`, confirming the
+already-recorded parent constraint dispatch loss. TSR's CLI declaration-only
+invocation produced no declaration file for this control; an equivalent emit
+comparison is unavailable and was not claimed passing. No declaration emitter,
+parent fields, or speculative visitor edit was made. Eight tests pass.
+Fresh full emitted-node-fix loss/ID and native performance receipts remain
+unchanged; both timing reports still retain false complete-input/actual-work
+verification. This control falsifies an apparent source-only fix, not a new
+conversion or release certification.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
