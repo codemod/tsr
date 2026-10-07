@@ -291,6 +291,7 @@ impl<'a> Program<'a> {
         front_end::ordered(
             &files,
             workers,
+            front_end::Lookahead::One,
             |_, (file_name, text)| {
                 (workers > 1).then(|| {
                     tsr_parser::ParsedFile::parse_with_options(
@@ -471,6 +472,7 @@ impl<'a> Program<'a> {
             front_end::ordered(
                 files,
                 workers,
+                front_end::Lookahead::All,
                 |_, file| {
                     // UMD declarations can reuse an earlier file's alias while
                     // declaring it. Keep that small ordered subset on the caller.
