@@ -8519,10 +8519,10 @@ impl Checker<'_, '_> {
             both
         };
         let facts = truthiness | nullable_never | typeof_family;
-        if !self.strict_null_checks {
-            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
-        } else {
+        if self.strict_null_checks {
             facts
+        } else {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
         }
     }
 
