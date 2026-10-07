@@ -78,6 +78,13 @@ impl<'a> Checker<'a, '_> {
     /// answer, which is why the distinction has to be carried here rather than
     /// discovered later.
     pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Option<Vec<IndexInfo>> {
+        // getInstantiationExpressionType (5b1047d checker.go:10697) shares
+        // resolved source indexInfos unchanged. Preserve concrete arguments,
+        // readonly and declaration/component provenance; unsupported remains
+        // None. No eager index image or additional completion/cache is created.
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            return self.get_index_infos_of_type(source);
+        }
         if let Some(body) = self.completed_original_array_alias_body(id) {
             return self.get_index_infos_of_type(body);
         }
@@ -1001,6 +1008,23 @@ pub(crate) fn is_numeric_literal_name(name: &str) -> bool {
 #[cfg(test)]
 mod completed_array_alias_tests {
     use super::*;
+
+    #[test]
+    fn instantiation_view_retains_source_index_value_readonly_and_provenance() {
+        with_checker("interface Source<T> { readonly [key: string]: T }", |checker, root| {
+            let owner = checker.binder.lookup_local(root, "Source").unwrap();
+            let source = checker.create_type_reference(owner, vec![checker.intrinsics.number]);
+            let wrapper =
+                checker.store.new_anonymous(TypeFlags::OBJECT, "view".into(), owner, false);
+            checker.instantiation_expression_sources.insert(wrapper, source);
+            let indexes = checker.get_index_infos_of_type(wrapper).unwrap();
+            let [index] = indexes.as_slice() else { panic!("one string index") };
+            assert_eq!(index.key, checker.intrinsics.string);
+            assert_eq!(index.value, checker.intrinsics.number);
+            assert!(index.readonly);
+            assert!(index.declaration.is_some());
+        });
+    }
 
     const LIB: &str = "interface Array<T> { [index: number]: T; length: number; }
 interface ReadonlyArray<T> { readonly [index: number]: T; length: number; }";

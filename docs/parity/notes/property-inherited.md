@@ -253,6 +253,66 @@ Clippy passes. Logs: `target/recovery/property/projection-smoke.log` and
 end-to-end controls, full absence-aware parity and complete-work timing are
 blocked on parent field/mint and serialized consumers, and are not claimed.
 
+## Next owned signature root — tsr-2zk.16.382
+
+While `.16.225` is externally blocked, the now-owned `signatures.rs` fixes
+native `getReturnTypeOfSignature`'s `NodeIsMissing(Body)` branch. Native
+`ast.NodeIsMissing` (5b1047d utilities.go:66) includes a present zero-width
+recovery node, not merely absent Body. `return_type_of_worker` now tests that
+span after effective annotation/constructor precedence and returns any. Real
+empty blocks have nonzero width and still infer void. No mapper/cache/traversal
+or shared field is introduced; signature return completion retains its owner.
+
+Direct native `objectTypesWithOptionalProperties2` recovery control emits any
+for the missing method body. TSR before printed `{ x(): void; 1: any; }`, after
+`{ x(): any; 1: any; }`. Real empty object methods and block arrows still print
+void in the runtime control. All target type rows match.
+
+Completed full 477,970-row type pair: RIGHT 469,785 -> 469,791, WRONG 7,190 ->
+7,184, GAP 995 unchanged. Six WRONG-to-RIGHT gains: three target rows and three
+`compiler/objectLiteralMemberWithoutBlock1` rows. Zero previous RIGHT losses,
+zero vanished keys. Completed 10,570-case diagnostic pair has unchanged verdict
+counts, zero previous correct-case losses and zero vanished keys. Strict
+checker all-target Clippy passes. Evidence comes from the ignored parent-field
+integration copy; no queued contextual fix or unsafe inherited-this candidate
+is applied in these full runs. No equivalent-complete-work speed measurement
+or release-target claim is made; issue remains open pending integration gates.
+
+Receipts under `target/recovery/property/`: `missing-body-native*`,
+`missing-body-before.txt`, `missing-body-after.txt`, `missing-body-target.tsv`,
+`missing-body-{types,diagnostics}.tsv`, `missing-body-transitions.json`,
+`missing-body-clippy.log`, and real-empty-body control/result. `.16.225` still
+requires the serialized contextual, erased-key/heritage and winning-origin
+producers; this next-root fix is not partial acceptance of inherited-this.
+
+## Canonical signature-list and index projection delivery
+
+Parent expression worker must reuse `calls.rs::head_signatures(t, kind)` with
+`pub(crate)` visibility supplied by the calls owner. No duplicate getter is
+added to signatures.rs. It reads the list without forcing signature returns;
+unsupported None and completed-empty Some remain distinct. Both wrapper override
+sets must win before class/function source fallback or merged-source refusal.
+
+Source-this forwarding is pinned to `getInstantiationExpressionType`
+(checker.go:10696–10698): the wrapper receives resolved source members unchanged,
+not re-instantiated under wrapper this. Source resolveTypeReferenceMembers /
+resolveObjectTypeMembers already supplies source this and ordered arguments.
+This justifies the exact source TypeId in retained property reads; a wrapper-this
+substitution would change the shared member semantics. Later composite receiver
+projection is a separate context requiring its own qualification.
+
+Temporarily owned `index_signatures.rs::get_index_infos_of_type` now delegates
+source-linked views to the exact source before mapped/anonymous classification.
+It returns the source Option unchanged, including unsupported None, readonly
+and declaration/component provenance. No eager index image/cache is created;
+the existing source getter owns computation and returned-vector copying.
+Smoke resolves readonly string->number index metadata and declaration provenance
+through a view; strict all-target checker Clippy passes in the ignored parent-
+field copy. An initial test incorrectly expected intrinsic error source indexes
+to be unsupported; current getter returns completed-empty for that source, and
+that incidental assertion was removed rather than changing semantics. This
+projection is not an end-to-end expression-mint completion or performance claim.
+Receipts: index-view-smoke.log and index-view-clippy.log.
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
