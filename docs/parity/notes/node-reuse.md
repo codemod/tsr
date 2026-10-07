@@ -658,6 +658,27 @@ unsupported empty expectation was added. Seven tests pass and the CLI hash
 remains identical to baseline. Full prior loss/ID/performance receipts remain
 unchanged; unresolved context prerequisites stay recorded in Beads.
 
+## Literal cloning versus diagnostic serialization continuation
+
+Actual native/TSR controls contain a written single-quoted union with emoji,
+apostrophe/double-quote escapes, backslashes and newline, plus a template
+literal type containing an escaped backtick and literal substitution.
+Native TS2322 at `(2,7)` sorts/normalizes the union with double quotes;
+at `(4,7)` it collapses the template to its literal string. TSR diagnostics
+retain source single quotes and template syntax. The actual corpus pipeline
+preserves those written forms but prints standalone parameter semantic types
+normalized, confirming another diagnostic-context distinction.
+
+Pinned string cloning (`nodecopy.go:811`) preserves source quote flags and adds
+`EFNoAsciiEscaping`. Those written-node rules were not disproven by the failing
+diagnostic control. Changing owned `quoted_literal` or template escaping would
+harm legitimate reuse while leaving parent semantic serialization selection
+incorrect. No literal-specific exception, quote workaround, or production edit
+was added. Seven tests pass. Full no-loss/missing-ID and unverified performance
+receipts remain attributable to unchanged compiler binaries. Remaining scoped
+failures are shared-context prerequisites; more matching clone controls do not
+make those reserved contracts implemented.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
