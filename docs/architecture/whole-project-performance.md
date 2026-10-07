@@ -212,6 +212,27 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Curated receipt retains actual native inventory telemetry
+
+Curated checkpoints now include completed parse/bind paths, their independently
+validated inventories, configured checker limit and explicit operation coverage.
+No missing query/worker fact is reconstructed from scope counts. Actual frozen
+large-project run completed five pairs plus warmups: 265 parsed and bound paths,
+202 initial checked workers, observed TSR/native ratio 1.4277544116580916,
+verified null and comparable exit 1. Single capture/untraced-median wall ratios
+were TSR 5.130606798798853 and native 2.601461342514151: instrumentation work is
+substantial and cannot be silently folded into throughput claims.
+
+Receipt `/tmp/recover-telemetry-current-checkpoint.json`, SHA-256
+`31c27867a7c97d8efd5142fa07e734e695814f9c3be01736eb31ea9e2e420930`;
+harness `d8453fcbebdab97e380ce43c86fdc7999ecd5b773d1879261e30bcc3fff5863f`;
+reader `914d460a0802aeb997113d1acb766272f396e0b12fa89241b39873425eb7facb`.
+Native symbol/declared/variable operations and metadata forcing remain unobserved.
+Parent reports frozen alias-propagated 21 prior-TSR pairs ratio 1.001255 and 11
+native pairs ratio 1.510742, stable diagnostics/options/scope, verified null.
+These are no faster/<=0.50 claims; pending alias-parens build/ratchet is not passed
+by this recovery-binary run.
+
 ### Observe capture cost without pretending it is causal overhead
 
 Each capture now retains traced wall/CPU resources, actual child command/PID/
