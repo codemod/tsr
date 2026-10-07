@@ -639,19 +639,10 @@ impl<'a> Parser<'a> {
             return None;
         }
         let start = self.pos();
-        let parsed = self.try_parse(|p| {
-            let type_parameters = p.parse_type_parameters();
-            if !p.at(SyntaxKind::OpenParenToken) {
-                return None;
-            }
-            let parameters = p.parse_parameter_list();
-            if !p.at(SyntaxKind::EqualsGreaterThanToken) {
-                return None;
-            }
-            Some((type_parameters, parameters))
-        })?;
-
-        let (type_parameters, parameters) = parsed;
+        // Native isStartOfFunctionTypeOrConstructorType has already confirmed
+        // this production. A missing arrow is recovery, not speculation failure.
+        let type_parameters = self.parse_type_parameters();
+        let parameters = self.parse_parameter_list();
         self.expect(SyntaxKind::EqualsGreaterThanToken);
         // `(x: T) => x is U` is a predicate, same as a function's return type.
         let return_type = self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);

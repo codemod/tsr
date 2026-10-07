@@ -381,6 +381,26 @@ claimed; this closes the actual producer boundary. Incremental complete-parse
 node outputs and full JSDoc/diagnostic parsing. No observed incremental slowdown.
 No shared AST/scanner/checker edits. Prior rejected candidates remain separate.
 
+### Definite function-type missing-arrow recovery (tsr-2zk.2)
+
+Pinned isStartOfFunctionTypeOrConstructorType decides this production before
+parseFunctionOrConstructorType. Its parameter/return worker reports a missing
+=> and still parses a return type; TSR re-speculated after the definite start
+and rewound on missing =>, producing TS1110 instead. Candidate removes that
+second speculation and reuses parameter/return/type-list workers unchanged.
+Native var f: (x: number) number control reports exact TS1005 [19,25), retains
+function-type structure, and functionTypesLackingReturnTypes becomes RIGHT.
+Isolated parser full/target tests, clippy and fmt pass. Full ratchet: three
+existing WRONG type rows -> RIGHT and one new RIGHT; zero prior RIGHT or
+EMPTY_RIGHT losses and zero vanished keys.
+
+Performance rejects candidate: 41pair x60 complete-parse wall/CPU
+0.988667/0.990637 parser.ts but 1.041242/1.042048 dom. Helper inlining leaves dom
+about 4% slower and was reverted. Full JSDoc/diagnostic work and output counts
+retained; no claim that removing speculation is automatically a speed win. No
+AST/scanner/shared checker edits. Parent must resolve this measured parse worker
+regression before acceptance, not waive it on target conversion.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
