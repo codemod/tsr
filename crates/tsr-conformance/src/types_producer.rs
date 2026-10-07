@@ -362,6 +362,16 @@ fn source_text(source: &str, span: tsr_core::Span) -> String {
     raw.replace("\r\n", "").replace('\n', "")
 }
 
+/// The 0-based line a baseline row is placed on: `writeTypeOrSymbol`'s
+/// `GetECMALineOfPosition(SkipTrivia(text, node.Pos()))`
+/// (`type_symbol_baseline.go:346`). `line_starts` is
+/// [`tsr_core::ecma_line_starts`] of `source`.
+#[must_use]
+pub fn baseline_line(source: &str, line_starts: &[u32], node_start: u32) -> u32 {
+    let start = skip_trivia(source, node_start as usize).min(source.len());
+    tsr_core::compute_line_of_position(line_starts, u32::try_from(start).unwrap_or(u32::MAX))
+}
+
 /// Advance past whitespace and comments, as `scanner.SkipTrivia` does.
 fn skip_trivia(source: &str, mut pos: usize) -> usize {
     let bytes = source.as_bytes();
@@ -1339,9 +1349,6 @@ fn render_case(
     explain: bool,
     mut ids: Option<&mut Vec<Vec<NodeId>>>,
 ) -> Vec<Vec<Assertion>> {
-    let nodes = program.nodes();
-    let node_map = program.node_map();
-    let bound = program.binder();
     // One checker for the whole program, not one per unit — which is upstream's
     // shape (`Program` has one `Checker`) and also means a lib type resolved for
     // the first unit is memoised for the rest.
@@ -1420,6 +1427,34 @@ fn render_case(
             }
             continue;
         };
+        let (rendered, visited) =
+            render_file(&mut checker, program, file, case.had_error_baseline, explain);
+        if let Some(ids) = ids.as_deref_mut() {
+            ids.push(visited);
+        }
+        ours.push(rendered);
+    }
+    ours
+}
+
+/// One program file's `>text : type` lines through a caller-owned checker, with
+/// the node behind each line. `getTypes` (`type_symbol_baseline.go:292`) for
+/// one unit; `had_error_baseline` is the walker's `hadErrorBaseline`.
+///
+/// Shared by [`render_case`] and the exact oracle (`crate::full_oracle`), which
+/// renders through the checker that produced its diagnostics, as the native
+/// walker queries the compiled program's own checker.
+pub fn render_file<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    program: &tsr_compiler::Program<'a>,
+    file: &tsr_compiler::ProgramFile<'_>,
+    had_error_baseline: bool,
+    explain: bool,
+) -> (Vec<Assertion>, Vec<NodeId>) {
+    let nodes = program.nodes();
+    let node_map = program.node_map();
+    let bound = program.binder();
+    {
         // The program's copy of the text, not the case's: they are equal, and
         // asking the file is what keeps them equal if the loader ever stops
         // handing the host's bytes through unchanged.
@@ -1433,7 +1468,7 @@ fn render_case(
             node_map,
             |id| {
                 visited.push(id);
-                let mut answer = type_at_location(&mut checker, bound, nodes, node_map, id);
+                let mut answer = type_at_location(checker, bound, nodes, node_map, id);
                 // SS180 `hadErrorBaseline` (`type_symbol_baseline.go:379`,
                 // the FIRST condition of the guard chain): in a case that
                 // produced diagnostics, the intrinsic-name fast path is
@@ -1442,7 +1477,7 @@ fn render_case(
                 // prints `any`. Measured: 125 of the 152 files whose SINGLE
                 // remaining blocker is `want any, got error` have an
                 // `.errors.txt` baseline.
-                if case.had_error_baseline && answer == "error" {
+                if had_error_baseline && answer == "error" {
                     answer = "any".to_string();
                 }
                 // SS204 `!ast.IsPropertyAccessOrQualifiedName(node.Parent)`
@@ -1587,21 +1622,17 @@ fn render_case(
             },
         );
         debug_assert_eq!(visited.len(), rendered.len(), "one recorded id per rendered line");
-        if let Some(ids) = ids.as_deref_mut() {
-            ids.push(visited);
-        }
         if explain {
             let mut gaps = gaps.into_iter();
             for assertion in &mut rendered {
                 if assertion.type_string == "error" {
                     let id = gaps.next().expect("one recorded gap per `error` line");
-                    assertion.reason = Some(gap_reason(&mut checker, bound, nodes, node_map, id));
+                    assertion.reason = Some(gap_reason(checker, bound, nodes, node_map, id));
                 }
             }
         }
-        ours.push(rendered);
+        (rendered, visited)
     }
-    ours
 }
 
 /// The case's units and the bundled libs, as one program.
