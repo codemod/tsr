@@ -442,3 +442,42 @@ scope, effective options and diagnostic fingerprints equal; median CPU ratio
 this is a no-slowdown observation, not an equivalent-work native speed claim.
 
 
+## Export assignment context and namespace return (`tsr-2zk.15.6`)
+
+Pinned native `5b1047d`, `checkExportAssignment` (`checker.go:5588-5605`)
+checks the exported expression before `checkGrammarModuleElementContext`
+(`grammarchecks.go:206`). An illegal parent reports TS1231 for `export =`
+or TS1258 for `export default` on the first token, then returns. Parse
+diagnostics suppress this grammar diagnostic, not the context rejection.
+Legal parents are SourceFile, ModuleBlock and ModuleDeclaration. Within a
+namespace, TS1063/TS1319 covers the whole assignment and returns before
+modifier or ambient-expression checks; these errors are not grammar errors.
+
+The existing Checker-owned node-type completion answers the expression check.
+There is no new cache or member image. On the illegal-context error path only,
+the existing Program source-text contract witnesses SourceFile and node-table
+identity; the scanner reads one token, mirroring `grammarErrorOnFirstToken`
+(`grammarchecks.go:19`) and `GetRangeOfTokenAtPosition` (`scanner.go:2521`).
+Legacy hosts without source text cannot supply this precise token range.
+Receiver and alias context remain with the existing expression checker.
+
+After workstation recovery, the rebuilt CLI matches pinned native output
+byte-for-byte for function-local export-equals/default and namespace
+export-equals/default controls. Three export-context regression tests pass;
+the rebased export/unary/effects focused run passes 21 tests across four suites.
+Formatting and isolated full-workspace clippy pass. Rebased onto `e744714c`,
+the isolated release run passes 3,135 tests in 281 suites, with six existing
+ignored tests. Legacy type verdicts are unchanged (469,816 RIGHT; 7,159 WRONG;
+995 GAP); diagnostic RIGHT cases increase from 4,222 to 4,224. Every former
+RIGHT/EMPTY_RIGHT key remains present and passing. Forty-one alternating fresh
+candidate/parent process pairs retain matching scope, options and diagnostic
+fingerprints. Domain-model median wall/CPU ratios are 0.98256/0.99314;
+generic-imports ratios are 1.00048/0.99398. These are not verified native speed
+ratios: complete-input and actual-work equivalence remain unverified.
+
+The main checkout's workspace gate still reaches the pre-existing user-owned
+F6 alias test (`tsr-2zk.16.2.1`). The isolated gate does not contain that untracked
+test and therefore does not certify the whole main workspace as clean. The
+test remains preserved while its native producer fix is ported. Interrupted
+runs and lost `/tmp` artifacts are not verification evidence.
+
