@@ -30,6 +30,8 @@ fn masked_truthiness_preserves_empty_object_scalar_union_and_callable_boundaries
                 panic!("type alias required");
             };
             let ty = checker.get_type_from_type_node(alias.r#type.unwrap());
+            let absent = checker.get_type_facts_with_mask(ty, TypeFacts::IS_UNDEFINED);
+            assert!(!absent.contains(TypeFacts::IS_UNDEFINED), "{body}");
             let facts = checker.get_type_facts_with_mask(ty, TypeFacts::TRUTHY | TypeFacts::FALSY);
             assert_eq!(facts.contains(TypeFacts::TRUTHY), truthy, "{body}, strict={strict}");
             assert_eq!(facts.contains(TypeFacts::FALSY), falsy, "{body}, strict={strict}");

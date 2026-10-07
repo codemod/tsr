@@ -714,3 +714,24 @@ counts. This worker claims neither a measured combined speed improvement nor
 accepted no-regression/0.50 release gate. The change removes avoidable local
 constituent copying and permits the native consumer's narrower work boundary;
 it does not certify broader member/predicate completion.
+
+The follow-up adds native's exact `possibleFacts` intersection guard before
+object inspection. Native `EmptyObjectFacts` contains the union of empty-object,
+function and object possibilities: all bits except genuine null/undefined, and
+except nullish equality bits in strict mode. A mask disjoint from that aggregate
+returns zero before empty-object/member work. This does not classify scalar or
+object types heuristically; it is the pinned native guard.
+
+An isolated instrumented run of the masked domain controls recorded 34 queries,
+42 constituent-worker executions, six possible-facts skips, four category skips
+and two named-callable classifier executions (both distinguishing function
+`typeof` queries). Truthiness callable queries execute no classifier. Full
+per-query log and aggregate counts are in `flow-mask/worker-count-controls.log`
+and `worker-counts.json`; instrumentation was removed before ordinary gates.
+These are fixture counts, not workload counts or performance acceptance.
+
+Ordinary control and all 113 targeted tests pass. Follow-up full eligible
+corpus child exits are 0; all 10,570 diagnostic keys and 477,968 type keys are
+byte-identical to the masked baseline, with zero RIGHT losses/vanished keys.
+Checker-library Clippy passes. Receipts: `target/recovery/flow-possible/`.
+Parent integrated unary/query counts and CPU regression gate remain required.

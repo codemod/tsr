@@ -8126,12 +8126,10 @@ impl Checker<'_, '_> {
     /// (internal/checker/checker.go): propagate callerOnlyNeeds through
     /// constituent workers and return only the requested projection.
     pub(crate) fn get_type_facts_with_mask(&mut self, t: TypeId, mask: TypeFacts) -> TypeFacts {
-        eprintln!("FACTPROBE query mask={}", mask.bits());
         self.get_type_facts_worker(t, mask) & mask
     }
 
     fn get_type_facts_worker(&mut self, t: TypeId, caller_only_needs: TypeFacts) -> TypeFacts {
-        eprintln!("FACTPROBE worker");
         let t = if self
             .store
             .get(t)
@@ -8154,7 +8152,6 @@ impl Checker<'_, '_> {
                     | TypeFacts::EQ_UNDEFINED_OR_NULL;
             }
             if !caller_only_needs.intersects(possible_facts) {
-                eprintln!("FACTPROBE possible_skip");
                 return TypeFacts::empty();
             }
         }
@@ -8394,7 +8391,6 @@ impl Checker<'_, '_> {
             if flags.intersects(TypeFlags::NON_PRIMITIVE)
                 || !(object_strict ^ function_strict).intersects(caller_only_needs)
             {
-                eprintln!("FACTPROBE category_skip");
                 // Empty anonymous objects were handled above. All remaining
                 // object/function categories have the same requested facts;
                 // resolving bind/Function subtype cannot change this projection.
@@ -8421,7 +8417,6 @@ impl Checker<'_, '_> {
                         self.binder.symbols().get(*symbol).declarations.iter().any(
                             |&declaration| self.declaration_has_call_signature_member(declaration),
                         );
-                    eprintln!("FACTPROBE classifier");
                     if has_call_signature || self.is_bind_bearing_function_subtype(t) {
                         function_strict
                     } else {
