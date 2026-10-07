@@ -618,6 +618,21 @@ need another demand. Instrumentation must not force returns solely to count.
 Source applied; call-raw-consumer-check is blocked by absent shared fields, so
 native target/full-parity/performance results are not claimed.
 
+## Native bounded-variable constraint checking
+
+Removed check_signature_type_arguments blanket head_could_contain_type_variables
+source/target guard. Native checkTypeArguments uses canonical assignability after
+constraint/this instantiation. Target error remains unsupported, Unknown remains
+None, NotRelated reports first failure then returns Some(None). Reserved parent
+head/get_signature_instantiation helpers unchanged.
+
+Direct controls U extends number versus string and converse emit native TS2344
+chains and no TSR diagnostics before. Behavioral regression requires rejection
+rather than unsupported and TS2344. variable-constraint-tests/check logs remain
+compile-blocked by absent shared fields here; no passing-after/full16 diagnostic
+or RIGHT/perf acceptance claimed. Parent actual relation/elaboration determines
+messages/spans/order, not a local formatter/suppression.
+
 ### Recovery union and agreement return demand
 
 Overload-failure recovery unions and generic survivor print-agreement recovery

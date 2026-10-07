@@ -1420,10 +1420,7 @@ impl<'a> Checker<'a, '_> {
             let constraint = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
             let target = self.get_type_with_this_argument(constraint, source, false);
-            if self.is_error(target)
-                || self.head_could_contain_type_variables(source, 3)
-                || self.head_could_contain_type_variables(target, 3)
-            {
+            if self.is_error(target) {
                 return None;
             }
             match self.relate_ternary(source, target, Relation::Assignable) {
