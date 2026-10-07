@@ -166,7 +166,7 @@ fn an_element_modifier_gaps_the_whole_tuple() {
     assert_eq!(type_of_declaration("declare const t: [string, ...number[]];", "t"), "error");
     assert_eq!(
         type_of_declaration("declare const t: [string, number?];", "t"),
-        "[string, number?]"
+        "[string, (number | undefined)?]"
     );
     // §80 retired the LABELED half too: labels render, and the label owns
     // the `?`.
