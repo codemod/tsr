@@ -1,5 +1,31 @@
 # Full configured native oracle
 
+## Completed producer outcome inventory and scope limit
+
+Read from completed loaded-source receipts; no producer rerun:
+
+- Discovery: 12,444 unique source cases, 14,965 configuration rows, 0 missing
+  results. Native enumeration errors remain failed source/configuration rows.
+- Native: 14,928 COMPLETE artifacts; 37 unavailable/failed configurations.
+- Real TSR: 14,928 attempted, 14,917 COMPLETE, 11 failed; not attempted for the
+  37 configurations whose native expected artifact was unavailable.
+- Exact comparison: 7,361 RIGHT, 7,556 WRONG, 48 total failure rows, denominator
+  14,965. No unavailable row is excluded or counted RIGHT.
+- Native failures: preserveValueImports 11, noImplicitUseStrict 7,
+  keyofStringsOnly 3, importsNotUsedAsValues 3, suppressImplicitAnyIndexErrors 2,
+  suppressExcessPropertyErrors 1, out 1, noStrictGenericChecks 1; module=none 8.
+- Actual failures: 8 UTF-8 decoding failures (including UTF-16 BOM cases),
+  1 reversed diagnostic byte range (`constructorWithIncompleteTypeAnnotation`),
+  2 deadline cases (`recursiveConditionalCrash3`, `relationComplexityError`).
+
+Actual execution scope uses the existing configured TSR Program, per-file
+`skip_type_checking` policy, bind/check/include diagnostics, declaration analysis
+and input-unit type sections. The artifacts prove published records, **not an
+instrumented eligible/checked-file ledger**: the exact total checked-file count
+was not recorded and must not be inferred from COMPLETE or the configured-case
+count. This limits complete-work/performance acceptance; <=0.50 remains unmet.
+Parent alias/return-accessor candidates and newer main are not in this c818 run.
+
 ## Current native expected target: verified complete payload
 
 A fresh execution of the latest strict native worker returned PASS and COMPLETE.
