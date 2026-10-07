@@ -78,7 +78,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Row> {
         return Some(Row { name: case.name.clone(), matched: 0, total });
     };
 
-    let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &expected, false)
+    let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false)
         .iter()
         .zip(&expected)
         .map(|(rendered, expected_file)| {

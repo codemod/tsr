@@ -33,6 +33,7 @@ func fullOracleWrite(fields ...string) {
   fmt.Fprint(f, fullOracleHex(field))
  }
  fmt.Fprintln(f)
+ if err := f.Sync(); err != nil { panic(err) }
 }
 
 // Identity is source tree + suite-relative path (including extension) + native
@@ -67,13 +68,16 @@ func TestFullOracle(t *testing.T) {
      for _, config := range configs {
       name := ""
       settings := ""
+      merged := extractCompilerSettings(test.content)
       if config != nil {
        name = config.Name
-       keys := make([]string,0,len(config.Config))
-       for key := range config.Config { keys = append(keys,key) }
-       slices.Sort(keys)
-       for _,key := range keys { settings += key + "=" + fullOracleHex(config.Config[key]) + "\n" }
+       for key,value := range config.Config { merged[key] = value }
       }
+      keys := make([]string,0,len(merged))
+      for key := range merged { keys = append(keys,key) }
+      slices.Sort(keys)
+      for _,key := range keys { settings += key + "=" + fullOracleHex(merged[key]) + "\n" }
+      if wanted := os.Getenv("FULL_ORACLE_CONFIGURATION"); wanted != "" && wanted != caseID + "(" + name + ")" { continue }
       id := caseID + "(" + name + ")"
       if os.Getenv("FULL_ORACLE_DISCOVERY") == "1" {
        fullOracleWrite("C", id, filename, name, settings)

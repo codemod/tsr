@@ -51,7 +51,7 @@ fn main() {
             let parsed = case.load().ok()?;
             let arena = tsr_core::Arena::new();
             let (_program, ours, _ids) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
 
             let mut mismatched = Vec::new();
             for (index, expected_file) in expected.iter().enumerate() {
@@ -105,7 +105,7 @@ fn main() {
                 let parsed = case.load().ok()?;
                 let arena = tsr_core::Arena::new();
                 let (_p, ours, _i) =
-                    types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                    types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
                 let mut out = Vec::new();
                 for (index, expected_file) in expected.iter().enumerate() {
                     let got = ours.get(index).map_or(0, Vec::len);
@@ -162,7 +162,7 @@ fn main() {
             let Ok(parsed) = case.load() else { continue };
             let arena = tsr_core::Arena::new();
             let (_p, ours, _i) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
             for (index, expected_file) in expected.iter().enumerate() {
                 println!("DUMP {} #{index}", case.name);
                 let empty = Vec::new();
@@ -196,7 +196,7 @@ fn main() {
             let Ok(parsed) = case.load() else { continue };
             let arena = tsr_core::Arena::new();
             let (program, _ours, _ids) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
             let nodes = program.nodes();
             for index in 0..nodes.len() {
                 let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap_or(u32::MAX));

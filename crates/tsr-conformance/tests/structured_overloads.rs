@@ -30,7 +30,7 @@ export const accepted = compatible(a);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -88,7 +88,7 @@ export const reversed = reversedValue.flag;
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -137,7 +137,7 @@ var viaNative = s1.then(native, native, native);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["viaLegacy : Promise<IPromise<number>>", "viaNative : Promise<number>"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -185,7 +185,7 @@ var contextualMembers=memberSource.then(tooWide,tooWide);
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "failed : Promise<unknown>",

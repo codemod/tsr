@@ -15,7 +15,7 @@ fn keyword_alias_declarations_and_existing_written_slots_match_all_native_assert
     );
     let expected =
         types_baseline::parse(include_str!("fixtures/generic_keyword_aliases/Keywords.types"));
-    let actual = types_producer::assertions_for_case(&case, &expected, false);
+    let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     assert_eq!(actual.len(), expected.len());
     let mut count = 0;
     for (expected, actual) in expected.iter().zip(actual) {

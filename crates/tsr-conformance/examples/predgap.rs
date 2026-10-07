@@ -323,7 +323,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
     // are joined through the marker text and not through the id.
     let arena = tsr_core::Arena::new();
     let (program, ours, ids) =
-        types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+        types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
     let nodes = program.nodes();
     let map = program.node_map();
     let bound = program.binder();
@@ -420,7 +420,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
     }
     let arena2 = tsr_core::Arena::new();
     let (_program2, theirs, _ids2) =
-        types_producer::assertions_for_case_with_ids(&arena2, &rewritten, &expected);
+        types_producer::assertions_for_case_with_ids(&arena2, &rewritten, &rewritten.files.as_slice());
 
     // C4: positional comparison is only meaningful if the rewrite changed no
     // line count anywhere.

@@ -131,7 +131,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Row> {
         });
     };
 
-    let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &expected, false)
+    let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false)
         .iter()
         .zip(&expected)
         .map(|(rendered, expected_file)| {
@@ -227,7 +227,7 @@ fn main() {
         let text = case.expected_types().expect("no .types baseline");
         let expected = types_baseline::parse(&text);
         let parsed = case.load().expect("case did not load");
-        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &expected, false)
+        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false)
             .iter()
             .zip(&expected)
             .map(|(rendered, expected_file)| {

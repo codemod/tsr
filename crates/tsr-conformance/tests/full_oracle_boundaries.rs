@@ -50,5 +50,21 @@ fn full_oracle_native_cartesian_clean_and_span_controls() {
     // Actual native diagnostics at the same start remain separate by length.
     let records: Vec<_> = output.diagnostics.lines().map(|line| line.split(',').collect::<Vec<_>>()).collect();
     assert!(records.iter().enumerate().any(|(i,a)| records[i+1..].iter().any(|b| a[0] == b[0] && a[1] == b[1] && a[5] == b[5] && a[2] != b[2])));
+    let actual = tsr_conformance::full_oracle_actual::produce(&clean.configuration).expect("real TSR producer");
+    assert_eq!(full_oracle::compare(clean.output.as_ref().unwrap(), &actual), Verdict::Exact);
+    let actual_comma = tsr_conformance::full_oracle_actual::produce(&comma.configuration).expect("real TSR comma producer");
+    assert_eq!(actual_comma.errors, output.errors);
+    assert_eq!(actual_comma.types, output.types);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn process_deadline_reaps_hung_compiler_and_retains_output() {
+    let path = std::env::temp_dir().join(format!("full-oracle-deadline-{}", std::process::id()));
+    let status = full_oracle::run_bounded(std::process::Command::new("sh").args(["-c", "echo started; exec sleep 10"]),
+        &path, std::time::Duration::from_millis(30)).unwrap();
+    assert!(status.starts_with("timeout after 30 ms; reaped"), "{status}");
+    assert_eq!(std::fs::read_to_string(path.with_extension("stdout")).unwrap(), "started\n");
+    std::fs::remove_file(path.with_extension("stdout")).unwrap();
+    std::fs::remove_file(path.with_extension("stderr")).unwrap();
 }

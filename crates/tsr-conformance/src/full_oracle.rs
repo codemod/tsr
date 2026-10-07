@@ -3,7 +3,7 @@
 //!
 //! Unlike the legacy suites, this population includes both native trees, every
 //! configuration, native exclusions, divergences, empty output and failures.
-use std::{collections::BTreeMap, path::{Path, PathBuf}, process::Command};
+use std::{collections::BTreeMap, path::{Path, PathBuf}, process::{Command, Stdio}, time::{Duration, Instant}};
 use anyhow::{Context, Result, bail};
 
 /// A fully qualified native case/configuration identity and its input settings.
@@ -161,50 +161,52 @@ pub fn native_population(upstream: &Path, dir: &Path, selection: Option<&str>) -
         .arg("./internal/testrunner").output()?;
     std::fs::write(dir.join("build.stderr"), &build.stderr)?;
     if !build.status.success() { bail!("native build failed; see {}", dir.display()); }
-    let result = Command::new(&binary).current_dir(upstream.join("internal/testrunner"))
+    let discovery = run_bounded(Command::new(&binary).current_dir(upstream.join("internal/testrunner"))
         .arg(format!("-test.run={run}"))
         .env("FULL_ORACLE_DISCOVERY", "1")
-        .env("FULL_ORACLE_OUTPUT", &output).output()?;
-    std::fs::write(dir.join("discovery.stdout"), &result.stdout)?;
-    std::fs::write(dir.join("discovery.stderr"), &result.stderr)?;
+        .env("FULL_ORACLE_OUTPUT", &output), &dir.join("discovery"), Duration::from_secs(120))?;
+    std::fs::write(dir.join("discovery.status"), &discovery)?;
+    // Go's discovery failures are records, not a reason to discard successful cases.
+    if discovery.starts_with("timeout") { bail!("native discovery deadline exceeded; manifest retained"); }
     if std::fs::metadata(&output)?.len() == 0 {
         bail!("native discovery failed; see {}", dir.display());
     }
     let discovered = read_population(&output)?;
-    let mut cases = BTreeMap::new();
-    for config in discovered.configurations.values() {
-        let case = config.configuration.id.rsplit_once('(').context("configuration identity")?.0;
-        cases.insert(case.to_string(), ());
-    }
-    // One fresh native process per source case bounds checker lifetime. A process
-    // crash cannot truncate the population, which was published before any checks.
+    // Exactly ten leased processes. Every configuration starts a fresh compiler;
+    // crashes/nonzero exits override an R row rather than masquerading as success.
     use rayon::prelude::*;
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(2).build()?;
-    let rows: Vec<Result<String>> = pool.install(|| cases.keys().enumerate().collect::<Vec<_>>()
-        .par_iter().map(|(index, case)| {
+    use std::io::Write;
+    let checkpoint = std::sync::Mutex::new(std::fs::OpenOptions::new().append(true).open(&output)?);
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(10).build()?;
+    let configurations: Vec<_> = discovered.configurations.values().enumerate().collect();
+    pool.install(|| configurations.par_iter().for_each(|(index, native)| {
+        let config = &native.configuration;
+        let run_case = || -> Result<String> {
+            let case = config.id.rsplit_once('(').context("configuration identity")?.0;
             let case_output = dir.join(format!("case-{index}.tsv"));
             std::fs::write(&case_output, "")?;
             let expression = format!("^TestFullOracle$/{}", case.split('/').map(regex_literal).collect::<Vec<_>>().join("/"));
-            let result = Command::new(&binary).current_dir(upstream.join("internal/testrunner"))
+            let status = run_bounded(Command::new(&binary).current_dir(upstream.join("internal/testrunner"))
                 .arg(format!("-test.run={expression}"))
                 .env("GOMEMLIMIT", "256MiB")
-                .env("FULL_ORACLE_OUTPUT", &case_output).output()?;
-            std::fs::write(dir.join(format!("case-{index}.log")), &result.stdout)?;
-            std::fs::write(dir.join(format!("case-{index}.stderr")), &result.stderr)?;
+                .env("FULL_ORACLE_CONFIGURATION", &config.id)
+                .env("FULL_ORACLE_OUTPUT", &case_output), &dir.join(format!("case-{index}")), Duration::from_secs(30))?;
+            std::fs::write(dir.join(format!("case-{index}.status")), &status)?;
+            if status != "success" { bail!("{status}"); }
             let text = std::fs::read_to_string(case_output)?;
-            // Keep only atomically completed records; incomplete publication after
-            // a signal leaves the discovered configuration as NativeFailure.
-            let mut complete = String::new();
-            for line in text.lines() {
-                if line.split('\t').count() == 7 && line.starts_with("52\t") {
-                    complete.push_str(line); complete.push('\n');
-                }
-            }
-            Ok(complete)
-        }).collect());
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().append(true).open(&output)?;
-    for row in rows { file.write_all(row?.as_bytes())?; }
+            let records: Vec<_> = text.lines().filter(|line| line.split('\t').count() == 7 && line.starts_with("52\t")).collect();
+            if records.len() != 1 { bail!("expected one completed configuration record, got {}", records.len()); }
+            Ok(format!("{}\n", records[0]))
+        };
+        let row = match run_case() {
+            Ok(row) => row,
+            Err(error) => record(&["R", &config.id, "process failure", &format!("{error:#}"), "", "", ""]),
+        };
+        // Publish as soon as each isolated process settles, not after a whole Vec.
+        let mut file = checkpoint.lock().expect("checkpoint mutex");
+        file.write_all(row.as_bytes()).expect("native checkpoint write");
+        file.sync_data().expect("native checkpoint durability");
+    }));
     read_population(&output)
 }
 
@@ -217,16 +219,40 @@ pub fn actual_artifacts(producer: &Path, config: &Configuration, dir: &Path) -> 
     let dir = std::fs::canonicalize(dir)?;
     let settings = dir.join("settings.txt");
     std::fs::write(&settings, &config.settings)?;
-    let output = Command::new(producer).arg(&config.source).arg(settings).arg(&dir)
-        .env("FULL_ORACLE_ID", &config.id).output()?;
-    std::fs::write(dir.join("stdout"), &output.stdout)?;
-    std::fs::write(dir.join("stderr"), &output.stderr)?;
-    if !output.status.success() { bail!("actual producer exited {}", output.status); }
+    let status = run_bounded(Command::new(producer).arg(&config.source).arg(settings).arg(&dir)
+        .env("FULL_ORACLE_ID", &config.id), &dir.join("actual"), Duration::from_secs(30))?;
+    std::fs::write(dir.join("status"), &status)?;
+    if status != "success" { bail!("actual producer {status}"); }
     Ok(Artifacts {
         diagnostics: std::fs::read_to_string(dir.join("diagnostics.semantic"))?,
         errors: std::fs::read(dir.join("errors.txt"))?,
         types: std::fs::read(dir.join("types"))?,
     })
+}
+
+/// File-backed output prevents pipe-buffer deadlocks; kill then reap on deadline.
+pub fn run_bounded(command: &mut Command, log: &Path, deadline: Duration) -> Result<String> {
+    let stdout = std::fs::File::create(log.with_extension("stdout"))?;
+    let stderr = std::fs::File::create(log.with_extension("stderr"))?;
+    let mut child = command.stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).spawn()?;
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(if status.success() { "success".into() } else { format!("exit {status}") });
+        }
+        if started.elapsed() >= deadline {
+            child.kill()?;
+            let status = child.wait()?;
+            return Ok(format!("timeout after {} ms; reaped {status}", deadline.as_millis()));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn record(fields: &[&str]) -> String {
+    let mut row = fields.iter().map(|field| hex(field)).collect::<Vec<_>>().join("\t");
+    row.push('\n');
+    row
 }
 
 fn regex_literal(text: &str) -> String {

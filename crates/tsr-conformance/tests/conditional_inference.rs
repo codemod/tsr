@@ -27,7 +27,7 @@ export function result() { return { element, tail, head, both, input }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "element : \"a\" | \"b\"",
@@ -59,7 +59,7 @@ export function result() { return common; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     assert!(lines.iter().any(|line| line == "C : \"b\""), "{lines:?}");
 }
@@ -82,7 +82,7 @@ export function result() { return { empty, populated }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["Empty : unknown", "Populated : \"a\" | \"b\""] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -118,7 +118,7 @@ export function result() { return { stringResult, numberResult, failed, merged, 
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "S : [\"string\", \"a\"]",
@@ -165,7 +165,7 @@ export function result() { return { primitive, nested, nullable, parenthesizedPr
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "primitive : number",
@@ -204,7 +204,7 @@ export function result() { return { primitive, nested, nullable }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["primitive : number", "nested : \"value\"", "nullable : undefined"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -239,7 +239,7 @@ export function result() { return { filtered, boxed, element, absent, single, st
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["F : F", "N : never", "E : E", "Z : never", "S : \"a\"", "SE : \"a\""] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -272,7 +272,7 @@ export function result() { return { good, bad, merged }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["Good : \"a\"", "Bad : never", "Merged : \"a\" | \"b\""] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -306,7 +306,7 @@ export function result() { return { selected, unknown, any, never, nested }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["S : 1 | 2", "U : 1", "A : 1", "N : 1 | 2", "D : 3 | 4 | 5"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -339,7 +339,7 @@ export function result() { return { good, bad, refined }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["Good : [string, \"b\"]", "Bad : never", "Refined : never"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
@@ -370,7 +370,7 @@ export function result() { return { whole, element, input, property }; }
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in ["W : any", "E : unknown", "I : 0 | unknown[]", "P : unknown"] {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");

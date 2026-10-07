@@ -115,6 +115,7 @@ fn bundled_libs() -> &'static [(String, String)] {
 /// A case's units and the bundled libs, as a file system.
 struct CaseHost {
     fs: tsr_vfs::InMemoryFileSystem,
+    current_directory: String,
 }
 
 impl tsr_module::types::ResolutionHost for CaseHost {
@@ -123,7 +124,7 @@ impl tsr_module::types::ResolutionHost for CaseHost {
     }
 
     fn current_directory(&self) -> &str {
-        CURRENT_DIRECTORY
+        &self.current_directory
     }
 }
 
@@ -140,6 +141,8 @@ pub struct Assertion {
     /// answer's shape alone cannot do that, because `f()` → `string` is an
     /// intrinsic answer that needs call resolution.
     pub kind: SyntaxKind,
+    /// Zero-based ECMAScript source line for the source echo writer.
+    pub source_line: u32,
     /// Why the answer was `error`, when [`assertions_for_case`] was asked to
     /// explain and it was. `None` otherwise — including for every run of the
     /// suite, which does not pay for it.
@@ -411,6 +414,7 @@ pub fn assertions_for_file(
     mut type_of: impl FnMut(NodeId) -> String,
 ) -> Vec<Assertion> {
     let tree = Tree { nodes, map };
+    let line_starts = tsr_core::ecma_line_starts(source);
     let mut out = Vec::new();
     for node in walk_in_order(*file) {
         let Some(id) = node.node_id() else { continue };
@@ -419,7 +423,9 @@ pub fn assertions_for_file(
         }
         let text = source_text(source, nodes.span(id));
         let type_string = type_of(id);
-        out.push(Assertion { text, type_string, kind: tree.kind(id), reason: None });
+        let actual_start = skip_trivia(source, nodes.span(id).start as usize) as u32;
+        let source_line = tsr_core::compute_line_of_position(&line_starts, actual_start);
+        out.push(Assertion { text, type_string, kind: tree.kind(id), source_line, reason: None });
     }
     out
 }
@@ -1250,11 +1256,9 @@ fn is_intrinsic_jsx_name(name: &str) -> bool {
     name.starts_with(|first: char| first.is_ascii_lowercase()) || name.contains('-')
 }
 
-/// Render every baseline section of a case, in the baseline's order.
+/// Render source units in input order. Selection never reads expected artifacts.
 ///
-/// One entry per `expected` section, so position *i* on one side is position *i*
-/// on the other, and a section we have no unit for comes back empty rather than
-/// absent — the alignment is what [`crate::types_suite::compare`] compares.
+/// Callers supply source units, not baseline sections; unloaded units render empty.
 ///
 /// Shared by the suite and by `examples/types_shapes.rs` so the histogram is
 /// taken over exactly what the gate judges. Returns [`Assertion`]s with the two
@@ -1263,7 +1267,7 @@ fn is_intrinsic_jsx_name(name: &str) -> bool {
 #[must_use]
 pub fn assertions_for_case(
     case: &crate::TestCase,
-    expected: &[FileTypes],
+    files: &[crate::TestFile],
     explain: bool,
 ) -> Vec<Vec<Assertion>> {
     // **One program per case, one checker over it.** Until 2026-08-05 this loop
@@ -1277,7 +1281,7 @@ pub fn assertions_for_case(
     // widening's effect and nothing else.
     let arena = tsr_core::Arena::new();
     let program = program_for_case(&arena, case);
-    render_case(&program, case, expected, explain, None)
+    render_case(&program, case, files, explain, None)
 }
 
 /// [`assertions_for_case`], in a caller-owned program, with the node behind
@@ -1299,11 +1303,11 @@ pub fn assertions_for_case(
 pub fn assertions_for_case_with_ids<'a>(
     arena: &'a tsr_core::Arena,
     case: &crate::TestCase,
-    expected: &[FileTypes],
+    files: &[crate::TestFile],
 ) -> (tsr_compiler::Program<'a>, Vec<Vec<Assertion>>, Vec<Vec<NodeId>>) {
     let program = program_for_case(arena, case);
     let mut ids = Vec::new();
-    let rendered = render_case(&program, case, expected, false, Some(&mut ids));
+    let rendered = render_case(&program, case, files, false, Some(&mut ids));
     debug_assert_eq!(ids.len(), rendered.len(), "one id section per rendered section");
     (program, rendered, ids)
 }
@@ -1332,16 +1336,13 @@ pub fn configured_checker<'a>(
 }
 
 /// The body both entry points share, so they cannot drift apart.
-fn render_case(
+pub(crate) fn render_case(
     program: &tsr_compiler::Program<'_>,
     case: &crate::TestCase,
-    expected: &[FileTypes],
+    files: &[crate::TestFile],
     explain: bool,
-    mut ids: Option<&mut Vec<Vec<NodeId>>>,
+    ids: Option<&mut Vec<Vec<NodeId>>>,
 ) -> Vec<Vec<Assertion>> {
-    let nodes = program.nodes();
-    let node_map = program.node_map();
-    let bound = program.binder();
     // One checker for the whole program, not one per unit — which is upstream's
     // shape (`Program` has one `Checker`) and also means a lib type resolved for
     // the first unit is memoised for the rest.
@@ -1359,6 +1360,20 @@ fn render_case(
     // have no program, and they are the control that a call site without a host
     // is unchanged.
     let mut checker = configured_checker(program);
+    render_with_checker(program, files, explain, ids, &mut checker, case.had_error_baseline)
+}
+
+pub(crate) fn render_with_checker<'a>(
+    program: &'a tsr_compiler::Program<'a>,
+    files: &[crate::TestFile],
+    explain: bool,
+    mut ids: Option<&mut Vec<Vec<NodeId>>>,
+    checker: &mut tsr_checker::Checker<'a, 'a>,
+    had_diagnostics: bool,
+) -> Vec<Vec<Assertion>> {
+    let nodes = program.nodes();
+    let node_map = program.node_map();
+    let bound = program.binder();
     // `GetStrictOptionValue(strictNullChecks)` (`checker.go:919`) over the
     // case's directives: the explicit flag wins, `@strict` is the fallback.
     // **The default is `true`, measured off the baselines rather than
@@ -1400,19 +1415,15 @@ fn render_case(
     // Both the JSDoc table and the options are applied in `configured_checker`.
 
     let mut ours = Vec::new();
-    for expected_file in expected {
+    for input_file in files {
         // A section with no unit, a JSON unit, or a unit the loader did not put
         // in the program — an unsupported extension, or a name it could not read
         // — renders empty, exactly as a unit with no expected section does.
         // Absent rather than wrong.
-        let file = case
-            .files
-            .iter()
-            .find(|u| crate::binder_suite::same_unit(&u.name, &expected_file.file))
-            .filter(|u| {
-                tsr_parser::ScriptKind::from_file_name(&u.name) != tsr_parser::ScriptKind::Json
-            })
-            .and_then(|u| program.source_file(&u.name));
+        let file = (tsr_parser::ScriptKind::from_file_name(&input_file.name)
+            != tsr_parser::ScriptKind::Json)
+            .then(|| program.source_file(&input_file.name))
+            .flatten();
         let Some(file) = file else {
             ours.push(Vec::new());
             if let Some(ids) = ids.as_deref_mut() {
@@ -1433,7 +1444,7 @@ fn render_case(
             node_map,
             |id| {
                 visited.push(id);
-                let mut answer = type_at_location(&mut checker, bound, nodes, node_map, id);
+                let mut answer = type_at_location(checker, bound, nodes, node_map, id);
                 // SS180 `hadErrorBaseline` (`type_symbol_baseline.go:379`,
                 // the FIRST condition of the guard chain): in a case that
                 // produced diagnostics, the intrinsic-name fast path is
@@ -1442,7 +1453,7 @@ fn render_case(
                 // prints `any`. Measured: 125 of the 152 files whose SINGLE
                 // remaining blocker is `want any, got error` have an
                 // `.errors.txt` baseline.
-                if case.had_error_baseline && answer == "error" {
+                if had_diagnostics && answer == "error" {
                     answer = "any".to_string();
                 }
                 // SS204 `!ast.IsPropertyAccessOrQualifiedName(node.Parent)`
@@ -1595,7 +1606,7 @@ fn render_case(
             for assertion in &mut rendered {
                 if assertion.type_string == "error" {
                     let id = gaps.next().expect("one recorded gap per `error` line");
-                    assertion.reason = Some(gap_reason(&mut checker, bound, nodes, node_map, id));
+                    assertion.reason = Some(gap_reason(checker, bound, nodes, node_map, id));
                 }
             }
         }
@@ -1728,6 +1739,7 @@ pub fn program_and_config_for_case<'a>(
         .as_ref()
         .map_or_else(tsr_core::CompilerOptions::default, |config| config.compiler_options.clone());
     let options = crate::trace_case::apply_test_directives(base, case, current_directory);
+    let options = crate::full_oracle_actual::apply_compiler_settings(options, case, current_directory);
     // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
     // exactly as `trace_case::build_file_system` normalizes them. The VFS and
     // resolver have followed links since the module_resolution suite landed;
@@ -1743,7 +1755,10 @@ pub fn program_and_config_for_case<'a>(
             )
         })
         .collect::<Vec<_>>();
-    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, case_sensitive) };
+    let host = CaseHost {
+        fs: tsr_vfs::InMemoryFileSystem::new(files, symlinks, case_sensitive),
+        current_directory: current_directory.to_string(),
+    };
     let program = tsr_compiler::Program::from_root_files(
         arena,
         &host,
@@ -2170,6 +2185,7 @@ mod tests {
             text: text.to_string(),
             type_string: type_string.to_string(),
             kind: SyntaxKind::Identifier,
+            source_line: 0,
             reason: None,
         }
     }
@@ -2848,13 +2864,6 @@ mod tests {
         crate::TestCase::parse("compiler/synthetic", "synthetic.ts", source)
     }
 
-    fn sections(names: &[&str]) -> Vec<FileTypes> {
-        names
-            .iter()
-            .map(|name| FileTypes { file: (*name).to_string(), assertions: Vec::new() })
-            .collect()
-    }
-
     /// The structural claim of the rewire, asserted where the checker's own
     /// maturity cannot reach it.
     ///
@@ -2906,7 +2915,7 @@ mod tests {
     #[test]
     fn a_single_unit_case_still_renders_its_lines() {
         let case = synthetic_case("const x = 1;\n");
-        let rendered = assertions_for_case(&case, &sections(&["synthetic.ts"]), false);
+        let rendered = assertions_for_case(&case, &case.files, false);
         assert_eq!(rendered.len(), 1);
         assert!(
             rendered[0].iter().any(|a| a.text == "x" && a.type_string == "1"),
@@ -2915,13 +2924,10 @@ mod tests {
         );
     }
 
-    /// A section naming a unit the program has no file for renders empty,
-    /// rather than panicking or borrowing another unit's tree — which is a live
-    /// possibility now that one node table holds every unit.
     #[test]
-    fn a_section_with_no_unit_renders_empty() {
+    fn unloaded_input_cannot_borrow_another_units_tree() {
         let case = synthetic_case("const x = 1;\n");
-        let rendered = assertions_for_case(&case, &sections(&["absent.ts"]), false);
-        assert_eq!(rendered, vec![Vec::new()]);
+        let files = [crate::TestFile { name: "absent.ts".into(), content: "let y = 2;".into() }];
+        assert_eq!(assertions_for_case(&case, &files, false), vec![Vec::new()]);
     }
 }

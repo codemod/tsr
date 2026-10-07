@@ -208,7 +208,7 @@ impl Suite for CheckerTypes {
 
         // One rendered section per baseline section, in the baseline's order, so
         // position `i` on one side is position `i` on the other.
-        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &files, false)
+        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false)
             .iter()
             .zip(&files)
             .map(|(rendered, expected_file)| {

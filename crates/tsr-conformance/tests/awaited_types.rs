@@ -33,7 +33,7 @@ export async function mixedThen<T extends (number | { tag: string }) & { then():
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -132,7 +132,7 @@ async function independent(left: Then<61> & Tagged, right: Then<"right"> & Tagge
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -197,7 +197,7 @@ createMachine<{ count: number }>({
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -240,7 +240,7 @@ async function custom<T>(x: T | undefined) { const customValue = await x; return
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)
@@ -282,7 +282,7 @@ export async function taggedClass<T extends TaggedClass>(x: T) { const taggedCla
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .iter()
         .flatten()
         .map(types_producer::Assertion::line)

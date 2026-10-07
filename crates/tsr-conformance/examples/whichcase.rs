@@ -74,7 +74,7 @@ fn main() {
         let Ok(parsed) = case.load() else { continue };
         eprintln!("{n} {}", case.name);
         let arena = tsr_core::Arena::new();
-        let _ = types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+        let _ = types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
     }
     eprintln!("done");
 }

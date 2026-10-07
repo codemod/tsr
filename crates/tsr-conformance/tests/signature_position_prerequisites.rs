@@ -13,7 +13,7 @@ const undefinedDefault = contextual((p = undefined) => { const observedUndefined
         let source = format!("// @strictNullChecks: {strict}\n{source}");
         let case = TestCase::parse("probe/signature-position-consumers", "consumer.ts", &source);
         let expected = [FileTypes { file: "consumer.ts".into(), assertions: Vec::new() }];
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         for (name, expected) in [
             ("observedBody", "number"),
             ("observedOptional", if strict { "number | undefined" } else { "number" }),
@@ -63,7 +63,7 @@ const unsupported = arrayOrUnknown(uncertain);
         let source = format!("// @strictNullChecks: {strict}\n{source}");
         let case = TestCase::parse("probe/primitive-array-overloads", "consumer.ts", &source);
         let expected = [FileTypes { file: "consumer.ts".into(), assertions: Vec::new() }];
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         for (name, expected) in [
             ("afterArray", "\"string\""),
             ("actualArray", "\"array\""),
@@ -109,7 +109,7 @@ const afterEmptyReadonly = emptyReadonlyFirst("abc");
         let source = format!("// @strictNullChecks: {strict}\n{source}");
         let case = TestCase::parse("probe/empty-global-arrays", "consumer.ts", &source);
         let expected = [FileTypes { file: "consumer.ts".into(), assertions: Vec::new() }];
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         for name in ["afterEmptyArray", "afterEmptyReadonly"] {
             let actual = actual[0].iter().find(|a| a.text == name).expect(name);
             // Native selects the generic candidate. Existing inference cannot
@@ -148,7 +148,7 @@ const array = first([true, false]);
         let source = format!("// @strictNullChecks: {strict}\n{source}");
         let case = TestCase::parse("probe/optional-union-overloads", "consumer.ts", &source);
         let expected = [FileTypes { file: "consumer.ts".into(), assertions: Vec::new() }];
-        let actual = types_producer::assertions_for_case(&case, &expected, false);
+        let actual = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
         for (name, expected) in [
             ("stringFirst", "string | number | boolean"),
             ("stringReversed", "string | number | boolean"),

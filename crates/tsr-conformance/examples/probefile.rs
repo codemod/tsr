@@ -37,7 +37,7 @@ fn main() {
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let rendered = types_producer::assertions_for_case(&case, &expected, false);
+    let rendered = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     for (unit, assertions) in case.files.iter().zip(&rendered) {
         println!("=== {} ===", unit.name);
         for assertion in assertions {

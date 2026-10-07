@@ -37,7 +37,7 @@ export const numericRead=numericIndex[numeric];
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for wanted in [
         "text=>text.length : (text: string) => number",
@@ -73,7 +73,7 @@ export const textualUndefined=textual[undefined];
         .iter()
         .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
         .collect();
-    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let assertions = types_producer::assertions_for_case(&case, &case.files.as_slice(), false);
     let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
     for name in ["numericNull", "numericUndefined", "textualNull", "textualUndefined"] {
         // Invalid keys decline. General tsgo errorType-to-any recovery is

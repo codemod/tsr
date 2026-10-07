@@ -12,7 +12,7 @@ fn main() {
     let parsed = case.load().expect("load");
     let arena = tsr_core::Arena::new();
     let (_program, ours, _ids) =
-        types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+        types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
     let want_pos: Vec<usize> = std::env::var("TSR_TRACE_POS")
         .unwrap_or_default()
         .split(',')

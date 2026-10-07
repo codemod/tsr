@@ -37,7 +37,7 @@ fn main() {
             let Ok(parsed) = case.load() else { return out };
             let arena = tsr_core::Arena::new();
             let (_program, ours, _ids) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
             for (index, expected_file) in expected.iter().enumerate() {
                 let Some(our_file) = ours.get(index) else { continue };
                 for (i, want) in expected_file.assertions.iter().enumerate() {

@@ -89,7 +89,7 @@ fn assertions(source: &str) -> Vec<tsr_conformance::types_producer::Assertion> {
         .iter()
         .map(|file| FileTypes { file: file.name.clone(), assertions: Vec::new() })
         .collect();
-    tsr_conformance::types_producer::assertions_for_case(&case, &expected, false)
+    tsr_conformance::types_producer::assertions_for_case(&case, &case.files.as_slice(), false)
         .into_iter()
         .flatten()
         .collect()

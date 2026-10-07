@@ -392,7 +392,7 @@ fn main() {
             // `dc61c84`.
             let arena = tsr_core::Arena::new();
             let (program, rendered, ids) =
-                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &parsed.files.as_slice());
             let nodes = program.nodes();
             let map = program.node_map();
 

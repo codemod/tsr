@@ -182,7 +182,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Tally> {
         tally.cases_with_errors = 1;
     }
 
-    let rendered = types_producer::assertions_for_case(&parsed, &expected, false);
+    let rendered = types_producer::assertions_for_case(&parsed, &parsed.files.as_slice(), false);
     let ours: Vec<FileTypes> = rendered
         .iter()
         .zip(&expected)
