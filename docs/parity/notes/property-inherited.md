@@ -426,7 +426,7 @@ these harness runs, but complete input capture and actual checked-worker work
 remain unverified: `work_comparable=false`, `target_verified=false`. These are
 observed ratios, not a verified performance target or optimization claim.
 
-## INDEX-SYMBOL-UNION-KEY-INFOS investigation (no semantic delivery)
+## INDEX-SYMBOL-UNION-KEY-INFOS — tsr-2zk.16.475 (one blocked case)
 
 Current `index_infos_of_declaration` already enumerates `TypeData::Union`
 constituents, filters with `is_valid_index_key_type`, and callers deduplicate
@@ -476,8 +476,26 @@ Expensive work is type-node resolution plus valid-key filtering and caller
 identity dedup; actual worker executions/hits/copy bytes remain unmeasured.
 Bounded Beads follow-up request: count those operations on primitive, union,
 pattern/intersection, duplicate-key and unresolved-value controls before
-extending reuse. The current queued failed-case ID was not supplied; the
-reproduced grammar control and exact external hunk are recorded independently.
+extending reuse. Authoritative target is `conformance/indexSignatures1`, one blocked case.
+Its current type verdict shows union-index type literals collapsing to `any`
+(e.g. rows 258,293,296,299,302,305), while interface union key collection already
+works. Exact blocking producer: `declared.rs::build_type_literal`
+(the index-member branch around 2540) calls singular `index_signature_member`,
+which declines UNION keys, before it ever calls `index_infos_of_declaration`.
+The owned collector therefore cannot reach that literal. Required external hunk:
+replace singular index rendering with a list of members from the existing
+per-valid-key IndexInfos, deduplicate each semantic key TypeId across declarations
+in declaration/constituent order, and retain key-specific value/readonly/source
+provenance. Do not render printed union text as one key. This requires an owned
+plural index-rendering producer and serialized unowned `declared.rs` caller
+cutover; no shim or shared-file edit was made.
+
+Missing duplicate TS2374 in this target belongs to
+`index_constraint.rs::check_duplicate_index_signatures`, also unowned, not the
+IndexInfo collector's dedup: native duplicate-diagnostic validation walks source
+signatures even though resolved infos deduplicate key identity. Target also has
+unrelated mapped/alias/inference/diagnostic gaps; no one-case passing promise is
+made. This exact target and producer supersede the earlier unassigned-case note.
 
 ## Release-target limits
 
