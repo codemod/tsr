@@ -319,6 +319,35 @@ Receipts under `target/recovery/property/`: `missing-body-native*`,
 requires the serialized contextual, erased-key/heritage and winning-origin
 producers; this next-root fix is not partial acceptance of inherited-this.
 
+## Canonical signature-list and index projection delivery
+
+Parent expression worker must reuse `calls.rs::head_signatures(t, kind)` with
+`pub(crate)` visibility supplied by the calls owner. No duplicate getter is
+added to signatures.rs. It reads the list without forcing signature returns;
+unsupported None and completed-empty Some remain distinct. Both wrapper override
+sets must win before class/function source fallback or merged-source refusal.
+
+Source-this forwarding is pinned to `getInstantiationExpressionType`
+(checker.go:10696–10698): the wrapper receives resolved source members unchanged,
+not re-instantiated under wrapper this. Source resolveTypeReferenceMembers /
+resolveObjectTypeMembers already supplies source this and ordered arguments.
+This justifies the exact source TypeId in retained property reads; a wrapper-this
+substitution would change the shared member semantics. Later composite receiver
+projection is a separate context requiring its own qualification.
+
+Temporarily owned `index_signatures.rs::get_index_infos_of_type` now delegates
+source-linked views to the exact source before mapped/anonymous classification.
+It returns the source Option unchanged, including unsupported None, readonly
+and declaration/component provenance. No eager index image/cache is created;
+the existing source getter owns computation and returned-vector copying.
+Smoke resolves readonly string->number index metadata and declaration provenance
+through a view; strict all-target checker Clippy passes in the ignored parent-
+field copy. An initial test incorrectly expected intrinsic error source indexes
+to be unsupported; current getter returns completed-empty for that source, and
+that incidental assertion was removed rather than changing semantics. This
+projection is not an end-to-end expression-mint completion or performance claim.
+Receipts: index-view-smoke.log and index-view-clippy.log.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
