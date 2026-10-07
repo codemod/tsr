@@ -457,6 +457,31 @@ receipts; full zero-RIGHT/EMPTY_RIGHT-loss/no-missing-ID pair and performance
 verification remain unchanged. Both claimed clusters remain unresolved on
 shared contracts; this investigation does not report a completed fix.
 
+## Predicate qualification continuation (`tsr-2zk.16.75`)
+
+Actual target smoke for `formatToPartsFractionalSecond` remains
+**13 RIGHT, 4 WRONG, 0 GAP**. Actual native/TSR CLIs agree diagnostically on
+the native source. Its type disagreements include one nested predicate
+parameter using `DateTimeFormatPart` instead of `Intl.DateTimeFormatPart`, plus
+registry type qualification. These require the target's library signature
+instantiation/display context; diagnostics alone do not prove type parity.
+
+An independent actual control defines a namespace `Types.Part`, a generic
+source accepting `(value: Part) => value is S`, and a non-predicate counterpart.
+At external and function-local-shadowed corpus sites, both nested forms
+correctly qualify `Types.Part`; actual native/TSR CLI diagnostics agree. No
+owned visitor accessibility defect is reproduced by this control. A direct
+`guard(value: Part): value is Part` uses the parent-owned
+`signature_to_string_at` predicate early return and its baked signature; that
+path is not an entity-name visitor change this worker may make.
+
+The remaining exact target prerequisite is parent library-signature
+instantiation/dispatch context and registry type naming, not a guessed global
+predicate accessibility relaxation. No production edit or test asserting an
+unsupported empty result was added. Seven owned tests pass. Source/binary
+identities and prior full no-loss/missing-ID/performance receipts remain
+unchanged; `.75` still has 11 blocked targets and no conversion claim.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
