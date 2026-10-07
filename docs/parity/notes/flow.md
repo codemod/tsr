@@ -896,3 +896,28 @@ No CPU hotpath excess measured, but domain wall fails literal no-slowdown and
 native-equivalent complete work/0.50 is unverified. Issue remains open for parent
 combined gates. Receipts: `target/recovery/flow-instance/`. Native forcing
 execution counts not measured; no runtime complete-work claim.
+
+## 23. Non-null/satisfies condition dispatch (tsr-2zk.16.255)
+
+Pinned `narrowType` in `internal/checker/flow.go` unwraps parenthesized,
+non-null and satisfies expressions into the inner flow condition. Added the
+missing non-null/satisfies dispatch arms without changing expression typing,
+assertion semantics, readonly helpers, aliases or effects completion. Existing
+recursive narrow_type preserves original reference/receiver and fixed branch
+assumption. No cache or provisional publication.
+
+Native direct controls exit0; real probefile matches all emitted return types:
+nonnull guard string, satisfies and negated-nonnull example string|null.
+Dedicated reference control proves nonnull/satisfies conditions narrow their
+inner references to string. Final117 focused tests pass. Complete target cases
+inferTypePredicates and narrowingWithNonNullExpression run; full eligible corpus
+exits0, all477,968 keys retained, RIGHT469,854→469,858, WRONG7119→7115, GAP995.
+Four WRONG→RIGHT, zero priorRIGHT/vanished losses. Diagnostics retain10,570 keys,
+EMPTY_RIGHT4968→4969; no priorRIGHT loss. Residual inference cases not suppressed.
+
+41-pair wait4 cohort versus5040a546: domainCPU1.0238, wall1.0655; genericCPU0.9994,
+wall0.9931; complete outputs/status match. **Performance gate rejected**, not
+claimed noise or repaired by skipping native flow semantics. No equivalent
+native complete-work/0.50 acceptance. Parent needs integrated attribution before
+campaign landing. Clippy/anchors/sections/format checked; receipts ignored
+`target/recovery/flow-nonnull/`. Native forcing counts not measured.

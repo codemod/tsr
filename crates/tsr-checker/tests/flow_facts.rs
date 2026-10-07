@@ -40,6 +40,19 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
+fn nonnull_and_satisfies_conditions_preserve_inner_narrowing() {
+    for condition in ["x!", "(x !== null) satisfies boolean"] {
+        assert_eq!(
+            narrowed_type(
+                &format!("declare let x: string | null; if ({condition}) {{ x; }}"),
+                true
+            ),
+            "string"
+        );
+    }
+}
+
+#[test]
 fn equality_replaces_kept_primitive_and_pattern_domains_with_literals() {
     for (domain, value, expected) in [
         ("string", "'foo'", "\"foo\""),
