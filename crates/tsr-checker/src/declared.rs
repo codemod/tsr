@@ -5997,6 +5997,16 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
+        // Ported from typescript-go's getTypeAliasInstantiation and
+        // instantiateTypeWithAlias (internal/checker/checker.go): a literal
+        // declared body is a pre-existing type, independent of the mapper.
+        // Reuse the SymbolId-owned declared publication and the existing
+        // ordered-TypeId instantiation key; never mint a nominal alias image.
+        if let Some(TypeNode::LiteralTypeNode(_)) = self.alias_free_generic_alias_body(symbol) {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            self.instantiations.insert((symbol, arguments), declared);
+            return declared;
+        }
         if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
@@ -6787,15 +6797,11 @@ impl<'a> Checker<'a, '_> {
             // `substituteReturnTypeSatisfiesConstraint`,
             // `homomorphicMappedTypeNesting`). Everything else keeps the
             // name-with-parameters mint below.
-            if let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
-                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-                && let Some(body @ TypeNode::TypeReferenceNode(reference)) = alias.r#type
-                && reference.type_arguments.is_empty()
-                && matches!(reference.type_name, Some(tsr_ast::EntityName::Identifier(name))
-                    if parameters.iter().any(|parameter| parameter == name.text))
-            {
-                return self.get_type_from_type_node(body);
+            if let Some(index) = self.type_parameter_body_index(symbol) {
+                let parameter = self.local_type_parameters_of(symbol)[index];
+                if let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                    return self.get_declared_type_of_symbol(owner);
+                }
             }
             // §957: a GENERIC alias whose body is a REST-BEARING tuple prints the
             // STRUCTURE, not `Name<Params>`. Same normalisation axis §956 derived
@@ -6982,8 +6988,10 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// A generic alias body whose type constructor never takes an alias
-    /// symbol: a template literal, `keyof X`, or `typeof x` (parentheses
-    /// transparent). The declared type of such an alias is the body itself.
+    /// symbol: a literal, template literal, `keyof X`, or `typeof x`
+    /// (parentheses transparent). Ported from typescript-go's
+    /// `getDeclaredTypeOfTypeAlias` and `getTypeFromLiteralTypeNode`
+    /// (`internal/checker/checker.go`): existing literals retain their identity.
     fn alias_free_generic_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
@@ -6994,7 +7002,9 @@ impl<'a> Checker<'a, '_> {
             body = inner.r#type?;
         }
         match body {
-            TypeNode::TemplateLiteralTypeNode(_) | TypeNode::TypeQueryNode(_) => Some(body),
+            TypeNode::LiteralTypeNode(_)
+            | TypeNode::TemplateLiteralTypeNode(_)
+            | TypeNode::TypeQueryNode(_) => Some(body),
             TypeNode::TypeOperatorNode(operator)
                 if operator.operator.kind == SyntaxKind::KeyOfKeyword =>
             {
