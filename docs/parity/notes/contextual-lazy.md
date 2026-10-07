@@ -612,6 +612,25 @@ investigation. Receipts optional-member-*; source unchanged, existing issue open
 Parent TypeId-scoped signature-print work and main push are noted, not rerun
 or treated as this worker's verification.
 
+## Certified nil contextual property probe — tsr-2zk.16.180
+
+Claimed existing three-case root; current47/50,97/100,2707/2720. Native
+missing contextual property/applicable index yields computed nil, distinct from
+an unsupported port. Owned probe used existing declared_members_are_complete,
+property absence and applicable-index checks to supply ContextualSignature::Absent
+for a certified concrete miss. Actual native/probe ad hoc control improves;
+all three named target rows **unchanged**. Reverted repeated contextual property
+queries rather than introduce a second completion convention.
+
+Canonical mapped/contextual property producer must expose computed absence vs
+unsupported, including remapped-key exclusion and completed applicable index
+lookup. Current generic_mapped_contextual_property_type returns None for both
+unsupported and excluded keys; broad declared completion cannot prove that
+boundary. Exact result-domain requirement sent; no blanket None-to-Absent
+fallback or test-name special case. Native CLI controls and focused target
+receipts nil-* retained; no wholecase/full no-loss/performance claim. Existing
+.16.180 open; owned source unchanged, format passes.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
