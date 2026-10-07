@@ -768,3 +768,61 @@ verified ratio null, target false; no verified 0.50 claim. Harness HEAD label
 is `5c801fff`; isolated owned JSDoc contextual changes are identified by the
 candidate binary hash. .16.417 remains open pending canonical accessor
 producer and target completion.
+
+## Generator contextual-return undefined controls
+
+Investigation after `8126dbbd`; no generator implementation change. Read
+pinned `getContextualReturnType`, `getContextualIterationType`,
+`getContextualTypeForYieldOperand` and owned return/yield projection before
+probing. Native accepts these actual esnext/strict controls with no errors:
+
+```ts
+function* plain(): Generator<undefined, undefined, unknown> {
+    yield undefined; return undefined;
+}
+function* literals(): Generator<{ tag: "a" | "b" }, undefined, unknown> {
+    yield { tag: "a" }; return undefined;
+}
+async function* asyncLiterals(): AsyncGenerator<{ tag: "a" | "b" }, undefined, unknown> {
+    yield { tag: "a" }; return undefined;
+}
+function* delegated(): Generator<undefined, undefined, unknown> {
+    return yield* plain();
+}
+```
+
+Current TSR real corpus-pipeline probe agrees on all observed slots:
+undefined operands/return, literal `{ tag: "a"; }` in synchronous and async
+yields, unknown next slots, and undefined yield-star result. This is positive
+control evidence, not a conversion. No owned context root is established.
+
+Negative control (with two scratch directive lines preceding it):
+
+```ts
+function* invalid(): Generator<number, undefined, unknown> { yield undefined; return 1; }
+function* absent(): Generator<number, undefined, unknown> { yield; }
+async function* asyncInvalid(): AsyncGenerator<number, undefined, unknown> { yield undefined; return 1; }
+```
+
+Pinned native emits five TS2322 diagnostics, in order:
+
+- (3,68) Type 'undefined' is not assignable to type 'number'.
+- (3,79) Type '1' is not assignable to type 'undefined'.
+- (4,61) Type 'undefined' is not assignable to type 'number'.
+- (5,84) Type 'undefined' is not assignable to type 'number'.
+- (5,95) Type '1' is not assignable to type 'undefined'.
+
+TSR CLI emits only the synchronous yield diagnostics at (3,68), (4,61).
+Exact consumer handoff: unowned
+`assignreport.rs::check_yield_expression_assignability` and its
+`check.rs` dispatch must check async yield operands against the actual
+annotation yield slot; return assignability consumer in `check.rs` must
+check generator return expressions against the annotation return iteration
+slot. Native counterparts `checkYieldExpression` and `checkReturnStatement`
+use these actual slots; do not change correct contextual projection or insert
+a second pass. Body-return construction stays with its signature owner.
+
+No new cache/traversal/member image, no wrapper function, no test or
+performance claim for this investigation. `.16.417` remains open at its
+canonical JSDoc/accessor producer boundary; `.16.425` remains open. Last
+implementation and full-gate receipt is `8126dbbd` above.
