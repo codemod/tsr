@@ -83,6 +83,90 @@ Replacing the current type with the intrinsic `number` refused reuse. Thus the
 owned visitor is runnable and already preserves the alias and inserts native
 `any`; top-level constraint dispatch is the missing prerequisite.
 
+## Continued native controls: aliases, defaults, receiver and normalization
+
+Additional actual native/TSR CLI runs used `--noEmit --pretty false` on the
+following independent controls. These further isolate the parent cutover; they
+are not implementation conversions.
+
+```typescript
+type Keys = "a" | "b";
+declare function written(): <K extends Keys = Keys>(value: K) => K;
+const writtenResult: never = written();
+declare function nested(): <T>(value: <T extends Keys = Keys>(x: T) => T) => T;
+const nestedResult: never = nested();
+interface Receiver { method(): <T extends this = this>(x: T) => T; }
+declare const receiver: Receiver;
+const receiverResult: never = receiver.method();
+declare function callable(): <F extends { (...args): void }>(f: F) => F;
+const callableResult: never = callable();
+declare function returnedDefault<T extends Keys = Keys>(): T;
+const serializedDefault: never = returnedDefault;
+```
+
+Both CLIs match TS2322 messages at `(3,7)`, `(5,7)`, and `(12,7)`:
+
+```text
+Type '<K extends Keys = Keys>(value: K) => K' is not assignable to type 'never'.
+Type '<T>(value: <T extends Keys = Keys>(x: T) => T) => T' is not assignable to type 'never'.
+Type '<T extends Keys = Keys>() => T' is not assignable to type 'never'.
+```
+
+At `(8,7)`, native prints
+`Type '<T extends this = Receiver>(x: T) => T' is not assignable to type 'never'.`
+TSR prints `extends Receiver = Receiver` instead. At `(9,44)`, both emit TS7019;
+at `(10,7)`, native prints `...args: any` and TSR prints `...args: any[]`.
+The diagnostics retain this order. The actual corpus pipeline also shows the
+receiver distinction: the method declaration prints the written
+`() => <T extends this = this>(x: T) => T`, whereas the `receiver.method`
+reference currently prints `extends Receiver = Receiver` in TSR. Native's
+reference message retains constraint `this` and serializes only the default.
+`nodecopy.go:552` explicitly preserves `ThisTypeNode`; replacing it based on
+a guessed receiver equivalence would contradict the pin.
+
+A separate namespace-local alias control:
+
+```typescript
+namespace N {
+    export type Keys = "c";
+    export function factory(): <T extends Keys = Keys>(x: T) => T { throw 0; }
+}
+function shadow() { type Keys = number; const result: never = N.factory(); }
+```
+
+Native keeps constraint `Keys` but serializes default as `"c"` in the returned
+signature's TS2322 message; TSR prints `"c"` for both. Controls with an outer
+type parameter named `Keys`, or a nested generic named `T`, match both CLIs.
+Written-node defaults and semantically serialized defaults are different paths;
+copying all defaults/constraints as text is not a faithful cutover.
+
+A further strict-identity countercontrol:
+
+```typescript
+declare function ordinary<T extends any = any>(): T;
+declare function missing<T extends Missing = Missing>(): T;
+const a: never = ordinary;
+const b: never = missing;
+```
+
+Both emit TS2304 at `(2,36)` and `(2,46)`, followed by TS2322 at `(3,7)` and
+`(4,7)`. Native prints `<T extends unknown = any>() => T` for `ordinary`; TSR
+prints `<T extends any = any>() => T`. Both retain
+`<T extends Missing = Missing>() => T` for `missing`.
+`getConstraintFromTypeParameter` (`checker.go:17071`) normalizes a non-error
+`any` constraint to `unknown` (or `stringNumberSymbolType` for mapped keys)
+before the node builder tests identity. The error-type constraint is not
+normalized. Therefore an unconditional annotation-reuse rule would introduce
+an incorrect `extends any` result even with a working visitor.
+
+Native `nodecopy.go:560` visits type-parameter names, constraints and defaults;
+its function/mapped-type wrapper (`nodecopy.go:835`) enters and exits
+`enterNewScope`. Name allocation and fake-scope ownership remain the shared
+renderer contract, not a new visitor-local naming cache. The existing
+`instantiate_signature` (`inference.rs`) currently clears `written_constraint`
+when a constraint image changes. Parent must coordinate any required native
+receiver/mapper treatment with that owner; this worker did not edit it.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
