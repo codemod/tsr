@@ -266,6 +266,40 @@ exportDefaultProperty2's previously RIGHT B type. That root requires combined
 static-property/interface symbol identity from members/declared integration
 owner. Its rejected patch is saved, not committed; no export-default specialcase.
 
+## Newly populated CommonJS JS root (tsr-2zk.6.16)
+
+Parent's corrected root population exposes jsFileCompilationExternalPackageError.
+Pinned baseline: imported missing c is any at the declaration but error at its
+increment reference; bare c assignment inside node_modules/c.js is error;
+exports has typeof import("c"). Do not reverse correct root population.
+
+Direct semantic ownership control proves current binder supplies exports as a
+MODULE_EXPORTS local with value declaration equal to the source file, and its
+type is the source module type. Bare c assignment publishes no local/global c.
+No binder field or name-based ownership heuristic is needed.
+
+Owned correction: get_type_of_alias's established missing named-export branch
+now returns native errorType, not canonical any. Native resolveAlias publishes
+unknown; getTypeOfAlias reads its errorType. The existing semantic getter test
+pinned presentation-any instead; updated it to assert native error, preserving
+the source-module-not-target discriminator. No cache or new traversal.
+Full pre-population Box dumps have zero prior RIGHT/vanished losses, but do not
+include the newly admitted c.js; they cannot certify the parent cutover.
+Current main-file c reference remains RIGHT in those dumps. Focused ownership
+and alias tests and checker clippy pass. Linux CPU new/reference 0.9957/0.9936.
+Actual CLI smoke still reports TS6053 for explicitly named node_modules/c.js;
+this is the parent-owned loader prerequisite, not native agreement.
+
+Required parent expression hunk: check_expression_worker's unresolved-Identifier
+branch excludes JS with file_has_commonjs_machinery and returns any. That
+syntactic identifier-spelling scan is not native getResolvedSymbol unknown
+publication; expression owner must remove CommonJS plausibility gating via the
+canonical resolved-symbol contract. Assignment c cannot be fixed in symbols
+because it has no bound symbol. Likewise exports printed as any must be checked
+at the reference/printing consumer: the bound source identity is already correct.
+No forbidden expression/compiler/loader files changed here. Integrated populated
+root/full-oracle proof remains required before clearing tsr-2zk.6.16.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including

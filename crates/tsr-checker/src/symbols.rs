@@ -535,10 +535,12 @@ impl<'a> Checker<'a, '_> {
             && self.nodes.kind(declaration) == SyntaxKind::ImportSpecifier
             && self.missing_import_export_established(declaration)
         {
-            let any = self.intrinsics.any;
-            let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
-            self.symbol_types.insert(symbol, any);
-            return any;
+            // Native resolveAlias publishes unknown for an absent module member;
+            // getTypeOfAlias reads that sentinel's errorType, not canonical any.
+            let error = self.intrinsics.error;
+            self.resolutions.pop();
+            self.symbol_types.insert(symbol, error);
+            return error;
         }
         // §131 (`checker-notes-narrow.md`): a DEFAULT import whose module
         // resolves, exports things, carries no `default`, and CANNOT have a

@@ -369,19 +369,13 @@ fn a_named_import_of_a_renamed_export_looks_up_the_property_name() {
 }
 
 #[test]
-fn a_named_import_of_a_name_the_module_does_not_export_is_any() {
-    // **Flipped by §130** (`checker-notes-narrow.md`; the thirty-fourth
-    // stand-in): the module resolves, its non-empty star-free exports table
-    // establishes the name's absence, and the alias answers upstream's
-    // TS2305 error-any at every use. The pin's load-bearing claim is
-    // UNCHANGED and still discriminates: falling back to the module symbol
-    // would print `typeof /m.ts` here, and `any` is not `typeof /m.ts` —
-    // the establishment gates (non-empty, no `export *`, no `default`, no
-    // non-identifier keys) are what keep an under-filled table an honest
-    // gap rather than a confident any.
+fn a_named_import_of_a_missing_module_export_has_error_type() {
+    // Native resolveAlias's completed unknown has errorType. This semantic
+    // getter must not confuse diagnostic-site printing of error as any with
+    // the canonical any type, or accept the source module as the target.
     let arena = Arena::new();
     let fixture = program(&arena, &[M, ("a", "import { q } from \"./m\";\n")]);
-    assert_eq!(type_of_alias(&fixture, "q", true), "any");
+    assert_eq!(type_of_alias(&fixture, "q", true), "error");
 }
 
 #[test]
