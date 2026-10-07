@@ -4413,17 +4413,16 @@ impl<'a> Checker<'a, '_> {
                 return Some(self.create_type_reference(target, vec![mapped_element]));
             }
             let source_owner = self.members_owner_of(arguments[0])?;
-            let printed_arguments: Vec<String> =
-                arguments.iter().map(|&a| self.type_to_string(a)).collect();
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            let text = format!("{name}<{}>", printed_arguments.join(", "));
-            let key = (text.clone(), symbol, arguments.to_vec());
-            if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
+            // Native getTypeAliasInstantiation owns completed reuse by alias
+            // symbol and ordered type identities, never rendered argument text.
+            let key = (symbol, arguments.to_vec());
+            if let Some(&existing) = self.instantiations.get(&key) {
                 return Some(existing);
             }
+            let text = self.type_reference_text(symbol, arguments);
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
             self.mapped_identity_optionality.insert(minted, (optionality, readonly));
-            self.qualified_generic_reference_types.insert(key, minted);
+            self.instantiations.insert(key, minted);
             self.type_reference_targets.insert(minted, (symbol, arguments.to_vec()));
             return Some(minted);
         }

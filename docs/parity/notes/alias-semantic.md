@@ -338,6 +338,23 @@ vanished keys; no case gain claimed. Seven fresh-process samples: after/before
 0.96994, after/native 1.56847; equivalent work/no-hotpath/release performance remain
 uncertified. Receipts `mapped-template-*`; parent wrapper/TypeQuery entry untouched.
 
+## Identity mapped object cache owner cutover
+
+The object-image branch now uses the existing native-style
+`instantiations[(SymbolId, ordered TypeIds)]` owner instead of the separate
+qualified-reference key containing rendered argument text. Lookup precedes
+formatting. Publication follows member-owner acquisition and modifier metadata;
+active/unresolved source work still declines. No new cache or reuse domain.
+Alias/receiver context remains the existing identity-template object image;
+expensive member work attribution remains `tsr-1yb.11`.
+
+Distinct object arguments and warm reuse controls pass; native CLI property
+consumers/diagnostics compare byte-for-byte. Existing unfiltered 477,970-assertion
+oracle unchanged, zero former RIGHT losses/vanished keys. Seven fresh-process
+samples: after/before 0.99695, after/native 1.71889. Output agrees, but complete
+checked-work equivalence and release performance remain uncertified; no speed
+claim. Receipts `mapped-cache-owner-*`; parent wrapper/TypeQuery entry untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

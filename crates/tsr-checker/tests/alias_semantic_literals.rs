@@ -194,6 +194,29 @@ fn mapped_identity_parenthesized_constraint_and_template_preserve_primitive() {
 }
 
 #[test]
+fn identity_mapped_object_images_reuse_only_the_same_argument_identity() {
+    let source = "type Copy<T> = { [K in keyof T]: T[K] }; declare const a: Copy<{ item: string }>; declare const b: Copy<{ item: number }>;";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let a = bound.lookup_local(root, "a").unwrap();
+    let b = bound.lookup_local(root, "b").unwrap();
+    let first = checker.get_type_of_symbol(a);
+    let distinct = checker.get_type_of_symbol(b);
+    assert_ne!(first, distinct);
+    assert_eq!(checker.get_type_of_symbol(a), first);
+    assert_eq!(checker.type_to_string(first), "Copy<{ item: string; }>");
+    assert_eq!(checker.type_to_string(distinct), "Copy<{ item: number; }>");
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),
