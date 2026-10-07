@@ -1326,7 +1326,9 @@ impl<'a> Checker<'a, '_> {
                 }
                 // A written annotation precedes contextual-signature/default
                 // inference in getContextualTypeForVariableLikeDeclaration.
-                if let Some(annotation) = declaration.r#type {
+                if let Some(annotation) = declaration.r#type.or_else(|| {
+                    self.jsdoc_parameter_annotation(parent).map(|(annotation, _)| annotation)
+                }) {
                     Some(self.get_type_from_type_node(annotation))
                 } else {
                     self.contextually_typed_parameter_type(parent, false)

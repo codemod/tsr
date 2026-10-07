@@ -91,6 +91,17 @@ fn jsdoc_return_annotation_contextualizes_function_return() {
 }
 
 #[test]
+fn jsdoc_parameter_annotation_contextualizes_default_callback() {
+    assert_eq!(
+        returned_object_type(
+            "/** @param {() => { tag: 'a' | 'b' }} value */ \
+             function f(value = function() { return { tag: 'a' }; }) {}",
+        ),
+        "{ tag: \"a\"; }",
+    );
+}
+
+#[test]
 fn unannotated_getter_does_not_invent_literal_context() {
     assert_eq!(
         returned_object_type("const obj = { get value() { return { tag: 'a' }; } };"),

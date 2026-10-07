@@ -651,6 +651,30 @@ contains no reverted nil/optionality experiments. Format correction also fixes
 numeric regression layout from766eaec8; no numeric behavior changed. Receipts
 getter-precedence-*; existing .16.200 claimed/open for broader target acceptance.
 
+## Effective JSDoc parameter initializer context — tsr-2zk.16.230
+
+Ready binding roots .16.294/.16.296 require binding_patterns.rs or parent
+parameter producer changes, not owned contextual fallback. Inspected ready
+.11.1 IIFE return arm: existing implementation and native/probe callback/object/
+written-return controls already agree; no duplicate implementation. Claimed
+existing issue and recorded current positive controls.
+
+Runnable owned parameter-default omission: a reparsed native JSDoc parameter
+annotation is its effective type before contextual-signature inference. Owned
+ParameterDeclaration initializer now reuses jsdoc_parameter_annotation before
+raw parameter projection, preserving written annotation precedence. No new
+reparser matching/metadata, mapper or completion side table. Existing host AST
+identity and Checker options/receiver context stay canonical.
+
+Default callback returning tag object regression fails before and passes after;
+all prior getter controls and complete cleaned checker tests pass. Actual native
+allowJs/checkJs strict declaration control clean. Full cleaned type/diagnostic
+dumps **zero verdict changes, zero protected losses/vanished keys**. No whole
+existing corpus conversion; binding-pattern JSDoc tag-by-index matching remains
+symbols/reparser owner. Fresh domain41 wall **0.97793**, generic21 **0.99110**
+vsverified0eda302c, complete-work proof false; no release/exhaustive hotpath claim.
+Receipts jsdoc-parameter-* and iife-return-*; .16.230 updated/open.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
