@@ -32,4 +32,14 @@ fn swapped_argument_vectors_keep_distinct_cold_and_warm_returns() {
     assert_eq!(checker.type_to_string(returned), "string");
     let returned = checker.mapped_signature_return(&number_first).unwrap();
     assert_eq!(checker.type_to_string(returned), "number");
+    let original_again = checker
+        .get_signatures_of_symbol(bound.lookup_local(root, "select").unwrap())
+        .unwrap()
+        .remove(0);
+    let number_again =
+        checker.get_signature_instantiation(&original_again, &[number, string]).unwrap();
+    let returned = checker.mapped_signature_return(&number_again).unwrap();
+    assert_eq!(checker.type_to_string(returned), "number");
+    let returned = checker.mapped_signature_return(&string_first).unwrap();
+    assert_eq!(checker.type_to_string(returned), "string");
 }

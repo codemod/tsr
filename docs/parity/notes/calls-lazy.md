@@ -553,6 +553,24 @@ gets a fresh monotonic ID; target preserves completed source identity/context.
 Source applied; eager-lazy-source-check remains blocked by absent parent fields.
 No runtime or full-integration acceptance claimed.
 
+### Canonical original signature builder identity
+
+Native getSignatureFromDeclaration first reads signatureLinks.resolvedSignature.
+Current port get_signature_from_declaration has no equivalent full-signature
+publication; only returns cache by captured TypeLiteralKey. Parent signature owner
+must retain original signature ID through a canonical captured declaration entry,
+not mint an ID on each temporary getter rebuild. Pending/completed updates preserve
+identity; contextual reassignment must preserve mutable original semantics rather
+than reuse a foreign completed context. Unsupported construction is not empty.
+Derived/composite signatures remain genuinely new IDs. No printed-name interning.
+
+Extended parsed ordered-map behavior control re-reads the original signature
+through get_signatures_of_symbol, instantiates it and verifies earlier image
+returns remain distinct. This proves behavior, not cache-hit counts. Current
+original-builder-tests.log is compile-blocked by absent shared fields; no pass or
+work-boundary proof claimed. Parent original-builder publication is a separate
+native operation from cachedSignatures, not a duplicate return cache.
+
 ### Parsed ordered-map behavior control
 
 Added calls_ordered_instantiation.rs: one canonical parsed two-parameter signature
