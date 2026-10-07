@@ -1433,6 +1433,11 @@ impl Checker<'_, '_> {
             let constituents = types.clone();
             let mut projected = Vec::with_capacity(constituents.len());
             let mut has_property = false;
+            // createUnionOrIntersectionProperty (5b1047d checker.go:21554)
+            // retains declaration identity independently of value projection.
+            // Distinct private/protected origins without a common declaration
+            // are not a union property. Query-local roots publish no image.
+            let mut non_public = false;
             for constituent in constituents {
                 // §117 slice 3: each constituent reads through its APPARENT
                 // type — upstream's per-constituent getReducedApparentType;
@@ -1444,6 +1449,11 @@ impl Checker<'_, '_> {
                     || self.intersection_has_never_discriminant(apparent)
                 {
                     continue;
+                }
+                if let Some(property) =
+                    self.get_property_of_type_ex(apparent, name, skip_object_function_augment)
+                {
+                    non_public |= self.property_is_non_public(property);
                 }
                 let member = if let Some(member) = self.get_type_of_property_with_this_argument(
                     apparent,
@@ -1473,6 +1483,13 @@ impl Checker<'_, '_> {
                     self.get_applicable_index_info(apparent, key)?.value
                 };
                 projected.push(member);
+            }
+            if non_public {
+                self.get_property_of_union_or_intersection_type(
+                    id,
+                    name,
+                    skip_object_function_augment,
+                )?;
             }
             return has_property.then(|| self.get_union_type(&projected));
         }

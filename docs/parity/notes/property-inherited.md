@@ -361,6 +361,41 @@ The expression worker must dispatch on original source before apparent primitive
 boxing; calls owner must expose the existing raw-list API with both override
 kinds, not add a competing getter or force return types.
 
+## Next runnable member root — tsr-2zk.16.279
+
+`members.rs` union value projection now applies the existing native
+`createUnionOrIntersectionProperty` privacy/common-declaration supplier when
+any constituent origin is private/protected. The ordinary union value loop
+previously bypassed that guard. Native pin 5b1047d checker.go:21554–21558 rejects
+distinct nonpublic declarations without a common declaration. Distinct protected
+A/B control rejects; shared inherited Root declaration retains number. No class
+name, scalar or test-case exception is introduced. Query-local origin metadata
+is not published as a completed member image; existing canonical composite
+supplier owns privacy/partial/common-declaration decisions. No new cache.
+
+Measured current two targets had 21 wrong rows. Final target type outputs all
+match; both target diagnostic cases are RIGHT. Completed final full type pair
+has 477,970 rows: 469,791 -> 469,812 RIGHT, 7,184 -> 7,163 WRONG, 995 GAP
+unchanged. All 21 gains belong to the two targets. Zero prior RIGHT losses and
+zero vanished keys. Completed 10,570-case diagnostic pair has unchanged verdict
+counts, zero prior correct-case losses and zero vanished keys. Interrupted final
+diagnostic child is excluded; the recorded diagnostic TSV is from its completed
+replacement. Strict all-target checker Clippy passes.
+
+Work risk remains explicit: every constituent performs an additional origin
+lookup; only nonpublic cases enter the existing canonical composite traversal.
+Avoidable temporary origin-vector allocation was removed in favor of that
+supplier. Equivalent-complete-work performance/no-hotpath-regression gate is
+not measured and must precede parent acceptance. This is a correctness delivery,
+not issue/release completion or speed win. `.16.225` remains separately blocked
+on serialized signature/contextual producers.
+
+Receipts: union-private-native control/declarations, union-private-before/after
+and final-target TSVs, union-private-types.tsv, union-private-diagnostics.tsv,
+union-private-transitions.json, and union-private-final-clippy.log under
+`target/recovery/property/`. Parent-field integration copy contains no source
+view producer; no unsafe inherited-this candidate is applied in these full runs.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
