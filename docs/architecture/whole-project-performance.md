@@ -212,6 +212,33 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Assignment-only hot-path correction is not a scope shortcut
+
+The parent reports the initial native import-alias assignment correction added
+two unconditional symbol-table/merged reads per identifier: domain CPU ratio
+1.029 despite wall 0.9993. It subsequently moved those reads inside the native
+`assignmentKind != None` branch, with no semantic change and no additional
+read-only identifier flags lookup. That is a specific expensive-work boundary
+correction, not justification for compiler-output filtering or skipping source
+checks. The earlier causal diagnostic ratio (wall 0.9958 / CPU 1.0019) predates
+this assignment fix and cannot certify its cost. The parent reports exact full
+parity with zero prior-RIGHT losses for this stage; this Box has not inspected
+its full corpus receipt and does not promote the release obligations.
+
+The comparison JSON now exposes `counter_attribution` with symbol/declared
+**queries** separate from source-file/variable-type **actual workers**. Native
+unobserved queries/workers remain null. Assignment flag reads and read-only
+extra reads are explicitly null on both sides: existing traces do not observe
+that boundary, so query totals cannot prove a zero-cost read-only path or a cache
+hit/copy-byte reduction. No diagnostic/output filters were added. 32 trace tests
+passed; actual comparison CLI exported
+`/tmp/recover-query-worker-attribution.json` from the existing qualified large
+captures. The parent-corrected assignment binary is absent here; shared recovery
+TSR still hashes `b2e104692f21571c489d3c88ad636fb11b6a64c957f219ec92bf47bcf6150fa3`.
+Rerun candidate timing only after its full frozen expected binary hash and source
+build receipt arrive. No new-candidate timing is claimed. Verified global <=0.50
+remains unmet.
+
 ### Oracle release blockers remain independent of file-worker counts
 
 The release certificate separately records three still-unverified obligations:

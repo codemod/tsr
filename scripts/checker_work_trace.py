@@ -766,6 +766,28 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
             "native_only": sorted(set(native_checked) - set(checked)),
             "identity_sets_match": valid and bool(checked) and set(checked) == set(native_checked)},
         "operations": rows,
+        "counter_attribution": {
+            "tsr": {
+                "queries": {row["operation"]: row["tsr_completed"] for row in rows
+                            if row["operation"] in ("symbol_type_query", "declared_type_query")},
+                "actual_workers": {row["operation"]: row["tsr_actual_executions"] for row in rows
+                                   if row["operation"] in ("source_file_check", "variable_type_worker")},
+                "identifier_assignment_flag_reads": None,
+                "read_only_identifier_extra_flag_reads": None,
+                "cache_hits": None, "active_repeats": None, "result_copy_bytes": None,
+            },
+            "native": {
+                "queries": {row["operation"]: row["native_completed"] for row in rows
+                            if row["operation"] in ("symbol_type_query", "declared_type_query")},
+                "actual_workers": {row["operation"]: row["native_actual_executions"] for row in rows
+                                   if row["operation"] in ("source_file_check", "variable_type_worker")},
+                "identifier_assignment_flag_reads": None,
+                "read_only_identifier_extra_flag_reads": None,
+                "cache_hits": None, "active_repeats": None, "result_copy_bytes": None,
+            },
+            "query_worker_totals_are_interchangeable": False,
+            "assignment_branch_cost_observed": False,
+        },
         "highest_observed_unsampled_native_boundary": native.get("highest_observed_unsampled_inner_boundary"),
         "actual_checked_work_verified": False, "target_verified": False,
         "unmet_constraints": [
