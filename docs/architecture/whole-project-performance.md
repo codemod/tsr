@@ -212,6 +212,68 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Runnable cross-tool operation-gap comparison
+
+The trace reader accepts `--compare-native-trace` and
+`--compare-native-receipt` alongside the TSR `--trace`/`--receipt`. It validates
+both actual captures before comparing **full-worker path identity sets**, not
+counts. Same-count/different-path and invalid/native-empty controls fail scope
+matching. The full TSR Program policy rows and native completed source/checker
+rows remain attached, along with structured effective configs and full CLI
+stdout/stderr in supervising receipts. Native Program eligibility facts are
+explicitly null, not inferred from the emitted worker population. No diagnostic
+policy or loaded-file scope is narrowed to produce matching counters.
+
+Each operation row identifies the pinned native operation, private Checker key
+owner, begun/returned observations and actual executions where an existing
+worker span observes them. Native symbol/declared/variable counters, both sides'
+completed-cache-hit/active-repeat counters and result-copy bytes are **null**,
+never zero. Symbol and declared query totals are not worker executions. Every
+operation-equivalence gate remains false. `--capture-work` attaches this runnable
+comparison to the full report and curated checkpoint; the checkpoint now also
+retains machine facts and full input-reference hash rows.
+
+```sh
+python3 scripts/checker_work_trace.py \
+  --trace /tmp/recover-operation-current-perf.json.work/tsr/work.ndjson \
+  --receipt /tmp/recover-operation-current-perf.json.work/tsr/receipt.json \
+  --compare-native-trace /tmp/recover-operation-current-perf.json.work/tsgo/trace.json \
+  --compare-native-receipt /tmp/recover-operation-current-perf.json.work/tsgo/receipt.json \
+  --output /tmp/operation-comparison.json
+```
+
+Latest comparison run: Linux x86_64, 14 CPUs, fixture
+`benches/projects/domain-model-large/tsconfig.json` SHA-256
+`17e4763f027443707e62545430fbd9d14f58ad25a05ed776542c4c1c7e29cb73`.
+Harness checkout `25c942e2065b6ea0c6c49182ce00d0c8f5372b16`; reused binaries
+built before the scripts-only commits (hashes above), **not** a claimed rebuild
+from that checkout. Native remains pinned at `5b1047d`. Five fresh pairs plus
+warmups: TSR 0.8125586999999541 s, native 0.5840470999996796 s, observed
+1.3912554312835383; **<=0.50 UNMET**, nine gaps, verified ratio null.
+Both observed full-worker path sets match with 202 completed initial workers;
+native policy and broader checker-operation completion remain unsupported.
+Native largest observed unsampled inner span: variance worker, checker 3,
+type 315 / arity 2, `src/core.ts`, 2456800 ns inclusive, output `["out","out"]`.
+
+```json
+{
+  "checkpoint": "/tmp/recover-operation-current-checkpoint.json",
+  "checkpoint_sha256": "2db86fc4c265983e7afb21f7d9a129665996bece2e215fcdc1028e117952d0b9",
+  "harness_sha256": "2d792fa1b600822a1f8844377820988e584c61f48ff3b1bad6ba811eb7ba110c",
+  "trace_reader_sha256": "e0951023ed67b8f146e90f242acd9a79ee921b596ae53655a86ed1d27a2c61dc",
+  "tsr_trace_sha256": "6872023f11e1331dcafce59d88a2a621d4f0b35a0dc8eb14a57f2fac20e54cd2",
+  "native_trace_sha256": "6c55c1e8ee08bac9388a25e812accd49ad76a8ea9bb0696f5bdf9e22d738211b",
+  "tsr_receipt_sha256": "8858a771318e751b8d13cea956227af6c12ec10a79b25ca42f8242c3911a0efe",
+  "native_receipt_sha256": "1f8f6a791ab10ca1f8bb0dff5d1c0c43ae07372dee654432d5658cfdf97bb999"
+}
+```
+
+28 trace-reader and 27 harness tests passed; the standalone comparison CLI and
+fresh five-pair capture/checkpoint CLI ran. Comparable gate exited 1. Missing
+native executed-worker/cache-hit/copy-byte producers remain the highest proof
+gap, queued under the existing performance issue for the runtime owner; no
+scripts-only estimate replaces them.
+
 ### Emit eligibility is not checking eligibility or output equivalence
 
 The parent owns the runtime `noEmit`/list-only cutover. Current TSR has no
