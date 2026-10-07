@@ -445,3 +445,14 @@ written arguments; for a JS entry with none it now asks the existing
 `jsdoc_augments_type_arguments` supplier (the base-type worker already does).
 No new cache or image; the extra lookup runs only for argument-less JS
 heritage entries. Converts `jsdocAugments_withTypeParameter` (3 type rows).
+
+## 14. Own member tables in native declaration order (tsr-2zk.4.5)
+
+`getNamedMembers` returns a symbol table's members sorted by `compareSymbols`
+(`checker.go:22049`). `collect_structured_property_names` and
+`collect_static_property_names` iterated the binder map and appended late-bound
+members; they now gather each own partition (instance members or exports, each
+with its late-bound declarations) and sort it with the existing
+`compare_symbols`. Value filtering, static/instance separation and inherited
+traversal order are unchanged; no member values are forced and no cache is
+added (the name vector is query-local).
