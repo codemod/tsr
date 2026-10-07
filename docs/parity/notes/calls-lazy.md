@@ -634,6 +634,15 @@ regression asserts those return types. non-null-after-tests remains compile-bloc
 by absent parent fields; no passing-after/fullRIGHT/perf acceptance. Flow optional
 chain effects getter is a separate owner prerequisite; no shared file edits.
 
+Later isolated nullable-return target test passes and coarse12444-key ratchets
+lose no prior passes. ExactCLI still misses four native nullability diagnostics;
+checkpointCLI also misses them, so no causal regression attribution is made.
+Attempted reporting-worker substitution still emitted none and was reverted as
+unverified. Fullsuite stopped at retained failing JSmetadata prerequisite test,
+not nullable result behavior. b893ca7f is not exact diagnostic/full acceptance;
+actual integrated nullability source metadata remains prerequisite. Receipts
+nullable-isolated-/nullable-reporting-* retain failures; no perfproof.
+
 ## Remaining calls raw-slot consumers
 
 Assignable-pass return-ambiguity comparison now demands both candidate returns
