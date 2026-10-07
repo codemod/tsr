@@ -826,3 +826,22 @@ No new cache/traversal/member image, no wrapper function, no test or
 performance claim for this investigation. `.16.417` remains open at its
 canonical JSDoc/accessor producer boundary; `.16.425` remains open. Last
 implementation and full-gate receipt is `8126dbbd` above.
+
+### Integration ownership routing
+
+Integration assigned `jsx_intrinsic.rs`, `jsx_component.rs`,
+`jsx_attributes.rs` and JSX factory handling exclusively to `parity-calls-r2`
+for native JSX overload issue `.16.168`. This lane does not edit them.
+Route `.16.425`'s aligned JSX attribute-context query-order evidence through
+the integrator to that owner. Required provider is the actual native
+instantiable props context, not a primitive/string literal heuristic or a
+foreign-owner hub-function patch.
+
+`.16.417` remains this lane's priority: owned contextual return lookup already
+uses raw getter/paired-setter effective annotation readers. The remaining
+JSDoc target symbol types require the canonical accessor/reparser owner to
+publish native effective annotation nodes, as recorded above. Do not narrow
+to normal getters, infer setter types from getter bodies, or duplicate
+annotation metadata to complete the target. All shared API changes are
+serialized by the integrator; no new implementation or acceptance claim from
+this ownership notice.
