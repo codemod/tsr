@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8054/9538 (84.44%)
-Assertion lines: 469839/478855 (98.12%)  — a gradient, not a pass rate
-Failed         : 1484
+Passed         : 8042/9538 (84.32%)
+Assertion lines: 469765/478855 (98.10%)  — a gradient, not a pass rate
+Failed         : 1496
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1484 failures:
+First 100 of 1496 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/abstractClassUnionInstantiation
@@ -43,6 +43,8 @@ compiler/allowJscheckJsTypeParameterNoCrash
   app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
+compiler/ambientExportDefaultErrors
+  foo.d.ts: >Foo : typeof Foo — expected >Foo : typeof import("./foo")
 compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: unknown) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
@@ -156,7 +158,7 @@ compiler/checkJsdocTypeTagOnExportAssignment6
 compiler/checkJsdocTypeTagOnExportAssignment8
   a.js: >{    a: 'a',    b: 'b'} : { a: string; b: string; } — expected >{    a: 'a',    b: 'b'} : { a: string; b: "b"; }
 compiler/checkMergedGlobalUMDSymbol
-  test.ts: >m : typeof THREE — expected >m : typeof import("./three")
+  global.d.ts: >THREE : typeof THREE — expected >THREE : typeof import("./global")
 compiler/checkSuperCallBeforeThisAccess
   checkSuperCallBeforeThisAccess.ts: >e1 : { w: void | 0; } — expected >e1 : { w: void | number; }
 compiler/checkerInitializationCrash
@@ -211,5 +213,3 @@ compiler/complicatedGenericRecursiveBaseClassReference
   complicatedGenericRecursiveBaseClassReference.ts: >(new S18(123)) : any — expected >(new S18(123)) : S18<unknown, unknown, unknown>
 compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts: >ChannelType : Channel extends { type: infer R; } ? R : never — expected >ChannelType : "email" | "text"
-compiler/complicatedIndexesOfIntersectionsAreInferencable
-  complicatedIndexesOfIntersectionsAreInferencable.ts: >x : string extends "validate" | "initialValues" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validate" | "initialValues" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>> — expected >x : string extends "initialValues" | "validate" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "initialValues" | "validate" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>>
