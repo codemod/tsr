@@ -2318,7 +2318,10 @@ impl Checker<'_, '_> {
         match node.initializer {
             None => self.no_implicit_any,
             Some(initializer) => {
-                self.no_implicit_any && self.is_null_or_undefined_expression(initializer)
+                self.no_implicit_any
+                    && initializer.node_id().is_some_and(|id| {
+                        self.nullable_literal_type(self.skip_parentheses(id)).is_some()
+                    })
             }
         }
     }

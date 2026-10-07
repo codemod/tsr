@@ -16,6 +16,10 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+        no_implicit_any: tsr_core::Tristate::True,
+        ..Default::default()
+    });
     checker.set_strict_null_checks(strict_null_checks);
     let statements = match parsed.source_file.statements.last().unwrap() {
         Statement::FunctionDeclaration(function) => {
@@ -37,6 +41,18 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
     };
     let ty = checker.check_expression(reference.expression.unwrap());
     checker.type_to_string(ty)
+}
+
+#[test]
+fn global_undefined_initializer_enters_auto_flow_but_shadow_does_not() {
+    assert_eq!(narrowed_type("let x = (undefined); x = 1; if (true) { x; }", true), "number");
+    assert_eq!(
+        narrowed_type(
+            "function f(undefined: string) { let x = undefined; if (true) { x; } }",
+            true
+        ),
+        "string"
+    );
 }
 
 #[test]

@@ -965,3 +965,30 @@ case rows byte-identical. Receipts target/recovery/flow-super.
 genericCPU1.0032/wall1.0009; complete outputs/status equal. Strict performance
 gate unmet; no speed or native-equivalent complete-work/0.50 claim. Routine
 worker change is correctness-proven only; parent integrated attribution needed.
+
+## 26. Auto-flow seeded undefined admission (tsr-2zk.16.218)
+
+Pinned isNullOrUndefined/getTypeForVariableLikeDeclaration admits unannotated
+mutable declarations initialized by global undefined under noImplicitAny. The
+shared legacy helper rejected every seeded undefined symbol as shadowed.
+Flow admission now reuses its existing canonical nullable_literal_type query
+and parentheses stripping, comparing resolved SymbolId with binder's global
+undefined symbol. Shadowed identifier stays ordinary typed initialization.
+No symbols/expression/shared-field changes; null/no-initializer and ambient,
+const, binding-pattern and for-loop admission rules unchanged. Existing auto
+flow state/assignment workers own completion; no new cache or alias rewrite.
+
+Native direct controls exit0; real probefile returns string|number for evolved
+undefined, undefined for untouched parenthesized initializer, string for a
+shadow parameter. Dedicated semantic control passes; helper states noImplicitAny
+explicitly. All prior focused suites pass plus final13 flow-facts tests.
+Full eligible corpus both child exits0,477,968 keys retained: RIGHT469,862→469,868,
+WRONG7113→7107,GAP993 unchanged. Exactly6WRONG→RIGHT,zero priorRIGHT/new/vanished
+losses.10,570 diagnostic case rows byte-identical. Both whole root targets now
+have no formerly counted six failures; receipts target/recovery/flow-auto.
+
+41-pair wait4 versus6bf5828a: domainCPU0.9971/wall0.9718;
+genericCPU0.9909/wall0.9972, all complete outputs/status equal. Routine cohort
+shows no CPU/wall regression; no causal speed/native-equivalent complete-work
+or0.50 release acceptance. Clippy/anchors/sections/owned formatting checked.
+Protected equality/facts restoration and main effects state untouched.
