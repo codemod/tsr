@@ -795,3 +795,54 @@ Both obsolete helper names have no remaining references in their former
 owned files. Existing semantic receiver/apparent-callee and effective-argument
 paths remain in place; no alternate syntax classifier was added.
 Shared lazy-parameter roots stay open.
+
+## INFERENCE-PRIMITIVE-CONSTRAINT-REGULAR receipt
+
+Assigned next root: two current blocked cases; exact target/issue receipt
+pending integrator. Directly reproduced against pinned native before any
+semantic edit:
+
+```typescript
+export declare function constrained<T extends string | number>(value: T): T;
+export declare function unconstrained<T>(value: T): T;
+export declare const condition: boolean;
+export let retained = constrained(condition ? 'a' : 10);
+export let widened = unconstrained(condition ? 'a' : 10);
+export let single = constrained('a');
+```
+
+Native declaration emit with `--strict --declaration --emitDeclarationOnly`
+prints retained `"a" | 10`, widened `string | number`, single `"a"`.
+Current TSR producer prints retained `string | number`, widened
+`string | number`, single `"a"`. The unconstrained and single-literal
+controls prevent replacing widening policy with blanket literal retention.
+
+`inference.rs::inferred_covariant_type` already implements native
+`getCovariantInference`'s primitive/const constraint decision, fixing and
+top-level return test, and calls the canonical regular-literal getter for
+primitive-constrained candidates. The missing algorithm is outside ownership:
+`literals.rs::get_regular_type_of_literal_type` returns a non-fresh union
+unchanged, whereas pinned `Checker.getRegularTypeOfLiteralType` maps union
+constituents and publishes `UnionType.regularType`.
+
+Exact API prerequisite for the literals owner: extend that existing getter
+with the native union arm, using canonical union mapping and preserving
+literal/enum identities and the original union's alias/origin presentation.
+Cache identity is original union TypeId in the private Checker/type-store
+lifetime; publish the completed mapped regular union, not a provisional
+unknown/error. All native consumers, including owned covariant inference,
+must use that same canonical getter. There is no existing union-capable
+regularization API or mapType equivalent exposed in the owned files.
+`checker.rs::regular_types` is misleadingly named but actually caches
+`get_widened_literal_type` images; reusing it for regular-literal unions
+would collide with a different semantic operation and is rejected.
+
+No inference-local duplicate mapper/cache, type-print matching, union sorting,
+annotation peek, or ANY/UNKNOWN fallback was added. This root cannot be
+implemented faithfully under the current exclusion of literals.rs/unions.rs/
+TypeStore. Integrator must assign its canonical getter slice atomically to
+the owning lane or release it. Existing triage example
+`conformance/templateLiteralTypes2:0:143` is historical attribution, not a
+claimed current conversion; exact two-target receipt still governs acceptance.
+No candidate, new tests or code gates were fabricated for this blocked root.
+The prior `.9.8` verified delivery remains unchanged.
