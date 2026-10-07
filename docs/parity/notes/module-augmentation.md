@@ -213,6 +213,53 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### GlobalThis symbol root (tsr-2zk.16.97): owned-file boundary
+
+Authoritative blocked scope is eight cases, not a conversion promise. Native
+NewChecker creates globalThisSymbol as readonly Module, aliases its Exports to
+c.globals, inserts that same symbol in globals, and publishes its anonymous type
+in valueSymbolLinks. resolveAnonymousTypeMembers filters block-scoped globals
+and ambient-only ValueModule declarations from the *object* view; the underlying
+module exports retain canonical globals identity. This is not a printed name or
+copied export image.
+
+Direct pinned-native control: script var globalValue:number, let lexicalValue:string,
+import root=globalThis, consume root.globalValue as number then string, and read
+root.lexicalValue. Native emits ordered TS2322 main.ts(5,7) `Type 'number' is not
+assignable to type 'string'.` and TS2339 main.ts(6,22) `Property 'lexicalValue'
+does not exist on type 'typeof globalThis'.` Current candidate emits nothing.
+The control is scratch-only; no unimplemented permanent test is committed.
+
+Exact outside-owner cutover prerequisite:
+
+- checker.rs::Checker/NewChecker: one privateChecker globalThisSymbol with
+  readonly Module flags, exports referencing the actual globals table and one
+  completed anonymous resolved type. Program bound globals and checker-owned
+  mutable/merged globals must have an explicit owner/view contract; do not copy
+  SymbolTableField just to fabricate a module symbol or insert guessed text.
+- expressions.rs globalThis identifier fallback and top-level this: replace
+  symbol-less named-type mint with getTypeOfSymbol(globalThisSymbol), preserving
+  lexical/module scope rules. Inserting a binder symbol without migrating this
+  consumer would disable its fallback and change formerly RIGHT behavior.
+- members.rs global_this_type special case and resolveAnonymousTypeMembers:
+  move native block-scoped and ambient-only filtering to the actual globalThis
+  symbol's structured member worker, retaining underlying globals meaning and
+  canonical IDs for name resolution/aliases.
+- owned binder.rs::merge_into_globals currently splices globalThis namespace
+  exports because no native symbol exists. It must migrate with the live-table
+  contract so augmentation merging affects the same globals owner, not duplicate
+  copied tables. owned symbols.rs may then resolve import/export aliases by
+  actual globalThis SymbolId and existing native meaning, never a name fallback.
+
+Publication: absent globalThis identity is currently unsupported; an invented
+binder symbol is not native completed success. Native symbol/table identity is
+installed before initialization merges and the anonymous type published before
+semantic consumers; member filtering later completes the object image. Query,
+actual worker and mutation counts are unmeasured; integrator bounded follow-up
+before introducing reuse. No fake completion cache or module-name heuristic.
+This root needs checker/expressions/members owners despite binder ownership;
+no implementation/verification gains or speed claim are committed here.
+
 ### Import attributes default-target gate (tsr-2zk.16.161)
 
 Pinned native getTargetOfImportClause/getTargetOfModuleDefault resolves the
