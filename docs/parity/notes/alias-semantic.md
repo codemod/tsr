@@ -493,6 +493,17 @@ Seven fresh-process samples after/before 1.00245, after/native 1.62038;
 complete-work/no-hotpath/release performance uncertified. Receipts
 `tuple-element-order-*`; parent intrinsic/union/alias fields untouched.
 
+## Concrete tuple splice image borrowing
+
+The concrete source-spread path borrows its completed tuple element vector instead
+of cloning it before iteration. Native TupleNormalizer reads completed element
+metadata; only output TypeIds and labels are copied. Existing metadata owner,
+10,000-element guard, order and publication unchanged; no cache addition.
+Tuple targets pass; native labeled splice/index CLI diagnostics compare byte-for-byte.
+Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
+Seven fresh-process samples after/before 1.00657, after/native 1.60057;
+no whole-project speed/no-hotpath/release claim. Receipts `tuple-splice-borrow-*`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

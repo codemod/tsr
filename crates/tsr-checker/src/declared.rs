@@ -3586,7 +3586,7 @@ impl<'a> Checker<'a, '_> {
                         };
                         flat.push((resolved, optional, label));
                     } else if let Some((inner_elements, _)) =
-                        self.tuple_element_lists.get(&resolved).cloned()
+                        self.tuple_element_lists.get(&resolved)
                     {
                         // createNormalizedTupleType (checker.go) rejects a
                         // concrete spread before expanding to 10,000 elements.
@@ -3597,13 +3597,15 @@ impl<'a> Checker<'a, '_> {
                         }
                         let mask = self.tuple_optional_masks.get(&resolved);
                         let labels = self.tuple_labels.get(&resolved);
-                        flat.extend(inner_elements.into_iter().enumerate().map(|(index, t)| {
-                            (
-                                t,
-                                mask.and_then(|m| m.get(index)).copied().unwrap_or(false),
-                                labels.and_then(|l| l.get(index)).cloned().flatten(),
-                            )
-                        }));
+                        flat.extend(inner_elements.iter().copied().enumerate().map(
+                            |(index, t)| {
+                                (
+                                    t,
+                                    mask.and_then(|m| m.get(index)).copied().unwrap_or(false),
+                                    labels.and_then(|l| l.get(index)).cloned().flatten(),
+                                )
+                            },
+                        ));
                     } else {
                         spliced = None;
                     }
