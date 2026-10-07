@@ -1911,9 +1911,12 @@ impl Relater<'_, '_, '_> {
                     break;
                 }
             }
-            if best != RelationResult::NotRelated {
-                self.signature_error = saved_error;
+            if best == RelationResult::NotRelated {
+                // Native signaturesRelatedTo returns on the first target with
+                // no matching source. Later targets must not replace its chain.
+                return Some(RelationResult::NotRelated);
             }
+            self.signature_error = saved_error;
             parts.push(best);
         }
         Some(RelationResult::all(parts))

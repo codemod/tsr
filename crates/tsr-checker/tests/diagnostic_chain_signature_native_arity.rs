@@ -42,6 +42,18 @@ fn failed_signature_assignment_and_argument_preserve_native_explanation() {
 }
 
 #[test]
+fn first_failed_target_overload_owns_the_arity_explanation() {
+    let ds = diagnostics(
+        "declare let source: (a: any, b: any, c: any) => {}; let target: { (a: any): {}; (a: any, b: any): {}; } = source;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    assert_eq!(
+        ds[0].message_chain().iter().map(Diagnostic::text).collect::<Vec<_>>(),
+        ["Target signature provides too few arguments. Expected 3 or more, but got 1."]
+    );
+}
+
+#[test]
 fn optional_parameter_rest_target_and_compatible_overload_do_not_leak_failure() {
     let ds = diagnostics(
         "declare let optional: (x: any, y?: any) => {}; let target: (x: any) => {} = optional; declare let restTarget: (...args: any[]) => {}; declare let source: (x: any, y: any) => {}; restTarget = source; declare function overloaded(x: any, y: any): {}; declare function overloaded(x: any): {}; target = overloaded;",
