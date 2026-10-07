@@ -213,6 +213,41 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Declaration-name/module-name next-root prerequisite (.16.117)
+
+The Box issue DB returns not found for tsr-2zk.16.117, so its current case list
+cannot be attributed or validated from that database. Existing six target
+names and measured verdicts remain recorded above; no new historical-case gain
+is assumed.
+
+Read-back evidence: types_producer.rs::type_at_location's declaration-name
+branch already queries get_type_of_symbol(binder.merged_symbol(symbol_of(parent))).
+The binder symbol_of API deliberately returns the raw node binding. Native
+getSymbolAtLocation's IsDeclarationNameOrImportPropertyName branch calls
+getSymbolOfDeclaration(parent), whose exact sequence is node.Symbol(),
+getLateBoundSymbol, then getMergedSymbol. Thus replacing the raw binding getter
+or adding another resolver workaround is not a faithful fix.
+
+Exact exported contract request: integrator serializes a checker-level
+`get_symbol_of_declaration(node: NodeId) -> Option<SymbolId>` returning the
+native completed late-bound/merged declaration symbol. Input is a Program NodeId;
+output is a SymbolId in the same Program store. Non-computed declarations use
+the existing bound symbol and completed merge redirects. Computed class-member
+names must force the native late-bound members/exports worker before claiming a
+completed answer. Consumers requiring raw binding keep BindResult::symbol_of.
+The declaration-name/module-name type consumer in conformance types_producer.rs,
+checker semantic location queries, and printer owner must migrate together;
+this owner cannot edit those files. Checker state/completion dependencies must
+be supplied by their owner; do not introduce an unused API or guessed result.
+
+For augmented symbol import-type roots the separate getContainersOfSymbol
+contract above remains required. Neither the declaration-symbol query nor a
+module resolved-export table substitutes for accessibility/container ordering.
+The derived/resolved exports host contract tsr-2zk.16.59.1 is pending its single
+owner after current file release; no implementation or new host contract for it
+is added here. Current supported binder import-equals root remains the only
+implemented/verified root in this lane.
+
 Next owned root is export-star resolved-export identity/publication. Current
 export_star_member is a name-at-a-time traversal which drops collisions;
 native getExportsOfModuleWorker constructs the whole export table, keeps the
