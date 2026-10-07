@@ -370,3 +370,15 @@ number]}` function returns the tuple, an undocumented one
 `(string | number)[]`. Still open in `contextualTypeFromJSDoc`: the getter
 symbol's own type from the setter's JSDoc `@param` (accessor type
 resolution, not this lane).
+
+## 14. Parameter initializer context: getContextuallyTypedParameterType (tsr-2zk.16.230)
+
+`getContextualTypeForVariableLikeDeclaration`'s Parameter arm
+(`checker.go:29438`/`:29458`) answers the type node (JS: reparsed `@param`),
+else `getContextuallyTypedParameterType`. The existing
+`get_contextually_typed_parameter_type` also folds in
+`assignContextualParameterTypes`' initializer widening, which checks the
+initializer; the initializer's own context uses the split
+`contextually_typed_parameter_type(_, false)` that skips it. No state.
+`var f5: (a: (s: string) => any) => void = function (a = s => <number>s) {}`
+types `s : string` (tsgo `.types` identical).
