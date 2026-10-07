@@ -601,6 +601,24 @@ retention failures and parent prerequisites remain; this control does not
 claim a production fix. Full no-loss/missing-ID and unverified performance
 receipts remain attributable to the unchanged compiler.
 
+## Nullable node precedence continuation (`tsr-2zk.16.147`)
+
+Compared owned JSDoc nullable/optional text emission with pinned AST union
+construction (`nodecopy.go:487`, `:494`). Actual native/TSR CLI controls and
+corpus pipeline agree for `?string[]` versus `(?string)[]`: the former prints
+`string[] | null`, the latter `(string | null)[]`, including both parameter and
+return positions of a returned function signature. This checks the owned
+precedence transformation independently of parent JSDoc retention.
+
+A separate `string=` TypeScript probe was syntactically invalid and produced
+differing parser recovery diagnostics. It supplies no visitor evidence; no
+parser edits or empty-output expectations were introduced. No nullable
+production mismatch was demonstrated, so the visitor remains unchanged.
+The measured failing `.147` targets still require reparsed annotation retention
+at parent construction, not an inferred precedence workaround. Existing seven
+tests and prior source-bound full loss/ID/performance receipts remain unchanged;
+no conversion or accepted speed improvement is claimed.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
