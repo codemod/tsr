@@ -4067,7 +4067,14 @@ impl Relater<'_, '_, '_> {
                             }
                             if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
                                 || nested.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                || nested.message == &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
                             {
+                                // Native addToDottedName wraps a constructor
+                                // head before adjoining another property.
+                                if property_name.starts_with("new ") {
+                                    property_name.insert(0, '(');
+                                    property_name.push(')');
+                                }
                                 if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
                                     && nested.args[0].starts_with(['\"', '\'', '`'])
                                 {

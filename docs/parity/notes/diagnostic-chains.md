@@ -275,6 +275,22 @@ compiler/configuration exact parity. No whole-case conversion count is claimed
 by legacy head-code verdicts, which cannot observe these full-message gains.
 Receipts target/recovery-diagnostics/return-* and parameter-return-*.
 
+## Outer return-path reduction follow-up — tsr-2zk.1
+
+Pinned reportError's property reduction recognizes returned-by explanations too;
+addToDottedName wraps constructor heads in parentheses before appending a property.
+Owned worker now mirrors both operations. Actual control previously emitted an
+extra property/relation wrapper for x.f() and unparenthesized new make().value;
+complete CLI now matches native x.f(), (new make()).value and f(...).value output.
+No relation/query/publication or allocation path changes; existing completed tree
+is reduced in place. Dedicated regressions and completed workspace release tests,
+scoped clippy pass. Full fresh dumps preserve 469785 RIGHT type/9190 diagnostic
+keys, zero vanished/changed; sixteen read-only suites complete. Domain 21-pair
+observed candidate/recovery-baseline wall 1.0007 with equal diagnostics; this does
+not prove no slowdown. Verified complete-work ratio remains null. Frozen parent
+catalogue-aware collector candidate is not the measured source: these receipts
+apply only to this recovery branch's cumulative owned delta from 0e7824dd.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
