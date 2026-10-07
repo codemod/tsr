@@ -410,6 +410,9 @@ impl<'a> Parser<'a> {
             {
                 self.parse_jsx_element_or_self_closing_element_or_fragment(true, None, false)
             }
+            SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
+                self.parse_type_assertion()
+            }
             _ => self.parse_postfix_expression(),
         }
     }
@@ -1140,9 +1143,6 @@ impl<'a> Parser<'a> {
             // in `parseUpdateExpression`/`parseSimpleUnaryExpression` (see
             // [`Self::parse_unary_expression`]), and `parsePrimaryExpression`
             // has no `<` arm, so it falls to the missing-expression default.
-            SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
-                self.parse_type_assertion()
-            }
             SyntaxKind::FunctionKeyword => self.parse_function_expression(None, None),
             SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
                 // §205: the span starts at the `async`, not at `function`.

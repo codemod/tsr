@@ -421,6 +421,25 @@ rejected for prior-RIGHT losses. Incremental 41pair x60 complete-parse wall/CPU
 equal node outputs; not a standalone no-hotpath-regression acceptance. No shared
 AST/scanner/checker edits.
 
+### Type assertion unary/primary boundary candidate (tsr-2zk.2)
+
+Pinned parsePrimaryExpression does not parse a leading < as assertion;
+parseSimpleUnaryExpression owns that production. TSR primary accepted
+new <any>C() as a constructor assertion. Candidate moves the TS assertion arm
+to unary dispatch; JSX stays on its existing native language-variant path.
+Native exact control new <any>C reports TS1109 [12,13); ordinary assertion and
+parenthesized constructor assertion remain valid. Isolated parser target/full
+tests, clippy and fmt pass. Incremental type delta four existing WRONG->RIGHT
+and 222 new RIGHT, zero incremental prior RIGHT/vanished loss. Prior method-body
+diagnostic losses remain in that isolated cumulative checkout; they are not
+certified away. Corpus newExpressionWithCast still needs parent checker
+TS7009/2693 consumers, no parser-specific workaround.
+
+Incremental 41pair x60 complete-parse wall/CPU 1.001429/1.001222 parser.ts,
+1.048482/1.048355 dom rejects performance. Full node outputs/JSDoc/diagnostics
+retained; candidate not accepted or claimed as complete target conversion.
+No shared AST/scanner/checker edits.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
