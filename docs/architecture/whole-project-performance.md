@@ -212,6 +212,18 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Missing binary resolution is captured failure evidence
+
+Compiler-path resolution now runs inside the binary-capture failure boundary.
+Missing or unresolvable compiler paths persist requested/resolved path identities,
+partial freezes, original failure reason and false acceptance gates to requested
+JSON instead of failing before output creation. No compiler child is launched.
+31 harness tests passed, including an actual missing-binary CLI output control;
+fresh frozen expected-hash five-pair/warmup capture saved
+`/tmp/recover-missing-binary-checkpoint.json` and comparable exit 1. This does not
+verify a parent candidate or full corpus; source-build and complete-worker release
+gaps remain false and the native <=0.50 goal remains unmet.
+
 ### Invoked config must belong to captured query inputs
 
 Receipt validation now rejects duplicate query-input identities, missing absolute

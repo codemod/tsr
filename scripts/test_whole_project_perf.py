@@ -121,6 +121,25 @@ class BenchmarkEvidenceTests(unittest.TestCase):
             self.assertIsNone(report["verified_wall_ratio"])
             self.assertNotIn("Traceback", child.stderr)
 
+    def test_cli_missing_binary_preserves_requested_capture_failure_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "tsconfig.json"
+            project.write_text("{}")
+            output = root / "report.json"
+            missing = root / "missing-tsr"
+            child = subprocess.run([sys.executable, str(ROOT / "scripts/whole_project_perf.py"),
+                                    "--project", str(project), "--tsr", str(missing),
+                                    "--tsgo", sys.executable, "--output", str(output)],
+                                   capture_output=True, text=True)
+            self.assertEqual(child.returncode, 1, child.stderr)
+            report = json.loads(output.read_text())
+            self.assertEqual(report["status"], "binary_capture_failed")
+            self.assertEqual(report["requested_binary_paths"]["tsr"], str(missing))
+            self.assertEqual(report["binary_freezes"], {})
+            self.assertFalse(report["target_verified"])
+            self.assertNotIn("Traceback", child.stderr)
+
     def test_checkout_identity_distinguishes_unmerged_tracked_and_untracked_source(self):
         from whole_project_perf import checkout_identity
         with tempfile.TemporaryDirectory() as directory:

@@ -315,10 +315,13 @@ def main() -> int:
         parser.error("samples and timeout must be positive; warmups must be nonnegative")
     project = args.project.resolve(strict=True)
     cwd = project.parent
-    binary_sources = {name: path.resolve(strict=True) for name, path in (("tsr", args.tsr), ("tsgo", args.tsgo))}
+    requested_binary_paths = {"tsr": args.tsr, "tsgo": args.tsgo}
+    binary_sources = {}
     frozen_directory = args.output.resolve().with_suffix(args.output.suffix + ".binaries")
     binary_freezes = {}
     try:
+        for name, path in requested_binary_paths.items():
+            binary_sources[name] = path.resolve(strict=True)
         frozen_directory.mkdir(parents=True, exist_ok=False)
         for name, path in binary_sources.items():
             binary_freezes[name] = freeze_binary(path, frozen_directory / name,
@@ -327,6 +330,7 @@ def main() -> int:
         failure = {
             "schema_version": 2, "status": "binary_capture_failed", "project": str(project),
             "source_sha": revision(ROOT), "oracle_sha": revision(ROOT / "vendor/typescript-go"),
+            "requested_binary_paths": {name: str(path) for name, path in requested_binary_paths.items()},
             "binary_sources": {name: str(path) for name, path in binary_sources.items()},
             "binary_freezes": binary_freezes,
             "expected_binary_sha256": {"tsr": args.tsr_sha256, "tsgo": args.tsgo_sha256},
