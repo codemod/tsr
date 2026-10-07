@@ -69,7 +69,16 @@ fn compare_related(left: &[Diagnostic], right: &[Diagnostic]) -> Ordering {
 /// Native equality excluding related information; child locations are irrelevant.
 #[must_use]
 pub fn equal_diagnostics_no_related_info(left: &Diagnostic, right: &Diagnostic) -> bool {
-    path(left) == path(right)
+    equal_at_paths(left, path(left), right, path(right))
+}
+
+fn equal_at_paths(
+    left: &Diagnostic,
+    left_path: &str,
+    right: &Diagnostic,
+    right_path: &str,
+) -> bool {
+    left_path == right_path
         && left.span == right.span
         && left.message.code() == right.message.code()
         && left.args == right.args
@@ -92,9 +101,29 @@ fn equal_chain(left: &[Diagnostic], right: &[Diagnostic]) -> bool {
 /// `compactAndMergeRelatedInfos` (`internal/compiler/program.go`). Primary file
 /// identities must be attached before calling this operation.
 #[must_use]
-pub fn sort_and_deduplicate_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
-    diagnostics.sort_unstable_by(compare_diagnostics);
-    compact_and_merge_related_infos(diagnostics)
+pub fn sort_and_deduplicate_diagnostics(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    sort_and_deduplicate_located_diagnostics(diagnostics, |d| (path(d), d), |d| d)
+}
+
+/// Native sort/compaction for owned consumer rows with borrowed primary paths.
+///
+/// `locate` returns the Program-owned path (empty for global diagnostics) and
+/// the row's diagnostic. `diagnostic_mut` must access that same diagnostic.
+/// Rows retain their consumer metadata while moving in place. Primary paths
+/// override attached primary files; independently located related notes still
+/// use their attached images. No primary file attachment or key copy is needed.
+#[must_use]
+pub fn sort_and_deduplicate_located_diagnostics<T>(
+    mut diagnostics: Vec<T>,
+    locate: impl Fn(&T) -> (&str, &Diagnostic),
+    diagnostic_mut: impl Fn(&mut T) -> &mut Diagnostic,
+) -> Vec<T> {
+    diagnostics.sort_unstable_by(|left, right| {
+        let (left_path, left) = locate(left);
+        let (right_path, right) = locate(right);
+        compare_at_paths(left, left_path, right, right_path)
+    });
+    compact_located(diagnostics, locate, diagnostic_mut)
 }
 
 /// Compact a sequence already sorted by [`compare_diagnostics`], merging
@@ -103,29 +132,41 @@ pub fn sort_and_deduplicate_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec
 /// Mirrors native `compactAndMergeRelatedInfos`. Primary files must be attached;
 /// comparator-equivalent but unequal chains must not be grouped together.
 #[must_use]
-pub fn compact_and_merge_related_infos(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+pub fn compact_and_merge_related_infos(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    compact_located(diagnostics, |d| (path(d), d), |d| d)
+}
+
+fn compact_located<T>(
+    mut diagnostics: Vec<T>,
+    locate: impl Fn(&T) -> (&str, &Diagnostic),
+    diagnostic_mut: impl Fn(&mut T) -> &mut Diagnostic,
+) -> Vec<T> {
     let mut read = 0;
     let mut write = 0;
     while read < diagnostics.len() {
         let mut end = read + 1;
-        while end < diagnostics.len()
-            && equal_diagnostics_no_related_info(&diagnostics[read], &diagnostics[end])
-        {
+        while end < diagnostics.len() {
+            let (left_path, left) = locate(&diagnostics[read]);
+            let (right_path, right) = locate(&diagnostics[end]);
+            if !equal_at_paths(left, left_path, right, right_path) {
+                break;
+            }
             end += 1;
         }
         if end > read + 1 {
             let count = diagnostics[read..end]
                 .iter()
-                .map(|diagnostic| diagnostic.related_information().len())
+                .map(|row| locate(row).1.related_information().len())
                 .sum();
             if count != 0 {
                 let mut related = Vec::with_capacity(count);
-                for diagnostic in &diagnostics[read..end] {
-                    related.extend_from_slice(diagnostic.related_information());
+                for row in &diagnostics[read..end] {
+                    related.extend_from_slice(locate(row).1.related_information());
                 }
                 related.sort_unstable_by(compare_diagnostics);
                 related.dedup_by(|left, right| equal_diagnostics(left, right));
-                diagnostics[read].set_related_information(std::sync::Arc::new(related));
+                diagnostic_mut(&mut diagnostics[read])
+                    .set_related_information(std::sync::Arc::new(related));
             }
         }
         if write != read {
