@@ -4212,8 +4212,14 @@ impl<'a, 'n> Binder<'a, 'n> {
         // Without it the declaration has none at all, and anything nested inside
         // it is filed on whatever container happened to be enclosing.
         let Some(name) = name else {
-            let symbol = self.symbols.create(INTERNAL_MISSING, SymbolFlags::empty());
-            self.symbols.get_mut(symbol).declarations.push(id);
+            // declareSymbolEx's missing-name branch still runs
+            // addDeclarationToSymbol, publishing includes and value ownership.
+            let symbol = self.symbols.create(INTERNAL_MISSING, flags);
+            let entry = self.symbols.get_mut(symbol);
+            entry.declarations.push(id);
+            if flags.intersects(SymbolFlags::VALUE) {
+                entry.value_declaration = Some(id);
+            }
             self.node_symbols[id.index() - self.node_base] = Some(symbol);
             return Some(symbol);
         };
@@ -4892,10 +4898,13 @@ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
             Node::ImportDeclaration(_) | Node::ExportAssignment(_) | Node::ExportDeclaration(_) => {
                 true
             }
-            Node::ImportEqualsDeclaration(n) => matches!(
-                n.module_reference,
-                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
-            ),
+            Node::ImportEqualsDeclaration(n) => {
+                has_export(n.modifiers)
+                    || matches!(
+                        n.module_reference,
+                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                    )
+            }
             _ => modifiers_of(node).is_some_and(has_export),
         }
     })

@@ -39,3 +39,19 @@ shadowed by another symbol, reaches the specifier. No cache; one extra
 Converts 9 rows: enumAssignmentCompat6 (3), exportInterfaceClassAndValue,
 giant, importedEnumMemberMergedWithExportedAliasIsError, mergedDeclarationExports,
 moduleDuplicateIdentifiers, privacyImportParseErrors.
+
+## Exported entity import-equals (tsr-2zk.16.169, tsr-2zk.16.313, tsr-1yb.7.7.3)
+
+Carried from box/recover-symbols (7a23f675, 1822f923, 59b4f3cb, 2826fd48).
+- `IsAnExternalModuleIndicatorNode`: `export import X = N` is a module
+  indicator by its `export` modifier, independent of the RHS form.
+- NameResolver exports arm: a bare-identifier `export import X = N` alias is
+  admitted by its target meaning through the existing checker callback, as
+  the require form already was.
+- `declareSymbolEx` missing-name branch publishes the declaration's flags and
+  value declaration (`addDeclarationToSymbol`).
+No new table. Native control: `export import X = N;` makes `X` invisible to
+a sibling script (TS2304); the non-exported control resolves.
+Converts 21 rows: es6ModuleInternalNamedImports(2), privacyGloImport (4),
+privacyGloImportParseErrors (4), reexportedMissingAlias (2),
+circularImportAlias (3), typeofAnExportedType (6).
