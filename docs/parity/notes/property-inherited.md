@@ -517,6 +517,52 @@ signatures even though resolved infos deduplicate key identity. Target also has
 unrelated mapped/alias/inference/diagnostic gaps; no one-case passing promise is
 made. This exact target and producer supersede the earlier unassigned-case note.
 
+## BASE-CLASS-GENERIC-PROPERTY-IMAGE — tsr-2zk.4.12.1, rejected
+
+Owned root reproduced independently:
+
+```ts
+class Base<T> { self(): this { return this; } value!: T; }
+class Derived extends Base<number> { own = 1; }
+declare let d: Derived;
+const x: Derived = d.self();
+const y: number = d.self().own;
+```
+
+Before: TS2741 at (4,7), `Property 'own' is missing in type 'Base<number>' but
+required in type 'Derived'.` Native reports no diagnostics. Owned experiment
+threaded the original concrete this argument through `generic_heritage_member`
+and `instantiate_for_reference_with_this`, retaining the ordered generic base
+mapper and derived mapper. This mirrors native `resolveObjectTypeMembers` /
+`getTypeWithThisArgument` consumer context without exposing any new member
+symbols, adding caches, or altering unowned producers. Candidate/native control
+stdout matched byte-for-byte, and a focused test preserved Derived self-return
+versus number-valued generic field.
+
+Complete unfiltered dumps finished: 477,970 type keys and 10,570 diagnostic keys.
+Zero protected keys vanished, but **one prior RIGHT type and one EMPTY_RIGHT
+case regress**: `compiler/inferenceErasedSignatures:0:45` changes `number` to
+`never`, and its diagnostic case gains TS2430 at (36,11). Direct pinned CLI
+control reports no diagnostics for that source. `compiler/complexRecursiveCollections`
+adds TS2430 at virtual `complex.ts` (16,11), still WRONG. Seven WRONG type lines
+in `conformance/instancePropertiesInheritedIntoClassType` become RIGHT
+(60,61,62,64,67,71,75), but no gains are shipped. Candidate full coverage finishes
+with unchanged case totals (8042/9538 types, 4221/5502 diagnostics), again showing
+why aggregate scoring is insufficient.
+
+Candidate clippy and format check pass; workspace release tests stop at existing
+`tsr-conformance/tests/fresh_signatures.rs::erased_generic_keys_use_any_index_recovery`
+(seven tests passed, one failed), which corroborates the consumer-visible
+`inferenceErasedSignatures` regression. No wording/default assertion is re-pinned.
+Experiment and temporary permanent-test candidate were removed.
+Required external coordination remains `heritage_conformance.rs::check_interface_heritage_conformance`
+and the erased generic/receiver relation consumer: native comparison must retain
+concrete receiver context without reclassifying erased member keys to never.
+Exact lower-level relation attribution is not proved; do not take this as a
+verified patch. No candidate performance certification is attempted after a
+correctness loss. Existing member-mapper/publication/work audit boundaries above
+remain applicable; no reuse expansion was introduced.
+
 ## Release-target limits
 
 Observed 21-pair fresh-process interleaved comparisons after reverting the
