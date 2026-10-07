@@ -158,6 +158,30 @@ children were interrupted and excluded; the recorded full TSVs are from
 subsequent completed foreground children. No performance claim follows a
 correctness rejection; the prior safe supplier APIs remain committed.
 
+### Restoration correction and curated delivery
+
+Intervening Box auto-commit `d39c1507` captured the rejected experiment before
+restoration. A bare restore initially restored that snapshot, not the safe
+supplier-API checkpoint. The final restoration explicitly uses `16ff7c45` for
+`members.rs`; do not cherry-pick `d39c1507` as verified code. No base-first
+production candidate survives this correction.
+
+The four contextual rows require the raw-symbol branch to read
+`get_type_of_property_of_type(contextual, &name)?`, then skip the subsequent
+`instantiate_for_reference(contextual, property_type)` only for that already
+semantic branch. Keep mapping for raw branches and the later distinct live /
+intra-expression fixing mapper. Calls consume the resulting callback signature,
+not original-declaration parameter/return reconstruction or a second derived-this
+substitution. No shared field is needed for this contextual caller correction.
+These unowned producers are tracked on the existing issue.
+
+One additional reachable owned source-projection defect is fixed: after a source
+member miss, semantic value lookup now uses only wrapper filtered-signature
+augmentation, never its reused anonymous class symbol as a second member table.
+Source-miss projection smoke and strict all-target checker Clippy pass in the
+ignored parent-field copy. This does not certify the unimplemented parent mint
+or the rejected inherited-this cutover.
+
 ## Calls-owner supplier mapper seam
 
 Existing native member operations are now checker-visible:

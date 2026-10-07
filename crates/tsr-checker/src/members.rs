@@ -1292,11 +1292,16 @@ impl Checker<'_, '_> {
         // getInstantiationExpressionType (5b1047d checker.go:10696) retains
         // source members, changing only signatures. Keep the exact source
         // receiver/alias context; source augmentation belongs to the wrapper.
-        if let Some(&source) = self.instantiation_expression_sources.get(&id)
-            && let Some(member) =
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            if let Some(member) =
                 self.get_type_of_property_with_this_argument(source, name, source, true)
-        {
-            return Some(member);
+            {
+                return Some(member);
+            }
+            // A view has no second raw-symbol member table. After the source
+            // miss only its filtered-signature augmentation may contribute.
+            let property = self.get_property_of_type_ex(id, name, skip_object_function_augment)?;
+            return Some(self.get_type_of_symbol(property));
         }
         if name == "length"
             && let Some(body) = self.completed_array_placeholder_length_body(id)
@@ -1578,19 +1583,6 @@ impl Checker<'_, '_> {
         }
         if let Some(property) = self.get_property_of_type_ex(id, name, skip_object_function_augment)
         {
-            if let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data
-                && self.binder.symbols().get(property).parent.is_some_and(|supplier| {
-                    supplier != owner
-                        && self
-                            .binder
-                            .symbols()
-                            .get(supplier)
-                            .flags
-                            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                })
-            {
-                return self.generic_heritage_member(id, name, this_argument, &mut Vec::new());
-            }
             let declared = self.get_type_of_symbol(property);
             let instantiated =
                 self.instantiate_for_reference_with_this(id, declared, this_argument);
@@ -1615,8 +1607,7 @@ impl Checker<'_, '_> {
         // instantiation goes through §226's `base_type_of_heritage_entry`
         // plus the reference road's own member typing instead. Cycles are
         // guarded by the walk's visited set.
-        if let Some(member) = self.generic_heritage_member(id, name, this_argument, &mut Vec::new())
-        {
+        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
             return Some(member);
         }
         // §770: a TUPLE's non-numeric members come from `Array<T>`.
@@ -1750,16 +1741,12 @@ impl Checker<'_, '_> {
         .then_some(body)
     }
 
-    /// resolveObjectTypeMembers (5b1047d checker.go:19138) instantiates the
-    /// base reference before applying getTypeWithThisArgument. Retain the
-    /// original derived this while descending to the declaration supplier.
-    /// Query-local SymbolId guards are active traversal, not completed member
-    /// images; existing reference/base/instantiation owners retain completion.
+    /// Resolve inherited members through each instantiated base, guarded by
+    /// symbol identity against cyclic heritage.
     fn generic_heritage_member(
         &mut self,
         id: TypeId,
         name: &str,
-        this_argument: TypeId,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<TypeId> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
@@ -1794,38 +1781,45 @@ impl Checker<'_, '_> {
                     else {
                         continue;
                     };
-                    // Native composes the enclosing mapper on the BASE type,
-                    // not on an already instantiated member signature. Mapping
-                    // a member afterwards can rewrite its concrete derived this.
-                    let base_type =
-                        self.instantiate_for_reference_with_this(id, base_type, this_argument);
-                    if self.is_error(base_type) {
-                        return Some(base_type);
-                    }
-                    if let Some(property) = self.get_property_of_type_ex(base_type, name, true) {
-                        let inherited =
-                            self.binder.symbols().get(property).parent.is_some_and(|supplier| {
-                                supplier != base
-                                    && self
-                                        .binder
-                                        .symbols()
-                                        .get(supplier)
-                                        .flags
-                                        .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                            });
-                        if !inherited {
-                            let declared = self.get_type_of_symbol(property);
-                            return Some(self.instantiate_for_reference_with_this(
-                                base_type,
-                                declared,
-                                this_argument,
-                            ));
+                    // The ordinary found-path pair (symbol, then the
+                    // reference's instantiation), with the DEEPER generic
+                    // heritage recursing through THIS walk so the visited
+                    // set holds across levels — a fresh set would spin on
+                    // mutually-generic bases.
+                    if let Some(property) = self.get_property_of_type(base_type, name) {
+                        let declared = self.get_type_of_symbol(property);
+                        let instantiated = self.instantiate_for_reference(base_type, declared);
+                        if instantiated != self.intrinsics.error {
+                            // §923: the SECOND substitution. The step above maps
+                            // the base's parameters onto the heritage entry's
+                            // arguments — for `interface D<T> extends C<T>` that
+                            // is `C`'s `U := T`, which leaves `T`. The
+                            // REFERENCE's own arguments (`D<string>`) are a
+                            // separate map and nothing applied them, so
+                            // `d.m` answered `(x: T) => T`.
+                            //
+                            // `extends C<string>` worked and hid it: a concrete
+                            // heritage argument needs no second step, so the
+                            // road looked complete.
+                            //
+                            // Instantiating for `id` composes the two. A
+                            // non-generic reference maps nothing and the result
+                            // is unchanged, so this cannot disturb the shapes
+                            // that already worked.
+                            let composed = self.instantiate_for_reference(id, instantiated);
+                            if composed != self.intrinsics.error {
+                                return Some(composed);
+                            }
+                            return Some(instantiated);
                         }
                     }
-                    if let Some(member) =
-                        self.generic_heritage_member(base_type, name, this_argument, visiting)
-                    {
-                        return Some(member);
+                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
+                        // Resolve inherited members under every enclosing
+                        // reference mapper, including indirect generic bases.
+                        let member = self.instantiate_for_reference(id, member);
+                        if member != self.intrinsics.error {
+                            return Some(member);
+                        }
                     }
                 }
             }
