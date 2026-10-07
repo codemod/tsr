@@ -796,10 +796,11 @@ owned files. Existing semantic receiver/apparent-callee and effective-argument
 paths remain in place; no alternate syntax classifier was added.
 Shared lazy-parameter roots stay open.
 
-## INFERENCE-PRIMITIVE-CONSTRAINT-REGULAR receipt
+## INFERENCE-PRIMITIVE-CONSTRAINT-REGULAR — tsr-2zk.16.420
 
-Assigned next root: two current blocked cases; exact target/issue receipt
-pending integrator. Directly reproduced against pinned native before any
+Authoritative integrator receipt: two current blocked cases,
+`conformance/literalTypeWidening` and `conformance/templateLiteralTypes2`.
+These are blocked scope, not promised whole-case conversions. Directly reproduced against pinned native before any
 semantic edit:
 
 ```typescript
@@ -843,6 +844,7 @@ implemented faithfully under the current exclusion of literals.rs/unions.rs/
 TypeStore. Integrator must assign its canonical getter slice atomically to
 the owning lane or release it. Existing triage example
 `conformance/templateLiteralTypes2:0:143` is historical attribution, not a
-claimed current conversion; exact two-target receipt still governs acceptance.
+claimed current conversion; the authoritative two-target receipt governs
+acceptance. Before-RIGHT IDs remain controls, never conversions.
 No candidate, new tests or code gates were fabricated for this blocked root.
 The prior `.9.8` verified delivery remains unchanged.
