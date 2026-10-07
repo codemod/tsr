@@ -81,17 +81,22 @@ pub struct PoolOutcome {
 
 /// Check every eligible file of `program` with `count` checkers.
 ///
-/// `configure` runs on each checker right after construction (options,
-/// observers); `checked_files` is the program-wide eligible set every checker
+/// The optional observer preserves pool selection and private checker ownership.
+/// `checked_files` is the program-wide eligible set every checker
 /// is told about before its first check (`Checker::set_checked_files`).
-pub fn check_program_files<'a>(
-    program: &tsr_compiler::Program<'a>,
+#[must_use]
+pub fn check_program_files(
+    program: &tsr_compiler::Program<'_>,
     options: &CompilerOptions,
     count: usize,
-    configure: &(dyn for<'c, 'n> Fn(&mut tsr_checker::Checker<'c, 'n>) + Sync),
+    #[cfg(feature = "work-trace")] trace: Option<&std::sync::Arc<crate::work_trace::WorkTrace>>,
 ) -> PoolOutcome {
     let started = Instant::now();
     let files = program.source_files();
+    #[cfg(feature = "work-trace")]
+    if let Some(trace) = trace {
+        trace.pool_selected(options, count, files.len());
+    }
     let eligible: Vec<_> = files
         .iter()
         .enumerate()
@@ -105,17 +110,28 @@ pub fn check_program_files<'a>(
         .collect();
 
     let run = |owner: usize| -> (Located, Located, usize, Duration) {
+        #[cfg(feature = "work-trace")]
+        if let Some(trace) = trace {
+            trace.checker_construction_started(owner);
+        }
         let mut checker = tsr_checker::Checker::with_module_host(
             program.binder(),
             program.nodes(),
             program.node_map(),
             Some(program),
         );
+        #[cfg(feature = "work-trace")]
+        if let Some(trace) = trace {
+            trace.checker_created(owner);
+        }
         checker.apply_compiler_options(options);
         for file in program.root_and_referenced_files() {
             checker.set_jsdoc(file.jsdoc().iter());
         }
-        configure(&mut checker);
+        #[cfg(feature = "work-trace")]
+        if let Some(trace) = trace {
+            checker.set_work_observer(trace.observer(owner));
+        }
         checker.set_checked_files(eligible.iter().copied());
         let constructed = started.elapsed();
         let mut checked_count = 0;

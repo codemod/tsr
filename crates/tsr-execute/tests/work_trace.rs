@@ -136,7 +136,7 @@ fn without_timing(records: &[Value]) -> Vec<Value> {
 }
 
 fn assert_intervals(records: &[Value]) {
-    assert_eq!(records[0]["worker_activity_schema_version"], 1);
+    assert_eq!(records[0]["worker_activity_schema_version"], 2);
     assert_eq!(records[0]["activity_clock"], "monotonic_elapsed_ns");
     let mut previous = 0;
     for row in records {
@@ -144,21 +144,91 @@ fn assert_intervals(records: &[Value]) {
         assert!(now >= previous);
         previous = now;
     }
-    if let Some(created) = records.iter().find(|row| row["event"] == "checker_created") {
+    for created in records.iter().filter(|row| row["event"] == "checker_created") {
         let start = created["construction_started_at_ns"].as_u64().unwrap();
         let end = created["construction_finished_at_ns"].as_u64().unwrap();
         assert!(start <= end && end <= created["recorded_at_ns"].as_u64().unwrap());
-        for row in records.iter().filter(|row| row["event"] == "work_begin") {
+        for row in records.iter().filter(|row| {
+            row["event"] == "work_begin" && row["checker_id"] == created["checker_id"]
+        }) {
             assert!(row["recorded_at_ns"].as_u64().unwrap() >= end);
         }
     }
 }
 
 #[test]
+fn tracing_preserves_requested_pool_and_modulo_file_ownership() {
+    for (flags, count) in [
+        (&[][..], 4),
+        (&["--singleThreaded"][..], 1),
+        (&["--checkers", "2"][..], 2),
+        (&["--checkers", "4"][..], 4),
+        (&["--checkers", "2", "--noCheck"][..], 2),
+        (&["--skipLibCheck", "false"][..], 4),
+    ] {
+        let (off_status, off_output, _) = run(flags, false);
+        let (status, output, records) = run(flags, true);
+        assert_eq!((status, output), (off_status, off_output), "{flags:?}");
+        let (repeat_status, repeat_output, repeat) = run(flags, true);
+        let (off_status, off_output, _) = run(flags, false);
+        assert_eq!((repeat_status, repeat_output), (off_status, off_output), "{flags:?}");
+        // Global chronology/span tokens vary with scheduling; private-owner
+        // work and ordered Program inventory must remain the same.
+        let work = |rows: &[Value]| {
+            let mut entries: Vec<_> = rows
+                .iter()
+                .filter(|row| row["event"] == "work_begin")
+                .map(|row| {
+                    serde_json::to_string(&serde_json::json!([
+                        row["checker_id"],
+                        row["operation"],
+                        row["file_ids"],
+                        row["unmapped_source_node_ids"]
+                    ]))
+                    .unwrap()
+                })
+                .collect();
+            entries.sort();
+            entries
+        };
+        assert_eq!(work(&records), work(&repeat), "{flags:?}");
+        let inventory = |rows: &[Value]| {
+            rows.iter()
+                .filter(|row| row["event"] == "program_file")
+                .map(|row| {
+                    let mut row = row.clone();
+                    row.as_object_mut().unwrap().remove("recorded_at_ns");
+                    row
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(inventory(&records), inventory(&repeat), "{flags:?}");
+        assert_intervals(&records);
+        assert_intervals(&repeat);
+        assert_eq!(records.last().unwrap()["checker_instances_created"], count, "{flags:?}");
+        let created: std::collections::BTreeSet<_> = records
+            .iter()
+            .filter(|row| row["event"] == "checker_created")
+            .map(|row| row["checker_id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(created, (0..count).collect(), "{flags:?}");
+        for begin in records
+            .iter()
+            .filter(|row| row["event"] == "work_begin" && row["operation"] == "source_file_check")
+        {
+            assert_eq!(
+                begin["checker_id"].as_u64().unwrap(),
+                begin["file_ids"][0].as_u64().unwrap() % count
+            );
+        }
+    }
+}
+
+#[test]
 fn cli_trace_preserves_output_and_distinguishes_lazy_work_from_file_checks() {
-    let (off_status, off_output, off_records) = run(&[], false);
-    let (status, output, records) = run(&[], true);
-    let (_, repeat_output, repeat) = run(&[], true);
+    let (off_status, off_output, off_records) = run(&["--singleThreaded"], false);
+    let (status, output, records) = run(&["--singleThreaded"], true);
+    let (_, repeat_output, repeat) = run(&["--singleThreaded"], true);
     assert!(off_records.is_empty());
     assert_eq!(status, off_status);
     assert_eq!(output, off_output);
@@ -264,22 +334,29 @@ fn no_check_and_worker_requests_do_not_become_performed_work() {
                 .filter(|row| row["event"] == "program_file")
                 .all(|row| row["full_check_exclusion"] == "no_check")
         );
-        assert_eq!(records.iter().filter(|row| row["event"] == "checker_created").count(), 1);
-        assert_eq!(records.last().unwrap()["checker_instances_created"], 1);
+        let count = if flags.contains(&"--singleThreaded") {
+            1
+        } else if flags.contains(&"--checkers") {
+            2
+        } else {
+            4
+        };
+        assert_eq!(records.iter().filter(|row| row["event"] == "checker_created").count(), count);
+        assert_eq!(records.last().unwrap()["checker_instances_created"], count);
         assert_eq!(records.last().unwrap()["peak_full_checks"], 0);
         assert_intervals(&records);
-        assert_eq!(records.last().unwrap()["peak_constructing_checkers"], 1);
+        let peak = records.last().unwrap()["peak_constructing_checkers"].as_u64().unwrap();
+        assert!((1..=count as u64).contains(&peak));
         assert_eq!(records.last().unwrap()["peak_covered_semantic_checkers"], 0);
         assert_eq!(records.last().unwrap()["peak_full_checkers"], 0);
-        assert_eq!(records.last().unwrap()["peak_observed_checkers"], 1);
+        assert_eq!(records.last().unwrap()["peak_observed_checkers"], peak);
     }
     for request in ["1", "2"] {
         let (_, _, records) = run(&["--checkers", request], true);
-        let workers = records.iter().find(|row| row["event"] == "checker_created").unwrap();
+        let workers = records.iter().find(|row| row["event"] == "pool_selected").unwrap();
         assert_eq!(workers["requested_checkers"], request.parse::<u64>().unwrap());
-        assert_eq!(workers["effective_serial_checker_limit"], 1);
-        assert_eq!(workers["requested_checkers_matches_actual_instances"], request == "1");
-        assert_eq!(workers["worker_options_applied_by_driver"], false);
+        assert_eq!(workers["selected_count"], request.parse::<u64>().unwrap());
+        assert_eq!(workers["worker_options_applied_by_driver"], true);
         assert!(workers["memory_admission_budget"].is_null());
     }
 }

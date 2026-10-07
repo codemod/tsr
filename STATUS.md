@@ -22,6 +22,59 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Parallel work-trace correction, frozen `e744714c` plus qualified patch:
+55 feature CLI children across 11 modes preserve off/on/repeat complete outputs,
+loaded inventory and owner-work multisets; 22 ordinary children preserve outputs
+with the trace environment absent/set and create no sidecar. Tracing now keeps
+the ordinary selected pool and modulo file ownership. Constructor/activity
+intervals remain bounded observations, with initialization forcing uncovered;
+this is no semantic cache, new full-corpus result or measured speed gain.
+Focused feature67+ordinary53 tests pass with one existing ignore in each;
+strict workspace Clippy passes in both configurations; the final reader rerun
+passes29. Exact Rust1.96.0 Linux-arm64 full feature suite passes3,147 tests,
+zero failures/six existing ignores across282 terminal targets, with all733
+tracked Rust/workspace input hashes unchanged. Ordinary full suite also passes3,132 tests/six existing ignores across280
+terminal targets. Final19-file review completes with no actionable findings
+for the scoped tracer and investigation artifacts; all lenses run inline, with
+no independent peer coverage. The original macOS full feature job remains live. Python81 rejects the
+fixture qualification candidate with11 errors in1973.780s; both fixture files
+are restored. Unchanged Linux-arm64 controls now pass34 CI reporting tests and
+all81 Python tests in15.992/15.251s under a pinned local read-only/no-network
+container. Darwin launch failures remain recorded; no deadlines change. The
+issue-ID gate reports190 historical missing IDs, all already
+cited in `e744714c`. The six broader goal tickets and
+equivalent-work TSR/tsgo <=0.50 target remain unfinished.
+[Source-qualified controls](docs/architecture/tsr-work-trace-producer.md).
+
+Object-render origin probe, frozen `e744714c` plus qualified tracer/private patch:
+36 bounded/generated400/pending CLI children preserve off/on/repeat output and
+covered owner work; twelve strict reader receipts and five allocator controls
+pass. The natural pending fixture distinguishes seven helper requests from
+three actual render workers, with four pending refusals and one written reuse.
+Generated400 executes9,197 property requests/11,990 site-renderer workers,
+requesting158,807,373 allocator bytes for89,082 result-string bytes. Member-plan
+preparation and clone each request866,807 bytes. These are exclusive request
+traffic including nested semantics, not RSS or recoverable time. Fresh native
+object diagnostics agree; declaration mode writes2 files versus TSR0, so display
+parity remains unqualified. Five ordinary pairs observe default1.192/0.329s and
+single2.913/0.539s, with complete work and resource isolation unverified. No
+production rendering change or <=0.50 claim; `.16.3.10.1` owns deferred-site and
+unobserved branch qualification. Its receiver-only audit fails with12 borrow
+errors; an isolated ten-file adaptation compiles every workspace target without
+adding deferred rendering. Union sorting also consumes structural/alias text,
+beyond the two empty-object shortcuts; replacing the member-owner symbol is
+already known to lose the passing callWithSpread4 display control.
+[Probe, replay and limits](docs/architecture/checker-object-rendering-boundary.md).
+
+Alias audit, frozen `e744714c`: the historical nonrecursive dispatch rationale
+is stale; external import-equals calls `resolve_alias` recursively and identifier
+aliases can force value types. Four valid fresh NodeNext cycle controls preserve
+native's fourTS2303 errors, but TSR adds two falseTS1203 plus oneTS2708. Initial
+node10 setup is separately rejected by nativeTS5108. `.7.7.3` retains actual
+publication/unknown/type-only requirements; `tsr-2zk.6.19` owns per-file CommonJS
+format. No alias cache or runtime edit is retained.
+[Current cycle and correction](docs/architecture/checker-symbol-completion-contract.md).
+
 Completed-negative call effects, frozen `f0b075b8` versus `b027f09d`: two
 five-pair ordinary rounds retain 13–14% generated400 wall improvement with one
 checker and 26% with four (1.700/1.704 ->1.256/1.259s). API medians do not regress;
@@ -3436,6 +3489,37 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+`tsr-1yb.1.2.3.2.4` corrects serial instrumentation before current ordinary
+parallel attribution; fixture candidate `.4.1` closes as a rejected approach
+after rejecting60s no-work qualification
+with11 errors across81 tests. Both fixture files are restored. The unchanged
+configured CI reporting34 and complete Python81 controls pass on pinned local
+Linux-arm64, with read-only source/no container network; Darwin launch remains
+unqualified. Do not relax deadlines without a discriminating fix.
+Finish terminal gates/review/delivery
+before closing those bounded children. Then retain the original `.1`/`.11`
+complete-work/profile requirements and `.4.2.1`/`.33.1`/`.7.7.3` ownership and
+publication gates. `.16.3.10` is claimed for object-rendering characterization:
+existing Named text still affects semantic empty-object recognition, and a plain
+on-demand print slot lacks the original display reference. Static locating
+evidence does not close its executed-count/allocation/native-control requirements.
+The isolated object-origin probe adapts the existing controlled allocator,
+without changing canonical runtime. Its release build passes after adding108
+omitted bundled-library inputs; final allocator5 and36 bounded/generated400/
+pending children pass, with12 strict reader receipts. Eager property rendering requests
+158.8MB versus89KB result lengths; copying member plans alone requests0.867MB.
+Existing empty-object semantics and original reference-site ownership prevent
+direct string removal. `.16.3.10.1` now owns transformed deferred presentation
+and remaining decline/discard branches and mutable presentation demand. Natural
+pending/written control passes (four refusals/one reuse). Native declaration emits2
+files while TSR emits0; CLI emit ownership retains its existing scope.
+The isolated mutable-presentation adaptation now compiles all workspace targets;
+the original12 checker borrow errors and additional example/test callers are
+preserved in its replay record. It still uses baked text, so deferred rendering
+and its native semantic/display/cost gates remain unfinished.
+[Object construction and presentation boundary](docs/architecture/checker-object-rendering-boundary.md).
+[Current tracer boundaries](docs/architecture/tsr-work-trace-producer.md).
 
 `tsr-1yb.11.3.1` characterization and `.11.3.3` bounded completed-negative
 reuse are qualified at frozen `f0b075b8`; the original-context written-signature
@@ -7018,6 +7102,43 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `e744714c`, changing only the private presentation receiver to mutable
+fails with12 checker-library borrow errors. The subsequent isolated ten-file
+caller adaptation compiles all workspace targets, but still uses baked rendering;
+it is not a deferred-rendering implementation or performance certificate. Two
+Linux full-suite setup attempts fail before compilation (installed1.96.1 instead
+of1.96.0, then implicit rustup override); the exact1.96.0 toolchain with explicit
+selection subsequently passes both unchanged-source suites. Original logs remain
+in the qualified artifact rather than being counted as Rust test failures.
+
+Object probe setup, frozen `e744714c`: the first generated400 batch is rejected
+when the host rebuilds its executable during the batch; the binary hash guard
+refuses single/on. A separate frozen v2 executable subsequently qualifies24
+children/eight observer receipts. Preserve the rejected batch and use immutable
+probe paths. Initial cold probe/native launches time out300/60s before output;
+unchanged repeat version launches take14/43ms. Those cold observations remain
+outside checker timing; no timeout relaxation or security changes. Declaration
+controls retain native2 output files versus TSR0, not a display-parity claim.
+[Bound refusals](docs/architecture/checker-object-rendering-probe.json).
+
+At `e744714c` plus trace patch, the old forced-singleton observer fails default
+pool preservation with actual1/expected4. Its archived serial receipts cannot
+be relabeled ordinary four-checker work. Reader review rejects wrong owner-local
+completion order, contradictory exposed worker config and serial facts inside
+parallel constructors. The first physical helper also rejected valid single
+mode by treating omitted showConfig worker settings as unset; independent
+captured requests correct that assumption.
+The broad Python suite failed9/error6 out of81 in148.356s, with unchanged fake
+compiler deadlines; isolated reporter failures recur. Trivial first executable
+launches take9.089856s/5.503177s versus repeats0.016295s/0.015518s. The attempted
+60s no-work qualification is also refused:81 tests/11 errors in1973.780s,
+including10 qualification timeouts and1 enclosing reporter timeout. Both
+fixture files are restored to HEAD, retaining the existing0.3s/15s behavior
+deadlines and all failed evidence. All190 issue-ID failures already exist in
+`e744714c`; follow-up stays with tsr-10/tsr-2zk.18. No security-setting,
+production-timeout or speed attribution.
+[Failures and discriminating controls](docs/architecture/tsr-work-trace-producer.md).
 
 Broadly retaining every effects `None` is refused at `f0b075b8`: the compiling
 premature-None mutant fails1/1 foreign-frame refusal test (exit101), preventing
@@ -13802,6 +13923,37 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-07, frozen `e744714c` plus qualified trace patch: removed tracing's
+forced serial pool, introduced schema2 private-owner construction/activity
+records and strict versioned reader controls. Feature55+ordinary22 physical
+CLI children qualify11 modes without a corpus or throughput claim. Filed/claimed
+`.1.2.3.2.4.1` after reproducing fresh fake-executable launch delays. Its attempted
+fixture-only no-work qualification is rejected with11 errors across81 tests;
+both fixture files are restored, and final reader29 passes. Subsequent unchanged
+local Linux-arm64 runs pass34 reporting and full81 Python controls, pinned image
+`5887f265` with read-only source/no container network. Darwin failures stay
+separate; no fixture or deadline changes. Historical issue-ID
+gate remains red190/all190 already cited at HEAD. Object-rendering static
+boundary/manifest and isolated origin probe now qualify36children/twelve strict
+receipts/five allocator controls, including natural pending/written branches.
+Generated400 actual render workers11,990
+request158.8MB for89KB result text; plan clones0.867MB. Cold launches and the
+host's rejected in-flight binary rebuild remain recorded; corrected v2 uses a
+frozen path. Native diagnostic control agrees but declaration2files versusTSR0
+refuses display parity. Scoped14-file review completed with no actionable
+findings and a Not-ready receipt for then-pending gates. The final19-file
+refresh now completes with no actionable findings and a Ready-to-merge receipt
+for this scoped tracer/archive change; review is inline, not independent. The exact Rust1.96.0 Linux-arm64 full feature suite now
+passes3,147 tests/six existing ignores across282 targets with733 source hashes
+unchanged; initial image1.96.1 and rustup override setup failures remain recorded.
+Ordinary full suite also passes3,132 tests/six existing ignores across280
+targets. Reviewed artifacts are qualified for main delivery; the broader six-ticket
+goal stays active, with `.16.3.10.1` tracking the
+next presentation boundary. Current alias audit finds stale nonrecursive
+rationale and native fourTS2303 versus TSR extra twoTS1203/oneTS2708; per-file
+CommonJS format follow-up `tsr-2zk.6.19` preserves alias publication scope.
+[Public controls and limits](docs/architecture/parallel-work-trace-controls.json).
 
 2026-10-06 integration addendum: effects landing rebases cleanly onto `0e7824dd`
 with concurrent native JSDoc/ambient-export fixes. Combined189+1+3 checker tests

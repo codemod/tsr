@@ -629,8 +629,10 @@ Program file `i`, libraries included, belongs to checker `i % count`; each
 checker visits only its own files in program order, and publishes only
 diagnostics located in files it owns, as native `GetSemanticDiagnostics`
 asks the file's associated checker. Checkers share the program, binder and
-node tables read-only and keep private type stores. The opt-in work trace
-observes one private checker, so a traced run keeps a pool of one.
+node tables read-only and keep private type stores. The opt-in schema-2 work trace
+preserves that selected pool and binds spans to each private owner. Archived
+schema-1 traces forced one checker and cannot prove ordinary parallel work;
+see [the producer protocol and controls](tsr-work-trace-producer.md#pool-preserving-schema-2).
 `checker_pool.rs` records the ownership and work boundary.
 
 Nine alternating pairs against pinned tsgo on the 14-CPU Linux box:

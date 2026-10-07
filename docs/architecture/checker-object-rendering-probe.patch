@@ -1,0 +1,678 @@
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -261,6 +261,7 @@
+ name = "tsr"
+ version = "0.1.0"
+ dependencies = [
++ "tsr-checker",
+  "tsr-execute",
+ ]
+ 
+--- a/crates/tsr-checker/Cargo.toml
++++ b/crates/tsr-checker/Cargo.toml
+@@ -9,6 +9,7 @@
+ authors.workspace = true
+ 
+ [features]
++allocation-origin-probe = []
+ work-trace = []
+ 
+ [dependencies]
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -206,3 +206,5 @@
+ pub use intrinsics::Intrinsics;
+ pub use resolution::{PropertyName, Resolutions};
+ pub use types::{Type, TypeData, TypeId, TypeStore};
++#[doc(hidden)]
++pub mod origin_meter;
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -1033,6 +1033,10 @@
+     /// declaration whose `.types` line is being printed, which encloses this
+     /// literal — same scope chain, since a literal opens no scope of its own.
+     fn member_text_at(&mut self, id: TypeId, reference: Option<tsr_ast::NodeId>) -> String {
++        let observed = crate::origin_meter::member_origin();
++        if observed {
++            crate::origin_meter::event(1);
++        }
+         // checkObjectLiteral does not run the native node builder while collecting
+         // members. This port still bakes a placeholder at the mint; a declaration-
+         // owned Pending return must not be demanded by that bookkeeping before
+@@ -1047,11 +1051,27 @@
+                         == Some(&crate::signatures::LazyReturnState::Pending)
+             })
+         }) {
++            if observed {
++                crate::origin_meter::event(2);
++            }
+             return self.type_to_string(id);
+         }
++        if observed && reference.is_none() {
++            crate::origin_meter::event(3);
++        }
+         match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
+-            Some(text) => text,
+-            None => self.type_to_string(id),
++            Some(text) => {
++                if observed {
++                    crate::origin_meter::event(4);
++                }
++                text
++            }
++            None => {
++                if observed && reference.is_some() {
++                    crate::origin_meter::event(5);
++                }
++                self.type_to_string(id)
++            }
+         }
+     }
+ 
+@@ -1119,6 +1139,7 @@
+         &mut self,
+         node: &ObjectLiteralExpression<'_>,
+     ) -> TypeId {
++        let _object_origin = crate::origin_meter::OwnerGuard::enter(7);
+         let error = self.intrinsics.error;
+         // §105 slice 2a (`checker-notes-narrow.md`): a literal in a const
+         // context (`isConstContext`, `checker.go:13615`) answers readonly
+@@ -2022,13 +2043,22 @@
+                 PropertyValue::Shorthand(_) => None,
+             };
+             // §735 — see [`Checker::member_text_at`].
+-            let printed = reused.unwrap_or_else(|| self.member_text_at(member_type, node.node_id));
++            if reused.is_some() {
++                crate::origin_meter::event(0);
++            }
++            let printed = reused.unwrap_or_else(|| {
++                let _origin = crate::origin_meter::OwnerGuard::enter(2);
++                let printed = self.member_text_at(member_type, node.node_id);
++                crate::origin_meter::payload(2, printed.len());
++                printed
++            });
+             if let Some(id) = property.node_id() {
+                 checked_members.push((id, PropertySlot::resolved(member_type)));
+             } else {
+                 capture_complete = false;
+             }
+             if unnamed {
++                crate::origin_meter::payload(8, printed.len());
+                 continue;
+             }
+             // SS329 corrects SS323's push rule: `symbolProperty1`'s three
+@@ -2073,7 +2103,11 @@
+                         .flatten(),
+                         name: semantic_name,
+                         printed_name: name.clone(),
+-                        printed_slot: PrintedSlot::printed(printed.clone()),
++                        printed_slot: {
++                            let _origin = crate::origin_meter::OwnerGuard::enter(6);
++                            crate::origin_meter::payload(6, printed.len());
++                            PrintedSlot::printed(printed.clone())
++                        },
+                         optional: member_optional,
+                         readonly: const_context,
+                         slot: PropertySlot::resolved(member_type),
+@@ -2147,11 +2181,21 @@
+                 (None, Some(_)) => std::cmp::Ordering::Greater,
+                 _ => left.name.cmp(&right.name),
+             });
+-            members = self.property_members(&typed_properties);
++            members = {
++                let _origin = crate::origin_meter::OwnerGuard::enter(3);
++                let prepared = self.property_members(&typed_properties);
++                crate::origin_meter::payload(3, object_probe_member_payload(&prepared));
++                prepared
++            };
+         }
+         index_members.extend(members);
+         let members = index_members;
+-        let printed = render_object_type(&members);
++        let printed = {
++            let _origin = crate::origin_meter::OwnerGuard::enter(4);
++            let printed = render_object_type(&members);
++            crate::origin_meter::payload(4, printed.len());
++            printed
++        };
+         // The binder gives an object literal its own `__object` symbol, whose
+         // members table is where a property access on this type looks — the same
+         // arrangement `get_type_from_type_literal` relies on for `__type`.
+@@ -2194,7 +2238,11 @@
+         );
+         // §800: the members AS PRINTED, so a re-mint does not have to go back
+         // through the symbol road and widen what this literal retained.
+-        self.object_literal_members.insert(minted, members.clone());
++        self.object_literal_members.insert(minted, {
++            let _origin = crate::origin_meter::OwnerGuard::enter(5);
++            crate::origin_meter::payload(5, object_probe_member_payload(&members));
++            members.clone()
++        });
+         // §539: keyed by the minted type id, so the element-access lookup
+         // reaches the signature this literal prints.
+         self.object_literal_index_infos.insert(minted, indexes);
+@@ -3129,3 +3177,17 @@
+         }
+     }
+ }
++
++// Archival observer: read existing String lengths, never force semantic work.
++fn object_probe_member_payload(members: &[Member]) -> usize {
++    members
++        .iter()
++        .map(|member| match member {
++            Member::Property { name, printed, .. } | Member::Method { name, printed } => {
++                name.len() + printed.len()
++            }
++            Member::Signature { printed } => printed.len(),
++            Member::Index { name, key, value, .. } => name.len() + key.len() + value.len(),
++        })
++        .sum()
++}
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -1992,6 +1992,7 @@
+     }
+ 
+     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
++        crate::origin_meter::renderer_entry();
+         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
+             return Some(self.type_parameter_name_at(id, symbol, reference));
+         }
+--- a/crates/tsr/Cargo.toml
++++ b/crates/tsr/Cargo.toml
+@@ -20,6 +20,7 @@
+ required-features = ["work-trace"]
+ 
+ [dependencies]
++tsr-checker = { workspace = true }
+ tsr-execute.workspace = true
+ 
+ [lints]
+--- a/crates/tsr/src/main.rs
++++ b/crates/tsr/src/main.rs
+@@ -12,7 +12,11 @@
+ 
+ use tsr_execute::{OsSystem, command_line};
+ 
++#[global_allocator]
++static OBJECT_PROBE_ALLOCATOR: tsr_checker::origin_meter::Meter = tsr_checker::origin_meter::Meter;
++
+ fn main() -> std::process::ExitCode {
++    tsr_checker::origin_meter::enable(std::env::var_os("TSR_OBJECT_ORIGIN_PROBE").is_some());
+     let args: Vec<String> = std::env::args().skip(1).collect();
+ 
+     // `--lsp` and `--api` are upstream's other two entry points. Neither exists
+@@ -31,5 +35,6 @@
+     // Exit codes are upstream's `ExitStatus` and are part of the interface: a
+     // build script distinguishes 1 (errors, nothing written) from 2 (errors,
+     // output written anyway).
++    tsr_checker::origin_meter::report();
+     std::process::ExitCode::from(u8::try_from(status.code()).unwrap_or(1))
+ }
+--- /dev/null
++++ b/crates/tsr-checker/src/origin_meter.rs
+@@ -0,0 +1,463 @@
++//! Archived executable allocator observer; never a production memory ceiling.
++//!
++//! The prefix attributes live Rust global-allocation *requested* bytes to their
++//! original private owner, including deallocation/reallocation on another thread.
++//! System usable sizes, retained pages, stacks and non-Rust allocation are excluded.
++
++#![allow(
++    unsafe_code,
++    reason = "archived GlobalAlloc observer requires System allocation and prefix access; canonical production allocator is unchanged"
++)]
++
++use std::alloc::{GlobalAlloc, Layout, System};
++use std::cell::Cell;
++use std::marker::PhantomData;
++use std::ptr;
++use std::rc::Rc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++pub const MAX_OWNERS: usize = 256;
++
++struct Counts {
++    live: AtomicUsize,
++    peak: AtomicUsize,
++    allocations: AtomicUsize,
++    padded_live: AtomicUsize,
++}
++
++impl Counts {
++    const fn new() -> Self {
++        Self {
++            live: AtomicUsize::new(0),
++            peak: AtomicUsize::new(0),
++            allocations: AtomicUsize::new(0),
++            padded_live: AtomicUsize::new(0),
++        }
++    }
++
++    fn add(&self, size: usize, padded: usize) {
++        let live = self.live.fetch_add(size, Ordering::SeqCst) + size;
++        self.peak.fetch_max(live, Ordering::SeqCst);
++        self.allocations.fetch_add(1, Ordering::SeqCst);
++        self.padded_live.fetch_add(padded, Ordering::SeqCst);
++    }
++
++    fn subtract(&self, size: usize, padded: usize) {
++        self.live.fetch_sub(size, Ordering::SeqCst);
++        self.padded_live.fetch_sub(padded, Ordering::SeqCst);
++    }
++
++    fn resize(&self, old: usize, next: usize, old_padded: usize, next_padded: usize) {
++        let live = if next >= old {
++            self.live.fetch_add(next - old, Ordering::SeqCst) + next - old
++        } else {
++            self.live.fetch_sub(old - next, Ordering::SeqCst) - (old - next)
++        };
++        self.peak.fetch_max(live, Ordering::SeqCst);
++        self.allocations.fetch_add(1, Ordering::SeqCst);
++        if next_padded >= old_padded {
++            self.padded_live.fetch_add(next_padded - old_padded, Ordering::SeqCst);
++        } else {
++            self.padded_live.fetch_sub(old_padded - next_padded, Ordering::SeqCst);
++        }
++    }
++}
++
++static OWNERS: [Counts; MAX_OWNERS] = [const { Counts::new() }; MAX_OWNERS];
++static TOTAL: Counts = Counts::new();
++
++thread_local! {
++    static OWNER: Cell<usize> = const { Cell::new(1) };
++}
++
++/// Construct the guard inside the private worker; zero is unclassified/shared.
++pub struct OwnerGuard(usize, PhantomData<Rc<()>>);
++
++impl OwnerGuard {
++    pub fn enter(owner: usize) -> Self {
++        assert!(owner <= MAX_OWNERS);
++        if ENABLED.load(Ordering::Relaxed) && owner != 0 {
++            TRAFFIC[owner - 1].entries.fetch_add(1, Ordering::Relaxed);
++        }
++        Self(OWNER.with(|slot| slot.replace(owner)), PhantomData)
++    }
++}
++
++impl Drop for OwnerGuard {
++    fn drop(&mut self) {
++        OWNER.with(|slot| slot.set(self.0));
++    }
++}
++
++#[derive(Clone, Copy, Debug)]
++pub struct Snapshot {
++    pub live_requested_bytes: usize,
++    pub peak_requested_bytes: usize,
++    pub allocation_requests: usize,
++    pub live_padded_layout_bytes: usize,
++}
++
++fn read(counts: &Counts) -> Snapshot {
++    Snapshot {
++        live_requested_bytes: counts.live.load(Ordering::SeqCst),
++        peak_requested_bytes: counts.peak.load(Ordering::SeqCst),
++        allocation_requests: counts.allocations.load(Ordering::SeqCst),
++        live_padded_layout_bytes: counts.padded_live.load(Ordering::SeqCst),
++    }
++}
++
++/// Boundary snapshots are coherent only after all private owners are quiescent.
++pub fn snapshot(owner: usize) -> Snapshot {
++    if owner == 0 { read(&TOTAL) } else { read(&OWNERS[owner - 1]) }
++}
++
++fn prefixed(layout: Layout) -> Option<(Layout, usize)> {
++    Layout::new::<usize>()
++        .extend(layout)
++        .ok()
++        .map(|(layout, offset)| (layout.pad_to_align(), offset))
++}
++
++unsafe fn allocation_owner(base: *const u8) -> usize {
++    let mut bytes = [0u8; std::mem::size_of::<usize>()];
++    // SAFETY: the allocation prefix contains one owner word; byte copies have
++    // no additional pointer-alignment requirement.
++    unsafe { ptr::copy_nonoverlapping(base, bytes.as_mut_ptr(), bytes.len()) };
++    usize::from_ne_bytes(bytes)
++}
++
++static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++pub const NAMES: [&str; 9] = [
++    "disabled",
++    "unclassified",
++    "object_property_render",
++    "object_property_plan",
++    "object_whole_render",
++    "object_plan_clone",
++    "object_slot_clone",
++    "object_other",
++    "unnamed_discarded_payload",
++];
++static PAYLOAD: [AtomicUsize; MAX_OWNERS] = [const { AtomicUsize::new(0) }; MAX_OWNERS];
++static PAYLOAD_EVENTS: [AtomicUsize; MAX_OWNERS] = [const { AtomicUsize::new(0) }; MAX_OWNERS];
++/// Logical String lengths at selected result/copy/discard sites, not allocations.
++pub fn payload(origin: usize, size: usize) {
++    if ENABLED.load(Ordering::Relaxed) {
++        PAYLOAD[origin - 1].fetch_add(size, Ordering::Relaxed);
++        PAYLOAD_EVENTS[origin - 1].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++struct Traffic {
++    entries: AtomicUsize,
++    allocations: AtomicUsize,
++    reallocations: AtomicUsize,
++    requested: AtomicUsize,
++}
++impl Traffic {
++    const fn new() -> Self {
++        Self {
++            entries: AtomicUsize::new(0),
++            allocations: AtomicUsize::new(0),
++            reallocations: AtomicUsize::new(0),
++            requested: AtomicUsize::new(0),
++        }
++    }
++    fn record(&self, size: usize, realloc: bool) {
++        if realloc {
++            self.reallocations.fetch_add(1, Ordering::Relaxed);
++        } else {
++            self.allocations.fetch_add(1, Ordering::Relaxed);
++        }
++        self.requested.fetch_add(size, Ordering::Relaxed);
++    }
++}
++static TRAFFIC: [Traffic; MAX_OWNERS] = [const { Traffic::new() }; MAX_OWNERS];
++
++pub fn enable(value: bool) {
++    ENABLED.store(value, Ordering::Relaxed);
++}
++fn event_origin() -> usize {
++    if ENABLED.load(Ordering::Relaxed) { OWNER.try_with(Cell::get).unwrap_or(1) } else { 0 }
++}
++pub fn parameter_guard() -> Option<OwnerGuard> {
++    matches!(event_origin(), 2 | 3).then(|| OwnerGuard::enter(6))
++}
++pub const EVENTS: [&str; 9] = [
++    "plain_written_reuse",
++    "member_request",
++    "member_pending_return_refusal",
++    "member_no_site_fallback",
++    "member_site_success",
++    "member_site_decline",
++    "site_renderer_entry_all",
++    "site_renderer_entry_plain_origin",
++    "site_renderer_entry_other_object_origin",
++];
++static EVENTS_COUNT: [AtomicUsize; 9] = [const { AtomicUsize::new(0) }; 9];
++pub fn event(index: usize) {
++    if ENABLED.load(Ordering::Relaxed) {
++        EVENTS_COUNT[index].fetch_add(1, Ordering::Relaxed);
++    }
++}
++pub fn member_origin() -> bool {
++    matches!(event_origin(), 2 | 7)
++}
++pub fn renderer_entry() {
++    event(6);
++    match event_origin() {
++        2 => event(7),
++        7 => event(8),
++        _ => {}
++    }
++}
++pub fn report() {
++    // All compiler workers have joined. Reporting must not create new counted
++    // allocations between the origin snapshots and their total.
++    if !ENABLED.swap(false, Ordering::Relaxed) {
++        return;
++    }
++    for (index, name) in EVENTS.iter().enumerate() {
++        eprintln!(
++            "OBJECT_EVENT\t{}\t{}\t{}",
++            index,
++            name,
++            EVENTS_COUNT[index].load(Ordering::Relaxed)
++        );
++    }
++    let mut live_sum = 0;
++    for (index, name) in NAMES.iter().enumerate().skip(1) {
++        eprintln!(
++            "OBJECT_PAYLOAD\t{}\t{}\t{}\t{}",
++            index,
++            name,
++            PAYLOAD_EVENTS[index - 1].load(Ordering::Relaxed),
++            PAYLOAD[index - 1].load(Ordering::Relaxed)
++        );
++        let traffic = &TRAFFIC[index - 1];
++        let storage = snapshot(index);
++        live_sum += storage.live_requested_bytes;
++        eprintln!(
++            "ORIGIN\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            index,
++            name,
++            traffic.entries.load(Ordering::Relaxed),
++            traffic.allocations.load(Ordering::Relaxed),
++            traffic.reallocations.load(Ordering::Relaxed),
++            traffic.requested.load(Ordering::Relaxed),
++            storage.live_requested_bytes,
++            storage.peak_requested_bytes,
++            storage.live_padded_layout_bytes
++        );
++    }
++    let total = snapshot(0);
++    assert_eq!(live_sum, total.live_requested_bytes, "origin storage sum at quiescence");
++    eprintln!(
++        "ORIGIN_TOTAL\t{}\t{}\t{}",
++        total.live_requested_bytes, total.peak_requested_bytes, total.live_padded_layout_bytes
++    );
++}
++
++pub struct Meter;
++
++impl Meter {
++    unsafe fn allocate(layout: Layout, owner: usize, zeroed: bool) -> *mut u8 {
++        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
++        // SAFETY: padded is a valid allocation Layout. System owns this base.
++        let base =
++            unsafe { if zeroed { System.alloc_zeroed(padded) } else { System.alloc(padded) } };
++        if base.is_null() {
++            return base;
++        }
++        let bytes = owner.to_ne_bytes();
++        // SAFETY: the prefix has owner-word space, before the aligned payload.
++        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), base, bytes.len()) };
++        if owner != 0 {
++            OWNERS[owner - 1].add(layout.size(), padded.size());
++            TOTAL.add(layout.size(), padded.size());
++            TRAFFIC[owner - 1].record(layout.size(), false);
++        }
++        // SAFETY: extend guarantees offset addresses the original aligned payload.
++        unsafe { base.add(offset) }
++    }
++}
++
++// SAFETY: each returned payload has the requested alignment and size, with a
++// disjoint valid prefix. The corresponding Layout reconstructs its System base.
++// Counters are static atomics; allocator hooks neither allocate nor unwind.
++unsafe impl GlobalAlloc for Meter {
++    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
++        let owner = event_origin();
++        unsafe { Self::allocate(layout, owner, false) }
++    }
++
++    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
++        let owner = event_origin();
++        unsafe { Self::allocate(layout, owner, true) }
++    }
++
++    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
++        // SAFETY: the caller supplies the same Layout used by this allocator.
++        let (padded, offset) = unsafe { prefixed(layout).unwrap_unchecked() };
++        let base = unsafe { pointer.sub(offset) };
++        let owner = unsafe { allocation_owner(base) };
++        if owner != 0 {
++            OWNERS[owner - 1].subtract(layout.size(), padded.size());
++            TOTAL.subtract(layout.size(), padded.size());
++        }
++        unsafe { System.dealloc(base, padded) };
++    }
++
++    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
++        let Some((padded, offset)) = prefixed(layout) else { return ptr::null_mut() };
++        let base = unsafe { pointer.sub(offset) };
++        let owner = unsafe { allocation_owner(base) };
++        let Ok(next_layout) = Layout::from_size_align(size, layout.align()) else {
++            return ptr::null_mut();
++        };
++        let Some((next_padded, next_offset)) = prefixed(next_layout) else {
++            return ptr::null_mut();
++        };
++        // Alignment is unchanged, so the prefix/payload offset is unchanged.
++        // Retain System's realloc behavior rather than forcing a copying resize.
++        let next_base = unsafe { System.realloc(base, padded, next_padded.size()) };
++        if next_base.is_null() {
++            return next_base;
++        }
++        let traffic_origin = event_origin();
++        if traffic_origin != 0 {
++            TRAFFIC[traffic_origin - 1].record(size, true);
++        }
++        if owner != 0 {
++            for counts in [&OWNERS[owner - 1], &TOTAL] {
++                counts.resize(layout.size(), size, padded.size(), next_padded.size());
++            }
++        }
++        unsafe { next_base.add(next_offset) }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Mutex;
++
++    static TEST_LOCK: Mutex<()> = Mutex::new(());
++
++    #[cfg(not(feature = "allocation-origin-probe"))]
++    #[global_allocator]
++    static TEST_ALLOCATOR: Meter = Meter;
++
++    #[test]
++    fn aligned_zeroed_payload_and_owner_survive_cross_thread_free() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        enable(true);
++        let layout = Layout::from_size_align(1003, 4096).unwrap();
++        let owner = OwnerGuard::enter(250);
++        let pointer = unsafe { Meter.alloc_zeroed(layout) };
++        assert!(!pointer.is_null());
++        assert_eq!(pointer as usize % 4096, 0);
++        assert!(
++            unsafe { std::slice::from_raw_parts(pointer, layout.size()) }
++                .iter()
++                .all(|byte| *byte == 0)
++        );
++        assert_eq!(snapshot(250).live_requested_bytes, 1003);
++        assert!(snapshot(250).live_padded_layout_bytes > 1003);
++        drop(owner);
++        let address = pointer as usize;
++        std::thread::spawn(move || unsafe { Meter.dealloc(address as *mut u8, layout) })
++            .join()
++            .unwrap();
++        assert_eq!(snapshot(250).live_requested_bytes, 0);
++        assert_eq!(snapshot(250).live_padded_layout_bytes, 0);
++    }
++
++    #[test]
++    fn reallocation_preserves_payload_and_original_owner() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        enable(true);
++        let layout = Layout::from_size_align(32, 64).unwrap();
++        let owner = OwnerGuard::enter(251);
++        let pointer = unsafe { Meter.alloc(layout) };
++        assert!(!pointer.is_null());
++        unsafe { pointer.write_bytes(17, 32) };
++        drop(owner);
++        let _other = OwnerGuard::enter(252);
++        let resized = unsafe { Meter.realloc(pointer, layout, 103) };
++        assert!(!resized.is_null());
++        assert_eq!(resized as usize % 64, 0);
++        assert!(unsafe { std::slice::from_raw_parts(resized, 32) }.iter().all(|byte| *byte == 17));
++        assert_eq!(snapshot(251).live_requested_bytes, 103);
++        assert_eq!(snapshot(252).live_requested_bytes, 0);
++        assert_eq!(TRAFFIC[251].reallocations.load(Ordering::Relaxed), 1);
++        assert_eq!(TRAFFIC[251].requested.load(Ordering::Relaxed), 103);
++        assert_eq!(TRAFFIC[250].requested.load(Ordering::Relaxed), 32);
++        unsafe { Meter.dealloc(resized, Layout::from_size_align(103, 64).unwrap()) };
++        assert_eq!(snapshot(251).live_requested_bytes, 0);
++    }
++
++    #[test]
++    fn rejected_layout_keeps_old_payload_and_accounting() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        enable(true);
++        let layout = Layout::from_size_align(32, 1).unwrap();
++        let _owner = OwnerGuard::enter(253);
++        let pointer = unsafe { Meter.alloc_zeroed(layout) };
++        assert!(!pointer.is_null());
++        let failed = unsafe { Meter.realloc(pointer, layout, isize::MAX as usize) };
++        assert!(failed.is_null());
++        assert_eq!(snapshot(253).live_requested_bytes, 32);
++        assert!(unsafe { std::slice::from_raw_parts(pointer, 32) }.iter().all(|byte| *byte == 0));
++        unsafe { Meter.dealloc(pointer, layout) };
++        assert_eq!(snapshot(253).live_requested_bytes, 0);
++    }
++
++    #[test]
++    fn actual_vector_nested_owners_and_shrink_release_all_requests() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        enable(true);
++        let outer = OwnerGuard::enter(254);
++        let mut buffer: Vec<u8> = Vec::with_capacity(512);
++        buffer.extend_from_slice(&[7; 16]);
++        assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
++        {
++            let _inner = OwnerGuard::enter(255);
++            let other = vec![2u8; 100];
++            buffer.shrink_to_fit();
++            assert_eq!(snapshot(254).live_requested_bytes, buffer.capacity());
++            assert_eq!(snapshot(255).live_requested_bytes, other.capacity());
++            drop(other);
++        }
++        assert_eq!(snapshot(255).live_requested_bytes, 0);
++        drop(buffer);
++        drop(outer);
++        assert_eq!(snapshot(254).live_requested_bytes, 0);
++        assert_eq!(snapshot(254).live_padded_layout_bytes, 0);
++    }
++
++    #[test]
++    fn disabled_events_and_unwind_restore_the_executing_origin() {
++        let _lock = TEST_LOCK.lock().unwrap();
++        enable(false);
++        let old_requests = TRAFFIC[247].allocations.load(Ordering::Relaxed);
++        let disabled = OwnerGuard::enter(248);
++        let layout = Layout::from_size_align(31, 32).unwrap();
++        let pointer = unsafe { Meter.alloc(layout) };
++        assert!(!pointer.is_null());
++        assert_eq!(snapshot(248).live_requested_bytes, 0);
++        assert_eq!(TRAFFIC[247].allocations.load(Ordering::Relaxed), old_requests);
++        unsafe { Meter.dealloc(pointer, layout) };
++        drop(disabled);
++        enable(true);
++        let _outer = OwnerGuard::enter(248);
++        assert_eq!(event_origin(), 248);
++        let failure = std::panic::catch_unwind(|| {
++            let _inner = OwnerGuard::enter(249);
++            assert_eq!(event_origin(), 249);
++            panic!("origin unwinding control");
++        });
++        assert!(failure.is_err());
++        assert_eq!(event_origin(), 248);
++    }
++}

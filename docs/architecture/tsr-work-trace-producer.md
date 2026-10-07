@@ -2,17 +2,158 @@
 
 `tsr-1yb.1.2.3` now has a bounded Rust producer behind the `work-trace` Cargo
 feature. Ordinary builds contain no observer field, checker hooks, sidecar
-environment reads or observer JSON dependency. A probe build can observe the
-serial CLI without changing its diagnostic policy. This is instrumentation,
+environment reads or observer JSON dependency. A probe build observes the
+CLI's selected private checker pool without changing its diagnostic policy. This is instrumentation,
 not a scheduler or a throughput improvement.
 
-## Entry boundaries and ownership
+## Pool-preserving schema 2
+
+`tsr-1yb.1.2.3.2.4`, based on main `e744714c`, removes an instrumentation
+distortion: the schema-1 driver forced every traced invocation to one checker,
+even when the ordinary invocation selected four. Such a trace cannot establish
+the work of the ordinary parallel invocation. The new driver always calls the
+same `checker_count` and file-owner loop, whether tracing is absent or enabled.
+Native `5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
+`internal/compiler/checkerpool.go` (`newCheckerPoolWithTracing`, `createCheckers`,
+`foreachCheckerGroup`), supplies the selected-count and modulo-affinity rules.
+
+Both stream and activity versions are now 2. `pool_selected` precedes all
+construction and records effective requests, selected count and file affinity.
+Each owner has a direct `checker_construction_begin` and `checker_created`
+interval. An observer bound to that private owner tags both ends of every span;
+global span tokens distinguish interleaved workers. A checker may start work
+after its own constructor returns while another checker is still constructing.
+That is the existing Rust scheduler: this patch does not introduce native's
+all-constructors barrier or assert identical constructor ordering.
+
+The mutex owns only trace output and bookkeeping. Distinct activity peaks use
+per-owner nesting depths, so nested queries never count as extra checkers.
+Construction and covered work are disjoint for the same owner; their observed
+union may overlap across owners. Missing constructor returns, missing selected
+owners, unfinished spans, unwinding, writer or flush failures remain incomplete
+or invalid. Initialization forcing before observer attachment remains uncovered.
+The trace cannot certify all forcing, input equivalence, safe memory admission,
+compiled provenance or the complete-work TSR/tsgo wall ratio <=0.50.
+
+The bounded reader accepts archived serial schema 1 and current schema 2 as
+separate protocols. Schema 2 validates the pool against effective options,
+constructor ownership, file-index modulo affinity, monotonically ordered
+records, matching owner completions and per-owner nested completion order.
+It recomputes activity peaks from actual intervals. Combining old serial facts
+with the new parallel stream is rejected; old receipts retain their original
+one-checker meaning. Repeated parallel captures compare work multisets by owner
+and ordered file inventory, rather than expecting the OS to reproduce a global
+interleaving.
+
+The regression first failed at the old driver with one actual checker versus
+four expected in default mode. Reader review also exposed accepted wrong-order
+same-owner completions and worker requests contradicting effective config;
+both negative controls fail before their guards and pass afterwards. Serial
+policy fields in a parallel constructor have a separate red/green control. These
+controls concern observation fidelity, not a semantic optimization or new
+corpus result. Probe-off/on wall, CPU and RSS remain separate observations,
+because synchronized recording changes scheduling and adds work.
+
+Reproduce the physical controls against a separately built probe:
+
+```sh
+cargo build -p tsr --features work-trace --target-dir /tmp/parallel-work-probe
+python3 docs/architecture/parallel-work-trace-controls.py \
+  --binary /tmp/parallel-work-probe/debug/tsr \
+  --output-dir /tmp/fresh-parallel-work-controls
+```
+
+The helper refuses an existing output directory. It captures real child PID,
+start time, output/status, executable/source hashes, effective options, loaded
+identities and fixture bytes. Its trusted receipts qualify only those captured
+inputs. Raw process resources are unpaired instrumentation controls, never
+ordinary-build throughput acceptance. The broader producer, input coverage and
+benchmark integration remain `.1.2.3`, `.1.2.2` and `.1.2.4`.
+
+Worker options are deliberately omitted by the current `show_config` serializer.
+The helper binds them independently to its captured written fixture config and
+explicit CLI flags; absence from show-config does not mean an unset request.
+If a serializer exposes those fields, the reader still rejects contradictions.
+The first physical helper failed on a valid single-threaded run because it
+mistook omitted options for unset options; the corrected helper and positive
+regression preserve that distinction. Config counts zero and negative one
+clamp to one; the CLI rejects those two arguments before checking. This is
+why the nonpositive physical controls use captured config files.
+
+At `e744714c` plus the qualified patch, 11 modes run show-config/list preflight
+and probe-off/on/repeat: 55 fresh compiler children, 22 accepted artifacts and
+22 accepted activity qualifications. Default/single/two/four/clamped requests
+perform three full-file checks; noCheck performs zero, declaration-enabled four,
+and list-only zero with no checker. All complete outputs and ordered loaded
+identities match off/on/repeat; work multisets and inventories match repeats.
+Per-child wall/CPU/RSS remain in the local receipt, separate from throughput.
+The probe is the frozen debug executable built by the feature workspace tests,
+SHA256 `deb8d2fef330cc3b90bfc55ac0c5369a6ac3f48c8298929a9acbc4cde153646f`.
+The public aggregate is [parallel-work-trace-controls.json](parallel-work-trace-controls.json).
+These controls remeasure neither full-corpus verdicts nor ordinary CLI speed.
+
+The ordinary debug executable, SHA256
+`e5cd7a41422bdd4bb88bc6978e73798f76023cb8227ee1be4e789b0aa734f976`,
+also passes 22 physical children across the same 11 modes. With the trace
+environment absent or set, complete outputs/status match the feature build's
+off role and no sidecar is created. These observations are captured separately
+in the aggregate; they do not establish a release-build benefit.
+
+### Fake compiler launch qualification
+
+The broad Python suite initially ran 81 tests with nine failures and six errors
+in 148.356s. Unchanged harness fixtures use a 0.3s child deadline or a 15s
+enclosing deadline, and an isolated reporter rerun reproduced the failures.
+A trivial freshly written executable script took 9.089856s to launch, versus
+0.016295s on repeat. An interpreter-first control on a different fresh script
+took 0.016037s; its first executable launch still took 5.503177s and its repeat
+0.015518s. These direct child observations distinguish executable launch from
+the fake compiler's work; they do not identify a security service or explain
+production checker cost.
+
+The setup-only candidate in `tsr-1yb.1.2.3.2.4.1` attempted a no-work branch
+with a separate 60s qualification limit. It is **rejected**, correcting the
+earlier pending qualification record: 81 tests finished with zero assertion
+failures and 11 errors in 1973.780s. Ten qualification launches exceeded 60s;
+one reporter exceeded its unchanged 30s enclosing deadline. Both fixture files
+are restored byte-identically to `e744714c`. The full failed log, exact rejected
+patch and source hashes remain in the local evidence directory; the public
+aggregate records the result. Existing 0.3s/15s behavior deadlines, intentional
+timeout/crash paths, input snapshots and rejection assertions remain unchanged.
+Production launch, deadlines and compiler code are untouched. Increasing the
+qualification deadline again is not an established fix; the fixture candidate
+is closed as a rejected approach after the unchanged Linux control below. No
+Darwin startup fix is claimed; the existing CLI diagnosis task remains open.
+
+A discriminating platform control subsequently runs the **unchanged** fixture
+files on local Linux arm64 using pinned Python image
+`python@sha256:5887f265d8d44d8b4734d3658b21d668edf5aaf92e4945bc0c984afbfab105d3`.
+The repository and container root are read-only, `/tmp` is an executable tmpfs,
+and the container has no network. The exact CI reporting discovery passes34
+tests in15.992s; full script discovery passes81 in15.251s, both terminal0.
+Source hashes remain unchanged and both fixture files equal HEAD. This qualifies
+their assertions on that Linux/Python environment without a launch workaround
+or deadline change. It does not fix Darwin executable startup or turn its
+earlier failures green. The public aggregate binds the image, commands, source
+hashes and log hashes; the rejected no-work candidate remains absent.
+
+During the full feature workspace gate, a live `structural_site_rendering`
+test executable was sampled at 2026-10-07 08:33:27 UTC, about four minutes
+after launch. All 877 main-thread samples are `_dyld_start +0`, with 112 KiB
+physical footprint and no Rust main entered. This is a launch observation,
+not a test failure or checker CPU profile. The same live suite handle is
+retained; a terminal result remains necessary before claiming the gate passed.
+
+## Historical schema-1 entry boundaries and ownership
+
+The following serial measurements and contracts describe their frozen sources,
+before the schema-2 pool-preserving change above.
 
 The private checker attaches its semantic observer after construction and applying
 compiler options. Inner initialization forcing before attachment is explicitly
 unobserved. The driver brackets `Checker::with_module_host` directly and records
 one actual `checker_created` event immediately after that constructor returns,
-before applying options; requested worker flags are separate fields. Current TSR uses one serial checker even with
+before applying options; requested worker flags are separate fields. That producer used one serial checker even with
 `--checkers 2`. `effective_serial_checker_limit: 1` describes that implementation;
 `memory_admission_budget: null` leaves admission policy unsupported.
 `requested_checkers_matches_actual_instances` records numerical agreement only;
@@ -58,7 +199,7 @@ additive fields; the explicit worker seam now independently validates both
 controls; private-store admission remains
 `tsr-1yb.3.1.1.3`. None is satisfied by an observed peak of one.
 
-Current source `a91643a7` plus qualified constructor/activity patch uses
+Frozen source `a91643a7` plus qualified constructor/activity patch uses
 `/tmp/tsr-worker-activity-controls.py` and the immutable receipt directory
 `/var/folders/zk/865w0kvs0z171d9dtzw_4jlh0000gn/T/tsr-worker-activity-a916-w53mqzx2`.
 Thirteen public modes each run preflight, probe-off, probe-on and repeat: 52
@@ -142,7 +283,7 @@ cover every forcing path or establish native cache ownership.
 File IDs are indices in the complete ordered Program file table. The map from
 Program-scoped source `NodeId` to those indices is local to this invocation.
 Logical paths and source-node IDs remain in the sidecar, unmapped IDs are
-explicit, and checker ID zero denotes this producer's sole attached instance.
+explicit, and checker ID zero denotes that serial producer's sole attached instance.
 None of these IDs can be compared across type stores, Programs or processes.
 
 `program_file.full_check_eligible` and the CLI share `full_check_exclusion`
@@ -422,7 +563,8 @@ native eligibility or complete input coverage.
 
 Inventory IDs must be contiguous, source-node IDs unique, and every work
 reference must resolve or explicitly identify an unmapped query. The reader
-supports the current single TSR checker lifetime and four observed operations.
+supports the archived single TSR checker lifetime and four observed operations;
+schema 2 adds the pool and private-owner rules described above.
 Span starts have monotonically increasing identities; completions must match
 active starts and report a normal return. Every eligible full-file worker must
 start and return exactly once. End-record instance, peak-activity and unfinished

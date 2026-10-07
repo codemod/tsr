@@ -171,10 +171,24 @@ Keep alias-target links separate from node links. Native `resolveAlias` at
 `resolveIndirectionAlias`, propagates type-only declaration metadata, publishes
 target-or-unknown, and can replace it with unknown on a failed pop while
 reporting the cycle. `tryResolveAlias` can decline an active unresolved cycle.
-This is not equivalent to one per-symbol resolving bit or memoizing today's
-nonrecursive Rust alias dispatch. Restore the stack/property protocol when
+This is not equivalent to one per-symbol resolving bit or memoizing Rust's
+current dispatch. Restore the stack/property protocol when
 porting transitive alias completion. The alias node getter's nonpublishing
 fallback remains nonpublishing.
+
+Current-source correction, `e744714c`: the historical nonrecursive rationale in
+`symbols.rs` is stale. The external import-equals arm at1298 calls
+`resolve_alias` again, and the identifier arm at1243 can force an alias through
+`get_type_of_symbol`. This does not prove faithful native transitive publication;
+it prevents treating the old zero-frame observation as a current safety proof.
+[Fresh cycle controls](checker-alias-target-cycle.json) preserve a failed
+`node10` setup (nativeTS5108) before qualifying a NodeNext import-equals/export=
+cycle in default and single modes. Native reports fourTS2303 diagnostics; TSR
+reports those four plus two falseTS1203 and oneTS2708. The per-file CommonJS
+format gap is `tsr-2zk.6.19`; alias unknown/meaning and push/pop/type-only
+publication remain `tsr-1yb.7.7.3`. Termination and matching cycle errors alone
+do not qualify memoization or query-before/after-check behavior. No runtime edit
+or broader corpus/speed claim follows from these four valid CLI children.
 
 Construction order is bind/freeze Program inputs, create the private Checker
 store, run native preparation/merge behavior, then permit supported completed

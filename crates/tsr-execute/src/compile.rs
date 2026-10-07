@@ -312,30 +312,15 @@ pub fn run_compilation(
     }
 
     // `checkerpool.go`: file `i` belongs to checker `i % count`, and each
-    // checker runs on its own worker. The opt-in work trace observes one
-    // private checker, so a traced run keeps a pool of one.
-    #[cfg(feature = "work-trace")]
-    let pool_size = if work_trace.is_some() {
-        1
-    } else {
-        crate::checker_pool::checker_count(&options, program.source_files().len())
-    };
-    #[cfg(not(feature = "work-trace"))]
+    // checker runs on its own worker. Observation preserves that same pool.
     let pool_size = crate::checker_pool::checker_count(&options, program.source_files().len());
-    #[cfg(feature = "work-trace")]
-    if let Some(trace) = &work_trace {
-        trace.checker_construction_started();
-    }
-    #[cfg(feature = "work-trace")]
-    let configure = |checker: &mut tsr_checker::Checker<'_, '_>| {
-        if let Some(trace) = &work_trace {
-            trace.checker_created(&options);
-            checker.set_work_observer(std::sync::Arc::clone(trace) as _);
-        }
-    };
-    #[cfg(not(feature = "work-trace"))]
-    let configure = |_: &mut tsr_checker::Checker<'_, '_>| {};
-    let pool = crate::checker_pool::check_program_files(&program, &options, pool_size, &configure);
+    let pool = crate::checker_pool::check_program_files(
+        &program,
+        &options,
+        pool_size,
+        #[cfg(feature = "work-trace")]
+        work_trace.as_ref(),
+    );
     let checker_initialized = program_finished + pool.construction;
     let checked_file_count = pool.checked_files;
     let checking_finished = sys.since_start();
