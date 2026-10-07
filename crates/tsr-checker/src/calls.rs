@@ -2933,9 +2933,12 @@ impl<'a> Checker<'a, '_> {
         // and resolves the error call through the candidate anyway
         // (`typeAssertions` records `fn2<string>(4) : void`). The report is
         // the diagnostics lane's; the type is this one's.
+        let Some(returned) = self.get_return_type_of_signature(&signature) else {
+            return error;
+        };
         if !node.type_arguments.is_empty() {
             bump(&COUNTERS.single_candidate_type_arguments);
-            return signature.r#type;
+            return returned;
         }
         // `resolveCallExpression` (`checker.go:8348`): *"treat any call to the
         // global `Symbol` function that is part of a const variable or readonly
@@ -2949,7 +2952,7 @@ impl<'a> Checker<'a, '_> {
         // the 150 lines in other positions still answer, which is why the test
         // is on the *position* and not on the return type
         // (`docs/architecture/checker-notes-namedcallee.md` §4.1).
-        if self.store.get(signature.r#type).flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
+        if self.store.get(returned).flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
             && Self::is_symbol_or_symbol_for_call(node)
             && self.is_valid_es_symbol_declaration(node.node_id)
         {
@@ -2963,7 +2966,7 @@ impl<'a> Checker<'a, '_> {
             );
         }
         if counters::counting() {
-            if signature.r#type == error {
+            if returned == error {
                 bump(&COUNTERS.single_candidate_return_error);
             } else {
                 bump(&COUNTERS.single_candidate_answered);
@@ -2974,16 +2977,16 @@ impl<'a> Checker<'a, '_> {
         // `getTypeWithThisArgument` reading the member road takes — the
         // receiver here is the property access's own left operand
         // (`c.fn()` is `C`, not `this`).
-        if self.this_types.values().any(|&minted| minted == signature.r#type)
+        if self.this_types.values().any(|&minted| minted == returned)
             && let Expression::PropertyAccessExpression(access) = callee
             && let Some(receiver) = access.expression
         {
             let receiver_type = self.check_expression(receiver);
-            if receiver_type != error && receiver_type != signature.r#type {
+            if receiver_type != error && receiver_type != returned {
                 return receiver_type;
             }
         }
-        signature.r#type
+        returned
     }
 
     /// Upstream's `isSymbolOrSymbolForCall` (`checker.go:8381`), without the
@@ -3412,7 +3415,7 @@ impl<'a> Checker<'a, '_> {
             }
             return error;
         }
-        signature.r#type
+        self.get_return_type_of_signature(&signature).unwrap_or(error)
     }
 
     /// Whether `signature` accepts exactly `count` arguments. §788.
