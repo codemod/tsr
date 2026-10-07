@@ -15,8 +15,14 @@
 //! assert_eq!(messages::_0_EXPECTED.format(&[";"]), "';' expected.");
 //! ```
 
+mod compare;
 pub mod format;
 mod generated;
+
+pub use compare::{
+    compare_diagnostics, equal_diagnostics, equal_diagnostics_no_related_info,
+    sort_and_deduplicate_diagnostics,
+};
 
 pub use format::{
     DiagnosticFile, FormattingOptions, LocatedDiagnostic, format_diagnostics,
@@ -208,7 +214,10 @@ pub fn by_key(key: &str) -> Option<&'static Message> {
     messages::ALL.iter().copied().find(|m| m.key() == key)
 }
 
-/// A diagnostic: a message, its location, and its arguments.
+/// A diagnostic with ordered explanations and related locations.
+///
+/// Ported from typescript-go's `Diagnostic` (`internal/ast/diagnostic.go`).
+/// Rare tree/location state is boxed so head-only diagnostics allocate no extra storage.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     /// The message template.
@@ -217,13 +226,21 @@ pub struct Diagnostic {
     pub span: Span,
     /// Arguments substituted into the template.
     pub args: Vec<String>,
+    details: Option<Box<DiagnosticDetails>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DiagnosticDetails {
+    file: Option<std::sync::Arc<DiagnosticFile>>,
+    chain: Vec<Diagnostic>,
+    related: std::sync::Arc<Vec<Diagnostic>>,
 }
 
 impl Diagnostic {
     /// Create a diagnostic with no arguments.
     #[must_use]
     pub fn new(message: &'static Message, span: Span) -> Self {
-        Self { message, span, args: Vec::new() }
+        Self { message, span, args: Vec::new(), details: None }
     }
 
     /// Create a diagnostic with substitution arguments.
@@ -233,10 +250,84 @@ impl Diagnostic {
         span: Span,
         args: impl IntoIterator<Item = String>,
     ) -> Self {
-        Self { message, span, args: args.into_iter().collect() }
+        Self { message, span, args: args.into_iter().collect(), details: None }
     }
 
-    /// The rendered message text.
+    /// Ported from typescript-go's `NewDiagnosticChain` (`internal/ast/diagnostic.go`).
+    /// The parent inherits the child's location and shares its related information.
+    #[must_use]
+    pub fn new_chain(
+        child: Option<Self>,
+        message: &'static Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let mut parent =
+            Self::with_args(message, child.as_ref().map_or(Span::new(0, 0), |d| d.span), args);
+        if let Some(child) = child {
+            let details = parent.details.get_or_insert_with(Default::default);
+            if let Some(child_details) = &child.details {
+                details.file.clone_from(&child_details.file);
+                details.related.clone_from(&child_details.related);
+            }
+            details.chain.push(child);
+        }
+        parent
+    }
+
+    /// Ordered child explanations (`Diagnostic.MessageChain`).
+    #[must_use]
+    pub fn message_chain(&self) -> &[Self] {
+        self.details.as_ref().map_or(&[], |details| &details.chain)
+    }
+
+    /// Append one explanation (`Diagnostic.AddMessageChain`); absent children do nothing.
+    pub fn add_message_chain(&mut self, child: Option<Self>) -> &mut Self {
+        if let Some(child) = child {
+            self.details.get_or_insert_with(Default::default).chain.push(child);
+        }
+        self
+    }
+
+    /// Replace explanations (`Diagnostic.SetMessageChain`).
+    pub fn set_message_chain(&mut self, children: Vec<Self>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).chain = children;
+        self
+    }
+
+    /// Ordered related diagnostics (`Diagnostic.RelatedInformation`).
+    #[must_use]
+    pub fn related_information(&self) -> &[Self] {
+        self.details.as_ref().map_or(&[], |details| &details.related)
+    }
+
+    /// Replace related information (`Diagnostic.SetRelatedInfo`).
+    pub fn set_related_information(&mut self, related: std::sync::Arc<Vec<Self>>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).related = related;
+        self
+    }
+
+    /// Append related information (`Diagnostic.AddRelatedInfo`).
+    pub fn add_related_information(&mut self, related: Option<Self>) -> &mut Self {
+        if let Some(related) = related {
+            let details = self.details.get_or_insert_with(Default::default);
+            std::sync::Arc::make_mut(&mut details.related).push(related);
+        }
+        self
+    }
+
+    /// The source file for independently located related information.
+    #[must_use]
+    pub fn file(&self) -> Option<&DiagnosticFile> {
+        self.details.as_ref().and_then(|details| details.file.as_deref())
+    }
+
+    /// Attach a Program-owned source image (`Diagnostic.SetFile`).
+    pub fn set_file(&mut self, file: std::sync::Arc<DiagnosticFile>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).file = Some(file);
+        self
+    }
+
+    /// The localized head text, not the flattened tree (`Diagnostic.Localize`).
     #[must_use]
     pub fn text(&self) -> String {
         let refs: Vec<&str> = self.args.iter().map(String::as_str).collect();
