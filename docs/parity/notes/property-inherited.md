@@ -647,9 +647,27 @@ second scan. The generic-this probe above separately exposed the unowned erased
 receiver-relation prerequisite. Complete native image cutover remains required;
 no receiver-specific fallback or suppression is approved.
 
-The two-case count for `.16.225` is the integrator's current triage scope, not a
-verified converted-case count; current brief does not name both exact case IDs.
-No performance or full-root completion claim is made for this rejected probe.
+Authoritative `.16.225` target IDs are `conformance/contextualThisType` and
+`conformance/instancePropertiesInheritedIntoClassType`, two blocked cases, not
+promised conversions. Frozen contextualThisType rows 3,4,5,6 retain base-owned
+`this` in the contextual object method where native prints Y: `{ a(p: Y): Y; }`,
+`(p: Y) => Y`, and both parameter/body p types Y. Ordinary call rows 8,9,11 are
+already RIGHT as Y. InstancePropertiesInheritedIntoClassType rows
+60,61,62,64,67,71,75 retain C<number,string> rather than D<number,string>.
+These are distinct contextual versus normal-read consumers of one receiver image.
+
+Exact unowned contextual prerequisite: `contextual.rs::contextual_type_for_object_literal_named_element`
+(around 2435) resolves inherited roots with `Some(property) => get_type_of_symbol(property)`
+then applies only `instantiate_for_reference(contextual, property_type)` (2443).
+Replace that root-only value read with the existing receiver-aware
+`get_type_of_property_of_type(contextual, name)` semantic value; inherited base
+parameter and polymorphic-this maps must be composed before contextual parameter
+assignment. That is the native `getTypeOfPropertyOfContextualTypeEx` consumer of
+`resolveObjectTypeMembers`. Do not infer mapping from printed names or substitute
+only direct this annotations. The unowned erased-receiver relation failure above
+must also be coordinated by one integration owner before the normal-read image
+cutover. No performance or full-root completion claim is made for the rejected
+probe; all original ownership boundaries remain intact.
 
 ## Release-target limits
 
