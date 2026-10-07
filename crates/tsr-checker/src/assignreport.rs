@@ -37,6 +37,61 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// Attach the chosen relation error location to the completed explanation tree.
+fn set_relation_chain_span(diagnostic: &mut Diagnostic, span: tsr_core::Span) {
+    diagnostic.span = span;
+    for child in diagnostic.message_chain_mut() {
+        set_relation_chain_span(child, span);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod constraint_chain_tests {
+    #[test]
+    fn explicit_constraint_head_retains_completed_source_constraint_chain() {
+        use tsr_ast::Statement;
+        use tsr_core::{Arena, Span};
+        use tsr_diagnostics::{format::write_flattened_diagnostic_message, messages};
+        let arena = Arena::new();
+        let source = "function f<U extends string>(value: U, target: number) {}";
+        let parsed = tsr_parser::parse(&arena, source);
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[0] else {
+            panic!("function declaration");
+        };
+        let at = function.node_id.unwrap();
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "a.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let from = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+        let to = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+        let span = Span::new(35, 36);
+        assert!(checker.report_relation_failure(
+            at,
+            span,
+            None,
+            from,
+            to,
+            Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1)
+        ));
+        let diagnostics = checker.diagnostics();
+        assert_eq!(diagnostics.iter().map(|(_, d)| d.message.code()).collect::<Vec<_>>(), [2344]);
+        let diagnostic = &diagnostics[0].1;
+        let mut text = String::new();
+        write_flattened_diagnostic_message(&mut text, diagnostic, "\n");
+        assert_eq!(
+            text,
+            "Type 'U' does not satisfy the constraint 'number'.\n  Type 'string' is not assignable to type 'number'."
+        );
+        assert_eq!(diagnostic.span, span);
+        assert_eq!(diagnostic.message_chain()[0].span, span);
+    }
+}
+
 /// Verdicts recorded by §172's probe, in the order
 /// `report_assignability_failure` tests them.
 pub const PROBE_REPORTED: u8 = 0;
@@ -1683,7 +1738,7 @@ impl<'a> Checker<'a, '_> {
             target_text,
         );
         if let Some(mut signature_error) = signature_error {
-            signature_error.span = span;
+            set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
         self.report(file, diagnostic);
@@ -1861,7 +1916,7 @@ impl<'a> Checker<'a, '_> {
         let mut diagnostic =
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
         if let Some(mut signature_error) = signature_error {
-            signature_error.span = span;
+            set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
         self.report(file, diagnostic);

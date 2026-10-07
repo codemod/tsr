@@ -456,6 +456,11 @@ struct Relater<'c, 'a, 'n> {
     /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
     diagnostic_pair: Option<(TypeId, TypeId)>,
     signature_error: Option<(usize, usize)>,
+    /// Completed property reporting data; absent on verdict-only walks.
+    property_error: Option<tsr_diagnostics::Diagnostic>,
+    simple_error: bool,
+    /// Native elided return marker: construct side and whether arguments exist.
+    return_marker: Option<(bool, bool)>,
 }
 
 /// A walk-local relation result key: the ordered pair and whether it was
@@ -694,10 +699,10 @@ impl Checker<'_, '_> {
         self.relate_with_signature_diagnostic(source, target, relation, false).0
     }
 
-    /// Native signatureRelatedTo/compareSignaturesRelated arity reporting,
-    /// collected during the same relation walk that decides the failure.
-    /// Direct signature pairs only; recursive property/signature error contexts
-    /// require the complete native error-state contract before expansion.
+    /// Native signature arity and property reporting collected during the same
+    /// relation walk that decides failure. Property contexts preserve concrete
+    /// member receiver mappings and completed child explanations; unsupported
+    /// recursive failures publish no guessed explanation.
     pub(crate) fn relate_with_signature_diagnostic(
         &mut self,
         source: TypeId,
@@ -718,19 +723,22 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: report_errors.then_some((source, target)),
             signature_error: None,
+            property_error: None,
+            simple_error: false,
+            return_marker: None,
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
         let answer = relater.is_related_to(source, target).public_answer();
         reasons::finish(outer, answer == Ternary::Unknown);
         let diagnostic = if answer == Ternary::NotRelated {
-            relater.signature_error.map(|(minimum, count)| {
+            relater.property_error.take().or_else(|| relater.signature_error.map(|(minimum, count)| {
                 tsr_diagnostics::Diagnostic::with_args(
                     &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
                     tsr_core::Span::new(0, 0),
                     [minimum.to_string(), count.to_string()],
                 )
-            })
+            }))
         } else {
             None
         };
@@ -852,6 +860,9 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: None,
             signature_error: None,
+            property_error: None,
+            simple_error: false,
+            return_marker: None,
         };
         let mut missing = Vec::new();
         for name in names {
@@ -1030,6 +1041,9 @@ impl Checker<'_, '_> {
             intersection_target: false,
             diagnostic_pair: None,
             signature_error: None,
+            property_error: None,
+            simple_error: false,
+            return_marker: None,
         };
         relater
             .one_signature_related_to(source, target, false, false, false)
@@ -1111,7 +1125,10 @@ impl Relater<'_, '_, '_> {
         }
         match self.is_simple_type_related_to(source, target) {
             Some(true) => return RelationResult::Related,
-            Some(false) => return RelationResult::NotRelated,
+            Some(false) => {
+                self.simple_error = self.diagnostic_pair == Some((source, target));
+                return RelationResult::NotRelated;
+            }
             None => {}
         }
         // isRelatedToWorker / hasExcessProperties (relater.go:2667,2714).
@@ -1423,6 +1440,7 @@ impl Relater<'_, '_, '_> {
             return RelationResult::NotRelated;
         }
         if self.flag_decidable(source) && self.flag_decidable(target) {
+            self.simple_error = self.diagnostic_pair == Some((source, target));
             RelationResult::NotRelated
         } else {
             // Measurement only: say which of the two shapes above it was, per
@@ -1792,6 +1810,11 @@ impl Relater<'_, '_, '_> {
         }
         let calls =
             self.related_signature_kind(source, target, crate::signatures::SignatureKind::Call)?;
+        if calls == RelationResult::NotRelated {
+            // Native structural comparison does not visit construct signatures
+            // after call failure; preserve its explanation and work boundary.
+            return Some(calls);
+        }
         let constructs = self.related_signature_kind(
             source,
             target,
@@ -1887,8 +1910,14 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::new();
         for target_signature in &target_signatures {
             let saved_error = self.signature_error.take();
+            let saved_property = self.property_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
             let Some(target_signature) = target_signature else {
                 self.signature_error = saved_error;
+                self.property_error = saved_property;
+                self.simple_error = saved_simple;
+                self.return_marker = saved_marker;
                 parts.push(RelationResult::Unknown);
                 continue;
             };
@@ -1917,6 +1946,9 @@ impl Relater<'_, '_, '_> {
                 return Some(RelationResult::NotRelated);
             }
             self.signature_error = saved_error;
+            self.property_error = saved_property;
+            self.simple_error = saved_simple;
+            self.return_marker = saved_marker;
             parts.push(best);
         }
         Some(RelationResult::all(parts))
@@ -2077,16 +2109,63 @@ impl Relater<'_, '_, '_> {
         {
             let source_this = self.checker.parameter_type(source_this);
             let target_this = self.checker.parameter_type(target_this);
-            parts.push(if strict_variance {
-                self.is_related_to(target_this, source_this)
+            let forward = if strict_variance {
+                RelationResult::NotRelated
             } else {
-                let forward = self.is_related_to(source_this, target_this);
-                if forward.is_success() {
-                    forward
+                self.is_related_to(source_this, target_this)
+            };
+            let related = if forward.is_success() {
+                forward
+            } else if report_errors {
+                let saved_pair = self.diagnostic_pair;
+                let saved_error = self.property_error.take();
+                let saved_signature = self.signature_error.take();
+                let saved_simple = std::mem::take(&mut self.simple_error);
+                let saved_marker = self.return_marker.take();
+                self.diagnostic_pair = Some((target_this, source_this));
+                let reverse = self.is_related_to(target_this, source_this);
+                self.diagnostic_pair = saved_pair;
+                if reverse == RelationResult::NotRelated {
+                    let error = self.property_error.take().or_else(|| {
+                        self.signature_error.take().map(|(minimum, count)| {
+                            tsr_diagnostics::Diagnostic::with_args(
+                                &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                tsr_core::Span::new(0, 0),
+                                [minimum.to_string(), count.to_string()],
+                            )
+                        })
+                    });
+                    let simple = std::mem::take(&mut self.simple_error);
+                    if error.is_some() || simple {
+                        use tsr_diagnostics::{Diagnostic, messages};
+                        let mut child = Diagnostic::with_args(
+                            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                            tsr_core::Span::new(0, 0),
+                            [
+                                self.checker.type_to_string(target_this),
+                                self.checker.type_to_string(source_this),
+                            ],
+                        );
+                        child.add_message_chain(error);
+                        self.property_error = Some(Diagnostic::new_chain(
+                            Some(child),
+                            &messages::THE_THIS_TYPES_OF_EACH_SIGNATURE_ARE_INCOMPATIBLE,
+                            std::iter::empty(),
+                        ));
+                    }
+                    self.simple_error = saved_simple;
+                    self.return_marker = saved_marker;
                 } else {
-                    RelationResult::any([forward, self.is_related_to(target_this, source_this)])
+                    self.property_error = saved_error;
+                    self.signature_error = saved_signature;
+                    self.simple_error = saved_simple;
+                    self.return_marker = saved_marker;
                 }
-            });
+                RelationResult::any([forward, reverse])
+            } else {
+                RelationResult::any([forward, self.is_related_to(target_this, source_this)])
+            };
+            parts.push(related);
             if parts.last() == Some(&RelationResult::NotRelated) {
                 return Some(RelationResult::NotRelated);
             }
@@ -2138,26 +2217,127 @@ impl Relater<'_, '_, '_> {
                 && self.checker.get_type_facts(from) & nullable
                     == self.checker.get_type_facts(to) & nullable
             {
-                parts.push(self.one_signature_related_to(
-                    &target_callback,
-                    &source_callback,
-                    true,
-                    !strict_variance,
-                    false,
-                )?);
-            } else {
-                parts.push(if callback || strict_variance {
-                    self.is_related_to(to, from)
-                } else {
-                    // compareSignaturesRelated tries the forward bivariant
-                    // proof first; the reverse walk is needed only if it fails.
-                    let forward = self.is_related_to(from, to);
-                    if forward.is_success() {
-                        forward
+                let saved_error = if report_errors { self.property_error.take() } else { None };
+                let saved_signature =
+                    if report_errors { self.signature_error.take() } else { None };
+                let saved_marker = if report_errors { self.return_marker.take() } else { None };
+                let related = self
+                    .one_signature_related_to(
+                        &target_callback,
+                        &source_callback,
+                        true,
+                        !strict_variance,
+                        report_errors,
+                    )
+                    .unwrap_or(RelationResult::Unknown);
+                if report_errors {
+                    if related == RelationResult::NotRelated {
+                        let child = self.property_error.take().or_else(|| {
+                            self.signature_error.take().map(|(minimum, count)| {
+                                tsr_diagnostics::Diagnostic::with_args(
+                                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    tsr_core::Span::new(0, 0),
+                                    [minimum.to_string(), count.to_string()],
+                                )
+                            })
+                        });
+                        if let Some(child) = child
+                            && let (Some(source), Some(target)) = (
+                                source_signature.parameters.get(index),
+                                target_signature.parameters.get(index),
+                            )
+                        {
+                            self.property_error = Some(tsr_diagnostics::Diagnostic::new_chain(
+                                Some(child),
+                                &tsr_diagnostics::messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                                [source.name.clone(), target.name.clone()],
+                            ));
+                        }
                     } else {
-                        RelationResult::any([forward, self.is_related_to(to, from)])
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.return_marker = saved_marker;
                     }
-                });
+                }
+                parts.push(related);
+            } else {
+                let forward = if callback || strict_variance {
+                    RelationResult::NotRelated
+                } else {
+                    // Native bivariant forward query disables reporting.
+                    self.is_related_to(from, to)
+                };
+                let related = if forward.is_success() {
+                    forward
+                } else if report_errors {
+                    let saved_pair = self.diagnostic_pair;
+                    let saved_error = self.property_error.take();
+                    let saved_signature = self.signature_error.take();
+                    let saved_simple = std::mem::take(&mut self.simple_error);
+                    let saved_marker = self.return_marker.take();
+                    self.diagnostic_pair = Some((to, from));
+                    let reverse = self.is_related_to(to, from);
+                    self.diagnostic_pair = saved_pair;
+                    if reverse == RelationResult::NotRelated {
+                        let error = self.property_error.take();
+                        let signature = self.signature_error.take();
+                        let simple = std::mem::take(&mut self.simple_error);
+                        // Native names for ordinary and array-rest parameters.
+                        // Tuple-rest labels need their existing label supplier;
+                        // do not invent them from printed signatures.
+                        let name = |signature: &crate::signatures::Signature| {
+                            signature
+                                .parameters
+                                .get(index)
+                                .or_else(|| signature.parameters.last().filter(|p| p.rest))
+                                .map(|p| p.name.clone())
+                        };
+                        if self.checker.signature_non_array_rest_type(source_signature).is_none()
+                            && self
+                                .checker
+                                .signature_non_array_rest_type(target_signature)
+                                .is_none()
+                            && (error.is_some() || signature.is_some() || simple)
+                            && let (Some(source_name), Some(target_name)) =
+                                (name(source_signature), name(target_signature))
+                        {
+                            use tsr_diagnostics::{Diagnostic, messages};
+                            let span = tsr_core::Span::new(0, 0);
+                            let mut child = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                span,
+                                [
+                                    self.checker.type_to_string(to),
+                                    self.checker.type_to_string(from),
+                                ],
+                            );
+                            if let Some(error) = error {
+                                child.add_message_chain(Some(error));
+                            } else if let Some((minimum, count)) = signature {
+                                child.add_message_chain(Some(Diagnostic::with_args(
+                                    &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    span, [minimum.to_string(), count.to_string()],
+                                )));
+                            }
+                            self.property_error = Some(Diagnostic::new_chain(
+                                Some(child),
+                                &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                                [source_name, target_name],
+                            ));
+                        }
+                        self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
+                    } else {
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
+                    }
+                    RelationResult::any([forward, reverse])
+                } else {
+                    RelationResult::any([forward, self.is_related_to(to, from)])
+                };
+                parts.push(related);
             }
             // compareSignaturesRelated returns on the first incompatible
             // parameter, before comparing later parameters or return types.
@@ -2199,21 +2379,68 @@ impl Relater<'_, '_, '_> {
                     return Some(RelationResult::NotRelated);
                 }
             } else {
-                parts.push(if bivariant_callback {
-                    // Callback returns use the opposite native direction order.
-                    let reverse =
-                        self.is_related_to(target_signature.r#type, source_signature.r#type);
-                    if reverse.is_success() {
-                        reverse
-                    } else {
-                        RelationResult::any([
-                            reverse,
-                            self.is_related_to(source_signature.r#type, target_signature.r#type),
-                        ])
-                    }
+                let reverse = if bivariant_callback {
+                    self.is_related_to(target_signature.r#type, source_signature.r#type)
                 } else {
-                    self.is_related_to(source_signature.r#type, target_signature.r#type)
-                });
+                    RelationResult::NotRelated
+                };
+                let related = if reverse.is_success() {
+                    reverse
+                } else if report_errors {
+                    let source_return = source_signature.r#type;
+                    let target_return = target_signature.r#type;
+                    let saved_pair = self.diagnostic_pair;
+                    let saved_error = self.property_error.take();
+                    let saved_signature = self.signature_error.take();
+                    let saved_simple = std::mem::take(&mut self.simple_error);
+                    let saved_marker = self.return_marker.take();
+                    self.diagnostic_pair = Some((source_return, target_return));
+                    let forward = self.is_related_to(source_return, target_return);
+                    self.diagnostic_pair = saved_pair;
+                    if forward == RelationResult::NotRelated {
+                        let error = self.property_error.take().or_else(|| {
+                            self.signature_error.take().map(|(minimum, count)| {
+                                tsr_diagnostics::Diagnostic::with_args(
+                                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    tsr_core::Span::new(0, 0),
+                                    [minimum.to_string(), count.to_string()],
+                                )
+                            })
+                        });
+                        let simple = std::mem::take(&mut self.simple_error);
+                        if error.is_some() || simple {
+                            use tsr_diagnostics::{Diagnostic, messages};
+                            let mut diagnostic = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                tsr_core::Span::new(0, 0),
+                                [
+                                    self.checker.type_to_string(source_return),
+                                    self.checker.type_to_string(target_return),
+                                ],
+                            );
+                            diagnostic.add_message_chain(error);
+                            self.property_error = Some(diagnostic);
+                            self.return_marker = Some((
+                                source_signature.kind != crate::signatures::SignatureKind::Call,
+                                !source_signature.parameters.is_empty()
+                                    || !target_signature.parameters.is_empty(),
+                            ));
+                        }
+                        self.simple_error = saved_simple;
+                    } else {
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.simple_error = saved_simple;
+                        self.return_marker = saved_marker;
+                    }
+                    RelationResult::any([reverse, forward])
+                } else {
+                    RelationResult::any([
+                        reverse,
+                        self.is_related_to(source_signature.r#type, target_signature.r#type),
+                    ])
+                };
+                parts.push(related);
             }
         }
         Some(RelationResult::all(parts))
@@ -2588,7 +2815,12 @@ impl Relater<'_, '_, '_> {
         flags: RecursionFlags,
     ) -> RelationResult {
         let key = (source, target, self.intersection_target);
-        if let Some(&cached) = self.results.get(&key) {
+        if let Some(&cached) = self.results.get(&key)
+            && !(cached == RelationResult::NotRelated
+                && self.diagnostic_pair == Some((source, target)))
+        {
+            // Native failed-result re-entry with reportErrors regenerates the
+            // explanation; verdict-only failure is not a cached error chain.
             return cached;
         }
         if self.maybe_keys_set.contains(&key) {
@@ -3039,7 +3271,7 @@ impl Relater<'_, '_, '_> {
                     }
                 })
         {
-            let mut constraint = if declaration.constraint.is_some() {
+            let constraint = if declaration.constraint.is_some() {
                 let Some(constraint) = self.checker.type_parameter_constraint(source) else {
                     return RelationResult::Unknown;
                 };
@@ -3051,17 +3283,66 @@ impl Relater<'_, '_, '_> {
             // Stop type-parameter-only cycles before entering the pair cache;
             // a constraint equal to the target keeps its direct identity proof.
             let mut seen = vec![source];
-            while constraint != target
-                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
+            let mut link = constraint;
+            while link != target
+                && self.checker.type_of(link).flags.contains(TypeFlags::TYPE_PARAMETER)
             {
-                if seen.contains(&constraint) {
+                if seen.contains(&link) {
                     return RelationResult::Unknown;
                 }
-                seen.push(constraint);
-                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
-                constraint = next;
+                seen.push(link);
+                let Some(next) = self.checker.type_parameter_constraint(link) else { break };
+                link = next;
             }
-            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            let saved_pair = self.diagnostic_pair;
+            let reporting = saved_pair == Some((source, target));
+            // Native source TypeVariable fast constraint query is verdict-only.
+            self.diagnostic_pair = None;
+            let related = self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            self.diagnostic_pair = saved_pair;
+            if related != RelationResult::NotRelated || !reporting {
+                return related;
+            }
+            // Native getTypeWithThisArgument(t, source, false) is identity for
+            // non-reference/non-intersection types. The parent owns the missing
+            // canonical reference substitution API; do not guess its mapper.
+            if self.checker.type_reference_targets.contains_key(&constraint)
+                || self.checker.type_of(constraint).flags.contains(TypeFlags::INTERSECTION)
+            {
+                // Missing reporting substitution does not invalidate the
+                // completed verdict. Publish no unsupported explanation.
+                return related;
+            }
+            let report_constraint = constraint != self.checker.intrinsics.unknown
+                && !self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER);
+            let saved_error = self.property_error.take();
+            let saved_signature = self.signature_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
+            self.diagnostic_pair = report_constraint.then_some((constraint, target));
+            let retry = self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            self.diagnostic_pair = saved_pair;
+            if retry == RelationResult::NotRelated && report_constraint {
+                let child = self.property_error.take();
+                let simple = std::mem::take(&mut self.simple_error);
+                if child.is_some() || simple {
+                    self.property_error = Some(tsr_diagnostics::Diagnostic::new_chain(
+                        child,
+                        &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                        [
+                            self.checker.type_to_string(constraint),
+                            self.checker.type_to_string(target),
+                        ],
+                    ));
+                }
+                self.simple_error = saved_simple;
+            } else {
+                self.property_error = saved_error;
+                self.signature_error = saved_signature;
+                self.simple_error = saved_simple;
+                self.return_marker = saved_marker;
+            }
+            return retry;
         }
         // A deferred keyof without a target IndexType inhabits the property-key
         // domain (relater.go:3694). The concrete operand/mapper stays intact.
@@ -3852,11 +4133,162 @@ impl Relater<'_, '_, '_> {
             // resolved member types, including parameters and their constraints.
             // get_type_of_property_of_type has already applied receiver maps;
             // a surviving parameter can be the intended semantic member type.
-            parts.push(if type_related_unread {
+            let reporting = self.diagnostic_pair == Some((source, target));
+            if !reporting {
+                let related = if type_related_unread {
+                    RelationResult::Related
+                } else {
+                    self.is_related_to(source_type, target_type)
+                };
+                if related == RelationResult::NotRelated {
+                    return related;
+                }
+                parts.push(related);
+                continue;
+            }
+            let saved_pair = self.diagnostic_pair;
+            let saved_property = self.property_error.take();
+            let saved_signature = self.signature_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
+            self.diagnostic_pair = reporting.then_some((source_type, target_type));
+            let related = if type_related_unread {
                 RelationResult::Related
             } else {
                 self.is_related_to(source_type, target_type)
-            });
+            };
+            self.diagnostic_pair = saved_pair;
+            if related == RelationResult::NotRelated {
+                if reporting {
+                    use tsr_diagnostics::{Diagnostic, messages};
+                    let span = tsr_core::Span::new(0, 0);
+                    let nested = self.property_error.take();
+                    let signature = self.signature_error.take();
+                    let return_marker = self.return_marker.take();
+                    // A simple native relation failure has no prior recursive
+                    // error chain. Unsupported recursive failures stay absent.
+                    let simple = std::mem::take(&mut self.simple_error);
+                    if nested.is_some() || signature.is_some() || simple {
+                        let printed_name =
+                            self.checker.get_property_of_type(target, &name).map_or_else(
+                                || name.clone(),
+                                |symbol| self.checker.callable_property_name(symbol, &name),
+                            );
+                        let mut property_name = if printed_name.starts_with(['\"', '\'', '`']) {
+                            format!("[{printed_name}]")
+                        } else {
+                            printed_name.clone()
+                        };
+                        // Native reportError removes the intervening relation
+                        // head when adjacent property explanations compress.
+                        let diagnostic = if let Some(mut nested) = nested {
+                            if let Some((construct, has_arguments)) = return_marker {
+                                property_name.push_str(if has_arguments { "(...)" } else { "()" });
+                                if construct {
+                                    property_name.insert_str(0, "new ");
+                                }
+                                let compressed = nested.message_chain().first().is_some_and(|d| {
+                                    d.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                        || d.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                });
+                                if compressed {
+                                    nested = std::mem::replace(
+                                        &mut nested.message_chain_mut()[0],
+                                        Diagnostic::new(
+                                            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                            span,
+                                        ),
+                                    );
+                                } else {
+                                    // Native return marker removes the function
+                                    // relation head, retaining its return chain.
+                                    let diagnostic = Diagnostic::new_chain(Some(nested),
+                                        &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES,
+                                        [property_name]);
+                                    self.property_error = Some(diagnostic);
+                                    self.simple_error = saved_simple;
+                                    return RelationResult::NotRelated;
+                                }
+                            }
+                            if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                || nested.message == &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                || nested.message == &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                            {
+                                // Native addToDottedName wraps a constructor
+                                // head before adjoining another property.
+                                if property_name.starts_with("new ") {
+                                    property_name.insert(0, '(');
+                                    property_name.push(')');
+                                }
+                                if nested.message == &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE
+                                    && nested.args[0].starts_with(['\"', '\'', '`'])
+                                {
+                                    nested.args[0].insert(0, '[');
+                                    nested.args[0].push(']');
+                                }
+                                let mut pos = 0;
+                                loop {
+                                    if nested.args[0][pos..].starts_with('(') {
+                                        pos += 1;
+                                    } else if nested.args[0][pos..].starts_with("new ") {
+                                        pos += 4;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if !nested.args[0][pos..].starts_with('[') {
+                                    nested.args[0].insert(pos, '.');
+                                }
+                                nested.args[0].insert_str(pos, &property_name);
+                                nested.message = if return_marker.is_some() {
+                                    &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                } else {
+                                    &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES
+                                };
+                                nested
+                            } else {
+                                let child = Diagnostic::new_chain(Some(nested),
+                                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                    [self.checker.type_to_string(source_type),
+                                     self.checker.type_to_string(target_type)]);
+                                Diagnostic::new_chain(Some(child),
+                                    &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE, [printed_name.clone()])
+                            }
+                        } else {
+                            let mut child = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                span,
+                                [
+                                    self.checker.type_to_string(source_type),
+                                    self.checker.type_to_string(target_type),
+                                ],
+                            );
+                            if let Some((minimum, count)) = signature {
+                                child.add_message_chain(Some(Diagnostic::with_args(
+                                    &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    span, [minimum.to_string(), count.to_string()],
+                                )));
+                            }
+                            Diagnostic::new_chain(
+                                Some(child),
+                                &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
+                                [printed_name],
+                            )
+                        };
+                        self.property_error = Some(diagnostic);
+                    }
+                } else {
+                    self.property_error = saved_property;
+                    self.signature_error = saved_signature;
+                }
+                self.simple_error = saved_simple;
+                return RelationResult::NotRelated;
+            }
+            self.return_marker = saved_marker;
+            self.simple_error = saved_simple;
+            self.property_error = saved_property;
+            self.signature_error = saved_signature;
+            parts.push(related);
         }
         RelationResult::all(parts)
     }
@@ -3989,6 +4421,9 @@ mod variance_recursion_tests {
                 intersection_target: false,
                 diagnostic_pair: None,
                 signature_error: None,
+                property_error: None,
+                simple_error: false,
+                return_marker: None,
             };
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);
