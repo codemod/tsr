@@ -6136,13 +6136,18 @@ impl<'a> Checker<'a, '_> {
         this_argument: TypeId,
         need_apparent_type: bool,
     ) -> TypeId {
-        if let Some((symbol, arguments)) = self.type_reference_targets.get(&ty).cloned() {
+        if self.type_reference_targets.contains_key(&ty) {
+            // Native only appends this when ordinary argument count equals
+            // target parameter count. An already padded reference is unchanged,
+            // even if a different requested receiver is supplied later.
+            if self.type_reference_this_arguments.contains_key(&ty) {
+                return ty;
+            }
             if let Some(&image) = self.type_reference_this_types.get(&(ty, this_argument)) {
                 return image;
             }
-            if self.type_reference_this_arguments.get(&ty) == Some(&this_argument) {
-                return ty;
-            }
+            let (symbol, arguments) =
+                self.type_reference_targets.get(&ty).cloned().expect("checked reference identity");
             let crate::types::TypeData::Named { text, members } = self.store.get(ty).data.clone()
             else {
                 return self.intrinsics.error;
