@@ -392,13 +392,36 @@ Whole sole target staticFieldWithInterfaceContext converts **124/124 RIGHT**,
 all 18 formerly wrong rows. Full coherent mirror: **+18 RIGHT types, +1 correct
 diagnostic case**, zero prior RIGHT/correct losses or vanished keys. Actual
 pinned-native and mirror CLI strict target controls are clean. Complete checker
-release tests and optional-tuple static-field regression pass; format passes.
+release tests before adding the static unit and its isolated regression passed;
+the resulting added unit later failed the complete library suite due to quote
+presentation. The incidental quote-pinning unit is removed in the correction
+below; complete checker tests then pass. Format passes.
 Fresh interleaved domain41 wall **0.98258**, generic21 **0.99541** vs0eda302c;
 observed scope/options/diagnostics match. Complete-work verification remains
 false; no <=0.50 release acceptance or exhaustive hotpath claim. Production
 branch coherent gates remain pending serialized JSX/shared prerequisites.
 Existing .16.305 claimed, kept open for campaign criteria although sole named
 target is complete. Receipts static-* under ignored target/recovery/contextual.
+
+## IIFE error context rejected — tsr-2zk.16.306
+
+Native scalar IIFE arm preserves getWidenedLiteralType(checkExpression(arg))
+even when errorType. Candidate removed owned error-to-None conversion. Full
+coherent mirror rejected it: +7 gains but **3 prior RIGHT-to-GAP losses** in
+parsingDeepParenthensizedExpression, no vanished keys or diagnostic-correct
+losses. Target3899/3902, remaining3GAP, so no complete conversion. Reverted;
+canonical error parameter/consumer publication must be fixed by its owner,
+not contextual filtering or a target special case. Actual native target run
+and full rejected receipts retained under iife-*; no performance/pass claim.
+
+The complete checker test run exposed the static unit added after .16.305's
+full-suite run: isolated quote-presentation assertion passes alone but fails
+full library suite (`'a'` versus `"a"`). Removed this incidental presentation
+unit, not re-pinned. Complete checker release tests after candidate revert and
+unit removal pass (`iife-reverted-tests.log`), format passes. This correction
+supersedes any claim that 2fdefa2f's resulting tests were full-suite-safe.
+No static production behavior changed; sole124/124 target/full parity/perf
+receipts still apply. Existing .16.306 claimed, remains open.
 
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.

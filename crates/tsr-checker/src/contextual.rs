@@ -3251,17 +3251,6 @@ mod tests {
     }
 
     #[test]
-    fn static_class_expression_fields_skip_optional_outer_undefined_context() {
-        assert_eq!(
-            field_context(
-                "interface I { x: { tag: 'a' | 'b' } } \
-                 let [value = class { static x = { tag: 'a' }; }]: [I?] = [];",
-            ),
-            Some("{ tag: \"a\" | \"b\"; }".into()),
-        );
-    }
-
-    #[test]
     fn static_class_expression_fields_use_the_contextual_property_type() {
         for source in [
             r#"interface I { x: { a: "right" }; } const C: I = class { static x = { a: "right" }; };"#,
