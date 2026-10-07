@@ -379,6 +379,27 @@ branch-wide coherent gates. No release or exhaustive hotpath claim. Existing
 .16.176 claimed, remains open until all targets/campaign acceptance. Receipts
 element-* in ignored target/recovery/contextual.
 
+## Static optional outer context — tsr-2zk.16.305
+
+Pinned getContextualTypeForStaticPropertyDeclaration consumes
+getTypeOfPropertyOfContextualType, whose union map omits non-object undefined
+constituents. Owned static-field initializer now uses existing
+contextual_property_type rather than ordinary get_type_of_property_of_type.
+No new mapper/cache/traversal/publication; original class context, receiver,
+written alias and fixing mapper stay with their canonical producers.
+
+Whole sole target staticFieldWithInterfaceContext converts **124/124 RIGHT**,
+all 18 formerly wrong rows. Full coherent mirror: **+18 RIGHT types, +1 correct
+diagnostic case**, zero prior RIGHT/correct losses or vanished keys. Actual
+pinned-native and mirror CLI strict target controls are clean. Complete checker
+release tests and optional-tuple static-field regression pass; format passes.
+Fresh interleaved domain41 wall **0.98258**, generic21 **0.99541** vs0eda302c;
+observed scope/options/diagnostics match. Complete-work verification remains
+false; no <=0.50 release acceptance or exhaustive hotpath claim. Production
+branch coherent gates remain pending serialized JSX/shared prerequisites.
+Existing .16.305 claimed, kept open for campaign criteria although sole named
+target is complete. Receipts static-* under ignored target/recovery/contextual.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.

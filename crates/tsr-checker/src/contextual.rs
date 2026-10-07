@@ -1397,7 +1397,7 @@ impl<'a> Checker<'a, '_> {
                     }
                     _ => return None,
                 };
-                self.get_type_of_property_of_type(contextual, &name)
+                self.contextual_property_type(contextual, &name)
             }
             // getContextualTypeForJsxExpression/Attribute/ChildJsxExpression
             // (pinned jsx.go): the wrapper is transparent, while body children
@@ -3248,6 +3248,17 @@ mod tests {
             .expect("a field initializer");
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         checker.get_contextual_type(initializer).map(|ty| checker.type_to_string(ty))
+    }
+
+    #[test]
+    fn static_class_expression_fields_skip_optional_outer_undefined_context() {
+        assert_eq!(
+            field_context(
+                "interface I { x: { tag: 'a' | 'b' } } \
+                 let [value = class { static x = { tag: 'a' }; }]: [I?] = [];",
+            ),
+            Some("{ tag: \"a\" | \"b\"; }".into()),
+        );
     }
 
     #[test]
