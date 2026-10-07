@@ -490,6 +490,25 @@ Receipts conditional-* and generator-native.log. Both existing issues remain
 open with exact owner prerequisites; owned source unchanged, format passes.
 No whole-case/full no-loss/performance pass claimed for these investigations.
 
+## Return-mapper boolean unit probe — tsr-2zk.16.132
+
+Existing issue claimed; current five target RIGHT counts295/307,192/212,79/84,
+56/83,130/141. Read pinned instantiateContextualType30817: signature queries
+use nonFixingMapper only when candidates/defaults exist; ordinary contextual
+queries use returnMapper, filtering regular false/true units when both occur.
+An owned identity-based filter at the existing return-mapper branch compiles,
+but fresh focused dumps change **zero target rows**. Reverted rather than retain
+unexercised scheduling-dependent code. Actual native target command recorded.
+
+The existing getter always consults live_contextual_mapper first, before its
+returnMapper branch; faithful context-flags and candidate/nonFixing/return
+mapper plumbing are a coordinated inference/signature-owner prerequisite.
+No independent local fallback, type-name shortcut or fake inference scope is
+introduced. Owned await/contextual return masks inspected and already match
+native operations. Issue remains open with exact boundary; no whole-target,
+full prior-RIGHT/performance acceptance claimed for the reverted probe.
+Receipts boolean-mapper-*; owned source unchanged, format passes.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
