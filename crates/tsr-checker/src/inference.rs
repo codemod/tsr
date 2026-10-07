@@ -6082,9 +6082,12 @@ impl<'a> Checker<'a, '_> {
             current = self.nodes.parent(id);
         }
         let Some(containing_alias) = containing_alias else { return signature };
+        let Some(returned) = self.get_return_type_of_signature(&signature) else {
+            return signature;
+        };
         let returns_container = self
             .type_reference_targets
-            .get(&signature.r#type)
+            .get(&returned)
             .is_some_and(|(target, _)| *target == containing_alias);
         if !returns_container {
             return signature;
@@ -6378,7 +6381,8 @@ impl<'a> Checker<'a, '_> {
     /// Completed image predicate lookup before parent target demand. None is
     /// uncomputed/unsupported, Some(None) is certified completed absence.
     #[must_use]
-    pub fn cached_mapped_signature_predicate(
+    #[allow(clippy::option_option, reason = "completed absence differs from unsupported predicate demand")]
+    pub(crate) fn cached_mapped_signature_predicate(
         &self,
         signature: &Signature,
     ) -> Option<Option<crate::signatures::TypePredicate>> {
@@ -6388,7 +6392,11 @@ impl<'a> Checker<'a, '_> {
     /// Consume a completed target predicate result without confusing absence
     /// with unsupported target demand. Parent canonical getter must propagate
     /// unsupported demand before calling this worker.
-    pub fn mapped_signature_predicate(
+    #[allow(
+        clippy::option_option,
+        reason = "completed absence differs from unsupported predicate demand"
+    )]
+    pub(crate) fn mapped_signature_predicate(
         &mut self,
         signature: &Signature,
         target_predicate: Option<crate::signatures::TypePredicate>,
@@ -6652,6 +6660,13 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some(signatures) = self.signature_types.get(&id) {
             if signatures.iter().any(|signature| {
+                if let Some(mapper) = &signature.mapper {
+                    if mapper.map.iter().any(|&(_, image)| {
+                        self.mentions_type_parameter_inner(image, is_parameter, names, visited)
+                    }) {
+                        return true;
+                    }
+                }
                 signature
                     .parameters
                     .iter()
