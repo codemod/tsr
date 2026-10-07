@@ -4013,8 +4013,10 @@ impl<'a> Checker<'a, '_> {
                             let best = self.longest_candidate_index(candidates, arguments.len());
                             return Some(candidates[best].clone());
                         }
-                        let returns: Vec<TypeId> =
-                            candidates.iter().map(|candidate| candidate.r#type).collect();
+                        let returns: Vec<TypeId> = candidates
+                            .iter()
+                            .map(|candidate| self.get_return_type_of_signature(candidate))
+                            .collect::<Option<Vec<_>>>()?;
                         let mut failure = candidates[0].clone();
                         failure.r#type = self.get_intersection_type(&returns, None);
                         return Some(failure);
@@ -4049,8 +4051,12 @@ impl<'a> Checker<'a, '_> {
             if survivors.len() >= 2
                 && survivors.iter().all(|survivor| !survivor.type_parameters.is_empty())
             {
+                let returns: Vec<_> = survivors
+                    .iter()
+                    .map(|survivor| self.get_return_type_of_signature(survivor))
+                    .collect::<Option<Vec<_>>>()?;
                 let prints: Vec<String> =
-                    survivors.iter().map(|survivor| self.type_to_string(survivor.r#type)).collect();
+                    returns.into_iter().map(|returned| self.type_to_string(returned)).collect();
                 if prints.windows(2).all(|pair| pair[0] == pair[1]) {
                     // Equal return spellings imply neither equal callback
                     // contexts nor equal inferences: `then<U>(s: (v: T) =>
@@ -4294,8 +4300,10 @@ impl<'a> Checker<'a, '_> {
             // `number & string = never`. Only the return type is consumed
             // downstream, so the failure signature is candidates[0] with the
             // intersected return. See `checker-notes-callres.md` §21.
-            let returns: Vec<TypeId> =
-                candidates.iter().map(|candidate| candidate.r#type).collect();
+            let returns: Vec<TypeId> = candidates
+                .iter()
+                .map(|candidate| self.get_return_type_of_signature(candidate))
+                .collect::<Option<Vec<_>>>()?;
             let mut failure = candidates[0].clone();
             failure.r#type = self.get_intersection_type(&returns, None);
             return Some(failure);

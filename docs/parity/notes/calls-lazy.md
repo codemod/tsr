@@ -617,3 +617,13 @@ Post-complete_signature_return consumers already have completed slots and do not
 need another demand. Instrumentation must not force returns solely to count.
 Source applied; call-raw-consumer-check is blocked by absent shared fields, so
 native target/full-parity/performance results are not claimed.
+
+### Recovery union and agreement return demand
+
+Overload-failure recovery unions and generic survivor print-agreement recovery
+now obtain canonical semantic returns before combining/rendering them. Lazy error
+sentinels are not union constituents or equal printed answers. Unsupported demand
+stays None. Parent-reserved head/list/get_signature_instantiation helpers unchanged.
+Recovery-return-check remains blocked by absent shared fields; no runtime/native
+acceptance claimed. Parent221/221legacy smoke does not certify ad-hoc outer alias
+returns; that integration remains ongoing.
