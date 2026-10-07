@@ -304,6 +304,14 @@ property image, recursively follows underlying roots, and preserves the base
 constructor image on the static side. An own class member shadows inherited
 origins; no binder or shared type-store symbol is synthesized. The returned
 ordered root list is query-local and unpublished, with no new semantic cache.
+**Unmeasured allocation/work risk:** even an ordinary single-root request returns
+`vec![property]`; recursive composite requests allocate root vectors, repeat
+composite/property lookup, and may copy base vectors through `get_base_types`.
+Native `forEachProperty` reads completed synthetic containing-type metadata and
+performs a callback walk, not a separately allocated root-list reconstruction.
+The current port is therefore not an allocation- or actual-worker-equivalent
+implementation, and near-one whole-process wall observations do not prove that
+boundary acceptable.
 `readonly_target.rs::property_accessibility_error` applies native synthetic
 modifier precedence (private, public, protected), retains static context, and
 requires ancestry from every protected declaring class via
@@ -320,7 +328,17 @@ identity is binder SymbolId, not printed property or class text. Read/write
 accessor declaration selection remains at the access consumer. Ordered reference
 arguments and concrete this are not conflated with ancestry target identity.
 The private Checker owns all existing base links; no Program/global publication
-is introduced. Root absence is not a cached completed member failure.
+is introduced. **Required bounded Beads follow-up request under `.4.14.1`:**
+measure `property_accessibility_roots` calls, ordinary-single/composite/inherited
+branches, root-vector allocations and capacity bytes, repeated property workers,
+base-query hits versus actual base workers, active repeats, and copied base-vector
+bytes on the exact alias/static-composite controls and `mixinAccessModifiers`.
+Then replace avoidable ordinary-root allocation/repeated lookup with the existing
+native-style completed-member consumer boundary. Do not invent a second cache:
+any completed image reuse needs receiver TypeId, static side, ordered arguments,
+concrete this, alias/accessor read-write context and publication proof. No counts
+were captured in the submitted experiment, and no broad reuse extension is
+approved by its timing receipt. Root absence is not a cached completed member failure.
 The existing base-resolution guard owns active reentry versus completed bases.
 Expensive work is the base constructor/base resolution plus inherited/composite
 traversal; the bounded `.4.14` count follow-up above remains required before
