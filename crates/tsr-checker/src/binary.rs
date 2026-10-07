@@ -620,7 +620,7 @@ impl Checker<'_, '_> {
         if flags.contains(TypeFlags::BIG_INT) {
             return self.store.intern_literal(
                 TypeFlags::BIG_INT_LITERAL,
-                TypeData::BigIntLiteral("0n".to_owned()),
+                TypeData::BigIntLiteral("0".to_owned()),
                 false,
             );
         }
@@ -641,7 +641,7 @@ impl Checker<'_, '_> {
                     value: crate::types::EnumLiteralValue::Number(value),
                     ..
                 } => matches!(value.as_str(), "0" | "-0"),
-                TypeData::BigIntLiteral(value) => matches!(value.as_str(), "0n" | "-0n"),
+                TypeData::BigIntLiteral(value) => value == "0",
                 _ => false,
             };
         if definitely_falsy { id } else { self.intrinsics.never }
