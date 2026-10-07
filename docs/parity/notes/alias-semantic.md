@@ -108,6 +108,43 @@ Current recovery evidence, replacing historical saved-branch claims:
   Receipts: `recovered-perf.txt`, `recovered-transitions.txt`,
   `recovered-target-tests.txt`, `semantic-focused-*.txt`.
 
+## Callable declaration publication — tsr-2zk.16.2.1
+
+The parent reported the pre-existing user test failure: F6 expected, `error`
+actual for `type F6 = ({ a: string }) => typeof string`. That reported failure was
+not rerun; the user test was neither changed nor committed.
+
+Native `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` creates the
+binder-owned anonymous object with its enclosing alias before signature member
+resolution. The existing function-types worker instead discarded its reservation
+when signature preparation returned unsupported. Owned `declared.rs` now publishes
+non-generic alias-bearing call/construct objects first, through the existing
+`type_literal_key` and `type_literal_types` owner. The helper represents the native
+object-publication boundary, not a function-name or failed-body heuristic.
+Supported signature preparation populates the existing signature vector for
+current eager consumers, but failure does not retract the completed object.
+Absence of a vector is not published as an empty signature set; demand consumers
+can still resolve the actual binder owner.
+
+- Identity: contextual node key, binder `__type` owner, private Checker lifetime.
+- Publication: object completes before optional signature metadata; unsupported
+  signature preparation is not object failure or completed empty signatures.
+- Context: existing non-generic alias naming eligibility and contextual key;
+  no printed-name key, receiver conversion, or new semantic table.
+- Work: existing signature worker, no duplicate body traversal/cache. General lazy
+  signature consumer cutover remains integration-owned; no new shared API required.
+- Independent regression covers malformed/uncomputable F6, constructor alias, and
+  supported callable publication. Existing targeted function/alias tests pass.
+- Direct native CLI control matches complete diagnostics byte-for-byte: TS7031
+  binding element error and TS2322 call-result error. No suppression.
+- Unfiltered oracle versus `215d1b31`: 16 WRONG→RIGHT, 6 GAP→RIGHT, zero RIGHT losses
+  and vanished recognized keys. Summary 477,970 assertions: 469,818 RIGHT,
+  989 GAP, 7,163 WRONG. An initial fully lazy experiment caused 85 RIGHT losses;
+  it was rejected, not committed. Supported signature metadata remains prepared
+  until direct-vector consumers are migrated together.
+- Receipts: `lazy-tests.txt`, `lazy-native.txt`, `lazy-after.txt`,
+  `lazy-transitions.txt`, `verdict-lazy.tsv`. No full-workspace gate was rerun.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
