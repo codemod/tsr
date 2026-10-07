@@ -7,7 +7,7 @@
 
 use tsr_ast::*;
 use tsr_core::Span;
-use tsr_diagnostics::{Diagnostic, messages};
+use tsr_diagnostics::{Diagnostic, Message, messages};
 
 use crate::list::ParsingContext;
 use crate::parser::Parser;
@@ -2593,13 +2593,23 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_identifier(&mut self) -> &'a Identifier<'a> {
+        self.parse_binding_identifier_with_diagnostic(None)
+    }
+
+    /// typescript-go's `Parser.parseBindingIdentifierWithDiagnostic`
+    /// (`parser.go`): `private` replaces the default report for a private
+    /// name written where a binding identifier belongs.
+    fn parse_binding_identifier_with_diagnostic(
+        &mut self,
+        private: Option<&'static Message>,
+    ) -> &'a Identifier<'a> {
         let start = self.pos();
         if self.is_binding_identifier() {
             let text = self.token_value();
             self.next_token();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
-        self.report_missing_identifier()
+        self.report_missing_identifier(private)
     }
 
     /// Parse an identifier name: any keyword qualifies — `a.class` is legal.
@@ -2612,7 +2622,7 @@ impl<'a> Parser<'a> {
             self.next_token();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
-        self.report_missing_identifier()
+        self.report_missing_identifier(None)
     }
 
     /// The no-message tail of typescript-go's
@@ -2620,10 +2630,14 @@ impl<'a> Parser<'a> {
     /// token is not an identifier and mint a missing one. A private name is
     /// reported and consumed as the identifier; at end of file the report sits
     /// zero-width at the token's full start.
-    fn report_missing_identifier(&mut self) -> &'a Identifier<'a> {
+    fn report_missing_identifier(
+        &mut self,
+        private: Option<&'static Message>,
+    ) -> &'a Identifier<'a> {
         if self.at(SyntaxKind::PrivateIdentifier) {
             self.error_at_current(
-                &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+                private
+                    .unwrap_or(&messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES),
             );
             let start = self.pos();
             let text = self.token_value();
@@ -2740,10 +2754,20 @@ impl<'a> Parser<'a> {
 
     /// Parse a binding name: an identifier or a destructuring pattern.
     pub(crate) fn parse_binding_name(&mut self) -> BindingName<'a> {
+        self.parse_binding_name_with_diagnostic(None)
+    }
+
+    /// typescript-go's `Parser.parseIdentifierOrPatternWithDiagnostic`
+    /// (`parser.go`): variable declarations and parameters pass their own
+    /// private-name message (TS18029, TS18009).
+    pub(crate) fn parse_binding_name_with_diagnostic(
+        &mut self,
+        private: Option<&'static Message>,
+    ) -> BindingName<'a> {
         match self.token.kind {
             SyntaxKind::OpenBracketToken => self.parse_array_binding_pattern(),
             SyntaxKind::OpenBraceToken => self.parse_object_binding_pattern(),
-            _ => BindingName::Identifier(self.parse_identifier()),
+            _ => BindingName::Identifier(self.parse_binding_identifier_with_diagnostic(private)),
         }
     }
 
@@ -2929,7 +2953,9 @@ impl<'a> Parser<'a> {
         let name = if self.at(SyntaxKind::ThisKeyword) && dot_dot_dot.is_none() {
             BindingName::Identifier(self.parse_identifier_name())
         } else {
-            self.parse_binding_name()
+            self.parse_binding_name_with_diagnostic(Some(
+                &messages::PRIVATE_IDENTIFIERS_CANNOT_BE_USED_AS_PARAMETERS,
+            ))
         };
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };

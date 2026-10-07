@@ -773,7 +773,9 @@ impl<'a> Parser<'a> {
     ) -> &'a VariableDeclaration<'a> {
         let docs = self.parse_leading_jsdoc();
         let start = self.pos();
-        let name = self.parse_binding_name();
+        let name = self.parse_binding_name_with_diagnostic(Some(
+            &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_IN_VARIABLE_DECLARATIONS,
+        ));
         let exclamation = if allow_exclamation
             && matches!(name, BindingName::Identifier(_))
             && self.at(SyntaxKind::ExclamationToken)
