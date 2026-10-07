@@ -2570,7 +2570,7 @@ impl<'a> Checker<'a, '_> {
         let name = match property_name {
             PropertyName::Identifier(name) => name.text.to_string(),
             PropertyName::StringLiteral(name) => name.text.to_string(),
-            PropertyName::NumericLiteral(name) => name.text.to_string(),
+            PropertyName::NumericLiteral(name) => crate::printing::normalise_number(name.text),
             PropertyName::ComputedPropertyName(name) => {
                 if let Some((name, _)) = self.late_bound_symbol_member_name(name) {
                     name

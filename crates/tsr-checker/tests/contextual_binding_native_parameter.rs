@@ -72,6 +72,16 @@ fn object_spread_operand_keeps_callback_context() {
 }
 
 #[test]
+fn numeric_property_spelling_uses_native_value_for_contextual_lookup() {
+    assert_eq!(
+        default_parameter_type(
+            "const value: { 16: (n: number) => number } = { 0x10: n => n };",
+        ),
+        "number",
+    );
+}
+
+#[test]
 fn invalid_rest_default_still_receives_native_element_context() {
     // TS1186 does not prevent contextual checking of the initializer; native
     // types n as number before reporting the rest/default assignment errors.

@@ -568,6 +568,32 @@ both produce result:"receiver"; positive control is not a target conversion.
 No implementation/full no-loss/perf acceptance claim. Receipts tagged-*;
 existing .16.92 claimed/open. Owned source unchanged.
 
+## Numeric contextual property identity — tsr-2zk.16.49
+
+Native getLiteralTypeFromPropertyName uses a numeric literal's value, not its
+source spelling. Owned named object-member context now uses existing
+printing::normalise_number for numeric keys (0x10 ->16), consistent with the
+already canonical static/computed-name paths. No new lookup cache, mapper,
+receiver transformation or fallback. Bound numeric key identity stays canonical
+within the same Checker; actual declaration/signature and alias context retained.
+
+Actual pinned strict declaration and TSR corpus probe: hexadecimal property
+callback n was any and its type error before; after n:number and callback
+(n:number)=>number, with decimal string callback countercontrol unchanged.
+Dedicated regression and complete cleaned-mirror checker tests pass. Full
+cleaned mirror dumps have **zero changed verdicts, zero prior RIGHT/diagnostic
+losses or vanished keys**; no whole existing corpus case converted. This is
+native-supported consumer correctness, not completion of the historical .16.49
+cluster. Existing issue remains open.
+
+Fresh cleaned-mirror domain41 wall **0.96325**, generic21 **0.98770** vsverified
+0eda302c; observed scope/options/diagnostics match, complete-work proof false.
+No release/exhaustive hotpath claim. Earlier numeric dumps were confounded by
+reverted super/mapper probe leftovers and are invalidated; only numeric-clean-*
+receipts support current no-loss result. Clean rebuild removed all those probes.
+Receipts numeric-* under ignored recovery directory; production still needs
+atomic shared/JSX integration before full branch verification.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
