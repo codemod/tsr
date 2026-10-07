@@ -2037,8 +2037,22 @@ impl Checker<'_, '_> {
             // Landed on its own first: caching a value the recompute would have
             // produced anyway must be a no-op, and measuring it separately is
             // what tells us whether the two roads already disagree.
-            if let Some(symbol) = property_node_id.and_then(|id| self.binder.symbol_of(id)) {
-                self.symbol_types.entry(symbol).or_insert(member_type);
+            //
+            // The entry follows the LAST check of the symbol's value
+            // declaration: upstream's `getTypeOfSymbol` runs
+            // `checkPropertyAssignment` lazily, in the literal's final
+            // contextual state (after inference has resolved the call), not
+            // in the first, context-free inference pass. A duplicate name
+            // (`{ a: 1, a: "x" }`) shares the symbol; only its value
+            // declaration may replace the entry.
+            if let Some(id) = property_node_id
+                && let Some(symbol) = self.binder.symbol_of(id)
+            {
+                if self.binder.symbols().get(symbol).value_declaration == Some(id) {
+                    self.symbol_types.insert(symbol, member_type);
+                } else {
+                    self.symbol_types.entry(symbol).or_insert(member_type);
+                }
             }
             // Upsert prevents duplicate members while collecting the literal.
             // Final ordering uses surviving declaration provenance below:
