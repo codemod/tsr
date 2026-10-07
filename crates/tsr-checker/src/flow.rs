@@ -2541,6 +2541,74 @@ impl Checker<'_, '_> {
     /// (This said `for..in`, `for..of` and `delete` were `None` too; they are
     /// ported since — a correction of the record.)
     fn get_initial_or_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
+        if let Some(Node::BindingElement(element)) = self.node_map.get(node) {
+            // Native getInitialTypeOfBindingElement projects the parent's
+            // initial type recursively, then applies getTypeWithDefault.
+            let pattern_id = self.nodes.parent(node)?;
+            let holder = self.nodes.parent(pattern_id)?;
+            let parent = self.get_initial_or_assigned_type(holder)?;
+            let projected = if self.nodes.kind(pattern_id) == SyntaxKind::ObjectBindingPattern {
+                let key = match element.property_name {
+                    Some(tsr_ast::PropertyName::ComputedPropertyName(name)) => {
+                        let key = self.check_expression(name.expression?);
+                        self.property_name_from_index(key)?
+                    }
+                    Some(name) => crate::objects::written_property_name(&name)?,
+                    None => match element.name? {
+                        tsr_ast::BindingName::Identifier(name) => name.text.to_string(),
+                        tsr_ast::BindingName::BindingPattern(_) => return None,
+                    },
+                };
+                if let Some(property) = self.get_type_of_property_of_type(parent, &key) {
+                    property
+                } else {
+                    let key_type = self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(key),
+                        false,
+                    );
+                    let info = self.get_applicable_index_info(parent, key_type)?;
+                    if self.no_unchecked_indexed_access {
+                        self.get_union_type(&[info.value, self.intrinsics.missing])
+                    } else {
+                        info.value
+                    }
+                }
+            } else {
+                let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
+                    return None;
+                };
+                let index = pattern.elements.iter().position(|item| item.node_id == Some(node))?;
+                let key = self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral(index.to_string()),
+                    false,
+                );
+                if element.dot_dot_dot_token.is_none()
+                    && let Some(element_type) =
+                        self.tuple_index_type(parent, key, self.no_unchecked_indexed_access)
+                {
+                    element_type
+                } else {
+                    let iterated = self.for_of_element_type(parent)?;
+                    if element.dot_dot_dot_token.is_some() {
+                        let array = self.global_type_symbol_with_arity("Array", 1)?;
+                        self.create_type_reference(array, vec![iterated])
+                    } else if self.no_unchecked_indexed_access {
+                        self.get_union_type(&[iterated, self.intrinsics.missing])
+                    } else {
+                        iterated
+                    }
+                }
+            };
+            return Some(if let Some(default) = element.initializer {
+                let non_undefined = self.get_type_with_facts(projected, TypeFacts::NE_UNDEFINED);
+                let default_type = self.check_expression(default);
+                self.get_union_type(&[non_undefined, default_type])
+            } else {
+                projected
+            });
+        }
         if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) {
             // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`).
             if let Some(initializer) = declaration.initializer {
