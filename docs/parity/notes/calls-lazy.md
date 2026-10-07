@@ -849,10 +849,12 @@ acceptance. Before-RIGHT IDs remain controls, never conversions.
 No candidate, new tests or code gates were fabricated for this blocked root.
 The prior `.9.8` verified delivery remains unchanged.
 
-## INFERENCE-REVERSE-MAPPED-MEMBER receipt
+## INFERENCE-REVERSE-MAPPED-MEMBER — tsr-2zk.16.421
 
-Assigned next owned root: two current blocked cases, exact authoritative
-issue/target receipt pending. Direct native controls before any semantic edit:
+Authoritative integrator receipt: `compiler/mappedTypeRecursiveInference`
+and `conformance/isomorphicMappedTypeInference`. Two blocked cases, not
+promised conversions. Ownership remains inference collector/calls/signatures;
+no mapped/member/type-owner changes are authorized. Direct native controls before any semantic edit:
 
 ```typescript
 export type Boxified<T> = { [P in keyof T]: { value: T[P] } };
@@ -918,6 +920,6 @@ expose the shared variable and is not a supported fix for these controls.
 No empty-bucket fallback, speculative extra template walk, new cache or
 outside-owned edit was added. This root is blocked on the exact canonical
 indexed/mapped API; no semantic candidate, tests or conversion claim.
-Historical isomorphicMappedTypeInference attribution is not an authoritative
-current target receipt. `.9.8` verified delivery and `.16.420` canonical
+Historical per-line attribution is not current completion evidence; the
+authoritative `.16.421` target receipt governs acceptance. `.9.8` verified delivery and `.16.420` canonical
 union-regularization handoff remain unchanged.
