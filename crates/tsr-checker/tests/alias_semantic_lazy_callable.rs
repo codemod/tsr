@@ -18,6 +18,18 @@ fn callable_alias_has_a_declared_object_before_signature_demand() {
     for name in ["F6", "C", "Good"] {
         let symbol = bound.lookup_local(root, name).unwrap();
         let ty = checker.get_declared_type_of_symbol(symbol);
+        let tsr_checker::types::TypeData::Anonymous { symbol: owner, .. } =
+            checker.type_of(ty).data
+        else {
+            panic!("callable alias must publish its anonymous semantic object");
+        };
+        let declaration = bound.symbols().get(symbol).declarations[0];
+        let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = parsed.node_map.get(declaration)
+        else {
+            panic!("alias declaration");
+        };
+        let body = alias.r#type.unwrap().node_id().unwrap();
+        assert_eq!(bound.symbol_of(body), Some(owner));
         assert_eq!(checker.type_to_string(ty), name);
         assert_eq!(checker.get_declared_type_of_symbol(symbol), ty);
     }
