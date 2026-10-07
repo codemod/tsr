@@ -604,3 +604,15 @@ This differs from the parent's observed `boolean` on its own consumer state;
 neither observation certifies the combined cutover. Integrate `42b7f878`
 before the parent-owned native unary delegation, then run the exact strict/
 loose acceptance control there. No consumer edit was made on this Box.
+
+Completion audit: `target/recovery/completion.json` records all six retained
+corpus child exit files (all 0), dump hashes, complete final lines, expected
+unique-key counts and type-summary trailers. Each exit file was written by its
+shell only after the foreground compiler returned and has a timestamp after
+its dump's final write. Template performance also has a durable child exit 0.
+No compiler/comparison processes remained at audit time. `kill -0` polling was
+not used as completion evidence; interrupted earlier empty dumps received no
+credit. The validator also confirms retained target-suite result trailers and
+zero RIGHT losses/vanished keys in both comparisons. Corpus gates were not
+rerun. These receipts certify only the eligible scope already described, not
+the parent's full-configuration or historical RIGHT gates.
