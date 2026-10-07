@@ -6111,16 +6111,55 @@ impl<'a> Checker<'a, '_> {
         receiver: TypeId,
         signature: Signature,
     ) -> Option<Signature> {
-        let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
-            return Some(signature);
+        self.instantiate_signature_for_reference_with_this(receiver, receiver, signature)
+    }
+
+    /// resolveTypeReferenceMembers / resolveObjectTypeMembers (5b1047d):
+    /// append the concrete receiver to the target mapper's polymorphic this.
+    /// The heritage reference owns its ordinary arguments; the derived receiver
+    /// owns this. These are ephemeral signature images, not a new cache.
+    pub(crate) fn instantiate_signature_for_reference_with_this(
+        &mut self,
+        receiver: TypeId,
+        this_argument: TypeId,
+        signature: Signature,
+    ) -> Option<Signature> {
+        let (symbol, arguments) = match self.type_reference_targets.get(&receiver).cloned() {
+            Some(reference) => reference,
+            None => match self.store.get(receiver).data {
+                crate::types::TypeData::Named { members: Some(symbol), .. } => {
+                    let parameters = self.local_type_parameter_types_of(symbol)?;
+                    (symbol, parameters.iter().map(|(id, _)| *id).collect())
+                }
+                _ => return Some(signature),
+            },
         };
         let parameters = self.local_type_parameter_types_of(symbol)?;
         if parameters.len() != arguments.len() {
             return None;
         }
-        let map: Vec<_> =
-            parameters.iter().zip(arguments).map(|((id, _), argument)| (*id, argument)).collect();
-        let ids: Vec<_> = parameters.iter().map(|(id, _)| *id).collect();
+        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .find_map(|node| self.this_type_nodes.get(node).copied())
+        });
+        let mut map: Vec<_> = parameters
+            .iter()
+            .zip(arguments)
+            .filter_map(|((id, _), argument)| (*id != argument).then_some((*id, argument)))
+            .collect();
+        if let Some(this_type) = this_type
+            && this_type != this_argument
+        {
+            map.push((this_type, this_argument));
+        }
+        if map.is_empty() {
+            return Some(signature);
+        }
+        let ids: Vec<_> = map.iter().map(|(id, _)| *id).collect();
         let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
         self.instantiate_signature_with_fresh_parameters(signature, &map, &ids, &names)
     }
