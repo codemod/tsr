@@ -871,3 +871,28 @@ work/0.50 release gate. Final full distributions: `perf-final.log` and
 `cpu-attribution.json`; no build/corpus work overlapped timing. Clippy, anchors,
 sections and owned formatting pass. Parent historical/configuration gates
 remain mandatory.
+
+## 22. Empty native instance fallback (tsr-2zk.16.140)
+
+Pinned `getInstanceType` in `internal/checker/flow.go` returns emptyObjectType
+when a Function-derived RHS has no non-any prototype and no construct signature
+returns. The existing named-callee route declined an empty completed signature
+list instead. It now uses the existing intrinsic empty-object identity. False
+instanceof branches do not narrow by an empty anonymous object, matching native
+`narrowTypeByInstanceof`'s nonempty-object condition. No cache, new signature
+publication, receiver/alias rewrite or readonly-helper edit.
+
+Native direct strict declarations and real probefile agree: a callable|null
+value tested against Function narrows to callable on true and stays callable|null
+on false. Native CLI exit0. Existing 116 focused tests pass. All five named root
+case queries ran; full eligible corpus child exits0, 477,968 type keys retained,
+RIGHT469,852→469,854, WRONG7,121→7,119, GAP995 unchanged. Two controlFlowInstanceof
+rows become RIGHT; zero prior RIGHT losses/new/vanished keys. Diagnostics all
+10,570 case rows byte-identical. Other root residue is not claimed solved.
+
+41-pair wait4 cohort versus retained fda98f26: domain CPU0.9985, wall1.0141;
+generic CPU0.9994, wall0.9977. Complete stdout/stderr/status equal in all children.
+No CPU hotpath excess measured, but domain wall fails literal no-slowdown and
+native-equivalent complete work/0.50 is unverified. Issue remains open for parent
+combined gates. Receipts: `target/recovery/flow-instance/`. Native forcing
+execution counts not measured; no runtime complete-work claim.

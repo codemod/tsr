@@ -5609,9 +5609,10 @@ impl Checker<'_, '_> {
                                     returns.push(erased);
                                 }
                                 if returns.is_empty() {
-                                    return t;
+                                    self.intrinsics.empty_object
+                                } else {
+                                    self.get_union_type(&returns)
                                 }
-                                self.get_union_type(&returns)
                             }
                         };
                         if instance == self.intrinsics.error || instance == self.intrinsics.any {
@@ -5630,7 +5631,8 @@ impl Checker<'_, '_> {
                             return t;
                         }
                         if !assume_true
-                            && !self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                            && (!self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                                || self.is_empty_anonymous_object_type(instance))
                         {
                             return t;
                         }
