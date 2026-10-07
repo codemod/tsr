@@ -1475,13 +1475,10 @@ impl<'a> Checker<'a, '_> {
         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
         // same shape, the specifier just lives on the tag.
         let specifier = match self.node_map.get(parent)? {
-            // §292's narrowing: an import carrying ATTRIBUTES declines — the
-            // attribute validity rules are unported, and upstream errors the
-            // whole import where this road would type through it
-            // (`importAttributes7/8`, the pair's 2 R→W).
-            Node::ImportDeclaration(import) if import.attributes.is_none() => {
-                import.module_specifier
-            }
+            // Native getTargetOfImportClause resolves with attributes present.
+            // resolve_external_module_name preserves the actual specifier's
+            // Program usage mode; attribute diagnostics do not erase its target.
+            Node::ImportDeclaration(import) => import.module_specifier,
             Node::JSDocImportTag(import) => import.module_specifier,
             _ => return None,
         };
@@ -2037,11 +2034,9 @@ impl<'a> Checker<'a, '_> {
     fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
         let module_specifier = self.external_module_name(node)?;
         let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
-        // `specifier.PropertyNameOrName()` (`checker.go:14677`). A string
-        // literal name — `import { "a-b" as c }` — is a valid module export
-        // name upstream; it is not looked up here because
-        // `SymbolTable` keys are the identifier text and the two spellings have
-        // not been checked to agree. `None` is a miss.
+        // `specifier.PropertyNameOrName()` (`checker.go:14677`). Both
+        // identifier and string-literal export names use their decoded text;
+        // the empty string is a valid string-literal module export name.
         let name = match self.node_map.get(specifier)? {
             Node::ImportSpecifier(node) => {
                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
@@ -2049,7 +2044,15 @@ impl<'a> Checker<'a, '_> {
             Node::ExportSpecifier(node) => node.property_name.or(node.name),
             _ => return None,
         }?;
-        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
+        let name = match name {
+            tsr_ast::ModuleExportName::Identifier(name) => name.text,
+            tsr_ast::ModuleExportName::StringLiteral(name) => name.text,
+        };
+        // getExternalModuleMember returns a shorthand ambient module itself:
+        // any named member is its canonical any-valued module symbol.
+        if self.is_shorthand_ambient_module(module_symbol) {
+            return Some(module_symbol);
+        }
         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
         // for both callers here: its synthetic-default and
@@ -2058,7 +2061,7 @@ impl<'a> Checker<'a, '_> {
         // neither.
         let target = self.resolve_external_module_symbol(module_symbol);
         if target == module_symbol {
-            return self.get_export_of_module(module_symbol, name.text);
+            return self.get_export_of_module(module_symbol, name);
         }
 
         // Native routes the export name `default` through
@@ -2068,7 +2071,7 @@ impl<'a> Checker<'a, '_> {
         // alias denotes the synthetic default module object, not that property.
         // Preserve the prior miss until the dedicated default road can retain
         // its per-site alias spelling.
-        if name.text == "default" {
+        if name == "default" {
             return None;
         }
 
@@ -2077,7 +2080,7 @@ impl<'a> Checker<'a, '_> {
         // exports belong to the original module. Looking only in either place
         // loses the other meaning.
         let target_type = self.get_type_of_symbol(target);
-        let value = self.get_property_of_type_ex(target_type, name.text, true);
+        let value = self.get_property_of_type_ex(target_type, name, true);
         let value_was_found = value.is_some();
         // This semantic resolver must not outrun the site-aware spelling lane.
         // A pure alias target can replace a written local type name with the
@@ -2121,8 +2124,8 @@ impl<'a> Checker<'a, '_> {
         // target's exports are carried over from the original module; its
         // unrelated value exports must not replace a target property.
         let target_exports = &self.binder.symbols().get(self.binder.merged_symbol(target)).exports;
-        let supplemental = target_exports.get(name.text).copied().or_else(|| {
-            let supplemental = self.get_export_of_module(module_symbol, name.text)?;
+        let supplemental = target_exports.get(name).copied().or_else(|| {
+            let supplemental = self.get_export_of_module(module_symbol, name)?;
             let flags = self.get_symbol_flags(supplemental);
             (flags.intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
                 && !flags.intersects(SymbolFlags::VALUE))
