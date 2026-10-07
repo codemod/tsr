@@ -418,6 +418,14 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(result["comparison_valid"])
             self.assertTrue(result["reasons"])
 
+    def test_receipt_duplicate_loaded_paths_reject_before_worker_validation(self):
+        context = copy.deepcopy(self.context)
+        context["loaded_files"] *= 2
+        result = self.check(context=context)
+        self.assertFalse(result["artifact_integrity_valid"])
+        self.assertIn("duplicate captured loaded-file identity", result["reasons"][0])
+        self.assertEqual(result["checked_file_ids"], [])
+
     def test_receipt_duplicate_query_inputs_and_missing_invoked_config_reject(self):
         context = copy.deepcopy(self.context)
         context["inputs_before"] *= 2

@@ -306,6 +306,8 @@ def validate_receipt(receipt: dict, warning: str) -> dict:
     require(isinstance(receipt["loaded_files"], list)
             and all(isinstance(name, str) and name for name in receipt["loaded_files"]),
             "missing ordered loaded identities")
+    require(len(receipt["loaded_files"]) == len(set(receipt["loaded_files"])),
+            "duplicate captured loaded-file identity")
     return child
 
 

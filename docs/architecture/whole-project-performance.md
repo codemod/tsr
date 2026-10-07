@@ -212,6 +212,17 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Loaded-file identity is unique before worker validation
+
+Shared receipt validation now rejects duplicate logical loaded-file paths before
+TSR/native worker parsing. Distinct file IDs cannot legitimize repeated Program
+path identities. 41 trace tests passed; actual duplicated-TSR-inventory comparison
+CLI saved `/tmp/recover-duplicate-loaded-rejection.json` and exited 1, before
+publishing checked-file observations. Fresh frozen qualified five-pair/warmup
+capture saved `/tmp/recover-duplicate-loaded-checkpoint.json`, comparable exit 1.
+No full-corpus zero-loss/build receipt was supplied here; worker path identity is
+not complete semantic coverage. Native <=0.50 stays unverified and unmet.
+
 ### Unlaunchable frozen images do not lose failure receipts
 
 Controlled invocation now catches OS launch failures at the actual process
