@@ -353,6 +353,32 @@ JSX/shared integration before branch-level gates. Receipts spread-* under
 ignored target/recovery/contextual. Existing .16.182 claimed; remains open
 because all named targets and campaign criteria are not complete.
 
+## Union contextual element projection — tsr-2zk.16.176
+
+Pinned getContextualTypeForElementExpression uses mapTypeEx(noReductions),
+dropping nil element projections even from an object/Promise constituent.
+Owned union reader removes the object/type-parameter-specific abort and combines
+only returned element types with the existing no-reduction union constructor.
+No new cache, mapper or traversal; the existing union recursion, tuple/iterated
+producer completion and Checker-local type identities remain authoritative.
+Concrete tuple elements and alias/receiver context are not rebuilt or widened.
+
+Whole target asyncFunctionReturnType converts **128/128 RIGHT**. Other targets:
+asyncFunctionContextuallyTypedReturns 101/105 (previous99), assignmentTypeNarrowing
+59/74 unchanged. Full coherent mirror comparison **+3 RIGHT**, zero prior RIGHT
+or diagnostic-correct losses, zero vanished keys. Native strict target/control
+and actual mirror type probe exercised. Complete checker release tests pass.
+Deleted the existing contextual_tuple_reader_preserves_incomplete_union_refusal
+test, which pinned an implementation refusal contrary to native mapType behavior;
+it is not repinned to an incidental implementation answer.
+
+Fresh interleaved domain41 wall **0.99841**, generic21 **0.99027** against verified
+0eda302c base; observed options/scope/diagnostics match. Complete-work proof
+false, verified ratio null; production JSX/shared prerequisites still block
+branch-wide coherent gates. No release or exhaustive hotpath claim. Existing
+.16.176 claimed, remains open until all targets/campaign acceptance. Receipts
+element-* in ignored target/recovery/contextual.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
