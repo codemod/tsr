@@ -46,6 +46,7 @@ fn set_relation_chain_span(diagnostic: &mut Diagnostic, span: tsr_core::Span) {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod constraint_chain_tests {
     #[test]
     fn explicit_constraint_head_retains_completed_source_constraint_chain() {

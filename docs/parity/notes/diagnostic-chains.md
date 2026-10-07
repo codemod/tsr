@@ -420,6 +420,33 @@ recovery-baseline wall1.0081 with equal diagnostics; no-hotpath gate remains
 unproved, verified work ratio null. Parent check_return_statement untouched.
 Receipts this-chain-* and this-chain-workspace-tests-complete.log.
 
+## Constraint retry correction — supersedes 58bebc/6e2 reporting shortcut
+
+Removed primitive-flag-gated manufactured details. Source TypeVariable branch now
+retains its immediate constraint identity, runs native no-report fast comparison,
+then runs the existing reporting relation worker on supported identity-this
+constraints. Completed recursive child/simple failures produce their native
+relation head; intermediate type parameters arise from actual recursive workers,
+not wrapping a prewalk's list. Failed cached recursive results re-enter the
+reporting worker when reportErrors is selected; active Maybe and Unknown retain
+their prior meanings. No failure cache is treated as a cached diagnostic chain.
+
+Missing prerequisite: parent reports canonical get_type_with_this_argument,
+but neither Box checkout nor fetched public main544b4441 contains it. Required
+signature is (TypeId, TypeId, bool)->TypeId. Native needApparentType=false is
+identity except references/intersections. Those reference/intersection explanation
+retries remain unsupported here; their completed verdict stays intact. Initial
+returning Unknown discarded three previously RIGHT cases; that failed gate was
+corrected, not claimed as passing. No primitive-only fallback remains.
+
+Exact TS2344 module regression and immediate-constraint CLI pass after real retry;
+workspace release completes, scoped clippy completes after a localized test-module
+placement lint correction. Fresh protected RIGHT keys all preserved zero vanished/
+changed. Domain21 observed cumulative baseline1.0056, verified complete-work null:
+no-hotpath acceptance remains unproved. Parent must integrate its canonical helper
+and verify reference/intersection reporting before claiming full native3677/3678.
+Receipts constraint-retry-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

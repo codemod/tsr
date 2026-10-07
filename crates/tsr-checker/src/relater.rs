@@ -2807,7 +2807,12 @@ impl Relater<'_, '_, '_> {
         flags: RecursionFlags,
     ) -> RelationResult {
         let key = (source, target, self.intersection_target);
-        if let Some(&cached) = self.results.get(&key) {
+        if let Some(&cached) = self.results.get(&key)
+            && !(cached == RelationResult::NotRelated
+                && self.diagnostic_pair == Some((source, target)))
+        {
+            // Native failed-result re-entry with reportErrors regenerates the
+            // explanation; verdict-only failure is not a cached error chain.
             return cached;
         }
         if self.maybe_keys_set.contains(&key) {
@@ -3258,7 +3263,7 @@ impl Relater<'_, '_, '_> {
                     }
                 })
         {
-            let mut constraint = if declaration.constraint.is_some() {
+            let constraint = if declaration.constraint.is_some() {
                 let Some(constraint) = self.checker.type_parameter_constraint(source) else {
                     return RelationResult::Unknown;
                 };
@@ -3270,15 +3275,16 @@ impl Relater<'_, '_, '_> {
             // Stop type-parameter-only cycles before entering the pair cache;
             // a constraint equal to the target keeps its direct identity proof.
             let mut seen = vec![source];
-            while constraint != target
-                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
+            let mut link = constraint;
+            while link != target
+                && self.checker.type_of(link).flags.contains(TypeFlags::TYPE_PARAMETER)
             {
-                if seen.contains(&constraint) {
+                if seen.contains(&link) {
                     return RelationResult::Unknown;
                 }
-                seen.push(constraint);
-                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
-                constraint = next;
+                seen.push(link);
+                let Some(next) = self.checker.type_parameter_constraint(link) else { break };
+                link = next;
             }
             let saved_pair = self.diagnostic_pair;
             let reporting = saved_pair == Some((source, target));
@@ -3286,39 +3292,49 @@ impl Relater<'_, '_, '_> {
             self.diagnostic_pair = None;
             let related = self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
             self.diagnostic_pair = saved_pair;
-            if related == RelationResult::NotRelated
-                && reporting
-                && !self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
-                && self.checker.type_of(constraint).flags.intersects(TypeFlags::PRIMITIVE)
-                && !self
-                    .checker
-                    .type_of(constraint)
-                    .flags
-                    .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            if related != RelationResult::NotRelated || !reporting {
+                return related;
+            }
+            // Native getTypeWithThisArgument(t, source, false) is identity for
+            // non-reference/non-intersection types. The parent owns the missing
+            // canonical reference substitution API; do not guess its mapper.
+            if self.checker.type_reference_targets.contains_key(&constraint)
+                || self.checker.type_of(constraint).flags.contains(TypeFlags::INTERSECTION)
             {
-                // Primitive constraints have no polymorphic this to substitute.
-                // The completed constraint failure is the native inner head.
-                let mut diagnostic = tsr_diagnostics::Diagnostic::with_args(
-                    &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                    tsr_core::Span::new(0, 0),
-                    [self.checker.type_to_string(constraint), self.checker.type_to_string(target)],
-                );
-                // The existing constraint-cycle walk retains each immediate
-                // type-variable identity. Native recursive reporting wraps each
-                // one, rather than displaying only the terminal constraint.
-                for &parameter in seen[1..].iter().rev() {
-                    diagnostic = tsr_diagnostics::Diagnostic::new_chain(
-                        Some(diagnostic),
+                // Missing reporting substitution does not invalidate the
+                // completed verdict. Publish no unsupported explanation.
+                return related;
+            }
+            let report_constraint = constraint != self.checker.intrinsics.unknown
+                && !self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER);
+            let saved_error = self.property_error.take();
+            let saved_signature = self.signature_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
+            self.diagnostic_pair = report_constraint.then_some((constraint, target));
+            let retry = self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            self.diagnostic_pair = saved_pair;
+            if retry == RelationResult::NotRelated && report_constraint {
+                let child = self.property_error.take();
+                let simple = std::mem::take(&mut self.simple_error);
+                if child.is_some() || simple {
+                    self.property_error = Some(tsr_diagnostics::Diagnostic::new_chain(
+                        child,
                         &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
                         [
-                            self.checker.type_to_string(parameter),
+                            self.checker.type_to_string(constraint),
                             self.checker.type_to_string(target),
                         ],
-                    );
+                    ));
                 }
-                self.property_error = Some(diagnostic);
+                self.simple_error = saved_simple;
+            } else {
+                self.property_error = saved_error;
+                self.signature_error = saved_signature;
+                self.simple_error = saved_simple;
+                self.return_marker = saved_marker;
             }
-            return related;
+            return retry;
         }
         // A deferred keyof without a target IndexType inhabits the property-key
         // domain (relater.go:3694). The concrete operand/mapper stays intact.
