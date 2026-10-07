@@ -479,14 +479,46 @@ impl Checker<'_, '_> {
                     // newly-admitted containers, exactly as `parameter_of` does.
                     let container = self.nodes.parent(holder);
                     let admitted = container.is_some_and(|f| match self.nodes.kind(f) {
-                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::FunctionType
+                        | SyntaxKind::ConstructorType
+                        | SyntaxKind::CallSignature
+                        | SyntaxKind::ConstructSignature
+                        | SyntaxKind::MethodSignature
+                        | SyntaxKind::IndexSignature => true,
                         SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
                             self.has_no_contextual_type(f)
                         }
                         _ => false,
                     });
                     if admitted {
-                        let implied = self.get_widened_type_for_variable_like_declaration(holder);
+                        // `getTypeForVariableLikeDeclaration` (checker.go:16788,
+                        // pinned 5b1047d): a signature type has no expression
+                        // context. Its unannotated binding parent uses the same
+                        // implied-pattern worker as a function declaration.
+                        let signature_container = container.is_some_and(|f| {
+                            matches!(
+                                self.nodes.kind(f),
+                                SyntaxKind::FunctionType
+                                    | SyntaxKind::ConstructorType
+                                    | SyntaxKind::CallSignature
+                                    | SyntaxKind::ConstructSignature
+                                    | SyntaxKind::MethodSignature
+                                    | SyntaxKind::IndexSignature
+                            )
+                        });
+                        let implied = if signature_container
+                            && self.initializer_of(holder).is_none()
+                            && let Some(Node::ParameterDeclaration(parameter)) =
+                                self.node_map.get(holder)
+                            && let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
+                                parameter.name
+                        {
+                            self.binding_pattern_implied_type(pattern).unwrap_or(error)
+                        } else {
+                            self.get_widened_type_for_variable_like_declaration(holder)
+                        };
                         let expression_container = container.is_some_and(|f| {
                             matches!(
                                 self.nodes.kind(f),

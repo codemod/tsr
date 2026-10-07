@@ -272,3 +272,38 @@ and the walk reports TS2488 as upstream's does.
 `omittedExpressionForOfLoop` TS2488), extras unchanged, both loss checks
 empty, no verdict change (the case still lacks `checkNonNullExpression`'s
 TS18050, not this lane).
+
+## 9. Type-signature binding parents (`tsr-2zk.16.2.1`)
+
+Native `5b1047d`, `getTypeForBindingElementParent` (`checker.go:17695`)
+delegates to `getTypeForVariableLikeDeclaration`; an unannotated binding
+pattern uses `getTypeFromBindingPattern` (`checker.go:16788`). Function and
+constructor type nodes are not contextual function expressions. TSR's parent
+admission omitted those containers even though signature construction already
+used the implied-pattern worker for them. A renamed parameter leaf therefore
+typed as `error`, and `typeof` that leaf collapsed the enclosing callable alias.
+
+The parent getter now admits type-signature containers and reads the existing
+implied-pattern builder for an unannotated parent without an initializer.
+Annotation and contextual precedence, initializer handling and expression
+admission remain unchanged. Unsupported patterns retain `error`; no alias-name
+fallback or forced `any` is introduced. Parent and leaf identities remain
+Program NodeIds and binder SymbolIds; the existing private Checker owns type
+publication. No cache, side table or additional graph traversal is added.
+
+Actual corpus-pipeline controls now print `F6` for
+`type F6 = ({ a: string }) => typeof string`, and both the renamed binding
+and its return query print `any`. Ordinary, keyword and nested renames behave
+alike; an annotated `{ key: number }` parent still supplies `number`.
+Native declaration emission agrees on these parameter and call-return types.
+All three preserved user regression tests and 22 destructuring tests pass.
+The protected-flow isolated workspace passes 3,139 tests in 282 suites, with
+six existing ignored tests; workspace clippy and focused formatting pass.
+The full type matrix gains 31 GAP-to-RIGHT and 10 WRONG-to-RIGHT assertions,
+without lost RIGHT or vanished keys; diagnostic verdicts remain unchanged.
+Forty-one alternating fresh candidate/parent pairs retain matching options,
+loaded scope and ordered diagnostic fingerprints. Domain-model wall/CPU ratios
+are 0.98587/0.99178; generic-imports ratios are 0.99365/0.99090. These qualified
+no-slowdown observations do not verify complete-input/performed-work equivalence
+against native or certify the full 99.9% / median-ratio-at-most-0.50 release gate.
+
