@@ -312,3 +312,14 @@ The three, with what the contextual type was when `Absent` was answered:
 Not a `crate::contextual` defect in any of the three rows, so nothing is
 changed here. When those land, admitting `Absent` in `implicit_any.rs`
 should be +4 cases with no losses — the falsifier for this table.
+
+## 9. Rest-bearing array binding patterns imply a tuple (tsr-2zk.16.63)
+
+`getTypeFromArrayBindingPattern` (`checker.go:17957`) answers the
+iterable/array of `any` only for an empty pattern or a lone rest element;
+every other array pattern, rest-bearing included, is a tuple, so the
+initializer is checked in tuple context (`var [x, ...a] = [1, "a"]` records
+`[number, string]`). `array_binding_pattern_implies_tuple` is that predicate
+for the binding arms of `destructuring_array_pattern_slot`; no new state.
+Not ported: assignment targets with a spread (`[...a, x] = [1, 2, 3]`),
+whose tuple-ness depends on the checked left side (`restElementMustBeLast`).
