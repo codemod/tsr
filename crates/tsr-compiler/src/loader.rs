@@ -634,17 +634,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     }
 
     fn parse_options(&self, name: &str) -> tsr_parser::ParseOptions {
-        let inferred = tsr_parser::ScriptKind::from_file_name(name);
-        let lowered = name.to_ascii_lowercase();
-        let script_kind = if inferred == tsr_parser::ScriptKind::TypeScript
-            && self.options.jsx != tsr_core::JsxEmit::None
-            && [".js", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
-        {
-            tsr_parser::ScriptKind::Tsx
-        } else {
-            inferred
-        };
-        tsr_parser::ParseOptions { script_kind, ..Default::default() }
+        // Native parser.getLanguageVariant depends on ScriptKind, not emit JSX options.
+        tsr_parser::ParseOptions::for_file(name)
     }
 
     fn prepare_root_parses(&mut self) {

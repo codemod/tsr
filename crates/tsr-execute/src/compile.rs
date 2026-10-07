@@ -366,24 +366,6 @@ pub fn run_compilation(
         }
     };
 
-    // `SortAndDeduplicateDiagnostics` / `ast.CompareDiagnostics`: worker and
-    // Program order do not determine diagnostic order. This port's diagnostic
-    // representation has no message chains or related-information fields.
-    diagnostics.sort_by(|(left_file, left), (right_file, right)| {
-        left_file
-            .cmp(right_file)
-            .then_with(|| left.span.start.cmp(&right.span.start))
-            .then_with(|| left.span.end.cmp(&right.span.end))
-            .then_with(|| left.message.code().cmp(&right.message.code()))
-            .then_with(|| left.args.cmp(&right.args))
-    });
-    diagnostics.dedup_by(|(left_file, left), (right_file, right)| {
-        left_file == right_file
-            && left.span == right.span
-            && left.message.code() == right.message.code()
-            && left.args == right.args
-    });
-
     let mut printed: Vec<usize> = diagnostics
         .iter()
         .filter_map(|(name, _)| {
@@ -396,6 +378,7 @@ pub fn run_compilation(
         index_file(&mut indexed_files[index], index);
     }
     let files: Vec<DiagnosticFile> = indexed_files.into_iter().flatten().collect();
+    sort_and_deduplicate_diagnostics(&files, &mut diagnostics);
     report_located(sys, &files, &diagnostics, &options);
     let reporting_finished = sys.since_start();
 
@@ -591,6 +574,58 @@ impl tsr_module::types::ResolutionHost for DriverHost<'_> {
     }
 }
 
+/// Ported from typescript-go's `SortAndDeduplicateDiagnostics` and
+/// `compactAndMergeRelatedInfos` (`internal/compiler/program.go`).
+/// Primary locations borrow the Program's existing reporting images; related
+/// locations retain their attached source images. No file is cloned per head.
+fn sort_and_deduplicate_diagnostics(
+    files: &[DiagnosticFile],
+    diagnostics: &mut Vec<(String, Diagnostic)>,
+) {
+    diagnostics.sort_by(|(left_name, left), (right_name, right)| {
+        let left = LocatedDiagnostic {
+            file: files.iter().find(|file| file.file_name() == left_name),
+            diagnostic: left,
+        };
+        let right = LocatedDiagnostic {
+            file: files.iter().find(|file| file.file_name() == right_name),
+            diagnostic: right,
+        };
+        left.compare(&right)
+    });
+    let mut read = 0;
+    let mut write = 0;
+    while read < diagnostics.len() {
+        let (name, diagnostic) = &diagnostics[read];
+        let mut end = read + 1;
+        while end < diagnostics.len()
+            && diagnostics[end].0 == *name
+            && tsr_diagnostics::equal_diagnostics_no_related_info(diagnostic, &diagnostics[end].1)
+        {
+            end += 1;
+        }
+        if end > read + 1 {
+            let count = diagnostics[read..end]
+                .iter()
+                .map(|(_, diagnostic)| diagnostic.related_information().len())
+                .sum();
+            if count != 0 {
+                let mut related = Vec::with_capacity(count);
+                for (_, diagnostic) in &diagnostics[read..end] {
+                    related.extend_from_slice(diagnostic.related_information());
+                }
+                related.sort_by(tsr_diagnostics::compare_diagnostics);
+                related.dedup_by(|left, right| tsr_diagnostics::equal_diagnostics(left, right));
+                diagnostics[read].1.set_related_information(std::sync::Arc::new(related));
+            }
+        }
+        diagnostics.swap(write, read);
+        write += 1;
+        read = end;
+    }
+    diagnostics.truncate(write);
+}
+
 /// Render file-less diagnostics and the summary.
 fn report(sys: &mut dyn System, diagnostics: &[Diagnostic], options: &CompilerOptions) {
     let located: Vec<LocatedDiagnostic<'_>> =
@@ -617,6 +652,58 @@ fn report_located(
         .collect();
     let text = render(sys, &located, options, true);
     sys.write(&text);
+}
+
+#[cfg(test)]
+mod performance_r2_diagnostic_compaction_tests {
+    use super::sort_and_deduplicate_diagnostics;
+    use std::sync::Arc;
+    use tsr_core::Span;
+    use tsr_diagnostics::{Diagnostic, DiagnosticFile, messages};
+
+    fn head() -> Diagnostic {
+        Diagnostic::with_args(
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+            Span::new(0, 1),
+            ["A".into(), "B".into()],
+        )
+    }
+
+    fn detail(name: &str) -> Diagnostic {
+        Diagnostic::with_args(&messages::_0_EXPECTED, Span::new(0, 1), [name.into()])
+    }
+
+    #[test]
+    fn distinct_chains_survive_and_equivalent_heads_merge_related_locations() {
+        let files = [DiagnosticFile::new("/a.ts", "x")];
+        let mut short = head();
+        short.add_message_chain(Some(detail("short")));
+        let mut long = short.clone();
+        long.add_message_chain(Some(detail("long")));
+        let mut first = short.clone();
+        let mut related = detail("z");
+        related.set_file(Arc::new(DiagnosticFile::new("/z.ts", "x")));
+        first.add_related_information(Some(related.clone()));
+        let mut second = short.clone();
+        second.add_related_information(Some(related));
+        let mut earlier = detail("a");
+        earlier.set_file(Arc::new(DiagnosticFile::new("/b.ts", "x")));
+        second.add_related_information(Some(earlier));
+        let mut diagnostics = vec![
+            ("/a.ts".into(), first),
+            ("/a.ts".into(), long),
+            ("/a.ts".into(), second),
+            ("/a.ts".into(), short),
+        ];
+        sort_and_deduplicate_diagnostics(&files, &mut diagnostics);
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].1.message_chain().len(), 2);
+        assert_eq!(diagnostics[1].1.message_chain().len(), 1);
+        let related = diagnostics[1].1.related_information();
+        assert_eq!(related.len(), 2);
+        assert_eq!(related[0].file().unwrap().file_name(), "/b.ts");
+        assert_eq!(related[1].file().unwrap().file_name(), "/z.ts");
+    }
 }
 
 #[cfg(test)]
