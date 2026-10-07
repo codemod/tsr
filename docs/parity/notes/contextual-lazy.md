@@ -546,6 +546,28 @@ contracts remain the integration seams. No implementation/target conversion
 or full/parity/performance acceptance claimed for this investigation. Receipts
 literal-constraint-* in ignored recovery directory; existing .16.94 open.
 
+## Tagged effective-argument identity — tsr-2zk.16.92
+
+Claimed highest remaining nine-case tagged root. Current target counts265/267
+(twice),80/84(twice),36/38(twice),166/180(twice),15/17; none complete. Read
+native getEffectiveCallArguments/resolveTaggedTemplateExpression and owned
+contextual substitution plus calls writer. Native signature domain includes
+synthetic TemplateStringsArray slot0 and concrete tag receiver this. Current
+active call_inference_signatures writer shifts strings away; its contextual
+reader intentionally uses index. A completed native signature reader must use
+index+1 and substitution_count+1, but calls must first publish **unshifted**
+resolved_call_signatures with receiver/type-argument mapper intact. No field
+addition required, but writer/domain atomic cutover is calls-owned.
+
+Exact owner API requirement sent: completed tagged resolved signature uses
+unshifted effective arguments; active shifted memo remains separate until
+clean migration. No retry guessing based on parameter names/counts, no double
+signature cache or stateless overload fallback introduced. Actual native strict
+receiver/string/substitution declaration control and verified-base corpus probe
+both produce result:"receiver"; positive control is not a target conversion.
+No implementation/full no-loss/perf acceptance claim. Receipts tagged-*;
+existing .16.92 claimed/open. Owned source unchanged.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
