@@ -4743,10 +4743,12 @@ impl<'a> Checker<'a, '_> {
             ) {
                 return evaluated;
             }
-            // Upstream evaluates conditional aliases in alias-declared
-            // positions even through type-parameter arguments
-            // (`PrefixData<P>` answers `\`${P}:baz\``).
-            return error;
+            // getConditionalType defers a generic check type: the alias
+            // instantiation stays the deferred `Alias<Args>` reference, which
+            // instantiateType re-evaluates once the arguments are substituted.
+            if !self.conditional_alias_check_is_deferred(symbol, &arguments) {
+                return error;
+            }
         }
         // The same alias-declared position through an alias whose body is a
         // reference to a conditional alias (`type N3 = Not<boolean>` over
@@ -7504,6 +7506,49 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluated_types.insert(evaluated);
         }
         result
+    }
+
+    /// `getConditionalType`'s deferral test (`checker.go`, `isGenericType`
+    /// of the instantiated check type) for an alias whose body is a
+    /// conditional: resolve the check operand under the alias frame and ask
+    /// the same question [`Checker::evaluate_conditional_node`] declines on.
+    fn conditional_alias_check_is_deferred(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return false;
+        };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) =
+            alias.r#type.and_then(Self::skip_type_parentheses)
+        else {
+            return false;
+        };
+        let Some(check_node) = conditional.check_type else { return false };
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return false;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id))
+            else {
+                return false;
+            };
+            frame.insert(parameter, argument);
+        }
+        self.alias_evaluation_bindings.push(frame);
+        let check = self.get_type_from_type_node(check_node);
+        self.alias_evaluation_bindings.pop();
+        !self.is_error(check)
+            && !self.signature_types.contains_key(&check)
+            && (self.store.get(check).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                || self.mentions_registered_type_parameter(check))
     }
 
     /// Whether a type alias's declared type is a conditional type: its body is
