@@ -1563,41 +1563,6 @@ impl Checker<'_, '_> {
         false
     }
 
-    /// §126's gate: whether an identifier reference resolves to a variable
-    /// declared at a source file's top level. The instanceof FALSE branch
-    /// does not narrow those in the baselines (typeGuardOfFormInstanceOf)
-    /// while parameters and locals narrow
-    /// (instanceofWithStructurallyIdenticalTypes); an unresolvable
-    /// reference answers `true` — the arm then declines, the safe side.
-    fn reference_is_top_level_var(&mut self, reference: NodeId) -> bool {
-        let Some(Node::Identifier(identifier)) = self.node_map.get(reference) else {
-            return true;
-        };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            identifier.text,
-            SymbolFlags::VALUE,
-        ) else {
-            return true;
-        };
-        let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
-            return true;
-        };
-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
-            return false;
-        }
-        // VariableDeclaration → VariableDeclarationList → VariableStatement
-        // → SourceFile, exactly — anything else (a function body, a block)
-        // is a local.
-        self.nodes
-            .parent(declaration)
-            .and_then(|list| self.nodes.parent(list))
-            .and_then(|statement| self.nodes.parent(statement))
-            .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::SourceFile)
-    }
-
     /// `ast.IsThisInTypeQuery`: only the leftmost identifier in the entity
     /// name is query `this`; a property named `this` is an ordinary identifier.
     pub(crate) fn is_this_in_type_query(&self, node: NodeId) -> bool {
@@ -5529,16 +5494,6 @@ impl Checker<'_, '_> {
                         return self
                             .narrowed_type_worker(t, predicate_type, assume_true, true)
                             .unwrap_or(t);
-                    }
-                    // §126 iteration 2: the false arm holds for TOP-LEVEL
-                    // script vars — typeGuardOfFormInstanceOf's baseline
-                    // keeps `C1 | C2` whole in the else on GLOBAL vars while
-                    // instanceofWithStructurallyIdenticalTypes narrows the
-                    // same shape on PARAMETERS; §83's "global var vs
-                    // parameter" observation was the literal discriminator,
-                    // measured again here (14 adverse ungated, all one case).
-                    if !assume_true && self.reference_is_top_level_var(left_id) {
-                        return t;
                     }
                     // §126: the FALSE branch narrows too — by DERIVATION.
                     // `getNarrowedTypeWorker`'s `!assumeTrue` arm

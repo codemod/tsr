@@ -921,3 +921,23 @@ claimed noise or repaired by skipping native flow semantics. No equivalent
 native complete-work/0.50 acceptance. Parent needs integrated attribution before
 campaign landing. Clippy/anchors/sections/format checked; receipts ignored
 `target/recovery/flow-nonnull/`. Native forcing counts not measured.
+
+## 24. Remove declaration-location instanceof exemption (tsr-2zk.16.140)
+
+Native narrowTypeByInstanceof has no top-level-variable exemption for false
+branches: derivation, receiver and candidate categories decide narrowing. Removed
+that old heuristic and its sole-use lexical traversal; no replacement gate,
+cache, private-property supplier or readonly-helper change. Concrete reference
+identity and written alias still use the existing matcher.
+
+Whole native target typeGuardOfFormInstanceOf/narrowByInstanceof runs retain all
+previously RIGHT rows; full eligible corpus child exits0, all10,570 diagnostic
+rows and477,968 type keys byte-identical. No changed/new/vanished keys and no
+RIGHT loss.117 focused tests pass, Clippy checked. This removal gains no parity
+row; it deletes dead heuristic work rather than claiming a missing-native
+operation conversion.
+
+41-pair wait4 versus3b3f49e9: domainCPU0.9843/wall0.9581;
+genericCPU1.0017/wall1.0016. Complete outputs/status equal. Strict generic
+no-slowdown not met; no causal speed or native-equivalent complete-work claim.
+Receipts: `target/recovery/flow-instance-location/`. Parent gates remain needed.
