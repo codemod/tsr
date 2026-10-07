@@ -487,3 +487,14 @@ identity; changing semantic signature shape must mint a fresh identity. Pending
 return/predicate is metadata on a completed input image, not a provisional input
 cache result. Unsupported input mapping stores no cache entry. No separate
 stale/active cache heuristic introduced.
+
+### Distinct mapper return controls prepared
+
+Extended existing default/return behavioral test: one original generic signature
+is instantiated under string and number maps, then each result is read again and
+the original string map is queried through the instantiation cache. Assertions
+observe string/number returns, not incidental target metadata or source copies.
+Current empty-list assertion accepts count zero. Tests are prepared for parent
+real field/getter integration; distinct-mapper-tests.log is blocked by absent
+shared fields, not a claimed pass. Parent mapped predicate getter cache-before-
+target demand contract matches these workers; no alias cache success added.

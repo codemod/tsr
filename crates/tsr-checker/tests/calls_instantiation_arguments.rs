@@ -37,6 +37,17 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     assert_eq!(checker.type_to_string(returned), "string");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "string");
+    let number = checker.intrinsics().number;
+    let number_image = checker.get_signature_instantiation(&signature, &[number, number]).unwrap();
+    let number_return = checker.mapped_signature_return(&number_image).unwrap();
+    assert_eq!(checker.type_to_string(number_return), "number");
+    let string_image_again = checker.get_signature_instantiation(&signature, &arguments).unwrap();
+    for candidate in [&image, &string_image_again] {
+        let returned = checker.mapped_signature_return(candidate).unwrap();
+        assert_eq!(checker.type_to_string(returned), "string");
+    }
+    let number_return_again = checker.mapped_signature_return(&number_image).unwrap();
+    assert_eq!(checker.type_to_string(number_return_again), "number");
 }
 
 #[test]
