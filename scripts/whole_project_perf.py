@@ -424,7 +424,20 @@ def main() -> int:
             report.update(status="inputs_changed", inputs_unchanged=False)
             save()
             return None
-        measurement = process(command, cwd, args.timeout, environment=environment)
+        try:
+            measurement = process(command, cwd, args.timeout, environment=environment)
+        except OSError as error:
+            event.update(stable=False, launch_failed=True,
+                         reason=f"{type(error).__name__}: {error}")
+            report["input_observations"].append(event)
+            report.update(status="tool_launch_failed", inputs_unchanged=False,
+                          rejected_invocation={"command": command, "reason": event["reason"],
+                                               "binary_sha256": inputs.file_hash(command[0])})
+            save()
+            if args.checkpoint_output is not None:
+                args.checkpoint_output.parent.mkdir(parents=True, exist_ok=True)
+                args.checkpoint_output.write_text(json.dumps(report, indent=2) + "\n")
+            return None
         started = time.perf_counter()
         after = inputs.snapshot(input_paths)
         event.update(after=input_check(after), after_capture_seconds=time.perf_counter() - started,

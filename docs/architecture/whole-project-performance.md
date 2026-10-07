@@ -212,6 +212,19 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Unlaunchable frozen images do not lose failure receipts
+
+Controlled invocation now catches OS launch failures at the actual process
+boundary, preserving command, frozen executable hash, input observation and
+original error in requested report/checkpoint JSON. No measurement pair or
+worker-completion claim is created. 32 harness tests passed, including an actual
+invalid-executable-image CLI that freezes/hashes successfully but cannot launch:
+both outputs persist, false target, no pairs and exit 1 without traceback.
+Fresh qualified frozen five-pair/warmup capture saved
+`/tmp/recover-launch-checkpoint.json`, comparable exit 1. Full input/semantic
+coverage, source-build attestation and no-prior-RIGHT release checks remain
+unverified here; native <=0.50 is still unmet.
+
 ### Missing binary resolution is captured failure evidence
 
 Compiler-path resolution now runs inside the binary-capture failure boundary.

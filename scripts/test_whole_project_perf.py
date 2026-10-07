@@ -140,6 +140,27 @@ class BenchmarkEvidenceTests(unittest.TestCase):
             self.assertFalse(report["target_verified"])
             self.assertNotIn("Traceback", child.stderr)
 
+    def test_cli_unlaunchable_frozen_binary_preserves_failure_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "tsconfig.json"
+            project.write_text("{}")
+            binary = root / "invalid-compiler"
+            binary.write_bytes(b"not an executable image")
+            output, checkpoint = root / "report.json", root / "checkpoint.json"
+            child = subprocess.run([sys.executable, str(ROOT / "scripts/whole_project_perf.py"),
+                                    "--project", str(project), "--tsr", str(binary),
+                                    "--tsgo", sys.executable, "--output", str(output),
+                                    "--checkpoint-output", str(checkpoint)], capture_output=True, text=True)
+            self.assertEqual(child.returncode, 1, child.stderr)
+            report = json.loads(output.read_text())
+            self.assertEqual(report, json.loads(checkpoint.read_text()))
+            self.assertEqual(report["status"], "tool_launch_failed")
+            self.assertEqual(report["rejected_invocation"]["binary_sha256"], report["binary_freezes"]["tsr"]["sha256"])
+            self.assertFalse(report["target_verified"])
+            self.assertEqual(report["pairs"], [])
+            self.assertNotIn("Traceback", child.stderr)
+
     def test_checkout_identity_distinguishes_unmerged_tracked_and_untracked_source(self):
         from whole_project_perf import checkout_identity
         with tempfile.TemporaryDirectory() as directory:
