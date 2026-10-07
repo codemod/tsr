@@ -1,0 +1,128 @@
+# Inherited concrete `this` recovery — tsr-2zk.16.225
+
+## Result: candidate rejected; production unchanged
+
+Recovery source was `0e7824ddb2f06af1dd4cbbe9779e0a17b720a0f3`.
+The supplied `box/parity-property` ref was not included in this Box's refs or
+object-name resolution. No old branch or unverified snapshot was merged.
+Native source is pinned to `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
+
+A reconstructed owned-file candidate forwarded the original concrete receiver
+through `members.rs::generic_heritage_member`, selected the supplying base
+rather than the receiving owner for nongeneric inherited symbols, and composed
+base and outer type arguments without rebinding `this`. It was reverted after
+completed corpus gates rejected it. No semantic production changes are retained.
+
+## Native operation and state boundary
+
+`resolveTypeReferenceMembers` (`checker.go:19095`) supplies the reference itself
+as the final argument for the target's polymorphic `this` parameter.
+`resolveObjectTypeMembers` (`:19106`, especially `:19133–19138`) instantiates
+**each base** under the reference mapper, then calls `getTypeWithThisArgument`
+with that final argument before adding inherited properties and signatures.
+`getTypeWithThisArgument` (`:19573`) appends the argument to a reference whose
+arguments do not already include it; it preserves an existing explicit tail
+and maps intersection constituents. Supplier and receiver are distinct inputs.
+
+Native publishes provisional structured members before traversing bases,
+marks `ObjectFlagsUnresolvedMembers` during traversal, and publishes completion
+only after inheritance finishes. A raw inherited declaration symbol is not an
+instantiated member image. The reconstructed candidate added no cache or state:
+its temporary walk used checker-local `SymbolId` cycle identities and existing
+ordered reference arguments, `this_types`, instantiation owners and alias display
+metadata. Its expensive boundary remained a base walk per inherited query;
+no work-reuse or speed benefit was claimed.
+
+## Fresh controls and completed gates
+
+The direct native declaration control uses `Base<T>`, `Middle<T>`, and distinct
+`Left extends Middle<string>` / `Right extends Middle<number>` receivers.
+Native emits `(p: Left, value: string) => Left`,
+`(p: Right, value: number) => Right`, and `Left` / `Right` self properties.
+Checkpoint TSR emitted `Base<string>` / `Base<number>`; the candidate emitted
+the native derived types. Two dedicated callback controls passed, including
+nongeneric indirect inheritance and own-member shadowing.
+
+Fresh target verdicts convert seven assertions in
+`conformance/instancePropertiesInheritedIntoClassType` from WRONG to RIGHT.
+`conformance/contextualThisType` retains four wrong contextual assertions.
+Target-only improvements did not qualify the candidate.
+
+Both unfiltered before/after type children completed over **477,970 assertions**:
+
+| State | RIGHT | WRONG | GAP |
+| --- | ---: | ---: | ---: |
+| Checkpoint | 469,785 | 7,190 | 995 |
+| Rejected candidate | 469,758 | 7,213 | 999 |
+
+There are **39 previous RIGHT losses**, 12 WRONG-to-RIGHT gains, and no vanished
+keys. Loss families include `builtinIterator`, `syncIteratorHelpers`,
+`inferenceErasedSignatures`, `coAndContraVariantInferences2`,
+`excessiveStackDepthFlatArray`, and `genericRestParameters3`.
+
+Both diagnostic children completed over **10,570 cases**:
+
+| State | EMPTY_RIGHT | RIGHT | WRONG | EMPTY_WRONG |
+| --- | ---: | ---: | ---: | ---: |
+| Checkpoint | 4,968 | 4,222 | 1,280 | 100 |
+| Rejected candidate | 4,965 | 4,222 | 1,280 | 103 |
+
+Five prior correct cases regress: `arrayOfSubtypeIsAssignableToReadonlyArray`,
+`coAndContraVariantInferences2`, `genericCallAtYieldExpressionInGenericCall3`,
+`implicitAnyGenericTypeInference`, and `inferenceErasedSignatures`. Two cases
+improve. Diagnostic vectors also change inside already-WRONG cases; those
+changes are not accepted merely because their case verdict is unchanged.
+A direct pinned-native replay of `inferenceErasedSignatures.ts` exits 0;
+the candidate adds false TS2415/TS2345 diagnostics.
+
+Strict release checker all-target Clippy passes. The complete checker test
+command stops after library tests: 186 pass, one fails because
+`composite_this_member_keeps_the_whole_intersection_receiver` expects the
+previous unsupported enumeration result. This command does not qualify the
+package integration suite. No test expectation was repinned to hide rejection.
+Interrupted initial corpus children had no completed receipts and are excluded.
+No equivalent-complete-work performance measurement was run for a rejected
+candidate; neither >=99.9% exact parity nor median wall ratio <=0.50 is claimed.
+
+## Integration prerequisites; owned work exhausted
+
+1. `contextual.rs:2435–2443` reads an inherited property's raw symbol type and
+   instantiates under the receiving owner. It bypasses the semantic member-type
+   supplier; this explains the remaining `contextualThisType` rows. The
+   contextual owner must consume `get_type_of_property_of_type` while preserving
+   its optionality, union-discrimination and mapper context.
+2. `declared.rs::collect_keyof_property_names` refuses generic bases via
+   `base_symbols_of`. Newly demanded `keyof this` substitution reaches this gap.
+   Native `getLiteralTypeFromProperties` reads winning declaration metadata;
+   key enumeration must preserve shadowing, numeric/nonpublic filtering and
+   completion rather than reuse an uninstantiated value table.
+3. The integration owner must supply a checker-private semantic reference view,
+   `get_type_with_this_argument(base: TypeId, this_argument: TypeId) -> TypeId`,
+   with ordered hidden-tail identity and tail-aware instantiation, signatures,
+   presentation and relation consumers. `heritage_conformance.rs` can then
+   compare against native's base-with-derived-formal-this view. No ambient
+   override or forced relation success is acceptable. Coordinate signature
+   substitution with `recover-calls`; this lane does not own signatures.
+
+These files/interfaces are outside this Box's allocated ownership. The existing
+issue stays in progress, with these findings recorded; no duplicate task is made.
+A coherent cross-owner port must rerun native controls and a full pair after
+integration. Historical C1/C2/C3 rejections in
+`docs/architecture/checker-inherited-this.md` are evidence, not current passes.
+
+## Receipt location and hashes
+
+Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
+full before/after TSVs, transition enumeration (including vanished-key checks),
+raw direct native declarations and inference replay, target controls, test and
+Clippy logs, binary identities, and `rejected.patch`. They are Box-local and
+must be collected before machine destruction; ignored files are not fetched
+with the commit.
+
+SHA-256:
+
+- Types before: `2c963ce2d05c0a010f857205b17689444b3fe75ebcd7ca86a37ea714c5506ba1`
+- Types candidate: `c59b8dc486aa5743b0aadd42ce84941737e25f5c40039dc9a5e8ec17c59ef176`
+- Diagnostics before: `30000e586b6a6acf1ac5aa05ef16b33d193d75254335c12d19e6c83386287994`
+- Diagnostics candidate: `ece61336888ec87e3f82292c1d259dc6f67634c73abaf38ae796d26f69325264`
+- Rejected owned patch: `947e2d5ff5cce5ed48184ee44e2e4de5dbaa60197e27e423768999834c32f6b0`
