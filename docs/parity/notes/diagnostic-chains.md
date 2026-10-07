@@ -223,6 +223,32 @@ include earlier recovery work, not isolated property-port attribution. Verified
 complete-work ratios remain null; no native <=0.50 or literal no-regression release
 claim. Receipts `target/recovery-diagnostics/property-*`.
 
+## Contravariant parameter reporting — tsr-2zk.1
+
+Pinned compareSignaturesRelated at relater.go 1568 first runs non-strict bivariant
+forward comparison without reporting, then reverse comparison with reportErrors;
+completed reverse failure prepends TS2328 using getParameterNameAtPosition. Owned
+one_signature_related_to now selects that concrete parameter pair for the existing
+recursive worker, consumes its completed simple/property/signature explanation,
+and restores parent reporting pair/state on success/Unknown. No second traversal
+or persistent reuse. Ordinary/array-rest names use actual Signature parameters;
+tuple-rest label publication and callback-signature recursive reporting remain
+unsupported rather than receiving guessed names. Existing optional/rest/strict
+arity verdict policy is retained. Verdict-only paths use the previous worker path.
+
+Actual CLI assignment and argument controls with object parameter types now match
+native complete TS2328/TS2322/TS2326 trees; primitive parameter mismatch also
+matches. Dedicated tests assert contravariant direction, names, nested messages,
+head codes and child spans. Workspace release tests complete and pass (not an
+interrupted run), scoped all-target clippy passes, sixteen read-only suites finish.
+Fresh keyed dumps retain 469785 protected RIGHT type and 9190 RIGHT/EMPTY_RIGHT
+diagnostic keys, zero missing/changed. Domain-model 21-pair candidate/recovery-
+baseline observed wall ratio 0.9361; complete-work verification remains null.
+Current return control still lacks native return-type chains and property-return
+marker compression (f().x); no complete parameter/return cluster claim. Native
+return marker writer/reduction must be implemented together before publication.
+Receipts target/recovery-diagnostics/parameter-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

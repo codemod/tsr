@@ -64,6 +64,23 @@ fn quoted_property_paths_and_signature_members_preserve_native_trees() {
 }
 
 #[test]
+fn parameter_failure_wraps_the_actual_contravariant_object_chain() {
+    let ds = diagnostics(
+        "declare let s: (source: { x: number }) => void; let t: (target: { x: string }) => void = s; declare function accept(callback: (target: { x: string }) => void): void; accept(s);",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322, 2345]);
+    for d in &ds {
+        let mut text = String::new();
+        write_flattened_diagnostic_message(&mut text, &d.message_chain()[0], "\n");
+        assert_eq!(
+            text,
+            "Types of parameters 'source' and 'target' are incompatible.\n  Type '{ x: string; }' is not assignable to type '{ x: number; }'.\n    Types of property 'x' are incompatible.\n      Type 'string' is not assignable to type 'number'."
+        );
+        assert_eq!(d.message_chain()[0].message_chain()[0].span, d.span);
+    }
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

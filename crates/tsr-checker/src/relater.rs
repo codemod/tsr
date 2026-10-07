@@ -2170,18 +2170,80 @@ impl Relater<'_, '_, '_> {
                     false,
                 )?);
             } else {
-                parts.push(if callback || strict_variance {
-                    self.is_related_to(to, from)
+                let forward = if callback || strict_variance {
+                    RelationResult::NotRelated
                 } else {
-                    // compareSignaturesRelated tries the forward bivariant
-                    // proof first; the reverse walk is needed only if it fails.
-                    let forward = self.is_related_to(from, to);
-                    if forward.is_success() {
-                        forward
+                    // Native bivariant forward query disables reporting.
+                    self.is_related_to(from, to)
+                };
+                let related = if forward.is_success() {
+                    forward
+                } else if report_errors {
+                    let saved_pair = self.diagnostic_pair;
+                    let saved_error = self.property_error.take();
+                    let saved_signature = self.signature_error.take();
+                    let saved_simple = std::mem::take(&mut self.simple_error);
+                    self.diagnostic_pair = Some((to, from));
+                    let reverse = self.is_related_to(to, from);
+                    self.diagnostic_pair = saved_pair;
+                    if reverse == RelationResult::NotRelated {
+                        let error = self.property_error.take();
+                        let signature = self.signature_error.take();
+                        let simple = std::mem::take(&mut self.simple_error);
+                        // Native names for ordinary and array-rest parameters.
+                        // Tuple-rest labels need their existing label supplier;
+                        // do not invent them from printed signatures.
+                        let name = |signature: &crate::signatures::Signature| {
+                            signature
+                                .parameters
+                                .get(index)
+                                .or_else(|| signature.parameters.last().filter(|p| p.rest))
+                                .map(|p| p.name.clone())
+                        };
+                        if self.checker.signature_non_array_rest_type(source_signature).is_none()
+                            && self
+                                .checker
+                                .signature_non_array_rest_type(target_signature)
+                                .is_none()
+                            && (error.is_some() || signature.is_some() || simple)
+                            && let (Some(source_name), Some(target_name)) =
+                                (name(source_signature), name(target_signature))
+                        {
+                            use tsr_diagnostics::{Diagnostic, messages};
+                            let span = tsr_core::Span::new(0, 0);
+                            let mut child = Diagnostic::with_args(
+                                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                                span,
+                                [
+                                    self.checker.type_to_string(to),
+                                    self.checker.type_to_string(from),
+                                ],
+                            );
+                            if let Some(error) = error {
+                                child.add_message_chain(Some(error));
+                            } else if let Some((minimum, count)) = signature {
+                                child.add_message_chain(Some(Diagnostic::with_args(
+                                    &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    span, [minimum.to_string(), count.to_string()],
+                                )));
+                            }
+                            self.property_error = Some(Diagnostic::new_chain(
+                                Some(child),
+                                &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                                [source_name, target_name],
+                            ));
+                        }
+                        self.simple_error = saved_simple;
                     } else {
-                        RelationResult::any([forward, self.is_related_to(to, from)])
+                        self.property_error = saved_error;
+                        self.signature_error = saved_signature;
+                        self.simple_error = saved_simple;
                     }
-                });
+                    RelationResult::any([forward, reverse])
+                } else {
+                    RelationResult::any([forward, self.is_related_to(to, from)])
+                };
+                parts.push(related);
             }
             // compareSignaturesRelated returns on the first incompatible
             // parameter, before comparing later parameters or return types.
