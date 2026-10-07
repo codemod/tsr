@@ -390,3 +390,14 @@ contextual type through, so `const { B = class {} } = ({ B: undefined })`
 types the literal against the implied pattern (`{ B?: undefined; }`).
 `contextual_binding_pattern` (§489) now recurses through a parenthesis; the
 parameter/binding-element arms still require the literal itself. No state.
+
+## 16. IIFE parameter defaults past the arguments use the implied pattern (tsr-2zk.16.63)
+
+`getContextuallyTypedParameterType`'s IIFE arm (`checker.go:29466`) answers
+the argument type for a rest parameter or a position with an argument, and
+nil for a defaulted position past the arguments, so
+`getContextualTypeForInitializerExpression` falls through to the implied
+binding-pattern type: `(({ u = 22 } = { u: 23 }) => u)()` records
+`{ u?: number; }`, while `({ r = 17 } = { r: 18 }) => r)({ r: 19 })` keeps
+`{ r: number; }` (tsgo `.types` identical). `iife_supplies_parameter_context`
+is that test for `contextual_binding_pattern`; no state.
