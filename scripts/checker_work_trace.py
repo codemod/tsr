@@ -287,8 +287,22 @@ def validate_receipt(receipt: dict, warning: str) -> dict:
     before, after = receipt["inputs_before"], receipt["inputs_after"]
     require(isinstance(before, list) and before and before == after
             and valid_snapshot(before), "input capture missing, invalid or changed")
-    require(snapshot([row["path"] for row in before]) == before,
+    paths = [row["path"] for row in before]
+    require(len(paths) == len(set(paths)), "duplicate captured query-input identity")
+    require(snapshot(paths) == before,
             "captured inputs no longer match")
+    require(isinstance(receipt["current_directory"], str) and Path(receipt["current_directory"]).is_absolute(),
+            "missing absolute captured current directory")
+    require(isinstance(receipt["show_config"], dict)
+            and isinstance(receipt["show_config"].get("compilerOptions", {}), dict),
+            "missing effective configuration object")
+    if "--project" in command:
+        require(command.count("--project") == 1 and command.index("--project") + 1 < len(command),
+                "invalid project invocation")
+        config = Path(command[command.index("--project") + 1])
+        if not config.is_absolute():
+            config = Path(receipt["current_directory"]) / config
+        require(str(config) in paths, "invoked project config is absent from captured query inputs")
     require(isinstance(receipt["loaded_files"], list)
             and all(isinstance(name, str) and name for name in receipt["loaded_files"]),
             "missing ordered loaded identities")

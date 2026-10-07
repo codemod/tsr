@@ -418,6 +418,22 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(result["comparison_valid"])
             self.assertTrue(result["reasons"])
 
+    def test_receipt_duplicate_query_inputs_and_missing_invoked_config_reject(self):
+        context = copy.deepcopy(self.context)
+        context["inputs_before"] *= 2
+        context["inputs_after"] *= 2
+        self.reject(context=context)
+        config = self.root / "tsconfig.json"
+        config.write_text("{}")
+        context = copy.deepcopy(self.context)
+        context["child"]["command"] += ["--project", str(config)]
+        rows = copy.deepcopy(self.rows)
+        rows[0]["args"] = context["child"]["command"][1:]
+        self.reject(rows=rows, context=context)
+        context["inputs_before"] = snapshot([str(self.input), str(config)])
+        context["inputs_after"] = context["inputs_before"]
+        self.assertTrue(self.check(rows=rows, context=context)["artifact_integrity_valid"])
+
     def test_comparison_matching_workers_cannot_hide_changed_or_missing_diagnostics(self):
         from checker_work_trace import compare_work_captures
         ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,

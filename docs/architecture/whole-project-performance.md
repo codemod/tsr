@@ -212,6 +212,23 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Invoked config must belong to captured query inputs
+
+Receipt validation now rejects duplicate query-input identities, missing absolute
+current-directory/config-object facts, and an invoked `--project` config absent
+from the before/after input snapshot. Equal incomplete input arrays are not enough
+to qualify the actual config query. This is a necessary bounded coverage check,
+not proof that every resolver query or bundled byte was observed.
+
+40 trace tests passed; actual native large reader accepted its complete observed
+config row. Actual omitted-config receipt CLI saved
+`/tmp/recover-query-input-rejection.json` and exited 1. Fresh frozen expected-hash
+five-pair/warmup smoke saved `/tmp/recover-query-input-checkpoint.json`, comparable
+exit 1. Parent reports 11 candidate/prior pairs ratio 0.95175, no hot regression
+observed, but verified ratio null; candidate/native ratio 1.604 still fails <=0.50.
+These are parent-reported observations, not locally inspected full-corpus/build
+receipts. Full zero-loss and complete-worker/source provenance gates stay false.
+
 ### Completed workers cannot hide changed diagnostic output
 
 Bounded comparison acceptance additionally requires both receipts' complete CLI
