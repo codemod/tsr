@@ -374,7 +374,9 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ImportType,
                     start,
                 );
-                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                if list_span.is_some() {
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                }
                 TypeNode::ImportTypeNode(node)
             }
             SyntaxKind::ThisKeyword => {
@@ -414,7 +416,9 @@ impl<'a> Parser<'a> {
                     SyntaxKind::TypeQuery,
                     start,
                 );
-                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                if list_span.is_some() {
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                }
                 TypeNode::TypeQueryNode(node)
             }
             SyntaxKind::InferKeyword => {
@@ -486,7 +490,9 @@ impl<'a> Parser<'a> {
                     SyntaxKind::TypeReference,
                     start,
                 );
-                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                if list_span.is_some() {
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                }
                 TypeNode::TypeReferenceNode(node)
             }
             // A contextual keyword can name a type: `require.I`, `type`, `module`.
@@ -499,7 +505,9 @@ impl<'a> Parser<'a> {
                     SyntaxKind::TypeReference,
                     start,
                 );
-                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                if list_span.is_some() {
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                }
                 TypeNode::TypeReferenceNode(node)
             }
             // `parseNonArrayType`'s JSDoc arms: `*`, `?T`, `!T`.
@@ -523,7 +531,9 @@ impl<'a> Parser<'a> {
                     SyntaxKind::TypeReference,
                     start,
                 );
-                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                if list_span.is_some() {
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                }
                 TypeNode::TypeReferenceNode(node)
             }
             _ => {
@@ -1328,9 +1338,10 @@ impl<'a> Parser<'a> {
         // preserving allocated-empty lists, recovery and trailing commas.
         let (arguments, _) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
-        if !self.at(SyntaxKind::GreaterThanToken) {
-            self.rescan_greater_than();
-        }
+        // Native ReScanGreaterThanToken packs >=/>> here, rejecting them as
+        // expression-list closes. Our scanner already packs those operators;
+        // splitting them here would steal a relational/shift operator. Nested
+        // type references split their own closing tokens in the type worker.
         if !self.at(SyntaxKind::GreaterThanToken) {
             return None;
         }

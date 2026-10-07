@@ -128,14 +128,32 @@ never clamps diagnostic spans. New consumer-visible parser tests cover these
 states, all absorption paths, JSDoc/heritage and private-owner destruction with
 a nonzero publication base.
 
-This writer changeset is **not independently verified or runnable** until the
-parent AST API is supplied: local cargo check reports absent getter/setter
-methods. Native controls ran successfully and writer files were rustfmt'd;
-no candidate test, parity or performance pass is claimed for the metadata
-cutover. The earlier JS-only fb043744 verification above remains independent.
-Integrate AST/writer/consumer atomically, then run current native target controls,
-all new metadata tests, all previous RIGHT including vanished-key checks, full
-configuration parity and relevant complete-work performance gates.
+The parent supplied the exact canonical sparse AST API for a compilation-only
+local copy; that copy is not included in parser commits. Integrated parser and
+scanner release tests, new metadata/publication controls, parser fmt and
+parser-library clippy pass. A missing HasNodeId trait use in JSDoc was corrected
+by accessing the existing node_id field. A full comparison initially exposed
+15 previous RIGHT losses (13 vanished keys) in instantiationExpressionErrors:
+our eager scanner's >= was split into a closing > after native delimited-list
+recovery. The expression-list close now requires an already-single >, matching
+native ReScanGreaterThanToken's packing/rejection operation; nested type
+workers still split their own closes. A relational control pins that boundary.
+
+Current unfiltered integrated results: 478039 type rows (RIGHT 469839, WRONG
+7205, GAP 995), diagnostic rows 10570 (RIGHT 4227, WRONG 1275, EMPTY_RIGHT
+4968, EMPTY_WRONG 100). Zero prior RIGHT/EMPTY_RIGHT losses and zero vanished
+keys; all three unary JSX diagnostic targets remain RIGHT. Typequery/call empty
+lists and raw ranges pass after private-owner destruction and host relocation.
+These are existing harness populations, not full-configuration completion.
+
+Performance **does not pass**: final fresh-process interleaved 21-pair parser
+ratios versus frozen 0e7824dd are 1.041992 on parser.ts and 1.161778 on
+dom.generated.d.ts. Avoiding absent-list setter work on new TypeReference hosts
+retains the same canonical metadata contract but does not remove this measured
+slowdown. Parent must resolve sparse storage/writer work attribution before a
+no-hotpath-regression landing; no <=0.50 whole-checker claim follows. Integrate
+AST/writer/consumer atomically and rerun complete current campaign gates. The
+earlier JS-only fb043744 verification remains independent.
 
 ### Integration prerequisites still open
 
