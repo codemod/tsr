@@ -124,6 +124,99 @@ pub fn is_whitespace_single_line(cp: char) -> bool {
     )
 }
 
+/// Ported from typescript-go's `scanner.SkipTrivia` (`scanner.go`).
+/// `pos` is a byte offset in the full source, not a substring-relative offset.
+/// Uses default options only; returns offsets at or beyond EOF unchanged.
+#[must_use]
+pub fn skip_trivia(source: &str, pos: u32) -> u32 {
+    let bytes = source.as_bytes();
+    let mut offset = pos as usize;
+    while offset < bytes.len() {
+        match bytes[offset] {
+            b' ' | b'\t' | 0x0b | 0x0c | b'\r' | b'\n' => offset += 1,
+            b'/' if bytes.get(offset + 1) == Some(&b'/') => {
+                offset += 2;
+                while offset < bytes.len() {
+                    let ch = source[offset..].chars().next().unwrap();
+                    if is_line_break(ch) {
+                        break;
+                    }
+                    offset += ch.len_utf8();
+                }
+            }
+            b'/' if bytes.get(offset + 1) == Some(&b'*') => {
+                offset += 2;
+                while offset < bytes.len() {
+                    if bytes[offset] == b'*' && bytes.get(offset + 1) == Some(&b'/') {
+                        offset += 2;
+                        break;
+                    }
+                    offset += source[offset..].chars().next().unwrap().len_utf8();
+                }
+            }
+            b'<' | b'|' | b'=' | b'>' if is_conflict_marker_trivia(source, offset) => {
+                offset = scan_conflict_marker_trivia(source, offset);
+            }
+            b'#' if offset == 0 && is_shebang_trivia(source) => {
+                offset = scan_shebang_trivia(source);
+            }
+            byte if byte >= 0x80 => {
+                let ch = source[offset..].chars().next().unwrap();
+                if !is_whitespace_single_line(ch) && !is_line_break(ch) {
+                    break;
+                }
+                offset += ch.len_utf8();
+            }
+            _ => break,
+        }
+    }
+    u32::try_from(offset).expect("source offset exceeds u32")
+}
+
+/// Ported from typescript-go's `scanner.isConflictMarkerTrivia` (`scanner.go`).
+fn is_conflict_marker_trivia(source: &str, pos: usize) -> bool {
+    let bytes = source.as_bytes();
+    if bytes.get(pos + 1) != bytes.get(pos) || pos + 7 >= bytes.len() {
+        return false;
+    }
+    // Preserve native full-source line context, including its second rune check.
+    let at_line_start = pos == 0
+        || matches!(bytes[pos - 1], b'\n' | b'\r')
+        || (pos >= 2
+            && source
+                .get(..pos - 2)
+                .and_then(|prefix| prefix.chars().next_back())
+                .is_some_and(is_line_break));
+    at_line_start && Scanner::is_conflict_marker(bytes, pos, bytes.len())
+}
+
+/// Ported from typescript-go's `scanner.scanConflictMarkerTrivia` (`scanner.go`).
+fn scan_conflict_marker_trivia(source: &str, mut pos: usize) -> usize {
+    let bytes = source.as_bytes();
+    let marker = bytes[pos];
+    if matches!(marker, b'<' | b'>') {
+        while pos < bytes.len() {
+            let ch = source[pos..].chars().next().unwrap();
+            if is_line_break(ch) {
+                break;
+            }
+            pos += ch.len_utf8();
+        }
+    } else {
+        while pos < bytes.len() {
+            let current = bytes[pos];
+            if matches!(current, b'=' | b'>')
+                && current != marker
+                && is_conflict_marker_trivia(source, pos)
+            {
+                break;
+            }
+            pos += 1;
+        }
+    }
+    pos
+}
+
 /// A saved scanner position, produced by [`Scanner::save`].
 ///
 /// Deliberately opaque and `Copy`: it is a bookmark, not a snapshot of the source.
@@ -485,7 +578,7 @@ impl<'a> Scanner<'a> {
                     // Without this, `<<<<<<< HEAD` lexed as shift operators
                     // and the fixtures printed the marker as expressions
                     // (`conflictMarkerTrivia1/3`, `conflictMarkerDiff3Trivia1`).
-                    b @ (b'<' | b'=' | b'>' | b'|')
+                    b'<' | b'=' | b'>' | b'|'
                         if (flags.contains(TokenFlags::PRECEDING_LINE_BREAK) || i == 0)
                             && Self::is_conflict_marker(bytes, i, limit) =>
                     {
@@ -494,24 +587,7 @@ impl<'a> Scanner<'a> {
                             &messages::MERGE_CONFLICT_MARKER_ENCOUNTERED,
                             Span::new(i as u32, i as u32 + 7),
                         );
-                        if b == b'<' || b == b'>' {
-                            while i < limit && bytes[i] != b'\n' && bytes[i] != b'\r' {
-                                i += 1;
-                            }
-                        } else {
-                            i += 7;
-                            while i < limit {
-                                let current = bytes[i];
-                                if (current == b'=' || current == b'>')
-                                    && current != b
-                                    && (i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r')
-                                    && Self::is_conflict_marker(bytes, i, limit)
-                                {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                        }
+                        i = scan_conflict_marker_trivia(&self.source[..limit], i);
                     }
                     // Anything else ASCII starts a token.
                     b if b < 0x80 => break 'trivia,
