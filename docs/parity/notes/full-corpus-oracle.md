@@ -27,7 +27,9 @@ expanded merged setting map, builds a VFS-backed `Program`, checks source files,
 collects diagnostics, and independently traverses/types source nodes. The expected
 artifact never enters its process. Type source echoes, CRLF, headers, file order,
 and only the pinned prefix replacements are retained. The actual writer guard
-uses actual diagnostics, not reference-baseline existence.
+uses actual diagnostics, not reference-baseline existence. Test-library detection
+now examines compiler input roots only, as `CompileFilesEx` does; `@libFiles:
+lib.d.ts` does not override bundled default libraries unless effective noLib=true.
 
 The existing assertion APIs now accept `TestFile` source units instead of
 `FileTypes` expectations. All Rust callsites were migrated, without adapters.
@@ -87,8 +89,16 @@ Required integration-owner contract for `b6d2104f`:
 3. Full Program/global diagnostics paired with optional canonical file identity,
    including option diagnostics such as witnessed TS5108; do not fabricate them
    in the oracle from expected rows or special-case the control source.
-4. Pre/post-emit diagnostic collections and native option/configuration semantics;
-   declaration/suggestion producers must run where the native harness runs them.
+4. Compiler/.22.1 consumer-owner request: provide an actual compilation result
+   retaining the post-emit Program/Checker and both complete diagnostic collections.
+   Pre phase clones options with traceResolution=false and creates a fresh Program;
+   collect config, Program, syntactic, semantic, global, declarations when enabled,
+   suggestions when captureSuggestions is set; native-sort/deduplicate. Post phase
+   creates a fresh Program, actually emits, then repeats the same collection.
+   Preserve native count-mismatch behavior (shorter list plus ad-hoc diagnostic and
+   excess related diagnostics). Type queries must use the checked post Program's
+   per-file checker lease. No emitter/Program API for that result exists in this
+   checkout; the oracle's current manual collector is not equivalent to both phases.
 
 Existing chain/related APIs and Program source images are integrated already.
 Diagnostic top rendering prefers each diagnostic's canonical source image,

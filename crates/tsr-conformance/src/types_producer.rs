@@ -1722,13 +1722,23 @@ pub fn program_and_config_for_case<'a>(
     // makes program **roots**. Without this mapping every such reference
     // silently resolved to nothing, and `declare module "react"` — the module
     // the whole tsx corpus imports — was never in any program.
-    let mentions_lib = case.files.iter().any(|unit| unit.content.contains("/.lib/"));
+    let mentions_lib = case.files.iter().any(|unit| {
+        roots.contains(&tsr_path::get_normalized_absolute_path(&unit.name, current_directory))
+            && unit.content.contains("/.lib/")
+    });
     let lib_files = case.options.get("libfiles");
     if mentions_lib || lib_files.is_some() {
         files.extend(test_lib_files().iter().cloned());
     }
     if let Some(list) = lib_files {
         for name in list.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+            // CompileFilesEx skips the historical custom lib.d.ts override
+            // unless the effective configuration explicitly sets noLib.
+            let no_lib = case.options.get("nolib").map_or_else(
+                || parsed_config.as_ref().is_some_and(|c| c.compiler_options.no_lib.is_true()),
+                |value| value.eq_ignore_ascii_case("true"),
+            );
+            if name == "lib.d.ts" && !no_lib { continue; }
             roots.push(format!("/.lib/{name}"));
         }
     }
