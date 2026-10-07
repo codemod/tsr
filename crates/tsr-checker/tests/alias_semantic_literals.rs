@@ -171,6 +171,17 @@ fn mapped_identity_uses_resolved_parenthesized_parameter_operands() {
 }
 
 #[test]
+fn parameter_body_alias_maps_its_actual_ordered_owner() {
+    assert_eq!(
+        declared_and_reference(
+            "type Second<A, B> = ((B)); declare let value: Second<number, string>;",
+            "Second",
+        ),
+        ("B".into(), "string".into()),
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

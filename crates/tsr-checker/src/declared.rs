@@ -7118,11 +7118,9 @@ impl<'a> Checker<'a, '_> {
         if !reference.type_arguments.is_empty() {
             return None;
         }
-        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
-            return None;
-        };
+        let owner = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
         alias.type_parameters.iter().position(|parameter| {
-            parameter.name.is_some_and(|parameter_name| parameter_name.text == name.text)
+            parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(owner)
         })
     }
 

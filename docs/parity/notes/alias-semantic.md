@@ -314,6 +314,18 @@ no equivalent-complete-work/no-hotpath/release performance certification.
 Receipts `mapped-identity-*` under `target/recovery/alias`. Parent-reserved wrapper
 metadata blocks remain untouched.
 
+## Parameter-bodied alias owner
+
+`type_parameter_body_index` now resolves the body reference and matches the actual
+binder parameter SymbolId in declaration order, instead of comparing names.
+Parentheses remain transparent; mapper image publication/cache behavior unchanged.
+Ordered second-parameter control and existing alias targets pass. Native CLI
+rejection diagnostics compare byte-for-byte. Existing unfiltered 477,970-assertion
+oracle unchanged, zero former RIGHT losses/vanished keys; no case gain claimed.
+Seven fresh-process samples: after/before 0.99963, after/native 1.60427; complete
+checked-work equivalence and release performance remain uncertified. Receipts
+`parameter-owner-*`; parent wrapper blocks and TypeQuery entry untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
