@@ -524,6 +524,12 @@ impl<'a> Checker<'a, '_> {
             // (`checker.go:22960`): a WRITTEN `unique symbol` mints one type
             // per node (`checker-notes-callres.md` §27).
             TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::UniqueKeyword => {
+                // getTypeFromTypeOperatorNode checks the operand's exact kind
+                // before getESSymbolLikeTypeForNode can publish a unique identity.
+                if !matches!(node.r#type, Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::SymbolKeyword)
+                {
+                    return self.intrinsics.error;
+                }
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 // §899: `getESSymbolLikeTypeForNode` (`checker.go:22982`) mints
                 // the unique type **only in a valid declaration position**:

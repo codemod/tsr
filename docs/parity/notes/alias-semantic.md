@@ -355,6 +355,21 @@ samples: after/before 0.99695, after/native 1.71889. Output agrees, but complete
 checked-work equivalence and release performance remain uncertified; no speed
 claim. Receipts `mapped-cache-owner-*`; parent wrapper/TypeQuery entry untouched.
 
+## Unique type operator operand gate
+
+Native `getTypeFromTypeOperatorNode` checks exact `SymbolKeyword` operand kind
+before `getESSymbolLikeTypeForNode`. The owned arm now follows that order: invalid
+operands return errorType without publishing a unique identity. Existing valid
+position/identity publication unchanged; no name fallback or diagnostic suppression.
+
+Regression fails before and passes after; type/unary targets pass. Real CLI valid/
+invalid operand diagnostics compare byte-for-byte with native. Available unfiltered
+oracle gains one WRONG→RIGHT (`uniqueSymbolsErrors` invalidUniqueType), zero former
+RIGHT losses/vanished keys. Seven valid-operand fresh-process samples:
+after/before 1.00203, after/native 1.63265; full checked-work/release performance
+remain uncertified. Receipts `unique-operand-*`. Constrained homomorphic `any` was
+also probed and already passes; only its behavior control is retained.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

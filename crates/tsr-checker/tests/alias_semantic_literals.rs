@@ -217,6 +217,29 @@ fn identity_mapped_object_images_reuse_only_the_same_argument_identity() {
 }
 
 #[test]
+fn array_constrained_homomorphic_any_maps_to_array() {
+    assert_eq!(
+        declared_and_reference(
+            "interface Array<T> {} type Copy<T extends unknown[]> = { [K in keyof T]: T[K] }; declare let value: Copy<any>;",
+            "Copy",
+        ).1,
+        "any[]",
+    );
+}
+
+#[test]
+fn unique_operator_requires_symbol_operand() {
+    assert_eq!(
+        declared_and_reference(
+            "declare const value: unique number; type Alias = typeof value;",
+            "Alias"
+        )
+        .1,
+        "error",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),
