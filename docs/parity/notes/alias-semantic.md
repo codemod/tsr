@@ -287,6 +287,16 @@ answer and emits errors, so equivalent complete work/no-hotpath regression/relea
 speed are not certified. Receipts `mapped-paren-*` under `target/recovery/alias`;
 verification uses the frozen pre-wrapper worktree.
 
+## Distinct mapped argument consumer controls
+
+A single Checker now tests mapped arguments `[string, number]`,
+`[number, string]`, `[boolean]` and a warm repeat. Ordered tuple images retain
+separate TypeIds; the repeat retains the original identity. Real CLI index
+consumers and the rejection from the reversed argument compare byte-for-byte
+with native (`mapped-distinct-*` receipts). No implementation/cache change or
+source-alias spelling heuristic accompanies these controls. The parent-reserved
+source-wrapper metadata block around alias-body reference construction is untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

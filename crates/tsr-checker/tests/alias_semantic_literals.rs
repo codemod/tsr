@@ -129,6 +129,36 @@ fn parenthesized_identity_mapped_alias_preserves_primitive_argument() {
 }
 
 #[test]
+fn parenthesized_mapped_arguments_keep_distinct_ordered_tuple_images() {
+    let source = "type Copy<T> = (({ [K in keyof T]: T[K] })); declare let first: Copy<[string, number]>; declare let reversed: Copy<[number, string]>; declare let single: Copy<[boolean]>;";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let mut images = Vec::new();
+    for (name, expected) in [
+        ("first", "[string, number]"),
+        ("reversed", "[number, string]"),
+        ("single", "[boolean]"),
+        ("first", "[string, number]"),
+    ] {
+        let symbol = bound.lookup_local(root, name).unwrap();
+        let ty = checker.get_type_of_symbol(symbol);
+        assert_eq!(checker.type_to_string(ty), expected);
+        images.push(ty);
+    }
+    assert_ne!(images[0], images[1]);
+    assert_ne!(images[0], images[2]);
+    assert_eq!(images[0], images[3]);
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),
