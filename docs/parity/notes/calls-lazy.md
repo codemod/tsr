@@ -190,3 +190,24 @@ unchanged original generic return/parameters are exercised by the existing
 behavioral tests. Target tests and clippy pass (`expression-signature-*.log`).
 Parent's structured source images and end-to-end expression controls remain
 required; this commit does not fabricate a wrapper consumer or full-gate pass.
+
+### Erase-before-mapping and reporting correction
+
+`get_signature_instantiation` now takes the original own parameter metadata out
+before invoking `instantiate_signature`, matching native eraseTypeParameters.
+It no longer maps own constraints/defaults only to discard them afterward.
+Parameter names are borrowed from the moved metadata rather than cloned Strings;
+constraint checking also borrows names from its immutable candidate.
+
+The low-level checked-arguments API now explicitly accepts `report_errors: bool`:
+`check_signature_type_arguments(&Signature, &[TypeNode], bool) ->
+Option<Option<Vec<TypeId>>>`. Ordinary call diagnostics pass true as before;
+expression/combined entries always pass true; speculative checking may pass
+false. A failed speculative check returns Some(None) without diagnostics; the
+expression check then emits the exact single TS2344. Unsupported head/typevar
+relation boundaries were not widened.
+
+Behavioral controls verify dependent defaults, constructor substitution,
+erased image/target own metadata and speculative-versus-reported rejection.
+Target tests, full checker tests and clippy pass (`erase-api-*.log`). No parent
+wrapper integration or full compiler/native performance acceptance inferred.
