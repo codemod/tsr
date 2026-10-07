@@ -81,6 +81,7 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
         require(isinstance(rows, list) and rows, "missing native trace records")
         stacks, spans, seen, counters = {}, [], set(), {}
         last_boundary_time = {}
+        program_intervals, check_intervals, full_intervals = [], [], []
         parsed_paths, bound_paths = [], []
         result["completed_parsed_paths"] = parsed_paths
         result["completed_bound_paths"] = bound_paths
@@ -149,6 +150,10 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                     and row["cat"] == begin["cat"] and timestamp >= begin["ts"],
                     "native end differs from begun operation")
             counters[name]["completed"] += 1
+            if name in ("createProgram", "checkSourceFiles", "checkSourceFile"):
+                intervals = (program_intervals if name == "createProgram" else
+                             check_intervals if name == "checkSourceFiles" else full_intervals)
+                intervals.append([begin["ts"], timestamp])
             if "checkerId" in begin_args:
                 require(integer(begin_args["checkerId"]), "invalid private checker boundary identity")
                 result["native_operation_boundaries"].append({
@@ -206,10 +211,17 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
             inner, key=lambda row: row["duration_ns"], default=None)
         result["unsampled_inner_boundary_ranking"] = sorted(
             inner, key=lambda row: row["duration_ns"], reverse=True)
+        result["program_work_envelope_verified"] = (
+            len(program_intervals) == 1 and len(check_intervals) == 1
+            and result["parsed_inventory_verified"] and result["bound_inventory_verified"]
+            and bool(full_intervals)
+            and all(check_intervals[0][0] <= start <= finish <= check_intervals[0][1]
+                    for start, finish in full_intervals))
         result["native_current_checkpoint_gates"] = {
             "artifact_integrity": True,
             "completed_create_program": counters.get("createProgram", {}).get("completed") == 1,
             "completed_full_file_workers_observed": len(spans),
+            "program_work_envelope_verified": result["program_work_envelope_verified"],
             "complete_checker_operation_coverage": False,
             "actual_timed_work_equivalence": False,
             "speed_target_verified": False,
@@ -900,6 +912,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--worker-producer", choices=("tsr", "native"))
     parser.add_argument("--native-trace", action="store_true", help="read pinned native --generateTrace JSON")
+    parser.add_argument("--require-program-work", action="store_true",
+                        help="reject native captures without complete observed Program/parse/bind/check envelopes")
     parser.add_argument("--compare-native-trace", type=Path, help="compare TSR trace to this native trace")
     parser.add_argument("--compare-native-receipt", type=Path)
     args = parser.parse_args()
@@ -934,6 +948,10 @@ def main() -> int:
     except (OSError, ValueError, TypeError, RecursionError) as error:
         result = empty_result()
         result["reasons"].append(f"Invalid supervising receipt: {type(error).__name__}: {error}")
+    if args.require_program_work and result.get("program_work_envelope_verified") is not True:
+        result["reasons"].append("Complete observed native Program work envelope is missing or invalid")
+        result["artifact_integrity_valid"] = False
+        result["native_trace_valid"] = False
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     return 0 if result.get("comparison_valid", result.get("worker_activity_valid", result["artifact_integrity_valid"])) else 1

@@ -212,6 +212,26 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Require the observed native Program/check envelope
+
+`checker_work_trace.py --native-trace --require-program-work` requires one
+completed createProgram and checkSourceFiles envelope, verified parse/bind
+inventories and nonempty full-worker spans contained in the check envelope.
+The observed envelope gate is separate from unsupported all-semantic-work
+completion: it does not infer dependency correctness, cache publication or
+allocation/copy-byte costs from static declarations. Missing envelopes fail the
+requested CLI gate even when individual worker rows remain complete.
+
+44 trace tests passed; actual large native `--require-program-work` gate passed
+bounded envelope validation. Actual trace with the checkSourceFiles envelope
+removed saved `/tmp/recover-envelope-negative/rejection.json` and exited 1 while
+preserving individual work evidence. Fresh frozen five-pair/warmup capture saved
+`/tmp/recover-envelope-checkpoint.json`, comparable exit 1. Parent reports frozen
+21 candidate/prior domain pairs ratio 1.00984 with matching scope/options/output,
+verified null: no speed win. Paused parent gates are not reported passed here;
+full native <=0.50 remains unmet, and no compiled hot-path allocation assertion
+is made by these Python-only controls.
+
 ### Native completed bind inventory is not implied by checks
 
 Completed unsampled `bindSourceFile` paths now receive the same exact loaded-

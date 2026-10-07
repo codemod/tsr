@@ -140,6 +140,15 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
         self.assertFalse(result["actual_checked_work_verified"])
 
+    def test_worker_only_trace_has_no_complete_program_work_envelope(self):
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}
+        result = self.native_trace_check([begin, {**begin, "ph": "E", "ts": 10}])
+        self.assertTrue(result["native_trace_valid"])
+        self.assertFalse(result["program_work_envelope_verified"])
+        self.assertFalse(result["native_current_checkpoint_gates"]["program_work_envelope_verified"])
+        self.assertFalse(result["actual_checked_work_verified"])
+
     def test_native_partial_bind_inventory_cannot_pass_as_loaded_scope(self):
         begin = {"pid": 1, "tid": 10, "ph": "B", "cat": "bind", "ts": 0,
                  "name": "bindSourceFile", "args": {"path": "a.ts"}}
