@@ -692,3 +692,34 @@ diagnostic caller in `check.rs` and the owned calls applicability consumer;
 do not add a second binding-name rule. No outside-owned files were edited.
 Delivered: faithful rest-type arity boundary and one native type-line gain;
 whole-case conversions: zero.
+
+### Next native arity scope: untyped JS minimum publication
+
+After the rest-pattern port, directly tested two further arity boundaries.
+`only(1,2,3)` against a one-parameter function matches pinned native pretty
+output including the full excess-argument underline; no span fix is needed
+there. Overloaded trailing-void parameters also match native and are not
+conversions.
+
+Current `compiler/jsFileFunctionParametersAsOptional` does reproduce a
+remaining root: JS `function f(a,b,c){}` called from TS with zero, one and two
+arguments emits three TSR TS2554s; pinned native emits none. The CLI control
+uses separate foo.js/bar.ts files with `--allowJs --strict false --noEmit`.
+Native `getSignatureFromDeclaration` publishes
+`SignatureFlagsIsUntypedSignatureInJSFile` only for non-IIFE JS function-like
+signatures with all syntactically unannotated parameters and no contextual
+type under signature context. `getMinArgumentCountEx` consumes that captured
+flag to return zero; `SignatureFlagsPropagatingFlags` retains it through
+instantiation. This is not a query about whether all resolved types are any.
+
+Exact required atomic metadata API: add a Signature untyped-JS marker, set
+it at original signature construction using the pinned conditions, initialize
+synthetic signatures correctly and propagate through instantiated/composite
+signatures; consume it in `signature_min_argument_count`. Current literal
+constructors in forbidden `contextual.rs` and `decorators.rs` must migrate
+with owned `signatures.rs`. Recomputing the context at every min-arity read
+would replace publication state and can re-enter inference; no such heuristic
+or duplicate side cache was added. This root therefore needs serialized
+whole-file metadata ownership. Integrator issue request: untyped-JS signature
+minimum publication, current witness jsFileFunctionParametersAsOptional.
+The verified rest-pattern commit remains delivered; this next root is open.
