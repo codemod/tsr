@@ -530,8 +530,8 @@ was reported for serialized integration rather than silently changed.
 
 ## 17. Template literal and loose scalar facts: native worker domains
 
-Separate from semantic bigint-zero / symbol-like recovery, still tracked under
-existing campaign `tsr-2zk.15.5.1` pending parent issue attribution. Native pin
+Template truthiness is tracked by existing root `tsr-2zk.16.525`, distinct from
+semantic bigint-zero / symbol-like recovery `tsr-2zk.15.5.1`. Native pin
 remains `5b1047d10d32e7d5b446be4de56b126ff42f82bb`:
 `getTypeFactsWorker` in `internal/checker/checker.go` tests
 `String | StringMapping` first (broad string facts), then
@@ -576,3 +576,21 @@ warmup, corpus/build work excluded: domain-model candidate/baseline median
 No speed or no-slowdown claim: raw candidate/native is 1.0322 / 0.9331,
 equivalent complete work is unverified, and the release 0.50 gate is unmet.
 The saved recovery branch has no additional owned flow changes to replay.
+
+Reviewer minimal control, run directly against the pin:
+
+```typescript
+declare const value: `${number}`;
+export const result = !value;
+```
+
+Native strict declaration: `export declare const result = false;`.
+Native loose declaration: `export declare const result: boolean;`.
+Receipts: `flow-template/reviewer-strict` and `reviewer-loose` under the ignored
+recovery directory. Native `computeBaseConstraint`'s template branch rebuilds
+from substitution constraints; the numeric substitution preserves the template
+rather than widening it to broad string. No base-constraint or unary-consumer
+change was made by this worker. Parent owns exact unary-consumer acceptance.
+`bd show tsr-2zk.16.525` also reports absent in this Box database; parent must
+update the existing root, not create another task. Commit `42b7f878` carries the
+older campaign attribution because the exact root arrived afterward.
