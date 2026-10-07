@@ -40,6 +40,38 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
+<<<<<<< HEAD
+=======
+fn nonnull_and_satisfies_conditions_preserve_inner_narrowing() {
+    for condition in ["x!", "(x !== null) satisfies boolean"] {
+        assert_eq!(
+            narrowed_type(
+                &format!("declare let x: string | null; if ({condition}) {{ x; }}"),
+                true
+            ),
+            "string"
+        );
+    }
+}
+
+#[test]
+fn equality_replaces_kept_primitive_and_pattern_domains_with_literals() {
+    for (domain, value, expected) in [
+        ("string", "'foo'", "\"foo\""),
+        ("number", "1", "1"),
+        ("bigint", "1n", "1n"),
+        ("`prefix${string}`", "'prefix-one'", "\"prefix-one\""),
+    ] {
+        assert_eq!(
+            narrowed_type(&format!("declare let x: {domain}; if (x === {value}) {{ x; }}"), true),
+            expected
+        );
+    }
+    assert_eq!(narrowed_type("declare let x: string; if (x !== 'foo') { x; }", true), "string");
+}
+
+#[test]
+>>>>>>> 3b3f49e9 (flow: narrow through native non-null and satisfies conditions (tsr-2zk.16.255))
 fn binding_initial_default_retains_literal_before_assignment_reduction() {
     assert_eq!(
         narrowed_type(
