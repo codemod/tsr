@@ -5247,16 +5247,7 @@ impl<'a> Checker<'a, '_> {
                     // contextually typed upstream and the implied `any`
                     // there was 78 G->W (`coAndContraVariantInferences3`).
                     && self.nodes.parent(declaration).is_some_and(|f| match self.nodes.kind(f) {
-                        // Type-only signature containers cannot receive an
-                        // expression contextual parameter type. Match parameter_of.
-                        SyntaxKind::FunctionDeclaration
-                        | SyntaxKind::MethodDeclaration
-                        | SyntaxKind::FunctionType
-                        | SyntaxKind::ConstructorType
-                        | SyntaxKind::CallSignature
-                        | SyntaxKind::ConstructSignature
-                        | SyntaxKind::MethodSignature
-                        | SyntaxKind::IndexSignature => true,
+                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
                         // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
                         // where §94's predicate can SHOW there is no contextual
                         // type at its position. §429 excluded them wholesale and

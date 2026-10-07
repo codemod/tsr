@@ -166,14 +166,13 @@ replacement of the existing raw-ID resolver.
 
 ## F6 signature-container admission
 
-The declared-alias owner identified the binding-parent prerequisite. The existing
-symbols implied-binding builder now admits the same type-only containers as
-signatures::parameter_of: FunctionType, ConstructorType, CallSignature,
-ConstructSignature, MethodSignature and IndexSignature. Native
-getTypeForVariableLikeDeclaration obtains contextual parameter types only where
-available; type-node signature containers are not contextual expressions.
-Unannotated/non-rest binding-pattern admission and the contextual expression
-predicate remain unchanged; no new cache or any/name fallback.
+The declared-alias owner identified the binding-parent prerequisite. The parent
+implemented direct binding_pattern_implied_type demand for unannotated,
+initializer-free type-only signature parents in destructure.rs, matching native
+getTypeForVariableLikeDeclaration. This bypasses the symbols admission gate;
+the duplicate symbols gate change in 4f011bae was removed. No independent
+symbols consumer needing that broadening has been established. Contextual
+expression admission remains unchanged; no new cache or any/name fallback.
 
 The parent exclusively owns destructure.rs binding-parent repair. This admission
 hunk alone does not claim to fix F6 typeof-renamed type production. Alias and
