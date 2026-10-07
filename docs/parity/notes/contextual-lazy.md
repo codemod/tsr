@@ -611,7 +611,7 @@ The aligned corpus literal line is WRONG (`"1000000"` expected, `string`
 actual). However, the current ad hoc corpus-pipeline `probefile` walker prints
 `'1000000' : "1000000"` already. Do not claim that isolated probe reproduces
 this aligned failure, or fix it by a string heuristic. Exact unowned JSX
-mutable-location consumer: `jsx_intrinsic.rs::jsx_attribute_initializer_type`
+mutable-location consumer: `jsx_intrinsic.rs::jsx_inference_expression`
 (calls `check_expression_for_mutable_location`) and JSX attributes/component
 relation diagnostics. Pinned native counterparts are `checkJsxAttribute`
 and `getContextualTypeForJsxExpression` in `internal/checker/jsx.go`. The JSX
