@@ -142,15 +142,29 @@ fn main() -> Result<()> {
     )?;
     ensure!(ok || full_oracle::complete(&plan), "native enumeration incomplete");
     let plan_text = fs::read_to_string(&plan)?;
+    let mut discovery_failures = std::collections::BTreeSet::new();
+    let mut discovery_ledger = String::new();
     let tasks: Vec<_> = plan_text
         .lines()
         .filter(|line| *line != "COMPLETE")
         .map(|line| {
-            let (p, v) = line.split_once('\t').context("invalid plan")?;
-            Ok((PathBuf::from(unhex(p)?), unhex(v)?))
+            let fields: Vec<_> = line.split('\t').collect();
+            ensure!(fields.len() == 3, "invalid discovery record");
+            let p = PathBuf::from(unhex(fields[0])?);
+            let v = unhex(fields[1])?;
+            match fields[2] {
+                "COMPLETE" => {}
+                "DISCOVERY_FAILED" => {
+                    discovery_failures.insert(p.clone());
+                }
+                _ => anyhow::bail!("unknown discovery publication state"),
+            }
+            discovery_ledger.push_str(&format!("{}\t{}\t{}\n", fields[0], fields[1], fields[2]));
+            Ok((p, v))
         })
         .collect::<Result<_>>()?;
     ensure!(!tasks.is_empty(), "empty corpus");
+    write_atomic(&report.join("discovery.tsv"), &discovery_ledger)?;
     let mut source_hashes = std::collections::BTreeMap::new();
     let unique: std::collections::BTreeSet<_> = tasks.iter().map(|(p, _)| p).collect();
     let hashes = Command::new("sha256sum").args(unique).output()?;
@@ -232,6 +246,7 @@ fn main() -> Result<()> {
             let actual_hash = &actual_hash;
             let inputs_hash = &inputs_hash;
             let source_hashes = &source_hashes;
+            let discovery_failures = &discovery_failures;
             scope.spawn(move || {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
@@ -242,6 +257,13 @@ fn main() -> Result<()> {
                         let (p, v) = &tasks[i];
                         let dir = report.join(format!("{i:05}"));
                         fs::create_dir_all(&dir)?;
+                        if discovery_failures.contains(p) {
+                            write_atomic(
+                                &dir.join("result.tsv"),
+                                "FAIL\tdiscovery-failure-native-configuration\n",
+                            )?;
+                            return Ok(());
+                        }
                         let expected = dir.join("native.tsv");
                         let output = dir.join("actual.tsv");
                         let receipt = dir.join("native.receipt");
@@ -407,7 +429,7 @@ fn main() -> Result<()> {
         summary.push_str(&format!("error\t{error}\n"));
     }
     summary.push_str(&format!("MISSING_ROWS\t{missing}\nPRIOR_RIGHT\t{}\nPRIOR_RIGHT_LOSSES\t{prior_right_losses}\nPRIOR_GATE\t{}\n", previous_right.len(), if prior.is_some() { "measured" } else { "unverified: no prior report supplied" }));
-    summary.push_str(&format!("PRIOR_PRIMARY_LOSSES\t{prior_primary_losses}\nCONTRACT\tordered-primary-types-chains-related-metadata\n"));
+    summary.push_str(&format!("PRIOR_PRIMARY_LOSSES\t{prior_primary_losses}\nCONTRACT\tordered-primary-types-chains-related-metadata\nDISCOVERY_FAILED_SOURCES\t{}\nENUMERATED_CONFIGURATION_ROWS\t{}\n", discovery_failures.len(), tasks.len()-discovery_failures.len()));
     write_atomic(&report.join("results.tsv"), &ledger)?;
     write_atomic(&report.join("summary.tsv"), &summary)?;
     print!("{summary}");

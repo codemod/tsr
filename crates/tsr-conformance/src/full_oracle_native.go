@@ -56,18 +56,18 @@ func TestFullOracle(t *testing.T) {
 				}()
 				test := getCompilerFileBasedTest(t, p)
 				if len(test.configurations) == 0 {
-					fmt.Fprintf(out, "%s\t\n", oracleHex(p))
+					fmt.Fprintf(out, "%s\t\tCOMPLETE\n", oracleHex(p))
 					emitted = true
 					return
 				}
 				sort.Slice(test.configurations, func(i, j int) bool { return test.configurations[i].Name < test.configurations[j].Name })
 				for _, c := range test.configurations {
-					fmt.Fprintf(out, "%s\t%s\n", oracleHex(p), oracleHex(c.Name))
+					fmt.Fprintf(out, "%s\t%s\tCOMPLETE\n", oracleHex(p), oracleHex(c.Name))
 					emitted = true
 				}
 			})
 			if !emitted {
-				fmt.Fprintf(out, "%s\t\n", oracleHex(p))
+				fmt.Fprintf(out, "%s\t\tDISCOVERY_FAILED\n", oracleHex(p))
 			}
 		}
 		fmt.Fprintln(out, "COMPLETE")

@@ -1,5 +1,39 @@
 # Full configured native oracle
 
+## Exact population/discovery boundary
+
+A fresh native **discovery-only** run (not a rerun of completed measurements)
+reconciled every compiler/conformance source: **12,444 unique sources**, **14,957
+successfully enumerated configuration rows**, **8 failed-discovery source rows**,
+**14,965 total denominator rows**. Source/variant identities match the completed
+loaded-source input manifest exactly. There is no reachable 15,323-row receipt;
+358 additional rows cannot be attributed without that external manifest.
+
+The 8 sources fail pinned native configuration expansion with
+`Unknown value 'none' for option 'module'` before configurations are published:
+
+- compiler/moduleNoneDynamicImport
+- compiler/moduleNoneErrors
+- compiler/moduleNoneOutFile
+- compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile1
+- compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile2
+- compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile3
+- compiler/requireOfJsonFileWithModuleEmitNone
+- compiler/requireOfJsonFileWithModuleNodeResolutionEmitNone
+
+Their unknown variants are not inferred. Each source retains one explicit
+`DISCOVERY_FAILED` denominator record. Native discovery now emits publication
+state for every row; the runner persists `discovery.tsv`, counts failed sources
+separately, and records `FAIL discovery-failure-native-configuration` without
+silently dropping or treating them as default configurations. That is a
+population contract correction, not a new strict measurement result.
+
+Discovery-only native binary SHA-256:
+`db5c1a6504626db03a712ef1d8fb150978f40c88bf7826b2fbc597c2dfff0354`.
+Plan SHA-256: `5e24d5667ccd3f243c8a09d4a048fac6ba57bc6f61c274f8c3d38756992f31fb`.
+Artifacts: `target/oracle-discovery/`; native pin/source population unchanged.
+Latest complete strict receipt remains 7,361/14,965, not a newly measured rate.
+
 ## Independent baseline/candidate runner
 
 `TSR_ORACLE_CHECKER_SOURCE=<commit>` declares the compiler source for each run
