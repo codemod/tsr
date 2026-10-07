@@ -88,9 +88,13 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
                 continue  # Metadata timestamps are intentionally backdated.
             require(phase in ("B", "E", "X", "I"), "unsupported native event phase")
             require(integer(row["pid"]) and integer(row["tid"]), "invalid synthetic native identity")
+            require(row["pid"] == 1, "unsupported native synthetic process identity")
             name, args = row.get("name"), row.get("args", {})
             require(isinstance(args, dict) and (name is None or isinstance(name, str)),
                     "invalid native operation/arguments")
+            if "checkerId" in args:
+                require(integer(args["checkerId"]) and row["tid"] == 2 + args["checkerId"],
+                        "native private checker/thread identity mismatch")
             if phase == "X":
                 duration = row["dur"]
                 require(type(duration) in (int, float) and 0 <= duration < float("inf"),

@@ -140,6 +140,14 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
         self.assertFalse(result["actual_checked_work_verified"])
 
+    def test_native_private_owner_cannot_migrate_synthetic_threads(self):
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}
+        for mutated in ({**begin, "tid": 3}, {**begin, "pid": 2}):
+            result = self.native_trace_check([mutated, {**mutated, "ph": "E", "ts": 10}])
+            self.assertFalse(result["native_trace_valid"], result)
+            self.assertTrue(result["reasons"])
+
     def test_native_worker_inventory_overlap_and_cross_owner_duplicate_reject(self):
         begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
                  "name": "checkSourceFile", "args": {"checkerId": 0, "path": "a.ts"}}

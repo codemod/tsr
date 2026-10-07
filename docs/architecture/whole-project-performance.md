@@ -212,6 +212,29 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Native private-owner thread invariant and executable negative receipt
+
+Pinned `tracing.traceThreadKey.defaultThreadID` assigns checker index `i` the
+synthetic thread `2+i`; native event process ID is 1. The reader now rejects
+checker-bearing events with a different synthetic owner/thread or process ID.
+This closes an identity migration that could otherwise avoid a per-thread
+full-worker overlap check. These are source-qualified synthetic identities,
+not actual OS thread/PID assertions. Existing worker-activity, ordinary-path and
+invalid-receipt comparison fixes remain necessary.
+
+34 trace tests passed; actual native large reader accepted the source-qualified
+capture. Actual comparison CLI combining an empty TSR receipt and a native
+out-of-Program full worker persisted **both** rejection arrays, artifact validity
+false and exit 1 in `/tmp/recover-owner-negative/rejection.json`. Fresh expected-
+hash/frozen source-input CLI capture ran five pairs plus warmups and saved
+`/tmp/recover-owner-checkpoint.json`, source `07f6ad7e`, checkpoint SHA-256
+`45a65dfe819e686190499ca01ab75ebdae10419bf274d671b8a90a05e1392888`.
+Harness SHA-256 `513c21cb74197c79e547df5ca157348c7fbff60ab3421e6e1f60b33b99f569f0`;
+reader SHA-256 `71556acb401fcb5b3d9ff16dbf986bae0217c538af7c08922a570216d2ecfe5e`.
+Comparable exit 1 and target false; no release source-build or semantic completion
+certificate was created. Native 202 large-file observations and >0.50 ratios
+remain unmet release evidence, not count-based completion proof.
+
 ### Shared build artifacts are not doc/test verification
 
 The parent reports all 201 final-family controls plus tests passed, with a possible
