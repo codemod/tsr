@@ -17,10 +17,39 @@ identity; each missing declaration owns its own binder symbol.
 the fix. Direct native/TSR CLI diagnostics for a malformed namespace import
 match; that parser control does not alone distinguish this binder boundary.
 
+## Recovered callable/interface value boundary
+
+After the parent published the recovery source, explicit fetch made
+`origin/box/parity-symbols` and `97f99018` available. Recovered only its owned
+`symbols.rs` hunk and dedicated semantic test, not its branch snapshot or
+historical docs. Native `getTypeOfFuncClassEnumModuleWorker` and
+`resolveAnonymousTypeMembers` use exports/signatures for the callable value;
+merged interface instance members must not erase that value. The existing
+non-interface JavaScript constructor/prototype unsupported boundary remains.
+No cache, traversal or shared Checker field was added.
+
+Current semantic regression fails before (prints error instead of
+`() => number`) and passes after. Instance-only member is absent on the callable
+value and present on the declared interface. Native direct control emits TS2322
+and TS2339; the recovered port restores exact TS2322, but TS2339 remains a
+separate diagnostic-owner prerequisite. This control is not fully passing.
+
+Current full dumps: 19 gained RIGHT type rows, zero prior RIGHT losses and zero
+vanished keys; 469,804/477,970 RIGHT, 983 GAP, 7,183 WRONG. Diagnostics unchanged.
+Coverage: 8,052/9,538 type cases, 4,222/5,502 nonempty diagnostic cases.
+`functionAndInterfaceWithSeparateErrors` gains its two emitted rows; contextual
+inference 2/3/4 remain multi-root failures, not accepted case conversions.
+
+Focused alias/cross-file/callable tests, checker all-target clippy and owned-file
+format checks passed. Fresh-process new/binder-only-base median child CPU ratios
+(21 samples) were 0.9833 domain-model and 0.9959 generic-imports; diagnostics,
+scope and options matched. Observed wall ratios 1.0628/0.9962 are not verified
+native complete-work ratios (those remain null). No release-target claim.
+
 ## Canonical alias cutover is not accepted
 
-The saved branch `box/parity-symbols` and commit `97f99018` are not present in
-this Box's refs or object database. The local Beads database does not contain
+The saved branch and commit were initially absent; explicit fetch after parent
+publication succeeded. The local Beads database does not contain
 `tsr-1yb.7.7.3`. No replacement issue was created.
 
 An experimental native resolveAlias/tryResolveAlias/resolveIndirectionAlias port
@@ -50,8 +79,8 @@ The integration owner must first serialize these consumer prerequisites:
   and `implementsClause`.
 
 No heuristic, suppression, compatibility shim or rejected semantic patch is
-included in the accepted commit. Recovering callable merged-interface port
-`97f99018` still requires the parent to supply its owned history/diff.
+included in the accepted commit. Callable merged-interface port
+`97f99018` has now been recovered and remeasured independently above.
 
 ## Receipts
 
