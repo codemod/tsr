@@ -229,6 +229,9 @@ def qualified_checkpoint(report: dict) -> dict:
         "verified_wall_ratio": report["verified_wall_ratio"], "target_verified": report["target_verified"],
         "equivalent_work_certificate": report["equivalent_work_certificate"], "captures": captures,
         "fresh_launch_delay": report["fresh_launch_delay"],
+        "machine": report["machine"],
+        "input_reference_rows": report.get("input_reference_rows"),
+        "operation_comparison": report.get("operation_comparison"),
     }
 
 
@@ -469,6 +472,15 @@ def main() -> int:
             save()
             if not child["input_validation"]["stable"]:
                 return 1
+        qualified_receipts = {}
+        for name, capture in report["work_captures"].items():
+            with work.regular_file(Path(capture["receipt"])) as stream:
+                qualified_receipts[name] = work.decode(stream.read())
+        report["operation_comparison"] = work.compare_work_captures(
+            report["work_captures"]["tsr"]["validation"],
+            report["work_captures"]["tsgo"]["validation"],
+            qualified_receipts["tsr"], qualified_receipts["tsgo"])
+        save()
     for index in range(args.warmups + args.samples):
         order = ("tsr", "tsgo") if index % 2 == 0 else ("tsgo", "tsr")
         for name in order:

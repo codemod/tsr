@@ -681,6 +681,81 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
     return result
 
 
+def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_receipt: dict) -> dict:
+    """Compare observed identities and worker boundaries, not producer claims.
+
+    Counts without corresponding native scope/policy or semantic result evidence
+    cannot discharge equivalence. Unsupported counters are null, never zero.
+    """
+    def identity(path):
+        if path.startswith("bundled:///libs/"):
+            return "<typescript-lib>/" + path.rsplit("/", 1)[-1]
+        if "/typescript-go/internal/bundled/libs/" in path:
+            return "<typescript-lib>/" + path.rsplit("/", 1)[-1]
+        return path
+
+    ours = tsr.get("program_files", [])
+    native_full = native.get("completed_full_workers", [])
+    checked_ids = set(tsr.get("checked_file_ids", []))
+    checked = [identity(row["path"]) for row in ours if row["file_id"] in checked_ids]
+    native_checked = [identity(row["path"]) for row in native_full]
+    rows = []
+    for operation, native_name in (("source_file_check", "checkSourceFile"),
+                                   ("symbol_type_query", None), ("declared_type_query", None),
+                                   ("variable_type_worker", None)):
+        left = tsr.get("operation_counters", {}).get(operation)
+        right = native.get("operation_counters", {}).get(native_name) if native_name else None
+        rows.append({
+            "operation": operation, "native_operation": native_name,
+            "pinned_native_worker": {
+                "source_file_check": "Checker.checkSourceFile",
+                "symbol_type_query": "Checker.getTypeOfSymbol",
+                "declared_type_query": "Checker.getDeclaredTypeOfSymbol",
+                "variable_type_worker": "Checker.getTypeOfVariableOrParameterOrPropertyWorker",
+            }[operation],
+            "key_owner": "private Checker within one Program; native pointer identities are not cross-tool ids",
+            "tsr_begins": left.get("begins") if left else None,
+            "tsr_completed": left.get("completed") if left else None,
+            "native_begins": right.get("begins") if right else None,
+            "native_completed": right.get("completed") if right else None,
+            "native_actual_executions": right.get("completed") if right else None,
+            "tsr_actual_executions": left.get("completed") if left and operation in
+                ("source_file_check", "variable_type_worker") else None,
+            "native_completed_cache_hits": None, "native_active_repeats": None,
+            "native_result_copy_bytes": None, "tsr_completed_cache_hits": None,
+            "tsr_active_repeats": None, "tsr_result_copy_bytes": None,
+            "complete_operation_equivalence_verified": False,
+        })
+    qualifications = {}
+    for name, receipt in (("tsr", tsr_receipt), ("native", native_receipt)):
+        qualifications[name] = {
+            "binary_sha256": receipt["binary_sha256"], "source_sha": receipt.get("source_sha"),
+            "oracle_sha": receipt.get("oracle_sha"), "source_files_sha256": receipt["source_files_sha256"],
+            "trace_sha256": receipt["trace_sha256"], "child": receipt["child"],
+            "show_config": receipt["show_config"], "loaded_files": receipt["loaded_files"],
+            "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
+        }
+    valid = tsr.get("artifact_integrity_valid") is True and native.get("native_trace_valid") is True
+    return {
+        "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
+        "tsr_program_file_policy": ours, "native_completed_full_workers": native_full,
+        "native_program_file_policy": None,
+        "observed_full_worker_scope": {"tsr": checked, "native": native_checked,
+            "tsr_only": sorted(set(checked) - set(native_checked)),
+            "native_only": sorted(set(native_checked) - set(checked)),
+            "identity_sets_match": valid and bool(checked) and set(checked) == set(native_checked)},
+        "operations": rows,
+        "highest_observed_unsampled_native_boundary": native.get("highest_observed_unsampled_inner_boundary"),
+        "actual_checked_work_verified": False, "target_verified": False,
+        "unmet_constraints": [
+            "Native Program eligibility/exclusion/redirect/directive facts are unobserved",
+            "Native symbol/declared/variable query and worker coverage is unobserved",
+            "Cache completion hits, active repeats, result-copy bytes and concrete alias/receiver keys are unobserved",
+            "Structured diagnostic metadata and timed-invocation work are unobserved",
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", required=True, type=Path)
@@ -688,11 +763,22 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--worker-producer", choices=("tsr", "native"))
     parser.add_argument("--native-trace", action="store_true", help="read pinned native --generateTrace JSON")
+    parser.add_argument("--compare-native-trace", type=Path, help="compare TSR trace to this native trace")
+    parser.add_argument("--compare-native-receipt", type=Path)
     args = parser.parse_args()
     try:
         with regular_file(args.receipt) as stream:
             receipt = decode(stream.read())
-        result = (validate_native_trace(args.trace, receipt) if args.native_trace else
+        if args.compare_native_trace is not None:
+            if args.compare_native_receipt is None:
+                parser.error("--compare-native-trace requires --compare-native-receipt")
+            with regular_file(args.compare_native_receipt) as stream:
+                native_receipt = decode(stream.read())
+            result = compare_work_captures(
+                validate_worker_activity(args.trace, receipt, "tsr"),
+                validate_native_trace(args.compare_native_trace, native_receipt), receipt, native_receipt)
+        else:
+            result = (validate_native_trace(args.trace, receipt) if args.native_trace else
                   validate_worker_activity(args.trace, receipt, args.worker_producer)
                   if args.worker_producer else validate_trace(args.trace, receipt))
     except (OSError, ValueError, TypeError, RecursionError) as error:

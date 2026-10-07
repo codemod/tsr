@@ -189,6 +189,37 @@ class TraceIntegrityTests(unittest.TestCase):
         self.assertIsNone(result["highest_observed_native_worker"])
         self.assertFalse(result["actual_checked_work_verified"])
 
+    def test_cross_tool_same_count_different_paths_cannot_match_full_worker_scope(self):
+        from checker_work_trace import compare_work_captures
+        ours = {"artifact_integrity_valid": True, "program_files": [self.rows[2]],
+                "checked_file_ids": [0], "operation_counters": {"source_file_check": {"begins": 1, "completed": 1}}}
+        native = {"native_trace_valid": True,
+                  "completed_full_workers": [{"path": "other.ts", "checker_id": 0, "duration_ns": 1}],
+                  "operation_counters": {"checkSourceFile": {"begins": 1, "completed": 1}}}
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        result = compare_work_captures(ours, native, receipt, receipt)
+        self.assertFalse(result["observed_full_worker_scope"]["identity_sets_match"])
+        self.assertEqual(result["observed_full_worker_scope"]["native_only"], ["other.ts"])
+        self.assertIsNone(result["operations"][1]["native_completed"])
+        self.assertIsNone(result["operations"][0]["native_result_copy_bytes"])
+        self.assertFalse(result["actual_checked_work_verified"])
+        native["completed_full_workers"][0]["path"] = str(self.input)
+        matched = compare_work_captures(ours, native, receipt, receipt)
+        self.assertTrue(matched["observed_full_worker_scope"]["identity_sets_match"])
+        self.assertIsNone(matched["native_program_file_policy"])
+        self.assertFalse(matched["operations"][0]["complete_operation_equivalence_verified"])
+        native["native_trace_valid"] = False
+        self.assertFalse(compare_work_captures(ours, native, receipt, receipt)
+                         ["observed_full_worker_scope"]["identity_sets_match"])
+
+    def test_empty_cross_tool_checks_never_match_complete_work(self):
+        from checker_work_trace import compare_work_captures
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        result = compare_work_captures({"artifact_integrity_valid": True},
+                                      {"native_trace_valid": True}, receipt, receipt)
+        self.assertFalse(result["observed_full_worker_scope"]["identity_sets_match"])
+        self.assertFalse(result["target_verified"])
+
     def activity_rows(self):
         rows = copy.deepcopy(self.rows)
         rows[0].update(worker_activity_schema_version=1, activity_clock="monotonic_elapsed_ns")
