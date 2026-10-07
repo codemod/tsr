@@ -1,6 +1,6 @@
 //! Native checkTypeArguments/getSignatureInstantiation defaults and rejection.
 use tsr_ast::{Statement, TypeNode};
-use tsr_checker::Checker;
+use tsr_checker::{Checker, calls::InstantiationExpressionSignature};
 
 #[test]
 fn written_arguments_fill_defaults_and_substitute_signature() {
@@ -47,10 +47,12 @@ fn constructor_signature_substitutes_instance_and_parameters() {
     let ty = checker.get_type_of_symbol(bound.lookup_local(root, "C").unwrap());
     let signature = checker.resolve_call_signature_with_type_arguments(ty, None, false).unwrap();
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[2] else { panic!() };
-    let image = checker
-        .instantiate_signature_with_type_arguments(&signature, &[alias.r#type.unwrap()])
+    let InstantiationExpressionSignature::Instantiated(image) = checker
+        .get_instantiation_expression_signature(&signature, &[alias.r#type.unwrap()])
         .unwrap()
-        .unwrap();
+    else {
+        panic!("constructor must instantiate")
+    };
     assert_eq!(checker.type_to_string(image.r#type), "Box<number>");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "number");
@@ -73,12 +75,12 @@ fn rejected_constraint_is_reported_without_an_instantiated_image() {
         checker.get_signatures_of_symbol(bound.lookup_local(root, "f").unwrap()).unwrap().remove(0);
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[1] else { panic!() };
     let argument: TypeNode<'_> = alias.r#type.unwrap();
-    assert!(
-        checker
-            .instantiate_signature_with_type_arguments(&signature, &[argument])
-            .unwrap()
-            .is_none()
-    );
+    assert!(matches!(
+        checker.get_instantiation_expression_signature(&signature, &[argument]).unwrap(),
+        InstantiationExpressionSignature::ConstraintRejected
+    ));
+    assert_eq!(signature.type_parameters.len(), 1);
+    assert_eq!(checker.type_to_string(signature.r#type), "T");
     assert_eq!(
         checker.diagnostics().iter().map(|(_, diagnostic)| diagnostic.text()).collect::<Vec<_>>(),
         ["Type 'number' does not satisfy the constraint 'string'."]
