@@ -1475,13 +1475,10 @@ impl<'a> Checker<'a, '_> {
         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
         // same shape, the specifier just lives on the tag.
         let specifier = match self.node_map.get(parent)? {
-            // §292's narrowing: an import carrying ATTRIBUTES declines — the
-            // attribute validity rules are unported, and upstream errors the
-            // whole import where this road would type through it
-            // (`importAttributes7/8`, the pair's 2 R→W).
-            Node::ImportDeclaration(import) if import.attributes.is_none() => {
-                import.module_specifier
-            }
+            // Native getTargetOfImportClause resolves with attributes present.
+            // resolve_external_module_name preserves the actual specifier's
+            // Program usage mode; attribute diagnostics do not erase its target.
+            Node::ImportDeclaration(import) => import.module_specifier,
             Node::JSDocImportTag(import) => import.module_specifier,
             _ => return None,
         };

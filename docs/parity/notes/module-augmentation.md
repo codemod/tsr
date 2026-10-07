@@ -213,6 +213,65 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Import attributes default-target gate (tsr-2zk.16.161)
+
+Pinned native getTargetOfImportClause/getTargetOfModuleDefault resolves the
+module/default target with ImportDeclaration attributes present. Attribute
+validation is a separate diagnostic policy, not absence of a target. Removed
+only import_clause_default_target's blanket attributes refusal. Existing
+resolve_external_module_name passes the actual specifier through contextSpecifier
+and ModuleHost.mode_for_usage_location, then resolved_module_in_mode. No host
+API, path heuristic, semantic cache or printer change is introduced.
+
+Identity/publication: Program importing SourceFile NodeId, actual specifier usage
+NodeId, module resolution mode and resolved SourceFile/module SymbolId stay in
+one Program identity space. Program resolution owns its existing completed
+lookup; this getter adds no absent/active/success/failure cache. Module default
+and export-equals alias target workers remain unchanged. Type-only alias origin
+and receiver/import presentation remain their existing consumers' context, not
+shared with a module-only result. Expensive work is the existing default-target
+worker and Program resolution lookup, previously skipped solely due to syntax.
+Actual per-worker count boundary is unmeasured; integrator bounded follow-up
+request before reuse grows. No speed claim.
+
+Native before controls: conditional package exports for import and require;
+type-only default imports explicitly select resolution-mode import/require.
+ESM default-class control's intentional string→number assignment gains exact
+TS2322 main.mts(7,7), matching native; before emits none. CommonJS class type
+control still lacks native second TS2322 main.mts(8,7), an existing declared-type
+alias producer outside ownership; not claimed solved. A constant ESM default
+and CJS export-equals mode control matches native's ordered TS1361 errors on both
+illegal type-only value uses, complete messages/spans (those diagnostics already
+matched before). Permanent semantic regression resolves both default aliases
+through distinct actual mode targets and asserts exact "esm" versus "cjs"
+literal types; no printed-name target identity or fixture-name code branch.
+
+Full unfiltered comparison to preceding root: type keys 477970/477970, diagnostic
+keys 10570/10570; missing=0 and formerly RIGHT/EMPTY_RIGHT losses=0. Five type
+lines gain: importAttributes11 (one), importAttributes7 (one), importAttributes8
+(one), resolutionModeCache (two). No diagnostic verdict changes. Full 12444-source
+coverage completes: checker_types 8046/9538, diagnostics 4222/5502. All four changed cases now have only RIGHT type rows: importAttributes7
+21/21, importAttributes8 7/7, importAttributes11 4/4, resolutionModeCache 8/8.
+Coverage's passing-case count grows by three, not four; the normalized verdict
+row population and coverage case scoring differ. Do not inflate coverage gains. Authoritative integration target set is exactly these four cases under
+tsr-2zk.16.161; these are observed current corpus gains. Generated snapshots not committed. Release workspace
+suite, focused two-mode test, strict clippy, format and native anchors pass.
+
+21 fresh-process interleaved candidate/preceding-baseline pairs: observed wall
+domain-model 0.995280, generic-imports 0.982306; CPU 0.995849/0.974912. Pinned
+native observed wall 1.010428/0.936054. Scope/options/diagnostics match in the
+bench harness, work_comparable=false: complete query-input and performed work
+budgets unverified. No verified <=0.50 ratio. Import attributes validation and
+synthetic-default/declared-type alias gaps are not silently accepted as native
+completion.
+
+Authoritative assigned issue: tsr-2zk.16.161, four target cases above.
+The target worker does not ignore attributes: existing Program resolution obtains
+the actual usage mode from the specifier's attributes; removing the refusal
+permits that native computation rather than manufacturing a fallback target.
+tsr-2zk.6.17 remains the separate default-local-name issue, open for integration
+verification. No stale local issue lookup is used as authority.
+
 ### Internal default export key visibility (tsr-2zk.6.17)
 
 Authoritative integration current targets: compiler/defaultIsNotVisibleInLocalScope,
