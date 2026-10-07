@@ -322,6 +322,29 @@ full JSDoc/diagnostic parsing; no threshold waiver. Candidate is separately
 recorded but not accepted until the parse code-layout/hotpath regression is
 resolved. Parent metadata/instantiation consumer acceptance remains independent.
 
+### Catch initializer syntax producer (tsr-2zk.2)
+
+Pinned parseCatchClause calls parseVariableDeclaration (allowExclamation=false),
+including initializer and ordinary JSDoc publication, before parsing ). TSR's
+catch worker historically stopped at annotation to avoid its printer omission.
+The candidate reuses the existing full variable worker; no new syntax identity,
+cache or traversal. Native parse controls with/without annotation, initializer
+and absent binding produce no parse errors; target parser regression and full
+parser tests/clippy/fmt pass in the isolated pre-metadata checkout.
+
+Full unfiltered comparison has zero prior RIGHT/EMPTY_RIGHT or vanished losses,
+but catchClauseWithInitializer1 remains WRONG because checker TS1197 is absent.
+Native checkCatchClause reports initializer on first token only in its else-if
+branch when no annotation exists; annotated catch declarations first validate
+any/unknown and do not take that initializer branch. Native emitCatchClause emits
+a full variable declaration; TSR printer still emits only name and annotation.
+Both consumers are parent-owned prerequisites. No parser-only acceptance claim.
+
+Incremental full-parse 41pair x60 wall/CPU 0.994856/0.993521 parser.ts,
+0.968302/0.967814 dom; equal node outputs and full JSDoc/diagnostics. No observed
+incremental slowdown, but complete target remains blocked on actual consumers.
+No AST/scanner/checker/printer edits in this candidate.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
