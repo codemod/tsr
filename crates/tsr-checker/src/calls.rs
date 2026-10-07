@@ -1801,6 +1801,13 @@ impl<'a> Checker<'a, '_> {
         };
         let void_promise =
             !has_rest && range == "1" && count == 0 && self.is_promise_resolve_arity_error(node);
+        if void_promise && self.in_js_file(node) {
+            self.report_at_node(node, Diagnostic::new(
+                &messages::EXPECTED_1_ARGUMENT_BUT_GOT_0_NEW_PROMISE_NEEDS_A_JSDOC_HINT_TO_PRODUCE_A_RESOLVE_THAT_CAN_BE_CALLED_WITHOUT_ARGUMENTS,
+                self.error_span(error_node),
+            ));
+            return;
+        }
         let message = if has_rest {
             &messages::EXPECTED_AT_LEAST_0_ARGUMENTS_BUT_GOT_1
         } else if void_promise {

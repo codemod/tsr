@@ -688,6 +688,15 @@ is accepted; TSR before emits none. Regression observes both maximum errors and
 absence of required-untyped-parameter error. js-arity-tests/check are compile-
 blocked by absent shared fields; no passing-after/fullRIGHT/perf acceptance.
 
+### JavaScript Promise resolve arity message
+
+Native getArgumentArityError uses TS2810 JSDoc-hint message for a zero-argument
+resolve from new Promise in JS, distinct from TypeScript's include-void message.
+Owned reporter now takes that exact branch using existing global-Promise resolver
+identity predicate; no new printed-name heuristic. Direct native control emits
+TS2810at1,26 and TSR before emits none. js-promise-check is compile-blocked by
+absent shared fields; no passing-after/fullRIGHT/perf claim.
+
 ## IIFE tuple-spread arity
 
 Claimed tsr-2zk.9.5; restTuplesFromContextualTypes measures372/389 types plus
