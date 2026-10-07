@@ -208,7 +208,7 @@ fn error_baseline(case: &TestCase, files: &[TestFile], diagnostics: &[(Option<St
     if diagnostics.is_empty() { return Ok("<no content>".into()); }
     let indexed: Vec<_> = files.iter().map(|f| DiagnosticFile::new(&f.name, &f.content)).collect();
     let located: Vec<_> = diagnostics.iter().map(|(name, diagnostic)| LocatedDiagnostic {
-        file: name.as_ref().and_then(|name| indexed.iter().find(|f| f.file_name() == name)), diagnostic,
+        file: diagnostic.file().or_else(|| name.as_ref().and_then(|name| indexed.iter().find(|f| f.file_name() == name))), diagnostic,
     }).collect();
     let mut options = FormattingOptions::new(String::new(), true);
     options.newline = "\r\n".into();

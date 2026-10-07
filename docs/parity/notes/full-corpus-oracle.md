@@ -31,6 +31,9 @@ uses actual diagnostics, not reference-baseline existence.
 
 The existing assertion APIs now accept `TestFile` source units instead of
 `FileTypes` expectations. All Rust callsites were migrated, without adapters.
+This Box exposes only read/bash/edit/write tools, not LSP or AST codemod devices.
+Legacy suite comparison still zips results against expected file sections; that
+comparison is not used by the full artifact oracle and cannot certify full parity.
 Legacy suites still have historical population and ordering rules; their passing
 rates are not full-oracle acceptance.
 
@@ -85,6 +88,9 @@ Required integration-owner contract for `b6d2104f`:
    declaration/suggestion producers must run where the native harness runs them.
 
 Existing chain/related APIs and Program source images are integrated already.
+Diagnostic top rendering prefers each diagnostic's canonical source image,
+including library/redirected files not among baseline input echoes; it must not
+silently downgrade a file diagnostic to a global one.
 These are correctness prerequisites, not permission to exclude configurations,
 shrink the denominator, or mark the current producer as complete/lossless.
 
