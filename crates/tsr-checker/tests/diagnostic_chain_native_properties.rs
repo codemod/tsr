@@ -206,6 +206,20 @@ fn immediate_source_constraints_are_not_flattened_to_terminal_type() {
 }
 
 #[test]
+fn signature_this_failure_retains_native_receiver_chain() {
+    let ds = diagnostics(
+        "declare let source: (this: { x: number }) => void; let target: (this: { x: string }) => void = source;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    let mut text = String::new();
+    write_flattened_diagnostic_message(&mut text, &ds[0].message_chain()[0], "\n");
+    assert_eq!(
+        text,
+        "The 'this' types of each signature are incompatible.\n  Type '{ x: string; }' is not assignable to type '{ x: number; }'.\n    Types of property 'x' are incompatible.\n      Type 'string' is not assignable to type 'number'."
+    );
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

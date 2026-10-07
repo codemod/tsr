@@ -2109,16 +2109,55 @@ impl Relater<'_, '_, '_> {
         {
             let source_this = self.checker.parameter_type(source_this);
             let target_this = self.checker.parameter_type(target_this);
-            parts.push(if strict_variance {
-                self.is_related_to(target_this, source_this)
+            let forward = if strict_variance {
+                RelationResult::NotRelated
             } else {
-                let forward = self.is_related_to(source_this, target_this);
-                if forward.is_success() {
-                    forward
+                self.is_related_to(source_this, target_this)
+            };
+            let related = if forward.is_success() {
+                forward
+            } else if report_errors {
+                let saved_pair = self.diagnostic_pair;
+                let saved_error = self.property_error.take();
+                let saved_signature = self.signature_error.take();
+                let saved_simple = std::mem::take(&mut self.simple_error);
+                let saved_marker = self.return_marker.take();
+                self.diagnostic_pair = Some((target_this, source_this));
+                let reverse = self.is_related_to(target_this, source_this);
+                self.diagnostic_pair = saved_pair;
+                if reverse == RelationResult::NotRelated {
+                    let error = self.property_error.take();
+                    let simple = std::mem::take(&mut self.simple_error);
+                    if error.is_some() || simple {
+                        use tsr_diagnostics::{Diagnostic, messages};
+                        let mut child = Diagnostic::with_args(
+                            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                            tsr_core::Span::new(0, 0),
+                            [
+                                self.checker.type_to_string(target_this),
+                                self.checker.type_to_string(source_this),
+                            ],
+                        );
+                        child.add_message_chain(error);
+                        self.property_error = Some(Diagnostic::new_chain(
+                            Some(child),
+                            &messages::THE_THIS_TYPES_OF_EACH_SIGNATURE_ARE_INCOMPATIBLE,
+                            std::iter::empty(),
+                        ));
+                    }
+                    self.simple_error = saved_simple;
+                    self.return_marker = saved_marker;
                 } else {
-                    RelationResult::any([forward, self.is_related_to(target_this, source_this)])
+                    self.property_error = saved_error;
+                    self.signature_error = saved_signature;
+                    self.simple_error = saved_simple;
+                    self.return_marker = saved_marker;
                 }
-            });
+                RelationResult::any([forward, reverse])
+            } else {
+                RelationResult::any([forward, self.is_related_to(target_this, source_this)])
+            };
+            parts.push(related);
             if parts.last() == Some(&RelationResult::NotRelated) {
                 return Some(RelationResult::NotRelated);
             }
