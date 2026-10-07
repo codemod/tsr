@@ -212,6 +212,17 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Complete stderr remains part of bounded comparison evidence
+
+Comparison now retains and requires equal complete stderr strings as well as
+stdout/exit status. An unrecognized warning cannot disappear merely because it
+is not a known producer-failure substring. No stderr filtering is added.
+48 trace tests passed; actual warning-different receipt comparison saved
+`/tmp/recover-stderr-rejection.json` and exited 1. Fresh frozen five-pair/warmup
+capture saved `/tmp/recover-stderr-checkpoint.json`, comparable exit 1. Parent
+native ratio about 1.53 remains >0.50; prior-TSR 1.001 observation is not native
+proof. No local full-corpus or current-parent build attestation is claimed.
+
 ### Physical loaded sources require captured bytes
 
 Every receipt-loaded physical source must have a regular-file before/after

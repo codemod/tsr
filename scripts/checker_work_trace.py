@@ -854,13 +854,18 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
     input_capture_match = valid and tsr_receipt["inputs_before"] == native_receipt["inputs_before"]
     loaded_scope_match = valid and {identity(path) for path in tsr_receipt["loaded_files"]} == {
         identity(path) for path in native_receipt["loaded_files"]}
-    captured_outputs = {}
+    captured_outputs, captured_stderr = {}, {}
     for producer, receipt in (("tsr", tsr_receipt), ("native", native_receipt)):
         output = receipt.get("child", {}).get("stdout")
         captured_outputs[producer] = output
+        captured_stderr[producer] = receipt.get("child", {}).get("stderr")
     output_match = (valid and all(isinstance(value, str) for value in captured_outputs.values())
                     and captured_outputs["tsr"] == captured_outputs["native"]
                     and tsr_receipt["child"]["exit_code"] == native_receipt["child"]["exit_code"])
+    stderr_match = (valid and all(isinstance(value, str) for value in captured_stderr.values())
+                    and captured_stderr["tsr"] == captured_stderr["native"])
+    if valid and not stderr_match:
+        reasons.append("Complete captured compiler stderr differs or is missing")
     envelope_valid = valid and native.get("program_work_envelope_verified") is True
     if valid and not envelope_valid:
         reasons.append("Native completed Program/parse/bind/check envelope is unverified")
@@ -876,9 +881,10 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
         reasons.append("Observed completed full-worker path scopes differ or are empty")
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
-        "comparison_valid": valid and scope_match and options_match and input_capture_match and loaded_scope_match and output_match and envelope_valid,
+        "comparison_valid": valid and scope_match and options_match and input_capture_match and loaded_scope_match and output_match and stderr_match and envelope_valid,
         "native_program_work_envelope_verified": envelope_valid,
         "captured_output_match": output_match, "captured_stdout": captured_outputs,
+        "captured_stderr_match": stderr_match, "captured_stderr": captured_stderr,
         "captured_options_match": options_match, "captured_inputs_match": input_capture_match,
         "captured_loaded_scope_match": loaded_scope_match,
         "reasons": reasons, "producer_reasons": producer_reasons,

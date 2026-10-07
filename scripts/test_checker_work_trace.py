@@ -504,6 +504,21 @@ class TraceIntegrityTests(unittest.TestCase):
         self.assertFalse(result["native_program_work_envelope_verified"])
         self.assertIn("envelope is unverified", result["reasons"][0])
 
+    def test_comparison_preserves_unrecognized_stderr_warning_and_rejects_difference(self):
+        from checker_work_trace import compare_work_captures
+        ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
+                "checked_file_ids": [0], "program_files": [self.rows[2]]}
+        native = {"artifact_integrity_valid": True, "native_trace_valid": True,
+                  "program_work_envelope_verified": True,
+                  "completed_full_workers": [{"path": str(self.input), "checker_id": 0}]}
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        other = {**receipt, "child": {**receipt["child"], "stderr": "warning: unsupported metadata forcing\n"}}
+        result = compare_work_captures(ours, native, receipt, other)
+        self.assertFalse(result["captured_stderr_match"])
+        self.assertEqual(result["captured_stderr"]["native"], other["child"]["stderr"])
+        self.assertFalse(result["comparison_valid"])
+        self.assertTrue(result["reasons"])
+
     def test_comparison_matching_workers_cannot_hide_changed_or_missing_diagnostics(self):
         from checker_work_trace import compare_work_captures
         ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
