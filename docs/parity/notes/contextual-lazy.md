@@ -273,6 +273,31 @@ under target/recovery/contextual. Existing .16.230 claimed, remains open.
 Existing .16.225 is now reachable in the Box database and claimed; its
 supplying-reference member producer still blocks target completion. No duplicate.
 
+## Binding-pattern initializer candidate rejected — tsr-2zk.16.63
+
+Existing issue claimed; current 19 named case population has only
+classExpressionNames entirely RIGHT, 18 incomplete. A direct owned fallback
+from unannotated variable initializer context to the existing
+binding_pattern_implied_type producer was investigated against pinned
+getContextualTypeForInitializerExpression. Full unfiltered coherent-mirror
+comparison rejects it: 84 prior RIGHT type losses, 3 prior correct diagnostic
+case losses, no vanished keys, despite 96 type gains. Candidate reverted;
+production has no binding fallback change or target conversion claim.
+
+Native getContextualType/getCovariantInference/getWidenedTypeForVariableLikeDeclaration
+callers distinguish ContextFlagsSkipBindingPatterns (checker.go9400/9405,
+29431,31540). The existing single-context query cannot faithfully classify a
+binding pattern as contextual shape but not sole inference source. Losses include
+bindingPatternCannotBeOnlyInferenceSource, genericObjectSpreadResultInSwitch,
+intraBindingPatternReferences and sibling initializer diagnostics. Existing
+binding_patterns.rs also refuses function-valued default producers needed by
+objectBindingPatternContextuallyTypesArgument. Canonical flag plumbing,
+initializer publication and that producer's explicit-context checking are
+cross-owner prerequisites; do not add contextual syntax heuristics or suppress
+these failures. Actual pinned-native positive/negative controls and both full
+rejected dumps/comparisons retained as binding-* receipts; no performance or
+passing gate is claimed for rejected code. Highest owned cluster remains open.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
