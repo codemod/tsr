@@ -1855,7 +1855,7 @@ impl<'a> Checker<'a, '_> {
         let pattern = self.nodes.parent(declaration)?;
         let array = match self.nodes.kind(pattern) {
             tsr_ast::SyntaxKind::ObjectBindingPattern => false,
-            tsr_ast::SyntaxKind::ArrayBindingPattern if element.dot_dot_dot_token.is_none() => true,
+            tsr_ast::SyntaxKind::ArrayBindingPattern => true,
             _ => return None,
         };
         let holder = self.nodes.parent(pattern)?;
@@ -3298,8 +3298,6 @@ mod tests {
                     vec![if strict { None } else { Some("\"right\"".into()) }]
                 );
                 for source in [
-                    "declare const input: ['head', ...'middle'[], 'end']; \
-                     let [, ...chosen = 'wrong']: ['head', ...'middle'[], 'end'] = input;",
                     "let [chosen = 'wrong'] = ['right'];",
                     "function f([chosen = 'wrong'] = ['right']) {}",
                 ] {

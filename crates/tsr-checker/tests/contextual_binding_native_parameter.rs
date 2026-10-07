@@ -4,10 +4,7 @@ use tsr_ast::{Node, NodeId};
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
-#[test]
-fn callback_default_projects_the_contextual_holder_not_implicit_any() {
-    let source = "const handler: (value: { cb?: (n: number) => number }) => void = \
-        ({ cb = n => n }) => {};";
+fn default_parameter_type(source: &str) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
@@ -27,5 +24,29 @@ fn callback_default_projects_the_contextual_holder_not_implicit_any() {
         .unwrap();
     let symbol = bound.symbol_of(parameter).unwrap();
     let ty = checker.get_type_of_symbol(symbol);
-    assert_eq!(checker.type_to_string(ty), "number");
+    checker.type_to_string(ty)
+}
+
+#[test]
+fn callback_default_projects_the_contextual_holder_not_implicit_any() {
+    assert_eq!(
+        default_parameter_type(
+            "const handler: (value: { cb?: (n: number) => number }) => void = \
+             ({ cb = n => n }) => {};",
+        ),
+        "number",
+    );
+}
+
+#[test]
+fn_invalid_rest_default_still_receives_native_element_context() {
+    // TS1186 does not prevent contextual checking of the initializer; native
+    // types n as number before reporting the rest/default assignment errors.
+    assert_eq!(
+        default_parameter_type(
+            "declare const input: [(n: number) => number]; \
+             let [...rest = n => n]: [(n: number) => number] = input;",
+        ),
+        "number",
+    );
 }
