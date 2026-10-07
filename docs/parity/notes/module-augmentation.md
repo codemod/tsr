@@ -213,6 +213,56 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Internal default export key visibility (tsr-2zk.6.17)
+
+Authoritative integration current targets: compiler/defaultIsNotVisibleInLocalScope,
+conformance/decoratorOnClass3.es6, conformance/decoratorOnClass7.es6,
+conformance/esmModuleExports1, conformance/esmModuleExports3. Integration issue
+DB is authoritative; absence from this Box's stale database/export does not mean
+the issue or current targets do not exist.
+
+Pinned native NameResolver.Resolve explicitly skips the internal default key
+in its ordinary module export lookup (`name != InternalSymbolNameDefault`),
+while separately accepting an actual named default declaration's local symbol.
+TSR omitted this ordinary-lookup guard. Port adds the exact guard, preserving
+locals-first shadowing, requested meaning, actual local/export identity and the
+separate named-default arm. No cache, traversal, alias fallback or printer
+heuristic is added. Existing module table/merge publication remains Program-owned
+and completed before lookup. There is no new active/completed state to publish.
+
+Direct before proof: `export default function () { return true; }` followed by
+`export type X = typeof default;`. Pinned tsgo reports sole TS2304 main.ts(2,24),
+complete message `Cannot find name 'default'.`; pre-change candidate emits
+nothing. Post-change actual candidate CLI matches that exact diagnostic.
+Permanent regression preserves named Real resolution while rejecting lexical
+`default` at VALUE, TYPE and NAMESPACE meanings.
+
+Current target conversion: compiler/defaultIsNotVisibleInLocalScope gains both
+previously WRONG type lines and diagnostic WRONG→RIGHT. Remaining four targets
+retain their prior failures; their new-expression identifier and require/import
+presentation gaps require the outside semantic-location/type/printer consumers,
+not a default-local resolution heuristic. Before authoritative target combined
+66 lines had 55 RIGHT/9 WRONG/2 GAP; after has 57 RIGHT/7 WRONG/2 GAP. Only the
+newly converted case is claimed converted.
+
+Full unfiltered verdict runs and coverage complete: all 12444 discovered sources;
+checker_types 8043/9538, matched lines 469767/478855; diagnostics 4222/5502.
+Type keys 477970 baseline/candidate, diagnostic keys 10570 baseline/candidate:
+missing=0, extra=0, formerly RIGHT/EMPTY_RIGHT losses=0. Relative frozen parent,
+only two type lines change (both gains); diagnostic gains are this case and the
+preceding ambient-context compiler/es5ExportDefaultClassDeclaration4 conversion.
+Workspace release tests, strict clippy, workspace format and anchor checks pass.
+Generated coverage snapshots are not committed.
+
+Fresh-process baseline interleaving 21 pairs: wall domain-model 0.998857,
+generic-imports 1.019236. Repeated both with 41 pairs to expose noise: wall
+0.996678/1.017456, median child CPU 0.994646/1.012803. No child-CPU regression
+beyond the protocol threshold; strict zero wall slowdown is not certified for
+generic-imports. Pinned-native 21-pair observed wall 1.022314/0.932465,
+matching stable diagnostics/listed scope/options but work_comparable=false:
+complete query-input and actual checker-work budgets are unverified. No verified
+<=0.50 ratio. These are observed measurements, not release acceptance.
+
 ### Ambient export-default local name follow-up to closed .16.24
 
 Assigned bounded follow-up: tsr-2zk.6.17 (created/claimed by integrator).

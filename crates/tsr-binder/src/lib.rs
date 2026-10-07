@@ -1365,6 +1365,10 @@ impl<'a> BindResult<'a> {
                 _ => None,
             };
             if let Some(mask) = exported
+                // Native NameResolver.Resolve never puts the internal default
+                // export key in lexical scope; only its actual local name is
+                // admitted by GetLocalSymbolForExportDefault above.
+                && name != binder::INTERNAL_DEFAULT
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
