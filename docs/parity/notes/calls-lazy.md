@@ -923,3 +923,82 @@ indexed/mapped API; no semantic candidate, tests or conversion claim.
 Historical per-line attribution is not current completion evidence; the
 authoritative `.16.421` target receipt governs acceptance. `.9.8` verified delivery and `.16.420` canonical
 union-regularization handoff remain unchanged.
+
+## RESOLVE-JSX-OPENING-LIKE-ELEMENT-OVERLOADS receipt
+
+Integrator extended exclusive ownership to jsx_intrinsic.rs, jsx_component.rs,
+jsx_attributes.rs and jsx_factory.rs, alongside original calls/signatures/
+inference files. Four current blocked cases; exact issue/case receipt pending.
+Read pinned jsx.go `resolveJsxOpeningLikeElement`,
+`checkApplicableSignatureForJsxCallLikeElement`, `inferJsxTypeArguments`,
+`getUninstantiatedJsxSignaturesOfType`, effective call/class props, and
+checker.go `resolveCall`, `chooseOverload`, `checkExpressionWithContextualType`.
+
+Direct pre-edit control: two `Component` overloads with discriminants number/
+string and corresponding callback parameter number/string. Native accepts
+both JSX elements under strict checking. TSR producer prints callback
+parameters any and callback/attribute error; current
+`jsx_intrinsic.rs::resolve_jsx_attributes_context` returns None when more than
+one signature exists. This confirms a current root, not historical counts.
+
+Negative control is required for full recovery fidelity:
+
+```typescript
+declare namespace JSX { interface Element {} }
+declare function Component(props: { kind: 'number'; cb: (value: number) => void }): JSX.Element;
+declare function Component(props: { kind: 'string'; cb: (value: string) => void }): JSX.Element;
+const invalid = <Component kind='boolean' cb={(value: boolean) => {}} />;
+```
+
+Pinned native emits TS2769 at `(4,28)` and `(4,43)`, in order. Both have
+`No overload matches this call.` / `The last overload gave the following error.`
+chains. First leaf: `Type '"boolean"' is not assignable to type '"string"'.`
+Second leaf: callback boolean versus string, followed by parameter-name
+incompatibility and `Type 'string' is not assignable to type 'boolean'.`
+Current TSR emits no diagnostics. Its Diagnostic struct only has a flat
+message, span and argument list; no chain or related-information payload.
+A flat-head-only error or valid-selection-only implementation would fail the
+explicit complete message/order contract and is not delivered.
+
+### One shared contract owner, then owned resolver implementation
+
+Required shared prerequisite is the canonical contextual checking/diagnostic
+contract owned by the integrator's checking owner:
+
+- A checkExpressionWithContextualType-equivalent API accepting attributes
+  NodeId, effective props TypeId, optional inference context and check mode,
+  with canonical context-node placement (outer JsxElement for opening tags,
+  attributes for self-closing tags), contextual stack push/pop,
+  SkipContextSensitive checking, and ContextChecked callback retention.
+  Native non-generic applicability uses nil inference context. Existing
+  active_inference_contexts cannot be used as a fake non-generic context
+  merely to smuggle candidate props; that would introduce fixing semantics
+  absent in native and recreate re-entry bugs.
+- Structured diagnostic chains and related information through the existing
+  relation/elaboration reporter, preserving candidate error locations and
+  order. No local TS2769 formatter or suppression pass substitutes.
+
+These are one atomic shared checking contract, not separate heuristic
+patches across contextual.rs/objects.rs/checker.rs. No changes to those files
+are authorized in this Box. Owned implementation can then use a JSX-specific
+candidate state: constructor preference on apparent tag, once-reordered
+candidates, JSX one-effective-argument arity, subtype then assignable passes,
+SkipContextSensitive->normal transition retained across candidates, fresh
+generic inference with inferJsxTypeArguments, complete signature recovery
+and publication before diagnostic re-entry. Effective props preserve
+LibraryManagedAttributes, IntrinsicClassAttributes, original tag alias,
+instance props and receiver identity. Do not reuse ordinary sole-arity
+survivor heuristics or overwrite parameter vectors to fake JSX arity.
+
+Publication key remains opening-like NodeId in the private Checker lifetime;
+active candidate props/context differs from completed recovered signature,
+unsupported completion and actual absence. No second signature cache or
+member image was added. Expensive attribute/children checks and candidate
+worker counts must be recorded with the canonical contract before extending
+reuse. Integrator Beads request: account for actual candidate checks,
+ContextChecked retention and completed hits for this JSX root.
+
+No semantic implementation, new tests, type/diagnostic conversion or candidate
+performance claim. The current four-case root needs the shared complete
+checking contract before it can meet acceptance; exact case receipt still
+pending. `.9.8` completed delivery and other open collector roots unchanged.
