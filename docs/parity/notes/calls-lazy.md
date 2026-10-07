@@ -53,8 +53,10 @@ Ignored durable directory: `target/recovery/calls/`.
 
 ## JSX recovery prerequisites remain unresolved
 
-The saved `box/parity-calls-r2` branch was not bundled into this Box: no such
-ref/reflog was available. No old snapshot was treated as a verified commit.
+The saved `box/parity-calls-r2` branch was initially absent from this Box.
+After the parent published it, explicit fetch succeeded. JSX commits
+`d03f4839`/`b1294b64` contain only evidence/docs, not a resolver implementation.
+No old snapshot or historical gate claim was treated as verified.
 
 An owner-local JSX overload experiment was exercised and discarded. Native
 `chooseOverload` requires a retained generic inference context across skipped
@@ -71,3 +73,32 @@ TS2769 chains with recover-diagnostics; retain inference/fixing context for the
 native skipped/normal retry; run the current-native full-configuration oracle
 and relevant equivalent-work performance controls. No >=99.9% campaign or
 hotpath/no-slowdown certification is claimed by this slice.
+
+## Recovered semantic rest-pattern cutover
+
+Reviewed owned code hunks from saved `1ffe82b7` and `cfc7ef12`; recovered only
+`call_arity.rs`, `signatures.rs`, `calls.rs`, and dedicated rest tests. No old
+branch merge, snapshot, or documentation claims imported. Tracked under the
+existing recovery issue `tsr-2zk.16.168`; historical `tsr-2zk.9.8` is absent
+from this Box's issue database, so no duplicate task was created.
+
+Pinned `getParameterCount`, `getMinArgumentCountEx`, and
+`hasEffectiveRestParameter` read the rest symbol's semantic type. A written
+`number[]` annotation does not become a fixed tuple merely because its name is
+`...[a, b]`; an unannotated rest pattern uses its implied binding-pattern type.
+The recovery removes the syntax-count heuristic and the now-obsolete
+binding-pattern applicability decline. Existing signature publication owns
+preparation; no cache, mapper or shared field added.
+
+Fresh receipts in `target/recovery/calls`:
+
+- `rest-before.log`: recovered native-rest regression fails before code recovery.
+- `rest-tests.log`/`rest-clippy.log`: full checker tests and all-target clippy pass.
+- `rest-native-final.log`/`rest-cli-final.log`: actual pinned-native and TSR CLI
+  output is byte-identical, including implicit-any and three TS2554 diagnostics.
+- `rest-ratchet.json`: 12,444 keys in both suites, no prior-PASS losses or vanished
+  keys. Diagnostics newly pass `iterableArrayPattern17` and
+  `iterableArrayPattern26`; whole-case types passes unchanged.
+
+No current-native full-configuration or performance acceptance is inferred
+from these focused controls and historical harness ratchets.
