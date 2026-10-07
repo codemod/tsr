@@ -6052,8 +6052,15 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && (matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
-                || self.is_closed_literal_union_alias(symbol, &arguments))
+            && (alias.r#type.is_some_and(|mut body| {
+                // getTypeFromTypeNodeWorker: parentheses are transparent before
+                // indexed-access resolution, including an alias's declared body.
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                    let Some(inner) = parenthesized.r#type else { return false };
+                    body = inner;
+                }
+                matches!(body, TypeNode::IndexedAccessTypeNode(_))
+            }) || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);

@@ -175,6 +175,27 @@ TS2635 at (10,39), and TS2344 at (11,47). Receipts: `type-query-native.txt` and
 `native-type-query/type-query-control.d.ts`. Parent must apply caller and actual
 wrapper together before target/full parity/performance verification.
 
+## Parenthesized indexed alias body dispatch
+
+Native `getTypeFromTypeNodeWorker` unwraps parentheses before dispatch. The
+existing indexed-alias evaluator was selected only for directly written indexed
+bodies. Its entry now unwraps parentheses and reuses the same evaluator,
+ordered-argument cache, deferred operands and alias-origin publication. No new
+semantic cache, receiver substitution or general-body fallback.
+
+The new indexed projection regression fails before and passes after. Verification
+uses frozen `caa7cc2b` plus only this owned hunk in a recovery worktree because the
+separate TypeQuery caller requires an unpublished parent API. Existing indexed
+and conditional alias target tests pass; real CLI string projection acceptance
+and number rejection diagnostics compare byte-for-byte with native. Unfiltered
+477,970-assertion oracle unchanged: no former RIGHT losses or vanished recognized
+keys; no whole-case gain claimed. Seven interleaved fresh-process 3,000-reference
+samples: after/before 0.9903, after/native 1.5721. Baseline omits correct semantic
+projection and emits errors, so not equivalent complete work or release speed
+certification. Receipts: `indexed-before.txt`, `indexed-after.txt`,
+`indexed-native.txt`, `indexed-smoke.txt`, `indexed-transitions.txt`,
+`indexed-perf.txt` under `target/recovery/alias`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

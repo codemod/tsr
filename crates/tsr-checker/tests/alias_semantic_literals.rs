@@ -62,6 +62,17 @@ fn parenthesized_keyword_bodies_remain_intrinsic_types() {
 }
 
 #[test]
+fn parenthesized_indexed_alias_body_substitutes_arguments() {
+    assert_eq!(
+        declared_and_reference(
+            "type Get<T, K extends keyof T> = ((T[K])); declare let value: Get<{ item: string }, \"item\">;",
+            "Get",
+        ).1,
+        "string",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),
