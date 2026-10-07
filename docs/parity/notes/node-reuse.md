@@ -758,6 +758,44 @@ loss/ID and unverified performance receipts remain applicable. Parent semantic
 resolution/context is the reachable prerequisite before extending this owned
 visitor arm.
 
+## Implemented emitted-node precedence correction (`tsr-2zk.16.147`)
+
+An actual native/TSR control with `?string & Tag` exposed an owned grouping
+error: TSR's reused node printed `string | null & Tag`, changing the source
+AST's meaning. Native diagnostics additionally normalize the intersection to
+`string & Tag`; that parent semantic diagnostic policy is intentionally not
+changed here.
+
+Pinned nodecopy replaces a nullable/optional wrapper with an ordinary union,
+replaces variadic wrappers with arrays, and unwraps nonnullable/type-expression
+nodes. Native `Printer.emitTypeNode` (`printer.go:2274`) computes precedence
+from the **resulting node**, not its original JSDoc wrapper. Owned
+`emit_reused_type` now applies the rewritten node's precedence to successful
+visitor output. Existing normal-node and semantic-fallback rules remain intact.
+Actual corpus smoke now prints `(string | null) & Tag` in both parameter and
+return positions. A retained regression catches the old grouping error;
+**8 release tests pass**, no ignored/filtered tests. Owned formatting checks
+pass. No cache, traversal, identity guard, shared field, or visibility policy
+was added; the result-kind check is constant work per already-visited node.
+
+Fresh unfiltered candidate runs:
+
+| Surface | RIGHT | WRONG | GAP | Protected losses | Missing/new IDs | Changes |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| Types | 469,839 | 7,175 | 964 | 0 | 0 / 0 | 0 |
+| Diagnostics | 4,224 | 1,278 | — | 0 | 0 / 0 | 0 |
+
+Diagnostics also retain 4,968 EMPTY_RIGHT and 100 EMPTY_WRONG. This corrects
+an emitted grouping bug but claims **no whole-case conversion**. The earlier
+parent context/retention prerequisites remain unresolved.
+
+Ran fresh nine-sample native CLI timing after corpus/build processes finished:
+domain-model observed wall ratio **1.036902**, generic-imports **0.957450**.
+Both report matching scope/options/diagnostics, `verified_wall_ratio: null`,
+`target_verified: false`, with complete-input and actual-work verification
+still false. These are not equivalent-complete-work performance certification
+or an accepted speed win; the <=0.50 release goal remains unmet.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.

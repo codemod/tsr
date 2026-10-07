@@ -141,6 +141,19 @@ fn property_constraints_preserve_written_intersection_and_optional_annotation() 
 }
 
 #[test]
+fn rewritten_nullable_node_keeps_its_grouping_inside_an_intersection() {
+    // nodecopy replaces the nullable wrapper with a UnionTypeNode. Printing
+    // it as string | null & Tag changes the source tree's meaning.
+    assert_eq!(
+        reused_return(
+            "interface Tag { tag: string } declare function source(): \
+             (value: ?string & Tag) => ?string & Tag;",
+        ),
+        "(value: (string | null) & Tag) => (string | null) & Tag",
+    );
+}
+
+#[test]
 fn nested_generic_scopes_preserve_distinct_written_type_parameters() {
     assert_eq!(
         reused_return(

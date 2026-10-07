@@ -928,7 +928,20 @@ impl<'a> Checker<'a, '_> {
         };
         let parenthesized = node_precedence(node) < precedence;
         if let Some(text) = self.try_reuse_type_node(node, in_extends && !parenthesized, cx) {
-            return if parenthesized { format!("({text})") } else { text };
+            // nodecopy rewrites JSDoc wrappers into ordinary union/array nodes
+            // or unwraps them. The printer tests the resulting node's
+            // precedence, not the source wrapper's (printer.go:2274).
+            let emitted_precedence = match node {
+                TypeNode::JSDocNullableType(_) | TypeNode::JSDocOptionalType(_) => {
+                    Precedence::Union
+                }
+                TypeNode::JSDocVariadicType(_) => Precedence::Postfix,
+                TypeNode::JSDocNonNullableType(_) | TypeNode::JSDocTypeExpression(_) => {
+                    text_precedence(&text)
+                }
+                _ => node_precedence(node),
+            };
+            return if emitted_precedence < precedence { format!("({text})") } else { text };
         }
         // The visitor's recovery arm (`nodecopy.go:866`): a type node
         // whose subtree marked an error is serialized from its type instead.
