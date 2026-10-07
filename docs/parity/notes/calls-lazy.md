@@ -571,10 +571,10 @@ Further owned cluster work requires an authoritative next-root assignment,
 or completion of the stated publication/collector prerequisites. `.16.27`
 remains open and unimplemented.
 
-## Semantic rest-pattern arity port — calls lane tsr-2zk.9
+## Semantic rest-pattern arity port — tsr-2zk.9.8
 
-The integrator assigned native minimum/count/rest arity as the next owned
-root and will file its specific Beads issue after identification. Root:
+The integrator created and claimed `tsr-2zk.9.8` for native minimum/count/rest
+arity. Root:
 **rest binding-pattern length overrides the parameter's semantic type**.
 Current TS2554 witnesses are `conformance/iterableArrayPattern17` and
 `conformance/iterableArrayPattern26`; both mistakenly require two arguments
@@ -784,8 +784,14 @@ and actual checked-work proof flags remain false; no verified native ratio
 or <=0.50 claim. The no-slowdown baseline gate passed after the required
 noise repeat.
 
-Dedicated issue ID is pending the integrator's announced receipt; commit
-references the existing parent tsr-2zk.9 until that ID is supplied. Delivered
-rest-pattern root now includes both target diagnostic conversions, semantic
-parameter preparation, removal of both obsolete helpers/declines, and the
-permanent native arity controls. Shared lazy-parameter roots stay open.
+Dedicated issue `tsr-2zk.9.8` is created and claimed by the integrator; the
+final receipt commit references it. Delivered rest-pattern root includes both
+target diagnostic conversions, semantic parameter preparation, removal of
+both obsolete helpers/declines, and the permanent native arity controls.
+Additional direct controls match pinned native byte-for-byte for an inherited
+`Base.method(...[a,b]: number[])` called through a Derived instance and a type
+parameter callee constrained by `(...args: [number,string?]) => void`.
+Both obsolete helper names have no remaining references in their former
+owned files. Existing semantic receiver/apparent-callee and effective-argument
+paths remain in place; no alternate syntax classifier was added.
+Shared lazy-parameter roots stay open.
