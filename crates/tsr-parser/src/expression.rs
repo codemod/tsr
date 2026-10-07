@@ -1423,12 +1423,9 @@ impl<'a> Parser<'a> {
 
         // `{ m() {} }`, `{ m<T>() {} }` and `{ *m() {} }` are methods.
         //
-        // Upstream's `parseMethodDeclaration` ends in
-        // `parseFunctionBlockOrSemicolon`, so `{ foo(); }` has no body, and
-        // `checkGrammarMethod` reports the `'{' expected` at the `;`. That
-        // grammar arm is not ported, and without it a bodiless member reads
-        // as a missing implementation (TS2391); until it is, the body is
-        // parsed as a block, whose missing `{` reports the same error.
+        // Native parseMethodDeclaration ends in parseFunctionBlockOrSemicolon:
+        // a missing body remains absent, not a fabricated empty block. Grammar
+        // checking owns the object-literal missing-body diagnostic.
         if asterisk.is_some()
             || self.at(SyntaxKind::OpenParenToken)
             || self.at(SyntaxKind::LessThanToken)
@@ -1440,8 +1437,8 @@ impl<'a> Parser<'a> {
             let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
                 let parameters = parser.parse_parameter_list();
                 let return_type = parser.parse_return_type_annotation();
-                let body = FunctionBody::Block(parser.parse_block());
-                (parameters, return_type, Some(body))
+                let body = parser.parse_function_block_or_semicolon(false, None);
+                (parameters, return_type, body)
             });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);

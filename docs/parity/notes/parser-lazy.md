@@ -401,6 +401,26 @@ retained; no claim that removing speculation is automatically a speed win. No
 AST/scanner/shared checker edits. Parent must resolve this measured parse worker
 regression before acceptance, not waive it on target conversion.
 
+### Object-literal method body presence candidate (tsr-2zk.16.262)
+
+Pinned parseMethodDeclaration ends with parseFunctionBlockOrSemicolon, so foo();
+and foo() at } have nil bodies; foo() {} has an allocated empty block. The owned
+expression candidate reuses that existing worker instead of fabricating a block
+solely to emit a parser diagnostic. Native controls, isolated full parser and
+body-presence tests, library clippy and fmt pass. Twelve existing WRONG type
+rows convert RIGHT, but two diagnostic RIGHT cases regress:
+objectLiteralMemberWithoutBlock1 gets TS2391/7010 instead of native TS1005;
+FunctionPropertyAssignments4_es6 gets extra TS7010. No vanished keys.
+
+Native checkGrammarMethod first calls checkGrammarFunctionLikeDeclaration;
+object-literal modifier/postfix checks precede nil-body TS1005 at node.End()-1,
+length 1, '{' expected. Parent owns those semantic consumers. No fake-block
+fallback, checker suppression or test exception added. Candidate remains
+rejected for prior-RIGHT losses. Incremental 41pair x60 complete-parse wall/CPU
+1.008712/1.009161 parser.ts, 0.959107/0.957731 dom, full JSDoc/diagnostics and
+equal node outputs; not a standalone no-hotpath-regression acceptance. No shared
+AST/scanner/checker edits.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
