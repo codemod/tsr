@@ -667,12 +667,6 @@ impl Checker<'_, '_> {
             }
             return CallArity::Undecided;
         }
-        // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
-        // tuple type; this port's signature carries `any[]` there, so its
-        // parameter count is not upstream's.
-        if signatures.iter().any(|signature| self.has_binding_pattern_rest(signature)) {
-            return CallArity::Undecided;
-        }
         // An immediately invoked function's minimum reads the written
         // argument count while its printed optionality reads the expanded
         // one; with a spread argument the two differ and this port's
@@ -1575,22 +1569,6 @@ impl Checker<'_, '_> {
         }
         self.report_type_argument_arity_error(node, type_arguments, &arities);
         CallArity::Reported
-    }
-
-    /// Whether the signature's declaration ends in `...[a, b]`.
-    fn has_binding_pattern_rest(&self, signature: &Signature) -> bool {
-        let parameters = match self.node_map.get(signature.declaration) {
-            Some(tsr_ast::Node::FunctionDeclaration(node)) => node.parameters,
-            Some(tsr_ast::Node::FunctionExpression(node)) => node.parameters,
-            Some(tsr_ast::Node::ArrowFunction(node)) => node.parameters,
-            Some(tsr_ast::Node::MethodDeclaration(node)) => node.parameters,
-            Some(tsr_ast::Node::ConstructorDeclaration(node)) => node.parameters,
-            _ => return false,
-        };
-        parameters.last().is_some_and(|parameter| {
-            parameter.dot_dot_dot_token.is_some()
-                && matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
-        })
     }
 
     /// `getEffectiveCallArguments` (`checker.go:30042`) for a call or `new`:

@@ -4939,7 +4939,18 @@ impl<'a> Checker<'a, '_> {
                         }
                         return None;
                     }
-                    let computed = self.get_widened_type_for_variable_like_declaration(id);
+                    // Ported from `Checker.tryGetTypeFromEffectiveTypeNode`
+                    // (`internal/checker/checker.go`): an unannotated,
+                    // non-contextual binding parameter uses its implied type,
+                    // including a rest parameter. The symbol worker's implicit
+                    // any[] rest fallback is not the pattern's tuple type.
+                    let computed = if node.dot_dot_dot_token.is_some()
+                        && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = node.name
+                    {
+                        self.binding_pattern_implied_type(pattern)?
+                    } else {
+                        self.get_widened_type_for_variable_like_declaration(id)
+                    };
                     // §561: a NEWLY-ADMITTED arrow/function-expression
                     // parameter declines when the implied type came out as a
                     // bare `any`. §429's gate was hiding shapes the implied-type
