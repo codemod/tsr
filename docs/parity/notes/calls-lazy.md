@@ -1,0 +1,73 @@
+# Calls recovery: concrete receiver signature images
+
+Issue: `tsr-2zk.16.168`. Recovery checkpoint: `0e7824dd`.
+Native: `vendor/typescript-go` pinned `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
+
+## Implemented boundary
+
+`resolveTypeReferenceMembers` pads the target's ordinary type arguments with
+its concrete receiver for the polymorphic `this` parameter. In
+`resolveObjectTypeMembers`, each instantiated heritage reference retains that
+same derived receiver before inherited call/construct signatures are read.
+
+`instantiate_signature_for_reference_with_this(receiver, this_argument,
+signature)` supplies this mapping through the existing signature instantiator.
+Ordinary arguments belong to `receiver`; inherited polymorphic `this` belongs
+to `this_argument`. `signature_candidates_of_interface_symbol` threads the
+original derived receiver through every base. Declared-before-inherited order,
+heritage argument substitution, original declaration/alias identity and the
+signature's own fresh generic parameter identities remain intact.
+
+Identity is Checker-local `TypeId`/merged `SymbolId`, not printed names.
+No shared fields or cache are added. The existing visiting-symbol stack marks
+active traversal; a recursive/unsupported result is `None`, not a completed
+empty signature list. Successful ephemeral images enter the existing candidate
+consumer; existing signature caches retain their ownership. Expensive work is
+heritage traversal plus the existing `instantiate_signature_with_fresh_parameters`
+worker. An identity mapper returns the original signature without allocating a
+fresh image. This is a correctness prerequisite, not a performance claim.
+
+## Verification receipts
+
+Ignored durable directory: `target/recovery/calls/`.
+
+- `receiver-before.log`: all three regression controls fail on the checkpoint,
+  returning `this` instead of `Derived`, `Right`, and `Derived<string>`.
+- `receiver-after.log`: all three pass with the owned signature changes.
+- `native-controls.txt`: pinned tsgo accepts concrete-derived assignment and the
+  contextual discriminant/callback control; the negative ordinary-argument
+  control reports TS2345 for number versus string.
+- `owned-tests.log`: complete `tsr-checker` tests pass.
+- `owned-clippy.log`: checker all-target clippy with `-D warnings` passes.
+- CLI smoke: `receiver-project.ts`/`tsconfig.json`, TSR and pinned tsgo both exit
+  zero; `smoke-cli.txt` records TSR output.
+- Full existing harness, 12,444 case keys each: `owned-types.tsv` has 8,051
+  passes, 1,487 failures, 2,906 skips; `owned-diagnostics.tsv` has 4,222 passes,
+  1,280 failures, 6,942 skips. `owned-ratchet.json`: zero formerly-PASS losses,
+  zero vanished keys, zero gained whole-case passes. These are the existing
+  historical baseline harness, not a current-native full-configuration oracle.
+- `perf.json`: five fresh-process samples; matching diagnostics and scope,
+  observed TSR/tsgo median wall ratio 1.7343. **Not equivalent-work certified**:
+  query-input coverage, performed checker work/worker budgets and options
+  equivalence are unverified. Verified ratio is null; <=0.50 is not met.
+
+## JSX recovery prerequisites remain unresolved
+
+The saved `box/parity-calls-r2` branch was not bundled into this Box: no such
+ref/reflog was available. No old snapshot was treated as a verified commit.
+
+An owner-local JSX overload experiment was exercised and discarded. Native
+`chooseOverload` requires a retained generic inference context across skipped
+applicability and the normal retry. The current single-candidate JSX worker
+finishes both passes eagerly; reusing it fixes context-sensitive inputs too
+early. A discriminant/callback smoke returned `any` where pinned native returns
+`string`. Shipping that experiment would violate the native algorithm contract.
+No JSX implementation from that experiment is included.
+
+All four named JSX targets remain failing at the final owned-only state.
+The issue stays open. Needed integration work: recover saved owned history;
+coordinate contextual candidate publication with recover-contextual and exact
+TS2769 chains with recover-diagnostics; retain inference/fixing context for the
+native skipped/normal retry; run the current-native full-configuration oracle
+and relevant equivalent-work performance controls. No >=99.9% campaign or
+hotpath/no-slowdown certification is claimed by this slice.

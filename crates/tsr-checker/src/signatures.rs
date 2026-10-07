@@ -1081,7 +1081,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let signatures =
-            self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;
+            self.signature_candidates_of_interface_symbol(symbol, kind, callee, &mut Vec::new())?;
         signatures
             .into_iter()
             .map(|signature| self.instantiate_signature_for_reference(callee, signature))
@@ -1095,6 +1095,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         symbol: SymbolId,
         kind: SignatureKind,
+        this_argument: TypeId,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<Signature>> {
         let symbol = self.binder.merged_symbol(symbol);
@@ -1140,11 +1141,17 @@ impl<'a> Checker<'a, '_> {
                         self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
                     // resolveObjectTypeMembers reads each instantiated base's
                     // signatures before the derived receiver mapper is applied.
-                    for signature in
-                        self.signature_candidates_of_interface_symbol(base, kind, visiting)?
-                    {
-                        inherited
-                            .push(self.instantiate_signature_for_reference(base_type, signature)?);
+                    for signature in self.signature_candidates_of_interface_symbol(
+                        base,
+                        kind,
+                        this_argument,
+                        visiting,
+                    )? {
+                        inherited.push(self.instantiate_signature_for_reference_with_this(
+                            base_type,
+                            this_argument,
+                            signature,
+                        )?);
                     }
                 }
             }
