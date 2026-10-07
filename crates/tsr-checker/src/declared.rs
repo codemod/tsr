@@ -6030,10 +6030,16 @@ impl<'a> Checker<'a, '_> {
         }
         // Ported from typescript-go's getTypeAliasInstantiation and
         // instantiateTypeWithAlias (internal/checker/checker.go): a literal
-        // declared body is a pre-existing type, independent of the mapper.
+        // or keyword declared body is pre-existing and mapper-independent.
+        // ParenthesizedType is transparent in getTypeFromTypeNodeWorker.
         // Reuse the SymbolId-owned declared publication and the existing
         // ordered-TypeId instantiation key; never mint a nominal alias image.
-        if let Some(TypeNode::LiteralTypeNode(_)) = self.alias_free_generic_alias_body(symbol) {
+        if self.original_generic_keyword_alias_body(symbol).is_some()
+            || matches!(
+                self.alias_free_generic_alias_body(symbol),
+                Some(TypeNode::LiteralTypeNode(_))
+            )
+        {
             let declared = self.get_declared_type_of_symbol(symbol);
             self.instantiations.insert((symbol, arguments), declared);
             return declared;

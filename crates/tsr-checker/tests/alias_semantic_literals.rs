@@ -41,6 +41,27 @@ fn generic_literal_aliases_retain_their_body_type() {
 }
 
 #[test]
+fn parenthesized_keyword_bodies_remain_intrinsic_types() {
+    for keyword in [
+        "any",
+        "unknown",
+        "string",
+        "number",
+        "bigint",
+        "boolean",
+        "symbol",
+        "void",
+        "undefined",
+        "never",
+        "object",
+    ] {
+        let source =
+            format!("type Primitive<T> = (({keyword})); declare let value: Primitive<string>;");
+        assert_eq!(declared_and_reference(&source, "Primitive"), (keyword.into(), keyword.into()));
+    }
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

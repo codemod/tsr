@@ -138,6 +138,32 @@ ignored `target/recovery/alias`. Tests for the independent alias-body changes
 also pass after removal (`without-workaround-tests.txt`). No full-workspace gate
 or parent-reported F6 failure was rerun.
 
+## Parenthesized intrinsic alias references
+
+The declaration path already unwraps parentheses around keyword bodies, but
+reference construction recognized only directly written keywords. References now
+reuse `original_generic_keyword_alias_body` and the completed declared owner,
+like literal bodies. The existing ordered-argument cache and intrinsic identities
+remain unchanged; no new worker/cache or spelling key. An eleven-keyword regression
+fails before and passes after; related alias targets pass. Native declaration emit
+confirms all eleven inferred result types are the corresponding intrinsic.
+
+Existing unfiltered verdict oracle versus `215d1b31` is unchanged: no RIGHT losses
+or vanished recognized keys. Anchor gate remains 4,501 checked / zero unresolved.
+Seven fresh-process interleaved samples on 3,000 primitive references: after/before
+0.9650, after/native 0.8193. Baseline emits false positives and omits the semantic
+answer, so this is not equivalent complete work or a release speed claim. Receipts:
+`keyword-before-tests.txt`, `keyword-after-tests.txt`, `keyword-transitions.txt`,
+`keyword-perf.txt`. TSR declaration CLI returned success without an artifact on
+this control; native declaration evidence is not claimed as TSR emit parity.
+
+TypeQuery migration awaits the integration-owned real
+`get_instantiation_expression_type(expression_type: TypeId, node: NodeId) -> TypeId`
+API. It must own written-argument checking, constraints, TS2635, and native
+`(NodeId, source TypeId)` publication. The caller will remove its argument refusal,
+resolve the actual expression, invoke that worker, then widen/regularize. No
+fallback or duplicate constraint worker is introduced while the API is absent.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
