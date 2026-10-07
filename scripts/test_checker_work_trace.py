@@ -140,6 +140,15 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(self.native_trace_check(mutation)["native_trace_valid"])
         self.assertFalse(result["actual_checked_work_verified"])
 
+    def test_native_partial_parse_inventory_cannot_pass_as_loaded_scope(self):
+        begin = {"pid": 1, "tid": 10, "ph": "B", "cat": "parse", "ts": 0,
+                 "name": "createSourceFile", "args": {"path": "a.ts"}}
+        result = self.native_trace_check([begin, {**begin, "ph": "E", "ts": 10}])
+        self.assertFalse(result["native_trace_valid"])
+        self.assertFalse(result["parsed_inventory_verified"])
+        self.assertEqual(result["completed_parsed_paths"], ["a.ts"])
+        self.assertIn("parse scope differs", result["reasons"][0])
+
     def test_native_trace_directory_mismatch_rejects_actual_receipt(self):
         from checker_work_trace import PINNED_NATIVE_SHA, validate_native_trace
         begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,

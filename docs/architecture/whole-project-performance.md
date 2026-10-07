@@ -212,6 +212,23 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Native completed parse inventory is independently bounded
+
+When native unsampled `createSourceFile` operations are present, their completed
+path set must equal the supervising loaded Program inventory after the existing
+canonical-library-only normalization. Duplicate completed parse paths reject.
+Missing one completed parse pair cannot silently retain a full inventory claim.
+Absent parse telemetry remains `parsed_inventory_verified=false`, not inferred
+from full-worker counts. Partial completed parse paths survive failure output.
+
+42 trace tests passed; actual native large reader verified the 265 parsed-path
+inventory separately from 202 initial checked workers. Actual trace with one
+complete parse pair removed saved `/tmp/recover-parse-negative/rejection.json`
+and exited 1. Fresh frozen qualified five-pair/warmup capture saved
+`/tmp/recover-parse-checkpoint.json`, comparable exit 1. This does not observe all
+resolver queries, complete semantic workers or full-corpus zero-loss; native
+<=0.50 remains unmet.
+
 ### Loaded-file identity is unique before worker validation
 
 Shared receipt validation now rejects duplicate logical loaded-file paths before
