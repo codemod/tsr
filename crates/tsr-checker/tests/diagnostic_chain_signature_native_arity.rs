@@ -42,6 +42,18 @@ fn failed_signature_assignment_and_argument_preserve_native_explanation() {
 }
 
 #[test]
+fn call_failure_precedes_construct_failure_and_owns_the_explanation() {
+    let ds = diagnostics(
+        "declare let source: { (a: any, b: any): {}; new(a: any, b: any, c: any): {}; }; let target: { (a: any): {}; new(a: any): {}; } = source;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    assert_eq!(
+        ds[0].message_chain().iter().map(Diagnostic::text).collect::<Vec<_>>(),
+        ["Target signature provides too few arguments. Expected 2 or more, but got 1."]
+    );
+}
+
+#[test]
 fn first_failed_target_overload_owns_the_arity_explanation() {
     let ds = diagnostics(
         "declare let source: (a: any, b: any, c: any) => {}; let target: { (a: any): {}; (a: any, b: any): {}; } = source;",

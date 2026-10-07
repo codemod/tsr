@@ -301,6 +301,11 @@ impl Diagnostic {
         self
     }
 
+    /// Mutable ordered explanations for the native reporting location cutover.
+    pub fn message_chain_mut(&mut self) -> &mut [Self] {
+        self.details.as_mut().map_or(&mut [], |details| &mut details.chain)
+    }
+
     /// Replace explanations (`Diagnostic.SetMessageChain`).
     pub fn set_message_chain(&mut self, children: Vec<Self>) -> &mut Self {
         self.details.get_or_insert_with(Default::default).chain = children;
