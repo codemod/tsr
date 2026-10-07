@@ -506,6 +506,22 @@ Box still omits that diagnostic, explicitly not a complete native-control pass.
 Binder test/clippy/format pass; Linux 21-sample CPU new/base 0.9870/0.9913.
 Native complete-work wall goal and integrated full configuration remain open.
 
+## Next-root controls after lexical export owner
+
+Scoped tsr-2zk.16.281's unresolved ES import errorType branch. Full native
+semantic correction gained three RIGHT rows but introduced four new prior RIGHT
+losses in shorthand-property-es6-es6 and shorthandPropertyAssignmentInES6Module,
+beyond the held template's 12. Objects collapse to any when an error-typed
+shorthand member should remain recoverable. Requires object-owner recovery;
+withheld patch at unresolved-alias/blocked.patch, no diagnostic/name exception.
+
+Scoped tsr-2zk.16.249 implicit top-level JSDoc alias export publication using
+actual module_symbol and same alias identity. That experiment had zero target/
+corpus impact; removed instead of committing unproved partial topology. Native
+full declareModuleMember merge/conflict identity and merged-tag branches remain
+prerequisites. Durable patch: typedef-implicit-export-zero-impact.patch.
+No callable/function-template block changes; both existing issues updated.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
