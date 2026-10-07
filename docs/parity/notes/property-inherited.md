@@ -296,7 +296,7 @@ reuse/cache surface until that bounded audit is recorded. Native
 static/instance synthetic constituent roots without changing shared type stores,
 symbols, or any other checker files.
 
-## Completed protected constituent port — tsr-2zk.4.14
+## Completed protected constituent port — tsr-2zk.4.14.1
 
 The second `.4.14` implementation retains composite origins in
 `members.rs::property_accessibility_roots`. It reads the existing composite
@@ -372,7 +372,9 @@ band, no measured material slowdown. Pinned native observed ratios:
 0.9982/0.9264. Loaded scope/options/diagnostics match, but complete captured
 inputs and actual performed work remain unverified; all reports retain
 `work_comparable=false`, `target_verified=false`. No <=0.50 certification.
-Original readonly/member cutover remains open under `.4.12.1`.
+Original readonly/member cutover remains open under `.4.12.1`; broad `.4.14`
+also remains open. The bounded composite-origin/static-receiver slice is
+`.4.14.1`; `bfca6e08` implements that slice, not broad issue completion.
 
 ## Completed owned root: element-access constructor permission
 
