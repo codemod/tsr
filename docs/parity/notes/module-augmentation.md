@@ -621,6 +621,24 @@ use current corpus, not historical promise. Binder test/clippy/format pass.
 Linux 21-sample CPU new/base 1.0291 domain-model, 0.9902 generic-imports; no
 native equivalent complete-work certification. Parent integrated loss gate needed.
 
+## Parameter emit-scope resolution prerequisite (tsr-2zk.6.13)
+
+Native useOuterVariableScopeInParameter excludes body-contained declarations only
+when no function parameter requiresScopeChange. Native traversal depends on emit
+script target and GetEmitStandardClassFields: static class-expression fields,
+optional chaining/nullish coalescing before ES2020, object-rest patterns before
+ES2017. Function/type-node stops and property-name traversal are semantic.
+Binder name-resolution API has no such compiler-options context. Required parent
+contract supplies those exact policy values/callback before native traversal;
+a blanket parameter/body filter would violate runtime scope behavior. No patch
+or gain/performance claim. Existing issue claimed/updated.
+
+Class prototype root .16.220 also needs member-owner consumer cutover: actual
+Property|Prototype class-parent identity must replace existing members.rs name-
+based synthetic prototype path before publishing another symbol. No duplicate
+member image or callable edit introduced. Class self-name .16.18 inspected and
+already implemented in current binder; stale issue is not a new port.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
