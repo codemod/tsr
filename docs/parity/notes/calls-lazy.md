@@ -221,3 +221,30 @@ Behavioral controls verify dependent defaults, constructor substitution,
 erased image/target own metadata and speculative-versus-reported rejection.
 Target tests, full checker tests and clippy pass (`erase-api-*.log`). No parent
 wrapper integration or full compiler/native performance acceptance inferred.
+
+## Owned outer-instantiation source traversal
+
+Applied parent-agreed source/node split directly in `inference.rs`:
+`instantiation_expression_sources: FxHashMap<TypeId, TypeId>` and
+`instantiation_expression_nodes: FxHashMap<TypeId, NodeId>`. Outer instantiation
+maps the concrete linked source with the current mapper and re-enters parent
+`get_instantiation_expression_type(source, node) -> TypeId` using the original
+written argument node. A missing node link or failed source mapping returns
+unsupported error, never a partial wrapper. `mentions_type_parameter_inner`
+follows the actual source edge before ordinary signature discovery, including
+wrappers whose filtered signatures are empty. Existing visited identities guard
+cycles; no new cache, signature/property copy or local completion publication.
+Parent owns completed `(NodeId, source TypeId)` cache and active/publication
+protocol. Receiver/alias/member/index context remains on the mapped source.
+
+Native control `outer-source-native.ts` verifies generic outer aliases for call
+and construct signatures plus preserved readonly member. Pinned native emits
+only TS2540 for readonly assignment and two TS2345 bad-argument diagnostics;
+positive assignments have no diagnostics (`outer-source-native.log`).
+
+Integration verification is blocked: fetched origin/main remains `db726c9c`;
+actual parent fields and expression worker are not present. `outer-source-check.log`
+records only missing agreed fields/method. Owned inference changes are delivered
+as integration-dependent code, not a verified standalone feature. No temporary
+no-op/mock worker was installed; actual parent worker must be supplied before
+passing-after, full RIGHT ratchet or performance acceptance can be measured.
