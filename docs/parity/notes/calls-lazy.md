@@ -290,3 +290,23 @@ shared resolver. Parent must not assume that fallback guarantees lazy return
 construction for every previously unsupported shape. Existing three calls remain
 unchanged. Target signature/receiver tests and clippy pass (`head-api-*.log`)
 with integration-dependent outer-link hunk excluded temporarily then restored.
+
+## Native review: empty written list and constraint this
+
+Corrected hasCorrectTypeArgumentArity to accept count zero unconditionally,
+matching checker.go:9214. A present-empty instantiation list still filters
+nongeneric signatures in the expression entry; required generic parameters fill
+with unknown/defaults. The control proves both return and dependent parameter
+unknown after an empty list; target tests/clippy pass (`empty-arity-*.log`).
+
+Native checkTypeArguments also applies getTypeWithThisArgument to the instantiated
+constraint with the actual type argument. This remains an explicit unmet API
+obligation: current reference metadata stores only ordinary arguments, while
+member lookup carries concrete this ephemerally. Padding that ordinary vector or
+mapping all known this identities would violate native reference ownership.
+Member/integration owner must supply a canonical reference-with-this image and
+intersection traversal through `get_type_with_this_argument(TypeId, TypeId,
+bool) -> TypeId`; owned constraint worker then applies it after ordinary
+constraint instantiation and before the relation/report. No eager member copies
+or fake successful relation added. Helper parity is not certified until this
+native obligation is implemented and exercised.

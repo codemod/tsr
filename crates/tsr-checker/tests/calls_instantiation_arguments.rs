@@ -19,8 +19,14 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     let signature = checker.get_signatures_of_symbol(symbol).unwrap().remove(0);
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[1] else { panic!() };
     assert!(Checker::signature_accepts_type_argument_count(&signature, 1));
-    assert!(!Checker::signature_accepts_type_argument_count(&signature, 0));
+    assert!(Checker::signature_accepts_type_argument_count(&signature, 0));
     assert!(!Checker::signature_accepts_type_argument_count(&signature, 3));
+    let empty_arguments =
+        checker.check_signature_type_arguments(&signature, &[], true).unwrap().unwrap();
+    let empty_image = checker.get_signature_instantiation(&signature, &empty_arguments).unwrap();
+    assert_eq!(checker.type_to_string(empty_image.r#type), "unknown");
+    let empty_parameter = checker.parameter_type(&empty_image.parameters[0]);
+    assert_eq!(checker.type_to_string(empty_parameter), "unknown");
     let arguments = checker
         .check_signature_type_arguments(&signature, &[alias.r#type.unwrap()], true)
         .unwrap()

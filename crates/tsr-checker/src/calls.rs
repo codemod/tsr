@@ -1453,8 +1453,9 @@ impl<'a> Checker<'a, '_> {
     /// requires a nonempty generic parameter list before calling this helper.
     #[must_use]
     pub fn signature_accepts_type_argument_count(signature: &Signature, count: usize) -> bool {
-        count >= Self::min_type_argument_count(&signature.type_parameters)
-            && count <= signature.type_parameters.len()
+        count == 0
+            || (count >= Self::min_type_argument_count(&signature.type_parameters)
+                && count <= signature.type_parameters.len())
     }
 
     /// getInstantiationExpressionType's signature worker (5b1047d:10671).
@@ -2223,7 +2224,11 @@ impl<'a> Checker<'a, '_> {
     /// list is read without `complete_signature_return` — completing it from
     /// the diagnostic walk re-enters a method's return inference from a call
     /// in its own body. Every other shape goes through the shared resolver.
-    pub(crate) fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
+    pub(crate) fn head_signatures(
+        &mut self,
+        t: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Vec<Signature>> {
         let t = self.apparent_type(t);
         let is_call = kind == SignatureKind::Call;
         if let Some(signatures) = self.signature_types.get(&t) {
