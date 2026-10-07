@@ -55,3 +55,16 @@ a sibling script (TS2304); the non-exported control resolves.
 Converts 21 rows: es6ModuleInternalNamedImports(2), privacyGloImport (4),
 privacyGloImportParseErrors (4), reexportedMissingAlias (2),
 circularImportAlias (3), typeofAnExportedType (6).
+
+## Export-default local name in NameResolver (tsr-2zk.6)
+
+Carried from 9a6535f8 and 37de599d. `NameResolver.Resolve` skips the
+`moduleExports[name]` arm for the internal `default` key, so `typeof default`
+is TS2304; the export-default local-name arm applies to ambient module
+declarations, now identified by the binder's own ambient context fact
+(`AMBIENT_MODULE_CONTEXT`, set where members are bound; the parser does not
+stamp `declare module "m"`). Native control: `declare module "foo" { export
+var before: C; export default class C {} }` has no TS2304 (was 2), and
+`export type X = typeof default` keeps TS2304. Converts
+defaultIsNotVisibleInLocalScope (2 rows + diagnostics),
+es5ExportDefaultClassDeclaration4 (diagnostics).
