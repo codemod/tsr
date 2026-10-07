@@ -323,3 +323,13 @@ initializer is checked in tuple context (`var [x, ...a] = [1, "a"]` records
 for the binding arms of `destructuring_array_pattern_slot`; no new state.
 Not ported: assignment targets with a spread (`[...a, x] = [1, 2, 3]`),
 whose tuple-ness depends on the checked left side (`restElementMustBeLast`).
+
+## 10. Nullable constituents do not count toward §927's unit guard (tsr-2zk.16.130)
+
+`getTypeOfPropertyOfContextualType` (`checker.go:30555`) maps over a union and
+a nullable constituent has no property, so `X | undefined` (an optional tuple
+slot, an optional member) has one candidate and nothing to discriminate.
+`union_contextual_property_type` now counts only non-nullable constituents
+before declining a unit-leaf answer; multi-object unions keep the guard.
+`const a: [number, { t: 1 | 2 }?] = [0, { t: 1 }]` no longer reports TS2322
+(tsgo: none). No new state.
