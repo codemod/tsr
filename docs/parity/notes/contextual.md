@@ -382,3 +382,11 @@ initializer; the initializer's own context uses the split
 `contextually_typed_parameter_type(_, false)` that skips it. No state.
 `var f5: (a: (s: string) => any) => void = function (a = s => <number>s) {}`
 types `s : string` (tsgo `.types` identical).
+
+## 15. Parenthesized initializers keep the implied binding-pattern context (tsr-2zk.16.63)
+
+`getContextualType`'s ParenthesizedExpression arm passes its parent's
+contextual type through, so `const { B = class {} } = ({ B: undefined })`
+types the literal against the implied pattern (`{ B?: undefined; }`).
+`contextual_binding_pattern` (§489) now recurses through a parenthesis; the
+parameter/binding-element arms still require the literal itself. No state.
