@@ -82,6 +82,25 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertIn("skipLibCheck", option_differences(
             {"compilerOptions": {}}, {"compilerOptions": {"skipLibCheck": True}}))
 
+    def test_frozen_compiler_remains_original_after_shared_target_replacement(self):
+        from whole_project_perf import freeze_binary
+        from benchmark_inputs import file_hash
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shared = root / "shared-tsr"
+            shared.write_text(f"#!{sys.executable}\nprint('current-candidate')\n")
+            shared.chmod(0o755)
+            expected = file_hash(shared)
+            frozen = root / "frozen-tsr"
+            receipt = freeze_binary(shared, frozen, expected)
+            shared.write_text(f"#!{sys.executable}\nprint('old-baseline')\n")
+            child = process([str(frozen)], root, 10)
+            self.assertEqual(child["stdout"].strip(), "current-candidate")
+            self.assertEqual(file_hash(frozen), receipt["sha256"])
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                freeze_binary(shared, root / "wrong-build", expected)
+            self.assertFalse(receipt["source_to_binary_provenance_verified"])
+
     def test_checkout_identity_distinguishes_unmerged_tracked_and_untracked_source(self):
         from whole_project_perf import checkout_identity
         with tempfile.TemporaryDirectory() as directory:
@@ -373,7 +392,7 @@ class InputEvidenceTests(unittest.TestCase):
             "directory add": "(p / 'entries' / 'new.ts').touch()",
             "directory remove": "(p / 'entries' / 'existing.ts').unlink()",
             "root config": "(p / 'tsconfig.json').write_text('{}')",
-            "binary": "pathlib.Path(sys.argv[0]).write_text('# modified compiler')",
+            "binary": "(p.parent / 'compiler').write_text('# modified compiler')",
         }
         for label, mutation in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:

@@ -212,6 +212,40 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Freeze compiler bytes before any CLI proof
+
+Shared Cargo targets may be overwritten by another worktree's baseline build.
+The harness now copies each supplied binary to fresh `<output>.binaries/{tsr,tsgo}`
+paths before preflight, outside child timing. It hashes source bytes before and
+after copying, rejects changes during capture, hashes the frozen copy, and marks
+it read/execute-only. All preflight, trace, warmup and measured invocations use
+those frozen paths. Original and frozen paths remain observed input identities;
+source replacement during a run rejects the run. `--tsr-sha256` and
+`--tsgo-sha256` bind an expected source-qualified build and reject a stale shared
+target before any invocation. Reports/checkpoints/receipts retain freeze metadata;
+matching hashes are still not source-to-binary build attestation. A copy frozen
+from an already stale binary is not the current candidate without the expected
+hash and qualified build receipt.
+
+The parent reports `diagnostics-final-current-tsr` was frozen with a `b283…` hash
+before the causal baseline build. A later duplicate-config invocation used an
+old baseline from a shared primary target symlink: it is not a current-candidate
+CLI regression. The parent's earlier five CLI proofs were executed before that
+baseline replacement. Exact parent frozen hash/build/source/options evidence is
+not present on this Box; no abbreviation is accepted as a hash argument here.
+All new parent candidate gates must use its canonical rebuild and frozen full
+hash, not the overwritten target path.
+
+29 harness tests passed, including an actual frozen CLI retaining current output
+after its shared source path is overwritten with a baseline and expected-hash
+rejection of the wrong build. Existing source-replacement mutation controls still
+reject changed input. Actual hash-bound five-pair/warmup trace/perf smoke ran
+using the original qualified recovery binaries and frozen paths; comparable gate
+exited 1. Evidence `/tmp/recover-frozen-binary-checkpoint.json` and
+`/tmp/recover-frozen-binary-perf.json`. The pending parent candidate is not locally
+verified by this run. Native 202 worker observations and failed large ratios
+remain bounded evidence, not release verification.
+
 ### Mixed-source candidate qualification
 
 Reports, receipts and curated checkpoints retain `checkout_identities`: HEAD,

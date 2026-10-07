@@ -17,6 +17,7 @@ from pathlib import Path
 import platform
 import re
 import signal
+import shutil
 import statistics
 import subprocess
 import sys
@@ -44,6 +45,24 @@ def revision(path: Path) -> str | None:
         ["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True
     )
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def freeze_binary(source: Path, destination: Path, expected_sha256: str | None = None) -> dict:
+    """Snapshot bytes outside timing; reject concurrent replacement or wrong build."""
+    before = inputs.file_hash(source)
+    if expected_sha256 is not None and before != expected_sha256:
+        raise ValueError(f"Compiler hash mismatch before freezing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as reader, destination.open("xb") as writer:
+        shutil.copyfileobj(reader, writer)
+    frozen = inputs.file_hash(destination)
+    after = inputs.file_hash(source)
+    if before != after or frozen != before:
+        destination.unlink()
+        raise ValueError(f"Compiler changed while freezing: {source}")
+    destination.chmod(0o555)
+    return {"source_path": str(source), "frozen_path": str(destination), "sha256": frozen,
+            "expected_sha256": expected_sha256, "source_to_binary_provenance_verified": False}
 
 
 def checkout_identity(path: Path) -> dict:
@@ -248,6 +267,7 @@ def qualified_checkpoint(report: dict) -> dict:
     return {
         "schema_version": 1, "issue": "tsr-2zk.17", "source_sha": report["source_sha"],
         "oracle_sha": report["oracle_sha"], "certifier_sha256": report["harness_sha256"],
+        "binary_freezes": report.get("binary_freezes"),
         "checkout_identities": report.get("checkout_identities"),
         "checkout_identities_after": report.get("checkout_identities_after"),
         "checkout_stable": report.get("checkout_stable"),
@@ -274,6 +294,8 @@ def main() -> int:
     parser.add_argument("--project", type=Path, required=True, help="tsconfig.json path")
     parser.add_argument("--tsr", type=Path, default=ROOT / "target/release/tsr")
     parser.add_argument("--tsgo", type=Path, required=True)
+    parser.add_argument("--tsr-sha256", help="expected hash of the frozen source-qualified TSR build")
+    parser.add_argument("--tsgo-sha256", help="expected hash of the pinned native build")
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=120)
@@ -290,13 +312,20 @@ def main() -> int:
         parser.error("samples and timeout must be positive; warmups must be nonnegative")
     project = args.project.resolve(strict=True)
     cwd = project.parent
-    binaries = {name: path.resolve(strict=True) for name, path in (("tsr", args.tsr), ("tsgo", args.tsgo))}
+    binary_sources = {name: path.resolve(strict=True) for name, path in (("tsr", args.tsr), ("tsgo", args.tsgo))}
+    frozen_directory = args.output.resolve().with_suffix(args.output.suffix + ".binaries")
+    frozen_directory.mkdir(parents=True, exist_ok=False)
+    binary_freezes = {name: freeze_binary(path, frozen_directory / name,
+                                         args.tsr_sha256 if name == "tsr" else args.tsgo_sha256)
+                     for name, path in binary_sources.items()}
+    binaries = {name: Path(row["frozen_path"]) for name, row in binary_freezes.items()}
     flags = ["--project", str(project), "--noEmit", "--incremental", "false",
              "--composite", "false", "--pretty", "false"]
     if args.mode == "single":
         flags += ["--singleThreaded", "true"]
     query_paths, manifest = inputs.load_manifest(args.input_manifest, cwd)
-    input_paths = sorted({str(project), *query_paths, *(str(p) for p in binaries.values())})
+    input_paths = sorted({str(project), *query_paths, *(str(p) for p in binaries.values()),
+                          *(str(p) for p in binary_sources.values())})
     if args.input_manifest is not None:
         input_paths.append(str(args.input_manifest.resolve(strict=True)))
     capture_started = time.perf_counter()
@@ -328,6 +357,7 @@ def main() -> int:
         "warmups": [], "work_captures": {},
         "fresh_launch_delay": {"platform": sys.platform, "measured_separately": False,
                                "seconds": None, "security_settings_changed": False},
+        "binary_freezes": binary_freezes,
         "build_provenance_verified": False,
         "complete_input_equivalence_verified": False,
         "actual_checked_work_verified": False,
@@ -477,6 +507,7 @@ def main() -> int:
                 "schema_version": 1, "child": child, "current_directory": str(cwd),
                 "source_sha": report["source_sha"], "oracle_sha": report["oracle_sha"],
                 "checkout_identities": report["checkout_identities"],
+                "binary_freeze": binary_freezes[name],
                 "causal_baseline_verified": False,
                 "binary_sha256": report["tools"][name]["binary_sha256"],
                 "source_files_sha256": {str(path): inputs.file_hash(path) for path in source_paths},
