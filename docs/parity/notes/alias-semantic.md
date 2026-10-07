@@ -504,6 +504,24 @@ Available unfiltered oracle unchanged, zero former RIGHT losses/vanished keys.
 Seven fresh-process samples after/before 1.00657, after/native 1.60057;
 no whole-project speed/no-hotpath/release claim. Receipts `tuple-splice-borrow-*`.
 
+## Optional tuple semantic producer — tsr-2zk.16.79
+
+Existing issue scope is 11 blocked cases / 56 lines (historical pinned current
+baseline, not a conversion forecast). The source tuple worker now applies native
+`getTypeFromOptionalTypeNode` property optionality before storing an optional slot.
+Under strict null checks this retains undefined/missing identity in the element
+TypeId; the existing tuple owner/key includes that ordered type and optional mask.
+No new cache, alias/receiver erasure or shared writer edits.
+
+Focused native producer/alias controls pass; direct CLI slot types/diagnostics
+compare byte-for-byte. Available unfiltered oracle: 38 WRONG→RIGHT, zero former
+RIGHT losses/vanished keys. Existing unowned `tuples.rs` test expects
+`[string, number?]` instead of native `[string, (number | undefined)?]` and fails;
+not edited or repinned here. Parent must review/delete that incidental expectation
+before whole-workspace acceptance. Seven fresh-process samples after/before
+0.99783, after/native 1.59485; complete-work/no-hotpath/release performance uncertified.
+Receipts `tuple-optional-producer-*`; reserved parent functions unchanged.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
