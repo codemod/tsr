@@ -759,7 +759,11 @@ impl Checker<'_, '_> {
         // actually wrote. `x: T extends A` calling `x.self(): this` is
         // `T`, not `A` (thisTypeAndConstraints, the §165 first pair's four
         // R→W).
-        let this_argument = receiver_type;
+        let this_argument = self
+            .instantiation_expression_sources
+            .get(&receiver_type)
+            .copied()
+            .unwrap_or(receiver_type);
         let receiver_type = self.apparent_type(receiver_type);
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
@@ -1283,6 +1287,15 @@ impl Checker<'_, '_> {
         this_argument: TypeId,
         skip_object_function_augment: bool,
     ) -> Option<TypeId> {
+        // getInstantiationExpressionType (5b1047d checker.go:10696) retains
+        // source members, changing only signatures. Keep the exact source
+        // receiver/alias context; source augmentation belongs to the wrapper.
+        if let Some(&source) = self.instantiation_expression_sources.get(&id)
+            && let Some(member) =
+                self.get_type_of_property_with_this_argument(source, name, source, true)
+        {
+            return Some(member);
+        }
         if name == "length"
             && let Some(body) = self.completed_array_placeholder_length_body(id)
         {
@@ -1814,6 +1827,9 @@ impl Checker<'_, '_> {
         id: TypeId,
         name: &str,
     ) -> Vec<SymbolId> {
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            return self.intersection_property_symbols(source, name);
+        }
         let TypeData::Intersection { types, .. } = self.store.get(id).data.clone() else {
             return self.get_property_of_type(id, name).into_iter().collect();
         };
@@ -2138,6 +2154,11 @@ impl Checker<'_, '_> {
     /// [`UnionOrIntersectionProperty`]); otherwise the found symbol's own
     /// answer.
     pub(crate) fn is_readonly_property_of_type(&mut self, receiver: TypeId, name: &str) -> bool {
+        if let Some(&source) = self.instantiation_expression_sources.get(&receiver)
+            && self.get_type_of_property_with_this_argument(source, name, source, true).is_some()
+        {
+            return self.is_readonly_property_of_type(source, name);
+        }
         if let Some(composite) = self.composite_property_of_type(receiver, name, false)
             && let Some(synthetic) = composite.synthetic
         {
@@ -2174,6 +2195,11 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         name: &str,
     ) -> Option<TypeId> {
+        if let Some(&source) = self.instantiation_expression_sources.get(&receiver)
+            && self.get_type_of_property_with_this_argument(source, name, source, true).is_some()
+        {
+            return self.write_type_of_property_of_type(source, name);
+        }
         if let Some(composite) = self.composite_property_of_type(receiver, name, false)
             && let Some(synthetic) = composite.synthetic
         {
@@ -2314,7 +2340,9 @@ impl Checker<'_, '_> {
             }
             _ => return None,
         };
-        let found = if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
+        let found = if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            self.get_property_of_type_ex(source, name, true)
+        } else if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             if name == "default"
                 && let Some(default) = self.module_clone_default_symbol(alias)
             {
@@ -2398,7 +2426,8 @@ impl Checker<'_, '_> {
                     .flags
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
-            } && !self.module_value_clones.contains_key(&id);
+            } && !self.module_value_clones.contains_key(&id)
+                && !self.instantiation_expression_sources.contains_key(&id);
             let has_call = self
                 .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
                 .is_some_and(|signatures| !signatures.is_empty());
@@ -2598,6 +2627,9 @@ impl Checker<'_, '_> {
     /// unknown. A cycle answers `false` (decline, honest gap) — upstream
     /// reports a base-cycle diagnostic there, a channel this port lacks.
     fn named_walk_is_complete(&mut self, receiver: TypeId) -> bool {
+        if let Some(&source) = self.instantiation_expression_sources.get(&receiver) {
+            return self.named_walk_is_complete(source);
+        }
         // §124: the Anonymous side's analogue. A CLASS owner establishes
         // absence through the same extends-chain walk §122 reads; a FUNCTION
         // or ENUM owner's exports are single-declaration-set and whole by
@@ -2713,7 +2745,14 @@ impl Checker<'_, '_> {
         // found the over-wide gate erring whole literals through inferred
         // returns). Object's names gate unconditionally, mirroring its
         // unconditional fallback.
-        let callable = self.signature_types.get(&receiver).is_some_and(|s| !s.is_empty())
+        let callable = if self.instantiation_expression_sources.contains_key(&receiver) {
+            self.signatures_of_type_kind(receiver, crate::signatures::SignatureKind::Call)
+                .is_some_and(|signatures| !signatures.is_empty())
+                || self
+                    .signatures_of_type_kind(receiver, crate::signatures::SignatureKind::Construct)
+                    .is_some_and(|signatures| !signatures.is_empty())
+        } else {
+            self.signature_types.get(&receiver).is_some_and(|s| !s.is_empty())
             || matches!(self.store.get(receiver).data,
                 crate::types::TypeData::Anonymous { symbol, .. }
                     if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags.intersects(
@@ -2724,7 +2763,8 @@ impl Checker<'_, '_> {
             // on the two-detector pair).
             || matches!(self.store.get(receiver).data,
                 crate::types::TypeData::Named { members: Some(owner), .. }
-                    if self.symbol_declares_signature_member(owner));
+                    if self.symbol_declares_signature_member(owner))
+        };
         let families: &[&str] = if callable {
             &["CallableFunction", "NewableFunction", "Function", "Object"]
         } else {
@@ -2879,7 +2919,9 @@ impl Checker<'_, '_> {
 
     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
     pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
-        if self.module_value_clones.contains_key(&id) {
+        if self.module_value_clones.contains_key(&id)
+            || self.instantiation_expression_sources.contains_key(&id)
+        {
             return None;
         }
         let TypeData::Anonymous { symbol, .. } = self.type_of(id).data else { return None };
@@ -2907,6 +2949,9 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            return self.get_property_names_of_type(source);
+        }
         // Pinned 5b1047d checker.go:18846/18861: composite enumeration reads
         // completed constituent own tables, then certifies combined properties.
         // Checker-local TypeIds retain alias/receiver identity; temporary name
@@ -3727,6 +3772,45 @@ mod property_name_tests {
         let root = parsed.source_file.node_id().unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         test(&mut checker, root)
+    }
+
+    #[test]
+    fn instantiation_expression_members_retain_concrete_source_and_side() {
+        with_checker(
+            "interface Base<T> { value: T } interface Source extends Base<string> { readonly own: number } class Static { static own: boolean; instance: string }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Source").unwrap();
+                let source = checker.get_declared_type_of_symbol(owner);
+                let wrapper = checker.store.new_anonymous(
+                    crate::flags::TypeFlags::OBJECT,
+                    "view".into(),
+                    owner,
+                    false,
+                );
+                checker.instantiation_expression_sources.insert(wrapper, source);
+                let value = checker.get_type_of_property_of_type(wrapper, "value").unwrap();
+                assert_eq!(checker.type_to_string(value), "string");
+                assert_eq!(checker.get_type_of_property_of_type(wrapper, "instance"), None);
+                let mut names = checker.get_property_names_of_type(wrapper).unwrap();
+                names.sort();
+                assert_eq!(names, ["own", "value"]);
+                assert!(!checker.is_readonly_property_of_type(wrapper, "value"));
+                assert!(checker.is_readonly_property_of_type(wrapper, "own"));
+                let class = checker.binder.lookup_local(root, "Static").unwrap();
+                let statics = checker.get_type_of_symbol(class);
+                let static_view = checker.store.new_anonymous(
+                    crate::flags::TypeFlags::OBJECT,
+                    "static view".into(),
+                    class,
+                    false,
+                );
+                checker.instantiation_expression_sources.insert(static_view, statics);
+                let own = checker.get_type_of_property_of_type(static_view, "own").unwrap();
+                assert_eq!(checker.type_to_string(own), "boolean");
+                assert_eq!(checker.get_type_of_property_of_type(static_view, "instance"), None);
+                assert_eq!(checker.class_static_symbol(static_view), None);
+            },
+        );
     }
 
     #[test]
