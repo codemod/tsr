@@ -443,18 +443,32 @@ second function T default number fails before/passes after: function T symbols
 are distinct, each has one declaration, no root T, and U's default resolves to
 its own function T. Binder clippy passed. Full current corpus, however, loses
 12 previously RIGHT jsdocTemplateTag6 rows: declared <T> parameters/returns
-render T_1. Zero keys vanish. This is not an accepted cutover or performance
-claim. Applied experiment was removed from production; patch/test preserved in
-ignored recovery receipts.
+render T_1. Zero keys vanish. This is not an accepted end-to-end cutover or performance
+claim. At the parent's explicit request the exact binder patch and test are now
+committed for serialized integration with its consumer repair. The commit must
+not integrate standalone while those 12 RIGHT losses remain.
 
 Required serialized consumer identity: signature's gathered type parameter and
 its parameter/return type must share original declaration/SymbolId ownership;
 function locals and detached-comment bridge must not allocate a second printed
 T owner. Parent owns signatures/printing/callable region. Real function binding
 ownership must not be replaced by copied fields or a typedef/name specialcase.
-Non-direct host lookup work remains a source walk in the experiment and needs
+Non-direct host lookup work remains a source walk and needs
 bounded single-pass host preparation before accepting performance; no speed
 claim. Native full annotation/reparser host cutover remains incomplete.
+
+Exact serialized consumer contract: ModuleHost::jsdoc_template_parameters returns
+original parameter NodeIds in native tag/parameter order for the actual function
+host; it must not substitute root-local same-named declarations. BindResult's
+symbol_of(parameter) and function locals now name the same canonical SymbolId.
+Detached comment type references use a second lexical edge to that same symbol,
+not another declaration or type owner. Signature metadata/default/constraint
+getters must key by the original parameter declaration and current fixing/mapper
+context. Rendering must identify that parameter as the signature's own owner,
+not rename it because an alias edge exposes the same spelling/identity twice.
+No new ModuleHost method is needed if the existing getter already returns the
+original ordered parameter IDs. Parent owns any compiler getter/caller edits;
+this commit does not touch compiler, signatures, printing or callable builder.
 
 ## Receipts
 

@@ -731,7 +731,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         // written syntax (`parser.reparseTags`); here the parser kept them in
         // a side table, so the binder files them from it after the main walk.
         if self.in_js_file {
-            self.bind_jsdoc_declarations(root_id, jsdoc);
+            self.bind_jsdoc_declarations(root_id, root, jsdoc);
         }
 
         self
@@ -3296,6 +3296,7 @@ impl<'a, 'n> Binder<'a, 'n> {
     fn bind_jsdoc_declarations(
         &mut self,
         root: NodeId,
+        source: Node<'a>,
         jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
     ) {
         use tsr_ast::JSDocTag;
@@ -3312,7 +3313,11 @@ impl<'a, 'n> Binder<'a, 'n> {
                 let declares_alias = doc.tags.iter().any(|tag| {
                     matches!(tag, JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_))
                 });
-                let template_scope = if declares_alias { doc.node_id } else { None };
+                let template_scope = if declares_alias {
+                    doc.node_id
+                } else {
+                    self.jsdoc_function_like_host(source, *host)
+                };
                 for tag in doc.tags {
                     match tag {
                         JSDocTag::JSDocTypedefTag(typedef) => {
@@ -3392,12 +3397,24 @@ impl<'a, 'n> Binder<'a, 'n> {
                             for parameter in template.type_parameters {
                                 let Some(name) = parameter.name else { continue };
                                 let Some(id) = parameter.node_id else { continue };
+                                let scope = template_scope.unwrap_or(root);
                                 self.declare_jsdoc_symbol(
-                                    template_scope.unwrap_or(root),
+                                    scope,
                                     name.text,
                                     SymbolFlags::TYPE_PARAMETER,
                                     id,
                                 );
+                                // Native reparents a cloned parameter into the
+                                // function host. Detached comment annotations use
+                                // the same symbol, not a second declaration/cache.
+                                if !declares_alias
+                                    && scope != root
+                                    && let Some(doc) = doc.node_id
+                                    && let Some(symbol) =
+                                        self.node_symbols[id.index() - self.node_base]
+                                {
+                                    self.locals.entry(doc).or_default().insert(name.text, symbol);
+                                }
                             }
                         }
                         JSDocTag::JSDocParameterOrPropertyTag(property) => {
@@ -3467,6 +3484,64 @@ impl<'a, 'n> Binder<'a, 'n> {
                     }
                 }
             }
+        }
+    }
+
+    /// Ported from parser getFunctionLikeHost (`reparser.go:653`).
+    /// Only the native host/initializer routes supply function-owned locals.
+    fn jsdoc_function_like_host(&self, source: Node<'a>, host: NodeId) -> Option<NodeId> {
+        let node = self.nodes.kind(host);
+        if matches!(
+            node,
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+        ) {
+            return Some(host);
+        }
+        let mut stack = vec![source];
+        let mut children = Vec::new();
+        let mut host_node = None;
+        while let Some(node) = stack.pop() {
+            if node.node_id() == Some(host) {
+                host_node = Some(node);
+                break;
+            }
+            children.clear();
+            push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        let expression = match host_node? {
+            Node::VariableStatement(statement) => {
+                statement.declaration_list?.declarations.first()?.initializer
+            }
+            Node::PropertyAssignment(property) => property.initializer,
+            Node::PropertyDeclaration(property) => property.initializer,
+            Node::ExportAssignment(assignment) => assignment.expression,
+            Node::ReturnStatement(statement) => statement.expression,
+            Node::ExpressionStatement(statement) => statement.expression,
+            _ => None,
+        }?;
+        let mut expression = expression;
+        loop {
+            expression = match expression {
+                Expression::BinaryExpression(binary)
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+                {
+                    binary.right?
+                }
+                Expression::SatisfiesExpression(satisfies) => satisfies.expression?,
+                _ => break,
+            };
+        }
+        match expression {
+            Expression::FunctionExpression(function) => function.node_id,
+            Expression::ArrowFunction(function) => function.node_id,
+            _ => None,
         }
     }
 
