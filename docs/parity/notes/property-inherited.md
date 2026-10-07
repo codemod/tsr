@@ -376,13 +376,13 @@ Original readonly/member cutover remains open under `.4.12.1`; broad `.4.14`
 also remains open. The bounded composite-origin/static-receiver slice is
 `.4.14.1`; `bfca6e08` implements that slice, not broad issue completion.
 
-## Constructor access-kind root — dedicated parent-.4 issue, integration queued
+## Constructor access-kind root — tsr-2zk.4.15, integration queued
 
 Delivery identifiers: code/test `5f26bb1f` (Box auto-commit), verification
-record `60f065be`, scope record `e10f62b0`. Integrator reports a dedicated
-single-root issue under parent `.4` created and this split delivery queued;
-the numeric leaf ID was not supplied. It is separate from broad `.4.12` and
-`.4.14`; no broader inherited-readonly completion is claimed.
+record `60f065be`, scope record `e10f62b0`. Exact dedicated issue:
+`tsr-2zk.4.15`, created/claimed by integrator, split delivery queued.
+It is separate from broad `.4.12` and `.4.14`; no broader inherited-readonly
+completion is claimed.
 
 Pinned `isAssignmentToReadonlyEntity` tests `ast.IsAccessExpression`, not only
 property access. `assignment_is_inside_the_declaring_constructor` previously
