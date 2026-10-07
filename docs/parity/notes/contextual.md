@@ -333,3 +333,25 @@ slot, an optional member) has one candidate and nothing to discriminate.
 before declining a unit-leaf answer; multi-object unions keep the guard.
 `const a: [number, { t: 1 | 2 }?] = [0, { t: 1 }]` no longer reports TS2322
 (tsgo: none). No new state.
+
+## 12. getWidenedLiteralType's union arm at mutable locations (tsr-2zk.16.131)
+
+`checkExpressionForMutableLocation` -> `getWidenedLiteralLikeTypeForContextualType`
+calls `getWidenedLiteralType` (`checker.go:25499`), whose union arm maps
+member-wise: `{ w: b ? f() : 0 }` is `{ w: void | number }`.
+`get_widened_literal_type_with_unions` (literals.rs) is that function;
+`check_expression_for_mutable_location` uses it. The scalar
+`get_widened_literal_type` keeps its other callers (signatures.rs,
+symbols.rs, destructure.rs, flow.rs, inference.rs, contextual.rs): switching
+them lost 139 RIGHT lines because upstream gates those sites with
+`isUnitType`/`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded`
+before widening, which those ports do not; reported, not changed.
+
+Prerequisite, same commit: §927's unit-leaf decline now applies only when
+`discriminateContextualTypeByObjectMembers` (`checker.go:30755`) could
+discriminate at all (`object_literal_may_discriminate`: a
+possibly-discriminant initializer, a shorthand, a spread/computed name, or a
+constituent member the literal does not write). Without discriminators
+upstream walks the whole union, so `{ type: b ? 'x' : 'y' }` against
+`{ type: 'x' } | { type: 'y' }` keeps `"x" | "y"`
+(`assignmentCompatWithDiscriminatedUnion`).

@@ -2603,10 +2603,69 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .filter(|&&t| !self.store.get(t).flags.intersects(crate::flags::TypeFlags::NULLABLE))
             .count();
-        if candidates > 1 && unit_leaf {
+        if candidates > 1
+            && unit_leaf
+            && self.object_literal_may_discriminate(literal, &constituents)
+        {
             return None;
         }
         Some(member)
+    }
+
+    /// Whether `discriminateContextualTypeByObjectMembers`
+    /// (`checker.go:30755`) could narrow `constituents` for this literal at
+    /// all. It has discriminators only from a `PropertyAssignment` whose
+    /// initializer `isPossiblyDiscriminantValue`, a shorthand member, or an
+    /// optional contextual member the literal does not write (the key-property
+    /// road also needs a possibly-discriminant initializer). With none,
+    /// `discriminateTypeByDiscriminableItems` returns the union unchanged and
+    /// the union walk is upstream's answer, so §927's unit-leaf decline does
+    /// not apply. Conservative: spreads, computed names and any constituent
+    /// member the literal does not name count as possible discriminators.
+    /// Syntax plus one property-name read per constituent; no state.
+    fn object_literal_may_discriminate(
+        &mut self,
+        literal: NodeId,
+        constituents: &[TypeId],
+    ) -> bool {
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return true;
+        };
+        let mut written = Vec::with_capacity(object.properties.len());
+        for property in object.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    if assignment.initializer.is_none_or(is_possibly_discriminant_value) {
+                        return true;
+                    }
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+                | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return true,
+            };
+            match name {
+                PropertyName::Identifier(name) => written.push(name.text),
+                PropertyName::StringLiteral(name) => written.push(name.text),
+                _ => return true,
+            }
+        }
+        for &constituent in constituents {
+            if self.store.get(constituent).flags.intersects(crate::flags::TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            let Some(names) = self.get_property_names_of_type(constituent) else { return true };
+            if names.iter().any(|name| !written.contains(&name.as_str())) {
+                return true;
+            }
+        }
+        false
     }
 
     /// The type an expression is expected to have when it sits directly in the
@@ -3011,6 +3070,33 @@ impl<'a> Checker<'a, '_> {
 /// a binding pattern.
 fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
     matches!(parameter.name, Some(BindingName::Identifier(name)) if name.text == "this")
+}
+
+/// `isPossiblyDiscriminantValue` (`checker.go`): the initializer forms
+/// `discriminateContextualTypeByObjectMembers` may read context-free.
+fn is_possibly_discriminant_value(node: Expression<'_>) -> bool {
+    match node {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::NoSubstitutionTemplateLiteral(_)
+        | Expression::TemplateExpression(_)
+        | Expression::Identifier(_) => true,
+        Expression::KeywordExpression(keyword) => matches!(
+            keyword.kind,
+            tsr_ast::SyntaxKind::TrueKeyword
+                | tsr_ast::SyntaxKind::FalseKeyword
+                | tsr_ast::SyntaxKind::NullKeyword
+        ),
+        Expression::PropertyAccessExpression(access) => {
+            access.expression.is_some_and(is_possibly_discriminant_value)
+        }
+        Expression::ParenthesizedExpression(inner) => {
+            inner.expression.is_some_and(is_possibly_discriminant_value)
+        }
+        Expression::JsxExpression(jsx) => jsx.expression.is_none_or(is_possibly_discriminant_value),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
