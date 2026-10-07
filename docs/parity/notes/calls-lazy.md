@@ -607,3 +607,13 @@ with canonical original identity/receiver mapper and pending returns before this
 getter. This delivered entry is an integration-dependent supported-source slice,
 not full native-source acceptance. nonforcing-list-final-check is blocked by
 prior shared fields locally; no target/full-parity/perf proof claimed.
+
+## Remaining calls raw-slot consumers
+
+Assignable-pass return-ambiguity comparison now demands both candidate returns
+through the canonical getter, not equal lazy sentinels. head_could_contain_type_variables
+remains nonforcing and follows mapper image edges before ordinary slot discovery.
+Post-complete_signature_return consumers already have completed slots and do not
+need another demand. Instrumentation must not force returns solely to count.
+Source applied; call-raw-consumer-check is blocked by absent shared fields, so
+native target/full-parity/performance results are not claimed.

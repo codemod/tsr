@@ -2382,7 +2382,12 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some(signatures) = self.signature_types.get(&t).cloned() {
             return signatures.iter().any(|signature| {
-                !signature.type_parameters.is_empty()
+                signature.mapper.as_ref().is_some_and(|mapper| {
+                    mapper
+                        .map
+                        .iter()
+                        .any(|&(_, image)| self.head_could_contain_type_variables(image, depth - 1))
+                }) || !signature.type_parameters.is_empty()
                     || signature.parameters.iter().any(|parameter| {
                         let parameter_type = self.parameter_type(parameter);
                         self.head_could_contain_type_variables(parameter_type, depth - 1)
@@ -4248,11 +4253,14 @@ impl<'a> Checker<'a, '_> {
                 // (When the pass RAN and rejected all - `first_wins` - the
                 // first assignable candidate is upstream's own answer and the
                 // guard retires for this call.)
-                Some(first) if first.r#type != candidate.r#type => {
-                    bump(&COUNTERS.ambiguous_return);
-                    return None;
+                Some(first) => {
+                    let first_return = self.get_return_type_of_signature(first)?;
+                    let candidate_return = self.get_return_type_of_signature(candidate)?;
+                    if first_return != candidate_return {
+                        bump(&COUNTERS.ambiguous_return);
+                        return None;
+                    }
                 }
-                Some(_) => {}
                 None => chosen = Some(candidate),
             }
         }
