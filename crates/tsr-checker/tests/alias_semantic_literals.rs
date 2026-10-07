@@ -159,6 +159,18 @@ fn parenthesized_mapped_arguments_keep_distinct_ordered_tuple_images() {
 }
 
 #[test]
+fn mapped_identity_uses_resolved_parenthesized_parameter_operands() {
+    assert_eq!(
+        declared_and_reference(
+            "type Copy<T> = { [K in keyof (T)]: (T)[(K)] }; declare let value: Copy<string>;",
+            "Copy",
+        )
+        .1,
+        "string",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

@@ -297,6 +297,23 @@ with native (`mapped-distinct-*` receipts). No implementation/cache change or
 source-alias spelling heuristic accompanies these controls. The parent-reserved
 source-wrapper metadata block around alias-body reference construction is untouched.
 
+## Identity mapped operands use binder identity
+
+The existing identity-template projection now resolves its constraint/object/index
+operands to actual binder SymbolIds and compares them with the alias and mapped
+parameter owners. Parentheses are transparent as in native
+`getHomomorphicTypeVariable`/`getTypeFromTypeNodeWorker`. The old spelling-only
+helper is removed. This is the existing identity-template subset, not a general
+homomorphic evaluator; no new cache or wrapper-body change.
+
+Parenthesized-operand regression fails before and passes after; mapped/variadic
+targets pass. Native CLI diagnostics compare byte-for-byte. Existing unfiltered
+477,970-assertion oracle unchanged, zero former RIGHT losses/vanished keys.
+Seven interleaved fresh-process samples: after/before 1.00250, after/native 1.62336;
+no equivalent-complete-work/no-hotpath/release performance certification.
+Receipts `mapped-identity-*` under `target/recovery/alias`. Parent-reserved wrapper
+metadata blocks remain untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

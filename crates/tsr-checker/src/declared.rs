@@ -4119,21 +4119,6 @@ impl<'a> Checker<'a, '_> {
     /// parameters\' defaults (`fillMissingTypeArguments`), and a default may
     /// reference an earlier parameter — which is substitution, so that case is a
     /// gap rather than a guess.
-    /// §952: the identifier a type node names, when it is a bare reference and
-    /// nothing else. The mapped-type shape test compares three positions
-    /// (`keyof T`, `T[P]`'s object and index) against written names, and an
-    /// identity template is exactly the case where all three are bare.
-    fn type_node_names(node: Option<TypeNode<'a>>) -> Option<&'a str> {
-        let TypeNode::TypeReferenceNode(reference) = node? else { return None };
-        if !reference.type_arguments.is_empty() {
-            return None;
-        }
-        match reference.type_name? {
-            tsr_ast::EntityName::Identifier(name) => Some(name.text),
-            tsr_ast::EntityName::QualifiedName(_) => None,
-        }
-    }
-
     /// §952: the symbol whose member table a type reads its properties from —
     /// the same two shapes [`Checker::get_property_of_type`] dispatches on.
     fn members_owner_of(&self, id: TypeId) -> Option<SymbolId> {
@@ -4162,26 +4147,41 @@ impl<'a> Checker<'a, '_> {
                 Some(body)
             })
             && let [parameter_declaration] = self.local_type_parameters_of(symbol)
-            && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
+            && let Some(parameter_owner) = parameter_declaration.node_id.and_then(|id| self.binder.symbol_of(id))
             && let Some(mapped_parameter) = mapped.type_parameter
-            && let Some(key_name) = mapped_parameter.name.map(|name| name.text)
+            && let Some(key_owner) = mapped_parameter.node_id.and_then(|id| self.binder.symbol_of(id))
             // The constraint must be `keyof T` for the alias's own parameter —
             // upstream's `isHomomorphicMappedType` test, syntactically.
             && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
-            && Self::type_node_names(operator.r#type) == Some(parameter_name)
+            && self.mapped_identity_operand_owner(operator.r#type) == Some(parameter_owner)
             // No `as` clause: a key remapping changes the NAMES, which is
             // exactly what reusing the source's owner cannot express.
             && mapped.name_type.is_none()
             // The template must be `T[P]` — the identity.
             && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
-            && Self::type_node_names(access.object_type) == Some(parameter_name)
-            && Self::type_node_names(access.index_type) == Some(key_name)
+            && self.mapped_identity_operand_owner(access.object_type) == Some(parameter_owner)
+            && self.mapped_identity_operand_owner(access.index_type) == Some(key_owner)
         {
             Some(mapped)
         } else {
             None
         }
+    }
+
+    /// Resolve an identity-template operand by binder identity, not spelling.
+    /// Native getHomomorphicTypeVariable/getTypeFromTypeNodeWorker resolve
+    /// parenthesized parameter operands before mapper selection.
+    fn mapped_identity_operand_owner(&self, node: Option<TypeNode<'a>>) -> Option<SymbolId> {
+        let mut node = node?;
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+            node = parenthesized.r#type?;
+        }
+        let TypeNode::TypeReferenceNode(reference) = node else { return None };
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)
     }
 
     /// A mapped alias reference whose normalization may remove the enclosing
