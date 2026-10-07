@@ -367,6 +367,26 @@ Focused exported-alias/cross-file tests, binder/checker all-target clippy and
 owned formatting passed. Linux 21-sample median child CPU new/base 0.9717
 domain-model, 1.0004 generic-imports. No native complete-work target certification.
 
+## Exported import-equals module indicator (tsr-2zk.16.313)
+
+Native ast.isAnExternalModuleIndicatorNode tests HasSyntacticModifier(Export)
+before import-equals RHS shape. Binder is_external_module now honors Export
+for bare entity import-equals as well as external require. No forced-module
+inference, cache or naming shortcut. Source module owns its export alias; it
+must not enter script globals. Callable publication region remains untouched.
+
+Semantic module/global-ownership regression fails before and passes after;
+unexported entity alias remains a script. Current reexportedMissingAlias gains
+two RIGHT rows and one whole type case. Full prior RIGHT and vanished-key checks
+clean; types coverage 8,062/9,538, diagnostics unchanged 4,223/5,502.
+Focused binder test, binder clippy and formatting pass. Linux CPU new/base over
+21 samples: domain-model 0.9639, generic-imports 0.9873.
+
+Actual native CLI control reports TS2503 in second.d.ts; TSR still omits it.
+Diagnostic/declared consumer prerequisite is not fixed by module ownership;
+no exact native diagnostic-control pass claimed. Campaign acceptance remains
+open despite the native source-identity boundary and whole-type-case gain.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including

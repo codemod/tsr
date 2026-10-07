@@ -4888,10 +4888,13 @@ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
             Node::ImportDeclaration(_) | Node::ExportAssignment(_) | Node::ExportDeclaration(_) => {
                 true
             }
-            Node::ImportEqualsDeclaration(n) => matches!(
-                n.module_reference,
-                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
-            ),
+            Node::ImportEqualsDeclaration(n) => {
+                has_export(n.modifiers)
+                    || matches!(
+                        n.module_reference,
+                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                    )
+            }
             _ => modifiers_of(node).is_some_and(has_export),
         }
     })
