@@ -237,6 +237,42 @@ use the existing native member origin and assigned-signature owner. Production
 still needs the serialized JSX field/worker and public member mapper. Full
 absence-aware RIGHT/performance gates wait for that coherent atomic integration.
 
+## Parameter initializer raw context — tsr-2zk.16.230
+
+Pinned `getContextualTypeForVariableLikeDeclaration` gives an unannotated
+parameter initializer its raw contextual parameter type. The old owned arm
+accepted annotations only. The existing parameter getter also performed
+assignContextualParameterTypes initializer widening, so invoking it from the
+initializer query would recurse. The owned worker now separates raw projection
+from that later widening; normal parameter consumers retain widening, initializer
+context requests raw projection. No side table or additional publication;
+parameter/function identities, options and fixing mapper remain existing
+Checker-owned state. Expensive work remains existing signature resolution and
+initializer checking, without recursively checking that same initializer to
+supply its context.
+
+Actual native strict declaration control and TSR corpus-pipeline probe:
+`(handler = n => n)` under `(handler?: (n: number) => number) => void`
+checks n as number. Before: n any, callback error. After: `(n: number) => number`.
+Written string parameter annotation remains distinct. Dedicated regression and
+complete checker release tests pass in the ignored coherent mirror (reviewed
+member visibility seam, no JSX mock/field). Unfiltered mirror dump has
+469804/477970 RIGHT, +3 over 0eda302c; missing-aware comparison has zero prior
+RIGHT losses or vanished keys. Diagnostic rows unchanged in RIGHT verdicts.
+The three gains are defaultArgsInFunctionExpressions; two target rows still
+fail, so no whole-case conversion is claimed.
+
+Fresh interleaved 21-pair mirror/base observations: domain-model wall 1.00100,
+generic-imports 0.99044; observed scope/options/diagnostics match. Complete-work
+proof remains false; no release/perf acceptance. Mirror also contains the
+already-smoked supplier provider and reviewed mapper visibility change;
+source/binary identities are in the harness receipts. Production still requires
+atomic JSX/shared-field integration before branch-level full gates.
+Receipts `parameter-*.log`, `.ts`, `.d.ts`, `.tsv`, comparisons and perf JSON
+under target/recovery/contextual. Existing .16.230 claimed, remains open.
+Existing .16.225 is now reachable in the Box database and claimed; its
+supplying-reference member producer still blocks target completion. No duplicate.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.

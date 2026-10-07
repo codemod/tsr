@@ -39,6 +39,17 @@ fn callback_default_projects_the_contextual_holder_not_implicit_any() {
 }
 
 #[test]
+fn parameter_initializer_projects_raw_context_without_recursive_widening() {
+    assert_eq!(
+        default_parameter_type(
+            "const callback: (handler?: (n: number) => number) => void = \
+             (handler = n => n) => {};",
+        ),
+        "number",
+    );
+}
+
+#[test]
 fn invalid_rest_default_still_receives_native_element_context() {
     // TS1186 does not prevent contextual checking of the initializer; native
     // types n as number before reporting the rest/default assignment errors.
