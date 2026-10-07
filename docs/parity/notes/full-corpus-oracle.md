@@ -9,10 +9,13 @@ Recovered native overlay candidate `93a40491`. Discovery exercises the actual
 pinned compiler runner, configuration expansion, both source trees, compiler and
 conformance suites. Observed full manifest: **15,323 records**, including the eight
 native configuration failures. No compilation was performed in this discovery run.
-Native skips remain eligibility metadata, not exclusions.
+Native skips remain eligibility metadata, not exclusions. The machine-readable
+[evidence record](full-corpus-oracle-evidence.json) preserves all eight failed IDs
+and the five focused verdicts across Box destruction.
 
 A separate process runs each native configuration and each TSR configuration.
-Ten worker leases; 30-second compiler deadlines; file-backed stdout/stderr; timed
+Ten worker leases; 30-second compiler deadlines; a 180-second native build
+deadline; file-backed stdout/stderr; timed
 out children killed and reaped. Nonzero native exit invalidates a completed row.
 Native records are fsynced on publication and appended durably to the aggregate
 as each process settles. Actual artifacts and verdicts are checkpointed per
@@ -64,10 +67,24 @@ Still missing from that model:
   for removed Classic resolution. Compiler and diagnostics are owned elsewhere.
 - Native pre/post-emit comparison and non-isolated declaration/suggestion producers.
 
-Required owner contract: expose the three diagnostic flag getters; retain signed
-undefined locations; supply Program/global/pre-post-emit diagnostics without
-flattening chains or dropping related-file identity. These are correctness
-prerequisites, not permission to exclude affected configurations.
+Required integration-owner contract for `b6d2104f`:
+
+1. `Diagnostic::reports_unnecessary() -> bool`, `reports_deprecated() -> bool`,
+   `skipped_on_no_emit() -> bool`, backed by per-diagnostic state and real writers,
+   not code-specific consumer overrides. The current producer uses message flags
+   and lacks skipped-on-no-emit state; it is not lossless for those fields.
+2. Signed byte location accessors preserving native undefined `(-1, -1)` globals;
+   root and recursive nodes need the same location contract. Keep existing AST
+   spans unchanged if the diagnostic model carries its own signed location.
+3. Full Program/global diagnostics paired with optional canonical file identity,
+   including option diagnostics such as witnessed TS5108; do not fabricate them
+   in the oracle from expected rows or special-case the control source.
+4. Pre/post-emit diagnostic collections and native option/configuration semantics;
+   declaration/suggestion producers must run where the native harness runs them.
+
+Existing chain/related APIs and Program source images are integrated already.
+These are correctness prerequisites, not permission to exclude configurations,
+shrink the denominator, or mark the current producer as complete/lossless.
 
 ## Exercised evidence
 

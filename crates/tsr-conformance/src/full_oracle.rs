@@ -155,12 +155,12 @@ pub fn native_population(upstream: &Path, dir: &Path, selection: Option<&str>) -
     std::fs::write(&output, "")?;
     let run = selection.unwrap_or("^TestFullOracle$");
     let binary = dir.join("native.test");
-    let build = Command::new("go").current_dir(&upstream)
+    let build = run_bounded(Command::new("go").current_dir(&upstream)
         .args(["test", "-c"]).arg("-o").arg(&binary)
         .arg(format!("-overlay={}", overlay_path.display()))
-        .arg("./internal/testrunner").output()?;
-    std::fs::write(dir.join("build.stderr"), &build.stderr)?;
-    if !build.status.success() { bail!("native build failed; see {}", dir.display()); }
+        .arg("./internal/testrunner"), &dir.join("build"), Duration::from_secs(180))?;
+    std::fs::write(dir.join("build.status"), &build)?;
+    if build != "success" { bail!("native build {build}; see {}", dir.display()); }
     let discovery = run_bounded(Command::new(&binary).current_dir(upstream.join("internal/testrunner"))
         .arg(format!("-test.run={run}"))
         .env("FULL_ORACLE_DISCOVERY", "1")

@@ -1,0 +1,49 @@
+{
+  "pin": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "manifestRows": 15323,
+  "configurations": 15315,
+  "discoveryFailures": [
+    {
+      "id": "submodule/compiler/moduleNoneDynamicImport.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/moduleNoneErrors.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/moduleNoneOutFile.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile1.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile2.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/noErrorUsingImportExportModuleAugmentationInDeclarationFile3.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/requireOfJsonFileWithModuleEmitNone.ts",
+      "reason": "native configuration discovery failed"
+    },
+    {
+      "id": "submodule/compiler/requireOfJsonFileWithModuleNodeResolutionEmitNone.ts",
+      "reason": "native configuration discovery failed"
+    }
+  ],
+  "focusedVerdicts": [
+    "local/compiler/settingsSimpleTest.ts(strict=true)\tDifferent { diagnostics: true, errors: true, types: false }\tnative runner unsupported options",
+    "submodule/compiler/genericParameterAssignability1.ts()\tDifferent { diagnostics: true, errors: true, types: false }\teligible",
+    "local/compiler/settingsSimpleTest.ts(strict=false)\tDifferent { diagnostics: true, errors: true, types: false }\tnative runner unsupported options",
+    "submodule/compiler/commaOperator1.ts()\tDifferent { diagnostics: true, errors: false, types: false }\teligible",
+    "submodule/compiler/2dArrays.ts()\tExact\teligible"
+  ],
+  "fullCompilationRun": false,
+  "priorRightCertificate": false,
+  "performanceVerified": false
+}
