@@ -491,3 +491,13 @@ access as natively. Query-local vector, no cache. Control: divergent setters
 `'a'|'b'` require `boolean`; the read stays a union. Residual: a computed
 symbol getter/setter pair splits into two symbols, so `write_type_of_accessors`
 (`symbols.rs`, unowned) misses the setter.
+
+## 18. Setter types instantiate through the receiver reference (tsr-2zk.16.282)
+
+`getWriteTypeOfSymbol` on an instantiated property goes through
+`getWriteTypeOfInstantiatedSymbol`, mapping the setter type with the same
+reference mapper as the read. `write_type_of_property_of_type` returned the
+raw declared setter type, so `T | undefined` escaped through `Box<string>`.
+It now applies the existing `instantiate_for_reference` to the setter type;
+no write-only mapper or cache. Control: `Box<string>`/`Box<number>` setters
+keep `string | undefined` vs `number | undefined`.
