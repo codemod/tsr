@@ -81,12 +81,18 @@ pub fn produce(config: &Configuration) -> Result<Artifacts> {
     if let Some(config) = &parsed_config {
         diagnostics.extend(config.error_files.iter().cloned().zip(config.errors.iter().cloned()));
     }
-    let images: std::collections::BTreeMap<_, _> = program.source_files().iter().map(|file|
-        (file.file_name().to_string(), std::sync::Arc::new(DiagnosticFile::new(file.file_name(), file.text())))).collect();
+    // Config diagnostics have a source image even when the config is not a
+    // Program source file. Canonical Program text replaces matching input images.
+    let mut images: std::collections::BTreeMap<_, _> = case.files.iter().map(|file|
+        (absolute(&case, &file.name), std::sync::Arc::new(DiagnosticFile::new(absolute(&case, &file.name), &file.content)))).collect();
+    images.extend(program.source_files().iter().map(|file|
+        (file.file_name().to_string(), std::sync::Arc::new(DiagnosticFile::new(file.file_name(), file.text())))));
     for (file, diagnostic) in &mut diagnostics {
         if let Some(image) = file.as_ref().and_then(|name| images.get(name)) { diagnostic.set_file(image.clone()); }
     }
-    diagnostics.sort_by(|(_, a), (_, b)| tsr_diagnostics::compare_diagnostics(a, b));
+    diagnostics.sort_by(|(_, a), (_, b)| LocatedDiagnostic {
+        file: a.file(), diagnostic: a,
+    }.compare(&LocatedDiagnostic { file: b.file(), diagnostic: b }));
     diagnostics.dedup_by(|(_, a), (_, b)| tsr_diagnostics::equal_diagnostics_no_related_info(a, b));
     let mut texts: std::collections::BTreeMap<_, _> = case.files.iter().map(|f| (absolute(&case, &f.name), f.content.as_str())).collect();
     texts.extend(program.source_files().iter().map(|f| (f.file_name().to_string(), f.text())));

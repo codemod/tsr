@@ -54,6 +54,8 @@ Unpublished, crashed, timed-out and failed discovery states remain failures.
 Fetched `box/parity-diagnostic-chains` at `b6d2104f`; its implementation is parent
 `56eaaed3`. Dependency was cherry-picked separately for compilation. Integration
 owner must not reapply that commit after merging the diagnostic owner.
+The candidate notes commit `b6d2104f` is also applied separately as dependency
+`cb99aa8d`; neither dependency is oracle-owned code.
 The oracle consumes its real `message_chain()`, `related_information()`, `file()`,
 `compare_diagnostics()` and `equal_diagnostics_no_related_info()` APIs.
 
@@ -92,8 +94,9 @@ Commands used offline release builds; Cargo/config/lockfiles unchanged.
 
 - Built every tsr-conformance example after caller migration.
 - Library tests: 137 passed.
-- `full_oracle_boundaries`: 3 passed, including real native/TSR clean control,
-  native Cartesian/span control, and a hung-process deadline/reaping control.
+- `full_oracle_boundaries`: 4 passed, including real native/TSR clean control,
+  native Cartesian/span control, a hung-process deadline/reaping control, and
+  config-only options with exact diagnostics/error/type artifacts.
 - `assignment_declarations`: 10 passed.
 - Focused executable run: five configurations, one exact (`2dArrays`). Type artifact
   bytes match native for all five: `settingsSimpleTest` strict true/false,
@@ -104,6 +107,12 @@ Commands used offline release builds; Cargo/config/lockfiles unchanged.
   exposed that native selection orders roots before other files and filters unloaded
   files; ported those rules from source/Program facts without expected-file inputs.
   `commonjs_module_elements` then passed without re-pinning its native rows.
+
+- Additional real-process config controls: `tsconfigSimpleTest` exact; malformed
+  non-object and rootDir/include controls differ in diagnostics/errors while type
+  artifacts match. Config source images are now attached before native comparison,
+  preserving identity even when JSON is not a Program source file. The simple
+  control's strictNullChecks option exists only in tsconfig, not test directives.
 
 No full compilation run, prior-RIGHT preservation certificate, or whole-project
 median performance measurement was performed. Prior exact-ID ledger comparison is

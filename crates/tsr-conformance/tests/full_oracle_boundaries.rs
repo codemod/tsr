@@ -59,6 +59,19 @@ fn full_oracle_native_cartesian_clean_and_span_controls() {
 }
 
 #[test]
+fn config_only_options_keep_source_identity_and_complete_artifacts() {
+    let dir = std::env::temp_dir().join(format!("full-oracle-config-{}", std::process::id()));
+    let population = full_oracle::native_population(
+        &tsr_conformance::repo_root().join("vendor/typescript-go"), &dir,
+        Some("^TestFullOracle$/^local$/^compiler$/^tsconfigSimpleTest\\.ts$"),
+    ).expect("pinned native config control");
+    let native = population.configurations.values().next().expect("config control retained");
+    let actual = tsr_conformance::full_oracle_actual::produce(&native.configuration).expect("real TSR config producer");
+    assert_eq!(full_oracle::compare(native.output.as_ref().expect("native artifact"), &actual), Verdict::Exact);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn process_deadline_reaps_hung_compiler_and_retains_output() {
     let path = std::env::temp_dir().join(format!("full-oracle-deadline-{}", std::process::id()));
     let status = full_oracle::run_bounded(std::process::Command::new("sh").args(["-c", "echo started; exec sleep 10"]),
