@@ -1333,9 +1333,7 @@ impl Checker<'_, '_> {
     /// Missing this case would be a plausible wrong line on every negative
     /// constant in the corpus.
     ///
-    /// Not ported, each a gap: an operand this port cannot type (see
-    /// [`Self::unary_result_type`] for why that is a gap rather than `number`),
-    /// and `!` on an operand whose truthiness is not decidable here.
+    /// Logical negation delegates to the native type-facts worker below.
     fn check_prefix_unary_expression(
         &mut self,
         node: &tsr_ast::PrefixUnaryExpression<'_>,
@@ -1343,6 +1341,9 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let Some(operand) = node.operand else { return error };
         let operand_type = self.check_expression(operand);
+        if Some(operand_type) == self.silent_never_type {
+            return operand_type;
+        }
         let operator = node.operator.kind;
 
         // The literal special cases, which run before the operator's general
@@ -1455,103 +1456,21 @@ impl Checker<'_, '_> {
         self.intrinsics.number
     }
 
-    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`).
-    ///
-    /// Upstream calls `getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)`
-    /// and answers `false` when the operand can only be truthy, `true` when it
-    /// can only be falsy, and `boolean` when it could be either. `>!x : boolean`
-    /// is the common baseline line, but `!` on a literal is not `boolean` and
-    /// answering `boolean` everywhere would be a wrong line on each one.
-    ///
-    /// # Only the decidable half of `getTypeFacts` is ported
-    ///
-    /// A unit type has one truthiness and the primitives have both, which is
-    /// enough for the corpus shapes. Everything else — unions, objects,
-    /// intersections, type parameters, `never` — is a gap. An object type is
-    /// *always* truthy upstream and so would answer `false`, but that holds only
-    /// once `TypeFacts` distinguishes an object from a possibly-`undefined` one,
-    /// and guessing it here would be a wrong line on every optional value.
+    /// Ported from `Checker.checkPrefixUnaryExpression`
+    /// (`internal/checker/checker.go:10887-10896`, pinned `5b1047d`).
+    /// Use the existing native type-facts worker; empty or mixed facts select
+    /// boolean, including ordinary never and error operands. No duplicate
+    /// constituent traversal or type-data copy belongs at this consumer.
     fn negated_truthiness_type(&mut self, operand: TypeId) -> TypeId {
-        if operand == self.intrinsics.error {
-            return self.intrinsics.error;
+        let facts = self.get_type_facts(operand)
+            & (crate::flow::TypeFacts::TRUTHY | crate::flow::TypeFacts::FALSY);
+        if facts == crate::flow::TypeFacts::TRUTHY {
+            self.intrinsics.false_type
+        } else if facts == crate::flow::TypeFacts::FALSY {
+            self.intrinsics.true_type
+        } else {
+            self.intrinsics.boolean
         }
-        let (flags, data) = {
-            let t = self.store.get(operand);
-            (t.flags, t.data.clone())
-        };
-        // Always falsy: `!null`, `!undefined`, `!void` are all `true`.
-        if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
-            return self.intrinsics.true_type;
-        }
-        let falsy = match data {
-            TypeData::EnumLiteral { .. } => {
-                let facts = self.get_type_facts(operand);
-                let truthy = facts.contains(crate::flow::TypeFacts::TRUTHY);
-                let falsy = facts.contains(crate::flow::TypeFacts::FALSY);
-                return if truthy && falsy {
-                    self.intrinsics.boolean
-                } else if falsy {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            TypeData::BooleanLiteral(value) => !value,
-            TypeData::StringLiteral(text) => text.is_empty(),
-            // The normalised text, so 0, 0.0 and 0x0 arrive as "0".
-            TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
-            // §291: a UNION folds its constituents' truthiness — all-truthy
-            // is `false`, all-falsy `true`, a mix `boolean`, and any
-            // undecidable constituent keeps the gap
-            // (`!abcOrXyzOrNumber : boolean`,
-            // `stringLiteralTypesWithVariousOperators01`).
-            TypeData::Union { types: constituents, .. } => {
-                let mut saw_true = false;
-                let mut saw_false = false;
-                let mut saw_boolean = false;
-                for constituent in constituents {
-                    let negated = self.negated_truthiness_type(constituent);
-                    if negated == self.intrinsics.error {
-                        return self.intrinsics.error;
-                    } else if negated == self.intrinsics.true_type {
-                        saw_true = true;
-                    } else if negated == self.intrinsics.false_type {
-                        saw_false = true;
-                    } else {
-                        saw_boolean = true;
-                    }
-                }
-                return if saw_boolean || (saw_true && saw_false) {
-                    self.intrinsics.boolean
-                } else if saw_true {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            _ => {
-                // Both truthiness values are possible for the unit-less
-                // primitives, which is upstream's `Truthy|Falsy` and prints
-                // `boolean`.
-                return if flags.intersects(
-                    TypeFlags::STRING
-                        | TypeFlags::NUMBER
-                        | TypeFlags::BIG_INT
-                        | TypeFlags::BOOLEAN
-                        | TypeFlags::ANY_OR_UNKNOWN,
-                ) {
-                    self.intrinsics.boolean
-                } else if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL_LIKE) {
-                    // §291: an object or symbol operand is ALWAYS truthy
-                    // (upstream's TypeFacts), so its negation is the `false`
-                    // literal.
-                    self.intrinsics.false_type
-                } else {
-                    self.intrinsics.error
-                };
-            }
-        };
-        if falsy { self.intrinsics.true_type } else { self.intrinsics.false_type }
     }
 
     /// Ported from `Checker.checkThisExpression` (`checker.go:12077`), reduced to

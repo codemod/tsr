@@ -484,3 +484,18 @@ Native control: `"a"`, `"prefix-one"` narrow in both; `!==` keeps `string`;
 `n == 1` on `number | boolean` → `1`. Gate vs §19: +31 type lines, cases
 `literalTypes3`, `stringLiteralTypesInUnionTypes02`, `typeofThis`,
 `sourceMapValidationStatements`; 0 losses. CPU 0.993 / 1.004.
+
+## 21. `!x` reads `getTypeFacts(Truthy|Falsy)` (`checkPrefixUnaryExpression`)
+
+Pinned `checker.go:10887`: after `operandType == silentNeverType` returns
+early, `!` answers `false` for Truthy-only facts, `true` for Falsy-only, and
+`boolean` otherwise — including `never`, `any`/error and empty facts. TSR had
+a partial per-shape table (`negated_truthiness_type`) that answered `false`
+for every object in loose mode and `error` for unions/`never`/type params; it
+now consults the existing facts worker. `flow_object_facts_tests` held the old
+loose `!object` = `false` limitation; it now asserts native `boolean`.
+Native control (both modes): `!{a}` strict `false` / loose `boolean`,
+`!unknown` and `!never` `boolean`, `!0n` `true`. Gate vs §20: +24 type lines,
+cases `logicalNotOperatorWithAnyOtherType`, `definiteAssignmentOfDestructuredVariable`,
+`manyCompilerErrorsInTheTwoFiles`, `typePredicateStructuralMatch`,
+`parserRealSource12`; 0 losses. CPU 0.984 / 0.982.
