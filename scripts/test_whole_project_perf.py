@@ -238,6 +238,18 @@ class BenchmarkEvidenceTests(unittest.TestCase):
         self.assertTrue(any("reused process" in reason for reason in result["reasons"]))
         self.assertTrue(any("binary" in reason for reason in result["reasons"]))
 
+    def test_capture_cost_observation_cannot_certify_tracing_overhead_or_worker_equivalence(self):
+        from whole_project_perf import capture_cost_observation
+        child = {"pid": 10, "command": ["frozen"], "executed_binary_identity": {"sha256_before": "hash"},
+                 "wall_seconds": 4.0, "user_seconds": 2.0, "system_seconds": 1.0}
+        tool = {"summary": {"wall_seconds": {"median": 2.0}, "user_seconds": {"median": 1.0},
+                            "system_seconds": {"median": 0.5}}}
+        result = capture_cost_observation(child, tool)
+        self.assertEqual(result["observed_wall_ratio"], 2.0)
+        self.assertEqual(result["capture_cpu_seconds"], 3.0)
+        self.assertFalse(result["causal_instrumentation_overhead_verified"])
+        self.assertFalse(result["timed_worker_equivalence_verified"])
+
     def test_resources_and_diagnostics_belong_to_the_child(self):
         sample = process([sys.executable, "-c", "print('error TS2322: control'); raise SystemExit(1)"],
                          Path.cwd(), 10)

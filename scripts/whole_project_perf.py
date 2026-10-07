@@ -290,6 +290,25 @@ def equivalence_certificate(report: dict) -> dict:
                                      "harness_sha256": report.get("harness_sha256")}}
 
 
+def capture_cost_observation(child: dict, tool: dict) -> dict:
+    """Single traced process versus untraced median; not causal overhead proof."""
+    baseline = tool["summary"]
+    return {
+        "capture_pid": child["pid"], "capture_command": child["command"],
+        "capture_binary_sha256": child["executed_binary_identity"]["sha256_before"],
+        "capture_wall_seconds": child["wall_seconds"],
+        "untraced_median_wall_seconds": baseline["wall_seconds"]["median"],
+        "observed_wall_ratio": child["wall_seconds"] / baseline["wall_seconds"]["median"],
+        "capture_cpu_seconds": child["user_seconds"] + child["system_seconds"],
+        "untraced_median_user_seconds": baseline["user_seconds"]["median"],
+        "untraced_median_system_seconds": baseline["system_seconds"]["median"],
+        "capture_outside_timed_pairs": True, "causal_instrumentation_overhead_verified": False,
+        "timed_worker_equivalence_verified": False,
+        "limitations": ["One capture is not a five-pair instrumentation control",
+                        "Tracing and type dumping may add work; TSR capture forces serial checking"],
+    }
+
+
 def qualified_checkpoint(report: dict) -> dict:
     """Curated handoff preserves artifact bindings without copying raw trace rows."""
     captures = {}
@@ -310,6 +329,7 @@ def qualified_checkpoint(report: dict) -> dict:
             "native_current_checkpoint_gates": validation.get("native_current_checkpoint_gates"),
             "highest_observed_unsampled_inner_boundary": validation.get("highest_observed_unsampled_inner_boundary"),
             "outside_timing": capture["outside_timing"],
+            "capture_cost_observation": capture.get("capture_cost_observation"),
         }
     return {
         "schema_version": 1, "issue": "tsr-2zk.17", "source_sha": report["source_sha"],
@@ -675,6 +695,10 @@ def main() -> int:
             save()
     for tool in report["tools"].values():
         tool["summary"] = summary(tool["samples"])
+    for name, capture in report["work_captures"].items():
+        with inputs.regular_file(Path(capture["receipt"])) as stream:
+            receipt = json.load(stream)
+        capture["capture_cost_observation"] = capture_cost_observation(receipt["child"], report["tools"][name])
     report["diagnostics_stable"] = all(
         len({(sample["diagnostics"]["fingerprint"], sample["exit_code"]) for sample in tool["samples"]}) == 1
         for tool in report["tools"].values()

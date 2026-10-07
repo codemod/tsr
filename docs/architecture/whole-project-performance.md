@@ -212,6 +212,21 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Observe capture cost without pretending it is causal overhead
+
+Each capture now retains traced wall/CPU resources, actual child command/PID/
+frozen hash, untraced medians and a single-capture wall ratio. Capture remains
+outside timed pairs. Both causal-overhead and timed-worker-equivalence flags are
+false: one capture plus medians cannot establish instrumentation overhead, and
+TSR tracing forces serial work while native type dumping adds work.
+
+34 harness tests passed; actual frozen five-pair/warmup capture saved
+`/tmp/recover-capture-cost-checkpoint.json`, comparable exit 1. Single-capture/
+untraced-median wall observations: TSR 1.0421592603050913, native
+1.16708880395157. These are not speed wins, throughput ratios or budget/admission
+proof. Missing complete native query/worker/metadata counters remain the highest
+runtime-owned proof gap; verified native <=0.50 remains unmet.
+
 ### Complete stderr remains part of bounded comparison evidence
 
 Comparison now retains and requires equal complete stderr strings as well as
