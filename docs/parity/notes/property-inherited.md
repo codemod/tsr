@@ -76,6 +76,18 @@ unfiltered dumps finished.
 Aggregate totals hide regressions: **28 formerly RIGHT type lines and 3 formerly
 RIGHT/EMPTY_RIGHT diagnostic cases lost**. No gains below are shipped.
 
+The absence-aware receipt additionally walks **every protected before key**,
+not merely the intersection produced by `join`: type keys are stable
+`case:section:row`, diagnostics use the source case ID. Frozen/candidate maps
+contain respectively 477,970/477,970 distinct type keys and 10,570/10,570
+distinct diagnostic keys, with zero duplicate keys. Of 469,765 prior RIGHT type
+keys, zero vanished and 28 changed verdict (28 total losses). Of 9,189 prior
+RIGHT/EMPTY_RIGHT diagnostic keys, zero vanished and three changed verdict
+(three total losses). Missing after keys are explicitly classified as losses.
+The six type continuation lines are excluded from key parsing on both sides,
+not counted as keys. These are receipts for the rejected experiment only;
+the final committed tree has no semantic cutover.
+
 | Assigned exact source case | Frozen RIGHT type lines | Candidate RIGHT type lines | Candidate diagnostic verdict |
 | --- | ---: | ---: | --- |
 | compiler/declarationEmitExpressionInExtends | 8 / 10 | 10 / 10 | RIGHT |
