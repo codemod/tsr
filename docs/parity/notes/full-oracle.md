@@ -1,5 +1,44 @@
 # Full configured native oracle
 
+## Published completed r2/r3 receipts (primary contract)
+
+Both completed runs report source `c8185606e3b972d59d345b6e45d789586d993af8`,
+native `5b1047d10d32e7d5b446be4de56b126ff42f82bb`, RIGHT 7,598, TOTAL 14,965
+(**50.771801%**), PRIOR_RIGHT 7,598, PRIOR_RIGHT_LOSSES 0, MISSING_ROWS 0.
+These are primary diagnostics/types results, **not related-information parity**.
+Native failure/deadline rows (671) and actual failure/deadline rows (11) stay in
+the denominator. New parent main is not included.
+
+r2 manifest SHA-256: `48229a30f9516a166069f635aa770422d5e6473d340940f5a11c446695373ee5`.
+r2 results SHA-256: `85c3be4ef82a10d194a1f780e0890e9ee610c55dec60fef644d94973d4dc8675`.
+r2/r3 summary SHA-256: `b14ccab91dbf03090780d8006c01926e990eb7c43c62b72211fd69b91fc87e8a`.
+
+Direct f32 command, independent of corpus production:
+
+```sh
+TSR_ORACLE_MODE=actual \
+TSR_ORACLE_CASE="$PWD/vendor/typescript-go/_submodules/TypeScript/tests/cases/conformance/types/typeParameters/typeArgumentLists/instantiationExpressions.ts" \
+TSR_ORACLE_VARIANT='' \
+TSR_ORACLE_OUTPUT="$PWD/target/native-f32-control/native.tsv" \
+GOMAXPROCS=1 \
+target/full-oracle-c8185606-r3/worker-ce73346778b98c91f3d042ad052ed9dd82fca0b602e9111b7598e8817fa69936 \
+-test.run='^TestFullOracle$'
+```
+
+Observed output: PASS; 286 type rows; 16 diagnostics; COMPLETE. Native rows
+202/203 are exactly:
+
+```text
+fs : ((a: string) => string) | { x: string; }
+f<string> : ((a: string) => string) | { x: string; }
+```
+
+Input SHA-256 `86cdd089559185d1d1df073e20c9a1bc57c15c75fba6faac5502354a3ff50235`;
+worker SHA-256 `ce73346778b98c91f3d042ad052ed9dd82fca0b602e9111b7598e8817fa69936`;
+artifact SHA-256 `594197cc6af8083070ed47a53d8bfdd33c73e3c9a5601e4548f92742ce8093ed`.
+Configuration: target es2015, strict true, declaration true. Real native
+`tsbaseline` walker and type query/printing; not the stale bundled baseline.
+
 ## Immutable-worker rerun (r3)
 
 The full c8185606 rerun in `target/full-oracle-c8185606-r3/` completed with
