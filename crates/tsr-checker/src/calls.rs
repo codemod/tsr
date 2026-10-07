@@ -3996,6 +3996,10 @@ impl Checker<'_, '_> {
             }
             argument_types.push(self.check_expression(argument));
         }
+        let call = self.call_for_overload_arguments(arguments);
+        // The subtype pass left the literal arguments checked under the last
+        // candidate it tried; unknown here, so the first candidate re-checks.
+        let mut context = None;
         let mut chosen: Option<&Signature> = None;
         // Splits the empty-handed case in three: no candidate takes this many
         // arguments at all; arity matched and every candidate was *decidably*
@@ -4007,6 +4011,13 @@ impl Checker<'_, '_> {
                 continue;
             }
             arity_matched = true;
+            self.check_literal_arguments_for_candidate(
+                call,
+                candidate,
+                arguments,
+                &mut context,
+                &mut argument_types,
+            );
             // Kleene conjunction over the pairs, evaluated in full rather than
             // short-circuiting on the first `Unknown`: a definite `NotRelated`
             // later in the list is a strictly better answer than "could not
@@ -4103,6 +4114,15 @@ impl Checker<'_, '_> {
             let mut failure = candidates[0].clone();
             failure.r#type = self.get_intersection_type(&returns, None);
             return Some(failure);
+        }
+        if let Some(chosen) = chosen {
+            self.check_literal_arguments_for_candidate(
+                call,
+                chosen,
+                arguments,
+                &mut context,
+                &mut argument_types,
+            );
         }
         chosen.cloned()
     }
@@ -4409,10 +4429,18 @@ impl Checker<'_, '_> {
             argument_types.push(self.check_argument_in_candidate_context(call, first, argument));
         }
         let all_decidable = clean_len == candidates.len();
+        let mut context = first.map(|first| first.declaration);
         for candidate in prefix {
             if !self.overload_has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
+            self.check_literal_arguments_for_candidate(
+                call,
+                candidate,
+                arguments,
+                &mut context,
+                &mut argument_types,
+            );
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
                 let parameter_type = self.parameter_type(parameter);
@@ -4456,6 +4484,107 @@ impl Checker<'_, '_> {
     /// one (the walk's retention owns those), a generic candidate (its
     /// context is inference's), a synthesized argument list, and a call
     /// whose memo is already set keep the context-free `check_expression`.
+    /// One `isSignatureApplicable` argument pass for `candidate`: when the
+    /// literal arguments were last checked under another candidate
+    /// (`context` holds its declaration), they are re-checked under this
+    /// one and `argument_types` re-read from the published node types.
+    fn check_literal_arguments_for_candidate(
+        &mut self,
+        call: Option<tsr_ast::NodeId>,
+        candidate: &Signature,
+        arguments: &[Expression<'_>],
+        context: &mut Option<tsr_ast::NodeId>,
+        argument_types: &mut [TypeId],
+    ) {
+        if *context == Some(candidate.declaration) {
+            return;
+        }
+        if self.recheck_literal_arguments_in_context(call, candidate, arguments) {
+            for (slot, &argument) in argument_types.iter_mut().zip(arguments) {
+                *slot = self.check_expression(argument);
+            }
+        }
+        *context = Some(candidate.declaration);
+    }
+
+    /// `isSignatureApplicable` (`checker.go:9256`) checks every argument with
+    /// `checkExpressionWithContextualType(arg, paramType)` for the candidate
+    /// being tried, uncached, and the argument's own type afterwards is a check
+    /// whose contextual type comes from the call's resolved signature
+    /// (`getContextualTypeForArgumentAtIndex`, `checker.go:29772`). This port
+    /// keeps an argument's first check (made under the first arity-matching
+    /// candidate) in `node_types`; when a later non-generic candidate is
+    /// picked, an array or object literal argument is checked again under the
+    /// picked candidate, whose parameter decides literal widening
+    /// (`getWidenedLiteralLikeTypeForContextualType`).
+    ///
+    /// Work boundary: only array/object literal arguments are re-checked, and
+    /// only those without a nested call, `new`, tagged template, function,
+    /// arrow or class: upstream caches a nested call's resolved signature from
+    /// its first check, while `evict_subtree` would drop this port's copy.
+    /// The memo is the existing per-call `call_inference_signatures` entry,
+    /// published only for the duration of the re-check. No new cache.
+    fn recheck_literal_arguments_in_context(
+        &mut self,
+        call: Option<tsr_ast::NodeId>,
+        signature: &Signature,
+        arguments: &[Expression<'_>],
+    ) -> bool {
+        let Some(call) = call else { return false };
+        if !signature.type_parameters.is_empty()
+            || self.call_inference_signatures.contains_key(&call)
+        {
+            return false;
+        }
+        let mut rechecked = false;
+        for &argument in arguments {
+            if !matches!(
+                argument,
+                Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_)
+            ) || self.is_context_sensitive_argument(&argument)
+            {
+                continue;
+            }
+            let Some(id) = argument.node_id() else { continue };
+            if !self.node_types.contains_key(&id) || self.literal_subtree_has_resolution(id) {
+                continue;
+            }
+            self.evict_subtree(id);
+            self.call_inference_signatures.insert(call, signature.clone());
+            self.check_expression(argument);
+            self.call_inference_signatures.remove(&call);
+            rechecked = true;
+        }
+        rechecked
+    }
+
+    /// Whether a literal argument's subtree holds a node whose check resolves
+    /// and caches a signature or a function's own type upstream.
+    fn literal_subtree_has_resolution(&self, root: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if matches!(
+                self.nodes.kind(id),
+                K::CallExpression
+                    | K::NewExpression
+                    | K::TaggedTemplateExpression
+                    | K::FunctionExpression
+                    | K::ArrowFunction
+                    | K::ClassExpression
+                    | K::MethodDeclaration
+                    | K::GetAccessor
+                    | K::SetAccessor
+            ) {
+                return true;
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        false
+    }
+
     fn check_argument_in_candidate_context(
         &mut self,
         call: Option<tsr_ast::NodeId>,
