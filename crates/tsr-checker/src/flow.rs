@@ -8119,6 +8119,17 @@ impl Checker<'_, '_> {
     /// admit falsy primitives; other objects use the native object facts.
     /// Unsupported representations retain both truthiness possibilities.
     pub(crate) fn get_type_facts(&mut self, t: TypeId) -> TypeFacts {
+        self.get_type_facts_with_mask(t, TypeFacts::all())
+    }
+
+    /// Ported from typescript-go's getTypeFacts/getTypeFactsWorker
+    /// (internal/checker/checker.go): propagate callerOnlyNeeds through
+    /// constituent workers and return only the requested projection.
+    pub(crate) fn get_type_facts_with_mask(&mut self, t: TypeId, mask: TypeFacts) -> TypeFacts {
+        self.get_type_facts_worker(t, mask) & mask
+    }
+
+    fn get_type_facts_worker(&mut self, t: TypeId, caller_only_needs: TypeFacts) -> TypeFacts {
         let t = if self
             .store
             .get(t)
@@ -8158,20 +8169,24 @@ impl Checker<'_, '_> {
         // (`TypeofEQFunction | TypeofNEObject`, checker.go:478) and AND for
         // every other, which is witness 2.
         if let TypeData::Intersection { types, .. } = &self.store.get(t).data {
-            let constituents = types.clone();
-            let ignore_objects = constituents
+            let count = types.len();
+            let ignore_objects = types
                 .iter()
                 .any(|&c| self.store.get(c).flags.intersects(TypeFlags::PRIMITIVE));
             let or_mask = TypeFacts::TYPEOF_EQ_FUNCTION | TypeFacts::TYPEOF_NE_OBJECT;
             let mut ored = TypeFacts::empty();
             let mut anded = TypeFacts::all();
             let mut counted = false;
-            for constituent in constituents {
+            for index in 0..count {
+                let TypeData::Intersection { types, .. } = &self.store.get(t).data else {
+                    unreachable!("the stored intersection retains its identity");
+                };
+                let constituent = types[index];
                 let is_object = self.store.get(constituent).flags.intersects(TypeFlags::OBJECT);
                 if ignore_objects && is_object {
                     continue;
                 }
-                let facts = self.get_type_facts(constituent);
+                let facts = self.get_type_facts_worker(constituent, caller_only_needs);
                 ored |= facts;
                 anded &= facts;
                 counted = true;
@@ -8259,10 +8274,16 @@ impl Checker<'_, '_> {
         // wrong answer for [`Checker::check_logical_and`], which asks about the
         // whole left operand. `undefined | null` must report `FALSY` alone.
         if let TypeData::Union { types, .. } = &ty.data {
-            let types = types.clone();
-            return types
-                .iter()
-                .fold(TypeFacts::empty(), |facts, &c| facts | self.get_type_facts(c));
+            let count = types.len();
+            let mut facts = TypeFacts::empty();
+            for index in 0..count {
+                let TypeData::Union { types, .. } = &self.store.get(t).data else {
+                    unreachable!("the stored union retains its identity");
+                };
+                let constituent = types[index];
+                facts |= self.get_type_facts_worker(constituent, caller_only_needs);
+            }
+            return facts;
         }
         // `undefined`, `null` and `void` are the whole of the falsy-only set
         // among the types this checker builds. They split three ways on the
@@ -8353,7 +8374,12 @@ impl Checker<'_, '_> {
                     - TypeFacts::TYPEOF_NE_FUNCTION
                     - TypeFacts::TYPEOF_NE_HOST_OBJECT)
                 | mode_facts;
-            if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+            if flags.intersects(TypeFlags::NON_PRIMITIVE)
+                || !(object_strict ^ function_strict).intersects(caller_only_needs)
+            {
+                // Empty anonymous objects were handled above. All remaining
+                // object/function categories have the same requested facts;
+                // resolving bind/Function subtype cannot change this projection.
                 return object_strict;
             }
             return match &ty.data {
@@ -8475,10 +8501,10 @@ impl Checker<'_, '_> {
             both
         };
         let facts = truthiness | nullable_never | typeof_family;
-        if !self.strict_null_checks {
-            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
-        } else {
+        if self.strict_null_checks {
             facts
+        } else {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
         }
     }
 
@@ -8786,3 +8812,7 @@ mod query_this_tests;
 #[cfg(test)]
 #[path = "flow_object_facts_tests.rs"]
 mod object_facts_tests;
+
+#[cfg(test)]
+#[path = "flow_masked_facts_tests.rs"]
+mod masked_facts_tests;

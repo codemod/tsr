@@ -670,3 +670,47 @@ in this cohort, but no hotpath causal attribution or no-slowdown acceptance is
 claimed. Reverting faithful native facts to change these timings is not a
 regression fix. Parent performance owner must reconcile the failed gate with
 complete-work, accepted-threshold measurements on its integrated source.
+
+## 18. Preserve native callerOnlyNeeds work boundary
+
+Parent's combined native unary consumer exposed independent domain-model CPU
+regressions (reported cohorts 1.0126 and 1.0254); no speed acceptance is inferred
+from the older Box scalar cohort. This flow-only change exposes
+`get_type_facts_with_mask(t, mask)` and propagates native `callerOnlyNeeds`
+through constituent workers. Existing full-facts callers retain all bits.
+Parent-owned unary call must request `TRUTHY | FALSY` rather than all facts.
+
+Native operation: pinned `getTypeFacts/getTypeFactsWorker` in
+`internal/checker/checker.go`. Empty anonymous objects retain their distinct
+facts before any classification skip. Other object/function categories share
+truthiness/nullish bits: if their requested projections are identical, the
+`bind`/Function subtype classification cannot alter the answer and is omitted.
+A distinguishing typeof mask still executes existing classification. This is
+projection of native fact aggregates, not syntax/type-name guessing or skipped
+semantic work. No cache or additional shared Checker state is introduced.
+
+Union/intersection constituent vectors are no longer cloned for these queries.
+Stable owner is the Checker TypeStore and original union/intersection TypeId;
+copy one constituent TypeId by index before recursive mutation, reacquire the
+borrow for the next index. The constituent lists are immutable after type
+publication; store growth does not invalidate a held borrow because none is
+held across the recursive worker. Intersection object-ignore and mixed OR/AND
+rules remain unchanged. There is no provisional query publication or cross-
+receiver/alias reuse; existing base-constraint and empty-object work is retained.
+
+Verification: masked truthiness semantic control covers empty/nonempty objects,
+callable-vs-object distinguishing masks, template, bigint zero/nonzero/union and
+symbol under both null modes. It passes, as do 113 focused tests. Native strict/
+loose controls from sections 16–17 remain the semantic oracle. Both unfiltered
+eligible corpus commands wrote durable exit 0 after completion: all 10,570
+diagnostic case rows and 477,968 keyed type rows are unchanged byte-for-byte,
+with no RIGHT losses or vanished keys. Receipts: ignored
+`target/recovery/flow-mask/`. Anchors and section checks pass.
+
+Actual combined unary smoke and worker-count/CPU attribution require the
+parent's protected consumer to call the masked API; this Box deliberately did
+not replace its obsolete consumer. Parent instrumentation owns query/classifier
+counts. This worker claims neither a measured combined speed improvement nor
+accepted no-regression/0.50 release gate. The change removes avoidable local
+constituent copying and permits the native consumer's narrower work boundary;
+it does not certify broader member/predicate completion.
