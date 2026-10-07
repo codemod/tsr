@@ -1050,7 +1050,7 @@ impl Checker<'_, '_> {
             self.check_index_signature_key_type(node);
         }
         if matches!(typed, Node::ExportAssignment(_)) {
-            self.check_export_assignment_alone(node);
+            self.check_export_assignment_alone(node, ambient);
             self.check_jsdoc_annotated_initializer(node, ambient);
         }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
@@ -1459,7 +1459,7 @@ impl Checker<'_, '_> {
             && !self.is_ambient_module_declaration(container)
     }
 
-    fn check_export_assignment_alone(&mut self, node: NodeId) {
+    fn check_export_assignment_alone(&mut self, node: NodeId, ambient: bool) {
         // `checkExternalModuleExports` resolves the module's `export=` symbol,
         // which is where an `export = self` cycle reports. Not grammar, so
         // ahead of the parse-error bail below.
@@ -1500,6 +1500,33 @@ impl Checker<'_, '_> {
             self.report(
                 file,
                 Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
+            );
+        }
+        // Ported from typescript-go's `checkExportAssignment`
+        // (`internal/checker/checker.go:5666`, pinned `5b1047d`): ambient
+        // assignment expressions must be entity-name expressions. The caller
+        // carries the parser's Ambient context through the existing walk.
+        if ambient
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::SourceFile
+                        | SyntaxKind::ModuleBlock
+                        | SyntaxKind::ModuleDeclaration
+                )
+            })
+            && !self.is_contained_by_namespace(node)
+            && let Some(expression) = assignment.expression.and_then(|e| e.node_id())
+            && !self.is_entity_name_expression(expression)
+            && let Some(file) = self.source_file_of_for_diagnostics(expression)
+        {
+            let span = self.error_span(expression);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::THE_EXPRESSION_OF_AN_EXPORT_ASSIGNMENT_MUST_BE_AN_IDENTIFIER_OR_QUALIFIED_NAME_IN_AN_AMBIENT_CONTEXT,
+                    span,
+                ),
             );
         }
         if !assignment.is_export_equals {
