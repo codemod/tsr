@@ -236,6 +236,42 @@ impl Checker<'_, '_> {
         {
             self.check_catch_clause_declaration(declaration);
         }
+        // The first arm of `Checker.checkTypePredicate` (`checker.go:3055`):
+        // the parser builds a predicate in any type position, and one outside
+        // a signature's return type is TS1228 (a `c.error`). The remaining
+        // arms (parameter lookup, rest and binding-pattern references) are
+        // not ported here.
+        if let Node::TypePredicateNode(predicate) = typed
+            && let Some(id) = predicate.node_id
+            && self.type_predicate_parent(id).is_none()
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_TYPE_PREDICATE_IS_ONLY_ALLOWED_IN_RETURN_TYPE_POSITION_FOR_FUNCTIONS_AND_METHODS,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// `Checker.getTypePredicateParent` (`checker.go:3099`): the signature
+    /// whose return type is exactly this predicate.
+    fn type_predicate_parent(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.nodes.parent(node)?;
+        let return_type = match self.node_map.get(parent)? {
+            Node::ArrowFunction(signature) => signature.r#type,
+            Node::CallSignatureDeclaration(signature) => signature.r#type,
+            Node::FunctionDeclaration(signature) => signature.r#type,
+            Node::FunctionExpression(signature) => signature.r#type,
+            Node::FunctionTypeNode(signature) => signature.r#type,
+            Node::MethodDeclaration(signature) => signature.r#type,
+            Node::MethodSignatureDeclaration(signature) => signature.r#type,
+            _ => None,
+        };
+        (return_type.and_then(|t| t.node_id()) == Some(node)).then_some(parent)
     }
 
     /// The first arms of `Checker.checkExternalImportOrExportDeclaration`

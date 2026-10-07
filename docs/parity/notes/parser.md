@@ -462,3 +462,10 @@ per-file flag must become per-node.
 - Enum members (`parseEnumMember`): the member is the JSDoc host
   (`withJSDoc`), so `{@link A}` on a member marks `A` referenced, and the
   initializer parses with `DisallowInContext` cleared.
+- Type predicates (`parseTypeOrTypePredicate`, `parseNonArrayType`): only the
+  `identifier is` prefix is return-position-specific; `this is T` and
+  `asserts x [is T]` are type arms reachable anywhere (asserts guarded by
+  `nextTokenIsIdentifierOrKeywordOnSameLine`), and the prefix is tried
+  first, so `asserts is T` names a parameter `asserts`. The first arm of
+  `checkTypePredicate` (TS1228 via `getTypePredicateParent`) is in
+  `grammar.rs`; JSDoc-hosted predicates still lack the reparser parent.
