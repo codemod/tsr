@@ -343,6 +343,30 @@ heuristic, alternate annotation cache, or raw expression fallback was added.
 Existing issue remains open; higher-impact annotation port cannot integrate
 until that cross-owner context is available.
 
+## Exported bare entity aliases (tsr-2zk.16.169)
+
+Native NameResolver.Resolve module-export lookup delegates alias meaning to
+getSymbol. Existing binder callback admission applied only to external require
+aliases; bare Identifier import-equals now uses that same callback. Qualified
+admission and scope/shadowing order unchanged. Returned identity remains the
+actual exported alias; no second traversal/cache or name reconstruction.
+
+The semantic consumer test resolves exported bare alias at a typeof reference
+through the real alias-target meaning worker and verifies exact export identity;
+it fails before and passes after. Native assignment-control output matches TSR
+before/after, so that unchanged diagnostic is not claimed a failing control.
+Current corpus type targets show actual behavior gain: circularImportAlias
+19/22 -> 22/22 RIGHT; es6ModuleInternalNamedImports 25/27 -> 26/27;
+es6ModuleInternalNamedImports2 26/28 -> 27/28; typeofAnExportedType 56/64 -> 62/64.
+Three whole type cases gain across full corpus (not all four named targets);
+19 RIGHT type rows gained relative to previous accepted tree. No prior RIGHT
+loss or vanished key. Coverage types 8,061/9,538 (98.12% lines), diagnostics
+unchanged 4,223/5,502; total type RIGHT 469,835/477,970.
+
+Focused exported-alias/cross-file tests, binder/checker all-target clippy and
+owned formatting passed. Linux 21-sample median child CPU new/base 0.9717
+domain-model, 1.0004 generic-imports. No native complete-work target certification.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including

@@ -1317,8 +1317,8 @@ impl<'a> BindResult<'a> {
                 if !nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
                     && entry.flags.intersects(SymbolFlags::ALIAS)
                 {
-                    // Preserve the existing qualified import-equals admission.
-                    // Only external require aliases use the checker callback.
+                    // Qualified admission remains unchanged; bare entity and
+                    // require aliases use the existing semantic meaning callback.
                     for &declaration in &entry.declarations {
                         if let Some(tsr_ast::Node::ImportEqualsDeclaration(alias)) =
                             node_map.get(declaration)
@@ -1327,7 +1327,8 @@ impl<'a> BindResult<'a> {
                                 Some(tsr_ast::ModuleReference::QualifiedName(_)) => {
                                     return Some(found);
                                 }
-                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_)
+                                    | tsr_ast::ModuleReference::Identifier(_))
                                     if exported_alias(found, meaning & mask)? =>
                                 {
                                     return Some(found);
