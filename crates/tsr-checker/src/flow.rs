@@ -8294,12 +8294,24 @@ impl Checker<'_, '_> {
                 | TypeFacts::TYPEOF_EQ_OBJECT
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT);
         }
-        // A symbol is `typeof … === "symbol"` (`TypeFactsSymbolStrictFacts`).
-        if flags.intersects(TypeFlags::ES_SYMBOL) {
-            return TypeFacts::TRUTHY
+        // Ported from typescript-go's getTypeFactsWorker
+        // (internal/checker/checker.go), pinned at 5b1047d10d32e7d5b446be4de56b126ff42f82bb:
+        // ESSymbolLike includes unique symbols; loose SymbolFacts also admits
+        // falsy nullish values without changing the typeof domain.
+        if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            let strict_facts = TypeFacts::TRUTHY
                 | nullable_never
                 | TypeFacts::TYPEOF_EQ_SYMBOL
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_SYMBOL);
+            return if self.strict_null_checks {
+                strict_facts
+            } else {
+                strict_facts
+                    | TypeFacts::EQ_UNDEFINED
+                    | TypeFacts::EQ_NULL
+                    | TypeFacts::EQ_UNDEFINED_OR_NULL
+                    | TypeFacts::FALSY
+            };
         }
         // An object or a non-primitive is always truthy and never nullable in
         // strict mode; loose native facts also admit falsy/nullable values.
@@ -8402,7 +8414,11 @@ impl Checker<'_, '_> {
                 }
             }
             TypeData::BigIntLiteral(value) => {
-                if matches!(value.as_str(), "0n" | "-0n") {
+                // Ported from typescript-go's isZeroBigInt
+                // (internal/checker/checker.go). normalise_bigint stores
+                // canonical decimal digits, not the printed `n` suffix;
+                // jsnum.PseudoBigInt's zero state has no negative sign.
+                if value == "0" {
                     TypeFacts::FALSY
                 } else {
                     TypeFacts::TRUTHY
@@ -8432,10 +8448,11 @@ impl Checker<'_, '_> {
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
         };
-        // Native BaseStringFacts/BaseNumberFacts admit falsy nullish values in
-        // non-strict mode. Apply this to the new enum-literal payload domain;
-        // the older ordinary-literal fact path retains its documented limit.
-        let truthiness = if !self.strict_null_checks && flags.intersects(TypeFlags::ENUM_LITERAL) {
+        // Native bigint and enum facts admit falsy nullish values in loose
+        // mode. Other ordinary primitive domains retain their existing limit.
+        let truthiness = if !self.strict_null_checks
+            && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::BIG_INT_LIKE)
+        {
             truthiness | TypeFacts::FALSY
         } else {
             truthiness
@@ -8455,7 +8472,12 @@ impl Checker<'_, '_> {
             // else; kept total rather than panicking, and kept SAFE.
             both
         };
-        truthiness | nullable_never | typeof_family
+        let facts = truthiness | nullable_never | typeof_family;
+        if !self.strict_null_checks && flags.intersects(TypeFlags::BIG_INT_LIKE) {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
+        } else {
+            facts
+        }
     }
 
     /// Whether a symbol is one upstream would narrow a reference to.

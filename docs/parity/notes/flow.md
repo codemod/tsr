@@ -418,3 +418,106 @@ Three upstream facts, one commit because each alone moved the same lines:
 
 **Measured.** `unusedLocalsInMethod4` converts (+4), the catch extra is gone;
 0 diagnostic / 0 type losses against `210b098`. CPU median (41): 1.003 / 1.005.
+
+## 16. Recovery: semantic bigint zero and unique-symbol facts (tsr-2zk.15.5.1)
+
+Recovery base: `0e7824dd`. Native:
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
+`getTypeFactsWorker` / `isZeroBigInt` in `internal/checker/checker.go`.
+The saved `box/parity-printing` ref was not supplied to this Box; no snapshot or
+old branch was merged. Only `flow.rs` and dedicated flow-facts tests changed.
+Protected narrowing, configuration and unary-expression work is unchanged.
+
+`normalise_bigint` stores canonical decimal digits with no `n` suffix and no
+negative zero. Comparing its payload with `0n` classified semantic zero as
+truthy. Compare with `"0"`, corresponding to native `jsnum.PseudoBigInt{}`.
+The symbol branch now uses `ES_SYMBOL_LIKE`, including unique symbols, rather
+than `ES_SYMBOL`. Both bigint and symbol domains select native loose-mode
+nullish/falsy facts as well as strict facts. No new cache, mapper or traversal;
+these branches inspect existing checker-owned type payloads without allocation.
+
+### Fresh evidence, not interrupted-run credit
+
+Receipts: repository-ignored `target/recovery/flow/`. Both unfiltered corpus
+runs finished with exit 0. `identities.sha256` records source, binary and TSV
+identities. Baseline and candidate binaries were retained separately before the
+paired runs; the isolated Box had no unrelated source changes.
+
+- Direct pinned-tsgo strict diagnostic controls: exit 0, no diagnostics.
+  TSR checkpoint: two TS2322 errors; candidate: exit 0, no diagnostics.
+- Native declaration controls distinguish zero/radix-zero/nonzero bigint,
+  unique-symbol `typeof`, and loose versus strict symbol truthiness.
+  TSR CLI declaration emission produced no declaration file; its invocation is
+  not counted as declaration proof. Permanent tests check reference types.
+- Five dedicated flow-facts tests pass. Existing narrowing (71), lazy recursive
+  returns (19), logical operators (9), and type predicates (7) tests pass.
+- Diagnostics: 10,570 eligible case keys; 9,190 RIGHT/EMPTY_RIGHT before and
+  after. Zero RIGHT losses, vanished keys, or new keys. One previously WRONG
+  case changes: `numberVsBigIntOperations` loses its extra TS2345 at line 94.
+- Types: 477,968 keyed rows; RIGHT 469,783 → 469,790, WRONG 7,190 → 7,183,
+  GAP 995 unchanged. Zero RIGHT losses or vanished/new keys. Six unique-symbol
+  logical-OR rows and one bigint truthiness row become RIGHT.
+  The dump also prints auxiliary rows; keyed comparison excludes those.
+- Anchors: 4,499 upstream references, zero unresolved. Sections: 16,699
+  citations, zero dangling. Dedicated test formatting passes.
+
+These harnesses exclude configuration-varied and known-divergence cases;
+`diagverdictdump` compares diagnostic file/line/column/code, not exact message,
+span length or emission order. The 99.9% full-configuration exact gate is **not
+met or certified**. Historical accepted RIGHT receipts were absent, so
+preservation is proved only against this fresh checkpoint, not vanished
+historical keys.
+
+### Performance gate remains unmet
+
+Fresh-process, alternating order, 21 measured samples after one warmup per
+binary/project; builds and corpus runs excluded from timing. Complete printed
+diagnostic outputs agree among checkpoint/candidate/native on both projects.
+
+| Project | Checkpoint median s | Candidate median s | Native median s | Candidate/checkpoint |
+| --- | ---: | ---: | ---: | ---: |
+| domain-model | 0.2179592 | 0.2143598 | 0.2142039 | 0.9835 |
+| generic-imports | 0.1144116 | 0.1227134 | 0.1235722 | 1.0726 |
+
+The generic-imports wall result is a measured slowdown, not a verified hotpath
+regression attribution. No no-slowdown claim is made. Candidate/native ratios
+are 1.0007 and 0.9931, respectively, **unverified for equivalent complete
+work**, and do not meet 0.50 even as raw timings. The native extended diagnostic
+output lacks a checked-file count; complete checked-scope and input equivalence
+were not established. Parent performance-owner investigation remains required.
+
+### Effects publication prerequisite (tsr-1yb.11.3)
+
+Pinned `getEffectsSignature` (`internal/checker/flow.go`) reads/writes only
+`signatureLinks.effectsSignature`. Native publishes a selected effect or
+`unknownSignature` only after resolution. There is no active/provisional
+publication by this getter. A recursion guard cannot be promoted to completed
+unknown. Statement callees use explicit dotted-name typing to avoid flow
+circularities; other callees retain their original optional/non-null receiver
+context. Do not share by callee symbol, type or printed name: overload choice,
+ordered arguments and written aliases belong to the original call node.
+
+Exact serialized integration-owner state request (not applied here):
+
+```rust
+pub(crate) effects_signatures:
+    FxHashMap<NodeId, Option<crate::signatures::Signature>>,
+// Checker constructor:
+effects_signatures: FxHashMap::default(),
+```
+
+Owner/lifetime: private Checker, original call `NodeId`, fixed checker options.
+Absent = uncomputed; present `Some` = completed effect; present `None` = completed
+unknown. Existing eager return completion and the no-effects preflight must not
+publish an unsupported/provisional result. Reuse must bound the existing dotted
+callee/signature-resolution worker, not add a parallel cache. Query/hit/worker
+counts are not measured; preserve the existing `tsr-1yb.11.3` boundary issue.
+
+`checker.rs` is parent-owned and unchanged. No agreed field/API arrived on this
+Box, so publication was not implemented against a guessed owner or substitute
+map. `bd prime` succeeded, but `bd show`/`bd history` could not find
+`tsr-2zk.15.5.1`; `tsr-1yb.11.3` is also absent in this Box's database. No duplicate
+issue was created and neither issue was closed. Parent must update the existing
+issues in its authoritative database. `binary.rs` also still creates a `0n`
+payload in its logical-bigint path; it is outside this worker's ownership and
+was reported for serialized integration rather than silently changed.
