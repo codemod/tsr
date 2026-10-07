@@ -6,6 +6,9 @@ No semantic cutover is published. The current split between inherited property
 values and declaration metadata is reproduced, but exposing resolved base symbols
 fails the mandatory no-loss gate. Integrator prerequisite: coordinate contextual
 member reads and circular interface conformance before publishing that cutover.
+The original unresolved readonly/member cutover prerequisite is
+`tsr-2zk.4.12.1`; protected concrete derived receiver/value-alias access is
+tracked separately as `tsr-2zk.4.14`.
 No case-name logic, suppression, additional cache or compatibility shim was added.
 
 ## Pinned reproduction
@@ -203,7 +206,7 @@ an actual-worker/query/completed-hit/active-repeat/copy-byte audit to
 `tsr-2zk.4.12` / `tsr-1yb.11` before extending member reuse. No speculative cache
 is justified by this correctness experiment.
 
-## Second rejected root: protected alias receiver context
+## Protected alias receiver root — tsr-2zk.4.14 (active, rejected partial port)
 
 Direct native/TSR control:
 
@@ -255,6 +258,43 @@ generic-imports 1.0460); 41-pair repetitions were 1.0025 and 1.0124.
 Matching scope/options/diagnostics still does not prove complete actual work.
 No semantic change from either experiment is shipped. The single-owner whole-file
 member/static/alias contract remains unchanged pending a complete port.
+
+### Canonical native ancestry identity and writer/publication audit
+
+Pinned `hasBaseType(t, checkBase)` invokes `getTargetType`: reference targets
+are canonical class/interface types, not printed class names, arbitrary
+structurally equal objects, or reference argument lists. Native
+`createTypeReferenceEx` writes each reference target and ordered arguments and
+interns it in the target-owned instantiation map keyed by `getTypeListKey`.
+`getTypeWithThisArgument` retains those ordered arguments and appends the
+concrete this argument, recursively preserving intersection constituents.
+Ancestry intentionally strips that reference context only for target comparison;
+member values, mapped readonly flags, presentation and access diagnostics must
+not reuse that stripped identity as their full semantic context.
+
+Existing TSR `class_or_interface_target` reads `type_reference_targets` and
+Named member-owner symbols, merges the binder symbol, and admits only actual
+class/interface owners. Existing `has_base_type` reads `get_base_types`, whose
+writers are `resolve_base_types_of_class` and `resolve_base_types_of_interface`.
+No new traversal or cache remains in the shipped code. For a future full
+`.4.14` port, preserve the existing private Checker lifetime, merged symbol
+base-query ownership, active resolution stack/provisional base vector versus
+`BaseTypes.resolved` completion, and constructor failure/unsupported gaps.
+Do not promote an active recursive result to completed success or an unsupported
+constructor-signature result to an empty member image. Static access must retain
+the resolved constructor side and all inherited synthetic constituent roots;
+written value aliases remain diagnostic context, not a substitute ancestry key.
+
+**Bounded Beads follow-up request for integrator (`tsr-2zk.4.14`):** instrument
+one protected value-alias fixture, one indirect alias fixture, and
+`mixinAccessModifiers` to count ancestry requests, completed base-link hits,
+active repeats, actual constructor/base-resolution executions, member traversal
+executions and copied base-vector bytes. Counts are currently unmeasured; add no
+reuse/cache surface until that bounded audit is recorded. Native
+`isClassDerivedFromDeclaringClasses` / `forEachProperty` and concrete receiver
+`hasBaseType` are the consumers. Next active owned work is exposing complete
+static/instance synthetic constituent roots without changing shared type stores,
+symbols, or any other checker files.
 
 ## Completed owned root: element-access constructor permission
 
