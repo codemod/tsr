@@ -387,6 +387,25 @@ Diagnostic/declared consumer prerequisite is not fixed by module ownership;
 no exact native diagnostic-control pass claimed. Campaign acceptance remains
 open despite the native source-identity boundary and whole-type-case gain.
 
+## Internal default export is not lexical name (tsr-2zk.6)
+
+Recovered owned coherent 5bd81861 branch after native NameResolver.Resolve
+review: name != InternalSymbolNameDefault guards module-export lexical lookup.
+GetLocalSymbolForExportDefault still admits the actual declaration's written
+name and meaning. No name fallback/cache or callable-builder edit. Specific
+historical .6.17 is absent locally; tracked on existing names/modules issue,
+not a duplicate task or reopening completed .16.24.
+
+Native direct typeof-default control emits sole TS2304 at line 2,column 19;
+pre-fix TSR emits none, rebuilt TSR matches byte-for-byte. Semantic lexical
+identity test fails before and passes after: Real resolves to actual default
+export, internal default fails in value/type/namespace meanings. Full target
+defaultIsNotVisibleInLocalScope gains two RIGHT rows, one whole type case and
+one whole diagnostic case. No prior RIGHT or vanished keys. Coverage types
+8,063/9,538, diagnostics 4,224/5,502; total type RIGHT 469,839/477,970.
+Binder test/clippy and formatting pass; Linux 21-sample CPU new/base 1.0014
+and 1.0181. Native complete-work acceptance remains unverified.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
