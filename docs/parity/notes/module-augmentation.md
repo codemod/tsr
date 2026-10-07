@@ -213,6 +213,69 @@ Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
 no snapshot changes are committed. No strict expanded/variant native oracle
 completion is inferred from these normalized runs.
 
+### Alias-indirection next-root prerequisite (.16.68)
+
+Current issue tsr-2zk.16.68 is absent from the Box DB (`bd show` reports not
+found), so its 16 current named cases cannot be recovered locally. Native ad
+hoc reproduction is direct and does not depend on historical triage: namespace
+Root exports value:number; import a0=Root; eleven aliases through a10; then
+const good:number=a10.value and const wrong:string=a10.value. Pinned tsgo
+reports sole TS2322 at main.ts(14,7), complete message `Type 'number' is not
+assignable to type 'string'.` Current rebuilt TSR reports no diagnostics.
+
+Pinned Checker.resolveAlias uses aliasSymbolLinks[symbol].aliasTarget as
+completed publication. An absent target pushes TypeSystemPropertyNameAliasTarget,
+gets the alias declaration target, transitively resolves a non-local pure alias
+through resolveIndirectionAlias, and stores target or unknownSymbol before pop.
+Failed pop emits TS2303 at that alias declaration and replaces the published
+target with unknownSymbol. A re-entered active resolution returns unknownSymbol;
+it is not a completed successful cache hit. resolveIndirectionAlias canonicalizes
+the resolved target using getMergedSymbol and back-propagates the target's
+non-null typeOnlyDeclaration only when the source origin is still absent.
+
+Exact integration prerequisites (outside this lane's owned files):
+
+- checker.rs::Checker fields/constructor: privateChecker-owned alias link store,
+  keyed by SymbolId in its fixed Program SymbolStore, holding completed target
+  or unknown and propagated type-only origin NodeId. Active ownership must use
+  the existing native resolution-stack semantics, not a thread-local/static
+  cache or type cache. Unsupported implementation work must remain distinguishable
+  from a completed native unknown; current resolve_alias Option collapses those.
+  No cache lifetime may outlive the Checker/Program/options context.
+- circular_alias.rs::check_circular_import_alias, alias_chain_returns_to and
+  alias_recursion_target: migrate the independent immediate-target diagnostic
+  traversal to native resolveAlias's failed-pop publication. The current helper
+  has its own 64-hop cap; retaining it after native recursion would duplicate
+  or relocate TS2303 and lose aliases leading into versus participating in a cycle.
+- check.rs::type_only_alias_declaration and its consumers: consume propagated
+  native type-only origin rather than re-walking immediate targets with a 16-hop
+  cap. check.rs::alias_chain_carries and other capped target consumers also need
+  coordinated migration when resolve_alias changes from immediate to terminal.
+- symbols.rs (owned): split immediate getTargetOfAliasDeclaration dispatch from
+  resolveAlias publication, add resolveIndirectionAlias, remove the artificial
+  resolve_alias_fully 8-hop cap, and apply merged canonicalization after target
+  completion. Bare internal import-equals must resolve alias Namespace meaning
+  through the native entity-name operation instead of requiring a module type
+  clone as current code does. That implementation waits on the link-state and
+  diagnostic/type-only consumer cutover above; no parallel alternate resolver.
+- resolution.rs (owned): add native AliasTarget property only with its real
+  push/pop consumer. Every exhaustive property consumer outside ownership must
+  migrate in the same serialized cutover; adding a dead variant is not a port.
+
+Required API decision: whether resolve_alias remains Option<SymbolId> externally
+with an internal explicit result state, or cuts over to an explicit
+AliasResolution result. In either design callers must distinguish completed
+unknown from unsupported, preserve written alias/origin for presentation, and
+never use printed names as keys. The integrator must serialize all affected
+callers; no compatibility shim is proposed. Actual worker/count boundaries for
+alias queries, completed hits, active repeats, target executions and type-only
+propagation are unmeasured: request a bounded Beads follow-up before reuse grows.
+
+No implementation changes or permanent tests are committed for this blocked
+root. The ad hoc reproduction is scratch-only. The previously verified binder
+root's full unfiltered/loss/performance evidence does not certify this unported
+alias algorithm or convert any of the 16 unavailable target cases.
+
 ### Declaration-name/module-name next-root prerequisite (.16.117)
 
 The Box issue DB returns not found for tsr-2zk.16.117, so its current case list
