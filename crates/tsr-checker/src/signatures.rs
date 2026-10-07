@@ -1954,9 +1954,9 @@ impl<'a> Checker<'a, '_> {
     /// a parameter: trueType = the declared type narrowed by the expression
     /// TRUE; the predicate holds iff narrowing trueType by the expression
     /// FALSE reduces to `never` (`checkIfExpressionRefinesParameter`,
-    /// `:20586`). The admission slice here is conservative on upstream's
-    /// "no implicit return": a block body qualifies only when its statement
-    /// list IS the single return, which cannot fall through.
+    /// `:20586`). Existing return traversal excludes nested functions; the
+    /// existing implicit-return query rejects fallthrough. Neither query forces
+    /// the real signature return slot or publishes predicate completion.
     fn infer_type_predicate_from_body(
         &mut self,
         declaration: NodeId,
@@ -1977,12 +1977,13 @@ impl<'a> Checker<'a, '_> {
         let single_return = match body? {
             Body::Expression(expression) => expression,
             Body::Block(block) => {
-                let Some(Node::Block(block)) = self.node_map.get(block) else { return None };
-                let [statement] = block.statements else { return None };
-                let tsr_ast::Statement::ReturnStatement(statement) = statement else {
-                    return None;
-                };
-                statement.expression?
+                // Native ForEachReturnStatement ignores nested function returns.
+                // Exactly one valued return is independent of statement count;
+                // an implicit return path still disqualifies the predicate.
+                let returns = self.return_expressions_of(block, declaration);
+                let [Some(expression)] = returns.as_slice() else { return None };
+                if self.function_has_implicit_return(declaration) { return None; }
+                *expression
             }
         };
         // `ast.SkipParentheses(expr)` (`:20566`).

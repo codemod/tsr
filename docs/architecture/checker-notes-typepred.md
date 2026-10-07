@@ -52,6 +52,18 @@ receipt was repeated for this control. Expected-independent configured-exact
 oracle ownership remains recover-oracle-r2; relation work outside shared
 signature/return contracts requires diagnostics-owner coordination.
 
+Bounded body-return repair: native checker.go:20535 uses
+ForEachReturnStatement plus functionHasImplicitReturn, not a one-statement
+body test. Reused return_expressions_of (owner NodeId, nested function/static
+block boundary) and the existing implicit-return query. No new traversal cache
+or publication identity. Predicate completion stays at the captured key above;
+the return expression's semantic boolean check remains independent. Work is an
+existing body traversal on predicate demand; attribution remains unmeasured.
+Native and runtime controls agree on prelude:string predicate, nested:number
+predicate, partial:boolean|undefined, and multiple:boolean. Focused suite after
+this repair: 31 passed. This does not change the rejected 94/6 gate status and
+is not a full acceptance/performance receipt.
+
 Snapshot library tests already had 15 failures; this candidate's
 last library run had 16 failures, including obsolete constraint-only refusal
 and registry-only membership expectations. No passing-library claim.

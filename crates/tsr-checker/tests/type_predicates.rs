@@ -74,6 +74,15 @@ fn inferred_recursive_and_mapped_predicates_stay_distinct_in_reverse_warm_order(
 }
 
 #[test]
+fn predicate_body_counts_owned_returns_not_statements() {
+    // Pinned 5b1047d declaration emission; nested helper returns are not owned.
+    let source = "function prelude(value: unknown) { const unrelated = 1; return typeof value === 'string'; } function nested(value: unknown) { const helper = () => { return 1; }; return typeof value === 'number'; } function partial(value: unknown) { if (value) return typeof value === 'string'; } function multiple(value: unknown) { if (value) return typeof value === 'string'; return false; }";
+    assert_eq!(type_of_declaration(source, "prelude"), "(value: unknown) => value is string");
+    assert_eq!(type_of_declaration(source, "nested"), "(value: unknown) => value is number");
+    assert_eq!(type_of_declaration(source, "multiple"), "(value: unknown) => boolean");
+}
+
+#[test]
 fn a_written_predicate_prints_in_the_signatures_return_position() {
     // `conformance/controlFlow/assertionTypePredicates1.types`, verbatim:
     //
