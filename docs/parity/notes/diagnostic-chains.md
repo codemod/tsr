@@ -476,6 +476,23 @@ cumulative recovery-baseline1.0305, diagnostics match, verified work null: no-ho
 acceptance remains unmet. This source includes prior queued reporting work; not
 parent integrated-source proof. Receipts elaboration-spread-* and elaboration-keys-*.
 
+## Computed-property value elaboration — tsr-2zk.1
+
+Pinned elaborateObjectLiteral498 obtains semantic nameType and passes TS2418 for
+IsComputedNonLiteralName; elaborateElement then reports at that computed name.
+Owned elaborator now reads actual computed expression literal key types, carries
+that head into existing element/report_relation_failure flow, and leaves unknown
+or nonliteral keys unelaborated. No printed-type/name guess or semantic side walk.
+Actual [key] with key="x" now emits native TS2418 at [key], instead of outer
+TS2322/property chain. Nested explicit member beside spread remains native exact.
+Target population two direct diagnostics; permanent code/text/start test passes.
+Completed workspace/clippy pass; legacy fresh protected keys all present/unchanged.
+These legacy dumps do not replace recover-oracle-r2 configured full-message oracle.
+Domain21 cumulative recovery-baseline wall1.0696, diagnostics match, work null:
+performance acceptance failed/unproved. No forbidden relater/property/signature
+files edited. Receipts computed-*; integration/alias owners must supply semantic
+unique-symbol key publication before extending unsupported computed-key domains.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

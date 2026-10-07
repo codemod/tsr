@@ -244,6 +244,18 @@ fn spread_entries_do_not_disable_explicit_object_member_elaboration() {
 }
 
 #[test]
+fn computed_literal_key_uses_native_computed_value_message_and_name_span() {
+    let source = "const key = \"x\"; let target: {x: number} = {[key]: \"wrong\"};";
+    let ds = diagnostics(source);
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2418]);
+    assert_eq!(
+        ds[0].text(),
+        "Type of computed property's value is 'string', which is not assignable to type 'number'."
+    );
+    assert_eq!(ds[0].span.start as usize, source.find("[key]").unwrap());
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

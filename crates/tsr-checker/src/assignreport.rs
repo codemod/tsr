@@ -2466,6 +2466,7 @@ impl<'a> Checker<'a, '_> {
         next: Option<NodeId>,
         source: TypeId,
         target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> bool {
         // getBestMatchIndexedAccessTypeOrUndefined: no elaboration into an
         // index on a generic variable.
@@ -2481,7 +2482,8 @@ impl<'a> Checker<'a, '_> {
         if self.diagnostics.len() != before {
             return true;
         }
-        self.report_assignability_failure(prop, source_node, source, target)
+        let span = self.error_span(prop);
+        self.report_relation_failure(prop, span, Some(source_node), source, target, head)
     }
 
     /// `elaborateObjectLiteral` (`relater.go:498`): each named member is an
@@ -2547,7 +2549,27 @@ impl<'a> Checker<'a, '_> {
             // `getLiteralTypeFromProperty(…, StringOrNumberLiteralOrUnique)` —
             // a computed non-literal name yields no usable name type and
             // upstream `continue`s.
-            let Some(name) = self.identifier_text(name_id).map(str::to_string) else { continue };
+            let (name, head) = if let Some(Node::ComputedPropertyName(computed)) =
+                self.node_map.get(name_id)
+            {
+                let expression = computed.expression?;
+                let literal = matches!(
+                    expression,
+                    tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_)
+                );
+                let key = self.check_expression(expression);
+                let name = match &self.type_of(key).data {
+                    TypeData::StringLiteral(value) => value.clone(),
+                    TypeData::NumberLiteral(value) => crate::printing::normalise_number(value),
+                    _ => continue,
+                };
+                (name, (!literal).then_some(&messages::TYPE_OF_COMPUTED_PROPERTY_S_VALUE_IS_0_WHICH_IS_NOT_ASSIGNABLE_TO_TYPE_1))
+            } else {
+                let Some(name) = self.identifier_text(name_id).map(str::to_string) else {
+                    continue;
+                };
+                (name, None)
+            };
             // The indexed-access result uses the concrete target receiver.
             // Reading the declaration symbol alone loses its mapper, so a
             // member declared as T on C<number> would be compared against T.
@@ -2561,18 +2583,23 @@ impl<'a> Checker<'a, '_> {
                     .or_else(|| self.elaboration_index_value(target, name_id, &name))
             };
             let Some(target_property_type) = target_property_type else { continue };
-            members.push((name_id, next, name, target_property_type));
+            members.push((name_id, next, name, target_property_type, head));
         }
         let mut reported = false;
-        for (name_id, next, name, target_property_type) in members {
+        for (name_id, next, name, target_property_type, head) in members {
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
             let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
             else {
                 continue;
             };
-            reported |=
-                self.elaborate_element(name_id, next, source_property_type, target_property_type);
+            reported |= self.elaborate_element(
+                name_id,
+                next,
+                source_property_type,
+                target_property_type,
+                head,
+            );
         }
         Some(reported)
     }
@@ -3459,6 +3486,7 @@ impl<'a> Checker<'a, '_> {
                 Some(check_node),
                 source_element,
                 target_element,
+                None,
             );
         }
         reported
@@ -3496,7 +3524,7 @@ impl<'a> Checker<'a, '_> {
             returns.push(target_return);
         }
         let target_return = self.get_union_type(&returns);
-        self.elaborate_element(body, Some(body), source_return, target_return)
+        self.elaborate_element(body, Some(body), source_return, target_return, None)
     }
 }
 
