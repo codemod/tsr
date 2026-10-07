@@ -585,6 +585,25 @@ consumer cutover in parent isolated tree before any recursion admission.
 No suppression/depth cap or shared alias cache added; patch withheld at
 bare-alias/cycle-blocked.patch and production restored. No full/perf claim.
 
+## Alias-target merge phase prerequisite (tsr-2zk.16.83)
+
+Current measured ten named targets all fail: 29 WRONG and one GAP emitted rows.
+Native mergeSymbol resolves target only when non-transient, returns source for
+unknown resolved target or conflicts (report original target/source), clones
+successful resolved target into Checker-private identity, preserves ordered
+members/exports/declarations, and redirects source only bidirectionally.
+
+Binder merge_symbol executes before Checker resolution and stops on Alias.
+Removing that guard is not a faithful port: no target publication, clone/private
+owner, return-source outcome or native diagnostic ordering exists in that phase.
+Required parent contract: Checker merge(target SymbolRef, source SymbolRef,
+unidirectional bool) -> completed SymbolRef or explicit unsupported; binder
+defers alias-merge requests to native Checker initialization. Existing
+CheckerSymbols clone/merged APIs provide identity, not Program raw-id mutation.
+Parent canonical alias publication is still rejected; no standalone source hunk
+or performance/correctness gain claimed. Current target receipt
+merge-alias-target.tsv; existing issue claimed/updated, no duplicate task.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
