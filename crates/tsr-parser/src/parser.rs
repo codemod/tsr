@@ -575,6 +575,11 @@ impl<'a> Parser<'a> {
         // are unreachable from the tree. Truncating is safe only because ids are
         // handed out sequentially and nothing else holds one yet.
         self.nodes.truncate(saved.nodes);
+        // Type-list metadata follows host identity in NodeTable::truncate.
+        // Writers attach to newly finished hosts; absorption clears only a
+        // wrapper parsed within that same expression/type worker. A speculative
+        // worker must never overwrite a host that predates its saved node count.
+        // Such a writer would require an undo entry, not just truncation.
         // In lockstep, or every id after the abandoned attempt names a different
         // node in each table.
         self.node_map.truncate(saved.nodes);

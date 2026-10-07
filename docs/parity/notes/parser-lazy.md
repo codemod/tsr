@@ -101,7 +101,9 @@ The parser writer returns existing children plus raw metadata, captures
 `node_end()` after `<` and before `>`, and registers it on the completed owner.
 Ordinary and speculative type arguments use the native delimited-list worker;
 parse errors do not by themselves reject a confirmed expression type list.
-No first/last-child or bracket-source reconstruction is used.
+No first/last-child or bracket-source reconstruction is used. Comment-only
+empty expression lists such as f</*c*/> preserve Some([2,2)); closing trivia
+must not be included in the raw range or used to infer list absence.
 
 Writers cover TypeQuery, TypeReference, ImportType, JSX, all four expression
 instantiation producers, declaration heritage and JSDoc heritage. Absorption
@@ -111,6 +113,12 @@ argument slices are not used to infer absence. Private parser invocation owns
 this completed syntax metadata until the parent-owned publication rebases its
 host IDs; file-relative list ranges remain unchanged. No semantic cache,
 receiver/alias reuse, per-node allocation or second metadata convention added.
+Rollback relies on the host-write boundary: publication attaches to new hosts,
+and absorption clears wrappers created by the same expression/type worker.
+Current speculative workers construct those hosts after their saved node count;
+NodeTable truncate removes their entries. A future writer targeting an older
+host must add snapshot/undo restoration rather than relying on truncation.
+No such preexisting-host writer is introduced in this cutover.
 
 Fresh direct Go controls confirm native typeof-f nil versus typeof-f<> [18,18),
 f<> [2,2), f< /*a*/ T, /*b*/ >() [2,11), new-f list [6,15), and typeof-import
