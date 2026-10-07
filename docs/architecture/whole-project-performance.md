@@ -212,6 +212,18 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Comparison cannot bypass native envelope validation
+
+Cross-tool `comparison_valid` now always requires the verified native Program/
+parse/bind/check envelope, not merely the opt-in standalone reader flag. Worker-
+only captures with equal paths/options/output remain rejected. 45 trace tests
+passed; actual comparison against a native capture missing its check envelope
+saved `/tmp/recover-required-envelope-rejection.json` and exited 1. Fresh frozen
+five-pair/warmup capture saved `/tmp/recover-required-envelope-checkpoint.json`,
+comparable exit 1. This mandatory observed-envelope prerequisite still does not
+attest full semantic work, current source-built binaries, full-corpus zero-loss
+or the native <=0.50 target; those release gates remain unmet.
+
 ### Require the observed native Program/check envelope
 
 `checker_work_trace.py --native-trace --require-program-work` requires one

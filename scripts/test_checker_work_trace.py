@@ -469,6 +469,19 @@ class TraceIntegrityTests(unittest.TestCase):
         context["inputs_after"] = context["inputs_before"]
         self.assertTrue(self.check(rows=rows, context=context)["artifact_integrity_valid"])
 
+    def test_comparison_worker_only_capture_cannot_bypass_native_program_envelope(self):
+        from checker_work_trace import compare_work_captures
+        ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
+                "checked_file_ids": [0], "program_files": [self.rows[2]]}
+        native = {"artifact_integrity_valid": True, "native_trace_valid": True,
+                  "completed_full_workers": [{"path": str(self.input), "checker_id": 0}]}
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        result = compare_work_captures(ours, native, receipt, receipt)
+        self.assertTrue(result["observed_full_worker_scope"]["identity_sets_match"])
+        self.assertFalse(result["comparison_valid"])
+        self.assertFalse(result["native_program_work_envelope_verified"])
+        self.assertIn("envelope is unverified", result["reasons"][0])
+
     def test_comparison_matching_workers_cannot_hide_changed_or_missing_diagnostics(self):
         from checker_work_trace import compare_work_captures
         ours = {"artifact_integrity_valid": True, "worker_activity_valid": True,
