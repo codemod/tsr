@@ -1,215 +1,128 @@
-# Complete-work performance lane — tsr-2zk.17
+# Complete-work performance and diagnostic evidence
 
-## Pinned boundary and reproduced evidence defect
+This lane owns tsr-2zk.17, diagnostic-order child tsr-2zk.17.9, queued comparator
+consumer tsr-2zk.22.1 and native temporary-overlay telemetry tsr-2zk.17.10.
+Pinned native: 5b1047d10d32e7d5b446be4de56b126ff42f82bb.
 
-Native source: `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
-`internal/compiler/program.go` `SortAndDeduplicateDiagnostics` clones, sorts
-with `ast.CompareDiagnostics`, and compacts related information. The compiler
-consumer publishes that ordered sequence. The performance harness previously
-sorted rendered diagnostic entries again before hashing them. A pinned native
-invocation with two source files and `--noLib` emitted ten TS2318 diagnostics;
-reversing the emitted entries retained the old fingerprint. The candidate
-fingerprint rejects this reversal. A two-file control with standard libraries
-emits matching ordered TS2322 diagnostics from TSR and native.
+## Diagnostic-order evidence root (.17.9)
 
-Dedicated assigned/claimed issue: **tsr-2zk.17.9**, preserving native diagnostic
-ordering in benchmark evidence. This evidence root is separate from tsr-2zk.17's
-global complete-work/performance root, which remains open until verified
-equivalent complete work reaches TSR/native median wall <=0.50. Earlier commits
-reference the assigned parent because the child ID arrived after those commits.
+The benchmark fingerprint now preserves rendered diagnostic order, duplicate
+multiplicity, codes, messages, printed positions, paths and continuation text.
+It does not expose unprinted span lengths. Native Program.SortAndDeduplicateDiagnostics
+establishes order; sorting again in the harness hid reversals. Native ten-TS2318
+reversal control now rejects reordered output. Duplicate two-file roots emit the
+same two TS2322 diagnostics once in both compilers. With --noLib native emits ten
+TS2318 globals while TSR emits two file TS2322 diagnostics: a real checker
+initializeChecker global-type producer gap, not harness equivalence.
 
-Additional current controls: passing the same two root paths twice emits the
-same two TS2322 diagnostics once in both compilers (exact stdout/exit agreement).
-With `--noLib`, pinned native emits ten global TS2318 diagnostics; TSR instead
-emits the two file TS2322 diagnostics. This is a real global-diagnostic producer
-gap, not harness equivalence. Route native checker initializeChecker global-type
-validation to the checker owner; do not hide it or infer completion from file
-output. Harness controls require global order and duplicate multiplicity to
-change fingerprints. No harness deduplication is performed.
+Frozen source 5dd3bad84d12991e1ba169d2d5687321e1989740; TSR binary SHA256
+210ad47f20e6bf4f286acd4151974744178d19a96842944bfc392859b9892e52;
+native SHA256 7b85aa10584504012af7b3ec075675649675f2d76ca4bde51019f425c5a62302.
+Types: 477970 verdicts (469765 RIGHT, 7212 WRONG, 993 GAP). Diagnostics: 10570
+(4221 RIGHT, 4968 EMPTY_RIGHT, 1281 WRONG, 100 EMPTY_WRONG).
+Full before/after keys and verdicts agree, zero RIGHT type-line losses and zero
+RIGHT/EMPTY_RIGHT diagnostic losses. Fresh post-root actual-child receipts with
+1800-second deadlines: types exit 0 in 250.136s, diagnostics exit 0 in 222.197s,
+full scratch-bound coverage exit 0 in 776.315s; no timeout. Earlier kill-0 waits
+are not completion evidence. Full coverage: 12444 discovered sources,
+checker_types 8042/9538 (84.32%, 98.10% lines), diagnostics 4221/5502 (76.72%).
+This is not complete variant/message-chain/span-length coverage.
 
-This is an evidence correction, not a compiler optimization or a conformance
-case conversion. No cache, checker identity, AST, or diagnostic producer changes.
-The harness owns one ordered rendered sequence per fresh child invocation;
-identity includes normalized project paths, codes, messages, printed line/column
-positions, complete captured continuation text, duplicate multiplicity and order.
-CLI output does not expose span lengths, so a full-span fingerprint still needs
-the structured diagnostic oracle; this harness does not claim one. Absent output is an empty sequence, not completed semantic success.
-Timeout/failure remain separate child outcomes. No active or completed semantic
-cache publication is inferred from this fingerprint. Existing binary/input
-capture happens outside child timing; the fingerprint does not establish actual
-checked-work, missing span lengths, complete related-information structure, or
-complete query-input equivalence. Verified ratio remains null.
+Workspace release tests completed successfully; pinned 1.96.0 clippy all-targets
+-D warnings and fmt --check clean. 56 script tests passed after duplicate/global
+controls. Stable emitted an existing fetch_update deprecation warning. Initial
+report tests under build/corpus contention timed out; isolated report tests passed.
+Coverage uses proot scratch snapshot binding; mount namespaces were denied.
+No corpus/snapshot/model/checker/parser/binder/setup/lockfile changes were made.
 
-## Frozen current baseline and profile
+## Performance (.17): observations, not accepted gains
 
-Startup source is the integration commit `5dd3bad84d12991e1ba169d2d5687321e1989740`.
-Native checkout SHA was checked directly. Offline bootstrap used a private venv
-with tomlkit 0.13.3; existing Cargo configuration was preserved before bootstrap.
-Release CLI and unfiltered diagnostic/type dumps were frozen before edits.
+Fresh alternating self-comparisons after local verification finished:
+domain-model-large wall 1.00444763, CPU 0.99988340 (21 pairs);
+generic-imports wall 1.00267985, CPU 1.00137345 (21 pairs);
+domain-model wall 0.99704000, CPU 1.00183399 (41-pair noise follow-up).
+Compiler binary unchanged, no speed gain. Local native run: TSR 1.0232078s,
+native 0.6371528s, observed 1.60590646 (21 pairs). External load not excluded.
+Integrator-reported current source 5dd3bad8 observation: 2.662059755 (21 pairs),
+TSR samples 0.644–2.589s/native 0.227–1.851s; earlier corpus-contended 3.6683.
+All are observations, not uncontended receipts. Complete input/actual-work
+flags remain false, verified ratio null, target_verified false. Global .17 stays
+open until verified equivalent complete work reaches median wall <=0.50.
 
-- Frozen TSR binary SHA256:
-  `210ad47f20e6bf4f286acd4151974744178d19a96842944bfc392859b9892e52`.
-- Built pinned tsgo SHA256:
-  `7b85aa10584504012af7b3ec075675649675f2d76ca4bde51019f425c5a62302`.
-- Type dump: 477970 tab-delimited verdict records, 469765 RIGHT, 7212 WRONG,
-  993 GAP. Physical lines are 477976 because rendered source can contain newlines.
-  SHA256 `25ed9bd55f95956c4515044bf7f41334799bbcc6e2a186eaf6ad36824621660a`.
-- Diagnostic dump: 10570 records; RIGHT 4221, EMPTY_RIGHT 4968, WRONG 1281,
-  EMPTY_WRONG 100. SHA256
-  `ff08a03bb448a639ac7e219d8e7e4b2921b6aa5cf95230c4744efba413da9482`.
+Actual production perf capture: 2146 samples, none lost. Checker shares 42.68%,
+17.24%,16.68%,15.38%; caller 7.88%,dependency parser 0.14%. Aggregated self:
+malloc 5.31%,BindResult::resolve_name 4.89%,cfree 2.61%,SymbolTableField::get
+2.42%,check_node 2.24%,get_type_at_flow_node 2.10%. Owned Program lookups on
+checker-0: source_file_by_path 0.75%,mode_for_usage_location 0.61%,resolution
+0.61%,resolved_module_in_mode 0.28%. resolution reads existing tables, not the
+resolver; mode lookup reads metadata/usage syntax. PreparedNames::new 0.14%,
+ordered bind wrapper 0.23%. Native BindSourceFiles queues unbound files; TSR
+private bind results require ordered relocation/global publication. Removing it
+requires binder identity changes and measured publish_file work, not scheduling
+intuition. No duplicate cache, path heuristic, shifted timer or speculative
+scheduler change. Pinned pool defaults to 4, serial 1, or explicit Checkers;
+clamped to filecount/256, not available-core count.
 
-Fresh-process 21 alternating pairs on Linux x86_64, domain-model-large:
-TSR median wall 1.0360096 s, pinned tsgo 0.6474923 s, observed ratio
-1.60003385. The post-edit run after all verification workers finished measured
-TSR 1.0232078 s, native 0.6371528 s, observed ratio 1.60590646 (21 pairs).
-Loaded scope, exposed options, diagnostics and sampled inputs match.
-Complete query-input coverage and actual-work equivalence do not: this is not a
-verified release ratio or evidence for the <=0.50 target. The first measurement
-precedes the evidence-only edit; compiler binary bytes are unchanged. Finishing
-this Box's verification workers does not establish absence of external machine
-load; neither run is an uncontended receipt.
+## Native temporary overlay experiment (.17.10)
 
-Integrator-reported current measurement at source `5dd3bad8`: 21 alternating
-pairs on domain-model-large, observed TSR/native wall ratio 2.662059755.
-Individual walls vary from 0.644–2.589 s for TSR and 0.227–1.851 s for native;
-concurrent external machine load makes this observation-only. The earlier
-capture with corpus workers observed 3.6683. Scope/options/diagnostics match;
-complete-input and actual-work flags remain false, as does target_verified.
-These are separately attributed observations, not speed wins or contradictory
-uncontended receipts.
+Ownership extension permits temporary Go overlays outside tracked vendor. Actual
+successful controls use Go -overlay with copies in /tmp/box/native-overlay:
+core collector,compiler/checkerpool.go,checker/checker.go,osvfs/os.go,cmd main.
+Default owner scheduling/file affinity is preserved. Added observations:
+constructor intervals and checker identities; file association; exclusive lease,
+checker-group/parallel scope; initialization; source-file query versus actual
+worker and completed publication; symbol queries and variable workers; OS file
+reads/contents,successful and negative existence, directory entries and realpath;
+invocation PID/args/environment and normal completion. No output suppression.
 
-A subsequent `perf record -F 999 -g` captured 2146 samples with no lost samples.
-Checker thread shares: checker-0 42.68%, checker-3 17.24%, checker-1 16.68%,
-checker-2 15.38%; caller 7.88%, dependency parser 0.14%. The largest individual
-symbol was `BindResult::resolve_name` on checker-0 (3.68%), followed by
-`Checker::get_type_at_flow_node` (2.10%). This is sample attribution, not counts
-of worker execution/reuse, and does not justify adding a cache or changing
-file affinity. The existing CLI pool already mirrors native `createCheckers`
-and `forEachCheckerGroupDo`: private checkers, Program file index modulo count,
-read-only Program, no cross-checker semantic-cache merging. No speculative
-scheduling change was made. Aggregating the actual same profile by symbol across
-all threads gives self samples: malloc 5.31%, BindResult::resolve_name 4.89%,
-cfree 2.61%, SymbolTableField::get 2.42%, Checker::check_node 2.24%,
-get_type_at_flow_node 2.10%. Native owner-affinity and the actual production
-parallel run were preserved. Unreliable unwound parent addresses are not treated
-as worker counts or expensive traversal evidence; no scheduler speed claim is
-made from this profile.
+Native domain-model controls default,serial,explicit two-checker all exited 1
+normally and matched noninstrumented native stdout/stderr/exit exactly. Pool
+counts were 4/1/2, full workers 42 in each; record counts 171709/108845/131222;
+negative file probes 75/7/43. Every work begin/end paired and each stream ended
+normally. Different query counts demonstrate why serial receipts cannot certify
+production admission. Collector buffering is outside semantic state but adds
+observer synchronization/allocations: instrumented runs are correctness-only,
+never timed ratios. Initial unbuffered large-project capture timed out at 180s,
+801878 records, no completion: rejected, not proof. Buffered controls completed.
 
-Owned compiler symbols in the same actual profile are principally immutable
-Program host lookups: source_file_by_path on checker-0 0.75%,
-mode_for_usage_location 0.61%, resolution 0.61%, and resolved_module_in_mode
-0.28%. Other checker threads each contribute <=0.14% per listed host symbol.
-Inline inspection of Program::resolution confirms existing source-node-to-file
-index, canonical-path/name lookup and a small mode vector search; it does not
-execute the resolver again. Program::mode_for_usage_location reads Program
-metadata and usage syntax without adding a cache. The frontend ordered bind
-worker wrapper has 0.23% self samples. These observations identify owned work
-but do not demonstrate eager repeated resolver work or scheduler overhead as a
-root cause; no duplicate cache, semantic cutover, or timer movement is justified.
-Actual worker counts and complete forcing remain unmeasured prerequisites.
+### Minimal serialized TSR checker interface request
 
-Next owned boundary inspected: Program::bind_source_files uses private file
-binder results and serial publish_file relocation/ordered global merging;
-pinned Program.BindSourceFiles queues each unbound file and waits for workers.
-PreparedNames::new has 0.14% self samples in the existing production profile.
-Removing publication would require unowned binder symbol/flow identity changes,
-not merely a compiler scheduler patch. No such cutover or extra cache is made.
-A bounded binder-owner follow-up must measure publish_file relocation/copy work
-and worker executions before changing this boundary.
+Integrator must route these additions through ONE checker owner; this lane edits
+no checker files. Existing WorkObserver begin/end(token,panicking) and Operation
+can remain the worker-span interface. Required minimal extension:
 
-The integrator's available-core default hypothesis needs qualification against
-the pinned compiler implementation: checkerpool.go newCheckerPoolWithTracing
-sets checkerCount to 4, singleThreaded to 1, or explicit Options().Checkers,
-then clamps to file count and 256. No available-core default was found in the
-inspected native execute/compiler/cmd paths. Do not change production pool size
-to available cores without identifying a different native caller/option writer.
-Full initialization, global diagnostics and every eligible file still need
-production-owner observations; the serial TSR trace is not equivalent admission.
-Complete-input oracle work belongs to tsr-2zk.47, and queued host-extension work
-to tsr-2zk.16.59.1. This lane does not duplicate either with module caches or path
-heuristics. Diagnostic-order child tsr-2zk.17.9 has full gates and zero-loss
-results recorded below; it does not close the global performance target.
+- Add InitializeChecker, SourceFileQuery, SourceFileWorker and explicit
+  SourceFileCompleted; preserve query vs actual worker vs successful publication.
+- Add bounded cache publication observations at the existing symbol/declared/
+  variable worker owners: absent,active,completed-success/failure,unsupported;
+  query identity must include private checker,symbol/declaration identity,
+  receiver/alias/options context when relevant. No printed-name keys.
+- A per-checker observer is supplied by owned checker_pool::check_program_files
+  configure callback carrying owner index. Owned compile.rs must stop forcing
+  one checker ONLY after the sink/consumer accepts per-owner contexts; preserve
+  native file affinity and constructor/group intervals. Existing serial receipt
+  remains separately labeled until that atomic cutover.
+- Emit actual full-check completion in check_source_file's publication branch,
+  not merely driver invocation; initialization scope around real constructor
+  initialization, not a guessed driver timer. Native counterparts are
+  checker.initializeChecker/checkSourceFile/getTypeOfVariableOrParameterOrPropertyWorker.
 
-## Integration prerequisites / Beads follow-up request
+Observed four operations do not certify all forcing. Full native input coverage
+still needs bundled libs (outside osvfs), config/resolver logical queries before
+cache admission,Stat/WalkDir,environment reads and option provenance. Complete-input
+oracle .47 and host extension .16.59.1 retain their ownership; coordinate event
+coverage rather than invent duplicate caches. Native side interface currently
+uses sequence,monotonic elapsed_ns,owner pointer; span begin has operation and
+file/symbol/pool identity, end references token. Export final schema only after
+these missing boundaries and TSR hooks are serialized. Temporary overlays are
+not committed as a production implementation or a complete proof artifact.
 
-Record these missing boundaries under tsr-2zk.17 before extending reuse:
+## Comparator consumer dependency (.22.1)
 
-1. Native actual-work capture is outside this lane's ownership. Instrument the
-   pinned `internal/compiler/checkerpool.go` constructor, file association,
-   exclusive leases and checker-group execution; `internal/checker/checker.go`
-   `initializeChecker`, `getTypeOfVariableOrParameterOrPropertyWorker`, symbol
-   and declared-type worker boundaries; and the source-file check entry.
-   Keep query entries, completed-cache hits, active repeats, worker executions,
-   failure/unsupported work and private-checker identity distinct. A trace
-   inventory is not proof that all forcing was observed.
-2. Native complete inputs require `internal/compiler/fileloader.go` /
-   `filesparser.go`, resolver, tsoptions/config and OS host observations for
-   reads, negative existence queries, directory enumeration, realpath/case,
-   package metadata, config extends/references, bundled library bytes and
-   relevant environment. Preserve logical path and query result, not only
-   loaded-file names. Native vendor files are not owned here.
-3. TSR checker instrumentation additions require the checker owner:
-   `crates/tsr-checker/src/work_trace.rs`, `symbols.rs`, `declared.rs`,
-   `checker.rs`, `flow.rs`. Existing observer covers four operations but not
-   initialization/all forcing, cache state or complete semantic workers.
-   `crates/tsr-execute/src/compile.rs` explicitly forces the observed run to
-   one checker; its serial sink cannot certify the default four-checker run.
-   Do not remove that guard without per-private-checker observers and a
-   versioned consumer contract. Production actual-work proof must preserve
-   owner scheduling, not use the serial trace as a receipt for the production
-   pool. Read pinned checkerpool.go lines 40–169 and core/workgroup.go lines
-   20–87 for scheduling; filesparser.go lines 56–155 and 240–518 for frontend
-   task ownership, loading and publication.
-4. Profile-guided optimization investigation belongs to binder/checker owners:
-   `crates/tsr-binder/src/lib.rs::resolve_name` / native name resolution and
-   `crates/tsr-checker/src/flow.rs::get_type_at_flow_node` /
-   `internal/checker/flow.go::getTypeAtFlowNode`. The profile names a consumer,
-   not a proven algorithmic discrepancy; reproduce and count actual worker
-   boundaries before choosing a fix.
-5. Full strict conformance is owned by the conformance lane. Current dumps do
-   not cover all variants, exact message-chain structure, span length or full
-   population. No compiler case is claimed converted by this harness fix.
-
-## Verification constraints
-
-The normal coverage executable writes forbidden shared snapshots. Linux mount
-namespace isolation was denied (`unshare: Operation not permitted`). A private
-`proot` bind of the snapshot directory runs the actual full coverage executable
-without changing tracked snapshots. No corpus, snapshots, toolchain, setup,
-lockfile, checker, parser or binder file is edited by this lane.
-
-## Completed verification
-
-- Full unfiltered before/after dumps have identical keys and verdict counts;
-  zero before-RIGHT type-line losses, zero before-RIGHT/EMPTY_RIGHT diagnostic
-  case losses. No named compiler target cases were assigned or converted.
-  A fresh post-root rerun additionally captured actual child exit receipts using
-  subprocess.run with 1800-second deadlines: type dump exit 0 (250.136 s),
-  diagnostic dump exit 0 (222.197 s), full scratch-bound coverage exit 0
-  (776.315 s); none timed out. Both post-root verdict key sets/counts match the
-  frozen baseline and both loss counts are zero. Earlier kill-0 wait timeouts
-  were not exit receipts and are not used as corpus completion evidence.
-- Full coverage completed over all 12444 discovered sources: checker_types
-  8042/9538 (84.32%, 98.10% lines), diagnostics 4221/5502 (76.72%). Skipped
-  populations remain 2906 and 6942 respectively; these are not strict full
-  variant/message/span-length coverage claims.
-- `cargo test --workspace --release` completed successfully, including doc tests.
-  `cargo +1.96.0 clippy --workspace --all-targets -- -D warnings` and
-  `cargo +1.96.0 fmt --all -- --check` completed cleanly. Stable release testing
-  emitted a pre-existing deprecation warning for AtomicUsize::fetch_update in
-  front_end.rs; that file was intentionally unchanged. Initial stable fmt/clippy
-  commands lacked components; installed pinned 1.96.0 components were used.
-- 25 whole-project harness tests, 9 report tests, and 22 focused trace/order
-  controls passed. An initial concurrent report-suite run timed out six controls
-  under corpus/build contention; the isolated report-suite run passed all nine.
-- Interleaved fresh-process candidate/frozen-TSR comparisons, after corpus/tests
-  finished: domain-model-large wall 1.00444763, CPU 0.99988340 (21 pairs);
-  generic-imports wall 1.00267985, CPU 1.00137345 (21 pairs). Domain-model's
-  initial 21 pairs had CPU 1.03759859 and wall 1.00664511; the required 41-pair
-  noise check yielded CPU 1.00183399 and wall 0.99704000. Diagnostics matched
-  throughout. There is no compiler change or speed gain: CLI binary SHA256
-  remains identical to the frozen binary.
-- The final pinned native run reports matching loaded scope/options/ordered
-  rendered diagnostics, but `verified_wall_ratio: null` and `target_verified:
-  false`. Actual checked-work and complete-query-input proof remain blocked by
-  the ownership prerequisites above. No 99.9% parity or <=0.50 claim is made.
+Model commit b6d2104f is absent locally; fetch of short revision fails (no remote
+ref). Transfer full reachable model commit before atomic compile.rs cutover.
+Native program.go SortAndDeduplicateDiagnostics: clone pointer list,sort full
+CompareDiagnostics,longer chains first,group EqualDiagnosticsNoRelatedInfo,
+concat related infos,sort/dedup full equality,clone retained head only when
+related info exists. Preserve Program source image; no per-diagnostic file clones
+or head-only sort shim. No guessed API imports or model-file edits made.
