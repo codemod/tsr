@@ -552,3 +552,13 @@ get_signature_instantiation, which uses instantiate_signature_lazily. Eager imag
 gets a fresh monotonic ID; target preserves completed source identity/context.
 Source applied; eager-lazy-source-check remains blocked by absent parent fields.
 No runtime or full-integration acceptance claimed.
+
+### Parsed ordered-map behavior control
+
+Added calls_ordered_instantiation.rs: one canonical parsed two-parameter signature
+is instantiated with swapped [string, number]/[number, string] vectors, then warm
+re-queries and original image demands must retain distinct string/number returns.
+No identity-copy or cache-wiring assertion. Parent numeric-field payload accepted;
+canonical source vector builders own IDs, not temporary getter copies. Current
+ordered-cache-tests.log is compile-blocked on absent parent fields, not a pass.
+Parent/member readonly/source forwarding contract unchanged; no shared file edits.
