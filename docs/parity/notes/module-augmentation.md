@@ -215,6 +215,25 @@ completion is inferred from these normalized runs.
 
 ### Owned fallback root: merged function/interface value boundary
 
+Original alias completion tsr-1yb.7.7.3 minimal serialized state request:
+canonical symbol_access::SymbolRef is present, with CheckerSymbols::bound,
+unknown, view and merged_symbol validating Program/Checker domains. Add only
+`pub(crate) alias_symbol_links: FxHashMap<symbol_access::SymbolRef,
+resolution::AliasSymbolLinks>` to Checker and initialize with FxHashMap::default()
+after effects-owner coordination. Owned resolution.rs supplies AliasSymbolLinks
+at the actual cutover: optional completed AliasTargetResult (canonical SymbolRef
+including native unknown, or explicit unsupported) and optional type_only_origin
+NodeId. Active ownership is exclusively the native resolution frame keyed by
+SymbolRef plus distinct AliasTarget property, not a resolving bit in this map.
+Node-symbol completion has its own table/property and must not be reused.
+No raw private index or fake bound unknown conversion is permitted. Full target
+API callers must migrate with the state, TS2303 and type-only consumers; no
+compatibility shim. Required counters at cutover: alias queries, completed hits,
+active repeats, actual target worker executions, type-only propagation; controls
+query before/after checking and separate Checker ownership. This Box will not
+commit unused state types or a duplicate getter cache while that shared field
+is unavailable.
+
 Original alias completion tsr-1yb.7.7.3 still requires one serialized cutover:
 checker owner adds private store-qualified alias-link state and initialization;
 this lane supplies resolveAlias/resolveIndirectionAlias/AliasTarget consumers;
