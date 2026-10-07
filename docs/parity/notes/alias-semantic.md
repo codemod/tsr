@@ -51,9 +51,11 @@ Receipts are in ignored `target/recovery/alias/`, not `/tmp`.
 
 ## Unmet campaign prerequisites
 
-This Box clone contains only `box/recover-alias`; `box/parity-alias` and unreachable
-recovery commits are absent. No saved-branch change was recovered or claimed
-verified. Supply that source to resume history-based recovery.
+The saved source was initially absent. After the parent published it, explicit
+fetch supplied `origin/box/parity-alias`. Its two commits after the recovery
+checkpoint (`16f9a7aa`, `6e099017`) are uncommitted snapshots, not verified commits;
+neither was cherry-picked. The owned hunks were reviewed against native and
+re-derived, with current verification below.
 
 The broader alias target/alias presentation infrastructure belongs to the
 integration and symbols owners. An unchanged control still rejects assignment
@@ -62,6 +64,49 @@ reference presentation alone are not semantic target publication. No shared API
 was introduced in this slice. Generic recursive bodies, enclosing aliases,
 imported written arguments, and general instantiation publication remain open
 under the existing issue.
+
+## Recovered alias-free instantiation
+
+The recovered owned hunks complete `keyof` and argument-free `typeof` alias bodies
+through the existing `instantiate_type` API. Native `getTypeAliasInstantiation`
+completes the declared owner before cache lookup and constructs a mapper from
+ordered local parameters to arguments; `instantiateTypeWorker` maps an index type
+through `getIndexType`. Successful declared resolution seeds the own-parameter
+instantiation. Templates retain their existing worker, and queries with written
+type arguments remain outside this route. Written alias annotations reuse the
+existing `qualified_written_text` channel, not semantic cache keys.
+
+Identity/owner and publication follow the existing maps above. `instantiate_type`
+owns the expensive walk on misses; no duplicate cache or active-mapper result is
+introduced. Concrete value identity is retained for `typeof`; there is no new
+receiver/alias-bearing image. Shared hunk/API requirement: **none**. General
+alias-bearing mapper/presentation publication requires integration/symbol owners;
+`typeof f<T>` requires the calls/expression owner's instantiation-expression
+worker before this route can extend to it.
+
+Current recovery evidence, replacing historical saved-branch claims:
+
+- New `alias_semantic_declared_body` fails before and passes after: cold reverse
+  argument order, distinct object-key arguments, warm reuse, actual value identity.
+  All 44 targeted tests pass (including the preceding literal controls).
+- Direct native-supported assignments remove all five false positives. A
+  single-literal rejection control compares byte-for-byte with native. The
+  union rejection control still omits native's nested TS2322 detail; this
+  diagnostics-owner prerequisite is explicitly not exact parity.
+- Unfiltered verdict oracle against checkpoint: 11 WRONG→RIGHT, zero RIGHT
+  losses, zero vanished recognized keys. Summary: 477,970 assertions, 469,796
+  RIGHT, 995 GAP, 7,179 WRONG. Case totals remain 8,051 passed / 1,487 failed /
+  2,906 skipped. Gains: two `recursiveTypeRelations`, one `keyofIntersection`,
+  eight `mappedTypeAsClauses`. Other already-WRONG rows change without becoming
+  exact; no broad success is claimed.
+- Anchor gate: 4,501 checked, zero unresolved.
+- Seven-sample interleaved fresh-process 3,000-reference `keyof` smoke: baseline
+  median 0.133485 s, recovered 0.137989 s, native 0.128580 s. After/before **1.0337**;
+  after/native **1.0732**. All exit zero with empty output, but the baseline skips
+  semantic mapping: equivalent complete work is unverified. The measured smoke
+  is 3.37% slower; **no hotpath/no-slowdown gate or speed target is certified**.
+  Receipts: `recovered-perf.txt`, `recovered-transitions.txt`,
+  `recovered-target-tests.txt`, `semantic-focused-*.txt`.
 
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain

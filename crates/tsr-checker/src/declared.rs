@@ -4861,7 +4861,8 @@ impl<'a> Checker<'a, '_> {
         // (`divergentAccessorsTypes6`). Registered in §926's written-text
         // channel, which only annotation-reuse sites read.
         if !node.type_arguments.is_empty()
-            && self.type_parameter_body_index(symbol).is_some()
+            && (self.type_parameter_body_index(symbol).is_some()
+                || self.alias_free_generic_alias_body(symbol).is_some())
             && let Some(id) = node.node_id
             && !self.qualified_written_text.contains_key(&id)
             && let Some(base) = Self::entity_name_text(node.type_name)
@@ -5967,6 +5968,36 @@ impl<'a> Checker<'a, '_> {
         {
             let _ = self.get_declared_type_of_symbol(symbol);
         }
+        if self.alias_free_generic_alias_body(symbol).is_some_and(|body| {
+            matches!(body, TypeNode::TypeOperatorNode(_))
+                || matches!(body, TypeNode::TypeQueryNode(query) if query.type_arguments.is_empty())
+        }) {
+            // Ported from typescript-go's getTypeAliasInstantiation and
+            // instantiateTypeWithAlias (internal/checker/checker.go): these
+            // constructors receive no alias. Complete the declared owner before
+            // reuse, then map semantic parameter identities in declaration order.
+            let declared = self.get_declared_type_of_symbol(symbol);
+            if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
+                return cached;
+            }
+            let local = self.local_type_parameters_of(symbol);
+            let mut parameters = Vec::with_capacity(local.len());
+            let mut parameter_names = Vec::with_capacity(local.len());
+            for parameter in local {
+                let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                    return self.intrinsics.error;
+                };
+                let Some(name) = parameter.name else { return self.intrinsics.error };
+                parameters.push(self.get_declared_type_of_symbol(owner));
+                parameter_names.push(name.text);
+            }
+            let mapper: Vec<_> =
+                parameters.iter().copied().zip(arguments.iter().copied()).collect();
+            let instantiated =
+                self.instantiate_type(declared, &mapper, &parameters, &parameter_names);
+            self.instantiations.insert((symbol, arguments), instantiated);
+            return instantiated;
+        }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
@@ -6850,6 +6881,23 @@ impl<'a> Checker<'a, '_> {
                     return self.report_type_alias_circularity(symbol);
                 }
                 if resolved != error {
+                    if !matches!(body, TypeNode::TemplateLiteralTypeNode(_))
+                        && !matches!(body, TypeNode::TypeQueryNode(query) if !query.type_arguments.is_empty())
+                    {
+                        // getDeclaredTypeOfTypeAlias seeds its own ordered
+                        // parameter instantiation only after successful resolution.
+                        let local = self.local_type_parameters_of(symbol);
+                        let mut arguments = Vec::with_capacity(local.len());
+                        for parameter in local {
+                            let Some(owner) =
+                                parameter.node_id.and_then(|id| self.binder.symbol_of(id))
+                            else {
+                                return error;
+                            };
+                            arguments.push(self.get_declared_type_of_symbol(owner));
+                        }
+                        self.instantiations.insert((symbol, arguments), resolved);
+                    }
                     return resolved;
                 }
             }
