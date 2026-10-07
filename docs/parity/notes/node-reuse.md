@@ -167,6 +167,52 @@ renderer contract, not a new visitor-local naming cache. The existing
 when a constraint image changes. Parent must coordinate any required native
 receiver/mapper treatment with that owner; this worker did not edit it.
 
+## Owned visitor regression controls
+
+`crates/tsr-checker/tests/constraint_node_reuse_native.rs` now exercises actual
+parsed/bound signatures and the existing retained-node renderer. Three release
+tests pass, with no ignored tests or corpus exceptions:
+
+- Written alias constraints plus both function-type and callable-object
+  constraints insert native `...args: any` rather than semantic `any[]`.
+- A reused generic node preserves `Public.Keys` in both its written constraint
+  and written default. Native's separately serialized default can instead be
+  `Keys`; this deliberately prevents conflating the two paths.
+- Nested generic declarations sharing the spelling `T` preserve each written
+  scope and the alias constraint/default.
+
+Each control also replaces the current semantic type with intrinsic `number`
+and requires reuse refusal. The tests protect visitor behavior and an actual
+semantic-image boundary; they do not claim the blocked top-level constraint
+cutover is implemented. `cargo test --release -p tsr-checker --test
+constraint_node_reuse_native` reports 3 passed; `rustfmt --check` on the owned
+test file succeeds. The existing throwaway actual visitor executable also
+passes after the test addition. Compiler source and CLI binary identities are
+unchanged, so the earlier full-corpus zero-loss and performance receipts remain
+applicable without attributing test-only additions to a speed change.
+
+Additional actual native/TSR accessibility controls:
+
+- A nested generic constraint `typeof key` and parameter named `key` agree in
+  both CLIs, including the returned-signature path. No fake-scope change is
+  justified by that control.
+- An unexported namespace-local `Keys` remains written in both the constraint
+  and default through references, including a function-local shadowing type
+  alias. Both CLIs agree.
+- An exported single-literal namespace alias remains written as constraint
+  `Keys` in native but has serialized default `"public"`; TSR's diagnostic
+  prints `"public"` in both fields. This is the previously identified shared
+  semantic-serialization path, not evidence to relax visitor accessibility.
+- An explicitly qualified union alias constraint `Public.Keys` remains written
+  in native; its semantic default prints `Keys`. TSR's diagnostic prints
+  `Public.Keys` in both fields. Top-level, function-local value shadowing, and
+  sibling namespace controls reproduce the same result.
+
+No new cache, traversal, production helper, or shared metadata change was added.
+`node_reuse.rs` remains unchanged because the directly exercised visitor
+behaviors already match the pin. The cluster remains in progress with the
+parent prerequisite; no next cluster was taken.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
