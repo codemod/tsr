@@ -137,6 +137,13 @@ struct ModeResolution {
     resolved: Option<Path>,
     /// See [`loader::ResolutionRequest::extensionless_relative_import`].
     extensionless_relative_import: Option<tsr_checker::resolution::ExtensionlessImport>,
+    /// `GetSourceFileForResolvedModule` of `resolved`: its index in
+    /// `Program::files` via `files_by_path`, answered once at construction.
+    /// Both maps are immutable afterwards, so this equals the per-query hop.
+    /// `None` with `resolved` set is a file the program does not hold. Both
+    /// sides were canonicalised by `to_path` under the program's directory and
+    /// case sensitivity, so a case-differing pair cannot alias (`bd tsr-q89`).
+    resolved_file: Option<usize>,
 }
 
 /// A set of files compiled together.
@@ -209,7 +216,13 @@ pub struct Program<'a> {
     /// **Populated only by [`Program::from_root_files`].** A program built from
     /// a file list ([`Program::new`]) ran no resolver, so it has no resolutions
     /// and every lookup answers `None` — which is a gap, not a wrong answer.
-    resolved_modules: FxHashMap<Path, ModeAwareResolutions>,
+    ///
+    /// Indexed by file index: upstream keys by `file.Path()`, and every read
+    /// starts from a file, so the path of `files[i]` selects entry `i` once at
+    /// construction instead of hashing and comparing the path per checker
+    /// query (`resolveExternalModule` runs per import use, per checker).
+    /// Immutable after construction; read concurrently by every checker.
+    resolved_modules: Vec<ModeAwareResolutions>,
     /// Each file's module format (`Program.sourceFileMetaDatas`), positionally
     /// matching `files`. Empty for a program built from a file list, which ran
     /// no loader and has no resolutions to key by mode.
@@ -339,7 +352,7 @@ impl<'a> Program<'a> {
             files_by_source_file,
             // A file list is not a resolution: nothing here asked a resolver
             // anything, so there is nothing to record. See `resolved_modules`.
-            resolved_modules: FxHashMap::default(),
+            resolved_modules: Vec::new(),
             meta_datas: Vec::new(),
             current_directory,
             use_case_sensitive_file_names,
@@ -391,8 +404,13 @@ impl<'a> Program<'a> {
         let files_by_source_file = source_file_index(&loaded.files);
         let current_directory = host.current_directory().to_string();
         let use_case_sensitive_file_names = host.fs().use_case_sensitive_file_names();
-        let resolved_modules =
-            resolved_modules(&loaded.requests, &current_directory, use_case_sensitive_file_names);
+        let resolved_modules = resolved_modules(
+            &loaded.requests,
+            &loaded.files,
+            &files_by_path,
+            &current_directory,
+            use_case_sensitive_file_names,
+        );
 
         let mut program = Self {
             options: compiler_options,
@@ -769,8 +787,8 @@ impl<'a> Program<'a> {
         specifier: &str,
         mode: ResolutionMode,
     ) -> Option<NodeId> {
-        let target = self.resolution(importing_file, specifier, mode)?.resolved.as_ref()?;
-        self.source_file_for_resolved_path(target)
+        let target = self.resolution(importing_file, specifier, mode)?.resolved_file?;
+        self.files[target].source_file().node_id
     }
 
     /// The file `import "<specifier>"` resolved to, for a caller that cannot
@@ -779,19 +797,7 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId> {
         let target = self.agreed_resolution(importing_file, specifier)?;
-        self.source_file_for_resolved_path(target)
-    }
-
-    /// `GetSourceFileForResolvedModule`: a resolution that named a file the
-    /// program does not hold answers nothing. Membership is a lookup in
-    /// `files_by_path`, and both sides of it were canonicalised by `to_path`
-    /// under this program's own `current_directory` and case sensitivity — the
-    /// target here at construction, the members when they were added — so a
-    /// case-differing pair cannot alias. That is only true because
-    /// `Program::source_file` stopped recovering case sensitivity by trying both
-    /// conversions (`bd tsr-q89`); see its doc comment.
-    fn source_file_for_resolved_path(&self, target: &Path) -> Option<NodeId> {
-        self.source_file_by_path(target)?.source_file().node_id
+        self.files[target.resolved_file?].source_file().node_id
     }
 
     /// `p.resolvedModules[file.Path()].Get({Name, Mode})`.
@@ -802,7 +808,7 @@ impl<'a> Program<'a> {
         mode: ResolutionMode,
     ) -> Option<&ModeResolution> {
         let index = *self.files_by_source_file.get(&importing_file)?;
-        let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
+        let modes = self.resolved_modules.get(index)?.get(specifier)?;
         modes.iter().find(|entry| entry.mode == mode)
     }
 
@@ -819,12 +825,16 @@ impl<'a> Program<'a> {
 
     /// The file every mode resolved `specifier` to: `None` when the file never
     /// asked for it, a mode failed to resolve it, or two modes disagree.
-    fn agreed_resolution(&self, importing_file: NodeId, specifier: &str) -> Option<&Path> {
+    fn agreed_resolution(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+    ) -> Option<&ModeResolution> {
         let index = *self.files_by_source_file.get(&importing_file)?;
-        let modes = self.resolved_modules.get(self.files[index].path())?.get(specifier)?;
+        let modes = self.resolved_modules.get(index)?.get(specifier)?;
         let (first, rest) = modes.split_first()?;
         let target = first.resolved.as_ref()?;
-        rest.iter().all(|entry| entry.resolved.as_ref() == Some(target)).then_some(target)
+        rest.iter().all(|entry| entry.resolved.as_ref() == Some(target)).then_some(first)
     }
 
     /// Did the resolver name a file for this specifier in `mode`, whether or
@@ -961,16 +971,16 @@ impl<'a> Program<'a> {
         };
         let Some(first) = self
             .resolved_modules
-            .get(self.files[index].path())
+            .get(index)
             .and_then(|names| names.get(loader::EXTERNAL_HELPERS_MODULE_NAME))
             .and_then(|modes| modes.first())
         else {
             return ImportHelpersModule::NotRequested;
         };
-        match &first.resolved {
-            None => ImportHelpersModule::NotFound,
-            Some(target) => self
-                .source_file_for_resolved_path(target)
+        match (&first.resolved, first.resolved_file) {
+            (None, _) => ImportHelpersModule::NotFound,
+            (Some(_), target) => target
+                .and_then(|target| self.files[target].source_file().node_id)
                 .map_or(ImportHelpersModule::OutsideProgram, ImportHelpersModule::File),
         }
     }
@@ -1255,9 +1265,11 @@ fn source_file_index(files: &[ProgramFile<'_>]) -> FxHashMap<NodeId, usize> {
 /// answer an `import "x"` in the same file.
 fn resolved_modules(
     requests: &[loader::ResolutionRequest],
+    files: &[ProgramFile<'_>],
+    files_by_path: &FxHashMap<Path, usize>,
     current_directory: &str,
     use_case_sensitive_file_names: bool,
-) -> FxHashMap<Path, ModeAwareResolutions> {
+) -> Vec<ModeAwareResolutions> {
     let mut by_file: FxHashMap<Path, ModeAwareResolutions> = FxHashMap::default();
     for request in requests {
         if request.kind != loader::RequestKind::Module {
@@ -1272,14 +1284,26 @@ fn resolved_modules(
         // the one kept.
         let modes = by_file.entry(containing).or_default().entry(request.name.clone()).or_default();
         if !modes.iter().any(|entry| entry.mode == request.mode) {
+            let resolved_file = answer.as_ref().and_then(|path| files_by_path.get(path).copied());
             modes.push(ModeResolution {
                 mode: request.mode,
                 resolved: answer,
                 extensionless_relative_import: request.extensionless_relative_import,
+                resolved_file,
             });
         }
     }
-    by_file
+    let mut indexed: Vec<ModeAwareResolutions> = Vec::with_capacity(files.len());
+    for (index, file) in files.iter().enumerate() {
+        // A second spelling of one path shares the first file's entry, as the
+        // path-keyed map did.
+        let entry = match files_by_path.get(file.path()) {
+            Some(&first) if first < index => indexed[first].clone(),
+            _ => by_file.remove(file.path()).unwrap_or_default(),
+        };
+        indexed.push(entry);
+    }
+    indexed
 }
 
 /// `ImportAttributes.GetResolutionModeOverride` (`ast/ast.go`): exactly one
