@@ -780,6 +780,15 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
     input_capture_match = valid and tsr_receipt["inputs_before"] == native_receipt["inputs_before"]
     loaded_scope_match = valid and {identity(path) for path in tsr_receipt["loaded_files"]} == {
         identity(path) for path in native_receipt["loaded_files"]}
+    captured_outputs = {}
+    for producer, receipt in (("tsr", tsr_receipt), ("native", native_receipt)):
+        output = receipt.get("child", {}).get("stdout")
+        captured_outputs[producer] = output
+    output_match = (valid and all(isinstance(value, str) for value in captured_outputs.values())
+                    and captured_outputs["tsr"] == captured_outputs["native"]
+                    and tsr_receipt["child"]["exit_code"] == native_receipt["child"]["exit_code"])
+    if valid and not output_match:
+        reasons.append("Complete captured CLI output or exit status differs or is missing")
     if valid and not options_match:
         reasons.append("Captured effective options differ across tools")
     if valid and not input_capture_match:
@@ -790,7 +799,8 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
         reasons.append("Observed completed full-worker path scopes differ or are empty")
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
-        "comparison_valid": valid and scope_match and options_match and input_capture_match and loaded_scope_match,
+        "comparison_valid": valid and scope_match and options_match and input_capture_match and loaded_scope_match and output_match,
+        "captured_output_match": output_match, "captured_stdout": captured_outputs,
         "captured_options_match": options_match, "captured_inputs_match": input_capture_match,
         "captured_loaded_scope_match": loaded_scope_match,
         "reasons": reasons, "producer_reasons": producer_reasons,

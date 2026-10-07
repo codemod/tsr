@@ -212,6 +212,23 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Completed workers cannot hide changed diagnostic output
+
+Bounded comparison acceptance additionally requires both receipts' complete CLI
+stdout strings and exit statuses to match. Missing output is unsupported, not an
+empty successful diagnostic result. Full strings remain attached; no sorting,
+message filtering or exception suppression is used to make them equal. Raw text
+equality is conservative and does not certify structured spans/related metadata.
+
+39 trace tests passed, including matching-worker controls with missing, empty or
+changed diagnostic output. Actual changed-output receipt comparison saved
+`/tmp/recover-output-rejection.json` and exited 1; actual matched large comparison
+accepted bounded identity/output evidence. Fresh frozen expected-hash five-pair/
+warmup smoke saved `/tmp/recover-output-checkpoint.json`, comparable exit 1.
+Full-corpus zero-loss/build attestation is still unavailable here; no claim replaces
+those prerequisites. Native pinned 202 initial workers and >0.50 large ratios
+remain rejected release evidence.
+
 ### Native trace artifact directory belongs to its invocation
 
 Native validation now requires exactly one `--generateTrace` argument with a
