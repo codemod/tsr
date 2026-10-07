@@ -182,6 +182,39 @@ Source-miss projection smoke and strict all-target checker Clippy pass in the
 ignored parent-field copy. This does not certify the unimplemented parent mint
 or the rejected inherited-this cutover.
 
+## Actual contextual producer replay with available calls helper
+
+Published calls commit `100e97f4` adds
+`instantiate_signature_for_reference_with_this(supplier, this_argument,
+signature)`. Its inference/signature changes, the owned member receiver
+experiment, and the exact contextual semantic-property/no-double-instantiation
+hunk were exercised together in the ignored integration copy. **All 11
+originally wrong target type rows become RIGHT**, including the four contextual
+parameter/body/signature rows. `contextualThisType` diagnostics are EMPTY_RIGHT.
+This proves that caller correction reaches the original contextual signature;
+it is not a proposed-only or mock-output result.
+
+The integrated smoke still rejects completion: `inferenceErasedSignatures`
+loses three RIGHT rows to GAP and `number` to `never`, and gains false TS2430.
+`instancePropertiesInheritedIntoClassType` still lacks native TS6234 at (41,16),
+so that full diagnostic case remains WRONG. No production candidate is retained
+and no full/performance acceptance follows this narrow result.
+
+Exact TS6234 consumer: `calls.rs::resolved_symbol_is_get_accessor` reads
+`get_property_of_type` on the receiver; generic inherited getter values resolve
+through member typing while that raw symbol query returns None. The calls
+comment explicitly identifies this unsupported inherited-accessor case. A
+faithful integrated member image must provide the winning origin under the same
+instantiated-base traversal and receiver/publication context. Do not add a
+second getter-only inheritance scan or expose uninstantiated generic values.
+
+Receipts: `contextual-coherent-{types,diagnostics}.tsv`,
+`contextual-coherent-build.log`, and `contextual-exact-hunk.diff` in
+`target/recovery/property/`. Production owned tree remains the safe projection
+and supplier-API delivery; the contextual/inference files in the checkout are
+untouched. Existing issue tracks the signature/key/heritage and winning-origin
+consumer dependencies, with no duplicate task.
+
 ## Calls-owner supplier mapper seam
 
 Existing native member operations are now checker-visible:
