@@ -12,9 +12,11 @@ reversing the emitted entries retained the old fingerprint. The candidate
 fingerprint rejects this reversal. A two-file control with standard libraries
 emits matching ordered TS2322 diagnostics from TSR and native.
 
-Integrator Beads request: track this native diagnostic-order evidence root
-separately from tsr-2zk.17's global complete-work/performance root. The separate
-issue ID is not available on this Box; commits reference the assigned parent.
+Dedicated assigned/claimed issue: **tsr-2zk.17.9**, preserving native diagnostic
+ordering in benchmark evidence. This evidence root is separate from tsr-2zk.17's
+global complete-work/performance root, which remains open until verified
+equivalent complete work reaches TSR/native median wall <=0.50. Earlier commits
+reference the assigned parent because the child ID arrived after those commits.
 
 Additional current controls: passing the same two root paths twice emits the
 same two TS2322 diagnostics once in both compilers (exact stdout/exit agreement).
