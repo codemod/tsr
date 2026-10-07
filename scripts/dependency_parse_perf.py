@@ -15,15 +15,19 @@ parser.add_argument("--candidate-source", required=True)
 parser.add_argument("--project", type=Path, required=True, help="directory containing tsconfig.json")
 parser.add_argument("--output", type=Path, required=True, help="local raw evidence directory")
 parser.add_argument("--samples", type=int, default=5)
+parser.add_argument("--checkers", type=int, help="use the same positive checker count for both TSR builds")
 parser.add_argument("--extended-diagnostics", action="store_true")
 args=parser.parse_args()
 if args.samples < 1: parser.error("--samples must be positive")
+if args.checkers is not None and args.checkers < 1: parser.error("--checkers must be positive")
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("perf",ROOT/"scripts/whole_project_perf.py")
 perf=importlib.util.module_from_spec(spec);spec.loader.exec_module(perf)
 OUT=args.output.resolve();OUT.mkdir(parents=True,exist_ok=True)
 BINS={"baseline":args.baseline.resolve(strict=True),"candidate":args.candidate.resolve(strict=True)}
 FLAGS=["--noEmit","--incremental","false","--composite","false","--pretty","false"]
+if args.checkers is not None:
+    FLAGS += ["--checkers", str(args.checkers)]
 report={"source_sha":args.candidate_source,"baseline_source":args.baseline_source,"binary_sha256":{k:perf.inputs.file_hash(v) for k,v in BINS.items()},"machine":{"platform":perf.platform.platform(),"cpu_count":os.cpu_count(),"load_average":os.getloadavg()},"flags":FLAGS,"workloads":{},"limitations":["Complete resolver queries and transient edits are not captured.","Bundled libraries are pinned by binary hash; source query union is partial.","Generated fixtures suppress declaration checking; real projects retain their input configuration.","Run timing without concurrent builds/corpus work; this harness does not isolate the host.","This compares two TSR builds; it does not establish the native release target."]}
 def save():
     (OUT/"confirmation.json").write_text(json.dumps(report,indent=2)+"\n")
