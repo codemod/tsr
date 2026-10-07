@@ -305,7 +305,7 @@ def capture_cost_observation(child: dict, tool: dict) -> dict:
         "capture_outside_timed_pairs": True, "causal_instrumentation_overhead_verified": False,
         "timed_worker_equivalence_verified": False,
         "limitations": ["One capture is not a five-pair instrumentation control",
-                        "Tracing and type dumping may add work; TSR capture forces serial checking"],
+                        "Tracing and type dumping may add work; source-qualified schema 1 TSR capture forces serial checking"],
     }
 
 
@@ -340,6 +340,7 @@ def qualified_checkpoint(report: dict) -> dict:
     return {
         "schema_version": 1, "issue": "tsr-2zk.17", "source_sha": report["source_sha"],
         "oracle_sha": report["oracle_sha"], "certifier_sha256": report["harness_sha256"],
+        "tsr_source_root": report.get("tsr_source_root"), "tsr_source_sha": report.get("tsr_source_sha"),
         "binary_freezes": report.get("binary_freezes"),
         "checkout_identities": report.get("checkout_identities"),
         "checkout_identities_after": report.get("checkout_identities_after"),
@@ -367,6 +368,8 @@ def main() -> int:
     parser.add_argument("--project", type=Path, required=True, help="tsconfig.json path")
     parser.add_argument("--tsr", type=Path, default=ROOT / "target/release/tsr")
     parser.add_argument("--tsgo", type=Path, required=True)
+    parser.add_argument("--tsr-source-root", type=Path, default=ROOT,
+                        help="actual checkout supplying qualified TSR producer source files")
     parser.add_argument("--tsr-sha256", help="expected hash of the frozen source-qualified TSR build")
     parser.add_argument("--tsgo-sha256", help="expected hash of the pinned native build")
     parser.add_argument("--samples", type=int, default=5)
@@ -384,6 +387,7 @@ def main() -> int:
     if args.samples < 1 or args.warmups < 0 or args.timeout <= 0:
         parser.error("samples and timeout must be positive; warmups must be nonnegative")
     project = args.project.resolve(strict=True)
+    tsr_source_root = args.tsr_source_root.resolve(strict=True)
     cwd = project.parent
     requested_binary_paths = {"tsr": args.tsr, "tsgo": args.tsgo}
     binary_sources = {}
@@ -432,9 +436,10 @@ def main() -> int:
                                for path in (project, *binaries.values()))
     report = {
         "schema_version": 2, "source_sha": revision(ROOT),
-        "checkout_identities": {"tsr": checkout_identity(ROOT),
+        "checkout_identities": {"tsr": checkout_identity(tsr_source_root),
                                 "native": checkout_identity(ROOT / "vendor/typescript-go")},
         "causal_baseline_verified": False,
+        "tsr_source_root": str(tsr_source_root), "tsr_source_sha": revision(tsr_source_root),
         "oracle_sha": revision(ROOT / "vendor/typescript-go"),
         "project_sha": revision(cwd), "project": str(project),
         "project_config_sha256": initial_by_path[str(project)].get("sha256"),
@@ -619,10 +624,10 @@ def main() -> int:
             if child is None:
                 return 1
             after = inputs.snapshot(input_paths)
-            source_paths = work.qualified_source_paths(ROOT, name)
+            source_paths = work.qualified_source_paths(tsr_source_root if name == "tsr" else ROOT, name)
             receipt = {
                 "schema_version": 1, "child": child, "current_directory": str(cwd),
-                "source_sha": report["source_sha"], "oracle_sha": report["oracle_sha"],
+                "source_sha": report["tsr_source_sha"] if name == "tsr" else report["source_sha"], "oracle_sha": report["oracle_sha"],
                 "checkout_identities": report["checkout_identities"],
                 "binary_freeze": binary_freezes[name],
                 "causal_baseline_verified": False,
@@ -717,7 +722,7 @@ def main() -> int:
     report["options_match"] = not report["option_differences"]
     report["inputs_unchanged"] = all(event["stable"] for event in report["input_observations"])
     report["checkout_identities_after"] = {
-        "tsr": checkout_identity(ROOT), "native": checkout_identity(ROOT / "vendor/typescript-go")}
+        "tsr": checkout_identity(tsr_source_root), "native": checkout_identity(ROOT / "vendor/typescript-go")}
     report["checkout_stable"] = report["checkout_identities"] == report["checkout_identities_after"]
     report["sampling_protocol_validation"] = validate_sample_protocol(report, args.samples, args.warmups)
     report["sampling_protocol_verified"] = report["sampling_protocol_validation"]["verified"]

@@ -212,6 +212,36 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Pool-preserving TSR producer bridge (8091f493)
+
+Fetched origin/main without rebasing or changing runtime files. Integrated only
+`8091f493`'s source-qualified reader/test changes into the hardened reader,
+preserving receipt, output, input and scope gates. Schema 2 validates selected
+pool, overlapping constructor lifetimes, exact modulo full-file ownership,
+per-owner nested completion stacks and peak activity. Schema 1 remains a reader
+for historical serial artifacts, not the current pooled producer.
+
+`--tsr-source-root` binds actual TSR producer source files/revision from a separate
+build checkout rather than guessing they match the harness HEAD. Built exact
+`8091f493455e38cd36903914b78303a00257183d` in a detached external worktree and
+independent target directory, with pinned bundled sources; no shared-target
+binary overwrite or execute/checker edits. Initial build failed because the new
+worktree lacked bundled libraries; supplied the existing pinned vendor checkout
+and rebuilt successfully. Frozen TSR binary SHA-256
+`af0db7733e4e3fb51d0b7b189f10a905fa554c589dbdfe6f9e6d2f6c15d93a93`.
+
+56 trace-reader and 34 harness tests passed. Actual pooled large-project capture
+validated four private checkers, peak four simultaneous full-check owners, and
+202 complete eligible file workers; native independently validated its 202
+workers and 265 parse/bind identities. Five fresh pairs plus warmups observed
+TSR/native ratio **1.4424915886009675**, verified null, comparable exit 1. Actual
+foreign-owner completion mutation saved `/tmp/recover-pooled-negative/rejection.json`
+and exited 1. Evidence `/tmp/recover-pooled-current-checkpoint.json` and
+`/tmp/recover-pooled-current-perf.json.work/`. This closes the *TSR trace-forces-
+serial* capture obstacle for schema 2, not native query-input coverage, semantic
+operation completeness, build attestation or full-corpus release proof.
+`544b4441` and other owners' runtime/doc changes were not overwritten.
+
 ### Curated receipt retains actual native inventory telemetry
 
 Curated checkpoints now include completed parse/bind paths, their independently

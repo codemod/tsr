@@ -11,7 +11,7 @@ import sys
 import unittest
 
 from benchmark_inputs import snapshot
-from checker_work_trace import validate_trace
+from checker_work_trace import validate_trace, validate_worker_activity
 
 
 class TraceIntegrityTests(unittest.TestCase):
@@ -92,6 +92,136 @@ class TraceIntegrityTests(unittest.TestCase):
         binding = copy.deepcopy(self.context if context is None else context)
         binding["trace_sha256"] = self.digest(self.trace)
         return validate_trace(self.trace, binding)
+
+    def parallel_fixture(self):
+        other = self.root / "b.ts"
+        other.write_text("export const value = 1;")
+        rows = copy.deepcopy(self.rows[:3])
+        rows[0].update(schema_version=2, worker_activity_schema_version=2,
+                       activity_clock="monotonic_elapsed_ns")
+        second = copy.deepcopy(rows[2])
+        second.update(file_id=1, path=str(other), source_node_id=11, text_bytes=other.stat().st_size)
+        rows.append(second)
+        rows.extend([
+            {"event": "pool_selected", "selected_count": 2, "program_file_count": 2,
+             "requested_checkers": 2, "requested_single_threaded": None,
+             "worker_options_applied_by_driver": True, "memory_admission_budget": None,
+             "affinity": "program_file_index_modulo_selected_count"},
+            {"event": "checker_construction_begin", "checker_id": 0},
+            {"event": "checker_construction_begin", "checker_id": 1},
+            {"event": "checker_created", "checker_id": 0, "initialization_forcing_observed": False},
+            {"event": "work_begin", "span_id": 0, "checker_id": 0,
+             "operation": "source_file_check", "file_ids": [0], "unmapped_source_node_ids": []},
+            {"event": "work_begin", "span_id": 1, "checker_id": 0,
+             "operation": "symbol_type_query", "file_ids": [1], "unmapped_source_node_ids": []},
+            {"event": "checker_created", "checker_id": 1, "initialization_forcing_observed": False},
+            {"event": "work_begin", "span_id": 2, "checker_id": 1,
+             "operation": "source_file_check", "file_ids": [1], "unmapped_source_node_ids": []},
+            {"event": "work_end", "span_id": 1, "checker_id": 0, "outcome": "returned"},
+            {"event": "work_end", "span_id": 0, "checker_id": 0, "outcome": "returned"},
+            {"event": "work_end", "span_id": 2, "checker_id": 1, "outcome": "returned"},
+            {**self.rows[-1], "checker_instances_created": 2, "peak_full_checks": 2,
+             "peak_constructing_checkers": 2, "peak_covered_semantic_checkers": 2,
+             "peak_full_checkers": 2, "peak_observed_checkers": 2, "unfinished_constructions": 0},
+        ])
+        starts = {}
+        for time, row in enumerate(rows):
+            row["recorded_at_ns"] = time
+            if row["event"] == "checker_construction_begin":
+                starts[row["checker_id"]] = time
+                row["construction_started_at_ns"] = time
+            elif row["event"] == "checker_created":
+                row.update(construction_started_at_ns=starts[row["checker_id"]],
+                           construction_finished_at_ns=time)
+        context = copy.deepcopy(self.context)
+        context["show_config"]["compilerOptions"]["checkers"] = 2
+        rows[1]["show_config"] = json.dumps(context["show_config"])
+        context.update(loaded_files=[str(self.input), str(other)], requested_checkers=2,
+                       inputs_before=snapshot([str(self.input), str(other)]),
+                       inputs_after=snapshot([str(self.input), str(other)]))
+        return rows, context
+
+    def test_parallel_pool_and_activity_are_qualified_without_claiming_equivalence(self):
+        rows, context = self.parallel_fixture()
+        result = self.check(rows, context)
+        self.assertTrue(result["artifact_integrity_valid"], result["reasons"])
+        self.assertEqual(result["checked_file_ids"], [0, 1])
+        self.assertEqual(result["checker_instances_created"], 2)
+        context["trace_sha256"] = self.digest(self.trace)
+        activity = validate_worker_activity(self.trace, context, "tsr")
+        self.assertTrue(activity["worker_activity_valid"], activity["reasons"])
+        for name in ("constructing", "semantic", "full", "observed"):
+            self.assertEqual(activity["activity"][name]["peak"], 2)
+        self.assertEqual(activity["full_file_affinity"], [[0, 0, 0], [0, 1, 1]])
+        self.assertFalse(activity["actual_checked_work_verified"])
+        self.assertFalse(activity["target_verified"])
+
+    def test_parallel_wrong_affinity_missing_constructors_and_foreign_completions_fail(self):
+        for index, key, value in [(4, "selected_count", 1), (7, "checker_id", 1),
+                                  (8, "checker_id", 1), (12, "checker_id", 1),
+                                  (0, "schema_version", 1), (15, "checker_instances_created", 1)]:
+            rows, context = self.parallel_fixture()
+            rows[index][key] = value
+            with self.subTest(index=index, key=key):
+                self.assertFalse(self.check(rows, context)["artifact_integrity_valid"])
+        rows, context = self.parallel_fixture()
+        rows.pop(6)
+        self.assertFalse(self.check(rows, context)["artifact_integrity_valid"])
+
+    def test_parallel_peak_cannot_count_nested_queries_as_extra_checkers(self):
+        rows, context = self.parallel_fixture()
+        rows[-1]["peak_covered_semantic_checkers"] = 3
+        self.check(rows, context)
+        context["trace_sha256"] = self.digest(self.trace)
+        result = validate_worker_activity(self.trace, context, "tsr")
+        self.assertFalse(result["worker_activity_valid"])
+
+    def test_parallel_same_owner_completions_follow_nested_entry_order(self):
+        rows, context = self.parallel_fixture()
+        rows[12], rows[13] = rows[13], rows[12]
+        for timestamp, row in enumerate(rows):
+            row["recorded_at_ns"] = timestamp
+        self.assertFalse(self.check(rows, context)["artifact_integrity_valid"])
+
+    def test_parallel_worker_request_cannot_contradict_effective_options(self):
+        rows, context = self.parallel_fixture()
+        context["show_config"]["compilerOptions"]["checkers"] = 1
+        rows[1]["show_config"] = json.dumps(context["show_config"])
+        self.assertFalse(self.check(rows, context)["artifact_integrity_valid"])
+
+    def test_parallel_worker_options_omitted_by_show_config_use_trusted_request(self):
+        rows, context = self.parallel_fixture()
+        context["show_config"]["compilerOptions"].pop("checkers")
+        rows[1]["show_config"] = json.dumps(context["show_config"])
+        self.assertTrue(self.check(rows, context)["artifact_integrity_valid"])
+
+    def test_parallel_constructor_cannot_reintroduce_serial_policy_facts(self):
+        rows, context = self.parallel_fixture()
+        rows[7].update(effective_serial_checker_limit=1, worker_options_applied_by_driver=False)
+        self.assertFalse(self.check(rows, context)["artifact_integrity_valid"])
+
+    def test_parallel_nonpositive_requests_clamp_to_one_native_owner(self):
+        for requested in (0, -1):
+            rows, context = self.parallel_fixture()
+            context["requested_checkers"] = requested
+            context["show_config"]["compilerOptions"]["checkers"] = requested
+            rows[1]["show_config"] = json.dumps(context["show_config"])
+            rows[4].update(requested_checkers=requested, selected_count=1)
+            # One returned constructor, then two sequential full-file workers.
+            rows = [*rows[:6], rows[7], rows[8], rows[9], rows[12], rows[13],
+                    rows[11], rows[14], rows[15]]
+            rows[11]["checker_id"] = 0
+            rows[12]["checker_id"] = 0
+            rows[11]["span_id"] = rows[12]["span_id"] = 2
+            rows[-1].update(checker_instances_created=1, peak_full_checks=1,
+                           peak_constructing_checkers=1, peak_covered_semantic_checkers=1,
+                           peak_full_checkers=1, peak_observed_checkers=1)
+            for timestamp, row in enumerate(rows):
+                row["recorded_at_ns"] = timestamp
+            rows[5]["construction_started_at_ns"] = 5
+            rows[6].update(construction_started_at_ns=5, construction_finished_at_ns=6)
+            with self.subTest(requested=requested):
+                self.assertTrue(self.check(rows, context)["artifact_integrity_valid"])
 
     def reject(self, rows=None, context=None, raw=None):
         result = self.check(rows, context, raw)
