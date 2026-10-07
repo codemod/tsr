@@ -211,3 +211,114 @@ Behavioral controls verify dependent defaults, constructor substitution,
 erased image/target own metadata and speculative-versus-reported rejection.
 Target tests, full checker tests and clippy pass (`erase-api-*.log`). No parent
 wrapper integration or full compiler/native performance acceptance inferred.
+
+## Owned outer-instantiation source traversal
+
+Applied parent-agreed source/node split directly in `inference.rs`:
+`instantiation_expression_sources: FxHashMap<TypeId, TypeId>` and
+`instantiation_expression_nodes: FxHashMap<TypeId, NodeId>`. Outer instantiation
+maps the concrete linked source with the current mapper and re-enters parent
+`get_instantiation_expression_type(source, node) -> TypeId` using the original
+written argument node. A missing node link or failed source mapping returns
+unsupported error, never a partial wrapper. `mentions_type_parameter_inner`
+follows the actual source edge before ordinary signature discovery, including
+wrappers whose filtered signatures are empty. Existing visited identities guard
+cycles; no new cache, signature/property copy or local completion publication.
+Parent owns completed `(NodeId, source TypeId)` cache and active/publication
+protocol. Receiver/alias/member/index context remains on the mapped source.
+
+Native control `outer-source-native.ts` verifies generic outer aliases for call
+and construct signatures plus preserved readonly member. Pinned native emits
+only TS2540 for readonly assignment and two TS2345 bad-argument diagnostics;
+positive assignments have no diagnostics (`outer-source-native.log`).
+
+Integration verification is blocked: fetched origin/main remains `db726c9c`;
+actual parent fields and expression worker are not present. `outer-source-check.log`
+records only missing agreed fields/method. Owned inference changes are delivered
+as integration-dependent code, not a verified standalone feature. No temporary
+no-op/mock worker was installed; actual parent worker must be supplied before
+passing-after, full RIGHT ratchet or performance acceptance can be measured.
+
+## CHOOSE-OVERLOAD-GENERIC-WALK: nongeneric array context
+
+Claimed existing `tsr-2zk.16.66`. All 16 historical target cases fail in a fresh
+query of the last runnable binary; integrated current-parent results remain
+unmeasured. Native chooseOverload/isSignatureApplicable contextually checks array
+arguments against each candidate. The existing nongeneric candidate-walk entry
+excluded arrays and only tuple-headed parameter contexts were checked later.
+Owned `calls.rs` now admits arrays into that existing nongeneric contextual walk,
+including ConcatArray<T> numeric-index contexts. Generic arrays retain their
+existing inference-owned scheduling; an attempted expansion there caused a real
+`destructuringTuple` diagnostic loss and was rejected, not suppressed.
+
+`concat-native-shape.ts` producer smoke changes nested argument number[][] to
+[number, number][] and inner arrays to tuples. `compiler/concatTuples` moves
+13/18 to 18/18. Final full historical harness ratchet has all 12,444 keys and
+zero prior-PASS losses; one whole types gain and eight diagnostics gains
+(`array-context-final-ratchet.json`). Full checker tests/clippy pass. Checks
+excluded only the integration-dependent a42 outer source-link hunks temporarily;
+those owned hunks were restored afterward. No parent file modified.
+
+Exact native negative diagnostic text/span acceptance is NOT satisfied: the
+standalone invalid boolean-array control still emits TSR's flat TS2769 head at
+the whole array rather than native's two elaborated property errors. This is the
+existing structured diagnostic/elaboration prerequisite, not a passing native
+control. Original handwritten ConcatArray control also duplicated the bundled
+index signature; that comparison is not certified full parity. No >=99.9%,
+full-current-native or equivalent-work/no-hotpath-regression claim. The issue
+remains in progress; parent diagnostic and expression integrations plus native
+negative and performance gates remain required before acceptance.
+
+## Head signature list API
+
+`head_signatures(&mut self, TypeId, SignatureKind) -> Option<Vec<Signature>>`
+is now pub(crate) for parent instantiation-expression object consumers. No
+algorithm change: baked complete ordered vectors are filtered by call/construct
+kind without completing returns, including authoritative empty vectors. Missing
+or unsupported lists still differ from empty. Non-baked shapes use the existing
+shared resolver. Parent must not assume that fallback guarantees lazy return
+construction for every previously unsupported shape. Existing three calls remain
+unchanged. Target signature/receiver tests and clippy pass (`head-api-*.log`)
+with integration-dependent outer-link hunk excluded temporarily then restored.
+
+## Native review: empty written list and constraint this
+
+Corrected hasCorrectTypeArgumentArity to accept count zero unconditionally,
+matching checker.go:9214. A present-empty instantiation list still filters
+nongeneric signatures in the expression entry; required generic parameters fill
+with unknown/defaults. The control proves both return and dependent parameter
+unknown after an empty list; target tests/clippy pass (`empty-arity-*.log`).
+
+Native checkTypeArguments also applies getTypeWithThisArgument to the instantiated
+constraint with the actual type argument. This remains an explicit unmet API
+obligation: current reference metadata stores only ordinary arguments, while
+member lookup carries concrete this ephemerally. Padding that ordinary vector or
+mapping all known this identities would violate native reference ownership.
+Member/integration owner must supply a canonical reference-with-this image and
+intersection traversal through `get_type_with_this_argument(TypeId, TypeId,
+bool) -> TypeId`; owned constraint worker then applies it after ordinary
+constraint instantiation and before the relation/report. No eager member copies
+or fake successful relation added. Helper parity is not certified until this
+native obligation is implemented and exercised.
+
+## Native review: authoritative call lists and lazy instantiation
+
+Minted signature-type call resolution now filters Call signatures. Ordinary
+resolution with a present signature_types vector and zero calls no longer falls
+back to its retained source symbol. Thus construct-only/empty wrapper call lists
+remain authoritative. A construct-only call rejection control passes; the
+constructor instantiation test now reads the actual constructor signature rather
+than erroneously obtaining it through call resolution. Target tests, full checker
+tests and clippy pass (`authoritative-kinds-*.log`), excluding pending outer-source
+integration hunk temporarily then restoring it.
+
+Native getSignatureInstantiationWithoutFillingInTypeArguments caches by actual
+signature identity and ordered arguments; instantiateSignatureEx leaves return
+and predicate lazy under the signature mapper. Existing port metadata has no
+signature-owned mapper/pending predicate/composite identity; declaration/captured
+return caches cannot substitute for that key. The current helper still completes
+returns eagerly and is NOT certified native-lazy/native-cached. Simply removing
+completion would lose delayed substitutions. No duplicate declaration cache or
+unmapped pending return fallback added. Parent serialized signature representation
+must supply actual identity/mapper publication before this work-boundary
+obligation can be implemented end-to-end.
