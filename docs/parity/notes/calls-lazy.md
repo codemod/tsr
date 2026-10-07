@@ -474,3 +474,99 @@ The current `contextual.rs::contextual_signature_result` invokes owned
 annotation syntax alone cannot certify an unpublished target edge. Route
 that atomic signature-demand contract to the future single lazy-cutover
 owner. No new cache or completion claim was introduced.
+
+## CANDIDATE-FOR-OVERLOAD-FAILURE receipt — tsr-2zk.16.27
+
+The integrator subsequently assigned this root with 18 current blocked
+cases. That count is scope, not promised conversions; the original brief's
+case list remains available, but no separate exact 18-case receipt was
+supplied. Read pinned `resolveCall`, `getCandidateForOverloadFailure`,
+`pickLongestCandidateSignature`, `getLongestCandidateIndex`,
+`getTypeArgumentsFromNodes`, `inferSignatureInstantiationForOverloadFailure`,
+and the `apparentArgumentCount` writer in `internal/checker/services.go`.
+
+Native recovery is not a shallow longest-signature heuristic:
+
+- `resolveCall` preserves reordered candidates and effective arguments,
+  runs subtype then assignability selection, and recovers only after both
+  fail. It publishes the recovered signature before reporting errors, so
+  diagnostic re-entry observes that identity rather than rerunning recovery.
+- `getCandidateForOverloadFailure` first calls `checkNodeDeferred`. It
+  combines only a multi-candidate non-generic set without candidatesOutArray;
+  otherwise it selects from the original ordered set.
+- Selection uses apparentArgumentCount only in the services query scope;
+  otherwise it uses effective argument length. First covering/effective-rest
+  candidate wins; only if none covers does maximum parameter count win.
+- Written arguments use `getTypeArgumentsFromNodes`: truncate surplus,
+  append each raw declaration default/constraint/unknown. This is not
+  successful-call `fillMissingTypeArguments` substitution.
+- Inferred failure arguments use a fresh inference context with JS AnyDefault
+  and SkipContextSensitive|SkipGenericFunctions. The original parameter
+  identities, concrete receiver and assigned callback context remain distinct.
+
+### Additional directly reproduced controls
+
+```typescript
+export declare function failed<T = string>(first: { value: T }, required: number): T;
+export declare function failed<T = number>(first: T[]): T[];
+export const chosen = failed('wrong');
+export class Base<T extends Date> { constructor(value: T) {} }
+export class Derived<T extends Date> extends Base<T> {}
+export const missing = new Derived();
+export declare function written<T = string, U = T>(value: T, other: U): [T, U];
+export const writtenFailure = written<boolean>(true);
+```
+
+Pinned native CLI declaration output versus current TSR producer:
+
+| Binding | Native | TSR |
+|---|---|---|
+| chosen | string | number[] |
+| missing | Derived<Date> | Derived<Date> |
+| writtenFailure | [boolean, T] | [boolean, boolean] |
+
+The constructor control is already correct, not a conversion. A second
+written-argument control distinguished valid versus failed ordinary calls:
+`partial<boolean>(true,true)` prints `[boolean, boolean]` in both;
+`partial<boolean>(true)` prints native `[boolean, T]`, TSR
+`[boolean, boolean]`. Excessive `<boolean, number, Date>` prints
+`[boolean, number]` in both. Therefore changing all defaults to raw references
+would break valid calls; the recovery boundary is the required algorithm.
+
+### Exact atomic implementation seams and blockers
+
+Owned implementation would provide one semantic recovery operation accepting
+call NodeId, already ordered candidate vector, actual effective arguments,
+and recovery/query mode. It must return the complete instantiated Signature,
+not only its return type. Its absent/active/completed/unsupported publication
+must use existing resolved-call identities, not a second cache. Required
+owned consumers are `choose_ordered_overload`,
+`transcribed_generic_set_walk`, `check_call_expression_worker`, and the
+written/inferred failure branches in `inference.rs`. Move the current
+`written_type_argument_arity_failure` raw-tail filling into that operation;
+do not broaden its arity-only trigger as a side-pass workaround.
+
+Two full-root blockers remain:
+
+1. `.61` is a real owned inference prerequisite. Correctly choosing the first
+   recovery candidate from the controls above still hits
+   `check_generic_call_worker::structural_source_supplied`. Its measured
+   removal loses three formerly-RIGHT type IDs and three EMPTY_RIGHT cases.
+   A fallback treating unsupported/unpublished sources as completed absence
+   is not licensed. `.9.7.1` must supply actual lazy parameter demand, not
+   annotation peeking. No safe single-root candidate has passed these gates.
+2. Forbidden caller `expressions.rs::check_new_expression` selects a single
+   candidate directly and calls `check_generic_call_with` (ordinary mode).
+   Full recovery requires routing both single- and multi-candidate failures
+   through the same complete recovery Signature API, then publishing before
+   diagnostic re-entry. The owner must migrate this caller after the recovery
+   API and prerequisite are complete. There is no existing shared
+   `checkNodeDeferred` operation in the owned files; its checking-order
+   prerequisite belongs to the checking owner, not a local suppression pass.
+
+No partial recovery implementation, shim or permanently failing regression
+test was committed. No new candidate gates or conversion matrix is asserted;
+the previous `.61` experiment remains the last completed unfiltered evidence.
+Further owned cluster work requires an authoritative next-root assignment,
+or completion of the stated publication/collector prerequisites. `.16.27`
+remains open and unimplemented.
