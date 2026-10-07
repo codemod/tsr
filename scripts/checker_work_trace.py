@@ -735,9 +735,24 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
             "show_config": receipt["show_config"], "loaded_files": receipt["loaded_files"],
             "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
         }
-    valid = tsr.get("artifact_integrity_valid") is True and native.get("native_trace_valid") is True
+    producer_reasons = {"tsr": list(tsr.get("reasons", [])), "native": list(native.get("reasons", []))}
+    valid = (tsr.get("artifact_integrity_valid") is True
+             and tsr.get("worker_activity_valid") is True
+             and native.get("artifact_integrity_valid") is True
+             and native.get("native_trace_valid") is True
+             and not any(producer_reasons.values()))
+    reasons = [name + ": " + reason for name, failures in producer_reasons.items() for reason in failures]
+    if not valid and not reasons:
+        reasons.append("Required TSR worker activity or native trace validation did not pass")
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
+        "reasons": reasons, "producer_reasons": producer_reasons,
+        "producer_validation": {
+            "tsr_artifact_integrity_valid": tsr.get("artifact_integrity_valid") is True,
+            "tsr_worker_activity_valid": tsr.get("worker_activity_valid") is True,
+            "native_artifact_integrity_valid": native.get("artifact_integrity_valid") is True,
+            "native_trace_valid": native.get("native_trace_valid") is True,
+        },
         "tsr_program_file_policy": ours, "native_completed_full_workers": native_full,
         "native_program_file_policy": None,
         "observed_full_worker_scope": {"tsr": checked, "native": native_checked,

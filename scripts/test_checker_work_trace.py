@@ -191,9 +191,9 @@ class TraceIntegrityTests(unittest.TestCase):
 
     def test_cross_tool_same_count_different_paths_cannot_match_full_worker_scope(self):
         from checker_work_trace import compare_work_captures
-        ours = {"artifact_integrity_valid": True, "program_files": [self.rows[2]],
+        ours = {"artifact_integrity_valid": True, "worker_activity_valid": True, "program_files": [self.rows[2]],
                 "checked_file_ids": [0], "operation_counters": {"source_file_check": {"begins": 1, "completed": 1}}}
-        native = {"native_trace_valid": True,
+        native = {"native_trace_valid": True, "artifact_integrity_valid": True,
                   "completed_full_workers": [{"path": "other.ts", "checker_id": 0, "duration_ns": 1}],
                   "operation_counters": {"checkSourceFile": {"begins": 1, "completed": 1}}}
         receipt = {**self.context, "trace_sha256": "0" * 64}
@@ -211,6 +211,51 @@ class TraceIntegrityTests(unittest.TestCase):
         native["native_trace_valid"] = False
         self.assertFalse(compare_work_captures(ours, native, receipt, receipt)
                          ["observed_full_worker_scope"]["identity_sets_match"])
+
+    def test_comparison_cli_rejects_valid_base_trace_with_invalid_worker_activity(self):
+        from checker_work_trace import PINNED_NATIVE_SHA
+        native_path = self.root / "native.json"
+        native_receipt_path = self.root / "native-receipt.json"
+        receipt_path = self.root / "receipt.json"
+        output_path = self.root / "comparison.json"
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 0, "path": str(self.input)}}
+        native_path.write_text(json.dumps([begin, {**begin, "ph": "E", "ts": 10}]))
+        native_receipt = {**self.context, "oracle_sha": PINNED_NATIVE_SHA,
+                          "trace_sha256": self.digest(native_path)}
+        native_receipt["child"] = {**self.context["child"],
+                                   "command": [str(self.binary), "--noEmit", "--generateTrace", str(self.root)]}
+        native_receipt_path.write_text(json.dumps(native_receipt))
+        for index, key, value in ((3, "construction_started_at_ns", 31),
+                                  (-1, "peak_observed_checkers", 2)):
+            rows = self.activity_rows()
+            rows[index][key] = value
+            worker = self.worker_check(rows)
+            self.assertTrue(worker["artifact_integrity_valid"], worker)
+            self.assertFalse(worker["worker_activity_valid"], worker)
+            receipt = {**self.context, "trace_sha256": self.digest(self.trace)}
+            self.assertTrue(validate_trace(self.trace, receipt)["artifact_integrity_valid"])
+            receipt_path.write_text(json.dumps(receipt))
+            child = subprocess.run([sys.executable, str(Path(__file__).with_name("checker_work_trace.py")),
+                                    "--trace", str(self.trace), "--receipt", str(receipt_path),
+                                    "--compare-native-trace", str(native_path),
+                                    "--compare-native-receipt", str(native_receipt_path),
+                                    "--output", str(output_path)], capture_output=True, text=True)
+            result = json.loads(output_path.read_text())
+            self.assertEqual(child.returncode, 1, result)
+            self.assertFalse(result["artifact_integrity_valid"])
+            self.assertFalse(result["observed_full_worker_scope"]["identity_sets_match"])
+            self.assertEqual(result["producer_reasons"]["tsr"], worker["reasons"])
+            self.assertTrue(result["reasons"])
+            self.assertFalse(result["target_verified"])
+
+    def test_comparison_preserves_both_producers_rejection_reasons(self):
+        from checker_work_trace import compare_work_captures
+        receipt = {**self.context, "trace_sha256": "0" * 64}
+        result = compare_work_captures({"reasons": ["bad construction"]},
+                                      {"reasons": ["unfinished native span"]}, receipt, receipt)
+        self.assertEqual(result["reasons"], ["tsr: bad construction", "native: unfinished native span"])
+        self.assertFalse(result["artifact_integrity_valid"])
 
     def test_empty_cross_tool_checks_never_match_complete_work(self):
         from checker_work_trace import compare_work_captures

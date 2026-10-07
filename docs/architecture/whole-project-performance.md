@@ -239,6 +239,30 @@ harness SHA-256 `963936a7530d6a79110f84f117da4555a71de7e7e258462eae5db9a9920db42
 The large Linux ratios above remain failed speed observations; this small identity
 smoke supersedes none of them and verifies no frozen-parent diagnostic behavior.
 
+### Worker-activity rejection must survive comparison
+
+Review found that a valid base TSR artifact could survive failed worker activity
+validation (bad construction timestamps or incorrect activity peaks). The old
+comparison read only `artifact_integrity_valid`, discarded rejection reasons and
+could exit 0. **Do not use the pre-fix comparison gate in `bf9eea3a`.** The
+comparison now requires TSR artifact **and worker-activity** validity plus native
+artifact and trace validity, with no producer rejection reasons. It retains
+`producer_validation`, both `producer_reasons` arrays and qualified flattened
+reasons before any identity match claim. Missing required validity fails closed.
+Curated checkpoints also retain activity/native validity and reasons instead of
+presenting base artifact validity alone.
+
+30 trace-reader and 28 harness tests passed. The regression runs the actual
+comparison CLI against valid base traces with invalid constructor timestamps or
+peaks: exit 1, identity match false and original worker rejection reasons retained.
+Both producers' failures are preserved. The actual large-artifact comparison
+still passes bounded artifact validation; its semantic-work and target gates
+remain false. Fresh five-pair/warmup capture/checkpoint smoke also ran with
+`--require-comparable` exit 1. Evidence `/tmp/recover-worker-gate-comparison.json`
+and `/tmp/recover-worker-gate-checkpoint.json`. The large observed 1.379467 ratio
+and <=0.50 unmet target are unchanged; 202 initial worker completions still do
+not prove full semantic operation completeness.
+
 ### Runnable cross-tool operation-gap comparison
 
 The trace reader accepts `--compare-native-trace` and
