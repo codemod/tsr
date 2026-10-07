@@ -476,9 +476,11 @@ no declaration side pass, heuristic guard, or already-RIGHT conversion claim.
 ## LITERAL-CONTEXTUAL-INSTANTIABLE: native reproduction and prerequisite
 
 Investigation after `70f524fc`; no implementation change or target conversion.
-The assigned two-case queue and Beads id have not yet been supplied. The
-literal-constraint hypothesis was tested directly, not inferred from old
-triage counts.
+Authoritative issue **tsr-2zk.16.425**, targets
+`compiler/jsxExcessPropsAndAssignability` and
+`compiler/typePredicateFreshLiteralWidening`, supplied by integration after
+the initial ad hoc investigation. The literal-constraint hypothesis was
+tested directly, not inferred from old triage counts.
 
 ```ts
 declare function constrained<T extends string>(value: { item: T }): T;
@@ -548,3 +550,74 @@ Verification for this investigation consists only of the two pinned-native
 ad hoc declaration emits and TSR corpus-pipeline type probes. No changed
 implementation means no new after-verdict/performance acceptance claim. The
 last verified implementation remains `70f524fc` and its receipt above.
+
+### Authoritative .16.425 target evidence
+
+Both current target source names were verified in the corpus. No files outside
+ownership were edited; a temporary `/.lib/react16.d.ts` mount copied the
+existing corpus library solely for the native JSX invocation.
+
+`typePredicateFreshLiteralWidening` uses a conditional plus recursive
+homomorphic mapped alias `Narrow<A>`, applied by a curried generic function.
+Pinned native checks the actual source with `--noEmit --target es2015
+--strictNullChecks --pretty false`, exit 0 and no diagnostics. Declaration-only
+emit independently confirms:
+
+```ts
+declare const item1: { value: "1"; };
+declare const item2: { value: "2"; };
+declare const item3: { value: null; };
+declare const values1: ("1" | "2" | null)[];
+declare const filteredValues1: ("1" | "2")[];
+```
+
+Frozen/current aligned TSR verdicts instead include
+`Narrow<{ value: string; }>` for item1/item2, `{ value: string; }` for their
+argument literals, and mapped alias values in the downstream map/filter
+results. Current real corpus-pipeline ad hoc type probe reproduces those
+widened/alias results. Diagnostic case remains EMPTY_RIGHT.
+
+Exact unowned producer boundaries: `mapped.rs::generic_mapped_contextual_property_type`
+and its template instantiation must supply the actual conditional/indexed
+member type for the key, preserving the inference context; alias/type image
+construction and inference must then evaluate the returned mapped image
+rather than leave `Narrow<...>` presentation as a semantic substitute.
+`signatures.rs::is_literal_of_contextual_type` already consumes the resulting
+base constraint; `constraints.rs::base_constraint_of_type` owns that
+resolution's binding-qualified completion. No evidence justifies a second
+literal-constraint evaluator in owned contextual/objects/widening files.
+Route the canonical mapped/constraint/inference producer under a single owner
+before asking this lane to extend mutable-location preservation.
+
+`jsxExcessPropsAndAssignability` native source check with `--noEmit --module
+commonjs --target es2015 --jsx react --strict --pretty false`, using the exact
+react16 library, reports:
+
+```text
+jsxExcessPropsAndAssignability.tsx(17,27): error TS2698: Spread types may only be created from object types.
+jsxExcessPropsAndAssignability.tsx(18,6): error TS2322: Type 'ComposedComponentProps & { myProp: number; }' is not assignable to type 'IntrinsicAttributes & IntrinsicClassAttributes<Component<WrapperComponentProps, any, any>> & Readonly<...> & Readonly<...>'.
+  Type 'ComposedComponentProps & { myProp: number; }' is not assignable to type 'Readonly<WrapperComponentProps>'.
+jsxExcessPropsAndAssignability.tsx(18,27): error TS2698: Spread types may only be created from object types.
+```
+
+Locations above are actual unsplit corpus-source lines; the directive-split
+baseline uses lines 13/14. Observed native output prefixes the full repository
+relative path. TSR aligned case emits no diagnostics. Its type verdicts also
+retain `extends any` instead of native `extends unknown` and omit the default
+`any` argument in `React.ComponentClass`. Those are constraint/reference
+producer prerequisites, not owned literal-preservation patches.
+
+The aligned corpus literal line is WRONG (`"1000000"` expected, `string`
+actual). However, the current ad hoc corpus-pipeline `probefile` walker prints
+`'1000000' : "1000000"` already. Do not claim that isolated probe reproduces
+this aligned failure, or fix it by a string heuristic. Exact unowned JSX
+mutable-location consumer: `jsx_intrinsic.rs::jsx_attribute_initializer_type`
+(calls `check_expression_for_mutable_location`) and JSX attributes/component
+relation diagnostics. Pinned native counterparts are `checkJsxAttribute`
+and `getContextualTypeForJsxExpression` in `internal/checker/jsx.go`. The JSX
+owner must reproduce aligned query order with its actual instantiable props
+context before any owned mutable-location cutover.
+
+No target conversions, no checker change, no post-change loss or performance
+claim for .16.425. The two cases are blocked scope, not a promise. Prior
+`70f524fc` parity/performance receipts remain the last implemented root.
