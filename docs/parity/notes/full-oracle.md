@@ -1,5 +1,28 @@
 # Full configured native oracle
 
+## Independent baseline/candidate runner
+
+`TSR_ORACLE_CHECKER_SOURCE=<commit>` declares the compiler source for each run
+(default remains c8185606). The runner resolves the complete commit ID, rejects
+compiler-file changes relative to it, builds the real actual producer from that
+checkout, and copies workers to content-addressed immutable paths. A supplied
+prior report may have another source commit; its source identity is preserved in
+`prior-source.tsv`, while inputs/configurations must match exactly. This enables
+independent baseline/candidate RIGHT ratchets without relabeling either source.
+
+```sh
+TSR_ORACLE_CHECKER_SOURCE=<candidate-commit> \
+  target/release/examples/full_oracle_run "$PWD" <new-report-dir> <baseline-report-dir>
+```
+
+Use separate pinned clean checkouts/build directories for baseline and candidate.
+No baseline or candidate rate is reported until its complete summary exists.
+Unknown-source rejection was exercised; the frozen actual CLI smoke remained
+byte-identical. This Box has no 15,323-row measurement or identified 13th curated
+commit: reachable complete receipts remain 14,965 rows. Those external artifacts
+must be transferred before a 15,323 result can be published; no inference or
+rerun for reconstruction was used.
+
 ## Completed producer outcome inventory and scope limit
 
 Read from completed loaded-source receipts; no producer rerun:

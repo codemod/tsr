@@ -42,7 +42,15 @@ fn main() -> Result<()> {
     ensure!(clean.status.success() && clean.stdout.is_empty(), "dirty corpus support inputs");
     let source = Command::new("git").arg("-C").arg(&root).args(["rev-parse", "HEAD"]).output()?;
     let oracle_revision = String::from_utf8(source.stdout)?.trim().to_string();
-    let source = "c8185606e3b972d59d345b6e45d789586d993af8".to_string();
+    let requested_source = std::env::var("TSR_ORACLE_CHECKER_SOURCE")
+        .unwrap_or_else(|_| "c8185606e3b972d59d345b6e45d789586d993af8".into());
+    let resolved = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["rev-parse", &format!("{requested_source}^{{commit}}")])
+        .output()?;
+    ensure!(resolved.status.success(), "checker source commit unavailable");
+    let source = String::from_utf8(resolved.stdout)?.trim().to_string();
     let changed = Command::new("git")
         .arg("-C")
         .arg(&root)
@@ -60,7 +68,7 @@ fn main() -> Result<()> {
         .output()?;
     ensure!(
         changed.status.success() && changed.stdout.is_empty(),
-        "compiler inputs differ from c8185606"
+        "compiler inputs differ from declared checker source"
     );
     let src = root.join("crates/tsr-conformance/src");
     let overlay = report.join("overlay.json");
@@ -94,6 +102,12 @@ fn main() -> Result<()> {
         .arg("./internal/testrunner")
         .status()?;
     ensure!(status.success(), "native build failed");
+    // Build from the verified checkout before binding its executable identity.
+    let status = Command::new("cargo")
+        .current_dir(&root)
+        .args(["build", "--release", "-p", "tsr-conformance", "--example", "full_oracle_actual"])
+        .status()?;
+    ensure!(status.success(), "source-bound actual producer build failed");
     let built_actual = std::env::current_exe()?.with_file_name("full_oracle_actual");
     ensure!(built_actual.is_file(), "build full_oracle_actual first");
     let native_hash = hash(&built_native)?;
@@ -172,10 +186,11 @@ fn main() -> Result<()> {
             "prior input/configuration set differs"
         );
         let manifest = fs::read_to_string(prior.join("manifest.tsv"))?;
-        ensure!(
-            manifest.lines().any(|l| l == format!("source\t{source}")),
-            "prior checker source differs"
-        );
+        let prior_source = manifest
+            .lines()
+            .find(|l| l.starts_with("source\t"))
+            .context("prior source identity missing")?;
+        write_atomic(&report.join("prior-source.tsv"), &format!("{prior_source}\n"))?;
         let mut ledger = String::new();
         for i in 0..tasks.len() {
             let dir = prior.join(format!("{i:05}"));
