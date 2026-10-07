@@ -10,6 +10,7 @@ fn every_type_argument_host_preserves_raw_delimiter_exclusive_ranges() {
         ("type Q = typeof f<>;", "query", Some("")),
         ("type Q = typeof f< /*a*/ T, /*b*/ >;", "query", Some(" /*a*/ T,")),
         ("f<>;", "instantiation", Some("")),
+        ("ver < (MyVer.v1 >= MyVer.v2 ? MyVer.v1 : MyVer.v2);", "instantiation", None),
         ("f</*c*/>;", "instantiation", Some("")),
         ("f</*c*/>();", "call", Some("")),
         ("f</*c*/>`x`;", "tagged", Some("")),
@@ -56,6 +57,10 @@ fn every_type_argument_host_preserves_raw_delimiter_exclusive_ranges() {
             let start = u32::try_from(source.find('<').unwrap() + 1).unwrap();
             Span::new(start, start + u32::try_from(raw.len()).unwrap())
         });
-        assert_eq!(hosts, [expected], "{source}");
+        if source.starts_with("ver <") {
+            assert!(hosts.is_empty(), "relational operator became an instantiation: {source}");
+        } else {
+            assert_eq!(hosts, [expected], "{source}");
+        }
     }
 }
