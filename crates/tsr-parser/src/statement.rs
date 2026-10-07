@@ -773,7 +773,22 @@ impl<'a> Parser<'a> {
     ) -> &'a VariableDeclaration<'a> {
         let docs = self.parse_leading_jsdoc();
         let start = self.pos();
-        let name = self.parse_binding_name();
+        let name = if self.at(SyntaxKind::PrivateIdentifier) {
+            // Native parseVariableDeclarationWorker supplies its private-name
+            // diagnostic, then consumes the token as an identifier.
+            self.error_at_current(
+                &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_IN_VARIABLE_DECLARATIONS,
+            );
+            let text = self.token_value();
+            self.next_token();
+            BindingName::Identifier(self.finish_node(
+                Identifier::new(text),
+                SyntaxKind::Identifier,
+                start,
+            ))
+        } else {
+            self.parse_binding_name()
+        };
         let exclamation = if allow_exclamation
             && matches!(name, BindingName::Identifier(_))
             && self.at(SyntaxKind::ExclamationToken)

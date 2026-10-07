@@ -475,6 +475,24 @@ dom 1.032960/1.031950 rejects standalone no-hotpath-regression. No scanner/AST/
 checker edits or test-specific private name handling. Candidate requires parent
 baseline-isolated perf/no-RIGHT gates before acceptance.
 
+### Private identifiers in variable declarations (tsr-2zk.2)
+
+Pinned parseVariableDeclarationWorker supplies TS18029 to the identifier-or-
+pattern worker and consumes the private token as an identifier. The owned
+statement candidate mirrors that diagnostic policy instead of generic TS18016,
+retaining initializer/annotation/JSDoc and ordinary node publication. Native
+const #foo reports [6,10), catch #x [14,16), for-let #x [9,11), with exact message.
+No change to let declaration lookahead or scanner classification is inferred.
+
+Isolated parser full/target tests, native controls, clippy and fmt pass. Two
+current diagnostic cases convert RIGHT (privateNameNotAllowedOutsideClass and
+privateNamesNotAllowedInVariableDeclarations); type rows unchanged and no
+incremental prior RIGHT/EMPTY_RIGHT/vanished losses. The cumulative earlier
+method-body candidate diagnostic losses remain explicitly unaccepted.
+41pair x60 complete-parse incremental wall/CPU parser.ts 0.995169/0.995272,
+dom 0.948411/0.948071; full JSDoc/diagnostic work and equal node outputs. No
+observed incremental slowdown. No AST/scanner/shared checker edits.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
