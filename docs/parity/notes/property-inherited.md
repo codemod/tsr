@@ -123,6 +123,39 @@ A coherent cross-owner port must rerun native controls and a full pair after
 integration. Historical C1/C2/C3 rejections in
 `docs/architecture/checker-inherited-this.md` are evidence, not current passes.
 
+## Calls-owner supplier mapper seam
+
+Existing native member operations are now checker-visible:
+
+```rust
+pub(crate) fn instantiate_for_reference_with_this(
+    &mut self, receiver: TypeId, declared: TypeId, this_argument: TypeId,
+) -> TypeId;
+pub(crate) fn get_type_of_property_with_this_argument(
+    &mut self, id: TypeId, name: &str, this_argument: TypeId,
+    skip_object_function_augment: bool,
+) -> Option<TypeId>;
+```
+
+Here `receiver`/`id` is the **supplying reference**, not the derived owner.
+Calls/contextual consumers pass the original derived this separately. The first
+API reuses the existing ordered parameter/formal-this mapper and
+`instantiate_type` publication/re-entry; it creates no extra cache or member
+image. A direct supplier control maps Base<string>/Base<number> callbacks to
+distinct Left/Right receivers and re-queries Left after Right. A wrong-owner
+countercontrol preserves the unmapped base parameter/this, proving that the
+receiving owner cannot stand in for the supplier. This smoke passes in the
+ignored parent-field workspace copy, against the retained direct native control.
+
+Calls-owner next action: `inference.rs::instantiate_signature_for_reference`
+currently maps only generic reference parameters. Preserve original derived
+this before signature instantiation/erasure; use this seam for declared member
+signature types rather than inventing a second mapper. Signature constraints
+containing `keyof this` still require the coordinated winning inherited-key
+producer and formal-this heritage context. No rejected member traversal cutover
+is re-enabled by exposing these APIs. Full parity/performance acceptance remains
+blocked on those shared producers, not claimed by the supplier smoke.
+
 ## Shared instantiation-expression prerequisite — tsr-2zk.16.56.1
 
 Owned member projections are implemented against the agreed parent field

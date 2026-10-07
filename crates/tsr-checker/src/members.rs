@@ -1279,8 +1279,10 @@ impl Checker<'_, '_> {
     }
 
     /// getTypeWithThisArgument retains the original receiver when member
-    /// lookup proceeds through its apparent constraint.
-    fn get_type_of_property_with_this_argument(
+    /// lookup proceeds through its apparent constraint or instantiated base.
+    /// Call/contextual owners must use the supplying reference plus the
+    /// original this argument, not a raw inherited declaration type.
+    pub(crate) fn get_type_of_property_with_this_argument(
         &mut self,
         id: TypeId,
         name: &str,
@@ -1957,7 +1959,13 @@ impl Checker<'_, '_> {
         self.instantiate_for_reference_with_this(receiver, declared, receiver)
     }
 
-    fn instantiate_for_reference_with_this(
+    /// resolveObjectTypeMembers/getTypeWithThisArgument (5b1047d
+    /// checker.go:19138): the supplier's ordered parameter mapper and the
+    /// original receiver's this argument are separate inputs. This is the
+    /// shared call/member substitution seam, not a second signature mapper.
+    /// Existing `instantiate_type` owns completion/re-entry and result reuse;
+    /// this method publishes no member image or additional cache.
+    pub(crate) fn instantiate_for_reference_with_this(
         &mut self,
         receiver: TypeId,
         declared: TypeId,
@@ -3772,6 +3780,36 @@ mod property_name_tests {
         let root = parsed.source_file.node_id().unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         test(&mut checker, root)
+    }
+
+    #[test]
+    fn supplying_reference_mapper_preserves_outer_arguments_and_derived_this() {
+        with_checker(
+            "interface Base<T> { fn: (p: this, value: T) => this } interface Left extends Base<string> { left: number } interface Right extends Base<number> { right: string }",
+            |checker, root| {
+                let base = checker.binder.lookup_local(root, "Base").unwrap();
+                let property = checker.binder.symbols().get(base).members["fn"];
+                let declared = checker.get_type_of_symbol(property);
+                for (name, argument, expected) in [
+                    ("Left", checker.intrinsics.string, "(p: Left, value: string) => Left"),
+                    ("Right", checker.intrinsics.number, "(p: Right, value: number) => Right"),
+                    ("Left", checker.intrinsics.string, "(p: Left, value: string) => Left"),
+                ] {
+                    let owner = checker.binder.lookup_local(root, name).unwrap();
+                    let receiver = checker.get_declared_type_of_symbol(owner);
+                    let supplier = checker.create_type_reference(base, vec![argument]);
+                    let member =
+                        checker.instantiate_for_reference_with_this(supplier, declared, receiver);
+                    assert_eq!(checker.type_to_string(member), expected);
+                }
+                // Merely mapping the receiving owner cannot substitute Base's
+                // parameters; this distinction prevents wrong-owner reuse.
+                let left = checker.binder.lookup_local(root, "Left").unwrap();
+                let left = checker.get_declared_type_of_symbol(left);
+                let unmapped = checker.instantiate_for_reference_with_this(left, declared, left);
+                assert_eq!(checker.type_to_string(unmapped), "(p: this, value: T) => this");
+            },
+        );
     }
 
     #[test]
