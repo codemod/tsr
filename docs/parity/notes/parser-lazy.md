@@ -155,6 +155,28 @@ no-hotpath-regression landing; no <=0.50 whole-checker claim follows. Integrate
 AST/writer/consumer atomically and rerun complete current campaign gates. The
 earlier JS-only fb043744 verification remains independent.
 
+### Default full-source SkipTrivia consumer seam
+
+`tsr_scanner::skip_trivia(source: &str, pos: u32) -> u32` ports pinned
+`scanner.SkipTrivia` with default options only. It skips whitespace, comments,
+shebang only at source offset zero, and native conflict markers with full-source
+line context. Beyond-EOF offsets are unchanged. The API accepts ordinary u32
+syntax offsets, not native negative synthesized positions. It does not scan a
+substring or allocate a scanner/token/diagnostic buffer. It reuses existing
+whitespace/line predicates, shebang helpers and seven-byte marker checks; native
+conflict-marker advancement is shared with ordinary scanning. No JSDoc-star or
+stop-at-comment options are introduced.
+
+Direct Go controls and scanner regression tests agree on all 15 full-source
+controls, including comment-only empty-list offset 2 -> 7, shebang/non-shebang,
+non-line-start markers, exactly-seven-byte EOF markers, LS termination, BOM/NEL/
+zero-width whitespace, unterminated comments and beyond-EOF offsets. Scanner
+release tests, library no-deps clippy and fmt pass. A test's initially incorrect
+LS byte-offset expectation was corrected to the observed native 15. The helper
+preserves raw list metadata: parent grammar/TS2635 consumers compute their own
+native endpoints without clamping. Parser parity and performance gates require
+the atomic parent AST/consumer integration; no new passing claim is made here.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
