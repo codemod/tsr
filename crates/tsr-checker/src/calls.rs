@@ -1366,7 +1366,7 @@ impl<'a> Checker<'a, '_> {
         let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
             return None;
         };
-        self.check_signature_type_arguments(candidate, call.type_arguments)
+        self.check_signature_type_arguments(candidate, call.type_arguments, true)
             .map(|arguments| arguments.is_some())
     }
 
@@ -1375,14 +1375,14 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         candidate: &Signature,
         nodes: &[tsr_ast::TypeNode<'a>],
+        report_errors: bool,
     ) -> Option<Option<Vec<TypeId>>> {
         let parameters = self.type_parameter_types(candidate)?;
         if !Self::signature_accepts_type_argument_count(candidate, nodes.len()) {
             return None;
         }
-        let names: Vec<String> =
-            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let names: Vec<&str> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
         // fillMissingTypeArguments preloads unresolved trailing slots with
         // errorType before evaluating defaults against the complete mapper.
         let mut map: Vec<_> =
@@ -1429,16 +1429,18 @@ impl<'a> Checker<'a, '_> {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
-                    let at = node.node_id()?;
-                    let span = self.error_span(at);
-                    self.report_relation_failure(
-                        at,
-                        span,
-                        None,
-                        source,
-                        target,
-                        Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
-                    );
+                    if report_errors {
+                        let at = node.node_id()?;
+                        let span = self.error_span(at);
+                        self.report_relation_failure(
+                            at,
+                            span,
+                            None,
+                            source,
+                            target,
+                            Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
+                        );
+                    }
                     return Some(None);
                 }
             }
@@ -1469,7 +1471,8 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(InstantiationExpressionSignature::Inapplicable);
         }
-        let Some(type_arguments) = self.check_signature_type_arguments(signature, arguments)?
+        let Some(type_arguments) =
+            self.check_signature_type_arguments(signature, arguments, true)?
         else {
             return Some(InstantiationExpressionSignature::ConstraintRejected);
         };
@@ -1485,7 +1488,7 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         nodes: &[tsr_ast::TypeNode<'a>],
     ) -> Option<Option<Signature>> {
-        let Some(arguments) = self.check_signature_type_arguments(signature, nodes)? else {
+        let Some(arguments) = self.check_signature_type_arguments(signature, nodes, true)? else {
             return Some(None);
         };
         self.get_signature_instantiation(signature, &arguments).map(Some)
@@ -1499,17 +1502,15 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         type_arguments: &[TypeId],
     ) -> Option<Signature> {
-        let signature = self.complete_signature_return(signature.clone())?;
+        let mut signature = self.complete_signature_return(signature.clone())?;
         let parameters = self.type_parameter_types(&signature)?;
         if parameters.len() != type_arguments.len() {
             return None;
         }
-        let names: Vec<_> =
-            signature.type_parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+        let own = std::mem::take(&mut signature.type_parameters);
+        let names: Vec<_> = own.iter().map(|parameter| parameter.name.as_str()).collect();
         let map: Vec<_> = parameters.iter().copied().zip(type_arguments.iter().copied()).collect();
-        let mut image = self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
-        image.type_parameters.clear();
-        Some(image)
+        self.instantiate_signature(signature, &map, &parameters, &names)
     }
 
     /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an

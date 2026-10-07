@@ -22,10 +22,12 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
     assert!(!Checker::signature_accepts_type_argument_count(&signature, 0));
     assert!(!Checker::signature_accepts_type_argument_count(&signature, 3));
     let arguments = checker
-        .check_signature_type_arguments(&signature, &[alias.r#type.unwrap()])
+        .check_signature_type_arguments(&signature, &[alias.r#type.unwrap()], true)
         .unwrap()
         .unwrap();
     let image = checker.get_signature_instantiation(&signature, &arguments).unwrap();
+    assert!(image.type_parameters.is_empty());
+    assert!(image.target.as_ref().unwrap().type_parameters.is_empty());
     assert_eq!(checker.type_to_string(image.r#type), "string");
     let parameter = checker.parameter_type(&image.parameters[0]);
     assert_eq!(checker.type_to_string(parameter), "string");
@@ -75,6 +77,10 @@ fn rejected_constraint_is_reported_without_an_instantiated_image() {
         checker.get_signatures_of_symbol(bound.lookup_local(root, "f").unwrap()).unwrap().remove(0);
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[1] else { panic!() };
     let argument: TypeNode<'_> = alias.r#type.unwrap();
+    assert!(
+        checker.check_signature_type_arguments(&signature, &[argument], false).unwrap().is_none()
+    );
+    assert!(checker.diagnostics().is_empty());
     assert!(matches!(
         checker.get_instantiation_expression_signature(&signature, &[argument]).unwrap(),
         InstantiationExpressionSignature::ConstraintRejected
