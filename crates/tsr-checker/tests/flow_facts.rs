@@ -40,6 +40,20 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
+fn binding_initial_default_retains_literal_before_assignment_reduction() {
+    assert_eq!(
+        narrowed_type(
+            "function f() {
+                 const { value = true } = { value: 1 as number | undefined };
+                 if (true) { value; }
+             }",
+            true,
+        ),
+        "number | true"
+    );
+}
+
+#[test]
 fn unknown_in_property_intersects_original_receiver_with_global_record() {
     assert_eq!(
         narrowed_type(

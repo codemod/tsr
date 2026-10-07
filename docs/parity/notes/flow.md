@@ -787,3 +787,46 @@ domain-model wall ratio 0.9576, CPU 1.0003; generic-imports wall 1.0148, CPU
 result does not meet strict no-slowdown; no hotpath causal attribution, speed
 acceptance or equivalent native complete-work/0.50 claim is made. Parent
 performance reconciliation remains required before campaign acceptance.
+
+## 20. Binding elements use initial source projection (tsr-2zk.16.158)
+
+Pinned `getInitialTypeOfBindingElement/getTypeWithDefault` in
+`internal/checker/flow.go` recursively obtains the holder's initial type,
+projects object property/index or array/tuple element, and unions the
+non-undefined result with the default expression's literal type. The previous
+flow worker had no binding-element arm and retained the declared union.
+`for-of43` therefore kept `number | boolean` instead of `number | true`.
+
+This owned producer uses the existing property/index, tuple/iterator and array
+reference workers; nested holders recurse through the same initial-type query.
+No declaration-type rewrite, parallel cache, or effects-state change. Index
+signature and variable tuple positions retain unchecked-index undefined; first
+experiment omitted that projection metadata and lost four RIGHT type rows and
+one diagnostic case, so it was rejected. Final producer retains it and passes
+the exact failing controls. Object rest follows native's computed binding-name
+property projection; array rest builds the iterator element array. Unsupported
+projection retains the existing declared-type road, never publishes completion.
+Owner is private Checker/AST node and original receiver; no borrowed metadata
+crosses recursive mutation. Expensive work remains existing projection/iteration
+workers and stores, with no new memoization or active success assumption.
+
+Native direct controls exit 0; native declaration and real probefile agree:
+object for-of defaults, nested binding defaults, tuple defaults all return
+`number | true`. Dedicated regression control passes. Final focused suites:
+136 tests pass. Existing native complete-negative effects work is untouched.
+
+Final fresh eligible corpus commands have durable exit 0. Types: 477,968 keys,
+RIGHT 469,806 → 469,821, WRONG 7,167 → 7,152, GAP 995 unchanged. Sixteen rows
+change, fifteen become RIGHT; zero RIGHT losses/vanished/new keys. Diagnostics:
+10,570 case rows byte-identical. Rejected experiment receipts remain separate;
+final receipts are `target/recovery/flow-binding/final/`, not the rejected
+parent directory's initial dump. Target residue belongs to other native roots
+and is not hidden or claimed solved. Full exact-configuration/parent historical
+RIGHT gates remain mandatory.
+
+Fresh 41-pair wait4 cohort against retained `5b427de3` binary: domain-model CPU
+ratio 0.9982, wall 1.0081; generic-imports CPU 0.9914, wall 0.9947. Complete
+stdout/stderr/status equal in every child. These are routine source-qualified
+measurements, not verified equivalent native complete work or <=0.50 release
+acceptance; domain wall does not meet literal no-slowdown. Counts of native
+forcing executions are not measured. Clippy, anchors and formatting checked.
