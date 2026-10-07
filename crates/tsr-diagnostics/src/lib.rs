@@ -234,6 +234,7 @@ struct DiagnosticDetails {
     file: Option<std::sync::Arc<DiagnosticFile>>,
     chain: Vec<Diagnostic>,
     related: std::sync::Arc<Vec<Diagnostic>>,
+    skipped_on_no_emit: bool,
 }
 
 impl Diagnostic {
@@ -312,6 +313,22 @@ impl Diagnostic {
             let details = self.details.get_or_insert_with(Default::default);
             std::sync::Arc::make_mut(&mut details.related).push(related);
         }
+        self
+    }
+
+    /// Per-diagnostic emit policy (`Diagnostic.SkippedOnNoEmit`).
+    /// This state is independent of the generated message's flags.
+    #[must_use]
+    pub fn skipped_on_no_emit(&self) -> bool {
+        self.details.as_ref().is_some_and(|details| details.skipped_on_no_emit)
+    }
+
+    /// Mark this diagnostic as omitted from semantic diagnostics under noEmit.
+    /// Ported from typescript-go's `Diagnostic.SetSkippedOnNoEmit`
+    /// (`internal/ast/diagnostic.go`). Clone retains this flag; new chain parents
+    /// do not inherit it from their child.
+    pub fn set_skipped_on_no_emit(&mut self) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).skipped_on_no_emit = true;
         self
     }
 

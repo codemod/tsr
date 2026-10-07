@@ -290,14 +290,26 @@ options.NoEmit is true. Native writers are `Checker.errorSkippedOnNoEmit` and
 checks. Native `NewDiagnosticChain` constructs a new parent and does not inherit
 this flag; Diagnostic.Clone retains it. Comparator/equality do not inspect it.
 
-Integrator/oracle-owner API request: confirm strict diagnostic serialization
-requires this field and route the producer/filter cutover atomically. Proposed
-model methods are `Diagnostic::skipped_on_no_emit(&self) -> bool` and
-`Diagnostic::set_skipped_on_no_emit(&mut self) -> &mut Self`. The model owner can
-implement native stored state once the request is confirmed; a constant false
-getter or inferring the flag from the message catalogue would be incorrect.
-Non-owned writers/checker and Program filtering must set/consume it at their
-native semantic boundary. No default-false oracle fallback was introduced.
+Strict-oracle request confirmed; model now stores this bool inside optional
+boxed DiagnosticDetails. Final APIs:
+`Diagnostic::skipped_on_no_emit(&self) -> bool` and
+`Diagnostic::set_skipped_on_no_emit(&mut self) -> &mut Self`.
+Unmarked/new diagnostics match native zero initialization without allocating
+DiagnosticDetails. Setting publishes true; Clone retains it; NewDiagnosticChain
+copies child location/related data but deliberately not the child's emit flag.
+Comparator/equality ignore it, exactly as native. This is dynamic stored state,
+not a constant-false getter or an inference from generated Message flags.
+Non-owned checker/grammar writers and Program filtering must set/consume it at
+their native semantic boundary; no Go overlay or compiler producer files changed.
+
+Behavior regression and standalone release smoke exercise marked child,
+retained clone and unmarked chain parent. Workspace release tests, all-target
+clippy and fmt pass. Stock all-sixteen-suite coverage completes in scratch:
+types 8042/9538, diagnostics 4221/5502. Fresh unfiltered absence-aware dumps retain
+all 469765 protected RIGHT type keys and 9189 RIGHT/EMPTY_RIGHT diagnostic keys,
+zero missing/changed. No production writer uses this API yet, so existing
+signature-root performance receipts are intentionally unchanged; future
+producer/filter integration requires its own consumer-path parity receipt.
 
 ## Native compaction follow-up
 

@@ -22,6 +22,25 @@ fn child(arg: &str) -> Diagnostic {
 }
 
 #[test]
+fn no_emit_policy_is_per_diagnostic_and_clone_retains_but_parent_does_not_inherit() {
+    let plain = head();
+    let mut marked = plain.clone();
+    marked.set_skipped_on_no_emit();
+    assert!(!plain.skipped_on_no_emit());
+    assert!(marked.skipped_on_no_emit());
+    assert!(marked.clone().skipped_on_no_emit());
+    assert_eq!(compare_diagnostics(&plain, &marked), Ordering::Equal);
+    assert!(equal_diagnostics(&plain, &marked));
+    let parent = Diagnostic::new_chain(
+        Some(marked),
+        &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+        ["A".into(), "B".into()],
+    );
+    assert!(!parent.skipped_on_no_emit());
+    assert!(parent.message_chain()[0].skipped_on_no_emit());
+}
+
+#[test]
 fn pinned_go_string_order_is_utf8_not_utf16() {
     // Go strings.Compare/slices.Compare(string) order bytes: U+E000 precedes
     // U+10000. UTF-16 would invert this pair (D800 precedes E000).
