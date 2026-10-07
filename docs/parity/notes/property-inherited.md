@@ -102,6 +102,29 @@ the final committed tree has no semantic cutover.
 | conformance/mixinAccessModifiers | 164 / 198 | 182 / 198 | WRONG |
 | conformance/mixinClassesMembers | 182 / 194 | 194 / 194 | EMPTY_WRONG, formerly EMPTY_RIGHT |
 
+## Complete rejected transition inventory
+
+Types: WRONG→RIGHT 83, GAP→RIGHT 14, RIGHT→WRONG 28, GAP→WRONG 8.
+New wrong GAP rows are `conformance/intersectionThisTypes:0:` rows
+29,31,32,35,37,38,40,42: native `Thing5` or `() => Thing5` becomes
+`Thing4` or `() => Thing4`. Six previously WRONG rows also change in that case
+(34,39,41,44,45,46), previously `any`, now the same wrong base receiver.
+Native `resolveObjectTypeMembers` / `getTypeWithThisArgument` must propagate
+concrete `Thing5` through intersection constituents, not let the structural base
+image retain `Thing4` presentation. This is an owned member-image prerequisite.
+Two previously WRONG rows in `compiler/thislessFunctionsNotContextSensitive3`
+(44,73) change from `{ editor: Editor; char?: string | undefined; }` to `any`.
+
+Diagnostics: RIGHT→WRONG 2, EMPTY_RIGHT→EMPTY_WRONG 1, WRONG→RIGHT 2,
+EMPTY_WRONG→EMPTY_RIGHT 1. Changed-but-still-wrong cases:
+`compiler/genericDefaults` removes extraneous TS2415 (464,15) but still lacks
+all eleven expected TS2744; `compiler/thislessFunctionsNotContextSensitive3`
+loses expected TS2783 (62,9), (81,9) while retaining extraneous TS2352;
+`conformance/contextualThisType` replaces extraneous TS2430 (5,11) with
+extraneous TS2322 (9,5); `conformance/mixinAccessModifiers` adds six new
+extraneous TS2445 (71,6), (72,6), (84,6), (85,6), (97,6), (98,6).
+No improvements justify these new wrong results.
+
 ## Required coordinated work
 
 - **Outside ownership: `contextual.rs`,
@@ -179,6 +202,59 @@ reuse benefit were measured. **Beads follow-up request to integrator:** attach
 an actual-worker/query/completed-hit/active-repeat/copy-byte audit to
 `tsr-2zk.4.12` / `tsr-1yb.11` before extending member reuse. No speculative cache
 is justified by this correctness experiment.
+
+## Second rejected root: protected alias receiver context
+
+Direct native/TSR control:
+
+```ts
+class Base { protected p = 1; }
+const Alias = Base;
+class Derived extends Alias { read(b: Base) { return b.p; } }
+class Middle extends Alias {}
+class Deep extends Middle { read(b: Base) { return b.p; } }
+```
+
+Frozen TSR reports TS2445 at (3,56), (5,54). Native reports TS2446 at those
+locations, naming Derived/Deep and Base in the complete receiver restriction
+message. An owned experiment replaced `class_derives_from`'s capped syntax
+walk with existing type-based `has_base_type`, and used that same predicate for
+the concrete containing receiver. Candidate/native control stdout matched
+byte-for-byte. No cache was added; base links retain the owner/publication
+contract above. The permanent experimental regression test also verified codes,
+spans and class-name arguments, plus a direct-subclass legal control and outside
+TS2445 control; it passed, then was removed when the experiment was rejected.
+
+Complete unfiltered dumps: 477,970 type keys and 10,570 diagnostic keys, zero
+vanished protected keys, zero changed prior RIGHT type or RIGHT/EMPTY_RIGHT
+case verdicts, and zero changed type payloads. **One changed-but-still-WRONG
+case blocks publication:** `conformance/mixinAccessModifiers` removes TS2445
+at (76,6), (77,6), (89,6), (90,6). The (89,6) diagnostic is expected, not
+extraneous. Direct pinned native CLI confirms TS2445 at physical source (92,6),
+the directive-stripped corpus (89,6), for `C4.s` in C5's static method.
+
+Native prerequisite: `isClassDerivedFromDeclaringClasses` runs `forEachProperty`
+and requires inheritance from **every protected constituent's declaring class**.
+TSR `property_accessibility_error` receives one winning constituent SymbolId;
+changing ancestry alone treats the composite property's permission as that
+single origin. This loses the Protected2 restriction on C4.s. Faithful completion
+requires the owned member subsystem to expose the complete composite property
+roots, static context and containing type together, then apply native
+`forEachProperty` policy. It must not special-case C4 or reinstate syntax-based
+ancestry just for synthetic properties. This experiment is reverted too.
+
+All candidate workspace release tests completed, including doc tests; clippy
+and workspace format checks passed. Full unfiltered coverage completed over
+12,444 discovered sources: checker_types 8042/9538, diagnostics 4221/5502.
+Snapshot writes alone were redirected; no diagnostic-output hooks were used,
+but coverage stdout equivalence against an unintercepted run was not separately
+proved. Correctness rejection does not rely on that coverage receipt: its
+loss is present in the ordinary unmodified verdict and native CLI paths.
+Initial 21-pair baseline wall ratios were noisy (domain-model 1.1164,
+generic-imports 1.0460); 41-pair repetitions were 1.0025 and 1.0124.
+Matching scope/options/diagnostics still does not prove complete actual work.
+No semantic change from either experiment is shipped. The single-owner whole-file
+member/static/alias contract remains unchanged pending a complete port.
 
 ## Release-target limits
 
