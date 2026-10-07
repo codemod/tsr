@@ -46,6 +46,13 @@ fn every_type_argument_host_preserves_raw_delimiter_exclusive_ranges() {
             };
             if kind == expected_kind {
                 let span = nodes.type_argument_list_span(id);
+                if span.is_some() {
+                    assert_eq!(
+                        nodes.flags(id).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA),
+                        expected.is_some_and(|raw| raw.ends_with(',')),
+                        "trailing type argument flag: {source}"
+                    );
+                }
                 if kind != "import" || span.is_some() {
                     hosts.push(span);
                 }

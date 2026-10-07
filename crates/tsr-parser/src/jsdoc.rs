@@ -1363,7 +1363,7 @@ impl<'a> Parser<'a> {
             };
         let node = tsr_ast::ExpressionWithTypeArguments::new(expression, type_arguments);
         let node = self.finish_jsdoc_node(node, SyntaxKind::ExpressionWithTypeArguments, start);
-        self.nodes.set_type_argument_list_span(node.node_id.unwrap(), list_span);
+        self.set_type_argument_list_metadata(node.node_id.unwrap(), list_span);
         if used_brace {
             self.skip_whitespace();
             self.expect_jsdoc(SyntaxKind::CloseBraceToken);

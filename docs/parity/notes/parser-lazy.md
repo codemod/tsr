@@ -155,6 +155,25 @@ no-hotpath-regression landing; no <=0.50 whole-checker claim follows. Integrate
 AST/writer/consumer atomically and rerun complete current campaign gates. The
 earlier JS-only fb043744 verification remains independent.
 
+### Parse-produced trailing-comma state
+
+The private TypeArgumentListMetadata carrier contains raw Span and the actual
+parse_delimited_list trailing_comma result. All eight native accessor domains
+publish HAS_TRAILING_COMMA on their concrete host with that metadata. Call/New
+argument-list parsing does not stamp this flag, so these hosts have no collision.
+Absorption reads the wrapper's metadata and flag, copies them to the resulting
+host, and clears its obsolete span entry. Empty/nil lists never acquire the flag.
+The parent grammar consumer reads host flag plus raw list end, reporting TS1009
+before TS1099; no source-comma scan or child-derived trailing predicate required.
+
+Parser release tests, metadata publication/trailing-state controls, library
+clippy and fmt passed with the canonical compilation-only AST copy. Performance
+remains rejected: baseline/candidate medians 1.043330/1.150199 for parser.ts/dom.
+A temporary monotonic sparse append fast path measured 1.045144/1.153359; inlining
+metadata wrappers measured 1.047094/1.149359. Neither fixes the slowdown. The
+parent-owned temporary AST copies were removed, not committed. This writer is
+correctness-complete but not an accepted no-hotpath-regression landing.
+
 ### Default full-source SkipTrivia consumer seam
 
 `tsr_scanner::skip_trivia(source: &str, pos: u32) -> u32` ports pinned

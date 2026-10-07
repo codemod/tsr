@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::ExpressionWithTypeArguments,
             start,
         );
-        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+        self.set_type_argument_list_metadata(node.node_id().unwrap(), list_span);
         node
     }
 
