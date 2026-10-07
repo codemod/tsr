@@ -1360,7 +1360,12 @@ pub(crate) fn render_case(
     // have no program, and they are the control that a call site without a host
     // is unchanged.
     let mut checker = configured_checker(program);
-    render_with_checker(program, files, explain, ids, &mut checker, case.had_error_baseline)
+    let directory = case.current_directory.as_deref().unwrap_or(CURRENT_DIRECTORY);
+    let roots = crate::trace_case::root_files_without_a_config(case, files, directory);
+    let is_root = |file: &&crate::TestFile| roots.contains(&tsr_path::get_normalized_absolute_path(&file.name, directory));
+    let ordered: Vec<_> = files.iter().filter(is_root).chain(files.iter().filter(|file| !is_root(file)))
+        .filter(|file| program.source_file(&file.name).is_some()).cloned().collect();
+    render_with_checker(program, &ordered, explain, ids, &mut checker, case.had_error_baseline)
 }
 
 pub(crate) fn render_with_checker<'a>(
@@ -2928,6 +2933,6 @@ mod tests {
     fn unloaded_input_cannot_borrow_another_units_tree() {
         let case = synthetic_case("const x = 1;\n");
         let files = [crate::TestFile { name: "absent.ts".into(), content: "let y = 2;".into() }];
-        assert_eq!(assertions_for_case(&case, &files, false), vec![Vec::new()]);
+        assert!(assertions_for_case(&case, &files, false).is_empty());
     }
 }
