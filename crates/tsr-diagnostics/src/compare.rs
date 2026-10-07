@@ -102,18 +102,23 @@ fn equal_chain(left: &[Diagnostic], right: &[Diagnostic]) -> bool {
 /// identities must be attached before calling this operation.
 #[must_use]
 pub fn sort_and_deduplicate_diagnostics(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
-    sort_and_deduplicate_located_diagnostics(diagnostics, |d| (path(d), d), |d| d)
+    sort_located(diagnostics, |d| (path(d), d), |d| d)
 }
 
-/// Native sort/compaction for owned consumer rows with borrowed primary paths.
+/// Native sort/compaction for owned primary-path/diagnostic rows.
 ///
-/// `locate` returns the Program-owned path (empty for global diagnostics) and
-/// the row's diagnostic. `diagnostic_mut` must access that same diagnostic.
-/// Rows retain their consumer metadata while moving in place. Primary paths
-/// override attached primary files; independently located related notes still
-/// use their attached images. No primary file attachment or key copy is needed.
+/// Empty paths denote global diagnostics. Rows move in place, retaining their
+/// existing paths without copies. Primary paths override attached primary files;
+/// independently located related notes still use their attached images.
+/// Head-only diagnostics need no primary attachment or boxed details.
 #[must_use]
-pub fn sort_and_deduplicate_located_diagnostics<T>(
+pub fn sort_and_deduplicate_located_diagnostics(
+    diagnostics: Vec<(String, Diagnostic)>,
+) -> Vec<(String, Diagnostic)> {
+    sort_located(diagnostics, |(path, d)| (path.as_str(), d), |(_, d)| d)
+}
+
+fn sort_located<T>(
     mut diagnostics: Vec<T>,
     locate: impl Fn(&T) -> (&str, &Diagnostic),
     diagnostic_mut: impl Fn(&mut T) -> &mut Diagnostic,
