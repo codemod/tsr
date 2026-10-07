@@ -681,13 +681,12 @@ through constituent workers. Existing full-facts callers retain all bits.
 Parent-owned unary call must request `TRUTHY | FALSY` rather than all facts.
 
 Native operation: pinned `getTypeFacts/getTypeFactsWorker` in
-`internal/checker/checker.go`. Empty anonymous objects retain their distinct
-facts before any classification skip. Other object/function categories share
-truthiness/nullish bits: if their requested projections are identical, the
-`bind`/Function subtype classification cannot alter the answer and is omitted.
-A distinguishing typeof mask still executes existing classification. This is
-projection of native fact aggregates, not syntax/type-name guessing or skipped
-semantic work. No cache or additional shared Checker state is introduced.
+`internal/checker/checker.go`. The initially added object/function projected-bit
+shortcut is **withdrawn and removed**: equal requested bits do not prove equal
+member forcing or diagnostic work. Native's nonzero possible-facts intersection
+still executes object/function classification, including truthiness queries.
+Only the native disjoint-possible-facts guard may skip object work. No cache or
+additional shared Checker state is introduced.
 
 Union/intersection constituent vectors are no longer cloned for these queries.
 Stable owner is the Checker TypeStore and original union/intersection TypeId;
@@ -722,16 +721,26 @@ except nullish equality bits in strict mode. A mask disjoint from that aggregate
 returns zero before empty-object/member work. This does not classify scalar or
 object types heuristically; it is the pinned native guard.
 
-An isolated instrumented run of the masked domain controls recorded 34 queries,
-42 constituent-worker executions, six possible-facts skips, four category skips
-and two named-callable classifier executions (both distinguishing function
-`typeof` queries). Truthiness callable queries execute no classifier. Full
-per-query log and aggregate counts are in `flow-mask/worker-count-controls.log`
-and `worker-counts.json`; instrumentation was removed before ordinary gates.
-These are fixture counts, not workload counts or performance acceptance.
+The historical isolated instrumented run of the now-withdrawn projection
+shortcut recorded 34 queries, 42 worker executions, six possible-facts skips,
+four category skips and two classifiers. Those category skips **do not prove
+native-equivalent complete work** and are not an optimization receipt. Logs
+remain in `flow-mask/worker-count-controls.log` and `worker-counts.json` to
+preserve the rejected experiment; instrumentation was removed before gates.
+The production shortcut has been removed. No workload counts or performance
+acceptance are established by that experiment.
 
 Ordinary control and all 113 targeted tests pass. Follow-up full eligible
 corpus child exits are 0; all 10,570 diagnostic keys and 477,968 type keys are
 byte-identical to the masked baseline, with zero RIGHT losses/vanished keys.
 Checker-library Clippy passes. Receipts: `target/recovery/flow-possible/`.
 Parent integrated unary/query counts and CPU regression gate remain required.
+
+After removing the nonnative category shortcut, the masked semantic control
+and 113 target tests pass; ordinary full eligible diagnostics/types remain
+byte-identical (10,570 / 477,968 keys; both child exits 0), zero RIGHT/vanished
+losses. Checker-library Clippy passes. Retained production scope is native mask
+propagation, native possible-facts guard and allocation-free constituent
+traversal only. Receipts: `target/recovery/flow-native-mask/`. This correction
+establishes no runtime complete-work or speed claim; parent integrated counts
+and CPU gate remain mandatory.
