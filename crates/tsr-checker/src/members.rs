@@ -3777,7 +3777,7 @@ mod property_name_tests {
     #[test]
     fn instantiation_expression_members_retain_concrete_source_and_side() {
         with_checker(
-            "interface Base<T> { value: T } interface Source extends Base<string> { readonly own: number } class Static { static own: boolean; instance: string }",
+            "class Base<T> { value: T } class Source extends Base<string> { readonly own: number } class Static { static own: boolean; instance: string }",
             |checker, root| {
                 let owner = checker.binder.lookup_local(root, "Source").unwrap();
                 let source = checker.get_declared_type_of_symbol(owner);
