@@ -423,6 +423,27 @@ supersedes any claim that 2fdefa2f's resulting tests were full-suite-safe.
 No static production behavior changed; sole124/124 target/full parity/perf
 receipts still apply. Existing .16.306 claimed, remains open.
 
+## Union literal property candidate rejected — tsr-2zk.16.130
+
+Five named targets remain incomplete:21/26,14/21,24/27,106/108,17/19.
+Investigated native getTypeOfPropertyOfContextualTypeEx mapType leaf retention
+by removing the owned post-discrimination unit-leaf refusal. Current coherent
+mirror full gate rejects it:44type gains but **six prior RIGHT losses**, zero
+vanished keys;1diagnostic gain, zero diagnostic-correct losses. Candidate reverted.
+Losses excessPropertyCheckWithUnions/MultipleDiscriminants retain z:true where
+native gives z:boolean after contextual discriminant selection.
+
+Read canonical symbols.rs::discriminate_union_root (not flow): it collects every
+unit initializer then contextual-property matches it. Native
+getApparentTypeOfContextualType/discriminateContextualTypeByObjectMembers uses
+only actual applicable discriminant properties and discriminates before member
+context. That existing canonical producer is outside contextual ownership;
+no second traversal or property-name heuristic added to bypass it. Exact owner
+handoff recorded in existing .16.130 notes, issue claimed/open. Actual pinned
+native control and rejected full dumps/comparisons retained under union-*.
+No implementation, target conversion or performance claim for this rejection;
+owned source returns exactly to previous committed behavior. Format passes.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
