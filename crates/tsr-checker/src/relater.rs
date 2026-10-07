@@ -3241,7 +3241,31 @@ impl Relater<'_, '_, '_> {
                 let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
                 constraint = next;
             }
-            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            let saved_pair = self.diagnostic_pair;
+            let reporting = saved_pair == Some((source, target));
+            // Native source TypeVariable fast constraint query is verdict-only.
+            self.diagnostic_pair = None;
+            let related = self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            self.diagnostic_pair = saved_pair;
+            if related == RelationResult::NotRelated
+                && reporting
+                && !self.checker.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && self.checker.type_of(constraint).flags.intersects(TypeFlags::PRIMITIVE)
+                && !self
+                    .checker
+                    .type_of(constraint)
+                    .flags
+                    .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            {
+                // Primitive constraints have no polymorphic this to substitute.
+                // The completed constraint failure is the native inner head.
+                self.property_error = Some(tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                    tsr_core::Span::new(0, 0),
+                    [self.checker.type_to_string(constraint), self.checker.type_to_string(target)],
+                ));
+            }
+            return related;
         }
         // A deferred keyof without a target IndexType inhabits the property-key
         // domain (relater.go:3694). The concrete operand/mapper stays intact.

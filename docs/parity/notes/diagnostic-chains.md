@@ -346,6 +346,33 @@ cumulative deltas remain evidence against claiming universally no regression.
 Receipts return-signature-*; previous stable commit
 3db66430793266adfdf8f99cb5c15b5ee77ef7d2.
 
+## Source primitive constraint chain — tsr-2zk.1
+
+Pinned source TypeVariable branch at relater.go 3665 first checks constraint with
+reporting disabled, then compares constraint-with-this with reporting when target
+is not a type parameter and constraint is not unknown. Primitive constraints have
+no receiver-this substitution. Owned source-parameter worker now preserves the
+original reporting pair, runs its existing constraint verdict worker with reporting
+disabled, and publishes the completed primitive failure as inner TS2322. No new
+constraint query/cache or syntax special-case. Object/polymorphic-this and composite
+constraints remain unsupported at this seam rather than receiving guessed mappings.
+
+Actual assignment/argument U extends string to number controls gain native
+`Type 'string' is not assignable to type 'number'.` with consumer-chosen spans.
+Dedicated tests and complete reachable CLI match native. The combined TS2344
+control still emits no TSR Box<U> constraint error in this recovery base: its
+non-owned caller is missing. Parent instantiation writer must call existing
+report_relation_failure with head TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1 and
+original U/number pair; this port supplies the owned inner constraint detail once
+that caller reaches it. No whole instantiationExpressions conversion is claimed.
+
+Workspace release test log completes all doc-tests; enclosing multi-command call
+timed out during clippy, not during workspace tests. Interrupted clippy discarded;
+completed replacement clippy passes. Fresh full dumps retain all 469785 type RIGHT
+and 9190 diagnostic keys, zero vanished/changed; sixteen suites complete. Domain21
+observed cumulative recovery-baseline wall1.0446, diagnostics match, verified work
+null. No-hotpath-regression acceptance remains unmet. Receipts constraint-source-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

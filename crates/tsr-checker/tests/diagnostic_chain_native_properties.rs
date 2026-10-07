@@ -175,6 +175,21 @@ fn signature_valued_return_arity_retains_return_relation_and_property_marker() {
 }
 
 #[test]
+fn source_type_parameter_primitive_constraint_failure_retains_inner_relation() {
+    let ds = diagnostics(
+        "function failed<U extends string>(value: U): number { return value; } function argument<U extends string>(value: U) { accept(value); } declare function accept(value: number): void;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322, 2345]);
+    for d in ds {
+        assert_eq!(
+            d.message_chain().iter().map(Diagnostic::text).collect::<Vec<_>>(),
+            ["Type 'string' is not assignable to type 'number'."]
+        );
+        assert_eq!(d.message_chain()[0].span, d.span);
+    }
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",
