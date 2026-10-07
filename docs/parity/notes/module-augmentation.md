@@ -215,7 +215,14 @@ completion is inferred from these normalized runs.
 
 ### GlobalThis symbol root (tsr-2zk.16.97): owned-file boundary
 
-Authoritative blocked scope is eight cases, not a conversion promise. Native
+Authoritative integration target set: compiler/globalThisDeclarationEmit3,
+compiler/multiExtendsSplitInterfaces1, compiler/truthinessCallExpressionCoercion2,
+compiler/uncalledFunctionChecksInConditional2, conformance/globalThisAmbientModules,
+conformance/globalThisBlockscopedProperties, conformance/globalThisGlobalExportAsGlobal,
+conformance/globalThisTypeIndexAccess. Blocked scope is eight cases, not a
+conversion promise. Current Box target dump completes with 675 aligned rows:
+639 RIGHT, 34 WRONG, 2 GAP. No implementation change or target conversion is
+claimed from that measurement. Native
 NewChecker creates globalThisSymbol as readonly Module, aliases its Exports to
 c.globals, inserts that same symbol in globals, and publishes its anonymous type
 in valueSymbolLinks. resolveAnonymousTypeMembers filters block-scoped globals
