@@ -196,6 +196,35 @@ preserves raw list metadata: parent grammar/TS2635 consumers compute their own
 native endpoints without clamping. Parser parity and performance gates require
 the atomic parent AST/consumer integration; no new passing claim is made here.
 
+### Remaining createMissingIdentifier cursor boundary (tsr-2zk.2)
+
+Pinned native createMissingIdentifier uses nodePos() for both empty endpoints.
+The shared parser missing_identifier helper still used token start after trivia;
+only report_missing_identifier had already been recovered to nodePos. The
+remaining helper now uses scanner.full_start through node_end, without changing
+allocation, identity, parent publication or diagnostic filtering. Direct native
+controls confirm empty constructor-index children at [6,6) despite spaces,
+comments, Unicode and CRLF, [9,9) for new ns.C, comma missing operand [5,5),
+and delete missing operand [21,21). Existing constructor-index behavioral
+assertions were corrected from post-trivia spans to observed native spans.
+
+Fresh parser tests, parser library clippy and fmt pass with temporary canonical
+AST copy. Full current dump converts commaOperatorWithoutOperand and
+ deleteOperatorInvalidOperations diagnostic cases WRONG to RIGHT: RIGHT 4227
+->4229, keys unchanged; every prior RIGHT/EMPTY_RIGHT and type RIGHT key
+preserved, including vanished-key checks. Type counts unchanged. No full varied
+configuration or raw native diagnostic-order claim follows.
+
+Performance rejects this candidate: fresh same-flags control rebuilt by changing
+only the missing-node cursor back to token start versus candidate node_end gives
+41 interleaved affinity-pinned pairs x60 parses wall/CPU 1.025644/1.025780 on
+parser.ts, 1.024943/1.025074 on dom, with identical complete node outputs and no
+skipped JSDoc/diagnostic work. Helper inlining did not resolve it and was reverted.
+The correctness patch is a separately recorded unaccepted candidate, not a
+verified no-hotpath-regression landing. Temporary AST copy removed. Parent must
+resolve the parse code-layout/worker attribution before acceptance; no threshold
+waiver or heuristic missing-node exception supplied.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

@@ -4,16 +4,16 @@ use tsr_ast::{Expression, Statement};
 use tsr_core::{Arena, Span};
 
 #[test]
-fn empty_constructor_index_diagnostic_precedes_trivia_without_moving_its_missing_child() {
-    // Diagnostic starts come from pinned parseElementAccessExpressionRest/nodePos.
-    // Missing children retain their canonical token position, after SkipTrivia.
-    for (source, diagnostic_start, missing_start) in [
-        ("new C[];", 6, 6),
-        ("new C[      ];", 6, 12),
-        ("new C[/*comment*/];", 6, 17),
-        ("new C[/*é*/\r\n    ];", 6, 18),
-        ("new ns.C[/*é*/\r\n\t ];", 9, 19),
-        ("new\nC[\r ];", 6, 8),
+fn empty_constructor_index_and_its_missing_child_precede_trivia() {
+    // Both parseElementAccessExpressionRest and createMissingIdentifier use
+    // native nodePos(), before current-token trivia.
+    for (source, diagnostic_start) in [
+        ("new C[];", 6),
+        ("new C[      ];", 6),
+        ("new C[/*comment*/];", 6),
+        ("new C[/*é*/\r\n    ];", 6),
+        ("new ns.C[/*é*/\r\n\t ];", 9),
+        ("new\nC[\r ];", 6),
     ] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
@@ -33,7 +33,7 @@ fn empty_constructor_index_diagnostic_precedes_trivia_without_moving_its_missing
             .argument_expression
             .and_then(|argument| argument.node_id())
             .expect("missing identifier");
-        assert_eq!(parsed.nodes.span(missing_id), Span::at(missing_start), "{source:?}");
+        assert_eq!(parsed.nodes.span(missing_id), Span::at(diagnostic_start), "{source:?}");
         assert_eq!(parsed.nodes.parent(missing_id), index.node_id, "{source:?}");
     }
 }

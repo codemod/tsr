@@ -774,10 +774,10 @@ impl<'a> Parser<'a> {
 
     /// A synthesised identifier standing in for one the source omitted.
     ///
-    /// Error recovery needs a node to attach children to; a zero-width identifier
-    /// keeps the tree walkable without pretending text exists.
+    /// Ported from typescript-go's `Parser.createMissingIdentifier` (`parser.go`).
+    /// Both endpoints are `nodePos()`, before current-token trivia, not `TokenStart`.
     pub(crate) fn missing_identifier(&mut self) -> &'a Identifier<'a> {
-        let start = self.pos();
+        let start = self.node_end();
         let node = Identifier::new("");
         let id =
             self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
