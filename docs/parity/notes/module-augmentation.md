@@ -181,6 +181,42 @@ native on function/constructor type patterns with typeof-renamed returns. That
 no-diagnostic control does not prove returned type parity. Parent must exercise
 the F6 type control after its binding-parent consumer edit.
 
+## Attributed default-import usage-mode targets (tsr-2zk.16.161)
+
+Claimed the existing Beads root; no duplicate task. Recovered only the coherent
+owned symbols hunk and semantic mode-target test from f0ca4bbf after native
+review. getTargetOfImportClause resolves its actual parent module specifier even
+with attributes; getTargetOfModuleDefault then selects the target. Removed the
+attribute-presence decline, not attribute diagnostics or validation.
+
+Identity remains the existing Program importing SourceFile/specifier/usage-mode
+resolution. Explicit import versus require mode selects different source files
+for the same package string; source/default target and written importing alias
+remain distinct. The ModuleHost already supplies actual usage mode. No new
+cache, mapper, identity space or eager traversal. Expensive module resolution
+remains the Program's existing resolved-module lookup; this checker change is
+one admission branch, not a second name-keyed cache.
+
+Native direct fixture uses package conditional types exports: ESM default is
+`'esm'`, CJS export= is `'cjs'`. Both wrong-mode assignments
+emit exact TS2322 messages/spans/order in native. The frozen pre-fix TSR emitted
+none; rebuilt TSR output is byte-identical to native. The focused canonical
+Program-identity/mode test fails before and passes after.
+
+Current target emitted rows before -> after RIGHT: importAttributes11 3/4 ->
+4/4; importAttributes7 20/21 -> 21/21; importAttributes8 6/7 -> 7/7;
+resolutionModeCache 6/8 -> 8/8. Coverage gains three whole type cases, not four:
+8,055/9,538; diagnostics unchanged 4,222/5,502. Full verdicts have zero previously
+RIGHT losses and zero vanished keys; five added RIGHT rows relative to callable
+recovery (469,809/477,970 RIGHT, 983 GAP, 7,178 WRONG).
+
+Focused alias/cross-file/callable/mode tests, all-target checker clippy and owned
+format checks passed. Fresh-process median child CPU new/base ratios over 21
+samples: domain-model 1.0173, generic-imports 0.9867. Diagnostics/scope/options
+matched; observed wall 1.0068/0.9820, verified native complete-work wall null.
+Issue remains open for parent integrated full-configuration acceptance; neither
+99.9% exact parity nor native equivalent complete-work wall <=0.50 is claimed.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
