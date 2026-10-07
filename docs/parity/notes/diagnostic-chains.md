@@ -566,3 +566,20 @@ observe 1.56656. Diagnostics, options and loaded scope agree; complete performed
 work remains unverified. Neither observation proves no slowdown, native speed
 lead or the <=0.50 release target.
 
+
+## Union-source constituent chains — tsr-2zk.1
+
+Pinned `unionOrIntersectionRelatedTo` (relater.go:2853) and
+`eachTypeRelatedToType` (:2932): with `reportErrors`, a non-primitive source
+union relates each constituent as the diagnostic pair and returns on the first
+failure, whose nested `reportErrorResults`/`reportRelationError` link
+(`Checker::nested_relation_error`) sits above its completed explanation. A
+primitive source union (boolean, enum) or a primitive side of a target-union
+pair passes no nested reporting, so the pair's own link is the whole
+explanation (`simple_error`). Key/owner: walk-local `property_error` on the
+active `diagnostic_pair`; no cache, publication only after a completed
+`NotRelated`. Declines (publishes nothing): a constituent after an undecided
+one, equal display names, exactOptionalPropertyTypes, object-to-non-object
+pairs (primitive/wrapper notes), unconstrained type-parameter sources (TS2208
+note), and target unions needing `getBestMatchingType`. Expensive work: one
+extra walk only on reported failures, as native.

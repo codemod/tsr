@@ -1976,6 +1976,66 @@ impl<'a> Checker<'a, '_> {
         diagnostic
     }
 
+    /// Nested `Relater.reportErrorResults` -> `reportRelationError`
+    /// (`relater.go`) with no head message under the assignable relation: one
+    /// chain link for a failed inner pair, above its completed `child`.
+    /// Display generalization and the type-parameter explanation follow
+    /// [`Checker::relation_diagnostic`]; the arbitrary-type branch discards the
+    /// prior chain as native `r.errorChain = nil` does.
+    ///
+    /// `None` where native would add output this port does not build: equal
+    /// display names (`getTypeNamesForErrorDisplay` qualification),
+    /// exact-optional message variants, `tryElaborateErrorsForPrimitivesAndObjects`
+    /// and the Object-type note (object source, primitive or global Object), and
+    /// the TS2208 related note for an unconstrained type-parameter source.
+    /// Verdict-free: callers hold a completed `NotRelated` for the pair.
+    pub(crate) fn nested_relation_error(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        child: Option<Diagnostic>,
+    ) -> Option<Diagnostic> {
+        let source_flags = self.type_of(source).flags;
+        if self.exact_optional_property_types
+            || (source_flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
+                && !self
+                    .type_of(target)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
+            || (source_flags.contains(TypeFlags::TYPE_PARAMETER)
+                && self.base_constraint_of_type(source).is_none())
+        {
+            return None;
+        }
+        let displayed = self.assignability_source_for_error_display(source, target);
+        let source_text = self.type_to_string(displayed);
+        let target_text = self.type_to_string(target);
+        if source_text == target_text {
+            return None;
+        }
+        let span = tsr_core::Span::new(0, 0);
+        let mut diagnostic = self.relation_diagnostic(
+            span,
+            source,
+            target,
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+            source_text,
+            target_text,
+        );
+        match diagnostic.message_chain_mut().first_mut() {
+            Some(explanation)
+                if explanation.message
+                    == &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1 => {}
+            Some(explanation) => {
+                explanation.add_message_chain(child);
+            }
+            None => {
+                diagnostic.add_message_chain(child);
+            }
+        }
+        Some(diagnostic)
+    }
+
     /// An object literal against a union target, up to the outer report:
     /// `hasExcessProperties` (`relater.go:2714`) ahead of the relation, then
     /// `elaborateObjectLiteral` (`relater.go:498`) for a failed one, then the

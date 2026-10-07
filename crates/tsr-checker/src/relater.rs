@@ -2980,6 +2980,61 @@ impl Relater<'_, '_, '_> {
         })
     }
 
+    /// `eachTypeRelatedToType` (`relater.go:2932`) with `reportErrors`: the
+    /// first failed constituent is related again as the diagnostic pair and
+    /// its nested `reportRelationError` link is published above the
+    /// constituent's completed explanation. The parent union pair adds its own
+    /// head. Explanations are walk-local (`property_error`); no cache. A
+    /// constituent after an undecided one publishes nothing, since native
+    /// could have failed earlier; an unsupported nested explanation publishes
+    /// nothing either.
+    fn each_type_related_to_type_reporting(
+        &mut self,
+        constituents: &[TypeId],
+        target: TypeId,
+    ) -> RelationResult {
+        let mut parts = Vec::with_capacity(constituents.len());
+        for &constituent in constituents {
+            let decided = !parts.contains(&RelationResult::Unknown);
+            let saved_pair = self.diagnostic_pair;
+            let saved_property = self.property_error.take();
+            let saved_signature = self.signature_error.take();
+            let saved_simple = std::mem::take(&mut self.simple_error);
+            let saved_marker = self.return_marker.take();
+            self.diagnostic_pair = decided.then_some((constituent, target));
+            let related =
+                self.is_related_to_with_flags(constituent, target, RecursionFlags::SOURCE);
+            self.diagnostic_pair = saved_pair;
+            if related == RelationResult::NotRelated {
+                let child = self.property_error.take().or_else(|| {
+                    self.signature_error.take().map(|(minimum, count)| {
+                        tsr_diagnostics::Diagnostic::with_args(
+                            &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                            tsr_core::Span::new(0, 0),
+                            [minimum.to_string(), count.to_string()],
+                        )
+                    })
+                });
+                let simple = std::mem::take(&mut self.simple_error);
+                self.property_error = if decided && (child.is_some() || simple) {
+                    self.checker.nested_relation_error(constituent, target, child)
+                } else {
+                    None
+                };
+                self.signature_error = None;
+                self.simple_error = saved_simple;
+                self.return_marker = saved_marker;
+                return RelationResult::NotRelated;
+            }
+            self.property_error = saved_property;
+            self.signature_error = saved_signature;
+            self.simple_error = saved_simple;
+            self.return_marker = saved_marker;
+            parts.push(related);
+        }
+        RelationResult::all(parts)
+    }
+
     /// structuredTypeRelatedToWorker (internal/checker/relater.go).
     fn structured_type_related_to_worker(
         &mut self,
@@ -3008,14 +3063,22 @@ impl Relater<'_, '_, '_> {
             // comparable relation, where SOME constituent suffices
             // (`relater.go:2870`, `someTypeRelatedToType`). §750.
             let comparable = matches!(self.relation, Relation::Comparable);
+            let reporting = self.relation == Relation::Assignable
+                && self.diagnostic_pair == Some((source, target));
+            // unionOrIntersectionRelatedTo (relater.go:2873) reports nested
+            // errors only for a non-primitive source union.
+            if reporting && !self.checker.type_of(source).flags.intersects(TypeFlags::PRIMITIVE) {
+                return self.each_type_related_to_type_reporting(&constituents, target);
+            }
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(c, target, RecursionFlags::SOURCE));
-            return if comparable {
-                RelationResult::any(parts)
-            } else {
-                RelationResult::all(parts)
-            };
+            let result =
+                if comparable { RelationResult::any(parts) } else { RelationResult::all(parts) };
+            // With nested reporting off, the pair's own reportRelationError
+            // link is the whole explanation.
+            self.simple_error |= reporting && result == RelationResult::NotRelated;
+            return result;
         }
         if let Some(constituents) = self.intersection_constituents(target) {
             // Related to every constituent of a target intersection.
@@ -3035,11 +3098,22 @@ impl Relater<'_, '_, '_> {
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
+            let reporting = self.relation == Relation::Assignable
+                && self.diagnostic_pair == Some((source, target));
             let source = self.checker.get_regular_type_of_object_literal(source);
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
-            return RelationResult::any(parts);
+            let result = RelationResult::any(parts);
+            // unionOrIntersectionRelatedTo (relater.go:2876) passes no nested
+            // reporting to typeRelatedToSomeType for a primitive source or
+            // target, so the pair's own link is the whole explanation.
+            // getBestMatchingType elaboration for other pairs is not ported.
+            self.simple_error |= reporting
+                && result == RelationResult::NotRelated
+                && (self.checker.type_of(source).flags.intersects(TypeFlags::PRIMITIVE)
+                    || self.checker.type_of(target).flags.intersects(TypeFlags::PRIMITIVE));
+            return result;
         }
         let source_intersection_result = if let Some(constituents) =
             self.intersection_constituents(source)
