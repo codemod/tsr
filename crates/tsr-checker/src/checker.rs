@@ -3676,6 +3676,26 @@ impl<'a, 'n> Checker<'a, 'n> {
                 {
                     continue;
                 }
+                // Ported from typescript-go's `trySymbolTable`
+                // (`internal/checker/symbolaccessibility.go`), pinned 5b1047d:
+                // this is a local-name lookup, not a qualified exports lookup.
+                let entry = self.binder.symbols().get(candidate);
+                if entry.name == "default"
+                    || entry.name == "export="
+                    || entry.declarations.iter().any(|&declaration| {
+                        self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier
+                            || matches!(self.node_map.get(declaration), Some(Node::NamespaceExport(_)))
+                                && self.nodes.parent(declaration).and_then(|parent| self.node_map.get(parent))
+                                    .is_some_and(|parent| matches!(parent, Node::ExportDeclaration(export) if export.module_specifier.is_some()))
+                    })
+                    || (entry.declarations.first().is_some_and(|&declaration| {
+                        self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+                    }) && self.source_file_of(reference).and_then(|file| self.node_map.get(file))
+                        .is_some_and(|file| matches!(file, Node::SourceFile(source)
+                            if tsr_binder::is_external_module(source))))
+                {
+                    continue;
+                }
                 let resolved = self.resolve_alias(candidate);
                 if resolved != Some(module)
                     && resolved.map(|r| self.resolve_alias_fully(r)) != Some(module_target)
