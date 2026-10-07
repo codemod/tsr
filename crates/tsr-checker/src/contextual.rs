@@ -1514,8 +1514,17 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionExpression(f)) => (f.r#type, f.asterisk_token.is_some()),
             Some(Node::ArrowFunction(f)) => (f.r#type, false),
             Some(Node::MethodDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
+            Some(Node::GetAccessorDeclaration(getter)) => (getter.r#type, false),
             _ => (None, false),
         };
+        // getReturnTypeFromAnnotation (`checker.go:20058`): the declaration's
+        // type node, which in a JS file is the reparsed `@returns` tag
+        // (`reparseHosted`); for a get accessor without one, the paired set
+        // accessor's value-parameter annotation
+        // (getEffectiveSetAccessorTypeAnnotationNode, `this` skipped).
+        let annotation = annotation
+            .or_else(|| self.jsdoc_return_annotation(function))
+            .or_else(|| self.paired_setter_value_annotation(function));
         if let Some(annotation) = annotation {
             return Ok(Some(self.get_type_from_type_node(annotation)));
         }
@@ -2610,6 +2619,27 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         Some(member)
+    }
+
+    /// `getAnnotatedAccessorType(getDeclarationOfKind(symbol, SetAccessor))`
+    /// for a get accessor: the setter's value parameter (after an explicit
+    /// `this`) written or reparsed JSDoc `@param` type node.
+    fn paired_setter_value_annotation(&self, getter: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
+        if self.nodes.kind(getter) != tsr_ast::SyntaxKind::GetAccessor {
+            return None;
+        }
+        let symbol = self.binder.symbol_of(getter)?;
+        self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+            let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)? else {
+                return None;
+            };
+            let has_this = setter.parameters.len() == 2 && is_this_parameter(setter.parameters[0]);
+            let parameter = setter.parameters.get(usize::from(has_this))?;
+            parameter.r#type.or_else(|| {
+                self.jsdoc_parameter_annotation(parameter.node_id?)
+                    .map(|(annotation, _)| annotation)
+            })
+        })
     }
 
     /// Whether `discriminateContextualTypeByObjectMembers`
