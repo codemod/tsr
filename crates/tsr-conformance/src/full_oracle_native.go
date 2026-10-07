@@ -4,6 +4,7 @@ package testrunner
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/diagnosticwriter"
 	"github.com/microsoft/typescript-go/internal/locale"
 	"github.com/microsoft/typescript-go/internal/testutil/harnessutil"
@@ -118,6 +119,7 @@ func TestFullOracle(t *testing.T) {
 		}
 		message := diagnosticwriter.FlattenDiagnosticMessage(diagnosticwriter.WrapASTDiagnostic(d), "\n", locale.Default)
 		fmt.Fprintf(out, "D\t%s\t%d\t%d\t%d\t%d\t%s\n", oracleHex(oraclePath(file)), start, length, d.Code(), d.Category(), oracleHex(message))
+		oracleDetails(out, d, "head")
 	}
 	files := append(append([]*harnessutil.TestFile{}, c.toBeCompiled...), c.otherFiles...)
 	for _, row := range tsbaseline.FullOracleTypes(c.result.Program, files, len(c.result.Diagnostics) > 0) {
@@ -125,6 +127,31 @@ func TestFullOracle(t *testing.T) {
 	}
 	fmt.Fprintln(out, "COMPLETE")
 }
+
+// Emit metadata and recursive chain/related records in native publication order.
+// Paths encode list identity and position; equal messages do not collapse separate records.
+func oracleDetails(out *os.File, d *ast.Diagnostic, path string) {
+	fmt.Fprintf(out, "M\t%s\t%t\t%t\t%t\n", path, d.ReportsUnnecessary(), d.ReportsDeprecated(), d.SkippedOnNoEmit())
+	for _, list := range []struct {
+		tag  string
+		rows []*ast.Diagnostic
+	}{{"C", d.MessageChain()}, {"R", d.RelatedInformation()}} {
+		for i, child := range list.rows {
+			childPath := fmt.Sprintf("%s/%s%d", path, list.tag, i)
+			file := ""
+			start, length := child.Pos(), child.Len()
+			if child.File() != nil {
+				file = child.File().FileName()
+				text := child.File().Text()
+				start = oracleUTF16(text[:child.Pos()])
+				length = oracleUTF16(text[child.Pos():child.End()])
+			}
+			fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n", list.tag, childPath, oracleHex(oraclePath(file)), start, length, child.Code(), child.Category(), oracleHex(child.Localize(locale.Default)))
+			oracleDetails(out, child, childPath)
+		}
+	}
+}
+
 func oraclePath(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "/.src/", ""), "/.lib/", ""), "/.ts/", "")
 }

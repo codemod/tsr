@@ -53,6 +53,60 @@ fn diagnostic(out: &mut String, name: &str, d: &tsr_diagnostics::Diagnostic, tex
     ));
 }
 
+fn details(
+    out: &mut String,
+    d: &tsr_diagnostics::Diagnostic,
+    path: &str,
+    program: &tsr_compiler::Program<'_>,
+    case: &tsr_conformance::TestCase,
+) -> Result<()> {
+    out.push_str(&format!(
+        "M\t{path}\t{}\t{}\t{}\n",
+        d.reports_unnecessary(),
+        d.reports_deprecated(),
+        d.skipped_on_no_emit()
+    ));
+    for (tag, rows) in [("C", d.message_chain()), ("R", d.related_information())] {
+        for (i, child) in rows.iter().enumerate() {
+            let child_path = format!("{path}/{tag}{i}");
+            let name = child.file().map_or("", |f| f.file_name());
+            let text = program.source_file(name).map(|f| f.text()).or_else(|| {
+                case.files
+                    .iter()
+                    .find(|f| {
+                        tsr_path::get_normalized_absolute_path(
+                            &f.name,
+                            case.current_directory.as_deref().unwrap_or("/.src"),
+                        ) == name
+                    })
+                    .map(|f| f.content.as_str())
+            });
+            let (start, len) = if name.is_empty() {
+                (child.span.start as usize, (child.span.end - child.span.start) as usize)
+            } else {
+                let text = text.context("related/chain diagnostic source unavailable")?;
+                let start = child.span.start as usize;
+                let end = child.span.end as usize;
+                anyhow::ensure!(
+                    text.is_char_boundary(start) && text.is_char_boundary(end),
+                    "invalid diagnostic detail span"
+                );
+                (text[..start].encode_utf16().count(), text[start..end].encode_utf16().count())
+            };
+            let args: Vec<_> = child.args.iter().map(String::as_str).collect();
+            out.push_str(&format!(
+                "{tag}\t{child_path}\t{}\t{start}\t{len}\t{}\t{}\t{}\n",
+                hex(&path_name(name)),
+                child.message.code(),
+                child.category() as u8,
+                hex(&child.message.format(&args))
+            ));
+            details(out, child, &child_path, program, case)?;
+        }
+    }
+    Ok(())
+}
+
 /// Fresh real Program and Checker execution. Requests carry options only; no expected nodes.
 pub fn actual(source: &Path, request: &Path) -> Result<String> {
     let raw = fs::read_to_string(source)?;
@@ -170,6 +224,7 @@ pub fn actual(source: &Path, request: &Path) -> Result<String> {
     let mut out = String::new();
     for (name, d) in &found {
         diagnostic(&mut out, name, d, program.source_file(name).map(|f| f.text()));
+        details(&mut out, d, "head", &program, &case)?;
     }
     // Sections derive only from actual input units. Native expected rows never choose TSR work.
     let sections: Vec<_> = case
@@ -254,7 +309,9 @@ pub fn freeze_worker(
 }
 
 pub fn records(s: &str) -> Vec<&str> {
-    s.lines().filter(|l| l.starts_with("D\t") || l.starts_with("T\t")).collect()
+    s.lines()
+        .filter(|l| ["D\t", "T\t", "M\t", "C\t", "R\t"].iter().any(|prefix| l.starts_with(prefix)))
+        .collect()
 }
 pub fn complete(path: &Path) -> bool {
     fs::read_to_string(path).is_ok_and(|s| s.ends_with("COMPLETE\n"))
@@ -275,6 +332,9 @@ pub fn cluster(expected: &str, actual: &str) -> String {
         Some((x, y)) if x.starts_with("D\t") && y.starts_with("D\t") => {
             format!("diagnostic:{}", x.split('\t').nth(4).unwrap_or("unknown"))
         }
+        Some((x, _)) if x.starts_with("R\t") => "related-information".into(),
+        Some((x, _)) if x.starts_with("C\t") => "diagnostic-chain-structure".into(),
+        Some((x, _)) if x.starts_with("M\t") => "diagnostic-metadata".into(),
         Some((x, _)) if x.starts_with("T\t") => "type-print-or-selection".into(),
         _ => "missing-or-extra-records".into(),
     }

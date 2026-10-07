@@ -327,6 +327,7 @@ fn main() -> Result<()> {
     let mut counts = full_oracle::Counts::new();
     let mut right = 0;
     let mut prior_right_losses = 0;
+    let mut prior_primary_losses = 0;
     let mut missing = 0;
     let mut ledger = String::new();
     for i in 0..tasks.len() {
@@ -337,6 +338,30 @@ fn main() -> Result<()> {
             });
         if previous_right.contains(&i) && !result.starts_with("RIGHT\t") {
             prior_right_losses += 1;
+        }
+        if previous_right.contains(&i) {
+            let dir = report.join(format!("{i:05}"));
+            let primary = |s: &str| {
+                s.lines()
+                    .filter(|l| l.starts_with("D\t") || l.starts_with("T\t"))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            };
+            let exact = match (
+                fs::read_to_string(dir.join("native.tsv")),
+                fs::read_to_string(dir.join("actual.tsv")),
+            ) {
+                (Ok(e), Ok(a))
+                    if full_oracle::complete(&dir.join("native.tsv"))
+                        && full_oracle::complete(&dir.join("actual.tsv")) =>
+                {
+                    primary(&e) == primary(&a)
+                }
+                _ => false,
+            };
+            if !exact {
+                prior_primary_losses += 1;
+            }
         }
         ledger.push_str(&format!(
             "{i}\t{}\t{}\t{}",
@@ -367,6 +392,7 @@ fn main() -> Result<()> {
         summary.push_str(&format!("error\t{error}\n"));
     }
     summary.push_str(&format!("MISSING_ROWS\t{missing}\nPRIOR_RIGHT\t{}\nPRIOR_RIGHT_LOSSES\t{prior_right_losses}\nPRIOR_GATE\t{}\n", previous_right.len(), if prior.is_some() { "measured" } else { "unverified: no prior report supplied" }));
+    summary.push_str(&format!("PRIOR_PRIMARY_LOSSES\t{prior_primary_losses}\nCONTRACT\tordered-primary-types-chains-related-metadata\n"));
     write_atomic(&report.join("results.tsv"), &ledger)?;
     write_atomic(&report.join("summary.tsv"), &summary)?;
     print!("{summary}");

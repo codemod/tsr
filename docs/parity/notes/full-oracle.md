@@ -1,5 +1,47 @@
 # Full configured native oracle
 
+## Ordered related-information contract: completed measurement
+
+The stricter oracle completed all 14,965 configured rows on the same frozen
+c8185606 checker: **7,211/14,965 exact RIGHT (48.185767%)**, 7,072 WRONG,
+671 native failures/deadlines, 11 actual failures/deadlines, **0 missing rows**.
+Compared with the primary-contract checkpoint: 387 of its 7,598 RIGHT rows are
+not RIGHT under the expanded contract; **0 primary diagnostic/type losses**.
+These 387 are newly exposed detail mismatches, not a checker regression or a
+relabeled primary-contract rate. Prior archive before c818 remains unavailable.
+
+The artifact sequence now compares head metadata, ordered recursive message
+chains and ordered recursive related-information records. Each detail includes
+list position/path, file, UTF-16 start/length, code, category, own localized
+message and flags (unnecessary, deprecated, skipped-on-no-emit). No sorting or
+bag/set reduction is applied to chain/related rows. Missing detail source text
+fails the producer rather than inventing a location. Native operations:
+`Diagnostic.MessageChain`, `RelatedInformation`, `Localize` at pinned 5b1047d;
+producer ownership is per native compilation / TSR Program, with no added
+semantic cache. Completion is published only after all ordered rows are emitted.
+
+Largest first-difference groups: missing/additional records 2,334; type
+printing/selection 1,498; TS5108 537; **related information 493**; TS2322 488;
+TS5095 132; TS2339 93; TS2345 77; **chain structure 46**. These remain
+first-difference attribution, not proven semantic root causes.
+
+Full receipts: `target/full-oracle-c8185606-related/` (ignored; copy before Box
+destruction). All workers use immutable content-addressed copies.
+
+- Native binary: `a2ad1af8c6a364365cb22c7ca36356ff07dfd59aa775602b5c7fe8fb6fb66555`
+- Actual binary: `4d5a1afe2da4399a4851372a8105c6c170cd39d70ab2132e898b4798322b9ad9`
+- Manifest: `eb65eec9185759a098264aa811cba809e6bfac9d7d69d868e728f7753da89ea6`
+- Results: `3827df21256c7b35f47b7452292b0b13fa19dc9ce4ba28e25c3e3115f4356a8a`
+- Summary: `696689eae29d1c91412c1062bd2bae8969a603736a6a91dbdacb116fd8cc7587`
+- Input manifest unchanged: `3c5d62305d52908bbd3e66b39003801b5b86273446dbc11c750dbd611f17e847`
+
+Actual CLI exercised every supported configured case. Positive related-info
+control `00050` (`abstractPropertyInConstructor.ts`) emits ordered TS2728
+`'prop' is declared here.` at UTF-16 start 479, length 4, category 3, attached
+to TS2729. All conformance library/integration and example tests passed.
+Performance <=0.50 remains unmet; this stricter correctness measurement is not
+a performance certificate and does not measure newer parent main.
+
 ## Published completed r2/r3 receipts (primary contract)
 
 Both completed runs report source `c8185606e3b972d59d345b6e45d789586d993af8`,
@@ -130,8 +172,9 @@ mismatch; there is no mock or native-output fallback.
 
 Primary records compare file, UTF-16 start and span length, diagnostic code,
 category and flattened chained message in native sort order; types compare file,
-expression text and printed type in walker order. Related-information bags are
-not compared separately. This does not certify emission or every compiler API.
+expression text and printed type in walker order. For the historical primary-contract r2/r3 measurements, related-information
+bags were not compared separately. The newer ordered-detail contract above
+compares them. Neither contract certifies emission or every compiler API.
 
 ## Receipts and process ownership
 
