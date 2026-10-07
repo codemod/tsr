@@ -410,6 +410,53 @@ retains the earlier full zero-loss/missing-ID and unverified performance
 receipts. Neither cluster is closed; the measured candidate is a rejected
 experiment, not an implemented fix or claimed speed win.
 
+## Existing-name partial query recovery continuation (`tsr-2zk.16.75`)
+
+Fresh filtered whole-target assertion run includes all 11 named cases:
+**653 RIGHT, 83 WRONG, 5 GAP** across 741 aligned lines. All 11 remain blocked;
+the 88 non-RIGHT lines include other unresolved operations and are not a
+conversion forecast for this root.
+
+The native `declarationEmitPartialNodeReuseTypeOf` case depends on module import
+routes, return-object written annotation retention, and private-value fallback.
+Those return/alias producers remain parent-owned. An actual namespace control
+isolates the visitor's fallback without fabricating module imports:
+
+```typescript
+namespace Values {
+    export const imported = "imported";
+    export const other = "other";
+    const privateValue = "private";
+    export function source(): { foo: typeof imported; bar: typeof privateValue; baz: typeof other } { throw 0; }
+}
+const result: never = Values.source;
+function shadow() { const imported = 1; const other = false; const result: never = Values.source; }
+```
+
+Native TS2322 at `(7,7)` and `(8,68)` serializes the return object as
+`{ foo: "imported"; bar: "private"; baz: "other"; }`; TSR diagnostics retain
+`typeof imported`, `typeof privateValue`, and `typeof other`. The actual TSR
+corpus pipeline's **site-aware** `Values.source` references outside the namespace
+correctly print the three literal fallbacks, while the declaration inside the
+namespace preserves written `typeof` nodes. Thus the site-aware visitor's
+refusal/fallback is runnable and correct here; the diagnostic caller still
+selects a different context. Unconditionally expanding all `typeof` nodes would
+lose the declaration's written view.
+
+Required parent contract remains explicit diagnostic versus site-aware builder
+context, with dynamic signature scope where applicable. Native
+`tryVisitTypeQuery` (`nodecopy.go:400`) first tracks the source entity, then
+serializes its name on failure; recovery can serialize the actual type when no
+name is available. Export/import route naming is delegated to the shared
+symbol namer rather than recreated by this worker. No production visitor edit
+is justified by this control, and no import-route fallback or text-equivalence
+cache was added.
+
+Seven owned tests pass. Native/TSR CLI hashes still match the pinned full
+receipts; full zero-RIGHT/EMPTY_RIGHT-loss/no-missing-ID pair and performance
+verification remain unchanged. Both claimed clusters remain unresolved on
+shared contracts; this investigation does not report a completed fix.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
