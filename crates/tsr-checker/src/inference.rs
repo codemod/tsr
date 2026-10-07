@@ -4077,6 +4077,12 @@ impl<'a> Checker<'a, '_> {
         parameters: &[TypeId],
         visiting: &mut Vec<TypeId>,
     ) -> bool {
+        // Same-alias inference can observe phantom arguments absent from the
+        // body. Native couldContainTypeVariables includes alias arguments.
+        if let Some((_, arguments)) = self.alias_of.get(&id).cloned()
+            && arguments.into_iter().any(|argument|
+                self.target_could_contain_parameter(argument, parameters, visiting))
+        { return true; }
         // A REFERENCE could contain one if any of its arguments could.
         if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
             && arguments
@@ -4351,6 +4357,20 @@ impl<'a> Checker<'a, '_> {
         // inferFromTypes (`inference.go:66`, `:151`): nothing is inferred
         // into a `NoInfer<T>` target.
         if source == self.intrinsics.error || self.no_infer_base_type(target).is_some() {
+            return;
+        }
+        // Native inference.go:79: aliases with the same SYMBOL infer from
+        // ordered arguments even when the semantic body is phantom/empty.
+        // Distinct aliases must continue through ordinary structural inference.
+        if let (Some((source_alias, source_arguments)), Some((target_alias, target_arguments))) =
+            (self.alias_of.get(&source), self.alias_of.get(&target))
+            && source_alias == target_alias
+        {
+            let alias = *source_alias;
+            let source_arguments = source_arguments.clone();
+            let target_arguments = target_arguments.clone();
+            self.infer_from_type_arguments(alias, &source_arguments, &target_arguments,
+                original, parameters, out, depth);
             return;
         }
         if self.infer_from_tuple_types(source, target, original, parameters, out, depth) {
@@ -5009,7 +5029,9 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let target_type = self.get_return_type_of_signature(target)?;
-        if !self.target_could_contain_parameter(target_type, parameters, &mut Vec::new()) { return None; }
+        if !self.target_could_contain_parameter(target_type, parameters, &mut Vec::new())
+            && !self.mentions_type_parameter(target_type, parameters, &[])
+        { return None; }
         Some((self.get_return_type_of_signature(source)?, target_type))
     }
 
@@ -6438,10 +6460,16 @@ impl<'a> Checker<'a, '_> {
         if let Some(&returned) = mapper.return_type.get() {
             return Some(returned);
         }
-        if !self.resolutions.push(crate::resolution::ResolutionTarget::SignatureImage(signature.id),
-            crate::resolution::PropertyName::ResolvedReturnType) {
-            return None;
-        }
+        let mut resolutions = std::mem::take(&mut self.resolutions);
+        let pushed = resolutions.push_with(
+            crate::resolution::ResolutionTarget::SignatureImage(crate::resolution::SignatureImage {
+                id: signature.id, mapper: mapper.clone(),
+            }),
+            crate::resolution::PropertyName::ResolvedReturnType,
+            |target, property| self.resolution_has_published_identity(target, property),
+        );
+        self.resolutions = resolutions;
+        if !pushed { return None; }
         let image = self.get_return_type_of_signature(target).map(|returned| {
             let names: Vec<_> = mapper.names.iter().map(String::as_str).collect();
             self.instantiate_type(returned, &mapper.map, &mapper.parameters, &names)
@@ -6684,7 +6712,7 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn mentions_registered_type_parameter(&self, id: TypeId) -> bool {
         self.mentions_type_parameter_inner(
             id,
-            &|candidate| self.type_parameter_symbols.contains_key(&candidate),
+            &|candidate| self.store.get(candidate).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER),
             &[],
             &mut Vec::new(),
         )

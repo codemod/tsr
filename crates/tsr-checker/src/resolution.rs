@@ -47,9 +47,22 @@ use tsr_core::ResolutionMode;
 pub(crate) enum ResolutionTarget {
     Symbol(SymbolId),
     Signature(crate::declared::TypeLiteralKey),
-    SignatureImage(u32),
+    SignatureImage(SignatureImage),
     BaseConstraint(crate::constraints::BaseConstraintKey),
 }
+
+/// Exact signature image identity and its mapper-owned publication slot.
+/// Holding the mapper only while the resolution frame lives adds no side table.
+#[derive(Debug, Clone)]
+pub(crate) struct SignatureImage {
+    pub(crate) id: u32,
+    pub(crate) mapper: std::sync::Arc<crate::inference::SignatureMapper>,
+}
+
+impl PartialEq for SignatureImage {
+    fn eq(&self, other: &Self) -> bool { self.id == other.id }
+}
+impl Eq for SignatureImage {}
 
 impl From<SymbolId> for ResolutionTarget {
     fn from(symbol: SymbolId) -> Self {

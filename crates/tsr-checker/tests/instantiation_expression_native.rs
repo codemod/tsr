@@ -85,6 +85,20 @@ fn filtered_view_retains_readonly_members_and_drops_inapplicable_intersection_si
 }
 
 #[test]
+fn conditional_return_and_phantom_alias_inference_preserve_argument_identity() {
+    // Pinned 5b1047d declarations: first:string, second:number, bit:1, tail:[string].
+    let source = "type F<T> = () => void; declare function infer<T>(value: F<T>): T; declare const a: F<string>; declare const b: F<number>; type TestBit<A,B> = A extends B ? 1 : 0; declare const yes: TestBit<string,string>; type Tail<T extends any[]> = T extends [any,...infer U] ? U : never; declare function drop<T extends any[]>(value: T): Tail<T>; const first = infer(a); const second = infer(b); const bit = yes; const tail = drop([1,'x'] as [number,string]);";
+    with_checker(source, |checker, statements| {
+        let expected = [("first".to_owned(), "string".to_owned()),
+            ("second".to_owned(), "number".to_owned()),
+            ("bit".to_owned(), "1".to_owned()),
+            ("tail".to_owned(), "[string]".to_owned())];
+        assert_eq!(initializer_types(checker, statements), expected);
+        assert_eq!(initializer_types(checker, statements), expected);
+    });
+}
+
+#[test]
 fn inapplicable_list_diagnostic_uses_native_trivia_skipped_list_span() {
     let source = "declare const plain: (value: number) => number; const selected = plain</* trivia */ string>;";
     with_checker(source, |checker, statements| {

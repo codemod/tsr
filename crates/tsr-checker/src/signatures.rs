@@ -1811,6 +1811,7 @@ impl<'a> Checker<'a, '_> {
         // parameter (`getTypePredicateFromBody`, `checker.go:20535`).
         let predicate_key = self.type_literal_key(declaration);
         if predicate.is_none() && return_annotation.is_none()
+            && self.store.get(r#type).flags.contains(crate::flags::TypeFlags::BOOLEAN)
             && self.active_signature_predicates.insert(predicate_key.clone()) {
             predicate = self.infer_type_predicate_from_body(
                 declaration,
@@ -1818,9 +1819,14 @@ impl<'a> Checker<'a, '_> {
                 body,
                 modifiers,
                 asterisk,
-                r#type,
             );
             self.active_signature_predicates.remove(&predicate_key);
+        }
+        if r#type != self.intrinsics.error
+            && !self.active_signature_predicates.contains(&predicate_key)
+            && !self.is_context_sensitive_function_like(declaration)
+        {
+            self.signature_predicates.entry(predicate_key).or_insert_with(|| predicate.clone());
         }
         // assignContextualParameterTypes copies the contextual `this` slot
         // whenever contextual assignment runs, including functions sensitive
@@ -1958,11 +1964,7 @@ impl<'a> Checker<'a, '_> {
         body: Option<Body<'a>>,
         modifiers: &[ModifierLike<'_>],
         asterisk: bool,
-        return_type: TypeId,
     ) -> Option<TypePredicate> {
-        if !self.store.get(return_type).flags.contains(crate::flags::TypeFlags::BOOLEAN) {
-            return None;
-        }
         if asterisk
             || modifiers.iter().any(|modifier| {
                 matches!(modifier, ModifierLike::Token(token)
@@ -1987,6 +1989,12 @@ impl<'a> Checker<'a, '_> {
         let mut expr = single_return;
         while let tsr_ast::Expression::ParenthesizedExpression(inner) = expr {
             expr = inner.expression?;
+        }
+        // Native checkIfExpressionRefinesAnyParameter checks the expression;
+        // predicate demand never forces the signature's active real return.
+        let return_type = self.check_expression(expr);
+        if !self.store.get(return_type).flags.contains(crate::flags::TypeFlags::BOOLEAN) {
+            return None;
         }
         let condition = expr.node_id()?;
         let error = self.intrinsics.error;
@@ -2111,7 +2119,9 @@ impl<'a> Checker<'a, '_> {
             if let Some(returned) = mapper.completed_return_type() {
                 return Some(returned);
             }
-            ResolutionTarget::SignatureImage(signature.id)
+            ResolutionTarget::SignatureImage(crate::resolution::SignatureImage {
+                id: signature.id, mapper: mapper.clone(),
+            })
         } else {
             if signature.r#type != self.intrinsics.error {
                 return self.get_return_type_of_signature(signature);
@@ -2195,8 +2205,46 @@ impl<'a> Checker<'a, '_> {
             let predicate = self.get_type_predicate_of_signature(target)?;
             return self.mapped_signature_predicate(signature, predicate);
         }
-        let completed = self.complete_signature_return(signature.clone())?;
-        Some(completed.predicate)
+        // Eager mapped copies carry a predicate already substituted under
+        // their own mapper; declaration annotation would recover the original.
+        if signature.predicate.is_some() { return Some(signature.predicate.clone()); }
+        let key = self.type_literal_key(signature.declaration);
+        if let Some(predicate) = self.signature_predicates.get(&key) {
+            return Some(predicate.clone());
+        }
+        // Eager/composite signatures already own their predicate. An original
+        // deferred shape's None is provisional, not a completed absence.
+        if signature.target.is_some() || signature.non_inferrable {
+            return Some(signature.predicate.clone());
+        }
+        let Some(parts) = self.signature_parts_of(signature.declaration) else {
+            return Some(signature.predicate.clone());
+        };
+        let predicate = match parts.return_annotation {
+            Some(TypeNode::TypePredicateNode(node)) => Some(self.type_predicate_of(node)?),
+            Some(_) => None,
+            None => {
+                let returned = self.signature_returns.get(&key).copied().flatten()
+                    .unwrap_or(signature.r#type);
+                if (returned == self.intrinsics.error
+                    || self.store.get(returned).flags.contains(crate::flags::TypeFlags::BOOLEAN))
+                    && !signature.parameters.is_empty()
+                {
+                    self.active_signature_predicates.insert(key.clone());
+                    let predicate = self.infer_type_predicate_from_body(
+                        signature.declaration, parts.parameters, parts.body,
+                        parts.modifiers, parts.asterisk,
+                    );
+                    self.active_signature_predicates.remove(&key);
+                    predicate
+                } else { None }
+            }
+        };
+        // Contextual parameter assignment is mutable; do not license reuse.
+        if !self.is_context_sensitive_function_like(signature.declaration) {
+            self.signature_predicates.insert(key, predicate.clone());
+        }
+        Some(predicate)
     }
 
     /// Complete the original return/predicate before a consumer clones or maps
@@ -2225,10 +2273,7 @@ impl<'a> Checker<'a, '_> {
             signature.written_return = parts.return_annotation
                 .filter(|annotation| !matches!(annotation, TypeNode::TypePredicateNode(_)))
                 .and_then(|annotation| self.reuse_annotation(annotation, signature.r#type));
-            signature.predicate = match parts.return_annotation {
-                Some(TypeNode::TypePredicateNode(node)) => Some(self.type_predicate_of(node)?),
-                _ => signature.predicate,
-            };
+            signature.predicate = self.get_type_predicate_of_signature(&signature)?;
             if let Some(owner) = self.binder.symbol_of(signature.declaration)
                 && let Some(&ty) = self.symbol_types.get(&owner)
                 && let Some(signatures) = self.signature_types.get_mut(&ty)
@@ -2562,13 +2607,16 @@ impl<'a> Checker<'a, '_> {
     /// typeResolutionHasProperty's identity boundary, not member completeness.
     /// Literal annotations have their own identity before eager metadata work;
     /// native symbol Type publication has already returned that same identity.
-    fn resolution_has_published_identity(
+    pub(crate) fn resolution_has_published_identity(
         &self,
         target: &crate::resolution::ResolutionTarget,
         property: crate::resolution::PropertyName,
     ) -> bool {
         use crate::resolution::{PropertyName, ResolutionTarget};
         match (target, property) {
+            (ResolutionTarget::SignatureImage(image), PropertyName::ResolvedReturnType) => {
+                image.mapper.completed_return_type().is_some()
+            }
             (ResolutionTarget::Signature(key), PropertyName::ResolvedReturnType) => {
                 self.signature_returns.get(key).is_some_and(Option::is_some)
             }

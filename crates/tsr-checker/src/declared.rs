@@ -708,8 +708,7 @@ impl<'a> Checker<'a, '_> {
                     // same-name test can see. Taking the three is the better
                     // trade at 208:1, and the guard is recorded rather than kept.
                     Some(text) => {
-                        let flags = if self.mapped_template_depth > 0
-                            && matches!(node, TypeNode::ConditionalTypeNode(_))
+                        let flags = if matches!(node, TypeNode::ConditionalTypeNode(_))
                         {
                             TypeFlags::CONDITIONAL
                         } else {
@@ -3356,7 +3355,7 @@ impl<'a> Checker<'a, '_> {
     /// Alias identity and ordered arguments are part of the existing image key;
     /// never retag a cached alias-free body. Copy only completed semantic views.
     pub(crate) fn alias_object_image(&mut self, source: TypeId, alias: SymbolId, arguments: Vec<TypeId>) -> TypeId {
-        if !self.store.get(source).flags.intersects(TypeFlags::OBJECT | TypeFlags::INDEXED_ACCESS) || self.is_error(source) {
+        if !self.store.get(source).flags.intersects(TypeFlags::OBJECT | TypeFlags::INDEXED_ACCESS | TypeFlags::INTERSECTION | TypeFlags::CONDITIONAL) || self.is_error(source) {
             return source;
         }
         let key = (alias, arguments.clone(), source);
@@ -5030,9 +5029,7 @@ impl<'a> Checker<'a, '_> {
         let result = if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
             && self.type_parameter_body_index(symbol).is_none()
             && !homomorphic_changed
-            && !(self.is_normalized_mapped_sequence(result)
-                && (self.mapped_alias_reference_body(symbol).is_some()
-                    || matches!(self.type_alias_body(symbol), Some(TypeNode::MappedTypeNode(_))))) {
+            && !self.is_normalized_mapped_sequence(result) {
             match node.node_id.and_then(|node| self.alias_symbol_for_type_node(node)) {
                 Some(alias) if !self.alias_declaration_is_locally_scoped(node.type_name) => {
                     let parameters = self.local_type_parameter_types_of(alias)
@@ -7079,7 +7076,20 @@ impl<'a> Checker<'a, '_> {
                 if !self.resolutions.pop() {
                     return self.report_type_alias_circularity(symbol);
                 }
-                if resolved != error { return resolved; }
+                if resolved != error {
+                    if matches!(body, TypeNode::IntersectionTypeNode(_))
+                        && let crate::types::TypeData::Intersection { types, .. } = self.store.get(resolved).data.clone()
+                    {
+                        let text = format!("{name}<{}>", parameters.join(", "));
+                        let image = self.store.intern_intersection(TypeFlags::INTERSECTION,
+                            crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) });
+                        let arguments = self.local_type_parameter_types_of(symbol)
+                            .map(|parameters| parameters.into_iter().map(|(id, _)| id).collect()).unwrap_or_default();
+                        self.alias_of.insert(image, (symbol, arguments));
+                        return image;
+                    }
+                    return resolved;
+                }
             }
             return mint(self);
         }
@@ -7797,27 +7807,6 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(info.declaration) else {
             return self.intrinsics.error;
         };
-        // This unit admits direct declared constraints only. Return/default
-        // consumers and mapper-applied deferred node building remain separate
-        // prerequisites; opening them propagates unsupported consumer types.
-        let mut root = info.declaration;
-        let in_constraint = loop {
-            let Some(parent) = self.nodes.parent(root) else { break false };
-            match self.node_map.get(parent) {
-                Some(Node::ConditionalTypeNode(_) | Node::ParenthesizedTypeNode(_)) => {
-                    root = parent;
-                }
-                Some(Node::TypeParameterDeclaration(parameter)) => {
-                    break parameter
-                        .constraint
-                        .is_some_and(|constraint| Node::from(constraint).node_id() == Some(root));
-                }
-                _ => break false,
-            }
-        };
-        if !in_constraint {
-            return self.intrinsics.error;
-        }
         let mut bindings = info.bindings;
         for value in bindings.values_mut() {
             *value = self.instantiate_type(*value, map, parameters, names);
@@ -7828,12 +7817,10 @@ impl<'a> Checker<'a, '_> {
             }
         }
         self.alias_evaluation_bindings.push(bindings);
-        // A deferred result needs a mapper-applied semantic node builder.
-        // The written-node fallback would expose the original operands.
-        let result = self
-            .evaluate_conditional_node(node, None)
-            .filter(|result| !self.conditional_inference_nodes.contains_key(result))
-            .unwrap_or(self.intrinsics.error);
+        // Native roots instantiate in every consumer, not only constraints.
+        // If evaluation still defers, mint a semantic CONDITIONAL carrying the
+        // composed captured bindings; never publish error for mere deferral.
+        let result = self.get_type_from_type_node(TypeNode::ConditionalTypeNode(node));
         self.alias_evaluation_bindings.pop();
         result
     }
@@ -8179,10 +8166,14 @@ impl<'a> Checker<'a, '_> {
     /// own expensive substitution. Restrictive clones publish no constraint
     /// only after creation and preserve the original declaration symbol.
     fn definite_conditional_outcome(&mut self, check: TypeId, extends: TypeId) -> Option<bool> {
-        let parameters: Vec<_> = self.type_parameter_symbols.keys().copied().filter(|&parameter| {
+        let mut parameters: Vec<_> = self.type_parameter_symbols.keys().copied()
+            .chain(self.this_types.values().copied())
+            .chain(self.literal_this_types.values().copied()).filter(|&parameter| {
             self.mentions_type_parameter(check, &[parameter], &[])
                 || self.mentions_type_parameter(extends, &[parameter], &[])
         }).collect();
+        parameters.sort_unstable();
+        parameters.dedup();
         if parameters.is_empty() {
             return match self.relate_ternary(check, extends, crate::relater::Relation::Assignable) {
                 crate::relater::Ternary::Related => Some(true),
@@ -8296,7 +8287,6 @@ impl<'a> Checker<'a, '_> {
         conditional: &tsr_ast::ConditionalTypeNode<'a>,
         check: TypeId,
     ) -> Option<TypeId> {
-        use crate::relater::{Relation, Ternary};
         if self.store.get(check).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
             || self.conditional_check_is_deferred(conditional, check)
         {
@@ -8396,10 +8386,13 @@ impl<'a> Checker<'a, '_> {
             }
             return Some(self.get_union_type(&[true_type, false_type]));
         }
-        let branch = match self.relate_ternary(check, target, Relation::Assignable) {
-            Ternary::Related => conditional.true_type?,
-            Ternary::NotRelated => conditional.false_type?,
-            Ternary::Unknown => return None,
+        // Native getConditionalType defers the inferred extends operand,
+        // then tests BOTH permissive and BOTH restrictive instantiations.
+        if self.conditional_check_is_deferred(conditional, target) { return None; }
+        let branch = match self.definite_conditional_outcome(check, target) {
+            Some(true) => conditional.true_type?,
+            Some(false) => conditional.false_type?,
+            None => return None,
         };
         let frame =
             symbols.into_iter().zip(map.into_iter().map(|(_, inferred)| inferred)).collect();

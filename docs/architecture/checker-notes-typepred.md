@@ -10,6 +10,57 @@ bar.
 
 ---
 
+## Recovery candidate: tsr-2zk.16.56.1.4 (not accepted)
+
+Snapshot `f7faed0c8fb639e41636e3caa00b67394422308a`; native
+`5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
+
+- `getTypePredicateOfSignature` (`relater.go:2016`) completes independently
+  of the real return slot. Private Checker `signature_predicates` uses the
+  existing captured `TypeLiteralKey`; missing means uncomputed, the active set
+  is native's reentry no-predicate marker, and `Some(None)` is completed absence.
+  Body expression checking and narrowing are the expensive boundary. Mutable
+  contextual signatures do not publish reuse; already mapped eager predicates
+  retain their own receiver/alias context rather than rereading annotations.
+- `findResolutionCycleStartIndex` (`checker.go:18783`) and mapped return pushes
+  read the same publication predicate. `SignatureImage` retains its exact mapper
+  Arc only for the frame lifetime, with fresh signature identity and mapper-owned
+  completed return slot. No duplicate image cache; local noncircular any is not
+  published. Ordinary failed-pop circular return completion remains separate.
+- Deferred roots always carry CONDITIONAL flags. `getConditionalType` resolves
+  inferred extends only when nondeferred, then tests permissive operands together
+  and restrictive operands together. Existing root/captured-binding metadata
+  carries deferred mapper instantiation beyond constraint consumers.
+- Same-symbol alias inference reads ordered argument identities before structural
+  bodies; distinct symbols keep the structural route. Phantom arguments are
+  included in could-contain-variable discovery. Parameter graph leaves use
+  TYPE_PARAMETER semantics, including polymorphic this; definite-outcome maps
+  include the existing this registries. No spelling-based identities added.
+
+Runtime fixture: `tests/fixtures/shared_alias_return_controls.ts` in tsr-checker.
+BooleanConstructor ReturnOf/Wrapped produce boolean, concrete Tail produces
+`[string]`, TestBit produces `1`, phantom inference produces string, inferred
+isString prints a predicate, and recursivePredicate returns any. Pinned native
+emission independently witnesses concreteTail, phantomString, isString and the
+recursive return (TS7023). Instantiation/predicate/return integration tests:
+29 passed. Snapshot library tests already had 15 failures; this candidate's
+last library run had 16 failures, including obsolete constraint-only refusal
+and registry-only membership expectations. No passing-library claim.
+
+The unfiltered existing corpus run includes 12,444 discovered cases but explicitly
+skips 2,906 type cases (1,397 configuration-varied) and 6,942 diagnostic cases.
+It is NOT the configured-exact acceptance corpus. Last full type transition
+comparison against this rejected snapshot: 8 RIGHT→WRONG, 45 WRONG→RIGHT,
+14 GAP→RIGHT, 14 GAP→WRONG, zero missing/new rows. This is not a comparison
+against the unavailable original accepted frozen receipt. Remaining adverse
+roots: distributive conditional constraint intersection, generic Prepend/T05
+rest inference, and infiniteConstraints indexed object mapper. Candidate remains
+isolated and rejected; no performance or <=0.50 release certification.
+
+Work attribution remains unmeasured under existing tsr-1yb.11.1; exact acceptance
+receipt reconstruction and these semantic prerequisites remain tsr-2zk.16.56.1.4.
+Beads is unavailable on this Box; no database state was changed.
+
 ## 1. Two mechanisms wear the same name, and only one of them is this item
 
 A type predicate is used for two things, and they are not one piece of work:

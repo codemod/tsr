@@ -1130,6 +1130,12 @@ pub struct Checker<'a, 'n> {
     /// Native noTypePredicate temporary marker during body inference; this
     /// active state is never a reusable completed absence.
     pub(crate) active_signature_predicates: rustc_hash::FxHashSet<crate::declared::TypeLiteralKey>,
+    /// getTypePredicateOfSignature (5b1047d, relater.go:2016): completed
+    /// original predicates, including certified absence, at exact captured key.
+    /// Private Checker owner/options; active marker above is not publication.
+    /// Body expression checking/narrowing owns work independently of returns;
+    /// mutable contextual signatures are excluded from completed reuse.
+    pub(crate) signature_predicates: FxHashMap<crate::declared::TypeLiteralKey, Option<crate::signatures::TypePredicate>>,
     /// getInstantiationExpressionType (5b1047d:10660-10738). Private Checker
     /// keys combine written node/captured binding identity and source `TypeId`.
     /// transformation publishes; unsupported work remains absent. Wrapper source
@@ -1604,6 +1610,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             active_signature_shapes: FxHashMap::default(),
             active_signature_builders: rustc_hash::FxHashSet::default(),
             active_signature_predicates: rustc_hash::FxHashSet::default(),
+            signature_predicates: FxHashMap::default(),
             instantiation_expression_types: FxHashMap::default(),
             instantiation_expression_sources: FxHashMap::default(),
             instantiation_expression_nodes: FxHashMap::default(),
