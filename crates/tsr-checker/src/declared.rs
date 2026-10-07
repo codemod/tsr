@@ -1414,13 +1414,10 @@ impl<'a> Checker<'a, '_> {
     /// type position is the *expression* type of the entity name, then
     /// `getRegularTypeOfLiteralType(getWidenedType(t))`.
     ///
-    /// The remaining refusal is whole-construct rather than approximated
-    /// (`docs/architecture/checker-notes-tquery.md` §4):
-    /// - **Instantiation expressions** `typeof f<string>` (10 lines): with type
-    ///   arguments present, `getInstantiationExpressionType`
-    ///   (`checker.go:10660`) filters signatures by arity and instantiates
-    ///   each; without them it returns the expression type unchanged, which is
-    ///   the only half ported here.
+    /// `getInstantiationExpressionType` (`checker.go:10660`) consumes the
+    /// original node's argument-list presence, types and span through the shared
+    /// expression worker before widening/regularization. No caller-side arity
+    /// check or argument-free adapter duplicates that worker.
     ///
     /// Divergence, stated: this port has no general `getWidenedType`
     /// (`checker.go:18355`). Entity-name expression types come from
@@ -1430,9 +1427,6 @@ impl<'a> Checker<'a, '_> {
     /// object-literal widening *at the query* is owned by the notes page §2.
     fn get_type_from_type_query_node(&mut self, node: &tsr_ast::TypeQueryNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        if !node.type_arguments.is_empty() {
-            return error;
-        }
         let Some(name) = node.expr_name else { return error };
         // The first run of this arm refused `typeof` over a parameter symbol
         // here, after the registered bar fired (+1,341 gap→wrong,
@@ -1466,6 +1460,12 @@ impl<'a> Checker<'a, '_> {
             }
             tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
         };
+        // Ported from typescript-go's checkExpressionWithTypeArguments and
+        // getTypeFromTypeQueryNode (internal/checker/checker.go): retain the
+        // original expression/receiver and raw argument-list metadata. The
+        // shared worker owns arity, constraints, diagnostics and publication.
+        let Some(origin) = node.node_id else { return error };
+        let id = self.get_instantiation_expression_type(id, origin);
         // getTypeFromTypeQueryNode widens before regularizing. Native seeds
         // the global undefined symbol with undefinedWideningType; this port
         // shares its ordinary undefined identity, so retain that provenance
