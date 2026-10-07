@@ -626,7 +626,7 @@ impl<'a> Checker<'a, '_> {
     /// [`CallArity::Applicable`] hands over to the argument-type rules.
     ///
     /// Reads the callee type's signature list (no new cache); an uncertified
-    /// list is [`CallArity::Undecided`].
+    /// list or unsupported JavaScript minimum metadata is [`CallArity::Undecided`].
     fn check_resolve_call_arity(
         &mut self,
         node: tsr_ast::NodeId,
@@ -642,6 +642,11 @@ impl<'a> Checker<'a, '_> {
             }
             _ => return CallArity::Undecided,
         };
+        // Native untyped-JS minimum zero must be represented on signatures
+        // before this path can replace the JS fallback without false errors.
+        if self.in_js_file(node) {
+            return CallArity::Undecided;
+        }
         let Some(signatures) = self.head_signatures(apparent, kind) else {
             return CallArity::Undecided;
         };

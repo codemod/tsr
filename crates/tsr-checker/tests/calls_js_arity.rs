@@ -5,7 +5,10 @@ use tsr_checker::{Checker, check::FileContext};
 fn js_extra_arguments_are_reported_without_requiring_untyped_parameters() {
     let source = "function fixed(value) {} fixed(); fixed(1, 2); function noArgs() {} noArgs(1);";
     let arena = tsr_core::Arena::new();
-    let parsed = tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Js);
+    let mut parsed = tsr_parser::parse(&arena, source);
+    parsed
+        .nodes
+        .add_flags(parsed.source_file.node_id.unwrap(), tsr_ast::NodeFlags::JAVASCRIPT_FILE);
     let bound = tsr_binder::bind(
         &arena,
         parsed.source_file,

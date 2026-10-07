@@ -725,6 +725,13 @@ is accepted; TSR before emits none. Regression observes both maximum errors and
 absence of required-untyped-parameter error. js-arity-tests/check are compile-
 blocked by absent shared fields; no passing-after/fullRIGHT/perf acceptance.
 
+Actual isolated check later proved the JS gate removal unsafe without canonical
+untyped-JS minimum metadata: fixed() incorrectly reports expected1got0 and maximum
+prints1 rather than0-1. Restored JS decline pending parent signature flag/minimum
+cutover. Do not integrate445a6306 alone. Corrected dedicated test to existing
+JavaScript-file flag harness, not nonexistent ScriptKind::Js; it remains a failing
+native-behavior control until metadata is supplied. js-isolated-* receipts.
+
 ### JavaScript Promise resolve arity message
 
 Native getArgumentArityError uses TS2810 JSDoc-hint message for a zero-argument
