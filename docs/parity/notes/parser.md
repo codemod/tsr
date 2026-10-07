@@ -459,3 +459,6 @@ per-file flag must become per-node.
   grammar arms of `checkCatchClause` (TS1196, TS1197) live in `grammar.rs`
   behind `grammarErrorOnFirstToken`; TS2492 (block-local redeclaration of
   the caught name) needs binder locals and is not ported.
+- Enum members (`parseEnumMember`): the member is the JSDoc host
+  (`withJSDoc`), so `{@link A}` on a member marks `A` referenced, and the
+  initializer parses with `DisallowInContext` cleared.
