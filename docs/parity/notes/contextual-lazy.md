@@ -265,9 +265,11 @@ The 0.50 release target is not met or certified.
 
 ### Remaining atomic prerequisites
 
-The advertised issue tsr-2zk.16.63 and its exact 19-case list are absent from the
-available `.beads/issues.jsonl`, interaction export and repository notes. No
-historical case list or conversion count was substituted.
+The Box `.beads/issues.jsonl` is a stale passive export, not an issue-existence
+oracle. The integration owner supplied authoritative issue tsr-2zk.16.63 and
+its current 19-case list later in this session; the earlier inference that
+missing export evidence meant no authoritative issue evidence is withdrawn.
+No historical conversion count was substituted.
 
 Two attempted broader native paths were rejected after actual smoke aborted
 with stack overflow; they are not present in the committed implementation:
@@ -374,5 +376,99 @@ currently named `get_type_of_variable_or_parameter_or_property_worker`, not
 `get_type_of_variable_parameter_property_worker`. Do not patch around that
 consumer using a second declaration traversal. Initializer/implied-pattern
 completion remains dependent on the explicit-context API and authoritative
-19-case evidence described above. Atomic accessor `.11.5.1` and lazy signature
+19-case evidence described below. Atomic accessor `.11.5.1` and lazy signature
 `.9.7.1` remain queued for their single owner; `.11.5` is still open.
+
+### Parenthesized initializer context: verified target conversion
+
+Authoritative integration target list for tsr-2zk.16.63:
+
+- compiler/classExpressionNames
+- compiler/declarationEmitDestructuring2
+- compiler/declarationEmitDestructuring3
+- compiler/declarationEmitDestructuringArrayPattern2
+- compiler/declarationEmitDestructuringArrayPattern4
+- compiler/intraBindingPatternReferences
+- compiler/objectBindingPatternContextuallyTypesArgument
+- conformance/contextuallyTypedIife
+- conformance/contextuallyTypedIifeStrict
+- conformance/declarationsAndAssignments
+- conformance/destructuringArrayBindingPatternAndAssignment1ES5
+- conformance/destructuringArrayBindingPatternAndAssignment1ES5iterable
+- conformance/destructuringArrayBindingPatternAndAssignment1ES6
+- conformance/destructuringVariableDeclaration1ES5
+- conformance/destructuringVariableDeclaration1ES6
+- conformance/destructuringVariableDeclaration2
+- conformance/literalTypes2
+- conformance/literalTypesAndTypeAssertions
+- conformance/restElementMustBeLast
+
+Blocked scope is not a conversion promise. Current dump inspection identifies
+one self-contained initializer-context producer defect: the owned
+`objects.rs::contextual_binding_pattern` stopped at a parenthesized expression.
+Native `getContextualType` transparently follows parentheses before
+`getContextualTypeForInitializerExpression` applies declaration context and
+then implied-pattern context. The producer now follows that same transparent
+parent edge; annotation-first and parameter-context admission stay unchanged.
+
+Actual before smoke:
+
+```ts
+const { B = class {} } = ({ B: undefined });
+const { x = 1 } = (({ x: 2 }));
+const { y = 1 }: { y: number } = ({ y: 2 });
+```
+
+Before: both B initializer lines printed `{ B: undefined; }` and the nested
+parenthesized x initializer printed `{ x: number; }`. After: `{ B?: undefined;
+}` and `{ x?: number; }`; the annotated y initializer remains `{ y: number;
+}`. Pinned native `classExpressionNames.types` prints exactly the optional B
+forms. Native checks the actual corpus source with `--noEmit --target es2015
+--noImplicitAny --pretty false`, exit 0 and no diagnostics. Target checker
+suite now passes **30/30 lines**, previously 28/30. The empty diagnostic
+verdict remains EMPTY_RIGHT. Added permanent nested-parentheses and annotation
+precedence controls in `contextual_binding_native_parentheses.rs`.
+
+Boundary: this is an AST parent traversal in the existing private Checker
+producer, keyed by actual NodeId/parent identity, not syntax text. It borrows
+the same Program-owned BindingPattern and changes no TypeId interning or
+symbol publication. Absence remains no supported pattern context; the
+traversal does not publish active work as completion, check defaults, or
+force types. Alias/receiver/member diagnostic behavior stays in the existing
+literal/property consumers. Each transparent parent adds one existing AST
+lookup; no duplicate cache, member image or reuse domain is introduced.
+Actual query counts remain uninstrumented; attribution follow-up request
+under tsr-2zk.16.63 before broadening producer reuse.
+
+Completed verification:
+
+- Both unfiltered verdict dumps complete: **469,767/477,970 RIGHT type lines**
+  (gain 2); zero missing formerly RIGHT keys and zero formerly RIGHT losses.
+  Diagnostic verdicts unchanged, including all formerly RIGHT/EMPTY_RIGHT.
+- All 16 read-only parity suites complete: checker types **8043/9538**, up one;
+  diagnostics **4221/5502** and empty controls **4968/5068**, unchanged.
+- Workspace release tests, clippy all-targets `-D warnings`, fmt check pass.
+- Actual corpus-pipeline smoke, native corpus check and target 30/30 exercised.
+
+Fresh candidate CLI SHA-256:
+`6fb828c4bc42c3d4d8e7c10411bd9a0dc05427fc9f332283f289213f949d2a0a`.
+Frozen-baseline interleaved fresh-process performance, 41 pairs; native, 21:
+
+| Project | Baseline CPU ratio | Baseline observed wall | Native observed wall |
+| --- | --- | --- | --- |
+| domain-model | 0.95291 | 0.99720 | 1.02123 |
+| generic-imports | 1.00309 | 0.99706 | 0.93470 |
+
+No measured CPU slowdown beyond 1.03. Diagnostics/options/loaded scope match
+and observed inputs stay stable. Native complete-input and actual-work
+verification remain false, verified ratio null, target false. These are
+observations, not a verified release ratio. Harness source label is
+`2f3038f3`; the measured binary includes only this isolated owned producer
+change beyond that commit and is identified by its hash.
+
+Remaining 18 named targets still have failed lines. Inspected examples include
+nested/default array contexts, pattern boolean/literal widening, contextual
+IIFE defaults, and intra-pattern function defaults. They are not attributed
+to this parentheses fix. The explicit-context and raw parameter supplier
+prerequisites above remain necessary for the broader initializer cutover;
+no declaration side pass, heuristic guard, or already-RIGHT conversion claim.
