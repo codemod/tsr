@@ -796,6 +796,24 @@ Both report matching scope/options/diagnostics, `verified_wall_ratio: null`,
 still false. These are not equivalent-complete-work performance certification
 or an accepted speed win; the <=0.50 release goal remains unmet.
 
+## Post-fix unwrapped-node control continuation
+
+Actual native/TSR controls after the emitted-node precedence fix validate
+unwrapped nonnullable nodes: `!?string & Tag` retains correct grouping as
+`(string | null) & Tag`, while `!(string | number) & Tag` agrees with native
+at `(5,7)` as `(string | number) & Tag` in both parameter and return positions.
+Native additionally normalizes the nullable intersection at `(3,7)` to
+`string & Tag`; parent semantic diagnostic policy remains unchanged. The
+actual corpus pipeline confirms the grouping and standalone semantic types.
+
+A TypeScript variadic-JSDoc syntax probe was invalid and produced parser
+recovery differences; it supplied no visitor evidence and no parser or
+unsupported-completion changes were made. Eight owned regression tests pass.
+No additional production change was justified. The fresh full candidate
+zero-protected-loss/missing-ID pair and native timing observations from the
+implemented correction remain applicable; verification remains false, not an
+accepted <=0.50 release result.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
