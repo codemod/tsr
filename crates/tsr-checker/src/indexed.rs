@@ -165,9 +165,29 @@ impl Checker<'_, '_> {
             {
                 let object_type = self.check_expression(receiver);
                 let index_type = self.check_expression(index);
-                self.property_name_from_index(index_type)
-                    .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
-                    .unwrap_or(computed)
+                if let TypeData::Union { types, .. } = self.store.get(index_type).data.clone() {
+                    // getIndexedAccessTypeOrUndefined (5b1047d checker.go:26993):
+                    // writing intersects each key's write type. Declaration
+                    // setters and ordinary indexed members share the original
+                    // receiver; a failed constituent is not silently skipped.
+                    // Query-local traversal adds no cache/publication state.
+                    let mut writes = Vec::with_capacity(types.len());
+                    for key in types {
+                        let written = self
+                            .property_name_from_index(key)
+                            .and_then(|name| {
+                                self.write_type_of_property_of_type(object_type, &name)
+                            })
+                            .or_else(|| self.resolved_indexed_access_type(object_type, key, false));
+                        let Some(written) = written else { return self.intrinsics.error };
+                        writes.push(written);
+                    }
+                    self.get_intersection_type(&writes, None)
+                } else {
+                    self.property_name_from_index(index_type)
+                        .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
+                        .unwrap_or(computed)
+                }
             } else {
                 computed
             };
