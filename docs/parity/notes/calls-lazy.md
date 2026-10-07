@@ -107,7 +107,11 @@ port this root cause.
 ## Required serialized cross-owner changes
 
 No semantic implementation was applied: the faithful cutover crosses
-explicitly forbidden whole-file boundaries. The integrator must coordinate:
+explicitly forbidden whole-file boundaries. The integrator has selected a
+single owner for the broad cutover once current node-reuse, checker, objects,
+members and inference consumers release their files. The requirements below
+are that future owner's atomic contract, not requests for piecemeal edits or
+heuristic workarounds. `.9.7` remains open with no conversions.
 
 1. **`crates/tsr-checker/src/node_reuse.rs`: `WrittenAnnotation`,
    `Checker::reuse_annotation`, its equivalence/serialization readers.**
@@ -146,9 +150,9 @@ explicitly forbidden whole-file boundaries. The integrator must coordinate:
    tools are not that gate. Native root claims `tsr-2zk.16.27` and
    `tsr-2zk.16.61` are assigned; this lane does not claim their work.
 
-Once these contracts are available, the calls owner can convert original
-parameter construction, all owned parameter printers and mapping/inference
-consumers together. Pattern parameters currently use eager declaration
+Once those files are released to the single cutover owner, that owner must
+convert original parameter construction, all parameter printers and
+mapping/inference consumers together. Pattern parameters currently use eager declaration
 computation and admission gates; a whole-parameter-symbol port must also
 coordinate their binder identities rather than retaining an undocumented
 identifier-only cutover.
@@ -375,3 +379,24 @@ Final disposition: restored the original owned inference implementation and
 removed the experimental permanent tests. Only this evidence record is
 committed. `.61` remains unimplemented; three type and three diagnostic
 losses must be solved faithfully before the cutover can ship.
+
+### Subsequent ownership clarification and inline collector inspection
+
+The broad lazy-signature root is reserved for one future whole-file owner;
+no piecemeal `node_reuse`/shared-printer edits are requested. Current owned
+no-candidate work must preserve the distinction between an unpublished
+parameter edge, unsupported source work and completed candidate absence.
+`compiler/contextualParamTypeVsNestedReturnTypeInference4` was already
+EMPTY_RIGHT for diagnostics; it is not a conversion. Frozen native outputs
+remain reproduction evidence, not proof of an implemented port.
+
+Inline inspection of `infer_to_mapped_constraint_worker` confirms the
+homomorphic `keyof B` arm reverses B and returns immediately, matching native
+`inferToMappedType`. Therefore simply adding an extra template walk in that
+arm to infer A would be an unproven second convention. The annotated
+contravariant repro must instead be traced through the existing deferred
+argument recheck (`check_generic_call_worker`), contextual annotation
+inferences (`infer_contextual_annotations`) and native fixing/intra-expression
+consumers. No speculative extra walk, unknown-to-any substitution or
+unpublished-edge skip was added. Any eventual code port retains all full
+verification gates; investigation notes have no doc-only tests.
