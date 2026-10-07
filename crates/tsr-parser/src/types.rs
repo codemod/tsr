@@ -1296,7 +1296,18 @@ impl<'a> Parser<'a> {
             if self.at(SyntaxKind::LessThanToken) {
                 break;
             }
-            let right = self.parse_identifier_name();
+            // Native parseEntityName calls parseRightSideOfDot with identifier
+            // names allowed, private names forbidden and Unicode escapes allowed.
+            let right = if self.right_side_of_dot_is_missing() {
+                self.error_at(&messages::IDENTIFIER_EXPECTED, tsr_core::Span::at(self.node_end()));
+                self.missing_identifier()
+            } else if self.at(SyntaxKind::PrivateIdentifier) {
+                self.next_token();
+                self.error_at(&messages::IDENTIFIER_EXPECTED, tsr_core::Span::at(self.node_end()));
+                self.missing_identifier()
+            } else {
+                self.parse_identifier_name()
+            };
             let node = self.finish_node(
                 QualifiedName::new(Some(name), Some(right)),
                 SyntaxKind::QualifiedName,
