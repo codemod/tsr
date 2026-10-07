@@ -108,6 +108,19 @@ but do not demonstrate eager repeated resolver work or scheduler overhead as a
 root cause; no duplicate cache, semantic cutover, or timer movement is justified.
 Actual worker counts and complete forcing remain unmeasured prerequisites.
 
+The integrator's available-core default hypothesis needs qualification against
+the pinned compiler implementation: checkerpool.go newCheckerPoolWithTracing
+sets checkerCount to 4, singleThreaded to 1, or explicit Options().Checkers,
+then clamps to file count and 256. No available-core default was found in the
+inspected native execute/compiler/cmd paths. Do not change production pool size
+to available cores without identifying a different native caller/option writer.
+Full initialization, global diagnostics and every eligible file still need
+production-owner observations; the serial TSR trace is not equivalent admission.
+Complete-input oracle work belongs to tsr-2zk.47, and queued host-extension work
+to tsr-2zk.16.59.1. This lane does not duplicate either with module caches or path
+heuristics. Diagnostic-order child tsr-2zk.17.9 has full gates and zero-loss
+results recorded below; it does not close the global performance target.
+
 ## Integration prerequisites / Beads follow-up request
 
 Record these missing boundaries under tsr-2zk.17 before extending reuse:
