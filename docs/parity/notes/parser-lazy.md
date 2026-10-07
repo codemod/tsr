@@ -304,6 +304,24 @@ No AST/scanner file edited. The detached worktree corpus symlink was corrected
 before measurements; an earlier build with absent corpus failed and is not a
 pass. Detailed receipts remain target/recovery-parser/module-*.
 
+### Native nil import-clause gate candidate (tsr-2zk.2)
+
+Native tryParseImportClause returns nil unless a default identifier, * or { is
+present; only an actual clause parses expected from. The candidate ports this
+presence gate instead of allocating an empty clause for every import. Arbitrary
+module-specifier expression parsing remains untouched. Native import newline
+import('m') produces a nil clause and call-expression specifier without parse
+diagnostics. Isolated fb043744 plus missing-list and this owned patch agrees;
+parser tests, dedicated nil-vs-missing-list control, library clippy and fmt pass.
+Full unfiltered comparison converts importCallExpressionIncorrect1 WRONG->RIGHT
+and preserves every previous RIGHT/EMPTY_RIGHT and key. No AST/scanner edits.
+
+Incremental complete-parse 41pairs x60 samples rejects performance: wall/CPU
+1.032329/1.027804 parser.ts and 1.029583/1.030204 dom. Equal node outputs and
+full JSDoc/diagnostic parsing; no threshold waiver. Candidate is separately
+recorded but not accepted until the parse code-layout/hotpath regression is
+resolved. Parent metadata/instantiation consumer acceptance remains independent.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
