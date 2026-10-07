@@ -265,6 +265,23 @@ harness SHA-256 `963936a7530d6a79110f84f117da4555a71de7e7e258462eae5db9a9920db42
 The large Linux ratios above remain failed speed observations; this small identity
 smoke supersedes none of them and verifies no frozen-parent diagnostic behavior.
 
+### Invalid receipts must produce comparison rejection artifacts
+
+The comparison now constructs qualified receipt metadata only after both
+validators succeed. Valid JSON `{}` receipts previously caused direct required
+field access to raise before `--output` was saved. TSR/native validation failures
+now survive intact, qualifications remain empty, aggregate artifact validity and
+identity matching are false, and the CLI exits 1 with a rejection JSON. No blanket
+exception suppression replaces validation. Worker-activity and canonical-library
+identity fixes remain required.
+
+32 trace-reader tests passed, including actual comparison CLI controls for empty
+TSR receipt, empty native receipt, and both empty: output persisted, both original
+failure arrays retained as applicable, nonzero exit and no traceback. Actual
+existing large-artifact comparison also ran successfully with bounded integrity;
+`/tmp/recover-receipt-gated-comparison.json`. None of these gates certifies complete
+semantic work or changes the <=0.50 unmet performance target.
+
 ### Ordinary paths must not become bundled-library aliases
 
 A second review blocker found that the comparison normalized every basename

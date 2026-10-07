@@ -729,15 +729,6 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
             "tsr_active_repeats": None, "tsr_result_copy_bytes": None,
             "complete_operation_equivalence_verified": False,
         })
-    qualifications = {}
-    for name, receipt in (("tsr", tsr_receipt), ("native", native_receipt)):
-        qualifications[name] = {
-            "binary_sha256": receipt["binary_sha256"], "source_sha": receipt.get("source_sha"),
-            "oracle_sha": receipt.get("oracle_sha"), "source_files_sha256": receipt["source_files_sha256"],
-            "trace_sha256": receipt["trace_sha256"], "child": receipt["child"],
-            "show_config": receipt["show_config"], "loaded_files": receipt["loaded_files"],
-            "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
-        }
     producer_reasons = {"tsr": list(tsr.get("reasons", [])), "native": list(native.get("reasons", []))}
     valid = (tsr.get("artifact_integrity_valid") is True
              and tsr.get("worker_activity_valid") is True
@@ -747,6 +738,18 @@ def compare_work_captures(tsr: dict, native: dict, tsr_receipt: dict, native_rec
     reasons = [name + ": " + reason for name, failures in producer_reasons.items() for reason in failures]
     if not valid and not reasons:
         reasons.append("Required TSR worker activity or native trace validation did not pass")
+    qualifications = {}
+    # Invalid receipts may be valid JSON objects with no required fields.
+    # Keep both validators' original failures before reading qualified metadata.
+    if valid:
+        for name, receipt in (("tsr", tsr_receipt), ("native", native_receipt)):
+            qualifications[name] = {
+                "binary_sha256": receipt["binary_sha256"], "source_sha": receipt.get("source_sha"),
+                "oracle_sha": receipt.get("oracle_sha"), "source_files_sha256": receipt["source_files_sha256"],
+                "trace_sha256": receipt["trace_sha256"], "child": receipt["child"],
+                "show_config": receipt["show_config"], "loaded_files": receipt["loaded_files"],
+                "inputs_before": receipt["inputs_before"], "inputs_after": receipt["inputs_after"],
+            }
     return {
         "schema_version": 1, "artifact_integrity_valid": valid, "qualifications": qualifications,
         "reasons": reasons, "producer_reasons": producer_reasons,

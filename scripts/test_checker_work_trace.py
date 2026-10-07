@@ -275,6 +275,39 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertTrue(result["reasons"])
             self.assertFalse(result["target_verified"])
 
+    def test_comparison_cli_empty_receipts_save_both_validation_failures(self):
+        from checker_work_trace import PINNED_NATIVE_SHA
+        native_trace = self.root / "native.json"
+        native_receipt_path = self.root / "native-receipt.json"
+        tsr_receipt_path = self.root / "tsr-receipt.json"
+        output = self.root / "comparison.json"
+        self.worker_check(self.activity_rows())
+        tsr_receipt = {**self.context, "trace_sha256": self.digest(self.trace)}
+        begin = {"pid": 1, "tid": 2, "ph": "B", "cat": "check", "ts": 0,
+                 "name": "checkSourceFile", "args": {"checkerId": 0, "path": str(self.input)}}
+        native_trace.write_text(json.dumps([begin, {**begin, "ph": "E", "ts": 10}]))
+        native_receipt = {**self.context, "oracle_sha": PINNED_NATIVE_SHA,
+                          "trace_sha256": self.digest(native_trace),
+                          "child": {**self.context["child"], "command": [str(self.binary), "--noEmit",
+                                                                        "--generateTrace", str(self.root)]}}
+        for bad_tsr, bad_native in ((True, False), (False, True), (True, True)):
+            tsr_receipt_path.write_text(json.dumps({} if bad_tsr else tsr_receipt))
+            native_receipt_path.write_text(json.dumps({} if bad_native else native_receipt))
+            child = subprocess.run([sys.executable, str(Path(__file__).with_name("checker_work_trace.py")),
+                                    "--trace", str(self.trace), "--receipt", str(tsr_receipt_path),
+                                    "--compare-native-trace", str(native_trace),
+                                    "--compare-native-receipt", str(native_receipt_path),
+                                    "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(child.returncode, 1, child.stderr)
+            result = json.loads(output.read_text())
+            self.assertFalse(result["artifact_integrity_valid"])
+            self.assertFalse(result["observed_full_worker_scope"]["identity_sets_match"])
+            self.assertEqual(result["qualifications"], {})
+            self.assertEqual(bool(result["producer_reasons"]["tsr"]), bad_tsr)
+            self.assertEqual(bool(result["producer_reasons"]["native"]), bad_native)
+            self.assertTrue(result["reasons"])
+            self.assertNotIn("Traceback", child.stderr)
+
     def test_comparison_preserves_both_producers_rejection_reasons(self):
         from checker_work_trace import compare_work_captures
         receipt = {**self.context, "trace_sha256": "0" * 64}
