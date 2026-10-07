@@ -10,7 +10,7 @@ fn malformed_super_owns_a_property_and_preserves_the_following_token() {
     for (source, name_text, name_span, property_span) in [
         ("super;", "", Span::at(5), Span::new(0, 5)),
         ("super foo;", "foo", Span::new(6, 9), Span::new(0, 9)),
-        ("super += 3;", "", Span::at(6), Span::new(0, 5)),
+        ("super += 3;", "", Span::at(5), Span::new(0, 5)),
     ] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);

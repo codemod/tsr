@@ -163,3 +163,98 @@ comparator. Harness explicitly leaves `work_comparable`,
 `target_verified` false: complete cross-tool query-input coverage and actual
 performed checker work/budgets are unverified. These are observed measurements,
 not a verified <=0.50 ratio or evidence that the root lazy port is complete.
+
+## Separate root: JavaScript language variant (tsr-2zk.16.405)
+
+Pinned native `parser.getLanguageVariant` selects JSX for JS, JSX, TSX, and
+JSON; TS stays standard. JSON still enters its separate value grammar.
+`ScriptKind` now preserves JS/JSX identity instead of mapping JS to TS and JSX
+to TSX. The scanner receives that exact language-variant decision.
+`parseJsxOpeningOrSelfClosingElementOrOpeningFragment` skips type arguments
+for JS/JSX, matching the native JavaScriptFile context test. No TS input is
+reclassified as JSX, and no compiler JSX option is required to parse JS JSX.
+
+Native controls compare TS/JS/JSX/TSX on malformed unary JSX, parenthesized
+self-closing JSX, a type assertion versus JSX element, generic arrow ambiguity,
+and nested opening tags swallowing a parent's closing tag. JS and JSX agree;
+TS `<T>(x)` remains a type assertion; TSX still parses JSX type arguments where
+JS skips them. Current TS malformed type-assertion recovery has other known
+code/span discrepancies; this port does not claim to solve them.
+
+A missing JSX name must have native `createMissingIdentifier`'s zero-width
+`nodePos()` extent, including preceding trivia. `report_missing_identifier`
+now publishes that extent directly, without allocating an extra replacement
+node. Native `parseJsxChild` clamps trivia skipping to the name's end; an empty
+name in `!< {:>` consequently reports TS17008 at [2,2), preserving the earlier
+TS1003 at [3,4). Native ad hoc `super += 3;` confirms its missing name [5,5),
+not the former test assertion [6,6). The existing consumer-visible recovery
+assertion was corrected to the observed native span. `token_to_text` now maps
+`...` and `</` to native punctuation, preserving complete TS1005 messages
+instead of printing Rust enum names.
+
+Identity/publication/work boundary: no semantic cache or reuse extension.
+The exact script kind belongs to the parser invocation and its immutable
+ParseOptions, then determines scanner JSX mode and JSX type-argument grammar.
+Private file parser node IDs publish through the existing NodeTable/NodeMap
+protocol. Missing identifiers are completed empty syntax nodes, not absent
+lookup results or provisional checker types. JSX parent ambiguity retains the
+existing concrete opening/closing tag recovery and parent assignments.
+The expensive worker remains ordinary expression/JSX parsing; no extra pass,
+work cache, query counter, or unmeasured reuse boundary is introduced.
+
+Exported-enum callsites were searched across the workspace before editing.
+No external exhaustive matches or required AST/tsoptions code change was found.
+Integrator cleanup request: simplify
+`crates/tsr-compiler/src/loader.rs::parse_options` to return
+`ParseOptions::for_file(name)`; its old JS-to-Tsx promotion is now unreachable
+because `.js/.cjs/.mjs` correctly infer Js. Also update the stale comment in
+`crates/tsr-checker/tests/unresolved_identifier_in_js.rs:34` saying no Js arm
+exists. Neither file was edited by this owner.
+
+### Gates and remaining external acceptance prerequisite
+
+Baseline is the frozen e26b43c4 release binary with SHA256
+`f979253810ac402c9427aa3d173b3d7c6cbb97fa1949e8cd195bbdabcb225063`.
+Candidate SHA256:
+`3405e3bda3b0f47196476c869be017c05912f7f34eb6a2d74c76c2e06598851d`.
+Pinned native identity remains the one recorded above.
+
+- Workspace release tests passed. New permanent controls are
+  `parser_js_language_native_boundary.rs`; target syntax diagnostics assert
+  codes, full spans and complete messages, with TS-versus-JS parent ambiguity.
+- Workspace fmt check and parser-only no-deps library clippy passed.
+  Workspace clippy remains blocked by existing tsr-core `double_must_use` /
+  `assert_is_empty` and tsr-vfs `assert_is_empty` warnings. No unrelated fixes.
+- Full unfiltered diagnostic dumps: RIGHT 4221 -> 4224, WRONG 1281 -> 1278,
+  EMPTY_RIGHT 4968 unchanged, EMPTY_WRONG 100 unchanged, 10570 keys unchanged.
+  All three `parseJsxElementInUnaryExpressionNoCrash1/2/3` diagnostics converted.
+- Full unfiltered type dump: 477970 -> 477996 keys; RIGHT 469765 -> 469794,
+  WRONG 7212 -> 7209, GAP 993 unchanged. Comparisons explicitly looked up
+  every prior RIGHT key in the candidate, counting missing keys as losses:
+  zero type-line losses, zero RIGHT/EMPTY_RIGHT diagnostic case losses.
+- All 16 existing full coverage suites completed through the read-only external
+  runner: checker_types 8042 -> 8048 / 9538, line rate 98.1077779%;
+  diagnostics 4221 -> 4224 / 5502. Existing eligibility exclusions remain;
+  this is not strict full-corpus message/order/type-print completion proof.
+- Final fresh-process interleaved 21-pair baseline measurements:
+  domain-model observed wall 0.999039, CPU 0.956831;
+  generic-imports observed wall 0.991619, CPU 0.999392. Neither project slows
+  down; no lazy-JSDoc performance claim follows from this grammar fix.
+- Pinned native observed wall ratios: domain-model 1.022985,
+  generic-imports 0.940560. Scope, effective options, and diagnostic fingerprints
+  match, but the harness leaves complete-input equivalence / actual checked
+  work / work_comparable / target_verified false. No verified <=0.50 claim.
+
+**External prerequisite for target 3's last type line:**
+`crates/tsr-checker/src/expressions.rs::negated_truthiness_type` returns
+`intrinsics.error` immediately for an error operand. Native
+`checker.checkPrefixUnaryExpression` at lines 10887-10900 instead performs
+truthiness checks, computes Truthy/Falsy facts, and returns boolean for the
+mixed/default result. The malformed JSX operand prints any, but the enclosing
+`!< {:>` must print boolean. Candidate gets 13/14 target assertion lines;
+targets 1 and 2 are fully RIGHT, target 3's enclosing unary line remains wrong.
+Integrator must port the native truthiness operation in its owned checker
+function, not add a parser/test-specific exception. This owner did not edit it.
+
+Reachable parser/scanner work for this root is complete; full target-3 type
+acceptance and workspace lint require the named cross-owner prerequisites.
