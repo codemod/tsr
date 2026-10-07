@@ -315,6 +315,24 @@ at the reference/printing consumer: the bound source identity is already correct
 No forbidden expression/compiler/loader files changed here. Integrated populated
 root/full-oracle proof remains required before clearing tsr-2zk.6.16.
 
+## JSDoc export annotation next-root experiment (tsr-2zk.16.105)
+
+After parent took the native non-variable assignment gate, scoped the next owned
+root: property-valued ExportAssignment currently declines an existing hosted
+JSDoc annotation. Using the same jsdoc_cast_annotation/get_type_from_type_node
+worker as initializer checking gained two RIGHT rows in
+checkJsdocTypeTagOnExportAssignment2 and lost no prior RIGHT/missing keys.
+However checkJsdocTypeTagOnExportAssignment1 changed unsupported output into
+local Foo instead of native import("./a").Foo. That incomplete presentation is
+not accepted. Experimental patch is saved and removed from production.
+
+Required presentation-owner contract: retain annotation's defining SourceFile/
+symbol and render it in the actual importing alias/site; the ordinary annotation
+getter alone does not certify shortest accessible foreign spelling. No name
+heuristic, alternate annotation cache, or raw expression fallback was added.
+Existing issue remains open; higher-impact annotation port cannot integrate
+until that cross-owner context is available.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
