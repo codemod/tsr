@@ -25,6 +25,39 @@ git submodule update --init --recursive   # required for codegen and conformance
 cargo test --workspace
 ```
 
+### Local worktree build reuse
+
+Install `sccache` (`brew install sccache` on macOS), then merge these settings
+into `~/.cargo/config.toml` to enable it for existing and future worktrees:
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+incremental = false
+```
+
+Rust incremental compilation must be disabled for sccache. Keep its disk cache
+outside worktrees; the default cache is shared per user. On this Mac it is capped
+at 20 GiB in `~/Library/Application Support/Mozilla.sccache/config`.
+Inspect reuse with `sccache --show-stats`.
+
+For a new linked worktree, run `bash /path/to/primary/tsr/scripts/setup-worktree-build-cache.sh`
+from that worktree. It links `target` to the primary checkout's `target`, preserving
+Cargo's dependency artifacts rather than starting another target directory from
+scratch. It refuses to overwrite an existing target directory. Cargo serializes
+builds sharing this directory; use an explicit `--target-dir` for isolated
+concurrent builds or frozen benchmark binaries. Never run `cargo clean` against
+the shared target while another worktree needs its artifacts.
+On this machine, the local Git `post-checkout` hook also links targets for new
+worktrees automatically, without replacing existing target directories.
+
+Profiles, features, toolchain versions and compiler flags still affect reuse.
+Rust sccache hashes compilation working directories, so checkout-local crates
+can miss when switching worktrees; registry dependencies can hit. Executables,
+proc-macros and other linker-invoking crates are not cached, and `cargo check`
+metadata-only invocations are not cached. Sharing Cargo artifacts complements
+sccache; neither makes every build free.
+
 ## Code generation
 
 `crates/tsr-ast/src/generated` is produced from
