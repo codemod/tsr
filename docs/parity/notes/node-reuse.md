@@ -345,6 +345,36 @@ losses, missing IDs, and new IDs; native performance remains unverified rather
 than accepted. No blanket fresh-TypeId guard, text-equivalence gate, or cache
 was introduced, and no other cluster was claimed.
 
+## Diagnostic context versus site-aware local alias recovery
+
+Actual native/TSR CLI controls returned a generic function from a factory with
+a function-local alias `type Keys = "a" | "b"`. Native TS2322 at `(6,7)` and
+`(7,47)` preserves `() => <K extends Keys = Keys>(key: K) => K`; TSR expands
+both fields to `"a" | "b"`. A separate local object alias control agrees in
+both diagnostics at `(13,7)` with
+`() => <K extends keyof Shape, V extends Shape["key"]>(value: V) => K`.
+The actual corpus pipeline instead renders that object constraint structurally,
+including `keyof { key: string; }` and `{ key: string; }["key"]`.
+
+Native `typeToString` (`printer.go:177`) supplies
+`TypeFormatFlagsAllowUniqueESSymbolType | TypeFormatFlagsUseAliasDefinedOutsideCurrentScope`.
+Its diagnostic invocation can have no enclosing declaration. The flag affects
+`symbolToTypeNode` (`nodebuilderimpl.go:644`) and alias serialization
+(`nodebuilderimpl.go:3362`); it is not equivalent to granting all site-aware
+visitor references access. The existing port's site-free visitor declines
+scope-local names, while the site-aware visitor checks source/site symbol
+identity. Removing that decline globally would conflate diagnostic and corpus
+contexts and is not a faithful owned-only fix.
+
+This measured root needs the parent-owned diagnostic/signature display helper
+to select the native context, not a text-equivalence test, blanket fresh-ID
+rule, or an unconditional accessibility relaxation in `node_reuse.rs`.
+No new production helper or regression was added for the failing diagnostic
+path because its contextual caller remains reserved to the parent. Existing
+seven visitor regressions pass; implementation, full paired verdict/ID receipts,
+and performance observations remain unchanged. The cluster stays in progress;
+these additional controls do not claim conversions.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
