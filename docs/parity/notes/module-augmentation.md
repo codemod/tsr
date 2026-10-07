@@ -217,6 +217,30 @@ matched; observed wall 1.0068/0.9820, verified native complete-work wall null.
 Issue remains open for parent integrated full-configuration acceptance; neither
 99.9% exact parity nor native equivalent complete-work wall <=0.50 is claimed.
 
+## String-literal external module members (tsr-2zk.16.234)
+
+Claimed existing root. Native getExternalModuleMember accepts identifiers and
+string literals and uses decoded Text; empty string is explicitly valid. The
+owned resolver now passes either spelling to its existing module export/member
+lookup. No new cache/traversal/identity or name heuristic; written alias and
+export receiver remain unchanged. Empty and dashed keys stay distinct.
+
+Direct native control imports empty/dashed exports, then assigns both numbers
+to strings: pre-fix TSR emitted nothing; rebuilt output exactly matches native's
+two TS2322 messages/spans/order. Semantic test fails before (error instead of 1)
+and passes after. Full verdicts lose zero prior RIGHT keys and vanish zero keys.
+Relative to attributed-import recovery: +5 RIGHT type rows, +2 whole type cases,
++1 whole diagnostic case. Targets bigintArbirtraryIdentifier 17/20 -> 20/20 RIGHT;
+arbitraryModuleNamespaceIdentifiers_exportEmpty 5/7 -> 7/7 RIGHT. Current
+coverage types 8,057/9,538, diagnostics 4,223/5,502; total type RIGHT
+469,814/477,970 (983 GAP, 7,173 WRONG).
+
+Focused string-name, cross-file, callable and attributed-mode release tests,
+checker all-target clippy and owned format checks passed. Linux fresh-process
+median child CPU new/base over 21 samples: domain-model 1.0080, generic-imports
+0.9863; diagnostics/scope/options matched. Native complete-work target remains
+unverified; this bounded port is not a campaign parity/performance certification.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
