@@ -40,6 +40,22 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
+fn equality_replaces_kept_primitive_and_pattern_domains_with_literals() {
+    for (domain, value, expected) in [
+        ("string", "'foo'", "\"foo\""),
+        ("number", "1", "1"),
+        ("bigint", "1n", "1n"),
+        ("`prefix${string}`", "'prefix-one'", "\"prefix-one\""),
+    ] {
+        assert_eq!(
+            narrowed_type(&format!("declare let x: {domain}; if (x === {value}) {{ x; }}"), true),
+            expected
+        );
+    }
+    assert_eq!(narrowed_type("declare let x: string; if (x !== 'foo') { x; }", true), "string");
+}
+
+#[test]
 fn binding_initial_default_retains_literal_before_assignment_reduction() {
     assert_eq!(
         narrowed_type(

@@ -830,3 +830,44 @@ stdout/stderr/status equal in every child. These are routine source-qualified
 measurements, not verified equivalent native complete work or <=0.50 release
 acceptance; domain wall does not meet literal no-slowdown. Counts of native
 forcing executions are not measured. Clippy, anchors and formatting checked.
+
+## 21. Equality replaces retained primitive domains (tsr-2zk.16.122)
+
+Native pin unchanged. `narrowTypeByEquality` in `internal/checker/flow.go`
+always applies `replacePrimitivesWithLiterals` after assume-true comparable
+filtering, including when every source constituent survives. The old all-kept
+return skipped replacement: `string === "foo"` remained string. False branches
+remain filtering-only.
+
+`replacePrimitivesWithLiterals` now follows native's initial maybe-kind gates
+and extraction masks: broad string extracts all string-like types; a pattern
+literal against a source without broad/template/mapping strings extracts string
+literals; number and bigint extract their broad/literal domains. Empty extraction
+contributes never rather than restoring the primitive. Existing pattern metadata
+and comparable relation are reused, not approximated by printed names. Ordered
+union constituents are read one stable TypeId at a time without input vector
+clones; no borrow crosses recursive work, cache, mapper, or provisional
+publication is added. The output union remains owned by the existing factory.
+Concrete receiver/alias context and main effects completion are unchanged.
+
+Native scalar/pattern controls exit 0; real probefile and semantic regression
+control confirm string/number/bigint/pattern equality reference literals and
+unchanged opposite branch. Final 116 focused tests pass. Six issue targets were
+run unfiltered within their complete case; full eligible corpus child exits 0:
+477,968 keys, RIGHT 469,821 → 469,852, WRONG 7,152 → 7,121, GAP 995 unchanged.
+Exactly 31 WRONG→RIGHT rows, zero previously RIGHT losses or vanished/new keys.
+All 10,570 diagnostic case rows byte-identical. Final receipts under
+`target/recovery/flow-equality/final/`; parent directory contains pre-allocation-
+removal experiment and must not be used as final performance evidence.
+
+Initial replacement-vector cohort failed strict timing (domain CPU1.0081,
+wall1.0311; generic CPU1.0042, wall1.0078). Input cloning was removed without
+changing native operations. New source-qualified 41-pair wait4 cohort against
+retained `aaa7cf55`: domain CPU0.9945, wall0.9840; generic CPU0.9862, wall0.9948.
+Complete stdout/stderr/status equal in all children. Both routine no-slowdown
+ratios are below1; this is not proof that input copying caused every earlier
+wall excess, a whole-project accepted speed win, or native-equivalent complete
+work/0.50 release gate. Final full distributions: `perf-final.log` and
+`cpu-attribution.json`; no build/corpus work overlapped timing. Clippy, anchors,
+sections and owned formatting pass. Parent historical/configuration gates
+remain mandatory.

@@ -5145,35 +5145,62 @@ impl Checker<'_, '_> {
     /// literals of that base kind, so `case "a"` narrows a `string` to
     /// `"a"`.
     fn replace_primitives_with_literals(&mut self, t: TypeId, literals: TypeId) -> TypeId {
-        let literal_constituents: Vec<TypeId> = match &self.store.get(literals).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![literals],
+        if !self.maybe_type_of_kind(
+            t,
+            TypeFlags::STRING
+                | TypeFlags::TEMPLATE_LITERAL
+                | TypeFlags::NUMBER
+                | TypeFlags::BIG_INT,
+        ) || !self.maybe_type_of_kind(
+            literals,
+            TypeFlags::STRING_LITERAL
+                | TypeFlags::TEMPLATE_LITERAL
+                | TypeFlags::STRING_MAPPING
+                | TypeFlags::NUMBER_LITERAL
+                | TypeFlags::BIG_INT_LITERAL,
+        ) {
+            return t;
+        }
+        let literal_count = match &self.store.get(literals).data {
+            TypeData::Union { types, .. } => types.len(),
+            _ => 1,
         };
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
+        let count = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.len(),
+            _ => 1,
         };
-        let mut replaced = Vec::with_capacity(constituents.len());
-        for constituent in constituents {
+        let mut replaced = Vec::with_capacity(count);
+        for index in 0..count {
+            let constituent = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => types[index],
+                _ => t,
+            };
             let flags = self.store.get(constituent).flags;
-            if flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
-                && !flags.intersects(TypeFlags::UNIT)
+            let extract = if flags.intersects(TypeFlags::STRING) {
+                TypeFlags::STRING_LIKE
+            } else if self.is_pattern_template(constituent)
+                && !self.maybe_type_of_kind(
+                    literals,
+                    TypeFlags::STRING | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+                )
             {
-                let base = self.get_base_type_of_literal_type(constituent);
-                let mut matched = false;
-                for &literal in &literal_constituents {
-                    if self.store.get(literal).flags.intersects(TypeFlags::UNIT)
-                        && self.get_base_type_of_literal_type(literal) == base
-                    {
-                        replaced.push(self.get_regular_type_of_literal_type(literal));
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    replaced.push(constituent);
-                }
+                TypeFlags::STRING_LITERAL
+            } else if flags.intersects(TypeFlags::NUMBER) {
+                TypeFlags::NUMBER | TypeFlags::NUMBER_LITERAL
+            } else if flags.intersects(TypeFlags::BIG_INT) {
+                TypeFlags::BIG_INT | TypeFlags::BIG_INT_LITERAL
             } else {
                 replaced.push(constituent);
+                continue;
+            };
+            for index in 0..literal_count {
+                let literal = match &self.store.get(literals).data {
+                    TypeData::Union { types, .. } => types[index],
+                    _ => literals,
+                };
+                if self.store.get(literal).flags.intersects(extract) {
+                    replaced.push(literal);
+                }
             }
         }
         self.get_union_type(&replaced)
@@ -7693,18 +7720,13 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            if kept.is_empty() || kept.len() == total {
-                if kept.is_empty() {
-                    // SS155: an emptied filter is `never` on BOTH branches
-                    // (upstream's filterType) — the false branch of
-                    // `x == 1` on `const x = 1` was returning t, and the
-                    // capturedLetConstInLoop family's `never` wants sat
-                    // exactly there.
-                    return self.intrinsics.never;
-                }
-                return t;
-            }
-            let filtered = self.rebuild_union_subset(t, &kept);
+            let filtered = if kept.is_empty() {
+                self.intrinsics.never
+            } else if kept.len() == total {
+                t
+            } else {
+                self.rebuild_union_subset(t, &kept)
+            };
             if assume_true {
                 let replaced = self.replace_primitives_with_literals(filtered, value_type);
                 // SS151: the chain strip, after the filter.
