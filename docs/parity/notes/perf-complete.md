@@ -47,8 +47,19 @@ TSR median wall 1.0360096 s, pinned tsgo 0.6474923 s, observed ratio
 TSR 1.0232078 s, native 0.6371528 s, observed ratio 1.60590646 (21 pairs).
 Loaded scope, exposed options, diagnostics and sampled inputs match.
 Complete query-input coverage and actual-work equivalence do not: this is not a
-verified release ratio or evidence for the <=0.50 target. These measurements
-precede the evidence-only edit; compiler binary bytes are unchanged.
+verified release ratio or evidence for the <=0.50 target. The first measurement
+precedes the evidence-only edit; compiler binary bytes are unchanged. Finishing
+this Box's verification workers does not establish absence of external machine
+load; neither run is an uncontended receipt.
+
+Integrator-reported current measurement at source `5dd3bad8`: 21 alternating
+pairs on domain-model-large, observed TSR/native wall ratio 2.662059755.
+Individual walls vary from 0.644–2.589 s for TSR and 0.227–1.851 s for native;
+concurrent external machine load makes this observation-only. The earlier
+capture with corpus workers observed 3.6683. Scope/options/diagnostics match;
+complete-input and actual-work flags remain false, as does target_verified.
+These are separately attributed observations, not speed wins or contradictory
+uncontended receipts.
 
 A subsequent `perf record -F 999 -g` captured 2146 samples with no lost samples.
 Checker thread shares: checker-0 42.68%, checker-3 17.24%, checker-1 16.68%,
@@ -86,7 +97,11 @@ Record these missing boundaries under tsr-2zk.17 before extending reuse:
    `crates/tsr-execute/src/compile.rs` explicitly forces the observed run to
    one checker; its serial sink cannot certify the default four-checker run.
    Do not remove that guard without per-private-checker observers and a
-   versioned consumer contract.
+   versioned consumer contract. Production actual-work proof must preserve
+   owner scheduling, not use the serial trace as a receipt for the production
+   pool. Read pinned checkerpool.go lines 40–169 and core/workgroup.go lines
+   20–87 for scheduling; filesparser.go lines 56–155 and 240–518 for frontend
+   task ownership, loading and publication.
 4. Profile-guided optimization investigation belongs to binder/checker owners:
    `crates/tsr-binder/src/lib.rs::resolve_name` / native name resolution and
    `crates/tsr-checker/src/flow.rs::get_type_at_flow_node` /
