@@ -576,6 +576,31 @@ unchanged. The measured open items still require parent annotation retention,
 diagnostic/site-aware dispatch, and active dynamic signature scope; this
 control does not establish cluster completion or a speed improvement.
 
+## Existing JS reference compatibility continuation (`tsr-2zk.16.147`)
+
+Read pinned `canReuseExistingJSTypeNode` (`nodebuilderimpl.go:501`) and its
+compatibility worker (`nodebuilderimpl.go:518`). Native first excludes intended
+JSDoc remappings. The argument-count check then applies only when the semantic
+type is an object reference and the written reference's declared target equals
+that semantic reference's target. A spelling or generic parameter count alone
+does not prove that identity. The owned approximation checks required arguments
+from the resolved source symbol, but extending it requires a demonstrated
+same-target semantic reference contract, not a syntax guess.
+
+Actual JavaScript native/TSR control defines generic JSDoc `Box<T>`, an omitted
+`Box` parameter, and explicit `Box<number>`. Both TS2322 messages agree at
+`(7,7)` and `(9,7)`: `(value: any) => void` and
+`(value: Box<number>) => void`. Native additionally emits TS2314 at `(2,13)`:
+`Generic type 'Box' requires 1 type argument(s).` TSR omits it. Actual corpus
+rendering agrees on these parameter types. The missing diagnostic is semantic
+reference checking, reserved to the parent, not a visitor reuse decision.
+
+No reference-target cache, text comparison, blanket argument-count relaxation,
+or shared producer edit was added. Seven tests pass. The `.147` five-target
+retention failures and parent prerequisites remain; this control does not
+claim a production fix. Full no-loss/missing-ID and unverified performance
+receipts remain attributable to the unchanged compiler.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
