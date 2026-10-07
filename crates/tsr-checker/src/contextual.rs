@@ -1818,11 +1818,11 @@ impl<'a> Checker<'a, '_> {
         supported.then(|| arguments.get(slot).copied()).flatten()
     }
 
-    /// getContextualTypeForBindingElement (`checker.go:29583`), restricted to
-    /// annotated object and non-rest array holders. This is declared projection,
-    /// not binding inference: defaults do not remove undefined or supply a
-    /// parent type. Initialized array rest and annotation-less initializer or
-    /// implied-pattern fallbacks remain unsupported, not native refusals.
+    /// Ported from Checker.getContextualTypeForBindingElement
+    /// (`internal/checker/checker.go`), preserving annotation/parameter context
+    /// precedence. Defaults do not remove undefined from projection.
+    /// Initializer fallback still requires explicit-context declaration checking
+    /// so implied defaults cannot recursively request their holder's initializer.
     fn contextual_type_for_binding_element(&mut self, declaration: NodeId) -> Option<TypeId> {
         let Node::BindingElement(element) = self.node_map.get(declaration)? else { return None };
         // Native rejects pattern-valued names and computed nonliteral syntax
@@ -1859,12 +1859,20 @@ impl<'a> Checker<'a, '_> {
             _ => return None,
         };
         let holder = self.nodes.parent(pattern)?;
-        let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
-            self.contextual_type_for_binding_element(holder)?
+        let parent_type = if let Some(annotation) = self.type_annotation_of(holder) {
+            Some(self.get_type_from_type_node(annotation))
         } else {
-            let annotation = self.type_annotation_of(holder)?;
-            self.get_type_from_type_node(annotation)
+            match self.nodes.kind(holder) {
+                tsr_ast::SyntaxKind::BindingElement => {
+                    self.contextual_type_for_binding_element(holder)
+                }
+                tsr_ast::SyntaxKind::Parameter => {
+                    self.get_contextually_typed_parameter_type(holder)
+                }
+                _ => None,
+            }
         };
+        let parent_type = parent_type?;
         if array {
             let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };
             // Binding holes occupy positions, and the binding pattern's length

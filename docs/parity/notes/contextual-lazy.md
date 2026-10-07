@@ -184,3 +184,123 @@ after-verdict comparison, or performance acceptance run was performed for
 this documentation-only investigation. The integrator must run the strict
 full-population oracle and release gates after the atomic cutover. No
 unverified acceptance flags or partial checker implementation were committed.
+
+## Contextual binding parameter projection: tsr-2zk.16.63
+
+Subsequent owned root: native `getContextualTypeForBindingElement` first asks
+`getContextualTypeForVariableLikeDeclaration` for the holder's type. TSR
+previously required a holder annotation even for a contextually typed parameter.
+The owned change retains annotation precedence, recursively projects binding
+holders, and asks the existing contextual-parameter supplier for a parameter
+holder. No RHS/implied-default extension or new cache was shipped.
+
+Native-supported positive control:
+
+```ts
+const handler: (value: { cb?: (n: number) => string }) => void =
+    ({ cb = n => n.toFixed() }) => {};
+```
+
+Pinned native and candidate CLI both exit 0 with empty strict/noEmit diagnostic
+output. The real corpus-pipeline type probe changes the default callback from
+`error` to `(n: number) => string`, its `n` from `any` to `number`, and
+`n.toFixed()` from `any` to `string`. Permanent regression:
+`contextual_binding_native_parameter.rs`, observing the callback parameter's
+consumer-visible symbol type. Its standalone fixture uses no standard-library
+members and expects the same native numeric parameter projection.
+
+Identity/ownership: the query is keyed by the binding element's NodeId in the
+borrowed Program AST, and projects the actual holder TypeId from the existing
+private Checker parameter supplier. Optional properties are not stripped by
+this contextual query. Property spelling only selects a member within that
+concrete holder; it does not identify or cache a type globally. Alias and
+receiver semantics stay in existing property/element projection. No new
+publication table: absence remains no supported contextual type; active and
+completed parameter work retain their existing supplier contracts. The worker
+is contextual signature/parameter resolution plus member/index projection;
+no additional completed-answer cache or reuse domain was added. Counts of
+active repeats/actual worker executions remain uninstrumented: integrator
+Beads attribution request under tsr-2zk.16.63 before extending this reuse.
+
+Verification after the retained change:
+
+- Specific permanent regression and `cargo test --workspace --release` pass.
+- `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- `cargo fmt --all -- --check` passes without changing other owner files.
+- Both unfiltered verdict dumps complete with identical verdict populations:
+  zero previously RIGHT type-line losses, zero RIGHT/EMPTY_RIGHT diagnostic
+  losses, and zero newly RIGHT corpus rows. No named corpus case converted.
+- All 16 suites complete through the existing read-only `casequery <suite>
+  --list` runner. Checker types: 8,042/9,538; diagnostics: 4,221/5,502.
+  Empty diagnostic controls remain 4,968/5,068 in the unfiltered dump.
+  This uses the same suite implementations without writing forbidden snapshots;
+  it does not certify strict full message/length/order/variant parity.
+
+Fresh-process interleaved performance harness, `domain-model` and
+`generic-imports`, frozen baseline versus candidate, 21 pairs each:
+
+| Project | Candidate/baseline median child CPU | Observed pair-median wall |
+| --- | --- | --- |
+| domain-model | 0.99356 | 1.01536 |
+| generic-imports | 1.02824 | 1.01873 |
+
+The small wall variation warranted 41 pairs for generic-imports: CPU 1.02063,
+wall 1.00763. Diagnostics, options and loaded scopes match and inputs stayed
+unchanged. No CPU regression above the protocol's 1.03 threshold; wall
+observations do not prove absolute no-slowdown. Candidate binary SHA-256:
+`144a19598f7ddf8577a95da1d4b7ed9f64ce4b58707131a6be2c2eb6cb1a7069`.
+Harness source SHA labels the then-current HEAD `b9c48897`; the measured binary
+includes the explicitly described uncommitted contextual projection and test,
+with no other implementation changes. Binary hash, not that HEAD label,
+identifies the measured candidate.
+
+Pinned native comparisons (21 pairs): observed wall ratios 1.02008 for
+domain-model and 0.90752 for generic-imports. **Not verified ratios:** every
+harness report explicitly has `work_comparable: false`,
+`complete_input_equivalence_verified: false`,
+`actual_checked_work_verified: false`, `verified_wall_ratio: null`, and
+`target_verified: false`. Loaded scope/options/diagnostics match, but query
+inputs, bundled-library bytes and actual checked work are not fully observed.
+The 0.50 release target is not met or certified.
+
+### Remaining atomic prerequisites
+
+The advertised issue tsr-2zk.16.63 and its exact 19-case list are absent from the
+available `.beads/issues.jsonl`, interaction export and repository notes. No
+historical case list or conversion count was substituted.
+
+Two attempted broader native paths were rejected after actual smoke aborted
+with stack overflow; they are not present in the committed implementation:
+
+1. Initializer RHS fallback plus implied-pattern context. Native
+   `getTypeFromBindingElement` checks a simple default under explicit
+   `unknownType` (a nested pattern under its implied type) before checking the
+   holder initializer. Existing TSR `binding_element_implied_type` checks only
+   context-independent defaults and has no explicit-context expression API.
+   Required external hunk: `expressions.rs`/Checker context owner must provide
+   native `checkExpressionWithContextualType` and
+   `checkDeclarationInitializer` semantics, including cached normal/rest
+   modes and parameter padding. Then owned initializer dispatch can apply
+   native declaration-result-before-implied-pattern priority without recursive
+   RHS/default re-entry. Do not implement active-query nil suppression.
+2. Direct parameter-initializer contextual dispatch. The current
+   `get_contextually_typed_parameter_type` also performs initializer widening,
+   unlike native's raw `getContextuallyTypedParameterType` supplier. Asking it
+   for its own initializer's context recursively checks that initializer.
+   Required coordinated hunk: separate native raw contextual lookup from
+   `symbols.rs` parameter-widening consumer (`getWidenedTypeForVariableLikeDeclaration`),
+   then route initializer context to the raw supplier. This caller migration
+   is outside ownership; do not create a compatibility shim.
+
+Distinct native negative control:
+
+```ts
+const { cb = (n) => n.toFixed() } = { cb: (n: number) => n.toFixed() };
+const [first = (n) => n.toFixed()] = [(n: number) => n.toFixed()];
+```
+
+Pinned native emits TS7006 for both unannotated defaults because implied types
+are context-independent. Existing TSR still omits these diagnostics; the
+retained contextual-parameter projection does not claim to fix that separate
+explicit-context/implicit-any path. Full 19-case initializer-root completion
+remains blocked on those contracts and authoritative case evidence.
