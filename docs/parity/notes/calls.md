@@ -31,3 +31,24 @@ tsgo for esnext/commonjs. Remaining gap: `import(s, { with: 1 })` misses TS2322
 because the relater does not answer NotRelated for `{ with: number }` to
 `ImportCallOptions | undefined` (plain assignment of a non-fresh source shows
 the same miss).
+
+## Literal arguments re-checked under the picked overload (tsr-2zk.16.58)
+
+`isSignatureApplicable` re-checks each argument under the tried candidate
+(`checkExpressionWithContextualType`, uncached), and an argument's own type is
+a check whose context is the resolved signature
+(`getContextualTypeForArgumentAtIndex`). TSR cached the first check, made under
+the first arity-matching candidate, so `foo([{ a: true }])` resolved to the
+`{ a: boolean }[]` overload but printed `{ a: boolean; }[]` (widened under the
+first candidate's `{ a: number }[]`). The subtype and assignable passes now
+re-check array/object literal arguments under each candidate they try
+(`check_literal_arguments_for_candidate`; `context` is the declaration they
+were last checked under), through the existing per-call
+`call_inference_signatures` memo, and relate those types; the pick leaves them
+checked under the picked candidate. Literals containing a call, `new`, tagged
+template, function, method, accessor or class are not re-checked: upstream
+caches their nested resolutions from the first check, and `evict_subtree`
+would drop TSR's. Converts `functionOverloads39`, `overloadResolutionTest1`.
+Native control: `f4(bar: {a: string}[])` / `f4(bar: {a: 1|2}[])` with
+`[{a:1}]` now selects the `number` overload, as tsgo does (its TS2322 names
+`number`), and the literal prints `{ a: 1; }[]`.
