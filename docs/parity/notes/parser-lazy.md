@@ -493,6 +493,22 @@ method-body candidate diagnostic losses remain explicitly unaccepted.
 dom 0.948411/0.948071; full JSDoc/diagnostic work and equal node outputs. No
 observed incremental slowdown. No AST/scanner/shared checker edits.
 
+### Enum member documentation/context writer (tsr-2zk.2)
+
+Pinned parseEnumMember captures jsdocScannerInfo, parses the initializer with
+DisallowInContext cleared, finishes the node and withJSDoc attaches to that
+concrete member. Candidate follows existing parser JSDoc/initializer patterns,
+restoring outer no-in context after the worker. No semantic cache or alternative
+host lookup. Native enum controls and isolated host-identity/full parser tests,
+clippy and fmt pass. jsdocLinkTag9 converts EMPTY_WRONG->EMPTY_RIGHT; type rows
+unchanged, incremental prior RIGHT/EMPTY_RIGHT and keys preserved. Prior
+method-body diagnostic losses stay explicit in cumulative source.
+
+Incremental 41pair x60 complete-parse wall/CPU parser.ts 0.985927/0.984230,
+dom 1.015613/1.016134. Full JSDoc/diagnostic work and equal node outputs retained;
+parent baseline-isolated acceptance must assess dom increase, no threshold waiver.
+No AST/scanner/shared checker edits.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean
