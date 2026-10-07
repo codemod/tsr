@@ -709,6 +709,30 @@ compiler retains prior full no-loss/missing-ID and unverified performance
 receipts. The reported parent prerequisite is coordinated, not silently
 claimed fixed by the Box's already-RIGHT target.
 
+## Cross-module mixed private-alias recovery continuation
+
+Actual `declarationEmitAliasInlineing` target smoke remains
+**25 RIGHT, 3 WRONG, 0 GAP**. Its external-module private aliases require
+per-subnode inlining inside indexed access, `Omit`, and `keyof` at the consuming
+module's type-baseline print site. A namespace-private counterpart preserves
+written aliases in both native/TSR CLI diagnostics and corpus output; it is not
+a valid substitute for the module accessibility context.
+
+Built an actual two-file CLI control with private `ObjectShape` and `IndexShape`
+in `a.ts`, exported `source`, and an imported source assigned to `never` in
+`b.ts`. Native/TSR `--strict --noEmit --pretty false` outputs agree. This
+confirms that the remaining target discrepancy is the baseline's print-site
+accessibility/reuse policy, not a general semantic alias failure. Parent module
+host and alias/reference display context must provide that site to the visitor;
+those contracts are reserved. Unconditionally expanding namespace/private
+spellings would break the matching declaration view.
+
+No printed-name identity heuristic, module-specific exception, parent metadata
+edit, or production change was added. `.75` remains unresolved; prior full
+no-loss/missing-ID and unverified performance receipts remain unchanged.
+The next implementation requires the shared print-site contract, not further
+matching namespace controls.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
