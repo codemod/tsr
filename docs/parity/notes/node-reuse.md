@@ -679,6 +679,36 @@ receipts remain attributable to unchanged compiler binaries. Remaining scoped
 failures are shared-context prerequisites; more matching clone controls do not
 make those reserved contracts implemented.
 
+## Missing `typeof b` parameter contract coordination
+
+Investigated parent-reported `objectTypesIdentityWithCallSignatures3` parameter
+annotation fallback without editing the parent builder. On this Box's unchanged
+source, actual target smoke is **52 RIGHT, 0 WRONG, 0 GAP**. Actual native/TSR
+CLI outputs agree, including TS2304 for unresolved `b` at `(23,25)` and
+`(24,25)`. This does not certify the parent's intervening source state.
+
+Pinned writer is `PseudoChecker.GetTypeOfDeclaration`
+(`internal/pseudochecker/lookup.go`): a present annotation becomes
+`PseudoTypeDirect`, retaining the actual node rather than rendered text.
+`serializeTypeForDeclaration` (`nodebuilderimpl.go:2181`) uses that candidate
+with `pseudoTypeEquivalentToType` (`pseudotypenodebuilder.go:362`), whose
+error-type charity can permit the written unresolved `typeof b` annotation.
+The result then goes through `pseudoTypeToNodeWithCheckerFallback`; unsupported
+reuse falls back to semantic serialization. This is not the strict constraint
+identity rule of `typeToTypeNodeHelperWithPossibleReusableTypeNode`.
+
+Required parent parameter-builder contract: retain the source annotation node
+and its actual semantic/error identity; do not replace the missing query's
+candidate merely because the parameter's displayed fallback is `any`. The
+owned `reuse_annotation` can carry that identity and visitor entry can consume
+it, but the parent controls selecting and publishing the parameter candidate.
+No guessed `getExistingAnnotation` API was introduced: the pinned operation's
+actual writer and consumers are named above. No parent alias, query/error
+builder, signature, or scope fields changed. Seven owned tests pass; unchanged
+compiler retains prior full no-loss/missing-ID and unverified performance
+receipts. The reported parent prerequisite is coordinated, not silently
+claimed fixed by the Box's already-RIGHT target.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
