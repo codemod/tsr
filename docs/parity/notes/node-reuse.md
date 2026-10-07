@@ -733,6 +733,31 @@ no-loss/missing-ID and unverified performance receipts remain unchanged.
 The next implementation requires the shared print-site contract, not further
 matching namespace controls.
 
+## Import-type attributes reuse continuation
+
+Inspected the owned `ImportTypeNode` refusal for attributes against pinned
+`nodecopy.go:614`, which visits attributes and rewrites legacy assertion syntax.
+An actual ambient-module control with `import("pkg", { with: {
+"resolution-mode": "import" } }).Shape` exposes semantic prerequisites before
+attribute cloning can be assessed as a fix.
+
+Under `--module nodenext`, native emits TS2664 for the augmentation and TS2307
+for both import references, then TS2322 with `any`; TSR accepts the augmentation
+and prints `import("pkg").Shape`. Under `--module esnext`, native TS2322 at
+`(3,7)` prints `() => (value: Shape) => Shape`; TSR prints the qualified import
+form. Merely emitting the attributes would not implement either native
+semantic resolution or diagnostic type naming. Actual corpus output reproduces
+TSR's attribute-free import form.
+
+The existing import-type issue `.32` names parent-reserved semantic import
+production and is already claimed elsewhere; `.73` likewise concerns the
+`typeof` semantic arm. Neither was claimed as a completed visitor slice.
+No attributes serializer, guessed module route, unsupported fallback, or
+shared producer change was added. Production remains unchanged; prior full
+loss/ID and unverified performance receipts remain applicable. Parent semantic
+resolution/context is the reachable prerequisite before extending this owned
+visitor arm.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
