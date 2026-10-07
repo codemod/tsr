@@ -2016,7 +2016,11 @@ fn mentions_tag(text: &str, tags: &[&str]) -> bool {
                 // A tag name ends at whitespace, `}` (from `{@link x}`), `*`, or
                 // the end of the comment. Without this check `@seeder` matches
                 // `@see`.
-                if terminator.is_none_or(|&b| b.is_ascii_whitespace() || b == b'}' || b == b'*') {
+                // `scanner.hasJSDocTag` at 5b1047d: this is an explicit byte
+                // set, not ASCII whitespace (which would also admit form feed).
+                if terminator
+                    .is_none_or(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'}' | b'*'))
+                {
                     return true;
                 }
             }
