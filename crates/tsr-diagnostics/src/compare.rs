@@ -94,6 +94,16 @@ fn equal_chain(left: &[Diagnostic], right: &[Diagnostic]) -> bool {
 #[must_use]
 pub fn sort_and_deduplicate_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
     diagnostics.sort_unstable_by(compare_diagnostics);
+    compact_and_merge_related_infos(diagnostics)
+}
+
+/// Compact a sequence already sorted by [`compare_diagnostics`], merging
+/// related information for adjacent native-equal diagnostic trees.
+///
+/// Mirrors native `compactAndMergeRelatedInfos`. Primary files must be attached;
+/// comparator-equivalent but unequal chains must not be grouped together.
+#[must_use]
+pub fn compact_and_merge_related_infos(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
     let mut read = 0;
     let mut write = 0;
     while read < diagnostics.len() {

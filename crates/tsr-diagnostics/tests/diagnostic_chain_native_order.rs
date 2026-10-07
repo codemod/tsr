@@ -186,12 +186,9 @@ fn duplicate_heads_merge_sorted_unique_related_info_but_distinct_chains_survive(
     second.add_related_information(Some(child("b")));
     let mut distinct = head();
     distinct.add_message_chain(Some(child("different")));
-    let result = tsr_diagnostics::sort_and_deduplicate_diagnostics(vec![
-        second.clone(),
-        distinct,
-        first,
-        second,
-    ]);
+    let mut sorted = vec![second.clone(), distinct, first, second];
+    sorted.sort_unstable_by(compare_diagnostics);
+    let result = tsr_diagnostics::compact_and_merge_related_infos(sorted);
     assert_eq!(
         result.iter().map(|d| d.message_chain()[0].text()).collect::<Vec<_>>(),
         ["'different' expected.", "'explanation' expected."]
