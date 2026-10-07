@@ -870,12 +870,14 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 let function = self.nodes.parent(parent)?;
-                if self.immediately_invoked_call(function).is_some()
-                    || !matches!(
-                        self.nodes.kind(function),
-                        tsr_ast::SyntaxKind::FunctionDeclaration
-                            | tsr_ast::SyntaxKind::MethodDeclaration
-                    ) && !self.has_no_contextual_type(function)
+                if self.iife_supplies_parameter_context(function, parent, declaration)
+                    || self.immediately_invoked_call(function).is_none()
+                        && !matches!(
+                            self.nodes.kind(function),
+                            tsr_ast::SyntaxKind::FunctionDeclaration
+                                | tsr_ast::SyntaxKind::MethodDeclaration
+                        )
+                        && !self.has_no_contextual_type(function)
                 {
                     return None;
                 }
@@ -952,6 +954,32 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::Node::ParenthesizedExpression(_) => self.contextual_binding_pattern(parent),
             _ => None,
         }
+    }
+
+    /// getContextuallyTypedParameterType's IIFE arm (`checker.go:29466`): a
+    /// rest parameter or a position with an argument takes the argument's
+    /// type; a defaulted position past the arguments answers nil, so the
+    /// initializer falls through to the implied binding-pattern type
+    /// (`(({ u = 22 } = { u: 23 }) => u)()`).
+    fn iife_supplies_parameter_context(
+        &self,
+        function: tsr_ast::NodeId,
+        parameter: tsr_ast::NodeId,
+        declaration: &tsr_ast::ParameterDeclaration<'_>,
+    ) -> bool {
+        let Some(call) = self.immediately_invoked_call(function) else { return false };
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
+            return true;
+        };
+        let parameters = match self.node_map.get(function) {
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.parameters,
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.parameters,
+            _ => return true,
+        };
+        let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter)) else {
+            return true;
+        };
+        declaration.dot_dot_dot_token.is_some() || index < call.arguments.len()
     }
 
     /// §897: the ASSIGNMENT pattern whose type is this literal's contextual
