@@ -95,6 +95,17 @@ fn qualified_conditional_alias_chain_resolves_its_native_target() {
 }
 
 #[test]
+fn parenthesized_keyword_body_retains_intrinsic_under_outer_alias_mapper() {
+    assert_eq!(
+        declared_and_reference(
+            "type Primitive<T> = ((string)); type Outer<T> = { item: Primitive<T> }[\"item\"]; declare let value: Outer<number>;",
+            "Outer",
+        ).1,
+        "string",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

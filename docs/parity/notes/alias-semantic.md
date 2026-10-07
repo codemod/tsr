@@ -232,6 +232,25 @@ complete work and release speed remain uncertified. Receipts
 `qualified-conditional-*` under `target/recovery/alias`; frozen verification
 excludes the pending TypeQuery worker dependency.
 
+## Keyword body under an outer alias mapper
+
+The ordinary keyword-instantiation constructor now unwraps parentheses before
+keyword dispatch, as native `getTypeFromTypeNodeWorker` does. The original-body
+preflight still rejects active alias frames; the ordinary worker resolves a
+keyword intrinsically in that context instead of minting `Primitive<number>`.
+No general body fallback, name predicate, mapper cache or metadata publication
+change. Intrinsic-marker handling remains on its existing route.
+
+Regression through an outer indexed alias fails before and passes after;
+related indexed/conditional targets pass. Real CLI accepted string assignment and
+number rejection diagnostics compare byte-for-byte with native. Existing
+unfiltered 477,970-assertion oracle unchanged, zero former RIGHT losses/vanished
+recognized keys; no whole-case gain claimed. Seven interleaved fresh-process
+samples: after/before 0.96618, after/native 1.60513; baseline emits false positives,
+so no equivalent-complete-work or release-speed claim. Frozen verification
+excludes the pending TypeQuery wrapper. Receipts `keyword-mapper-*` under
+`target/recovery/alias`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

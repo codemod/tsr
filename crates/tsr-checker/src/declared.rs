@@ -6021,12 +6021,21 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(body @ TypeNode::KeywordTypeNode(keyword)) = alias.r#type
-            && keyword.kind != SyntaxKind::IntrinsicKeyword
+            && let Some(mut body) = alias.r#type
         {
-            let evaluated = self.get_type_from_type_node(body);
-            self.instantiations.insert((symbol, arguments), evaluated);
-            return evaluated;
+            // getTypeFromTypeNodeWorker unwraps parentheses before keyword
+            // resolution even under an active outer alias mapper.
+            while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                let Some(inner) = parenthesized.r#type else { return self.intrinsics.error };
+                body = inner;
+            }
+            if let TypeNode::KeywordTypeNode(keyword) = body
+                && keyword.kind != SyntaxKind::IntrinsicKeyword
+            {
+                let evaluated = self.get_type_from_type_node(body);
+                self.instantiations.insert((symbol, arguments), evaluated);
+                return evaluated;
+            }
         }
         // Ported from typescript-go's getTypeAliasInstantiation and
         // instantiateTypeWithAlias (internal/checker/checker.go): a literal
