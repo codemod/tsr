@@ -528,3 +528,16 @@ discovery follows lazy mapper image edges; recursive print admission uses canoni
 return demand rather than raw pending slot. Parent reports four isolated API
 controls pass; local predicate-api-scope-check remains blocked by absent shared
 fields, so no local passing/full-gate/performance proof claimed.
+
+### Already-padded this reference and warm copy boundary
+
+get_type_with_this_argument now returns an already-explicit-this reference
+unchanged regardless of a subsequent requested receiver, matching native's
+ordinary-versus-padded argument count gate. Cache hits are checked before cloning
+ordinary argument vectors or source type data. No receiver replacement or printed
+identity key. Parent member/index/alias-source forwarding remains required; a
+completed reference view is not completed member/diagnostic work.
+
+Numeric cachedSignatures creator remains ID+ordered-args with borrowed warm
+lookup; runtime query/hit/worker/copy counts are unmeasured while shared fields
+remain absent locally. padded-this-check.log is blocked; no parity/perfproof.
