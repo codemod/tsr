@@ -2500,8 +2500,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// [`Checker::elaborate_object_literal`], answering `None` where this port
-    /// cannot decide what upstream would elaborate: a spread member, or a
-    /// union member whose `getBestMatchIndexedAccessTypeOrUndefined` needs a
+    /// cannot decide what upstream would elaborate: a union member whose `getBestMatchIndexedAccessTypeOrUndefined` needs a
     /// `getBestMatchingType` choice this port cannot make. Every member's
     /// target type is settled before anything is reported, so a `None` never
     /// follows a partial report.
@@ -2519,13 +2518,6 @@ impl<'a> Checker<'a, '_> {
         // upstream returns before the loop.
         if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(false);
-        }
-        // A spread contributes properties this port cannot enumerate — the same
-        // decline `check_excess_properties` makes, for the same reason.
-        if literal.properties.iter().any(|property| {
-            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
-        }) {
-            return None;
         }
         let is_union = self.type_of(target).flags.contains(TypeFlags::UNION);
         let mut members = Vec::with_capacity(literal.properties.len());

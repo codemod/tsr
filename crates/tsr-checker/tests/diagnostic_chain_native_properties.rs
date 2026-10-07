@@ -234,6 +234,16 @@ fn signature_valued_this_arity_retains_receiver_wrapper_and_inner_relation() {
 }
 
 #[test]
+fn spread_entries_do_not_disable_explicit_object_member_elaboration() {
+    let source = "let target: {x: number} = {...{}, x: \"wrong\"};";
+    let ds = diagnostics(source);
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    assert_eq!(ds[0].text(), "Type 'string' is not assignable to type 'number'.");
+    assert!(ds[0].message_chain().is_empty());
+    assert_eq!(ds[0].span.start as usize, source.find("\"wrong\"").unwrap());
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",
