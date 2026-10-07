@@ -33,15 +33,9 @@
 //! tab-to-single-space substitution are all load-bearing for byte equality and
 //! none of them is guessable from looking at the output.
 //!
-//! # Message chains and related information are not represented
-//!
-//! Upstream's `Diagnostic` carries a `MessageChain()` — the nested "Type 'A' is
-//! not assignable to type 'B'. / Property 'x' is missing…" cascade — and a
-//! `RelatedInformation()` list. [`Diagnostic`] has neither field, so
-//! [`write_flattened_diagnostic_message`] is a single message today. The
-//! recursion upstream performs is written out anyway, guarded by a `chain()`
-//! that returns nothing, so that adding the field is a change in one place
-//! rather than a rediscovery of the indentation rule (two spaces per level).
+//! Message chains preserve insertion order and two-space nesting. Related
+//! information is rendered only in pretty output, at its own source location,
+//! as in `internal/diagnosticwriter/diagnosticwriter.go`.
 
 use std::fmt::Write as _;
 
@@ -171,6 +165,17 @@ impl<'a> LocatedDiagnostic<'a> {
     pub fn global(diagnostic: &'a Diagnostic) -> Self {
         Self { file: None, diagnostic }
     }
+
+    /// Native ordering for diagnostics whose primary files live in the Program.
+    #[must_use]
+    pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
+        crate::compare::compare_at_paths(
+            self.diagnostic,
+            self.file.map_or("", DiagnosticFile::file_name),
+            other.diagnostic,
+            other.file.map_or("", DiagnosticFile::file_name),
+        )
+    }
 }
 
 /// Write one diagnostic in the plain format (`WriteFormatDiagnostic`).
@@ -234,17 +239,14 @@ pub fn format_diagnostics(
 /// The message text, with any chain flattened beneath it
 /// (`WriteFlattenedDiagnosticMessage`).
 ///
-/// See the module docs: [`Diagnostic`] has no chain today, so the loop below
-/// never runs. It is written out because the indentation rule — two spaces per
-/// nesting level, each level on its own line — is upstream's and is not
-/// re-derivable from the output alone once a chain exists.
+/// Children retain insertion order; each nesting level adds two spaces.
 pub fn write_flattened_diagnostic_message(
     output: &mut String,
     diagnostic: &Diagnostic,
     newline: &str,
 ) {
     output.push_str(&diagnostic.text());
-    for child in chain(diagnostic) {
+    for child in diagnostic.message_chain() {
         flatten_diagnostic_message_chain(output, child, newline, 1);
     }
 }
@@ -261,18 +263,9 @@ fn flatten_diagnostic_message_chain(
         output.push_str("  ");
     }
     output.push_str(&diagnostic.text());
-    for child in chain(diagnostic) {
+    for child in diagnostic.message_chain() {
         flatten_diagnostic_message_chain(output, child, newline, level + 1);
     }
-}
-
-/// A diagnostic's nested explanations (`Diagnostic.MessageChain()`).
-///
-/// Always empty: the field does not exist yet. Isolated in one function so that
-/// adding it is a one-line change here rather than a search for every place the
-/// chain should have been walked.
-const fn chain(_diagnostic: &Diagnostic) -> &'static [Diagnostic] {
-    &[]
 }
 
 /// What the summary counted (`diagnosticwriter.ErrorSummary`).
@@ -522,6 +515,26 @@ pub fn write_format_diagnostic_with_color_and_context(
             "",
             options,
         );
+        output.push_str(&options.newline);
+    }
+
+    for related in located.diagnostic.related_information() {
+        if let Some(file) = related.file() {
+            output.push_str(&options.newline);
+            output.push_str("  ");
+            write_location(output, file, related.span.start, options);
+            output.push_str(" - ");
+            write_flattened_diagnostic_message(output, related, &options.newline);
+            write_code_snippet(
+                output,
+                file,
+                related.span.start,
+                related.span.end.saturating_sub(related.span.start),
+                FOREGROUND_COLOR_ESCAPE_CYAN,
+                "    ",
+                options,
+            );
+        }
         output.push_str(&options.newline);
     }
 }
