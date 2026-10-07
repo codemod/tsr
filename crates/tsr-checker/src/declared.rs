@@ -4762,7 +4762,14 @@ impl<'a> Checker<'a, '_> {
             // Syntactic gate FIRST: only a tuple body carrying a rest element
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
-            && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type
+            && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(|mut body| {
+                // getTypeFromTypeNodeWorker unwraps parentheses before tuple
+                // construction; retain the existing rest normalization worker.
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                    body = parenthesized.r#type?;
+                }
+                Some(body)
+            })
             && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
             && self.variadic_alias_in_progress.insert(symbol)
         {

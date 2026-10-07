@@ -251,6 +251,24 @@ so no equivalent-complete-work or release-speed claim. Frozen verification
 excludes the pending TypeQuery wrapper. Receipts `keyword-mapper-*` under
 `target/recovery/alias`.
 
+## Parenthesized variadic tuple alias body
+
+The existing rest-tuple instantiation entry now unwraps parentheses before tuple
+construction, following native `getTypeFromTypeNodeWorker`. Ordered mapper,
+rest-element metadata and normalized tuple worker are unchanged; no new cache,
+name fallback or unrelated signature ownership change.
+
+Regression fails before and passes after; variadic/tuple targets pass. Real CLI
+checks ordered tuple elements and rejection at index 1; diagnostics compare
+byte-for-byte with native. Existing unfiltered 477,970-assertion oracle unchanged,
+zero former RIGHT losses/vanished keys; no corpus whole-case gain claimed.
+Seven interleaved fresh-process samples: after/before **1.12613**,
+after/native **1.43080**. Baseline skips correct normalization, so work equivalence
+is unverified, but the observed 12.61% slower smoke does not certify the required
+no-hotpath-regression gate. This is a correctness prerequisite, not a speed win.
+Receipts `variadic-paren-*` under `target/recovery/alias`. Frozen verification
+excludes the pending TypeQuery wrapper dependency.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

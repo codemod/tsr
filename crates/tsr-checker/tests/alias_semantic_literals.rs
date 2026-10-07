@@ -106,6 +106,17 @@ fn parenthesized_keyword_body_retains_intrinsic_under_outer_alias_mapper() {
 }
 
 #[test]
+fn parenthesized_variadic_alias_normalizes_ordered_tuple_arguments() {
+    assert_eq!(
+        declared_and_reference(
+            "type Prepend<T extends unknown[]> = (([string, ...T])); declare let value: Prepend<[number, boolean]>;",
+            "Prepend",
+        ).1,
+        "[string, number, boolean]",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),
