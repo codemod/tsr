@@ -278,6 +278,14 @@ MODULE_EXPORTS local with value declaration equal to the source file, and its
 type is the source module type. Bare c assignment publishes no local/global c.
 No binder field or name-based ownership heuristic is needed.
 
+Additional exact two-file control parses both c.js and importing a.js into one
+Program identity, with ModuleHost directly witnessing loaded source resolution.
+It proves the source exports `a` but not `c`, no global c exists, and importing
+c has semantic errorType after 0bb6c8e2. This bypasses the Box loader's obsolete
+node_modules root admission, so it proves the owned missing-export fix with the
+newly populated source rather than relying on old corpus population. Parent
+must still prove expression/reference printing in its integrated loader tree.
+
 Owned correction: get_type_of_alias's established missing named-export branch
 now returns native errorType, not canonical any. Native resolveAlias publishes
 unknown; getTypeOfAlias reads its errorType. The existing semantic getter test

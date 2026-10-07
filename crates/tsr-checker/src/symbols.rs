@@ -2491,8 +2491,8 @@ impl<'a> Checker<'a, '_> {
     /// plain module (no `export =` indirection), its exports table is
     /// non-empty (§186), carries NO `export *` (a star chain through an
     /// unresolvable target would make absence a guess), and the name is
-    /// absent. Only then is the miss upstream's TS2305 and the alias's `any`
-    /// deliberate.
+    /// absent. The miss establishes native unknown/error target semantics;
+    /// diagnostic-site printing as `any` is not the canonical any type.
     fn missing_import_export_established(&mut self, specifier: NodeId) -> bool {
         let Some(declaration) = self.import_or_export_declaration_of(specifier) else {
             return false;
