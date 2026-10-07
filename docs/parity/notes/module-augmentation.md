@@ -82,6 +82,33 @@ No heuristic, suppression, compatibility shim or rejected semantic patch is
 included in the accepted commit. Callable merged-interface port
 `97f99018` has now been recovered and remeasured independently above.
 
+## Resolutions-owned canonical implementation experiment
+
+The integration owner subsequently accepted one alias map attached to existing
+Resolutions, with the same private Checker lifetime; no Checker field is needed
+for that placement and no second raw-ID cache is permitted. The owned experiment
+is saved as `canonical-alias-consumer-cutover.patch` in ignored receipts, not
+committed as a production cutover.
+
+Actual consumer controls passed for failed-pop unknown publication of every
+cycle participant, completed-unknown reuse without duplicate diagnostics,
+tryResolveAlias active absence without poisoning frames, and type-only-origin
+propagation distinct from immediate written target. Source-file diagnostic
+ownership was corrected through Checker::report; this fixed the previous eight
+circularity RIGHT losses.
+
+The full experiment still lost 13 previously RIGHT diagnostic cases and 14
+previously RIGHT type rows; no keys vanished. It cannot integrate until the
+parent serializes check.rs type-only/hidden-module consumers and printing/default
+alias context. Required type-only consumer replacement: read the published
+origin, classify ExportSpecifier/ExportDeclaration/NamespaceExport as export,
+and remove the capped first-declaration walk. Hidden-module consumers must use
+written immediate target rather than canonical terminal presentation. Native
+complete-work/performance acceptance was not measured for this rejected cutover.
+Strict clippy on the experiment also reported four style failures; no clean
+canonical quality-gate claim. Applied experimental code was removed from the
+production branch, preserving its verified callable/interface fix.
+
 ## Exact serialized alias-state interface
 
 Integration owner alone applies these two Checker additions with the canonical
