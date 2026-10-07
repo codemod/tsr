@@ -45,7 +45,11 @@ Compiler binary unchanged, no speed gain. Local native run: TSR 1.0232078s,
 native 0.6371528s, observed 1.60590646 (21 pairs). External load not excluded.
 Integrator-reported current source 5dd3bad8 observation: 2.662059755 (21 pairs),
 TSR samples 0.644–2.589s/native 0.227–1.851s; earlier corpus-contended 3.6683.
-All are observations, not uncontended receipts. Complete input/actual-work
+All are observations, not uncontended receipts. Integrator-reported local
+ambient A/B run (162s, 3–7s samples) ran under its own build/corpus contention;
+it is excluded from no-slowdown and speed evidence. Future integrated gates are
+sequential full scope with RAYON_NUM_THREADS=4 and Cargo -j4; time performance
+only after those jobs complete. Complete input/actual-work
 flags remain false, verified ratio null, target_verified false. Global .17 stays
 open until verified equivalent complete work reaches median wall <=0.50.
 
@@ -129,4 +133,7 @@ Native program.go SortAndDeduplicateDiagnostics: clone pointer list,sort full
 CompareDiagnostics,longer chains first,group EqualDiagnosticsNoRelatedInfo,
 concat related infos,sort/dedup full equality,clone retained head only when
 related info exists. Preserve Program source image; no per-diagnostic file clones
-or head-only sort shim. No guessed API imports or model-file edits made.
+or head-only sort shim. Preserve the same Program diagnostic origins/errors
+and full-check/skipped-file policy through every caller; comparator migration
+must not change eligibility or silently omit globals. No guessed API imports or
+model-file edits made.
