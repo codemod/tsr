@@ -498,3 +498,22 @@ Current empty-list assertion accepts count zero. Tests are prepared for parent
 real field/getter integration; distinct-mapper-tests.log is blocked by absent
 shared fields, not a claimed pass. Parent mapped predicate getter cache-before-
 target demand contract matches these workers; no alias cache success added.
+
+## Numeric signature identity cutover
+
+Removed per-signature Arc<()> identity allocation/pointer key. Parent Signature.id:
+u32 and Checker.next_signature_id: u32 define private monotonic store identity.
+Original builders mint IDs; clones/completion preserve them; owned eager/lazy
+image writers mint a fresh checked ID while the target keeps the original.
+No printed-name/declaration identity or per-signature heap allocation.
+
+Cache field uses FxHashMap<u32, FxHashMap<Vec<TypeId>, Signature>>, equivalent
+native signature-ID + ordered-argument key domain. Nested numeric layout permits
+borrowed &[TypeId] warm lookup; a flat std HashMap tuple with Vec requires an
+avoidable lookup vector allocation. Miss copies arguments only on successful
+publication. Parent should use this exact nested field type. Numeric IDs never
+cross Checker stores/options.
+
+Actual source applied; numeric-identity-check.log remains blocked by absent
+parent numeric/mapper/reference/expression fields. No runtime/cold-warm/perfproof
+claimed; existing behavioral distinct-map tests await actual integrated checker.
