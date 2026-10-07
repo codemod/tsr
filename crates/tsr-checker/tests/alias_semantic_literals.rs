@@ -282,6 +282,18 @@ fn keyof_parenthesized_parameter_retains_deferred_operand() {
 }
 
 #[test]
+fn tuple_spread_never_normalizes_to_never() {
+    assert_eq!(
+        declared_and_reference(
+            "type Unused = string; declare let value: [number, ...never, boolean];",
+            "Unused",
+        )
+        .1,
+        "never",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

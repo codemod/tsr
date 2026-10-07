@@ -398,6 +398,19 @@ RIGHT losses/vanished keys. Seven fresh-process samples after/before 0.96492,
 after/native 1.55823; complete-work/no-hotpath/release performance uncertified.
 Receipts `keyof-operand-*`; reserved wrapper/query/literal-bucket regions untouched.
 
+## Source tuple variadic never normalization
+
+The disjoint `tuple_type_node_structural` producer now returns never when a
+variadic rest operand resolves to never, matching native
+`createNormalizedTupleTypeEx`'s mapType-before-positional-normalization operation.
+Array rest operands retain their existing route; no alias constructor/cache change.
+Regression fails before and passes after; tuple/variadic targets pass. Real CLI
+never assignability and distinct ordinary-rest rejection diagnostics compare
+byte-for-byte with native. Existing unfiltered oracle unchanged, zero former
+RIGHT losses/vanished keys. Seven ordinary-rest fresh-process samples:
+after/before 1.01331, after/native 1.60047; no complete-work/no-hotpath/release
+performance certification. Receipts `tuple-never-*`; all reserved functions untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
