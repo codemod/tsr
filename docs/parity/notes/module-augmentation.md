@@ -604,6 +604,23 @@ Parent canonical alias publication is still rejected; no standalone source hunk
 or performance/correctness gain claimed. Current target receipt
 merge-alias-target.tsv; existing issue claimed/updated, no duplicate task.
 
+## Block-scoped declaration export owner (tsr-2zk.16.292)
+
+Native bindBlockScopedDeclaration exports only when blockScopeContainer is a
+module/source module. Existing member-owner cursor may still point at an outer
+namespace while a declaration belongs to a nested block. Export admission now
+checks existing locals_owner/block container before module-member publication.
+No cache, graph traversal, callable/template/alias-field change.
+
+Semantic ownership test fails before/passes after: nested hidden function is
+not namespace export, visible namespace function remains export. Actual native
+CLI TS1184 then TS2339 matches after exactly (messages/spans/order). Full corpus
+adds three RIGHT type rows and two diagnostic cases with no new RIGHT/vanished
+losses beyond held template's 12 naming rows. Target innerModExport1 controls
+use current corpus, not historical promise. Binder test/clippy/format pass.
+Linux 21-sample CPU new/base 1.0291 domain-model, 0.9902 generic-imports; no
+native equivalent complete-work certification. Parent integrated loss gate needed.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including

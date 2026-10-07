@@ -4192,6 +4192,11 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         if destination == Destination::Locals
             && self.owner.is_some()
+            && (self.locals_owner(flags) == self.container
+                || matches!(
+                    self.nodes.kind(self.block),
+                    SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration
+                ))
             && self.is_exported_from_container(node)
         {
             let container = self.container;
