@@ -18,6 +18,37 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // Native grammar precedes argument checking but does not suppress it.
+        // ES2015 module rejection is already owned by check.rs and has priority.
+        if !self.file_has_parse_errors && self.module_kind != tsr_core::ModuleKind::ES2015 {
+            let supports_options = matches!(
+                self.module_kind,
+                tsr_core::ModuleKind::ESNext
+                    | tsr_core::ModuleKind::Preserve
+                    | tsr_core::ModuleKind::Node16
+                    | tsr_core::ModuleKind::Node18
+                    | tsr_core::ModuleKind::Node20
+                    | tsr_core::ModuleKind::NodeNext
+            );
+            let error = if !supports_options && call.arguments.len() > 1 {
+                call.arguments[1].node_id().map(|at| (at,
+                    &messages::DYNAMIC_IMPORTS_ONLY_SUPPORT_A_SECOND_ARGUMENT_WHEN_THE_MODULE_OPTION_IS_SET_TO_ESNEXT_NODE16_NODE18_NODE20_NODENEXT_OR_PRESERVE))
+            } else if call.arguments.is_empty() || call.arguments.len() > 2 {
+                Some((node, &messages::DYNAMIC_IMPORTS_CAN_ONLY_ACCEPT_A_MODULE_SPECIFIER_AND_AN_OPTIONAL_SET_OF_ATTRIBUTES_AS_ARGUMENTS))
+            } else {
+                call.arguments.iter().find_map(|argument| match argument {
+                    Expression::SpreadElement(spread) => spread.node_id.map(|at| {
+                        (at, &messages::ARGUMENT_OF_DYNAMIC_IMPORT_CANNOT_BE_SPREAD_ELEMENT)
+                    }),
+                    _ => None,
+                })
+            };
+            if let Some((at, message)) = error
+                && let Some(file) = self.source_file_of_for_diagnostics(at)
+            {
+                self.report(file, Diagnostic::new(message, self.error_span(at)));
+            }
+        }
         let Some(&specifier) = call.arguments.first() else { return };
         let specifier_type = self.check_expression(specifier);
         let options = call.arguments.get(1).copied();

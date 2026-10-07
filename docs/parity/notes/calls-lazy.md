@@ -734,6 +734,22 @@ identity predicate; no new printed-name heuristic. Direct native control emits
 TS2810at1,26 and TSR before emits none. js-promise-check is compile-blocked by
 absent shared fields; no passing-after/fullRIGHT/perf claim.
 
+## Dynamic import available-node grammar arms
+
+Ported native checkGrammarImportCallExpression count/options/spread arms in owned
+import_call.rs. Existing ES2015 module error retains priority; source parse errors
+suppress grammar. Module-supported second-argument rule precedes count, which
+precedes first spread. Argument checking still proceeds after grammar. Type-list,
+trailing-comma, verbatim/deferred-import branches remain parent metadata/options
+prerequisites; no list guessing or duplicated ES2015 error.
+
+Actual CLI control using string variable matches pinnednative byte-for-byte:
+two TS1450 messages then TS1325 spread error with exact spans/order. Full checker
+tests/clippy pass;12444-key historical types/diagnostic ratchets no priorPASS or
+vanishedkey loss. Seven interleaved fresh-process import samples observedpatch/
+checkpoint1.0097 andTSR/native1.7132; equivalentworkunverified, no no-regression or
+<=.50 claim. Receipts import-grammar-*; integratedparent gates remain pending.
+
 ## Overload survivor semantic arity
 
 Native getMinArgumentCountEx accepts omitted trailing void parameters. Owned
