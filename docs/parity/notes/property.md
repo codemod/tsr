@@ -423,3 +423,15 @@ uncertified (`object_image_road_is_uncertified`); a literal's value is never
 **Measured.** 6 baseline lines (`binaryIntegerLiteralES6` 2,
 `noImplicitAnyStringIndexerOnObject` 3, `noImplicitAnyIndexing` 1), 0 false,
 0 losses; no case flips yet.
+
+## 12. Union property reads honour nonpublic origins (tsr-2zk.16.279)
+
+`createUnionOrIntersectionProperty` (`checker.go:21554`) rejects a union
+property whose constituents supply distinct private/protected declarations
+without a common one. The union value loop in `members.rs` projected values
+without that guard; it now records whether any constituent origin is
+nonpublic and, only then, asks the existing canonical
+`get_property_of_union_or_intersection_type` supplier, which owns the
+privacy/common-declaration decision. No new cache; the per-constituent origin
+lookup is query-local and publishes no image. Control: distinct protected
+`A`/`B` rejects; a shared inherited `Root` declaration keeps `number`.
