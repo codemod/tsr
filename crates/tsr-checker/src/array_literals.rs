@@ -79,8 +79,8 @@ impl<'a> Checker<'a, '_> {
     /// pattern element at ITS INDEX is itself an array pattern — `var [a3,
     /// b3] = [[x13, y13], …]` does NOT nest, because `a3` is a plain name
     /// and the inner array is assigned whole
-    /// (`declarationEmitDestructuringArrayPattern2`). Empty and
-    /// rest-bearing patterns widen at every level.
+    /// (`declarationEmitDestructuringArrayPattern2`). Binding patterns follow
+    /// [`Checker::array_binding_pattern_implies_tuple`].
     fn destructuring_array_pattern_slot(
         &mut self,
         literal: tsr_ast::NodeId,
@@ -93,11 +93,7 @@ impl<'a> Checker<'a, '_> {
             {
                 match declaration.name {
                     Some(tsr_ast::BindingName::BindingPattern(pattern))
-                        if !pattern.elements.is_empty()
-                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
-                            && pattern.node_id.is_some_and(|p| {
-                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
-                            }) =>
+                        if self.array_binding_pattern_implies_tuple(pattern) =>
                     {
                         Some(PatternSlot::Binding(pattern))
                     }
@@ -137,11 +133,7 @@ impl<'a> Checker<'a, '_> {
             {
                 match parameter.name {
                     Some(tsr_ast::BindingName::BindingPattern(pattern))
-                        if !pattern.elements.is_empty()
-                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
-                            && pattern.node_id.is_some_and(|p| {
-                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
-                            }) =>
+                        if self.array_binding_pattern_implies_tuple(pattern) =>
                     {
                         Some(PatternSlot::Binding(pattern))
                     }
@@ -157,11 +149,7 @@ impl<'a> Checker<'a, '_> {
             {
                 match element.name {
                     Some(tsr_ast::BindingName::BindingPattern(pattern))
-                        if !pattern.elements.is_empty()
-                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
-                            && pattern.node_id.is_some_and(|p| {
-                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
-                            }) =>
+                        if self.array_binding_pattern_implies_tuple(pattern) =>
                     {
                         Some(PatternSlot::Binding(pattern))
                     }
@@ -174,14 +162,7 @@ impl<'a> Checker<'a, '_> {
                 match self.destructuring_array_pattern_slot(outer_id)? {
                     PatternSlot::Binding(pattern) => match pattern.elements.get(index)?.name {
                         Some(tsr_ast::BindingName::BindingPattern(inner))
-                            if !inner.elements.is_empty()
-                                && !inner
-                                    .elements
-                                    .iter()
-                                    .any(|e| e.dot_dot_dot_token.is_some())
-                                && inner.node_id.is_some_and(|p| {
-                                    self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
-                                }) =>
+                            if self.array_binding_pattern_implies_tuple(inner) =>
                         {
                             Some(PatternSlot::Binding(inner))
                         }
@@ -203,6 +184,23 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         }
+    }
+
+    /// Whether `getTypeFromArrayBindingPattern` (`checker.go:17957`) answers a
+    /// tuple for this pattern, i.e. whether the implied type that
+    /// `getContextualTypeForInitializerExpression` supplies is tuple-like.
+    /// Only an empty pattern or a lone rest element yields the iterable/array
+    /// of `any`; every other array pattern, rest-bearing included, is a tuple
+    /// (`var [x, ...a] = [1, 2, 3]` records `[number, number, number]`).
+    fn array_binding_pattern_implies_tuple(&self, pattern: &tsr_ast::BindingPattern<'_>) -> bool {
+        pattern
+            .node_id
+            .is_some_and(|p| self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern)
+            && match pattern.elements {
+                [] => false,
+                [only] => only.dot_dot_dot_token.is_none(),
+                _ => true,
+            }
     }
 }
 
