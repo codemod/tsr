@@ -100,6 +100,90 @@ Both projects preserve diagnostic fingerprints. Generic-imports shows a small
 positive measured delta; these results do not prove literally zero slowdown.
 No verified native release ratio is claimed.
 
+## Signature minimum-argument explanation — tsr-2zk.1.10
+
+Pinned native `Relater.signatureRelatedTo` selects checkMode None for Assignable,
+StrictTopSignature for Subtype, and StrictTopSignature|StrictArity for
+StrictSubtype; it passes the same Relater recursive comparer, intersectionState,
+reportErrors and reportError callback to `Checker.compareSignaturesRelated`.
+That comparator checks top signatures first, then target effective rest. Without
+StrictArity it fails when source minimum argument count exceeds target parameter
+count and reports TS2849: `Target signature provides too few arguments. Expected
+{0} or more, but got {1}.` StrictArity failures do not emit that explanation.
+Generic contextual instantiation follows this arity test, not before it.
+
+Owned `relater.rs::one_signature_related_to` now publishes the minimum/count
+pair at that existing decision. The diagnostic consumer shares the same walk,
+ordered source/target identities and Assignable relation with the returned
+verdict; `assignreport.rs` attaches the native child to TS2322/TS2345 and inherits
+its chosen span. It never recomputes arity at a call site. Overload alternatives
+restore saved error state when a candidate succeeds or the result is Unknown.
+Verdict-only walks allocate no diagnostic data; the pending arity explanation is
+an inline pair of usize values. Only a completed failed reporting relation
+renders arguments and allocates a Diagnostic. Initial storing a whole Diagnostic
+in the Relater increased measured domain-model CPU by 3.46% in 41 pairs; replacing
+it with inline metadata eliminated that measured regression.
+
+This publication is per-Relater walk, not a persistent semantic cache. The
+existing ordered TypeId pair and intersection-target context own relation keys;
+concrete signature declarations, min counts, rest flags, erasure/canonicalization
+and strict-function options remain in the existing signature readers. Only a
+direct pair's signature comparator may publish this explanation; nested callback
+parameter/return error contexts are not exposed until full native chain wrapping
+and rollback are implemented. Follow-up request under tsr-2zk.1.10 for integrator
+Beads: attribute
+actual signature worker executions, result hits and metadata copy bytes before
+expanding diagnostic-result reuse. No new result cache was introduced.
+
+Two behavior regression tests cover real assignment/argument errors and distinct
+optional-parameter, effective-rest-target and successful-overload controls.
+Three actual CLI controls (assignment, argument and contextual object member)
+match pinned tsgo byte-for-byte after the port, including head type printing,
+child text, positions and ordering. Workspace release tests, all-target clippy
+and fmt check pass. Both final unfiltered verdict dumps retain 477970 type keys
+and 10570 diagnostic keys; absence-aware checks preserve all 469765 RIGHT type
+keys and 9189 RIGHT/EMPTY_RIGHT diagnostic keys, zero missing/changed. All sixteen
+stock coverage suites complete in scratch output: checker_types 8042/9538,
+diagnostics 4221/5502. No legacy verdict conversions are claimed.
+
+Final fresh-process baseline/candidate measurements: domain-model 41 pairs wall
+0.9874 / CPU 0.9902; generic-imports 21 pairs wall 0.9901 / CPU 0.9941. Diagnostic
+fingerprints match. Pinned-tsgo domain-model 21 pairs observed wall 1.0320;
+verified ratio remains unset due to unverified complete input queries and actual
+checker work. These working-tree measurements precede commit attribution and
+are not verified release-ratio evidence.
+
+Committed-source rerun at `e858e7cf01b21d338f8d514027588d5c179987ae`, 21
+interleaved pairs each: domain-model wall 0.9854 / CPU 0.9411;
+generic-imports wall 0.9848 / CPU 0.9910. Diagnostic fingerprints match. These
+short-project observations show no measured slowdown, not complete-work parity
+or a verified native <=0.50 ratio.
+
+### Reverse-mapped corpus target prerequisite
+
+Direct pinned CLI `compiler/reverseMappedTypeContextualTypeNotCircular.ts` emits
+TS2322 at editable's property (line 11 column 3 in the raw source), printing
+`(state: any, props: any) => {}` against `Selector<unknown, {}>` plus TS2849
+Expected 2 / got 1. TSR still emits nothing. A current type trace proves the
+call result and mapStateToProps are both any, where the oracle requires
+`Selector<unknown, { editable: {}; }>`; this port does not claim target conversion.
+
+Required non-owned contracts: `inference.rs::reverse_homomorphic_mapped_type`,
+`reverse_mapped_member_type_worker` and `complete_reverse_mapped_type` must
+publish the inferred T member {}; `calls.rs::choose_overload` must retain the
+instantiated `createStructuredSelector` candidate and its argument diagnostic
+context instead of unresolved any; `contextual.rs::contextual_type_for_object_literal_named_element`
+must supply concrete `Selector<unknown, {}>` to editable. Native counterparts:
+`inference.go::inferToMappedType`, `inferReverseMappedTypeWorker` and reverse
+member resolution; `checker.go::getContextualTypeForObjectLiteralElement` and
+signature applicability/overload resolution. Integrator must route that atomic
+producer contract to its owners. No calls.rs, signatures.rs, inference.rs,
+contextual.rs or objects.rs edits were made, and no diagnostic side pass was
+substituted. Once that target reaches the existing member elaboration, the
+owned signature worker can supply the arity explanation proved by the direct
+contextual-member control. That last statement is an inference, not a converted
+corpus result.
+
 ## Reporting-context integration review
 
 Exact native branch: `Relater.reportRelationError` at relater.go lines

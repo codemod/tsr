@@ -453,6 +453,9 @@ struct Relater<'c, 'a, 'n> {
     /// (`relater.go:3232`), so it is part of [`RelationKey`] as in native
     /// `getRelationKey`. `IntersectionStateSource` is not represented.
     intersection_target: bool,
+    /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
+    diagnostic_pair: Option<(TypeId, TypeId)>,
+    signature_error: Option<(usize, usize)>,
 }
 
 /// A walk-local relation result key: the ordered pair and whether it was
@@ -688,6 +691,20 @@ impl Checker<'_, '_> {
         target: TypeId,
         relation: Relation,
     ) -> Ternary {
+        self.relate_with_signature_diagnostic(source, target, relation, false).0
+    }
+
+    /// Native signatureRelatedTo/compareSignaturesRelated arity reporting,
+    /// collected during the same relation walk that decides the failure.
+    /// Direct signature pairs only; recursive property/signature error contexts
+    /// require the complete native error-state contract before expansion.
+    pub(crate) fn relate_with_signature_diagnostic(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+        report_errors: bool,
+    ) -> (Ternary, Option<tsr_diagnostics::Diagnostic>) {
         let mut relater = Relater {
             checker: self,
             relation,
@@ -699,12 +716,25 @@ impl Checker<'_, '_> {
             target_stack: Vec::new(),
             expanding: (false, false),
             intersection_target: false,
+            diagnostic_pair: report_errors.then_some((source, target)),
+            signature_error: None,
         };
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
         let answer = relater.is_related_to(source, target).public_answer();
         reasons::finish(outer, answer == Ternary::Unknown);
-        answer
+        let diagnostic = if answer == Ternary::NotRelated {
+            relater.signature_error.map(|(minimum, count)| {
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                    tsr_core::Span::new(0, 0),
+                    [minimum.to_string(), count.to_string()],
+                )
+            })
+        } else {
+            None
+        };
+        (answer, diagnostic)
     }
 
     /// The missing-property message `checkTypeRelatedToEx` would leave at the
@@ -820,6 +850,8 @@ impl Checker<'_, '_> {
             target_stack: Vec::new(),
             expanding: (false, false),
             intersection_target: false,
+            diagnostic_pair: None,
+            signature_error: None,
         };
         let mut missing = Vec::new();
         for name in names {
@@ -996,9 +1028,11 @@ impl Checker<'_, '_> {
             target_stack: Vec::new(),
             expanding: (false, false),
             intersection_target: false,
+            diagnostic_pair: None,
+            signature_error: None,
         };
         relater
-            .one_signature_related_to(source, target, false, false)
+            .one_signature_related_to(source, target, false, false, false)
             .map(RelationResult::public_answer)
     }
 }
@@ -1849,14 +1883,17 @@ impl Relater<'_, '_, '_> {
         // An uncomputed erasure or pair remains Unknown unless a different
         // source signature proves this target compatible. Do not turn a
         // missing comparison into a rejection merely because another failed.
+        let report_errors = self.diagnostic_pair == Some((source, target));
         let mut parts = Vec::new();
         for target_signature in &target_signatures {
+            let saved_error = self.signature_error.take();
             let Some(target_signature) = target_signature else {
+                self.signature_error = saved_error;
                 parts.push(RelationResult::Unknown);
                 continue;
             };
             let mut best = RelationResult::NotRelated;
-            for source_signature in &source_signatures {
+            for (index, source_signature) in source_signatures.iter().enumerate() {
                 let verdict = source_signature
                     .as_ref()
                     .and_then(|source_signature| {
@@ -1865,6 +1902,7 @@ impl Relater<'_, '_, '_> {
                             target_signature,
                             false,
                             false,
+                            report_errors && index == 0,
                         )
                     })
                     .unwrap_or(RelationResult::Unknown);
@@ -1872,6 +1910,9 @@ impl Relater<'_, '_, '_> {
                 if best.is_success() {
                     break;
                 }
+            }
+            if best != RelationResult::NotRelated {
+                self.signature_error = saved_error;
             }
             parts.push(best);
         }
@@ -1948,6 +1989,7 @@ impl Relater<'_, '_, '_> {
         target_signature: &crate::signatures::Signature,
         callback: bool,
         bivariant_callback: bool,
+        report_errors: bool,
     ) -> Option<RelationResult> {
         let source_top = self.checker.signature_is_top(source_signature);
         let target_top = self.checker.signature_is_top(target_signature);
@@ -1969,6 +2011,9 @@ impl Relater<'_, '_, '_> {
                 source_minimum > target_count
             }
         {
+            if report_errors && self.relation != Relation::StrictSubtype {
+                self.signature_error = Some((source_minimum, target_count));
+            }
             return Some(RelationResult::NotRelated);
         }
         let shared_type_parameters = if !source_signature.type_parameters.is_empty()
@@ -2095,6 +2140,7 @@ impl Relater<'_, '_, '_> {
                     &source_callback,
                     true,
                     !strict_variance,
+                    false,
                 )?);
             } else {
                 parts.push(if callback || strict_variance {
@@ -3938,6 +3984,8 @@ mod variance_recursion_tests {
                 target_stack: Vec::new(),
                 expanding: (false, false),
                 intersection_target: false,
+                diagnostic_pair: None,
+                signature_error: None,
             };
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);
