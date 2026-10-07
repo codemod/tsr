@@ -6245,12 +6245,19 @@ impl<'a> Checker<'a, '_> {
     /// declaration-only key. No result cache or completed return is published.
     pub(crate) fn instantiate_signature_lazily(
         &mut self,
-        mut signature: Signature,
+        original: &Signature,
         map: &[(TypeId, TypeId)],
         parameters: &[TypeId],
         names: &[&str],
+        erase_type_parameters: bool,
     ) -> Option<Signature> {
-        let target = std::sync::Arc::new(signature.clone());
+        // Preserve the complete original target, including its own parameters
+        // and captured mapper. Native eraseTypeParameters affects only image.
+        let target = std::sync::Arc::new(original.clone());
+        let mut signature = original.clone();
+        if erase_type_parameters {
+            signature.type_parameters.clear();
+        }
         if let Some(parameter) = &mut signature.this_parameter {
             let original = self.parameter_type(parameter);
             let image = self.instantiate_type(original, map, parameters, names);

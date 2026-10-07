@@ -410,3 +410,18 @@ instantiate_signature_in_context now use canonical return demand. Source applied
 image-completion-check.log still records absent parent Signature.mapper/outer
 integration fields. No runtime/counter/publication/performance proof claimed
 until the actual parent integration can compile; no mock surface installed.
+
+### Preserve original target metadata when erasing image parameters
+
+Corrected lazy writer: get_signature_instantiation borrows original parameter
+names and passes the original by reference; instantiate_signature_lazily creates
+the complete target snapshot before erasing only the image's type parameters.
+Target own defaults/constraints/captured mapper remain intact for canonical
+return/predicate demand. Removed incidental image/target-empty metadata assertions;
+behavioral dependent-default and constructor return controls remain. No extra
+pre-clone or cloned name Strings in the caller.
+
+Parent fields/getters remain absent here, so preserve-target-check.log is blocked
+and behavioral tests are not counted passing. Image-owned completed slots avoid
+repeat demand of a single image; stable original signature interning plus ordered
+argument instantiation reuse is still unresolved and is not claimed by this fix.
