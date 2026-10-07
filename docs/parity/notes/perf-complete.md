@@ -95,6 +95,19 @@ parallel run were preserved. Unreliable unwound parent addresses are not treated
 as worker counts or expensive traversal evidence; no scheduler speed claim is
 made from this profile.
 
+Owned compiler symbols in the same actual profile are principally immutable
+Program host lookups: source_file_by_path on checker-0 0.75%,
+mode_for_usage_location 0.61%, resolution 0.61%, and resolved_module_in_mode
+0.28%. Other checker threads each contribute <=0.14% per listed host symbol.
+Inline inspection of Program::resolution confirms existing source-node-to-file
+index, canonical-path/name lookup and a small mode vector search; it does not
+execute the resolver again. Program::mode_for_usage_location reads Program
+metadata and usage syntax without adding a cache. The frontend ordered bind
+worker wrapper has 0.23% self samples. These observations identify owned work
+but do not demonstrate eager repeated resolver work or scheduler overhead as a
+root cause; no duplicate cache, semantic cutover, or timer movement is justified.
+Actual worker counts and complete forcing remain unmeasured prerequisites.
+
 ## Integration prerequisites / Beads follow-up request
 
 Record these missing boundaries under tsr-2zk.17 before extending reuse:
