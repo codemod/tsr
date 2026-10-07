@@ -132,5 +132,2087 @@
       "line": 434,
       "boundary": "Stored Named/aliased Union text used as name."
     }
-  ]
+  ],
+  "site_demand_characterization": {
+    "receipt": {
+      "source_head": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+      "source_base": "Isolated origin-probev2 plus mutable receiver caller adaptation; no canonical semantic edits.",
+      "corrected_source_sha256": "4ac1fe668bdc9533aa66d624388d03f415238c89c3d205710660278abe6d5eca",
+      "adapted_source_files_sha256": {
+        "crates/tsr-checker/src/checker.rs": {
+          "before_sha256": "7190865255c106cda973bd8d1f353d5abf3a18edd1b8c02b734300d69ebd7a0a",
+          "after_sha256": "1918d9562eacad7cb32c691117cdf4a6d3a5f785be6b17d238cc275e42e4380a"
+        },
+        "crates/tsr-checker/src/index_signatures.rs": {
+          "before_sha256": "74c3a317528ac010ec748ebeb3d50925b0f9ff010c905452cb52658ecc638f43",
+          "after_sha256": "521a242e110de714f2c9800f56636bef086dbb837f6801bb05c60b058d56d44a"
+        },
+        "crates/tsr-checker/src/indexed.rs": {
+          "before_sha256": "fb81d0e7289e22b3c800ba8162290429da98ec0e9dbe94a6d21a6048ced1a456",
+          "after_sha256": "d1c20bf2c294b6310c2d485c374a8b8022739e79e2ecc0a3ff6d9c54da12c4a1"
+        },
+        "crates/tsr-checker/src/mapped.rs": {
+          "before_sha256": "19d053352714b7440f7ada88b0f2d64501738c75da1ce04a9e70203269ef035b",
+          "after_sha256": "8b293b693e754721bac7c465c94818abd82a8148bff40d7778ff81f49e2ea6d8"
+        },
+        "crates/tsr-checker/src/nonexistent_property.rs": {
+          "before_sha256": "4df8e4c4be6b2fba14657d6c4d6a3744bfb4a1d0ea6495e95426721922ec158c",
+          "after_sha256": "924f5262d483cccba12a02842bb0e50da7b2905b373d7f7d3ca2564b1758a3bc"
+        },
+        "crates/tsr-checker/src/signatures.rs": {
+          "before_sha256": "b5ba80f89445809ac108f236c636c37dc2909392d12c9dc4f1549a0fc57df913",
+          "after_sha256": "eff4ce25851a4e71b7d22c736cbd50f3defefae56f7063c21fac9924ef9ddc59"
+        },
+        "crates/tsr-conformance/examples/infergen.rs": {
+          "before_sha256": "ef2474be096fbbbcfd9f5ac4d3f0604d30e576a56fee256d1c8fc23f11378768",
+          "after_sha256": "633193d7f2ca2758e5040a72b57b7834ece388af071927897fcd53811499428d"
+        },
+        "crates/tsr-checker/tests/types.rs": {
+          "before_sha256": "67433de35c726b7f7e9d247fe3091d7a8e48507a48a566569e750885b6f9fb6e",
+          "after_sha256": "d6eb19622ef925324d87fb9ea38f7dc25e0faa82691b46ef619717ec01edfbc5"
+        },
+        "crates/tsr-checker/tests/unions.rs": {
+          "before_sha256": "c982808c17bded9d5714a9469a83c4c852a354646c0698ff9393396227618249",
+          "after_sha256": "b7bc71c4affd54549823b5517d9390466cf637d9e53f2d1467681cc258b91a7b"
+        },
+        "crates/tsr-checker/src/unions/tests.rs": {
+          "before_sha256": "1f0a43fa2fa57038cd9523cee455aef111fb8990eb60be3afd5a3d56692c42f1",
+          "after_sha256": "295755763d29462dadc59d0c4055e85bf1a5b2e3825f3760a9f0f1035d7836fa"
+        }
+      },
+      "command": "cargo test --offline -p tsr-checker --test object_site_demand_audit -- --nocapture",
+      "runtime": "Rust1.96.0 aarch64-unknown-linux-gnu, pinned local Docker image, read-only source/no network",
+      "terminal_exit_code": 0,
+      "passed": 1,
+      "fixtures": 12,
+      "private_checkers": 36,
+      "rounds_per_checker": 3,
+      "site_render_demands": 432,
+      "baked_demands": 216,
+      "rows": [
+        {
+          "label": "source_order",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "source_order",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "source_order",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ b: string; a: number; }",
+                "own": "{ b: string; a: number; }",
+                "other": "{ b: string; a: number; }"
+              },
+              {
+                "baked": "{ b: string; a: string; }",
+                "own": "{ b: string; a: string; }",
+                "other": "{ b: string; a: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "nested",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "nested",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "nested",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              },
+              {
+                "baked": "{ inner: { n: number; }; }",
+                "own": "{ inner: { n: number; }; }",
+                "other": "{ inner: { n: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "written_quote",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "written_quote",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "written_quote",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              },
+              {
+                "baked": "{ label: 'held'; }",
+                "own": "{ label: 'held'; }",
+                "other": "{ label: 'held'; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "readonly",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "readonly",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "readonly",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: 1; readonly label: \"held\"; }",
+                "own": "{ readonly n: 1; readonly label: \"held\"; }",
+                "other": "{ readonly n: 1; readonly label: \"held\"; }"
+              },
+              {
+                "baked": "{ n: 1; label: \"held\"; }",
+                "own": "{ n: 1; label: \"held\"; }",
+                "other": "{ n: 1; label: \"held\"; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "accessor",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "accessor",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "accessor",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ readonly n: any; }",
+                "own": "{ readonly n: number; }",
+                "other": "{ readonly n: number; }"
+              },
+              {
+                "baked": "{ n: number; }",
+                "own": "{ n: number; }",
+                "other": "{ n: number; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "method_this",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "method_this",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "method_this",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              },
+              {
+                "baked": "{ n: number; read(): any; }",
+                "own": "{ n: number; read(): any; }",
+                "other": "{ n: number; read(): any; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "generic_alias",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "generic_alias",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "generic_alias",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              },
+              {
+                "baked": "{ item: Box<number>; }",
+                "own": "{ item: Box<number>; }",
+                "other": "{ item: Box<number>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "qualified",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "qualified",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "qualified",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              },
+              {
+                "baked": "{ item: Names.Item; }",
+                "own": "{ item: Names.Item; }",
+                "other": "{ item: Names.Item; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "computed",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "computed",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "computed",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              },
+              {
+                "baked": "{ [key]: number; label: string; }",
+                "own": "{ [key]: number; label: string; }",
+                "other": "{ [key]: number; label: string; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "optional",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "optional",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "optional",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              },
+              {
+                "baked": "{ item: { n?: number; }; }",
+                "own": "{ item: { n?: number; }; }",
+                "other": "{ item: { n?: number; }; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "mapped",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "mapped",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "mapped",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ],
+            [
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              },
+              {
+                "baked": "{ item: Box<{ n: number; }>; }",
+                "own": "{ item: Box<{ n: number; }>; }",
+                "other": "{ item: Box<{ n: number; }>; }"
+              }
+            ]
+          ],
+          "diagnostics": []
+        },
+        {
+          "label": "recursive_return",
+          "first": null,
+          "rounds": [
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ]
+          ],
+          "diagnostics": [
+            "'value' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+            "'next' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions."
+          ]
+        },
+        {
+          "label": "recursive_return",
+          "first": "value",
+          "rounds": [
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ]
+          ],
+          "diagnostics": [
+            "'value' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+            "'next' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions."
+          ]
+        },
+        {
+          "label": "recursive_return",
+          "first": "copy",
+          "rounds": [
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ],
+            [
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              },
+              {
+                "baked": "any",
+                "own": "any",
+                "other": "any"
+              }
+            ]
+          ],
+          "diagnostics": [
+            "'value' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.",
+            "'next' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions."
+          ]
+        }
+      ],
+      "log_sha256": "820e4921fbfb867811ca3c1038bf86fa7ee8d4de7eee40be5d75fbf01a6a5817",
+      "cold_warm_order_invariance": true,
+      "native_display_equivalence_verified": false,
+      "full_corpus_verified": false,
+      "target_verified": false
+    },
+    "characterization_source": "use tsr_ast::Node;\nuse tsr_checker::{Checker, check::FileContext};\nuse tsr_core::Arena;\n\n#[derive(Debug, PartialEq, Eq)]\nstruct Output { baked: String, own: Option<String>, other: Option<String> }\n#[derive(Debug)]\nstruct Observation { label: String, first: Option<String>, rounds: Vec<Vec<Output>>, diagnostics: Vec<String> }\n\nfn observe(label: &str, source: &str, first: Option<&str>) -> Observation {\n    let arena = Arena::new();\n    let parsed = tsr_parser::parse(&arena, source);\n    assert!(parsed.diagnostics.is_empty());\n    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();\n    let bound = tsr_binder::bind(&arena, parsed.source_file, &parsed.nodes,\n        tsr_binder::FileInfo { name: \"control.ts\", text: source });\n    let symbols = [bound.lookup_local(root, \"value\").unwrap(),\n        bound.lookup_local(root, \"copy\").unwrap()];\n    let sites = symbols.map(|symbol| bound.symbols().get(symbol).declarations[0]);\n    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);\n    checker.set_strict_null_checks(true);\n    checker.set_no_implicit_any(true);\n    if let Some(name) = first { checker.get_type_of_symbol(bound.lookup_local(root, name).unwrap()); }\n    let mut rounds = Vec::new();\n    for reverse in [false, true, false] {\n        let order = if reverse { [1, 0] } else { [0, 1] };\n        let mut outputs = [None, None];\n        for i in order {\n            let id = checker.get_type_of_symbol(symbols[i]);\n            let baked = checker.type_to_string(id);\n            let own = checker.type_to_string_at(id, sites[i]);\n            let other = checker.type_to_string_at(id, sites[1-i]);\n            assert_eq!(checker.get_type_of_symbol(symbols[i]), id,\n                \"presentation changed completed symbol identity: {label}\");\n            outputs[i] = Some(Output { baked, own, other });\n        }\n        rounds.push(outputs.into_iter().map(Option::unwrap).collect());\n    }\n    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });\n    let diagnostics = checker.diagnostics().iter().map(|d| d.1.text()).collect();\n    Observation { label: label.to_owned(), first: first.map(str::to_owned), rounds, diagnostics }\n}\n\n#[test]\nfn original_and_spread_site_reads_characterize_cold_and_warm_orders() {\n    let mut rows = Vec::new();\n    for &(label, source) in FIXTURES {\n        for first in [None, Some(\"value\"), Some(\"copy\")] { rows.push(observe(label, source, first)); }\n    }\n    println!(\"SITE_DEMAND_RECORD={rows:#?}\");\n    for row in &rows {\n        assert_eq!(row.rounds[0], row.rounds[1], \"warm reversed changed: {}, {:?}\", row.label, row.first);\n        assert_eq!(row.rounds[0], row.rounds[2], \"warm repeat changed: {}, {:?}\", row.label, row.first);\n    }\n    for chunk in rows.chunks_exact(3) {\n        assert_eq!(chunk[0].rounds, chunk[1].rounds, \"object-first changed: {}\", chunk[0].label);\n        assert_eq!(chunk[0].rounds, chunk[2].rounds, \"spread-first changed: {}\", chunk[0].label);\n        assert_eq!(chunk[0].diagnostics, chunk[1].diagnostics);\n        assert_eq!(chunk[0].diagnostics, chunk[2].diagnostics);\n    }\n}\nconst FIXTURES: &[(&str, &str)] = &[\n    (\"source_order\", \"const value = { b: \\\"s\\\", a: 1 }; const copy = { ...value, a: \\\"x\\\" };\"),\n    (\"nested\", \"const value = { inner: { n: 1 } }; const copy = { ...value };\"),\n    (\"written_quote\", \"const value = { label: 'held' as const }; const copy = { ...value };\"),\n    (\"readonly\", \"const value = { n: 1, label: \\\"held\\\" } as const; const copy = { ...value };\"),\n    (\"accessor\", \"const value = { get n() { return 1; } }; const copy = { ...value };\"),\n    (\"method_this\", \"const value = { n: 1, read() { return this.n; } }; const copy = { ...value };\"),\n    (\"generic_alias\", \"type Box<T> = { item: T }; const item: Box<number> = { item: 1 }; const value = { item }; const copy = { ...value };\"),\n    (\"qualified\", \"namespace Names { export interface Item { n: number; } } const item: Names.Item = { n: 1 }; const value = { item }; const copy = { ...value };\"),\n    (\"computed\", \"declare const key: unique symbol; const value = { [key]: 1, [\\\"label\\\"]: \\\"s\\\" }; const copy = { ...value };\"),\n    (\"optional\", \"const item: { n?: number } = {}; const value = { item }; const copy = { ...value };\"),\n    (\"mapped\", \"type Box<T> = { [K in keyof T]: T[K] }; const item: Box<{ n: number }> = { n: 1 }; const value = { item }; const copy = { ...value };\"),\n    (\"recursive_return\", \"const value = { next() { return value; } }; const copy = { ...value };\"),\n];\n",
+    "fixtures": {
+      "source_order": "const value = { b: \"s\", a: 1 }; const copy = { ...value, a: \"x\" };",
+      "nested": "const value = { inner: { n: 1 } }; const copy = { ...value };",
+      "written_quote": "const value = { label: 'held' as const }; const copy = { ...value };",
+      "readonly": "const value = { n: 1, label: \"held\" } as const; const copy = { ...value };",
+      "accessor": "const value = { get n() { return 1; } }; const copy = { ...value };",
+      "method_this": "const value = { n: 1, read() { return this.n; } }; const copy = { ...value };",
+      "generic_alias": "type Box<T> = { item: T }; const item: Box<number> = { item: 1 }; const value = { item }; const copy = { ...value };",
+      "qualified": "namespace Names { export interface Item { n: number; } } const item: Names.Item = { n: 1 }; const value = { item }; const copy = { ...value };",
+      "computed": "declare const key: unique symbol; const value = { [key]: 1, [\"label\"]: \"s\" }; const copy = { ...value };",
+      "optional": "const item: { n?: number } = {}; const value = { item }; const copy = { ...value };",
+      "mapped": "type Box<T> = { [K in keyof T]: T[K] }; const item: Box<{ n: number }> = { n: 1 }; const value = { item }; const copy = { ...value };",
+      "recursive_return": "const value = { next() { return value; } }; const copy = { ...value };"
+    },
+    "native_declaration_controls": {
+      "native_revision": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+      "fixture_sha256": "b813e890f10d7e541951ff6a2930a50c9c0c75a8630344a06de943912a469487",
+      "rows": [
+        {
+          "pid": 74088,
+          "started_at_unix_ns": 1791370238482189000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.05140341599690146,
+          "user_seconds": 0.044273,
+          "system_seconds": 0.024690999999999998,
+          "peak_rss_bytes": 46383104,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "source_order",
+          "source": "const value = { b: \"s\", a: 1 }; const copy = { ...value, a: \"x\" };",
+          "source_sha256": "71d9753709aac6a5a2925b431ccd29c2ca1dc13bc5c0fb1b250b191adea6f5ab",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    b: string;\n    a: number;\n};\ndeclare const copy: {\n    b: string;\n    a: string;\n};\n"
+          }
+        },
+        {
+          "pid": 74089,
+          "started_at_unix_ns": 1791370238535645000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.029378208000707673,
+          "user_seconds": 0.03696,
+          "system_seconds": 0.010476,
+          "peak_rss_bytes": 46432256,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "nested",
+          "source": "const value = { inner: { n: 1 } }; const copy = { ...value };",
+          "source_sha256": "8f53be0921a3bb63a2e3b8d1d6e004e61e2900961ec80e1004eefefe19c50b18",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    inner: {\n        n: number;\n    };\n};\ndeclare const copy: {\n    inner: {\n        n: number;\n    };\n};\n"
+          }
+        },
+        {
+          "pid": 74090,
+          "started_at_unix_ns": 1791370238566087000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.025444209000852425,
+          "user_seconds": 0.038132,
+          "system_seconds": 0.01064,
+          "peak_rss_bytes": 46432256,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "written_quote",
+          "source": "const value = { label: 'held' as const }; const copy = { ...value };",
+          "source_sha256": "535aab820bb30b40d44430b054ce09af7b5df7764de27703c371bb10aa76568d",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    label: 'held';\n};\ndeclare const copy: {\n    label: 'held';\n};\n"
+          }
+        },
+        {
+          "pid": 74091,
+          "started_at_unix_ns": 1791370238592692000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.0231034999997064,
+          "user_seconds": 0.036062,
+          "system_seconds": 0.011325,
+          "peak_rss_bytes": 46874624,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "readonly",
+          "source": "const value = { n: 1, label: \"held\" } as const; const copy = { ...value };",
+          "source_sha256": "e37b60a5b6eaa3f284966fb85f7c2e7669a9df40b4680563a9deffb9741d78be",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    readonly n: 1;\n    readonly label: \"held\";\n};\ndeclare const copy: {\n    n: 1;\n    label: \"held\";\n};\n"
+          }
+        },
+        {
+          "pid": 74092,
+          "started_at_unix_ns": 1791370238616875000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.022816082997451304,
+          "user_seconds": 0.035445,
+          "system_seconds": 0.010723,
+          "peak_rss_bytes": 47071232,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "accessor",
+          "source": "const value = { get n() { return 1; } }; const copy = { ...value };",
+          "source_sha256": "b07ca7ae5395a7ef9736bf3e42238803c5597ac89bf5e1375ebb4f1e822de926",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    readonly n: number;\n};\ndeclare const copy: {\n    n: number;\n};\n"
+          }
+        },
+        {
+          "pid": 74093,
+          "started_at_unix_ns": 1791370238640609000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.03026504199806368,
+          "user_seconds": 0.038147,
+          "system_seconds": 0.008871,
+          "peak_rss_bytes": 46268416,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "method_this",
+          "source": "const value = { n: 1, read() { return this.n; } }; const copy = { ...value };",
+          "source_sha256": "6e650fdf43e03e912a7edb3b96178cd8f90bb42aeb19cf4d908637d26ac81187",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    n: number;\n    read(): number;\n};\ndeclare const copy: {\n    n: number;\n    read(): number;\n};\n"
+          }
+        },
+        {
+          "pid": 74094,
+          "started_at_unix_ns": 1791370238672180000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.03052795899930061,
+          "user_seconds": 0.040246,
+          "system_seconds": 0.009733,
+          "peak_rss_bytes": 46284800,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "generic_alias",
+          "source": "type Box<T> = { item: T }; const item: Box<number> = { item: 1 }; const value = { item }; const copy = { ...value };",
+          "source_sha256": "b504ce75141358774a2364f8cc5d697c23ab4b0e4ae8a55b175bbf14237a52bc",
+          "declarations": {
+            "control.d.ts": "type Box<T> = {\n    item: T;\n};\ndeclare const item: Box<number>;\ndeclare const value: {\n    item: Box<number>;\n};\ndeclare const copy: {\n    item: Box<number>;\n};\n"
+          }
+        },
+        {
+          "pid": 74095,
+          "started_at_unix_ns": 1791370238704420000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.02811558300163597,
+          "user_seconds": 0.034562999999999997,
+          "system_seconds": 0.009835,
+          "peak_rss_bytes": 46399488,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "qualified",
+          "source": "namespace Names { export interface Item { n: number; } } const item: Names.Item = { n: 1 }; const value = { item }; const copy = { ...value };",
+          "source_sha256": "893483d1a0c06c96348597b94b8c211314a6130ff5390615e3c4f4decd5b2273",
+          "declarations": {
+            "control.d.ts": "declare namespace Names {\n    interface Item {\n        n: number;\n    }\n}\ndeclare const item: Names.Item;\ndeclare const value: {\n    item: Names.Item;\n};\ndeclare const copy: {\n    item: Names.Item;\n};\n"
+          }
+        },
+        {
+          "pid": 74096,
+          "started_at_unix_ns": 1791370238733496000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.02673612499711453,
+          "user_seconds": 0.038453,
+          "system_seconds": 0.011189,
+          "peak_rss_bytes": 46530560,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "computed",
+          "source": "declare const key: unique symbol; const value = { [key]: 1, [\"label\"]: \"s\" }; const copy = { ...value };",
+          "source_sha256": "6fc607a849cd0fd3267356f91460afb28e4284957b9822cd89798d2c09da5caf",
+          "declarations": {
+            "control.d.ts": "declare const key: unique symbol;\ndeclare const value: {\n    [key]: number;\n    label: string;\n};\ndeclare const copy: {\n    [key]: number;\n    label: string;\n};\n"
+          }
+        },
+        {
+          "pid": 74097,
+          "started_at_unix_ns": 1791370238761346000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.02617520800049533,
+          "user_seconds": 0.037732999999999996,
+          "system_seconds": 0.011746,
+          "peak_rss_bytes": 46596096,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "optional",
+          "source": "const item: { n?: number } = {}; const value = { item }; const copy = { ...value };",
+          "source_sha256": "359b3409d8ddedc0b4b243ce88bdd301d607947bffbe07f784e5becb08ef3015",
+          "declarations": {
+            "control.d.ts": "declare const item: {\n    n?: number;\n};\ndeclare const value: {\n    item: {\n        n?: number;\n    };\n};\ndeclare const copy: {\n    item: {\n        n?: number;\n    };\n};\n"
+          }
+        },
+        {
+          "pid": 74098,
+          "started_at_unix_ns": 1791370238788737000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.02765995799927623,
+          "user_seconds": 0.041079,
+          "system_seconds": 0.011472,
+          "peak_rss_bytes": 46415872,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "mapped",
+          "source": "type Box<T> = { [K in keyof T]: T[K] }; const item: Box<{ n: number }> = { n: 1 }; const value = { item }; const copy = { ...value };",
+          "source_sha256": "a2eb5e5b86757333b3c28bb6ba25655845d226909de158a6446ae070dfe12748",
+          "declarations": {
+            "control.d.ts": "type Box<T> = {\n    [K in keyof T]: T[K];\n};\ndeclare const item: Box<{\n    n: number;\n}>;\ndeclare const value: {\n    item: Box<{\n        n: number;\n    }>;\n};\ndeclare const copy: {\n    item: Box<{\n        n: number;\n    }>;\n};\n"
+          }
+        },
+        {
+          "pid": 74099,
+          "started_at_unix_ns": 1791370238817364000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.024300958000821993,
+          "user_seconds": 0.037612,
+          "system_seconds": 0.01243,
+          "peak_rss_bytes": 47529984,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "fixture": "recursive_return",
+          "source": "const value = { next() { return value; } }; const copy = { ...value };",
+          "source_sha256": "50481639c2f4e9b1757b87949b985767e657a032ec18b95661bbb4ec1507215c",
+          "declarations": {
+            "control.d.ts": "declare const value: {\n    next(): {\n        next(): /*elided*/ any;\n    };\n};\ndeclare const copy: {\n    next(): {\n        next(): /*elided*/ any;\n    };\n};\n"
+          }
+        }
+      ],
+      "purpose": "Actual native declaration-demand observations; declaration writer options differ from TSR .types site writer. No display equivalence asserted from whitespace rewriting.",
+      "native_work_equivalence_verified": false,
+      "full_corpus_verified": false,
+      "target_verified": false
+    },
+    "recursive_return_ordinary_cli": {
+      "source": "const value = { next() { return value; } }; const copy = { ...value };\n",
+      "rows": [
+        {
+          "pid": 75244,
+          "started_at_unix_ns": 1791370561666026000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/release/tsr",
+            "--strict",
+            "--noEmit",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.04834620799738332,
+          "user_seconds": 0.026959,
+          "system_seconds": 0.010288,
+          "peak_rss_bytes": 47677440,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "control.ts(1,7): error TS7022: 'value' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.\ncontrol.ts(1,17): error TS7023: 'next' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.\n",
+          "stderr": "",
+          "role": "ordinary_frozen_e744",
+          "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0"
+        },
+        {
+          "pid": 75245,
+          "started_at_unix_ns": 1791370561719376000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--strict",
+            "--noEmit",
+            "--target",
+            "ES2020",
+            "--skipLibCheck",
+            "--pretty",
+            "false",
+            "control.ts"
+          ],
+          "wall_seconds": 0.07456412499959697,
+          "user_seconds": 0.040104,
+          "system_seconds": 0.026073,
+          "peak_rss_bytes": 46874624,
+          "exit_code": 0,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": "",
+          "role": "native_pinned",
+          "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e"
+        }
+      ],
+      "target_verified": false
+    },
+    "original_harness_failure": {
+      "terminal_exit_code": 101,
+      "error_count": 10,
+      "log": "   Compiling memchr v2.8.3\n   Compiling object v0.37.3\n   Compiling ar_archive_writer v0.5.1\n   Compiling psm v0.1.31\n   Compiling stacker v0.1.25\n   Compiling tsr-core v0.1.0 (/audit/source/crates/tsr-core)\n   Compiling tsr-diagnostics v0.1.0 (/audit/source/crates/tsr-diagnostics)\n   Compiling tsr-ast v0.1.0 (/audit/source/crates/tsr-ast)\n   Compiling tsr-scanner v0.1.0 (/audit/source/crates/tsr-scanner)\n   Compiling tsr-binder v0.1.0 (/audit/source/crates/tsr-binder)\n   Compiling tsr-parser v0.1.0 (/audit/source/crates/tsr-parser)\n   Compiling tsr-checker v0.1.0 (/audit/source/crates/tsr-checker)\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:39:5\n   |\n39 |     serde_json::json!({\"fixture\":label,\"first\":first,\"rounds\":rounds,\"diagnostics\":diagnostics})\n   |     ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:35:21\n   |\n35 |         rounds.push(serde_json::json!(outputs));\n   |                     ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:33:26\n   |\n33 |             outputs[i] = serde_json::json!({\"baked\": baked, \"own\": at_own, \"other\": at_other});\n   |                          ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:25:28\n   |\n25 |         let mut outputs = [serde_json::Value::Null, serde_json::Value::Null];\n   |                            ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n   |\n   = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:25:53\n   |\n25 |         let mut outputs = [serde_json::Value::Null, serde_json::Value::Null];\n   |                                                     ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n   |\n   = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nerror[E0599]: no method named `text` found for reference `&(NodeId, tsr_diagnostics::Diagnostic)` in the current scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:38:70\n   |\n38 |     let diagnostics: Vec<_> = checker.diagnostics().iter().map(|d| d.text()).collect();\n   |                                                                      ^^^^ method not found in `&(NodeId, tsr_diagnostics::Diagnostic)`\n   |\nhelp: one of the expressions' fields has a method of the same name\n   |\n38 |     let diagnostics: Vec<_> = checker.diagnostics().iter().map(|d| d.1.text()).collect();\n   |                                                                      ++\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:44:39\n   |\n44 |     let fixtures: serde_json::Value = serde_json::from_str(include_str!(\"../../../../site-demand-fixtures.json\")).unwrap();\n   |                                       ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n   |\n   = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:51:39\n   |\n51 |     println!(\"SITE_DEMAND_RECORD={}\", serde_json::to_string(&rows).unwrap());\n   |                                       ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n   |\n   = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n --> crates/tsr-checker/tests/object_site_demand_audit.rs:5:63\n  |\n5 | fn observe(label: &str, source: &str, first: Option<&str>) -> serde_json::Value {\n  |                                                               ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n  |\n  = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nerror[E0433]: cannot find module or crate `serde_json` in this scope\n  --> crates/tsr-checker/tests/object_site_demand_audit.rs:44:19\n   |\n44 |     let fixtures: serde_json::Value = serde_json::from_str(include_str!(\"../../../../site-demand-fixtures.json\")).unwrap();\n   |                   ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`\n   |\n   = help: if you wanted to use a crate named `serde_json`, use `cargo add serde_json` to add it to your `Cargo.toml`\n\nSome errors have detailed explanations: E0433, E0599.\nFor more information about an error, try `rustc --explain E0433`.\nerror: could not compile `tsr-checker` (test \"object_site_demand_audit\") due to 10 previous errors\n"
+    },
+    "corrected_harness_notes": {
+      "original_linux_exit": 101,
+      "original_log_sha256": "9dd3b7df45bb2fcce83fed0b248d63a064b51c04a72318ca13ee5a20bcd2f775",
+      "corrections": [
+        "Remove unavailable test-only serde_json dependency; fixtures compiled as literal data and full observations written with Debug.",
+        "Diagnostic collection returns (file, diagnostic) tuples, so read d.1.text()."
+      ],
+      "source_sha256": "4ac1fe668bdc9533aa66d624388d03f415238c89c3d205710660278abe6d5eca",
+      "original_macos_handle": 70224,
+      "original_source_preserved": true,
+      "semantic_changes": false
+    },
+    "followup": "tsr-1yb.16.3.10.2"
+  }
 }

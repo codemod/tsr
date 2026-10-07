@@ -225,3 +225,31 @@ host violated that rule; its failure remains recorded. Cold first launches also
 timed out at 300s for the probe and 60s for native before output, while unchanged
 repeat version launches completed in 14/43ms. No security/signature change or
 deadline increase was used; these rows stay outside checker comparisons.
+
+## Original and spread presentation demands
+
+An isolated follow-up at the same frozen `e744714c` base compiles the mutable
+receiver caller adaptation and executes12 fixtures across36 private checkers,
+three cold entry orders and three warm/reversed rounds. All432 explicit site
+reads and216 baked reads preserve their answers and completed symbol identities
+under these orders. The unchanged adapted sources also pass225 existing focused
+object, lazy-return, type and union tests. These are bounded preservation checks,
+not native display equivalence or a deferred-rendering implementation.
+
+Fresh pinned native declaration controls succeed for all12 fixtures and retain
+actual declaration files. The natural recursive fixture
+`const value = { next() { return value; } }; const copy = { ...value };` exposes
+a stronger limit: the private checker answers `any` and reports two false
+circularity errors under every observed order. A frozen ordinary CLI reproduces
+TS7022 and TS7023, exit1, while native with the same strict/noEmit/ES2020/skipLibCheck
+arguments exits0. Native declaration demand writes the recursive method shape
+with visited-type elision. Thus stable reads can preserve an incorrect eager
+publication boundary. `tsr-1yb.16.3.10.2` owns attribution and repair of the actual
+method-return demand; the plain-property rendering probe does not cover it.
+
+The first follow-up harness build fails with10 compile errors (unavailable
+test-only JSON dependency and tuple diagnostic access). A separate corrected
+source copy uses literal fixtures and the existing diagnostic tuple API; its
+Linux test completes with one passing characterization. The original source and
+still-live macOS build are preserved. The lossless records and replay source are
+embedded in the boundary JSON. No canonical checker implementation changes.

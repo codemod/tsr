@@ -64,6 +64,12 @@ errors; an isolated ten-file adaptation compiles every workspace target without
 adding deferred rendering. Union sorting also consumes structural/alias text,
 beyond the two empty-object shortcuts; replacing the member-owner symbol is
 already known to lose the passing callWithSpread4 display control.
+The subsequent original/spread site-demand characterization passes12 fixtures
+across36 private checkers,432 explicit site reads and216 baked reads, with cold
+and warm order invariance. This still preserves a real defect: recursive object
+method returns answer `any` in the private checker and produce two false
+TS7022/TS7023 errors in both it and the frozen ordinary CLI; pinned native emits
+the recursive declaration. `tsr-1yb.16.3.10.2` owns the actual forcing boundary.
 [Probe, replay and limits](docs/architecture/checker-object-rendering-boundary.md).
 
 Alias audit, frozen `e744714c`: the historical nonrecursive dispatch rationale
@@ -3489,6 +3495,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+`tsr-1yb.16.3.10.2`: natural recursive object-method return forcing is now
+reproduced in the ordinary CLI (two false errors versus native zero). Attribute
+`get_signature_from_declaration` and method presentation/capture against native
+semantic method construction before changing publication or deferring strings.
+Cold/warm display stability alone is not the acceptance gate.
 
 `tsr-1yb.1.2.3.2.4` corrects serial instrumentation before current ordinary
 parallel attribution; fixture candidate `.4.1` closes as a rejected approach
@@ -7102,6 +7114,12 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The original site-demand follow-up harness fails with10 compile errors; a
+separate corrected source copy passes the full12-fixture characterization. That
+pass is refused as native fidelity evidence: the recursive fixture stably keeps
+`any` and two false TS7022/TS7023 errors, also reproduced by ordinary CLI, while
+native has zero errors. Lossless records and original failed log are retained.
 
 At frozen `e744714c`, changing only the private presentation receiver to mutable
 fails with12 checker-library borrow errors. The subsequent isolated ten-file
@@ -13923,6 +13941,19 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+2026-10-07, tracer delivery `8091f493`, presentation base frozen `e744714c`:
+pool-preserving tracing is committed/pushed to main after clean rebase and67
+affected feature tests/one existing ignore; bounded ticket `.1.2.3.2.4` is closed.
+Private mutable-receiver adaptation completes225 focused tests. New direct
+presentation characterization passes12 fixtures/36 checker lifetimes,432 site
+reads and216 baked reads across cold/warm/reversed orders; native emits all12
+actual declarations. A recursive method control nevertheless yields `any` and
+two false circularity errors, reproduced by frozen ordinary CLI, versus native
+zero. Filed `.16.3.10.2` for actual return-demand attribution/repair. Original
+follow-up harness10 compile errors and corrected Linux pass remain separate;
+no canonical checker implementation, new full-corpus or speed claim.
+[Lossless controls](docs/architecture/checker-object-rendering-boundary.json).
 
 2026-10-07, frozen `e744714c` plus qualified trace patch: removed tracing's
 forced serial pool, introduced schema2 private-owner construction/activity
