@@ -239,6 +239,20 @@ The control is scratch-only; no unimplemented permanent test is committed.
 
 Exact outside-owner cutover prerequisite:
 
+Actor/status ownership remains integrator's native Dolt record under mohebifar;
+this Box does not force-claim or update issue status using its different default
+actor. Code commits retain the assigned issue identity.
+
+Private identity API request: `GlobalThisSymbolRefs` must pair the owning
+SymbolStoreIdentity with SymbolId and the associated Checker-owned TypeId,
+within one Checker/Program lifetime. A raw index is not a portable SymbolRef;
+validate store ownership before reading or comparing IDs supplied by another
+owner/store. The globals table view must retain its actual owner identity,
+publication phase and options context. No naked cross-store SymbolId/TypeId
+handoff or printed `globalThis` text is an identity witness. Integration chooses
+the concrete private API alongside the intrinsic/global-type owner, not an
+unused public struct in binder.
+
 - checker.rs::Checker/NewChecker: one privateChecker globalThisSymbol with
   readonly Module flags, exports referencing the actual globals table and one
   completed anonymous resolved type. Program bound globals and checker-owned
