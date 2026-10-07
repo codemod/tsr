@@ -596,3 +596,19 @@ Unmeasurable/Unreliable fallback flags this port lacks; any invariant
 parameter, where native discards the variance chain for a structural
 elaboration not run here; an undecided earlier argument. Walk-local
 `property_error`, no cache; extra walk only on a reported failure.
+
+## Nested reportRelationError links and unmatched properties — tsr-2zk.1
+
+`propertiesRelatedTo` (relater.go:4153) checks `getUnmatchedProperty` before
+member types; on the reporting pair the walk now publishes
+`reportUnmatchedProperty`'s TS2741-form child when
+`unmatched_property_report` certifies exactly one name. Several names fail the
+pair without an explanation: member-table order is not yet native declaration
+order for every type (members lane). The property arm's inner head is now the
+nested `reportRelationError` link (`nested_relation_link`): generalized source,
+type-parameter explanation, TS2820 string-literal suggestion
+(`getSuggestedTypeForNonexistentStringLiteralType`; union constituents arrive in
+CompareTypes order so the tie-break never prefers a later candidate) and
+`getChainMessage(0)` missing-property suppression (`chainArgsMatch`). A declined
+link keeps the previous plain head. The checker publishes no related
+information yet, so TS2728 "declared here" notes stay absent (as at top level).

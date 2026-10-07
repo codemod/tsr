@@ -38,6 +38,27 @@ use crate::{
 };
 
 /// Attach the chosen relation error location to the completed explanation tree.
+/// `reportRelationError`'s `getChainMessage(0)` missing-property arm
+/// (`relater.go:4816`): the next chain message is a missing-property
+/// explanation whose `chainArgsMatch` names this source/target display pair, so
+/// the relation head is suppressed (outside conversion/implements heads).
+pub(crate) fn missing_property_chain_names_pair(
+    next: &Diagnostic,
+    source_text: &str,
+    target_text: &str,
+) -> bool {
+    let args_match =
+        |args: &[String]| args.len() >= 2 && args[0] == source_text && args[1] == target_text;
+    if next.message == &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2 {
+        args_match(next.args.get(1..).unwrap_or_default())
+    } else {
+        (next.message == &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2
+            || next.message
+                == &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE)
+            && args_match(&next.args)
+    }
+}
+
 fn set_relation_chain_span(diagnostic: &mut Diagnostic, span: tsr_core::Span) {
     diagnostic.span = span;
     for child in diagnostic.message_chain_mut() {
@@ -1600,6 +1621,18 @@ impl<'a> Checker<'a, '_> {
         target: TypeId,
         properties: &[String],
     ) {
+        let diagnostic = self.missing_properties_diagnostic(span, source, target, properties);
+        self.report(file, diagnostic);
+    }
+
+    /// The `reportUnmatchedProperty` message for `properties` (`relater.go:4345`).
+    pub(crate) fn missing_properties_diagnostic(
+        &mut self,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        properties: &[String],
+    ) -> Diagnostic {
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         let (message, args) = if properties.len() == 1 {
@@ -1623,7 +1656,7 @@ impl<'a> Checker<'a, '_> {
                 vec![source_text, target_text, properties.join(", ")],
             )
         };
-        self.report(file, Diagnostic::with_args(message, span, args));
+        Diagnostic::with_args(message, span, args)
     }
 
     /// `tryElaborateArrayLikeErrors`' TS4104 (`relater.go:4379`), reported by
@@ -1995,6 +2028,17 @@ impl<'a> Checker<'a, '_> {
         target: TypeId,
         child: Option<Diagnostic>,
     ) -> Option<Diagnostic> {
+        self.nested_relation_link(source, target, child).ok()
+    }
+
+    /// [`Checker::nested_relation_error`], returning the unconsumed `child`
+    /// when it declines.
+    pub(crate) fn nested_relation_link(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        child: Option<Diagnostic>,
+    ) -> Result<Diagnostic, Option<Diagnostic>> {
         let source_flags = self.type_of(source).flags;
         if self.exact_optional_property_types
             || (source_flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
@@ -2005,13 +2049,57 @@ impl<'a> Checker<'a, '_> {
             || (source_flags.contains(TypeFlags::TYPE_PARAMETER)
                 && self.base_constraint_of_type(source).is_none())
         {
-            return None;
+            return Err(child);
         }
         let displayed = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed);
         let target_text = self.type_to_string(target);
-        if source_text == target_text {
-            return None;
+        if source_text == target_text
+            || self.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
+        {
+            return Err(child);
+        }
+        // reportRelationError's default arm: a string literal against a union
+        // first asks getSuggestedTypeForNonexistentStringLiteralType
+        // (checker.go:27252) and, on a suggestion, reports TS2820 instead.
+        if self.type_of(source).flags.contains(TypeFlags::STRING_LITERAL)
+            && !self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && let TypeData::Union { types, .. } = &self.type_of(target).data
+        {
+            let Some(value) = self.string_literal_value(source) else { return Err(child) };
+            let Some(candidates) = types
+                .iter()
+                .filter(|&&t| self.type_of(t).flags.contains(TypeFlags::STRING_LITERAL))
+                .map(|&t| self.string_literal_value(t).map(|v| (t, v)))
+                .collect::<Option<Vec<(TypeId, String)>>>()
+            else {
+                return Err(child);
+            };
+            // Constituents arrive in CompareTypes order, so native's
+            // CompareTypes tie-break never prefers a later candidate.
+            if let Some((suggestion, _)) = tsr_core::spelling::get_spelling_suggestion(
+                &value,
+                candidates.iter().take(1000),
+                |(_, name)| name.as_str(),
+                |_, _| std::cmp::Ordering::Greater,
+            ) {
+                let suggestion = self.type_to_string(*suggestion);
+                let mut diagnostic = Diagnostic::with_args(
+                    &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_DID_YOU_MEAN_2,
+                    tsr_core::Span::new(0, 0),
+                    [source_text, target_text, suggestion],
+                );
+                diagnostic.add_message_chain(child);
+                return Ok(diagnostic);
+            }
+        }
+        // reportRelationError's getChainMessage(0) suppression: a
+        // missing-property explanation naming this same pair stands alone.
+        if let Some(next) = &child
+            && !self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && missing_property_chain_names_pair(next, &source_text, &target_text)
+        {
+            return child.ok_or(None);
         }
         let span = tsr_core::Span::new(0, 0);
         let mut diagnostic = self.relation_diagnostic(
@@ -2033,7 +2121,18 @@ impl<'a> Checker<'a, '_> {
                 diagnostic.add_message_chain(child);
             }
         }
-        Some(diagnostic)
+        Ok(diagnostic)
+    }
+
+    /// `getStringLiteralValue` of a string literal or string enum literal.
+    fn string_literal_value(&self, t: TypeId) -> Option<String> {
+        match &self.type_of(t).data {
+            TypeData::StringLiteral(value)
+            | TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::String(value), ..
+            } => Some(value.clone()),
+            _ => None,
+        }
     }
 
     /// An object literal against a union target, up to the outer report:
