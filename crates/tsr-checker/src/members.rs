@@ -2878,6 +2878,11 @@ impl Checker<'_, '_> {
                     .iter()
                     .filter_map(|m| tsr_ast::Node::from(*m).node_id())
                     .collect(),
+                Some(Node::ObjectLiteralExpression(literal)) => literal
+                    .properties
+                    .iter()
+                    .filter_map(|member| tsr_ast::Node::from(*member).node_id())
+                    .collect(),
                 _ => continue,
             };
             for member in member_ids {
