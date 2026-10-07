@@ -163,3 +163,10 @@ comparator. Harness explicitly leaves `work_comparable`,
 `target_verified` false: complete cross-tool query-input coverage and actual
 performed checker work/budgets are unverified. These are observed measurements,
 not a verified <=0.50 ratio or evidence that the root lazy port is complete.
+
+### Void keyword type versus namespace head (tsr-2zk.2)
+
+Pinned `parseNonArrayType` (parser.go:2785) parses `void` as a keyword type
+unconditionally; only the intrinsic-keyword arm uses `parseKeywordAndNoDot`.
+`var v : void.x` therefore reports TS1005 `',' expected.` at [12,13), while
+`string.x`/`any.x` stay qualified type references.
