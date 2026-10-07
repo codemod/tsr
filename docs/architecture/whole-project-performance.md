@@ -212,6 +212,29 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Oracle release blockers remain independent of file-worker counts
+
+The release certificate separately records three still-unverified obligations:
+complete oracle selection/corpus receipt, resolution of native Code -1 failures,
+and global diagnostic spans/metadata cutover. A selection-debug receipt cannot
+certify a complete corpus, and a native failure is not an empty successful check.
+The parent/oracle owner's reported blockers leave all three obligations false;
+202 validated initial source-file workers prove only the observed completed
+file-worker boundaries, not unsupported semantic work or a bootstrap certificate.
+The certificate now enumerates 19 obligations, with 12 unmet even when the
+existing scope/options/output/input/sample controls match. Historical gap counts
+above describe their original captures, not the current release checklist.
+
+Binary-capture failures now persist requested report and checkpoint JSON with
+partial freeze evidence, expected/source identities, original failure reason,
+nonzero exit and false work/target gates. A wrong expected binary hash does not
+produce a traceback-only lost capture. 30 harness tests passed; the actual CLI
+wrong-hash consumer control preserves both outputs. A frozen five-pair/warmup
+capture/checkpoint smoke ran and still exits 1 for unverified comparability.
+Evidence `/tmp/recover-release-obligation-checkpoint.json`. No parent legacy
+regression fix or global metadata cutover is locally certified by this smoke;
+large Linux <=0.50 remains unmet.
+
 ### Freeze compiler bytes before any CLI proof
 
 Shared Cargo targets may be overwritten by another worktree's baseline build.

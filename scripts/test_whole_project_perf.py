@@ -101,6 +101,26 @@ class BenchmarkEvidenceTests(unittest.TestCase):
                 freeze_binary(shared, root / "wrong-build", expected)
             self.assertFalse(receipt["source_to_binary_provenance_verified"])
 
+    def test_cli_wrong_frozen_build_hash_preserves_requested_failure_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "tsconfig.json"
+            project.write_text("{}")
+            output, checkpoint = root / "report.json", root / "checkpoint.json"
+            child = subprocess.run([sys.executable, str(ROOT / "scripts/whole_project_perf.py"),
+                                    "--project", str(project), "--tsr", sys.executable,
+                                    "--tsgo", sys.executable, "--tsr-sha256", "0" * 64,
+                                    "--output", str(output), "--checkpoint-output", str(checkpoint)],
+                                   capture_output=True, text=True)
+            self.assertEqual(child.returncode, 1, child.stderr)
+            report = json.loads(output.read_text())
+            self.assertEqual(report, json.loads(checkpoint.read_text()))
+            self.assertEqual(report["status"], "binary_capture_failed")
+            self.assertIn("hash mismatch", report["reasons"][0])
+            self.assertFalse(report["target_verified"])
+            self.assertIsNone(report["verified_wall_ratio"])
+            self.assertNotIn("Traceback", child.stderr)
+
     def test_checkout_identity_distinguishes_unmerged_tracked_and_untracked_source(self):
         from whole_project_perf import checkout_identity
         with tempfile.TemporaryDirectory() as directory:
@@ -144,7 +164,11 @@ class BenchmarkEvidenceTests(unittest.TestCase):
                             for name in ("tsr", "tsgo")}}
         certificate = equivalence_certificate(report)
         self.assertFalse(certificate["verified"])
-        self.assertEqual(certificate["proof_gap_count"], 9)
+        self.assertEqual(certificate["proof_gap_count"], 12)
+        for obligation in ("oracle_selection_and_complete_corpus_receipt",
+                           "native_code_minus_one_failures_resolved",
+                           "global_diagnostic_spans_and_metadata_cutover"):
+            self.assertIn(obligation, certificate["unmet_constraints"])
         self.assertIn("native_emit_eligibility_skipping_and_actual_work", certificate["unmet_constraints"])
         report["tools"]["tsgo"]["effective_config"]["compilerOptions"]["noEmit"] = False
         self.assertIn("matching_explicit_no_emit_options", equivalence_certificate(report)["unmet_constraints"])

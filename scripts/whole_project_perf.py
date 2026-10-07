@@ -234,6 +234,9 @@ def equivalence_certificate(report: dict) -> dict:
         "thread_preserving_private_checker_ownership": False,
         "diagnostic_spans_chains_related_information_and_filtering": False,
         "full_corpus_exact_parity_ge_99_9_and_no_prior_RIGHT_loss": False,
+        "oracle_selection_and_complete_corpus_receipt": False,
+        "native_code_minus_one_failures_resolved": False,
+        "global_diagnostic_spans_and_metadata_cutover": False,
     }
     missing = [name for name, satisfied in constraints.items() if not satisfied]
     return {"schema_version": 1, "verified": not missing, "constraints": constraints,
@@ -314,10 +317,29 @@ def main() -> int:
     cwd = project.parent
     binary_sources = {name: path.resolve(strict=True) for name, path in (("tsr", args.tsr), ("tsgo", args.tsgo))}
     frozen_directory = args.output.resolve().with_suffix(args.output.suffix + ".binaries")
-    frozen_directory.mkdir(parents=True, exist_ok=False)
-    binary_freezes = {name: freeze_binary(path, frozen_directory / name,
-                                         args.tsr_sha256 if name == "tsr" else args.tsgo_sha256)
-                     for name, path in binary_sources.items()}
+    binary_freezes = {}
+    try:
+        frozen_directory.mkdir(parents=True, exist_ok=False)
+        for name, path in binary_sources.items():
+            binary_freezes[name] = freeze_binary(path, frozen_directory / name,
+                                                args.tsr_sha256 if name == "tsr" else args.tsgo_sha256)
+    except (OSError, ValueError) as error:
+        failure = {
+            "schema_version": 2, "status": "binary_capture_failed", "project": str(project),
+            "source_sha": revision(ROOT), "oracle_sha": revision(ROOT / "vendor/typescript-go"),
+            "binary_sources": {name: str(path) for name, path in binary_sources.items()},
+            "binary_freezes": binary_freezes,
+            "expected_binary_sha256": {"tsr": args.tsr_sha256, "tsgo": args.tsgo_sha256},
+            "reasons": [f"{type(error).__name__}: {error}"],
+            "work_comparable": False, "actual_checked_work_verified": False,
+            "verified_wall_ratio": None, "target_verified": False,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(failure, indent=2) + "\n")
+        if args.checkpoint_output is not None:
+            args.checkpoint_output.parent.mkdir(parents=True, exist_ok=True)
+            args.checkpoint_output.write_text(json.dumps(failure, indent=2) + "\n")
+        return 1
     binaries = {name: Path(row["frozen_path"]) for name, row in binary_freezes.items()}
     flags = ["--project", str(project), "--noEmit", "--incremental", "false",
              "--composite", "false", "--pretty", "false"]
