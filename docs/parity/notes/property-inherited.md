@@ -396,6 +396,29 @@ union-private-transitions.json, and union-private-final-clippy.log under
 `target/recovery/property/`. Parent-field integration copy contains no source
 view producer; no unsafe inherited-this candidate is applied in these full runs.
 
+## JS inherited heritage arguments — tsr-2zk.16.342
+
+`generic_heritage_member` now reuses `jsdoc_augments_type_arguments` when a JS
+heritage entry has no written arguments. Native reparseHosted supplies these
+arguments to the heritage reference before getBaseTypes/resolveObjectTypeMembers
+(5b1047d); the existing base type worker already follows this rule. No new
+factory, alias spelling heuristic, cache, member image or reserved explicit-this
+consumer change is introduced. Existing heritage instantiation owns ordered
+arguments, completion and receiver context. Work adds the existing JSDoc lookup
+only on empty-written-argument JS entries.
+
+Current target had three WRONG rows; after the fix the complete
+jsdocAugments_withTypeParameter type case matches and diagnostics are EMPTY_RIGHT.
+Direct pinned-native declaration control accepts Numeric/Textual classes with
+@augments Base<number>/Base<string>; TSR now retains number/string independently.
+Completed full477970 type/10570 diagnostic pair adds exactly those three RIGHT
+rows, with zero prior RIGHT losses and zero vanished keys. Diagnostic verdict
+counts remain unchanged. Strict checker all-target Clippy passes. Receipts are
+js-augments-* under target/recovery/property. No complete-work performance
+measurement is claimed; parent must gate acceptance on no slowdown before issue
+closure. This correctness delivery is independent of reserved lazy-render files
+and is not completion of inherited-this16.225.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
