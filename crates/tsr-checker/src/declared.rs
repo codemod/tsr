@@ -5987,13 +5987,14 @@ impl<'a> Checker<'a, '_> {
                 let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
                     return self.intrinsics.error;
                 };
+                let Some(name) = parameter.name else { return self.intrinsics.error };
                 parameters.push(self.get_declared_type_of_symbol(owner));
-                parameter_names.push(self.binder.symbols().get(owner).name.to_string());
+                parameter_names.push(name.text);
             }
-            let names: Vec<_> = parameter_names.iter().map(String::as_str).collect();
             let mapper: Vec<_> =
                 parameters.iter().copied().zip(arguments.iter().copied()).collect();
-            let instantiated = self.instantiate_type(declared, &mapper, &parameters, &names);
+            let instantiated =
+                self.instantiate_type(declared, &mapper, &parameters, &parameter_names);
             self.instantiations.insert((symbol, arguments), instantiated);
             return instantiated;
         }
