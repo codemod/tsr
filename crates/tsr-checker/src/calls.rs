@@ -2661,7 +2661,13 @@ impl<'a> Checker<'a, '_> {
             }
             (stripped, non_optional != raw_callee_type)
         } else {
-            (raw_callee_type, false)
+            // resolveCallExpression always strips nullable callee types before
+            // signature selection; reporting remains the diagnostic head's job.
+            let non_nullable = self.check_non_null_type(raw_callee_type);
+            if non_nullable == error {
+                return error;
+            }
+            (non_nullable, false)
         };
         let result = self.check_call_expression_worker(node, callee, callee_type);
         // checkCallExpression (native 5b1047d1): a CommonJS require in JS

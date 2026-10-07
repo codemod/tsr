@@ -619,6 +619,21 @@ control native TS2348at3,21 is missing before TSR; dedicated regression observes
 exact message. no-call-tests/check remain compile-blocked by absent shared fields,
 so no passing-after/fullRIGHT/perf acceptance claimed.
 
+## Ordinary nullable callee selection
+
+Claimed tsr-2zk.16.222. Last runnable target queries fail61/62 and1259/1274.
+Native ordinary resolveCallExpression strips nullable callee before signature
+selection, while reporting possibly-undefined invocation and continuing. Owned
+type road previously stripped only optional chains. It now uses existing
+check_non_null_type for ordinary callees; diagnostic head still owns reports,
+optional-chain result propagation unchanged.
+
+Direct native declaration emit yields string/number returns for nullable function
+and optional method calls; TSR producer returns error before. Dedicated behavioral
+regression asserts those return types. non-null-after-tests remains compile-blocked
+by absent parent fields; no passing-after/fullRIGHT/perf acceptance. Flow optional
+chain effects getter is a separate owner prerequisite; no shared file edits.
+
 ## Remaining calls raw-slot consumers
 
 Assignable-pass return-ambiguity comparison now demands both candidate returns
