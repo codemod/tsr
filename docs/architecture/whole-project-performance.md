@@ -212,6 +212,24 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Native trace artifact directory belongs to its invocation
+
+Native validation now requires exactly one `--generateTrace` argument with a
+value and binds the artifact's parent directory to that invocation directory,
+resolving relative option paths against the captured current directory. A
+matching artifact hash in an unrelated trace directory no longer qualifies a
+receipt. This is bounded invocation ownership, not source-build attestation.
+
+38 trace tests passed; actual native large reader accepted its bound capture.
+Actual wrong-directory receipt CLI saved `/tmp/recover-trace-directory-rejection.json`
+and exited 1. Fresh frozen expected-hash five-pair/warmup capture saved
+`/tmp/recover-trace-directory-checkpoint.json`, comparable exit 1. Parent's
+wrapper/classification work and `c818` candidate have no qualified current build
+receipt on this Box; no current-wrapper overhead or broad speed claim is derived
+from the old recovery binary. Native subtype identities/relations and metadata
+forcing remain the runtime owner's semantic boundary, not a scripts wrapper
+special case. Verified <=0.50 remains unmet.
+
 ### Malformed receipts must not hide the other producer
 
 Comparison CLI receipt parsing/validation now runs independently for TSR and

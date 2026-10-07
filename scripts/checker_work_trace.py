@@ -67,7 +67,14 @@ def validate_native_trace(path: Path, receipt: dict) -> dict:
     try:
         child = validate_receipt(receipt, "Failed to")
         require(receipt["oracle_sha"] == PINNED_NATIVE_SHA, "native revision is not pinned")
-        require("--generateTrace" in child["command"], "missing native trace invocation")
+        require(child["command"].count("--generateTrace") == 1, "missing or repeated native trace invocation")
+        trace_option = child["command"].index("--generateTrace")
+        require(trace_option + 1 < len(child["command"]), "missing native trace directory argument")
+        directory = Path(child["command"][trace_option + 1])
+        if not directory.is_absolute():
+            directory = Path(receipt["current_directory"]) / directory
+        require(path.resolve().parent == directory.resolve(),
+                "native artifact is outside invoked trace directory")
         require(file_hash(path) == receipt["trace_sha256"], "native trace artifact changed")
         with regular_file(path) as stream:
             rows = json.load(stream, object_pairs_hook=unique_object)
