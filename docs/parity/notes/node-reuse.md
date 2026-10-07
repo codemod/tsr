@@ -516,6 +516,43 @@ no-loss/missing-ID and unverified native performance receipts. Parent context
 contracts identified above remain unresolved; no new cluster conversion is
 claimed.
 
+## JSDoc annotation queue investigation (`tsr-2zk.16.147`)
+
+Scoped the next existing queue items before claiming work. Import-type `typeof`
+(`tsr-2zk.16.73`) fails in parent-reserved semantic import production before
+node reuse: an actual split-file corpus control renders its source signature
+and imported class references as `error`. Intersection-member printing and
+namespace spread items likewise name reserved checker/spread producers. None
+was claimed as an owned visitor fix.
+
+Claimed the JSDoc annotation-reuse item `.147`, whose nullable/optional visitor
+arms live in `node_reuse.rs`. Fresh five-target dump:
+**101 RIGHT, 18 WRONG, 6 GAP** across 125 aligned lines. The repeated nullable
+wrapper target expects written
+`(((((number | null) | null) | null) | null) | null) | undefined`; TSR prints
+normalized `number | null | undefined`. Other wrong lines require preserved
+`Array<any>` or explicit optional `undefined`; some unrelated producer gaps
+remain visible rather than silently excluded.
+
+An actual JavaScript control with `@param {???!?number?=}` and
+`@param {Array<number>}` assigned to JSDoc `never` variables produces identical
+native/TSR diagnostics: TS2322 at `(4,7)` prints normalized
+`(a?: number | null | undefined) => void`; at `(8,7)` it prints
+`(values: number[]) => void`. The actual split-file corpus pipeline also
+normalizes those annotations in TSR. This distinguishes semantic diagnostic
+serialization from the type-baseline's written-node reuse path; changing
+semantic types to duplicate null constituents would be wrong.
+
+Pinned JSDoc nullable/optional visitor arms (`nodecopy.go:487` and `:494`) build
+union nodes without flattening written wrappers. The owned port already emits
+those nested structures. The parent-owned parameter annotation channel must
+retain the reparsed JSDoc type node and original identity before that visitor
+can preserve it. No parser, signature metadata, source/error intrinsic, or
+visibility edits were made. Seven existing owned tests pass; no failing-path
+exception or fake import-type completion was added. Production binary remains
+unchanged, retaining full no-loss/missing-ID and unverified performance
+receipts. `.147` remains unresolved on parent annotation retention.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.
