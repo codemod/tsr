@@ -1666,14 +1666,15 @@ impl<'a> Checker<'a, '_> {
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
+        let diagnostic = self.relation_diagnostic(
+            span,
+            source,
+            target,
+            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+            source_text,
+            target_text,
         );
+        self.report(file, diagnostic);
         true
     }
 
@@ -1837,8 +1838,58 @@ impl<'a> Checker<'a, '_> {
         } else {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
         };
-        self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
+        let diagnostic =
+            self.relation_diagnostic(span, source, target, message, source_text, target_text);
+        self.report(file, diagnostic);
         true
+    }
+
+    /// Ported from typescript-go's `Relater.reportRelationError`
+    /// (`internal/checker/relater.go`): the type-parameter explanation branch.
+    /// Uses the concrete target and existing constraint/relation workers; no
+    /// printed-name key or new semantic cache. Unknown constraints are not
+    /// treated as successful assignability.
+    fn relation_diagnostic(
+        &mut self,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        message: &'static tsr_diagnostics::Message,
+        source_text: String,
+        target_text: String,
+    ) -> Diagnostic {
+        if !self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || self.variance_marker_types.contains(&target)
+        {
+            return Diagnostic::with_args(message, span, [source_text, target_text]);
+        }
+        let generalized = self.assignability_source_for_error_display(source, target);
+        let constraint = self.base_constraint_of_type(target);
+        let assignable_source = constraint.and_then(|constraint| {
+            if self.is_type_assignable_to(generalized, constraint) {
+                Some((generalized, constraint))
+            } else if self.is_type_assignable_to(source, constraint) {
+                Some((source, constraint))
+            } else {
+                None
+            }
+        });
+        let child = if let Some((source, constraint)) = assignable_source {
+            Diagnostic::with_args(
+                &messages::_0_IS_ASSIGNABLE_TO_THE_CONSTRAINT_OF_TYPE_1_BUT_1_COULD_BE_INSTANTIATED_WITH_A_DIFFERENT_SUBTYPE_OF_CONSTRAINT_2,
+                span,
+                [self.type_to_string(source), target_text.clone(), self.type_to_string(constraint)],
+            )
+        } else {
+            Diagnostic::with_args(
+                &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1,
+                span,
+                [target_text.clone(), self.type_to_string(generalized)],
+            )
+        };
+        let mut diagnostic = Diagnostic::with_args(message, span, [source_text, target_text]);
+        diagnostic.add_message_chain(Some(child));
+        diagnostic
     }
 
     /// An object literal against a union target, up to the outer report:
