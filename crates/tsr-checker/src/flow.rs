@@ -8388,12 +8388,7 @@ impl Checker<'_, '_> {
                     - TypeFacts::TYPEOF_NE_FUNCTION
                     - TypeFacts::TYPEOF_NE_HOST_OBJECT)
                 | mode_facts;
-            if flags.intersects(TypeFlags::NON_PRIMITIVE)
-                || !(object_strict ^ function_strict).intersects(caller_only_needs)
-            {
-                // Empty anonymous objects were handled above. All remaining
-                // object/function categories have the same requested facts;
-                // resolving bind/Function subtype cannot change this projection.
+            if flags.intersects(TypeFlags::NON_PRIMITIVE) {
                 return object_strict;
             }
             return match &ty.data {
