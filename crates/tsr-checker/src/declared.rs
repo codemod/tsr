@@ -3699,10 +3699,11 @@ impl<'a> Checker<'a, '_> {
             if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
                 let mut element_types = Vec::with_capacity(node.elements.len());
                 let mut every_operand_is_an_array = true;
-                for element in node.elements {
-                    let TypeNode::RestTypeNode(rest) = element else { continue };
-                    let Some(operand) = rest.r#type else { return error };
-                    let resolved = self.get_type_from_type_node(operand);
+                // Operand resolution already completed above in the same
+                // receiver/alias frame. Reuse those ordered semantic identities
+                // instead of repeating AST resolution before normalization.
+                for element in &resolved_elements {
+                    let resolved = element.r#type;
                     if self.store.get(resolved).flags.contains(TypeFlags::ANY) {
                         element_types.push(resolved);
                         continue;

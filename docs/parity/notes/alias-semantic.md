@@ -455,6 +455,18 @@ complete-work/no-hotpath/release performance uncertified. Receipts
 `tuple-nested-rest-*`; test supplies the required Array global. Reserved functions
 remain untouched.
 
+## Rest-only tuple operand work boundary
+
+The all-array-rest source normalization now consumes the ordered TypeIds already
+resolved into `resolved_elements`, instead of evaluating each operand AST again.
+Native TupleNormalizer consumes completed element types; repeated source resolution
+could observe a different active state. Same alias/receiver frame and publication,
+no new cache or reuse domain. Tuple targets pass; native CLI element consumers/
+diagnostics compare byte-for-byte. Available unfiltered oracle gains two
+WRONG→RIGHT rows in `genericTupleWithSimplifiableElements`, zero former RIGHT losses/
+vanished keys. Seven fresh-process samples after/before 1.01259, after/native 1.61863;
+no no-hotpath/release performance claim. Receipts `tuple-rest-reuse-*`.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
