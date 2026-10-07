@@ -164,6 +164,24 @@ migrated consumers: this worker cannot apply checker.rs, check.rs, declared.rs
 or printing.rs. The previously measured RIGHT losses prohibit an isolated
 replacement of the existing raw-ID resolver.
 
+## F6 signature-container admission
+
+The declared-alias owner identified the binding-parent prerequisite. The existing
+symbols implied-binding builder now admits the same type-only containers as
+signatures::parameter_of: FunctionType, ConstructorType, CallSignature,
+ConstructSignature, MethodSignature and IndexSignature. Native
+getTypeForVariableLikeDeclaration obtains contextual parameter types only where
+available; type-node signature containers are not contextual expressions.
+Unannotated/non-rest binding-pattern admission and the contextual expression
+predicate remain unchanged; no new cache or any/name fallback.
+
+The parent exclusively owns destructure.rs binding-parent repair. This admission
+hunk alone does not claim to fix F6 typeof-renamed type production. Alias and
+cross-file release tests passed; the actual rebuilt CLI's diagnostics matched
+native on function/constructor type patterns with typeof-renamed returns. That
+no-diagnostic control does not prove returned type parity. Parent must exercise
+the F6 type control after its binding-parent consumer edit.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
