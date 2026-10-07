@@ -447,6 +447,20 @@ no-hotpath acceptance remains unproved. Parent must integrate its canonical help
 and verify reference/intersection reporting before claiming full native3677/3678.
 Receipts constraint-retry-*.
 
+## Signature-valued explicit-this arity — tsr-2zk.1
+
+Existing reverse-this comparator owned completed inner signature arity TS2849,
+but it escaped the native this wrapper and inner relation head. Same reporting
+boundary now consumes inline arity metadata before constructing those wrappers;
+no extra query/traversal/cache or source-error suppression. Actual complete CLI
+matches native after reproduced missing two wrapper rows; permanent behavior test
+passes. Fresh full protected RIGHT keys preserve presence/verdicts; sixteen suites
+complete. Initial workspace call timed out during doc-tests and is not a pass;
+completed replacement workspace and clippy pass. Domain21 cumulative baseline
+observed wall0.9973 with equal diagnostics, verified complete-work null; earlier
+positive deltas still prevent a global no-regression acceptance claim. Parent
+reserved return/signature fields untouched. Receipts this-arity-*.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
