@@ -244,8 +244,14 @@ No hidden cache or dead state struct is introduced in owned resolution.rs.
 Class-expression local-name fallback is already native-faithful for the direct
 control: named Inner self-reference/type, static value access, outside-scope
 missing name and a shadowing local. Candidate/native outputs match; no patch.
-Selected next owned root is MERGED-FUNCTION-INTERFACE (integrator bounded issue
-assignment requested, committed under lane issue tsr-2zk.38).
+Authoritative assigned existing root is MERGED-FUNCTION-INTERFACE,
+tsr-2zk.16.139. Targets: compiler/contextualParamTypeVsNestedReturnTypeInference2,
+compiler/contextualParamTypeVsNestedReturnTypeInference3,
+compiler/contextualParamTypeVsNestedReturnTypeInference4,
+compiler/functionAndInterfaceWithSeparateErrors,
+compiler/invariantGenericErrorElaboration. No duplicate follow-up issue requested.
+The implemented value/instance separation is a reachable native cause within
+this root, not a claim that every target's other prerequisites are complete.
 
 Native getTypeOfFuncClassEnumModuleWorker creates the anonymous callable value;
 resolveAnonymousTypeMembers reads exports, not merged interface instance members.
@@ -279,8 +285,12 @@ return-context/type producers remain outside this boundary, not claimed fixed.
 Totals RIGHT 469791, WRONG 7198, GAP 981 over 477970 verdict keys. Diagnostics
 10570 keys unchanged (no RIGHT/EMPTY_RIGHT losses). Full coverage all 12444
 sources completes, checker_types 8047/9538 and diagnostics 4222/5502. Newly
-passing emitted type case functionAndInterfaceWithSeparateErrors; eight RIGHT
-row gains in complexRecursiveCollections do not convert that multi-root case.
+passing emitted type case functionAndInterfaceWithSeparateErrors (4 RIGHT/2 WRONG
+before, 6 RIGHT after). Each contextualParamTypeVsNestedReturnTypeInference2/3/4
+changes 30 RIGHT/3 WRONG/10 GAP to 33 RIGHT/4 WRONG/6 GAP; not converted.
+invariantGenericErrorElaboration stays 16 RIGHT/2 WRONG; no gain claimed.
+Eight RIGHT row gains in complexRecursiveCollections do not convert that
+multi-root case.
 Workspace release tests, focused regression, strict clippy, fmt and anchors pass.
 Generated snapshot changes removed, never committed.
 
