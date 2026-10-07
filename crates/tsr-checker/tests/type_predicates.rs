@@ -44,6 +44,36 @@ fn type_of_declaration(source: &str, name: &str) -> String {
 }
 
 #[test]
+fn inferred_recursive_and_mapped_predicates_stay_distinct_in_reverse_warm_order() {
+    // Native 5b1047d declaration emission independently verified these slots.
+    let source = "function isString(value: unknown) { return typeof value === 'string'; } function isNumber(value: unknown) { return typeof value === 'number'; } function recursive(value: unknown) { return typeof value === 'string' && recursive(value); } function explicit(value: unknown): boolean { return typeof value === 'string'; } function guard<T>(value: unknown): value is T { return true; } const stringGuard = guard<string>; const numberGuard = guard<number>;";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let bound = tsr_binder::bind(&arena, parsed.source_file, &parsed.nodes,
+        tsr_binder::FileInfo { name: "control.ts", text: source });
+    let root = parsed.source_file.node_id.unwrap();
+    let expected = [
+        ("isString", "(value: unknown) => value is string"),
+        ("isNumber", "(value: unknown) => value is number"),
+        ("recursive", "(value: unknown) => any"),
+        ("explicit", "(value: unknown) => boolean"),
+        ("stringGuard", "(value: unknown) => value is string"),
+        ("numberGuard", "(value: unknown) => value is number"),
+    ];
+    for reverse in [false, true] {
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        for _ in 0..2 {
+            for offset in 0..expected.len() {
+                let (name, want) = expected[if reverse { expected.len() - 1 - offset } else { offset }];
+                let ty = checker.get_type_of_symbol(bound.lookup_local(root, name).unwrap());
+                assert_eq!(checker.type_to_string(ty), want, "{name}, reverse={reverse}");
+            }
+        }
+    }
+}
+
+#[test]
 fn a_written_predicate_prints_in_the_signatures_return_position() {
     // `conformance/controlFlow/assertionTypePredicates1.types`, verbatim:
     //

@@ -43,7 +43,16 @@ BooleanConstructor ReturnOf/Wrapped produce boolean, concrete Tail produces
 isString prints a predicate, and recursivePredicate returns any. Pinned native
 emission independently witnesses concreteTail, phantomString, isString and the
 recursive return (TS7023). Instantiation/predicate/return integration tests:
-29 passed. Snapshot library tests already had 15 failures; this candidate's
+29 passed. Additional native predicate controls independently emitted distinct
+string/number inferred predicates, boolean for an explicitly annotated body,
+any for the recursive body (TS7023), and string/number instantiated predicates.
+The retained reverse-cold/warm-order regression exercises all six slots in one
+Checker in each order; the specific regression passed. No full noncircular
+receipt was repeated for this control. Expected-independent configured-exact
+oracle ownership remains recover-oracle-r2; relation work outside shared
+signature/return contracts requires diagnostics-owner coordination.
+
+Snapshot library tests already had 15 failures; this candidate's
 last library run had 16 failures, including obsolete constraint-only refusal
 and registry-only membership expectations. No passing-library claim.
 
