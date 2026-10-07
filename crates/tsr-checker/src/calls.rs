@@ -533,9 +533,6 @@ impl<'a> Checker<'a, '_> {
                 return CallHead::Unknown;
             };
             if !untyped && call_count == 0 {
-                if self.head_could_contain_type_variables(func_type, 3) {
-                    return CallHead::Unknown;
-                }
                 if construct_count != 0 {
                     let printed = self.type_to_string(func_type);
                     self.report_at_node(

@@ -608,6 +608,17 @@ getter. This delivered entry is an integration-dependent supported-source slice,
 not full native-source acceptance. nonforcing-list-final-check is blocked by
 prior shared fields locally; no target/full-parity/perf proof claimed.
 
+## Completed generic noncallable types
+
+Claimed tsr-2zk.16.378; genericConstructorFunction1 measures30/31 types and a
+diagnostic failure in the last runnable binary. Native resolveCallExpression
+reports TS2348 after a completed empty call list/non-untyped result even when
+construct inputs mention type variables. Removed only that extra calls head
+variable guard; parent list/getter helpers unchanged. Direct generic Constructor<T>
+control native TS2348at3,21 is missing before TSR; dedicated regression observes
+exact message. no-call-tests/check remain compile-blocked by absent shared fields,
+so no passing-after/fullRIGHT/perf acceptance claimed.
+
 ## Remaining calls raw-slot consumers
 
 Assignable-pass return-ambiguity comparison now demands both candidate returns
