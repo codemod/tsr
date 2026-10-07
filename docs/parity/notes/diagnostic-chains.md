@@ -403,6 +403,23 @@ keys; sixteen suites complete. Observed domain21 cumulative baseline wall1.0400,
 diagnostics match, complete-work null: no-hotpath acceptance still unmet. Parent
 check_return_statement reserved and unchanged. Receipts constraint-chain-*.
 
+## Explicit signature-this recursive reporting — tsr-2zk.1
+
+Pinned compareSignaturesRelated 1503 tries forward this relation without errors,
+then reverse with reportErrors and wraps completed failure in native incompatible
+this-types message. Owned signature worker now selects the actual this TypeIds
+for that reverse recursive object worker and restores saved reporting state on
+success/Unknown. Verdict-only path remains unchanged; no synthetic traversal or
+receiver remapping. Actual explicit-this control previously lacked four nested
+rows; now complete CLI matches native and permanent test asserts reverse receiver
+direction/wrapper/inner property failure. Full fresh protected RIGHT keys retain
+presence/verdicts; sixteen read-only suites complete, targeted tests/clippy pass.
+Initial workspace run timed out before tsr-vfs completion and is NOT a pass;
+replacement workspace run completes and passes. Domain21 observed cumulative
+recovery-baseline wall1.0081 with equal diagnostics; no-hotpath gate remains
+unproved, verified work ratio null. Parent check_return_statement untouched.
+Receipts this-chain-* and this-chain-workspace-tests-complete.log.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
