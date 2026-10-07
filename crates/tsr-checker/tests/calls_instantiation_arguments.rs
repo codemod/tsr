@@ -31,6 +31,31 @@ fn written_arguments_fill_defaults_and_substitute_signature() {
 }
 
 #[test]
+fn constructor_signature_substitutes_instance_and_parameters() {
+    let source = "interface Box<T> { value: T } declare const C: new <T>(value: T) => Box<T>; type Arg = number;";
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let root = parsed.source_file.node_id.unwrap();
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "args.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let ty = checker.get_type_of_symbol(bound.lookup_local(root, "C").unwrap());
+    let signature = checker.resolve_call_signature_with_type_arguments(ty, None, false).unwrap();
+    let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[2] else { panic!() };
+    let image = checker
+        .instantiate_signature_with_type_arguments(&signature, &[alias.r#type.unwrap()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(checker.type_to_string(image.r#type), "Box<number>");
+    let parameter = checker.parameter_type(&image.parameters[0]);
+    assert_eq!(checker.type_to_string(parameter), "number");
+}
+
+#[test]
 fn rejected_constraint_is_reported_without_an_instantiated_image() {
     let source = "declare function f<T extends string>(value: T): T; type Arg = number;";
     let arena = tsr_core::Arena::new();

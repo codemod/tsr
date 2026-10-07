@@ -1376,19 +1376,35 @@ impl<'a> Checker<'a, '_> {
         let names: Vec<String> =
             candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let mut map: Vec<(TypeId, TypeId)> = Vec::with_capacity(parameters.len());
-        for (position, &parameter) in parameters.iter().enumerate() {
-            let argument = match nodes.get(position) {
-                Some(&node) => self.get_type_from_type_node(node),
-                None => match candidate.type_parameters.get(position).and_then(|p| p.default) {
-                    Some(default) => self.instantiate_type(default, &map, &parameters, &names),
-                    None => self.intrinsics.unknown,
-                },
+        // fillMissingTypeArguments preloads unresolved trailing slots with
+        // errorType before evaluating defaults against the complete mapper.
+        let mut map: Vec<_> =
+            parameters.iter().map(|&parameter| (parameter, self.intrinsics.error)).collect();
+        for (position, &node) in nodes.iter().enumerate() {
+            let argument = self.get_type_from_type_node(node);
+            if self.is_error(argument) {
+                return None;
+            }
+            map[position].1 = argument;
+        }
+        let is_javascript = self.in_js_file(candidate.declaration);
+        for position in nodes.len()..parameters.len() {
+            let argument = match candidate.type_parameters[position].default {
+                Some(default)
+                    if is_javascript
+                        && (default == self.intrinsics.unknown
+                            || default == self.intrinsics.empty_object) =>
+                {
+                    self.intrinsics.any
+                }
+                Some(default) => self.instantiate_type(default, &map, &parameters, &names),
+                None if is_javascript => self.intrinsics.any,
+                None => self.intrinsics.unknown,
             };
             if self.is_error(argument) {
                 return None;
             }
-            map.push((parameter, argument));
+            map[position].1 = argument;
         }
         for (position, &node) in nodes.iter().enumerate() {
             let Some(constraint) = self.type_parameter_constraint(parameters[position]) else {
