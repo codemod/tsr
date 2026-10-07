@@ -3928,8 +3928,10 @@ impl<'a> Checker<'a, '_> {
                 .iter()
                 .any(|c| c.this_parameter.is_some() || c.parameters.iter().any(|p| p.rest))
         {
-            let survivors: Vec<&Signature> =
-                candidates.iter().filter(|c| has_correct_arity(c, arguments.len())).collect();
+            let survivors: Vec<&Signature> = candidates
+                .iter()
+                .filter(|candidate| self.overload_has_correct_arity(candidate, arguments.len()))
+                .collect();
             if let [survivor] = survivors.as_slice() {
                 let survivor = (*survivor).clone();
                 // §359: a single ARITY survivor of an OVERLOADED set is not

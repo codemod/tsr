@@ -697,6 +697,18 @@ identity predicate; no new printed-name heuristic. Direct native control emits
 TS2810at1,26 and TSR before emits none. js-promise-check is compile-blocked by
 absent shared fields; no passing-after/fullRIGHT/perf claim.
 
+## Overload survivor semantic arity
+
+Native getMinArgumentCountEx accepts omitted trailing void parameters. Owned
+choose_ordered_overload survivor pass used syntax-only required count, rejecting
+f(string, void) when called with one string and selecting an incompatible number
+overload/recovery never. It now uses existing overload_has_correct_arity semantic
+minimum/effective rest operation. Direct native control returns string for one
+string and number for one number; TSR before returns never for string.
+Dedicated behavior regression preserves both candidates. No new selector or
+case-specific admission. void-overload-tests is compile-blocked by absent shared
+fields; no passing-after/fullRIGHT/performance acceptance claimed.
+
 ## IIFE tuple-spread arity
 
 Claimed tsr-2zk.9.5; restTuplesFromContextualTypes measures372/389 types plus
