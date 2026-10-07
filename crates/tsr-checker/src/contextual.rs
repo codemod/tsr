@@ -178,6 +178,19 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         parameter: NodeId,
     ) -> Option<TypeId> {
+        self.contextually_typed_parameter_type(parameter, true)
+    }
+
+    /// `widen_from_initializer` is false for the initializer's own contextual
+    /// type (`getContextualTypeForVariableLikeDeclaration`'s Parameter arm),
+    /// which reads `getContextuallyTypedParameterType` alone; the widening is
+    /// `assignContextualParameterTypes`' and would check the very initializer
+    /// being contextually typed.
+    fn contextually_typed_parameter_type(
+        &mut self,
+        parameter: NodeId,
+        widen_from_initializer: bool,
+    ) -> Option<TypeId> {
         let function = self.nodes.parent(parameter)?;
         // §175 (`checker-notes-narrow.md`): an unannotated SETTER value
         // parameter takes the ACCESSOR's type, which upstream resolves in a
@@ -358,7 +371,10 @@ impl<'a> Checker<'a, '_> {
         // assignContextualParameterTypes (internal/checker/checker.go) allows
         // an initializer to widen a contextual parameter, but only when the
         // contextual type is assignable to the widened initializer type.
-        if !asking_for_rest && let Some(initializer) = parameters[index].initializer {
+        if widen_from_initializer
+            && !asking_for_rest
+            && let Some(initializer) = parameters[index].initializer
+        {
             use crate::relater::{Relation, Ternary};
             // getTypeOfParameter includes undefined for optional/defaulted
             // positions; stored signature types omit it for printing.
@@ -1169,8 +1185,15 @@ impl<'a> Checker<'a, '_> {
                 }
                 // A written annotation precedes contextual-signature/default
                 // inference in getContextualTypeForVariableLikeDeclaration.
-                let annotation = declaration.r#type?;
-                Some(self.get_type_from_type_node(annotation))
+                // getContextualTypeForVariableLikeDeclaration: the type node
+                // (in JS the reparsed `@param`), else the Parameter arm's
+                // getContextuallyTypedParameterType (`checker.go:29458`).
+                match declaration.r#type.or_else(|| {
+                    self.jsdoc_parameter_annotation(parent).map(|(annotation, _)| annotation)
+                }) {
+                    Some(annotation) => Some(self.get_type_from_type_node(annotation)),
+                    None => self.contextually_typed_parameter_type(parent, false),
+                }
             }
             Node::BindingElement(element) => {
                 if element.initializer.and_then(|initializer| initializer.node_id()) != Some(node) {
