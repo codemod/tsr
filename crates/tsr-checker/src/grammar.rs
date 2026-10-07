@@ -231,6 +231,11 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+        if let Node::CatchClause(clause) = typed
+            && let Some(declaration) = clause.variable_declaration.and_then(|d| d.node_id)
+        {
+            self.check_catch_clause_declaration(declaration);
+        }
     }
 
     /// The first arms of `Checker.checkExternalImportOrExportDeclaration`
@@ -1043,5 +1048,63 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [token.to_string(), printed]));
+    }
+
+    /// `Checker.grammarErrorOnFirstToken` (`grammarchecks.go:19`): silent in a
+    /// file with parse diagnostics; otherwise the range of the token at the
+    /// node's start (`scanner.GetRangeOfTokenAtPosition`). Scans one token on
+    /// this error path only; a host without source text cannot supply the
+    /// range and reports nothing.
+    fn grammar_error_on_first_token(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+    ) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let start = self.nodes.span(node).start;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))
+        else {
+            return;
+        };
+        let token = tsr_scanner::Scanner::new(rest).scan().span;
+        let span = tsr_core::Span::new(start + token.start, start + token.end);
+        self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The grammar arms of `Checker.checkCatchClause` (`checker.go:4247`): a
+    /// type annotation whose type is not `any`/`unknown` is TS1196, else an
+    /// initializer is TS1197, both on the offending node's first token.
+    ///
+    /// Not ported: the third arm, TS2492 for a block-scoped redeclaration of
+    /// the caught name, which reads the binder's catch-clause and block
+    /// locals.
+    fn check_catch_clause_declaration(&mut self, declaration: NodeId) {
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if let Some(type_node) = variable.r#type {
+            let ty = self.get_type_from_type_node(type_node);
+            // `is_error` is upstream's `errorType`, which carries `TypeFlagsAny`.
+            if !self.is_error(ty)
+                && !self.type_of(ty).flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
+                && let Some(id) = type_node.node_id()
+            {
+                self.grammar_error_on_first_token(
+                    id,
+                    &messages::CATCH_CLAUSE_VARIABLE_TYPE_ANNOTATION_MUST_BE_ANY_OR_UNKNOWN_IF_SPECIFIED,
+                );
+            }
+        } else if let Some(id) = variable.initializer.and_then(|i| i.node_id()) {
+            self.grammar_error_on_first_token(
+                id,
+                &messages::CATCH_CLAUSE_VARIABLE_CANNOT_HAVE_AN_INITIALIZER,
+            );
+        }
     }
 }

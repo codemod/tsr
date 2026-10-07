@@ -453,3 +453,9 @@ per-file flag must become per-node.
   parameters TS18009, binding elements keep the default TS18016. The message
   is a parameter of `parse_binding_name_with_diagnostic`, not a per-caller
   pre-check, so the identifier is consumed by the one shared path.
+- Catch clause (`parseCatchClause` → `parseVariableDeclaration`): the whole
+  declaration is parsed, initializer and private-name policy included; the
+  printer emits it through the shared `emitVariableDeclaration` port. The
+  grammar arms of `checkCatchClause` (TS1196, TS1197) live in `grammar.rs`
+  behind `grammarErrorOnFirstToken`; TS2492 (block-local redeclaration of
+  the caught name) needs binder locals and is not ported.

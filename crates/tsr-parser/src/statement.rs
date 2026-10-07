@@ -1080,23 +1080,13 @@ impl<'a> Parser<'a> {
         let catch = if self.at(SyntaxKind::CatchKeyword) {
             let catch_start = self.pos();
             self.next_token();
-            // `catch {}` without a binding is legal since ES2019.
-            //
-            // Upstream parses a full variable declaration here, initializer
-            // included, and the checker rejects the initializer (TS1197). This
-            // port stops at the type annotation until the printer emits a
-            // catch variable's initializer: a parsed one would not survive
-            // the round trip.
+            // `catch {}` without a binding is legal since ES2019. Otherwise
+            // `parseCatchClause` parses a full `parseVariableDeclaration()`,
+            // initializer included; the checker rejects it (TS1197).
             let variable = if self.eat(SyntaxKind::OpenParenToken) {
-                let decl_start = self.pos();
-                let name = self.parse_binding_name();
-                let type_node = self.parse_type_annotation();
+                let variable = self.parse_variable_declaration(false);
                 self.expect(SyntaxKind::CloseParenToken);
-                Some(self.finish_node(
-                    VariableDeclaration::new(Some(name), None, type_node, None),
-                    SyntaxKind::VariableDeclaration,
-                    decl_start,
-                ))
+                Some(variable)
             } else {
                 None
             };
