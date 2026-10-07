@@ -135,11 +135,16 @@ explicitly forbidden whole-file boundaries. The integrator must coordinate:
    `index_access_reports.rs`, `mapped.rs` and `members.rs`. Agree on demand or
    prepared-completion semantics before changing those callers. Simply
    ignoring the edge can incorrectly skip instantiation/inference.
-5. **Coverage runner:** `crates/tsr-conformance/src/main.rs` writes snapshots
-   unconditionally when running coverage. This Box is expressly forbidden
-   to touch snapshots, including through a runner. The exclusive conformance
-   owner/integrator must provide or run a read-only full-population gate;
-   the current verdict tools are not that gate.
+5. **Oracle coordination:** `parity-full-corpus` exclusively owns all
+   `crates/tsr-conformance/src`, including `types_producer.rs`, and owns the
+   migration of obsolete expected-driven producer API callers. Route any
+   producer contract request through the integrator; this lane must not edit
+   conformance sources or other owners' permanent caller tests. New
+   `calls_lazy_*.rs` tests remain exclusive to this lane. The current coverage
+   runner writes snapshots unconditionally; the oracle owner/integrator must
+   provide or run the read-only full-population gate. The existing verdict
+   tools are not that gate. Native root claims `tsr-2zk.16.27` and
+   `tsr-2zk.16.61` are assigned; this lane does not claim their work.
 
 Once these contracts are available, the calls owner can convert original
 parameter construction, all owned parameter printers and mapping/inference
