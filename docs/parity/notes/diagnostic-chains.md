@@ -186,6 +186,30 @@ corpus result.
 
 ## Reporting-context integration review
 
+Additional current native CLI controls cover literal source 1 against a type
+parameter constrained by `type NumberAlias = number`, literal constraint 1,
+unconstrained T, and true against T extends boolean. Complete TSR/native output
+is byte-identical. Both assignreport consumers compute displayed_source before
+constructing the head; they do not substitute original source text into a
+native-generalized head. The helper recomputes generalized TypeId for constraint
+queries, not to replace that already-generalized head text.
+
+This evidence does not certify native `getTypeNamesForErrorDisplay` globally.
+Pinned relater.go lines 1277–1302 use context-sensitive symbol declaration
+contexts and fully qualified names when both initial names coincide. Current
+TSR plain type_to_string calls do not establish that exact receiver/alias/name
+policy for arbitrary types. Alias/qualification producer context remains an
+explicit integration prerequisite, not a reason to add guessed diagnostic
+spellings. Deferred indexed targets remain untouched. Native arbitrary-target
+errorChain reset and all recursive writers/rollback must be owned and migrated
+atomically; moving this helper or adding a second traversal cannot supply it.
+
+Signature tsr-2zk.1.10 reporting is inside the existing signature comparator
+worker with explicit report_errors passed from the active direct relation
+consumer. It is not an after-call argument-count guess. The metadata path does
+not expose nested callbacks or recursive signature returns, whose reporting
+requires native error-state wrappers and a single-owner publication cutover.
+
 Exact native branch: `Relater.reportRelationError` at relater.go lines
 4751–4785 first obtains display names, generalizes literal source unless target
 is never or admits top-level singletons, obtains `getBaseConstraintOfType(target)`,
