@@ -330,6 +330,22 @@ must retain this risk, not interpret correctness controls as a speed win.
 Receipts callback-arity-*; prior immutable hash
 1d95f230e71e40b1b759f39a7b5205b3890e7fa7 confirmed by bundle list-heads.
 
+## Signature-valued return arity — tsr-2zk.1
+
+Native return comparison retains completed inner signature TS2849 under the
+return TS2322 head and publishes its elided return marker. TSR previously let
+inline arity bypass both. Owned return publication now consumes that existing
+payload, without another signature query, and feeds the existing marker reduction.
+Actual standalone return and property-return make() controls reproduce missing
+head/marker before and match full native bytes after. Permanent behavior test,
+completed workspace release tests/clippy pass. Fresh full keyed dumps preserve
+469785 RIGHT type and 9190 diagnostic keys with no vanished/changed keys; sixteen
+suites complete. Domain21 observed cumulative recovery-baseline wall 0.9814,
+diagnostic fingerprints match; complete-work ratio null. Earlier positive
+cumulative deltas remain evidence against claiming universally no regression.
+Receipts return-signature-*; previous stable commit
+3db66430793266adfdf8f99cb5c15b5ee77ef7d2.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with

@@ -153,6 +153,28 @@ fn callback_arity_failure_is_wrapped_by_its_parameter_context() {
 }
 
 #[test]
+fn signature_valued_return_arity_retains_return_relation_and_property_marker() {
+    let ds = diagnostics(
+        "declare let source: () => (x: any, y: any) => {}; let target: () => (x: any) => {} = source; declare let s: {make: () => (x: any, y: any) => {}}; let t: {make: () => (x: any) => {}} = s;",
+    );
+    let texts = ds
+        .iter()
+        .map(|d| {
+            let mut text = String::new();
+            write_flattened_diagnostic_message(&mut text, &d.message_chain()[0], "\n");
+            text
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        texts,
+        [
+            "Type '(x: any, y: any) => {}' is not assignable to type '(x: any) => {}'.\n  Target signature provides too few arguments. Expected 2 or more, but got 1.",
+            "The types returned by 'make()' are incompatible between these types.\n  Type '(x: any, y: any) => {}' is not assignable to type '(x: any) => {}'.\n    Target signature provides too few arguments. Expected 2 or more, but got 1.",
+        ]
+    );
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

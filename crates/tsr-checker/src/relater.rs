@@ -2351,7 +2351,15 @@ impl Relater<'_, '_, '_> {
                     let forward = self.is_related_to(source_return, target_return);
                     self.diagnostic_pair = saved_pair;
                     if forward == RelationResult::NotRelated {
-                        let error = self.property_error.take();
+                        let error = self.property_error.take().or_else(|| {
+                            self.signature_error.take().map(|(minimum, count)| {
+                                tsr_diagnostics::Diagnostic::with_args(
+                                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    tsr_core::Span::new(0, 0),
+                                    [minimum.to_string(), count.to_string()],
+                                )
+                            })
+                        });
                         let simple = std::mem::take(&mut self.simple_error);
                         if error.is_some() || simple {
                             use tsr_diagnostics::{Diagnostic, messages};
