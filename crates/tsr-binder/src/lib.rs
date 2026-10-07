@@ -488,9 +488,9 @@ impl<'a> BindResult<'a> {
     /// under its name for [`BindResult::pattern_ambient_module`]
     /// (`checker.go:1422-1432`; `docs/parity/notes/names-modules.md` §6).
     ///
-    /// Declined, each a gap rather than a wrong merge, and each recorded in
-    /// `docs/parity/notes/names-modules.md` §4: an `export =` or re-export
-    /// through an alias this binder cannot follow without the checker.
+    /// Alias forms requiring checker-owned types/module images remain unsupported;
+    /// see `docs/parity/notes/module-augmentation.md`. External import-equals
+    /// indirections reuse this operation's Program resolution callback.
     #[must_use]
     pub fn merge_module_augmentations(
         mut self,
@@ -543,8 +543,12 @@ impl<'a> BindResult<'a> {
             augmentation.name,
             augmentation.nested,
         )?;
-        let main =
-            self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(main))?;
+        let main = self.resolve_external_module_symbol(
+            nodes,
+            node_map,
+            self.merged_symbol(main),
+            resolve,
+        )?;
         (self.symbols.get(main).flags.intersects(SymbolFlags::NAMESPACE)
             && self.is_pattern_ambient_module(main))
         .then_some(main)
@@ -569,7 +573,7 @@ impl<'a> BindResult<'a> {
             return Vec::new();
         };
         let Some(main) =
-            self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(main))
+            self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(main), resolve)
         else {
             return Vec::new();
         };
@@ -605,42 +609,100 @@ impl<'a> BindResult<'a> {
         merges
     }
 
-    /// `resolveExternalModuleSymbol(module, dontResolveAlias=false)`
-    /// (`checker.go:15556`): the module's `export =` target, its alias
-    /// resolved, or the module itself. `None` for an `export =` alias this
-    /// binder cannot resolve — only `export = Name` with `Name` declared in
-    /// scope and not itself an alias is followed.
+    /// Ported from `Checker.resolveExternalModuleSymbol`, `resolveAlias` and
+    /// `getTargetOfImportEqualsDeclaration` (`internal/checker/checker.go`).
+    /// Follow `export =` and external import-equals indirections using the
+    /// Program's existing usage-mode resolution, not a rendered module name.
+    /// Other alias forms remain unsupported here: namespace imports require
+    /// `resolveESModuleSymbol`'s checker-owned module image and interop options.
     fn resolve_external_module_symbol(
         &self,
         nodes: &NodeTable,
         node_map: &NodeMap<'a>,
         module: SymbolId,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
     ) -> Option<SymbolId> {
+        let module = self.merged_symbol(module);
         let Some(&export_equals) =
             self.symbols.get(module).exports.get(binder::INTERNAL_EXPORT_EQUALS)
         else {
             return Some(module);
         };
-        let symbol = self.symbols.get(export_equals);
-        if !symbol.flags.intersects(SymbolFlags::ALIAS) {
-            return Some(self.merged_symbol(export_equals));
+        self.augmentation_alias_target(nodes, node_map, export_equals, resolve, &mut Vec::new())
+    }
+
+    /// Symbol-only slice of native `resolveAlias`/`resolveIndirectionAlias`.
+    /// The active path is local to one augmentation query; a cycle is failure,
+    /// never a completed target. No alias result cache is published by binding.
+    fn augmentation_alias_target(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        symbol: SymbolId,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+        active: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        let symbol = self.merged_symbol(symbol);
+        let entry = self.symbols.get(symbol);
+        if !entry.flags.intersects(SymbolFlags::ALIAS)
+            || entry
+                .flags
+                .intersects(SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+        {
+            return Some(symbol);
         }
-        let declaration = *symbol.declarations.first()?;
-        let Some(tsr_ast::Node::ExportAssignment(assignment)) = node_map.get(declaration) else {
+        if active.contains(&symbol) {
             return None;
-        };
-        let Some(tsr_ast::Expression::Identifier(name)) = assignment.expression else {
-            return None;
-        };
-        let resolved = self.resolve_name(
-            nodes,
-            node_map,
-            declaration,
-            name.text,
-            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
-        )?;
-        let resolved = self.merged_symbol(resolved);
-        (!self.symbols.get(resolved).flags.intersects(SymbolFlags::ALIAS)).then_some(resolved)
+        }
+        active.push(symbol);
+        let result = (|| {
+            let declaration = *entry.declarations.first()?;
+            let target = match node_map.get(declaration)? {
+                tsr_ast::Node::ExportAssignment(assignment) => {
+                    let tsr_ast::Expression::Identifier(name) = assignment.expression? else {
+                        return None;
+                    };
+                    self.resolve_name(
+                        nodes,
+                        node_map,
+                        declaration,
+                        name.text,
+                        SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                    )?
+                }
+                tsr_ast::Node::ImportEqualsDeclaration(import) => {
+                    let tsr_ast::ModuleReference::ExternalModuleReference(reference) =
+                        import.module_reference?
+                    else {
+                        return None;
+                    };
+                    let tsr_ast::Expression::StringLiteral(specifier) = reference.expression?
+                    else {
+                        return None;
+                    };
+                    let file = nodes
+                        .ancestors(declaration)
+                        .find(|&node| nodes.kind(node) == SyntaxKind::SourceFile)?;
+                    let module = self.merged_symbol(resolve(
+                        self,
+                        file,
+                        specifier.text,
+                        specifier.node_id?,
+                        false,
+                    )?);
+                    self.symbols
+                        .get(module)
+                        .exports
+                        .get(binder::INTERNAL_EXPORT_EQUALS)
+                        .copied()
+                        .unwrap_or(module)
+                }
+                _ => return None,
+            };
+            self.augmentation_alias_target(nodes, node_map, target, resolve, active)
+        })();
+        active.pop();
+        result
     }
 
     /// `getExportsOfModule(module)[name]` for a name the module does not
@@ -686,7 +748,12 @@ impl<'a> BindResult<'a> {
                 continue;
             };
             let Some(nested) = resolve(self, file, text, specifier, false).and_then(|nested| {
-                self.resolve_external_module_symbol(nodes, node_map, self.merged_symbol(nested))
+                self.resolve_external_module_symbol(
+                    nodes,
+                    node_map,
+                    self.merged_symbol(nested),
+                    resolve,
+                )
             }) else {
                 continue;
             };
