@@ -7489,14 +7489,9 @@ impl<'a> Checker<'a, '_> {
         frame: rustc_hash::FxHashMap<SymbolId, TypeId>,
         result_alias: Option<SymbolId>,
     ) -> Option<TypeId> {
-        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else { return None };
-        let target = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name.node_id?,
-            name.text,
-            SymbolFlags::TYPE,
-        )?;
+        // getTypeFromTypeAliasReference resolves the entity name through the
+        // canonical checker resolver, including qualified and import aliases.
+        let target = self.resolve_entity_name_ex(reference.type_name?, SymbolFlags::TYPE, false)?;
         if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }

@@ -84,6 +84,17 @@ fn parenthesized_conditional_alias_body_uses_native_branch_resolution() {
 }
 
 #[test]
+fn qualified_conditional_alias_chain_resolves_its_native_target() {
+    assert_eq!(
+        declared_and_reference(
+            "namespace N { export type Select<T> = T extends string ? number : boolean; } type Outer<T> = N.Select<T>; declare let value: Outer<string>;",
+            "Outer",
+        ).1,
+        "number",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

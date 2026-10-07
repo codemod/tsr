@@ -213,6 +213,25 @@ whole-case gain claimed. Seven interleaved fresh-process samples: after/before
 projection, so equivalent complete work is unverified; no release performance
 claim. Receipts `conditional-paren-*` under `target/recovery/alias`.
 
+## Qualified conditional alias chain target
+
+`evaluate_conditional_alias_reference` now resolves its actual entity name through
+existing `resolve_entity_name_ex`, as native `getTypeFromTypeAliasReference` does,
+rather than refusing everything except a bare identifier. The canonical resolver
+owns qualified/import alias resolution; no duplicate namespace walk or printed-name
+key. Ordered argument/default mapping, evaluation frame, depth guard and result
+alias remain unchanged. Unsupported targets still return None.
+
+Qualified-chain regression fails before and passes after; conditional and qualified
+reference targets pass. Real CLI acceptance/rejection diagnostics compare
+byte-for-byte with native. Existing unfiltered 477,970-assertion oracle unchanged,
+zero former RIGHT losses/vanished recognized keys; no whole-case gain claimed.
+Seven interleaved fresh-process samples: after/before 0.99970, after/native 1.64152.
+Baseline emits false positives and lacks the semantic projection, so equivalent
+complete work and release speed remain uncertified. Receipts
+`qualified-conditional-*` under `target/recovery/alias`; frozen verification
+excludes the pending TypeQuery worker dependency.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.
