@@ -248,3 +248,33 @@ records only missing agreed fields/method. Owned inference changes are delivered
 as integration-dependent code, not a verified standalone feature. No temporary
 no-op/mock worker was installed; actual parent worker must be supplied before
 passing-after, full RIGHT ratchet or performance acceptance can be measured.
+
+## CHOOSE-OVERLOAD-GENERIC-WALK: nongeneric array context
+
+Claimed existing `tsr-2zk.16.66`. All 16 historical target cases fail in a fresh
+query of the last runnable binary; integrated current-parent results remain
+unmeasured. Native chooseOverload/isSignatureApplicable contextually checks array
+arguments against each candidate. The existing nongeneric candidate-walk entry
+excluded arrays and only tuple-headed parameter contexts were checked later.
+Owned `calls.rs` now admits arrays into that existing nongeneric contextual walk,
+including ConcatArray<T> numeric-index contexts. Generic arrays retain their
+existing inference-owned scheduling; an attempted expansion there caused a real
+`destructuringTuple` diagnostic loss and was rejected, not suppressed.
+
+`concat-native-shape.ts` producer smoke changes nested argument number[][] to
+[number, number][] and inner arrays to tuples. `compiler/concatTuples` moves
+13/18 to 18/18. Final full historical harness ratchet has all 12,444 keys and
+zero prior-PASS losses; one whole types gain and eight diagnostics gains
+(`array-context-final-ratchet.json`). Full checker tests/clippy pass. Checks
+excluded only the integration-dependent a42 outer source-link hunks temporarily;
+those owned hunks were restored afterward. No parent file modified.
+
+Exact native negative diagnostic text/span acceptance is NOT satisfied: the
+standalone invalid boolean-array control still emits TSR's flat TS2769 head at
+the whole array rather than native's two elaborated property errors. This is the
+existing structured diagnostic/elaboration prerequisite, not a passing native
+control. Original handwritten ConcatArray control also duplicated the bundled
+index signature; that comparison is not certified full parity. No >=99.9%,
+full-current-native or equivalent-work/no-hotpath-regression claim. The issue
+remains in progress; parent diagnostic and expression integrations plus native
+negative and performance gates remain required before acceptance.

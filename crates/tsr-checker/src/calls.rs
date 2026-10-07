@@ -3808,7 +3808,11 @@ impl<'a> Checker<'a, '_> {
             && candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
             && arguments.iter().any(|argument| {
                 self.is_context_sensitive_argument(argument)
-                    || matches!(argument, Expression::ObjectLiteralExpression(_))
+                    || matches!(
+                        argument,
+                        Expression::ObjectLiteralExpression(_)
+                            | Expression::ArrayLiteralExpression(_)
+                    )
             })
             && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
         {
@@ -5120,7 +5124,8 @@ impl Checker<'_, '_> {
                         || (retain_context
                             && matches!(argument, Expression::ObjectLiteralExpression(_)))
                         || (matches!(argument, Expression::ArrayLiteralExpression(_))
-                            && (self.tuple_element_lists.contains_key(&parameter_types[index])
+                            && (retain_context
+                                || self.tuple_element_lists.contains_key(&parameter_types[index])
                                 || self
                                     .variadic_tuple_elements
                                     .contains_key(&parameter_types[index])))
