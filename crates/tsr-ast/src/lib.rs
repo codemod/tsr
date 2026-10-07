@@ -116,6 +116,7 @@ pub struct NodeTable {
     kind: Vec<SyntaxKind>,
     span: Vec<Span>,
     flags: Vec<NodeFlags>,
+    type_argument_lists: Vec<(NodeId, Span)>,
 }
 
 impl NodeTable {
@@ -129,6 +130,9 @@ impl NodeTable {
         self.kind.extend_from_slice(&local.kind);
         self.span.extend_from_slice(&local.span);
         self.flags.extend_from_slice(&local.flags);
+        self.type_argument_lists.extend(local.type_argument_lists.iter().map(|(host, span)| {
+            (NodeId::new(base + host.as_u32()), *span)
+        }));
         self.parent
             .extend(local.parent.iter().map(|id| id.map(|id| NodeId::new(base + id.as_u32()))));
         base..end
@@ -152,6 +156,7 @@ impl NodeTable {
             kind: Vec::with_capacity(nodes),
             span: Vec::with_capacity(nodes),
             flags: Vec::with_capacity(nodes),
+            type_argument_lists: Vec::new(),
         }
     }
 
@@ -212,6 +217,24 @@ impl NodeTable {
         self.span[id.as_u32() as usize]
     }
 
+    /// Native type argument list extent; absence represents a nil list.
+    #[must_use]
+    pub fn type_argument_list_span(&self, host: NodeId) -> Option<Span> {
+        self.type_argument_lists.binary_search_by_key(&host, |(id, _)| *id)
+            .ok().map(|index| self.type_argument_lists[index].1)
+    }
+
+    /// Set completed native list metadata on its concrete syntax owner.
+    pub fn set_type_argument_list_span(&mut self, host: NodeId, span: Option<Span>) {
+        assert!((host.as_u32() as usize) < self.len());
+        match (self.type_argument_lists.binary_search_by_key(&host, |(id, _)| *id), span) {
+            (Ok(index), Some(span)) => self.type_argument_lists[index].1 = span,
+            (Ok(index), None) => { self.type_argument_lists.remove(index); }
+            (Err(index), Some(span)) => self.type_argument_lists.insert(index, (host, span)),
+            (Err(_), None) => {}
+        }
+    }
+
     /// The node's flags.
     ///
     /// # Panics
@@ -261,6 +284,8 @@ impl NodeTable {
         self.kind.truncate(len);
         self.span.truncate(len);
         self.flags.truncate(len);
+        let lists = self.type_argument_lists.partition_point(|(host, _)| (host.as_u32() as usize) < len);
+        self.type_argument_lists.truncate(lists);
     }
 
     /// Walk from `id` up to the root.
