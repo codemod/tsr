@@ -76,8 +76,8 @@ class TraceIntegrityTests(unittest.TestCase):
             "invocation_id": "1234-99", "source_sha": None,
             "binary_sha256": self.digest(self.binary),
             "source_files_sha256": {str(self.source): self.digest(self.source)},
-            "inputs_before": snapshot([str(self.input)]),
-            "inputs_after": snapshot([str(self.input)]),
+            "inputs_before": snapshot([str(self.input), str(self.source)]),
+            "inputs_after": snapshot([str(self.input), str(self.source)]),
             "show_config": self.options, "loaded_files": [str(self.input)],
             "requested_checkers": None, "requested_single_threaded": None,
         }
@@ -115,7 +115,12 @@ class TraceIntegrityTests(unittest.TestCase):
         receipt = copy.deepcopy(self.context)
         receipt.update(oracle_sha=PINNED_NATIVE_SHA, trace_sha256=self.digest(self.trace))
         receipt["child"]["command"] += ["--generateTrace", str(self.root)]
+        for name in ("a.ts", "b.ts"):
+            if not (self.root / name).exists():
+                (self.root / name).write_text("export {}")
         receipt["loaded_files"] = ["a.ts", "b.ts", str(self.input)]
+        receipt["inputs_before"] = snapshot([str(self.root / "a.ts"), str(self.root / "b.ts"), str(self.input)])
+        receipt["inputs_after"] = receipt["inputs_before"]
         return validate_native_trace(self.trace, receipt)
 
     def test_native_full_workers_preserve_owner_paths_and_unsampled_duration(self):
@@ -452,6 +457,15 @@ class TraceIntegrityTests(unittest.TestCase):
             self.assertFalse(result[flag])
             self.assertFalse(result["comparison_valid"])
             self.assertTrue(result["reasons"])
+
+    def test_receipt_loaded_source_without_captured_bytes_rejects(self):
+        context = copy.deepcopy(self.context)
+        uncaptured = self.root / "uncaptured.ts"
+        uncaptured.write_text("export const value = 1")
+        context["loaded_files"] = [str(uncaptured)]
+        result = self.check(context=context)
+        self.assertFalse(result["artifact_integrity_valid"])
+        self.assertIn("absent from captured file bytes", result["reasons"][0])
 
     def test_receipt_duplicate_loaded_paths_reject_before_worker_validation(self):
         context = copy.deepcopy(self.context)

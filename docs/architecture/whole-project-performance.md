@@ -212,6 +212,23 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Physical loaded sources require captured bytes
+
+Every receipt-loaded physical source must have a regular-file before/after
+snapshot; relative logical names resolve against captured current directory.
+Only canonical virtual bundled libraries are exempt, explicitly remaining an
+unproved byte-coverage gap. Matching loaded/worker names cannot hide omitted
+physical source content. 47 trace tests passed; actual large native Program gate
+accepted. Actual omitted-source-byte receipt saved
+`/tmp/recover-loaded-byte-rejection.json` and exited 1. Fresh frozen five-pair/
+warmup capture saved `/tmp/recover-loaded-byte-checkpoint.json`, comparable exit 1.
+
+Parent frozen alias-constructor native domain-model observation: 11 pairs ratio
+1.532566, stable exact diagnostics/options/scope, verified ratio null because
+actual work/input equivalence is missing. This is neither speed-ahead nor <=0.50
+proof. Prior-TSR 21-pair work is separately running on the parent; not reported
+passed here. Full semantic/source-build/full-corpus gates remain unmet.
+
 ### Pair ratios bind actual measured child receipts
 
 Sampling validation now checks each pair's alternating order and ratio against

@@ -356,6 +356,16 @@ def validate_receipt(receipt: dict, warning: str) -> dict:
             "missing ordered loaded identities")
     require(len(receipt["loaded_files"]) == len(set(receipt["loaded_files"])),
             "duplicate captured loaded-file identity")
+    captured_by_path = {row["path"]: row for row in before}
+    for source in receipt["loaded_files"]:
+        base = source.rsplit("/", 1)[-1]
+        bundled = (source.startswith("bundled:///libs/") or source.startswith("<typescript-lib>/")) \
+            and re.fullmatch(r"lib\.[\w.]+\.d\.ts", base)
+        if bundled:
+            continue  # This producer does not qualify bundled virtual bytes.
+        logical = source if Path(source).is_absolute() else str(Path(receipt["current_directory"]) / source)
+        require(logical in captured_by_path and captured_by_path[logical].get("kind") == "file",
+                "loaded physical source is absent from captured file bytes: " + source)
     return child
 
 
