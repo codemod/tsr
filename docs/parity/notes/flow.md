@@ -594,3 +594,13 @@ change was made by this worker. Parent owns exact unary-consumer acceptance.
 `bd show tsr-2zk.16.525` also reports absent in this Box database; parent must
 update the existing root, not create another task. Commit `42b7f878` carries the
 older campaign attribution because the exact root arrived afterward.
+
+The exact strict reviewer source was also run through this Box's real
+`probefile` pipeline after the flow fix: `value : ${number}` (template type)
+and `!value : error`. Receipt: `flow-template/reviewer-tsr-probe.log`.
+This Box still has the protected pre-cutover scalar-only unary implementation
+in `expressions.rs`; its template path does not consult `get_type_facts`.
+This differs from the parent's observed `boolean` on its own consumer state;
+neither observation certifies the combined cutover. Integrate `42b7f878`
+before the parent-owned native unary delegation, then run the exact strict/
+loose acceptance control there. No consumer edit was made on this Box.
