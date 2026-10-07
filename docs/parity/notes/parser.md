@@ -448,3 +448,8 @@ per-file flag must become per-node.
 - `void` in type position (`parseNonArrayType`): `void` has its own arm with
   no keyword-dot lookahead, so `void.x` is the keyword type followed by a
   TS1005 at `.`; `string.x`/`any.x` stay dotted type references.
+- Private names in binding positions (`parseIdentifierOrPatternWithDiagnostic`
+  → `createIdentifierWithDiagnostic`): variable declarations pass TS18029,
+  parameters TS18009, binding elements keep the default TS18016. The message
+  is a parameter of `parse_binding_name_with_diagnostic`, not a per-caller
+  pre-check, so the identifier is consumed by the one shared path.
