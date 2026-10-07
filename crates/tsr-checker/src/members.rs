@@ -2290,7 +2290,11 @@ impl Checker<'_, '_> {
             });
         }
         let property = self.get_property_of_type(receiver, name)?;
-        self.write_type_of_accessors(property)
+        let written = self.write_type_of_accessors(property)?;
+        // getWriteTypeOfInstantiatedSymbol (5b1047d): setter values use the
+        // same ordered reference mapper as reads. Existing instantiation owns
+        // completion; no write-only mapper/cache is created.
+        Some(self.instantiate_for_reference(receiver, written))
     }
 
     /// `hasCommonDeclaration` (`checker.go:21679`): some declaration of the

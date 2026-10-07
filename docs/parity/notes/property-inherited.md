@@ -527,6 +527,24 @@ added. Broadtwo-case completion/perf gate unverified; parentacceptance required.
 Receipts accessor-write-* in target/recovery/property. Parent indexedalias/
 printerreceiver and reservedmemberhelpers untouched.
 
+## Setter reference instantiation — tsr-2zk.16.282
+
+write_type_of_property_of_type now applies existing instantiate_for_reference
+to its divergent setter type, matching native getWriteTypeOfInstantiatedSymbol
+(5b1047d). Previously raw T|undefined and callback S types escaped through
+instantiated Test1<string>/Test2<{property:string}> receivers. No second mapper,
+cache or alias construction; existing reference/instantiation completion and
+ordered source arguments remain authoritative. Reserved reference mapper body
+and readonly/order/callable helpers untouched. Inherited supplying-base mapper
+qualification remains separate; this fixes the canonical reference consumer.
+
+Both target type cases now match, with diagnostic RIGHT/EMPTY_RIGHT. Completed
+full477970types/10570diags adds21RIGHT rows,0priorRIGHTloss/0vanished; one
+case diagnostic WRONG->RIGHT. Directnative string/number Box setters retain
+string|undefined versus number|undefined and reject wrongnumber-to-string.
+StrictClippyPASS. Perf is unmeasured; parentno-slowdowngate pending before issue
+closure. Receipts write-instantiation-* under target/recovery/property.
+
 ## Receipt location and hashes
 
 Receipts are in repository-ignored `target/recovery/property/`, not `/tmp`:
