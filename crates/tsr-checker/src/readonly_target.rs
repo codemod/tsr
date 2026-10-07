@@ -656,17 +656,18 @@ impl Checker<'_, '_> {
         access: NodeId,
         property: SymbolId,
     ) -> bool {
-        let Some(Node::PropertyAccessExpression(expression)) = self.node_map.get(access) else {
-            return false;
+        let receiver = match self.node_map.get(access) {
+            Some(Node::PropertyAccessExpression(expression)) => expression.expression,
+            Some(Node::ElementAccessExpression(expression)) => expression.expression,
+            _ => return false,
         };
-        if expression
-            .expression
+        if receiver
             .and_then(|receiver| receiver.node_id())
             .is_none_or(|receiver| self.nodes.kind(receiver) != SyntaxKind::ThisKeyword)
         {
             return false;
         }
-        let Some(constructor) = self.control_flow_container(access) else { return true };
+        let Some(constructor) = self.control_flow_container(access) else { return false };
         if self.nodes.kind(constructor) != SyntaxKind::Constructor {
             // Upstream returns `true` from `isAssignmentToReadonlyEntity` — the
             // assignment IS an error — when the container is not a
