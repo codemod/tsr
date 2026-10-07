@@ -225,6 +225,36 @@ verified no-hotpath-regression landing. Temporary AST copy removed. Parent must
 resolve the parse code-layout/worker attribution before acceptance; no threshold
 waiver or heuristic missing-node exception supplied.
 
+### Native reserved-word type-reference default (tsr-2zk.16.370)
+
+Pinned parseNonArrayType defaults to parseTypeReference, including reserved-word
+entity heads and missing identifier type references. The old TSR fallback only
+accepted FunctionKeyword and synthesized keyword any for other tokens. The
+candidate ports the native default, exact Type expected EOF/current-token error
+extent, existing ordered list publication and concrete missing-name identity.
+No semantic cache or additional traversal; ordinary private parser nodes publish
+through the existing tables. No reserved-word/test-specific exception added.
+
+Direct Go controls confirm break/return/private type references and missing type
+identifier [8,8), with TS1110 [9,10) at semicolon or [8,8) at EOF. Target
+parserErrorRecovery_ParameterList6 converts all three type rows RIGHT and its
+single TS2304 diagnostic RIGHT. Parser release tests and library clippy pass.
+Full candidate dumps have zero vanished keys and zero diagnostic RIGHT losses,
+but **three prior RIGHT type losses**: TupleType6, namedTupleMembersErrors and
+thisTag2. Native missing references expose existing error-type handling in tuple
+and JSDoc-this consumers; signatures.rs::jsdoc_this_parameter_type explicitly
+drops an error annotation rather than preserving native missing-this behavior.
+Those consumer corrections are parent-owned. Do not accept or narrow the native
+parser default to hide these losses.
+
+Fresh same-complete-work parse comparison versus missing-node candidate, 41
+alternating pairs x60 parses: wall/CPU 0.995100/0.992200 parser.ts,
+0.988325/0.988739 dom, equal node outputs and all JSDoc/diagnostic parsing.
+This root has no observed incremental parse slowdown, but its required
+no-RIGHT-loss gate fails. The prior missing-node prerequisite itself remains
+performance-rejected. Temporary canonical AST copies removed; no shared AST
+changes in this candidate. Issue stays in progress with exact consumer blockers.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

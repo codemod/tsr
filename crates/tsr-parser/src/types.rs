@@ -508,14 +508,21 @@ impl<'a> Parser<'a> {
             | SyntaxKind::QuestionToken
             | SyntaxKind::QuestionQuestionToken
             | SyntaxKind::ExclamationToken => self.parse_jsdoc_prefix_type(),
-            // `parseNonArrayType`'s default is `parseTypeReference`, whose entity
-            // name admits reserved words (`@param {function} f`). Only
-            // `function` — the reserved word `isStartOfType` names — is taken
-            // so far: the others also reach here from `parse_type_parameters`'
-            // missing list recovery (`type T<in in>`), where upstream never
-            // asks for a type. docs/parity/notes/js.md.
-            SyntaxKind::FunctionKeyword => {
-                let name = self.parse_entity_name();
+            // Ported from typescript-go's `Parser.parseNonArrayType`
+            // (`parser.go`): its default parses a type reference, accepting
+            // every reserved-word entity head, not just contextual keywords.
+            _ => {
+                let name = if self.at(SyntaxKind::Identifier) || self.token.kind.is_keyword() {
+                    self.parse_entity_name()
+                } else {
+                    let span = if self.at(SyntaxKind::EndOfFile) {
+                        tsr_core::Span::at(self.node_end())
+                    } else {
+                        self.token.span
+                    };
+                    self.error_at(&messages::TYPE_EXPECTED, span);
+                    EntityName::Identifier(self.missing_identifier())
+                };
                 let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
@@ -525,10 +532,6 @@ impl<'a> Parser<'a> {
                 );
                 self.set_type_argument_list_metadata(node.node_id().unwrap(), list_span);
                 TypeNode::TypeReferenceNode(node)
-            }
-            _ => {
-                self.error_at_current(&messages::TYPE_EXPECTED);
-                self.missing_type()
             }
         }
     }
