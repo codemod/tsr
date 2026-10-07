@@ -626,7 +626,7 @@ impl<'a> Checker<'a, '_> {
     /// [`CallArity::Applicable`] hands over to the argument-type rules.
     ///
     /// Reads the callee type's signature list (no new cache); an uncertified
-    /// list or a JS file is [`CallArity::Undecided`].
+    /// list is [`CallArity::Undecided`].
     fn check_resolve_call_arity(
         &mut self,
         node: tsr_ast::NodeId,
@@ -642,9 +642,6 @@ impl<'a> Checker<'a, '_> {
             }
             _ => return CallArity::Undecided,
         };
-        if self.in_js_file(node) {
-            return CallArity::Undecided;
-        }
         let Some(signatures) = self.head_signatures(apparent, kind) else {
             return CallArity::Undecided;
         };

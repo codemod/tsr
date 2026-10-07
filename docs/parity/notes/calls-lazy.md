@@ -674,3 +674,16 @@ stays None. Parent-reserved head/list/get_signature_instantiation helpers unchan
 Recovery-return-check remains blocked by absent shared fields; no runtime/native
 acceptance claimed. Parent221/221legacy smoke does not certify ad-hoc outer alias
 returns; that integration remains ongoing.
+
+## JavaScript call arity
+
+Claimed tsr-2zk.9.2. Three targets types already pass35/35,20/20,8/8; diagnostics
+miss four TS2554 lines. Removed only blanket JS-source decline from owned arity
+resolver. Native checks completed signature arity in JS with untyped minimum zero
+and canonical rest metadata; parent signature metadata must retain that contract.
+No syntax-based optionality rewrite or head/getter edit.
+
+Direct native JS control reports Expected0-1got2 and Expected0got1, while fixed()
+is accepted; TSR before emits none. Regression observes both maximum errors and
+absence of required-untyped-parameter error. js-arity-tests/check are compile-
+blocked by absent shared fields; no passing-after/fullRIGHT/perf acceptance.
