@@ -442,3 +442,16 @@ for `"left"` and `string & {..}`; they now read native `NonEmptyStringFacts` /
 falsy branch is `0` in both (was `0 | \`a${string}\``); loose keeps both.
 Gate vs §16: +7 type lines, cases `stringLiteralTypesInUnionTypes04`,
 `templateLiteralTypesPatterns`; 0 losses. CPU 0.993 / 0.987.
+
+## 18. Unknown-property `in` intersects global `Record` (`narrowTypeByInKeyword`)
+
+Pinned `flow.go:1001`: an unknown property on the true branch returns
+`t & Record<nameType, unknown>` (getTypeAliasInstantiation of the global
+`Record`); TSR returned `t`. Instantiated through the existing
+`create_type_reference` alias door with the checked key type; no new cache.
+Native control: `"foo" in x` on narrowed `unknown` prints
+`object & Record<"foo", unknown>` in both; known-property `"a" in o` filtering
+unchanged. Gate vs §17: +9 type lines (`controlFlowInOperator` case,
+`inKeywordAndUnknown`, `conditionalTypeDoesntSpinForever`); 0 losses.
+CPU (41) 0.964 / 0.995 (21-sample first read 1.064 on domain-model; no `in`
+expression in that project).
