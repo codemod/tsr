@@ -361,7 +361,7 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     ImportTypeNode::new(
@@ -374,6 +374,7 @@ impl<'a> Parser<'a> {
                     SyntaxKind::ImportType,
                     start,
                 );
+                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                 TypeNode::ImportTypeNode(node)
             }
             SyntaxKind::ThisKeyword => {
@@ -399,17 +400,21 @@ impl<'a> Parser<'a> {
                         SyntaxKind::ImportType,
                         start,
                     );
+                    let span = self.nodes.type_argument_list_span(import.node_id().unwrap());
+                    self.nodes.set_type_argument_list_span(import.node_id().unwrap(), None);
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), span);
                     return TypeNode::ImportTypeNode(node);
                 }
                 let name = self.parse_entity_name();
                 // `typeof foo<T>` — an instantiation expression in type position.
-                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeQueryNode::new(Some(name), type_arguments),
                     SyntaxKind::TypeQuery,
                     start,
                 );
+                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                 TypeNode::TypeQueryNode(node)
             }
             SyntaxKind::InferKeyword => {
@@ -474,25 +479,27 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::Identifier => {
                 let name = self.parse_entity_name();
-                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeReferenceNode::new(Some(name), type_arguments),
                     SyntaxKind::TypeReference,
                     start,
                 );
+                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                 TypeNode::TypeReferenceNode(node)
             }
             // A contextual keyword can name a type: `require.I`, `type`, `module`.
             kind if crate::statement::is_contextual_keyword(kind) => {
                 let name = self.parse_entity_name();
-                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeReferenceNode::new(Some(name), type_arguments),
                     SyntaxKind::TypeReference,
                     start,
                 );
+                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                 TypeNode::TypeReferenceNode(node)
             }
             // `parseNonArrayType`'s JSDoc arms: `*`, `?T`, `!T`.
@@ -509,13 +516,14 @@ impl<'a> Parser<'a> {
             // asks for a type. docs/parity/notes/js.md.
             SyntaxKind::FunctionKeyword => {
                 let name = self.parse_entity_name();
-                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let (type_arguments, list_span) = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeReferenceNode::new(Some(name), type_arguments),
                     SyntaxKind::TypeReference,
                     start,
                 );
+                self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                 TypeNode::TypeReferenceNode(node)
             }
             _ => {
@@ -1300,7 +1308,9 @@ impl<'a> Parser<'a> {
     ///
     /// Returns `None` rather than recovering, because the caller uses failure to
     /// decide that `<` was a comparison after all.
-    pub(crate) fn parse_type_arguments_for_call(&mut self) -> Option<Vec<TypeNode<'a>>> {
+    pub(crate) fn parse_type_arguments_for_call(
+        &mut self,
+    ) -> Option<(Vec<TypeNode<'a>>, tsr_core::Span)> {
         // Ported from typescript-go's `Parser.tryParseTypeArgumentsInExpression`
         // (`parser.go`): JavaScript brackets remain relational operators.
         if self.script_kind.is_javascript() {
@@ -1313,63 +1323,43 @@ impl<'a> Parser<'a> {
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
-        let before = self.diagnostics.len();
-        let mut arguments = Vec::new();
-        let mut missing_slots: Vec<u32> = Vec::new();
-        loop {
-            // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
-            // deferred "Type expected", not a disambiguation failure:
-            // upstream's parseDelimitedList reports and the list still
-            // succeeds (`callExpressionWithMissingTypeArgument1`). The
-            // diagnostic is emitted only once the `>` confirms the list, so
-            // the complaint gate below keeps rejecting real less-than chains.
-            if self.at(SyntaxKind::CommaToken) {
-                missing_slots.push(self.pos());
-                let missing = self.missing_identifier();
-                let reference = self.finish_node(
-                    tsr_ast::TypeReferenceNode::new(
-                        Some(tsr_ast::EntityName::Identifier(missing)),
-                        &[],
-                    ),
-                    SyntaxKind::TypeReference,
-                    self.pos(),
-                );
-                arguments.push(TypeNode::TypeReferenceNode(reference));
-            } else {
-                arguments.push(self.parse_type());
-            }
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
+        let list_start = self.node_end();
+        // Native uses the same delimited-list worker as type references,
+        // preserving allocated-empty lists, recovery and trailing commas.
+        let (arguments, _) =
+            self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
-        // Any complaint means this was not a type-argument list.
-        if !self.at(SyntaxKind::GreaterThanToken) || self.diagnostics.len() != before {
+        if !self.at(SyntaxKind::GreaterThanToken) {
             return None;
         }
-        for slot in missing_slots {
-            self.error_at(&messages::TYPE_EXPECTED, tsr_core::Span::at(slot));
-        }
+        let span = tsr_core::Span::new(list_start, self.node_end());
         self.next_token();
-        Some(arguments)
+        Some((arguments, span))
     }
 
     /// `<A, B>` after a type reference, if present.
-    fn parse_type_arguments_of_type_reference(&mut self) -> Vec<TypeNode<'a>> {
-        if self.token.has_preceding_line_break() { Vec::new() } else { self.parse_type_arguments() }
+    fn parse_type_arguments_of_type_reference(
+        &mut self,
+    ) -> (Vec<TypeNode<'a>>, Option<tsr_core::Span>) {
+        if self.token.has_preceding_line_break() {
+            (Vec::new(), None)
+        } else {
+            self.parse_type_arguments()
+        }
     }
 
     /// `<A, B>` after a type reference, if present.
-    pub(crate) fn parse_type_arguments(&mut self) -> Vec<TypeNode<'a>> {
+    pub(crate) fn parse_type_arguments(&mut self) -> (Vec<TypeNode<'a>>, Option<tsr_core::Span>) {
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }
         if !self.at(SyntaxKind::LessThanToken) {
-            return Vec::new();
+            return (Vec::new(), None);
         }
         self.next_token();
+        let list_start = self.node_end();
         // `parseBracketedList(PCTypeArguments, parseType, <, >)` (`parser.go:3014`).
         let (arguments, _) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
@@ -1377,8 +1367,9 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
+        let span = tsr_core::Span::new(list_start, self.node_end());
         self.expect(SyntaxKind::GreaterThanToken);
-        arguments
+        (arguments, Some(span))
     }
 
     /// `<T, U extends V>` on a declaration, if present — typescript-go's

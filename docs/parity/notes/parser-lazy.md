@@ -90,6 +90,45 @@ observed increase; no statistically established no-regression or speed-win
 claim is made. Neither is whole-project TSR/tsgo timing, and equivalent
 complete-checker-work <=0.50 remains unverified.
 
+### Native type-list metadata writer cutover (integration dependency)
+
+The parent-reviewed canonical API is
+`NodeTable::type_argument_list_span(host: NodeId) -> Option<Span>` and
+`set_type_argument_list_span(host: NodeId, span: Option<Span>)`.
+The parent owns its sparse sorted storage, rollback and host-ID relocation.
+None is native nil; Some preserves an allocated list even with zero children.
+The parser writer returns existing children plus raw metadata, captures
+`node_end()` after `<` and before `>`, and registers it on the completed owner.
+Ordinary and speculative type arguments use the native delimited-list worker;
+parse errors do not by themselves reject a confirmed expression type list.
+No first/last-child or bracket-source reconstruction is used.
+
+Writers cover TypeQuery, TypeReference, ImportType, JSX, all four expression
+instantiation producers, declaration heritage and JSDoc heritage. Absorption
+into Call, TaggedTemplate, New and typeof-import transfers the exact metadata
+and clears the obsolete wrapper host. None is propagated explicitly; empty
+argument slices are not used to infer absence. Private parser invocation owns
+this completed syntax metadata until the parent-owned publication rebases its
+host IDs; file-relative list ranges remain unchanged. No semantic cache,
+receiver/alias reuse, per-node allocation or second metadata convention added.
+
+Fresh direct Go controls confirm native typeof-f nil versus typeof-f<> [18,18),
+f<> [2,2), f< /*a*/ T, /*b*/ >() [2,11), new-f list [6,15), and typeof-import
+list [30,39). Raw ranges exclude delimiters and closing-token trivia. Diagnostic
+consumers apply native full-source SkipTrivia to start separately; the parser
+never clamps diagnostic spans. New consumer-visible parser tests cover these
+states, all absorption paths, JSDoc/heritage and private-owner destruction with
+a nonzero publication base.
+
+This writer changeset is **not independently verified or runnable** until the
+parent AST API is supplied: local cargo check reports absent getter/setter
+methods. Native controls ran successfully and writer files were rustfmt'd;
+no candidate test, parity or performance pass is claimed for the metadata
+cutover. The earlier JS-only fb043744 verification above remains independent.
+Integrate AST/writer/consumer atomically, then run current native target controls,
+all new metadata tests, all previous RIGHT including vanished-key checks, full
+configuration parity and relevant complete-work performance gates.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

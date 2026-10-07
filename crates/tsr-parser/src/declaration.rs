@@ -126,13 +126,15 @@ impl<'a> Parser<'a> {
         if let Expression::ExpressionWithTypeArguments(node) = expression {
             return node;
         }
-        let type_arguments = self.parse_type_arguments_opt();
+        let (type_arguments, list_span) = self.parse_type_arguments();
         let type_arguments = self.arena.alloc_slice(&type_arguments);
-        self.finish_node(
+        let node = self.finish_node(
             ExpressionWithTypeArguments::new(Some(expression), type_arguments),
             SyntaxKind::ExpressionWithTypeArguments,
             start,
-        )
+        );
+        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+        node
     }
 
     /// `isValidHeritageClauseObjectLiteral` (`parser.go:6278`).
@@ -668,14 +670,5 @@ impl<'a> Parser<'a> {
             SyntaxKind::EnumMember,
             member_start,
         )
-    }
-
-    /// Type arguments in a heritage clause, which may be absent —
-    /// `parseExpressionWithTypeArguments`' `parseTypeArguments` (`parser.go:1841`).
-    fn parse_type_arguments_opt(&mut self) -> Vec<TypeNode<'a>> {
-        if !self.at(SyntaxKind::LessThanToken) {
-            return Vec::new();
-        }
-        self.parse_type_arguments()
     }
 }
