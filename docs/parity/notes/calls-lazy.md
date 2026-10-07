@@ -687,3 +687,14 @@ Direct native JS control reports Expected0-1got2 and Expected0got1, while fixed(
 is accepted; TSR before emits none. Regression observes both maximum errors and
 absence of required-untyped-parameter error. js-arity-tests/check are compile-
 blocked by absent shared fields; no passing-after/fullRIGHT/perf acceptance.
+
+## IIFE tuple-spread arity
+
+Claimed tsr-2zk.9.5; restTuplesFromContextualTypes measures372/389 types plus
+diagnostic failure. Removed calls blanket IIFE-with-spread decline; canonical
+signature minimum and existing effective tuple arguments determine arity.
+Native annotated IIFE controls report TS2554 expected1got2at2,20 andexpected3got2
+at3,1, missing before TSR. Dedicated regression observes both boundaries.
+Unannotated IIFE optionality/minimum metadata remains parent signature-owner
+contract, not guessed from syntax. iife-spread-tests is compile-blocked by absent
+shared fields; no passing-after/fullRIGHT/perf acceptance.

@@ -672,25 +672,6 @@ impl<'a> Checker<'a, '_> {
             }
             return CallArity::Undecided;
         }
-        // An immediately invoked function's minimum reads the written
-        // argument count while its printed optionality reads the expanded
-        // one; with a spread argument the two differ and this port's
-        // signature carries neither (`immediately_invoked_argument_count`),
-        // so its minimum is not upstream's.
-        if arguments.iter().any(|argument| matches!(argument, Expression::SpreadElement(_)))
-            && callee.is_some_and(|callee| {
-                let mut callee = callee;
-                while let Expression::ParenthesizedExpression(inner) = callee {
-                    match inner.expression {
-                        Some(expression) => callee = expression,
-                        None => return false,
-                    }
-                }
-                matches!(callee, Expression::FunctionExpression(_) | Expression::ArrowFunction(_))
-            })
-        {
-            return CallArity::Undecided;
-        }
         let count = type_arguments.len();
         let arities: Vec<(usize, usize)> = signatures
             .iter()
