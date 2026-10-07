@@ -541,3 +541,14 @@ completed reference view is not completed member/diagnostic work.
 Numeric cachedSignatures creator remains ID+ordered-args with borrowed warm
 lookup; runtime query/hit/worker/copy counts are unmeasured while shared fields
 remain absent locally. padded-this-check.log is blocked; no parity/perfproof.
+
+### Eager image consumers of lazy source signatures
+
+Existing eager instantiate_signature maps all carried slots, so a mapper-bearing
+source first demands canonical complete_signature_return before substitution.
+This preserves mapped return/predicate and avoids treating the lazy error sentinel
+as an unsupported type. It does not force returns in native lazy
+get_signature_instantiation, which uses instantiate_signature_lazily. Eager image
+gets a fresh monotonic ID; target preserves completed source identity/context.
+Source applied; eager-lazy-source-check remains blocked by absent parent fields.
+No runtime or full-integration acceptance claimed.

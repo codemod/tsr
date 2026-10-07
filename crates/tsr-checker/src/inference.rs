@@ -6446,6 +6446,13 @@ impl<'a> Checker<'a, '_> {
         parameters: &[TypeId],
         names: &[&str],
     ) -> Option<Signature> {
+        // This worker maps every carried slot eagerly. A lazy input must be
+        // completed by its canonical target/mapper getter first; its sentinel
+        // is not a type to substitute. Native lazy instantiation uses the
+        // separate instantiate_signature_lazily writer and does not force here.
+        if signature.mapper.is_some() {
+            signature = self.complete_signature_return(signature)?;
+        }
         let target = std::sync::Arc::new(signature.clone());
         signature.id = self.next_signature_id;
         self.next_signature_id =
