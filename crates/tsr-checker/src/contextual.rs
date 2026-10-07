@@ -188,6 +188,29 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
+    /// getContextualCallSignature of an inherited, receiver-instantiated
+    /// contextual member. Callers retain the returned assigned signature under
+    /// their existing ContextChecked lifecycle, not the raw supplier signature.
+    pub(crate) fn contextual_signature_with_this_argument(
+        &mut self,
+        supplying_reference: TypeId,
+        declared_context: TypeId,
+        this_argument: TypeId,
+        function: NodeId,
+    ) -> Option<Signature> {
+        let contextual = self.contextual_type_with_this_argument(
+            supplying_reference,
+            declared_context,
+            this_argument,
+        );
+        if contextual == self.intrinsics.error {
+            return None;
+        }
+        let contextual = self.instantiate_contextual_inference_type(contextual, function);
+        let contextual = self.apparent_contextual_type(contextual);
+        self.contextual_signature_for_function_type(contextual, function)?.into_signature()
+    }
+
     /// checkExpressionWithContextualType/getContextNode for JSX attributes.
     /// The existing canonical JSX worker owns SkipContextSensitive and
     /// ContextChecked publication; this scope never publishes a checked image.
@@ -954,6 +977,16 @@ impl<'a> Checker<'a, '_> {
         };
         let contextual = self.instantiate_contextual_inference_type(contextual, function);
         let contextual = self.apparent_contextual_type(contextual);
+        self.contextual_signature_for_function_type(contextual, function)
+    }
+
+    /// Shared native getContextualSignature selection after contextual type
+    /// instantiation; concrete receiver and ordinary contexts use one policy.
+    fn contextual_signature_for_function_type(
+        &mut self,
+        contextual: TypeId,
+        function: NodeId,
+    ) -> Option<ContextualSignature> {
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
             let constituents = types.clone();
             let mut found: Option<Signature> = None;
@@ -3138,6 +3171,44 @@ mod tests {
 
     use super::{BindingName, Checker};
     use crate::types::TypeData;
+
+    #[test]
+    fn inherited_contextual_signature_keeps_supplier_arguments_and_derived_this() {
+        let source = "interface Base<T> { fn: (p: this, value: T) => this } \
+            interface Left extends Base<string> { left: number } \
+            interface Right extends Base<number> { right: string } \
+            const callback = (p, value) => p;";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let function = (0..parsed.nodes.len())
+            .map(|index| NodeId::new(u32::try_from(index).unwrap()))
+            .find(|&id| matches!(parsed.node_map.get(id), Some(Node::ArrowFunction(_))))
+            .unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let base = bound.lookup_local(root, "Base").unwrap();
+        let property = bound.symbols().get(base).members["fn"];
+        let declared = checker.get_type_of_symbol(property);
+        for (name, argument, expected) in [
+            ("Left", checker.intrinsics.string, "(p: Left, value: string) => Left"),
+            ("Right", checker.intrinsics.number, "(p: Right, value: number) => Right"),
+            ("Left", checker.intrinsics.string, "(p: Left, value: string) => Left"),
+        ] {
+            let receiver = bound.lookup_local(root, name).unwrap();
+            let receiver = checker.get_declared_type_of_symbol(receiver);
+            let supplier = checker.create_type_reference(base, vec![argument]);
+            let signature = checker
+                .contextual_signature_with_this_argument(supplier, declared, receiver, function)
+                .unwrap();
+            assert_eq!(checker.signature_to_string(&signature), expected);
+        }
+    }
 
     fn field_context(source: &str) -> Option<String> {
         let arena = tsr_core::Arena::new();

@@ -210,6 +210,33 @@ exercise derived Left/Right with distinct generic arguments and inherited
 callbacks, all previous RIGHT keys and equivalent-work performance once coherent.
 No previously recorded gate is attributed to this continuation.
 
+### Exercised concrete contextual-signature provider
+
+`contextual_signature_with_this_argument(supplying_reference, declared_context,
+this_argument, function) -> Option<Signature>` now applies the existing canonical
+member mapper before contextual inference/apparent-type conversion and signature
+selection. The ordinary function contextual query and this explicit supplier
+query share one `getContextualSignature` arity/union policy. No separate union
+fallback, second heritage traversal, or assigned-signature cache.
+
+Dedicated consumer invariant test distinguishes Base<string>/Left from
+Base<number>/Right and re-queries Left after Right; all parameter and return
+slots match `(p: Left, value: string) => Left` and
+`(p: Right, value: number) => Right`. Test passes in the ignored coherent source
+mirror with the reviewed property's visibility change (the real helper body,
+no mock). Pinned native strict declaration emit independently produces the same
+three callback types. Receipts: `supplier-signature-smoke.log`,
+`supplier-native.ts`, `.d.ts`, `.log`; format check passes.
+
+This is supplier/provider smoke, not end-to-end target acceptance: parent/member
+production must preserve the supplying-reference identity when reading inherited
+`Y.a`, then calls retains the substituted signature under its ContextChecked
+lifecycle. The previously measured four target rows cannot improve until that
+identity reaches the provider. No new shared field is requested for this seam;
+use the existing native member origin and assigned-signature owner. Production
+still needs the serialized JSX field/worker and public member mapper. Full
+absence-aware RIGHT/performance gates wait for that coherent atomic integration.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.
