@@ -435,3 +435,13 @@ nonpublic and, only then, asks the existing canonical
 privacy/common-declaration decision. No new cache; the per-constituent origin
 lookup is query-local and publishes no image. Control: distinct protected
 `A`/`B` rejects; a shared inherited `Root` declaration keeps `number`.
+
+## 13. JS `@augments` arguments on inherited member reads (tsr-2zk.16.342)
+
+Native `reparseHosted` copies JSDoc `@augments Base<T>` arguments onto the
+heritage reference before `getBaseTypes`/`resolveObjectTypeMembers`, so an
+inherited read sees `Base<number>`. `generic_heritage_member` used only the
+written arguments; for a JS entry with none it now asks the existing
+`jsdoc_augments_type_arguments` supplier (the base-type worker already does).
+No new cache or image; the extra lookup runs only for argument-less JS
+heritage entries. Converts `jsdocAugments_withTypeParameter` (3 type rows).

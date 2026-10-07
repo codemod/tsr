@@ -1773,8 +1773,21 @@ impl Checker<'_, '_> {
                     if visiting.contains(&base) {
                         continue;
                     }
+                    // reparseHosted copies JS @augments arguments onto the
+                    // native heritage reference. Reuse the existing supplier
+                    // when the written entry has none (5b1047d getBaseTypes).
+                    let arguments = if entry.type_arguments.is_empty()
+                        && entry.node_id.is_some_and(|node| self.in_js_file(node))
+                    {
+                        entry
+                            .node_id
+                            .and_then(|node| self.jsdoc_augments_type_arguments(node))
+                            .unwrap_or(entry.type_arguments)
+                    } else {
+                        entry.type_arguments
+                    };
                     let Some(base_type) =
-                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
+                        self.instantiated_heritage_base(base, arguments, entry.node_id)
                     else {
                         continue;
                     };
