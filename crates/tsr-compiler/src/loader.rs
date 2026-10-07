@@ -824,7 +824,14 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         if let Some(started) = task_started {
             self.statistics.task_time += started.elapsed();
         }
-        for sub_task in sub_tasks {
+        for (position, &sub_task) in sub_tasks.iter().enumerate() {
+            if position != 0 {
+                let started = self.options.extended_diagnostics.is_true().then(Instant::now);
+                self.prepare_dependencies(&sub_tasks[position..], current_depth);
+                if let Some(started) = started {
+                    self.statistics.task_time += started.elapsed();
+                }
+            }
             self.process_task(sub_task, current_depth);
         }
     }
@@ -841,6 +848,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             return;
         }
         let mut seen = FxHashSet::default();
+        let admission = self
+            .dependency_pool
+            .as_ref()
+            .map_or(32, |pool| 2 * pool.workers() - self.prepared_dependencies.len());
         let eligible: Vec<_> = tasks
             .iter()
             .copied()
@@ -864,6 +875,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     )))
                     && seen.insert(task.file_name.clone())
             })
+            .take(admission)
             .collect();
         if self.dependency_pool.is_none() {
             // Tiny corpus programs should not pay for a persistent pool. A

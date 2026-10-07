@@ -76,7 +76,7 @@ fn assert_loader_identity(host: &Host, roots: &[String], dependencies: bool) {
     let parallel = FileLoader::load(&arena, host, options(roots, false));
     if dependencies && std::thread::available_parallelism().unwrap().get() >= 2 {
         assert!(parallel.statistics.dependency_parse_workers >= 2);
-        assert!(parallel.statistics.dependency_parses_published >= 8);
+        assert!(parallel.statistics.dependency_parses_published >= 64);
         assert!(
             parallel.statistics.dependency_pending_peak
                 <= 2 * parallel.statistics.dependency_parse_workers
@@ -142,6 +142,10 @@ fn dynamically_discovered_dependencies_keep_complete_serial_identity() {
     // Fill the bounded queue before descending into a new, unqueued child.
     // That child must make progress serially rather than wait for free slots.
     files[0].1.push_str("\nimport './deep';\n");
+    for i in 0..64 {
+        writeln!(root, "/// <reference path=\"./leaf{i}.ts\" />").unwrap();
+        files.push((format!("/leaf{i}.ts"), format!("export const leaf{i} = {i};")));
+    }
     files.push(("/deep.ts".to_owned(), "export const deep = 1;".to_owned()));
     files.push((
         "/huge.ts".to_owned(),
