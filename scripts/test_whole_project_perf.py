@@ -219,15 +219,19 @@ class BenchmarkEvidenceTests(unittest.TestCase):
 
     def test_sample_protocol_rejects_replayed_process_receipt_and_wrong_binary(self):
         from whole_project_perf import validate_sample_protocol
-        report = {"pairs": [{}] * 5, "warmups": [], "tools": {}}
+        report = {"pairs": [{"order": ["tsgo", "tsr"] if n % 2 == 0 else ["tsr", "tsgo"],
+                             "wall_ratio": 1.0} for n in range(5)], "warmups": [], "tools": {}}
         for index, name in enumerate(("tsr", "tsgo")):
             def child(n):
                 return {"pid": index * 10 + n + 1, "started_at_unix_ns": n + 1,
-                        "command": [name], "timed_out": False, "exit_code": 0,
+                        "command": [name], "timed_out": False, "exit_code": 0, "wall_seconds": 1.0,
                         "executed_binary_identity": {"stable": True, "sha256_before": name, "sha256_after": name}}
             report["tools"][name] = {"binary": name, "binary_sha256": name, "samples": [child(n) for n in range(5)]}
             report["warmups"].append({"tool": name, "measurement": child(5)})
         self.assertTrue(validate_sample_protocol(report, 5, 1)["verified"])
+        report["pairs"][0]["wall_ratio"] = 0.1
+        self.assertFalse(validate_sample_protocol(report, 5, 1)["verified"])
+        report["pairs"][0]["wall_ratio"] = 1.0
         report["tools"]["tsgo"]["samples"][0] = report["tools"]["tsr"]["samples"][0]
         result = validate_sample_protocol(report, 5, 1)
         self.assertFalse(result["verified"])

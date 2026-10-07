@@ -212,6 +212,17 @@ reports `_dyld_start` launch stalls exceeding 15 minutes: those are separate
 fresh-launch observations, not Linux checker timings or semantic completion
 proof. No macOS security setting changes or launch-delay subtraction occurred.
 
+### Pair ratios bind actual measured child receipts
+
+Sampling validation now checks each pair's alternating order and ratio against
+its corresponding TSR/native sample wall receipts, requiring finite positive
+wall durations. A fabricated low pair ratio or unbound/missing sample cannot pass
+the protocol. 33 harness tests passed, including tampered-ratio controls; actual
+frozen five-pair/warmup capture saved `/tmp/recover-pair-binding-checkpoint.json`
+and comparable exit 1. This is measurement-integrity enforcement, not native
+complete-work or full-corpus ratchet proof. Prior-TSR A/B remains distinct from
+pinned native comparison; verified native <=0.50 remains unmet.
+
 ### Fresh sample receipts must bind the frozen executable
 
 Sampling protocol acceptance now validates actual per-tool sample/warmup receipt

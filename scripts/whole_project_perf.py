@@ -235,6 +235,21 @@ def validate_sample_protocol(report: dict, samples: int, warmups: int) -> dict:
                 reasons.append(name + ": sample did not complete a compiler invocation")
     if set(report.get("tools", {})) != {"tsr", "tsgo"}:
         reasons.append("Both compiler populations are required")
+    else:
+        left = report["tools"]["tsr"].get("samples", [])
+        right = report["tools"]["tsgo"].get("samples", [])
+        for index, pair in enumerate(report.get("pairs", [])):
+            expected_order = ["tsr", "tsgo"] if (index + warmups) % 2 == 0 else ["tsgo", "tsr"]
+            if pair.get("order") != expected_order:
+                reasons.append("Pair order differs from alternating fresh-process protocol")
+            if index >= len(left) or index >= len(right):
+                reasons.append("Pair lacks corresponding compiler sample receipts")
+                continue
+            a, b = left[index].get("wall_seconds"), right[index].get("wall_seconds")
+            if (type(a) not in (int, float) or type(b) not in (int, float)
+                    or not math.isfinite(a) or not math.isfinite(b) or a <= 0 or b <= 0
+                    or pair.get("wall_ratio") != a / b):
+                reasons.append("Pair ratio does not bind corresponding measured wall receipts")
     return {"verified": not reasons, "reasons": reasons, "distinct_invocations": len(identities)}
 
 
