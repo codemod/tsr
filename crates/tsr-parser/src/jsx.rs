@@ -380,8 +380,11 @@ impl<'a> Parser<'a> {
         let tag_name = self.parse_jsx_element_name();
         // Native parseJsxOpeningOrSelfClosingElementOrOpeningFragment:
         // JS/JSX use JSX grammar but never consume TypeScript type arguments.
-        let type_arguments =
-            if self.script_kind.is_javascript() { Vec::new() } else { self.parse_type_arguments() };
+        let (type_arguments, list_span) = if self.script_kind.is_javascript() {
+            (Vec::new(), None)
+        } else {
+            self.parse_type_arguments()
+        };
         let type_arguments = self.arena.alloc_slice(&type_arguments);
         let attributes = self.parse_jsx_attributes();
         if self.at_jsx_greater_than() {
@@ -389,11 +392,13 @@ impl<'a> Parser<'a> {
             // scanning instead of regular scanning to avoid treating illegal
             // characters (e.g. '#') as immediate scanning errors.
             self.scan_jsx_token();
-            return JsxOpening::Element(self.finish_node(
+            let node = self.finish_node(
                 JsxOpeningElement::new(Some(tag_name), type_arguments, Some(attributes)),
                 SyntaxKind::JsxOpeningElement,
                 pos,
-            ));
+            );
+            self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+            return JsxOpening::Element(node);
         }
         self.expect(SyntaxKind::SlashToken);
         if self.expect_jsx_greater_than_without_advancing(None) {
@@ -403,11 +408,13 @@ impl<'a> Parser<'a> {
                 self.scan_jsx_token();
             }
         }
-        JsxOpening::SelfClosing(self.finish_node(
+        let node = self.finish_node(
             JsxSelfClosingElement::new(Some(tag_name), type_arguments, Some(attributes)),
             SyntaxKind::JsxSelfClosingElement,
             pos,
-        ))
+        );
+        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+        JsxOpening::SelfClosing(node)
     }
 
     /// typescript-go's `Parser.parseJsxElementName` (`parser.go:4963`).

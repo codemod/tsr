@@ -505,11 +505,13 @@ impl<'a> Parser<'a> {
                     let question_dot = self.take_token();
                     if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
                         // `a?.<T>()` — type arguments after the optional-chain dot.
-                        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
-                            self.try_parse(Parser::parse_type_arguments_for_call)
-                                .unwrap_or_default()
+                        let (type_arguments, list_span) = if self.at(SyntaxKind::LessThanToken) {
+                            self.try_parse(Parser::parse_type_arguments_for_call).map_or_else(
+                                || (Vec::new(), None),
+                                |(nodes, span)| (nodes, Some(span)),
+                            )
                         } else {
-                            Vec::new()
+                            (Vec::new(), None)
                         };
                         let arguments = self.parse_arguments();
                         let arguments = self.arena.alloc_slice(&arguments);
@@ -524,6 +526,7 @@ impl<'a> Parser<'a> {
                             SyntaxKind::CallExpression,
                             start,
                         );
+                        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                         self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::CallExpression(node);
                     } else if self.at(SyntaxKind::OpenBracketToken) {
@@ -574,11 +577,17 @@ impl<'a> Parser<'a> {
                     let arguments = self.arena.alloc_slice(&arguments);
                     // `parseCallExpressionRest` absorbs an instantiation into
                     // the call; notably `parseSuperExpression` can return one.
+                    let mut list_span = None;
                     let (callee, type_arguments) = match expression {
-                        Expression::ExpressionWithTypeArguments(instantiation) => (
-                            instantiation.expression.unwrap_or(expression),
-                            instantiation.type_arguments,
-                        ),
+                        Expression::ExpressionWithTypeArguments(instantiation) => {
+                            let id = instantiation.node_id().unwrap();
+                            list_span = self.nodes.type_argument_list_span(id);
+                            self.nodes.set_type_argument_list_span(id, None);
+                            (
+                                instantiation.expression.unwrap_or(expression),
+                                instantiation.type_arguments,
+                            )
+                        }
                         _ => (expression, &[] as &[TypeNode<'a>]),
                     };
                     let is_chain = self.try_reparse_optional_chain(expression);
@@ -587,6 +596,7 @@ impl<'a> Parser<'a> {
                         SyntaxKind::CallExpression,
                         start,
                     );
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                     self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::CallExpression(node);
                 }
@@ -599,7 +609,7 @@ impl<'a> Parser<'a> {
                     // without a call when what follows cannot continue an
                     // expression.
                     let open_bracket = self.token.span.start;
-                    let Some(type_arguments) = self.try_parse(|p| {
+                    let Some((type_arguments, list_span)) = self.try_parse(|p| {
                         // `f<<T>() => U>(g)` starts a generic call whose first
                         // type argument is a generic arrow. The scanner sees
                         // the adjacent opening brackets as `<<`; split them
@@ -621,6 +631,8 @@ impl<'a> Parser<'a> {
                             SyntaxKind::ExpressionWithTypeArguments,
                             start,
                         );
+                        self.nodes
+                            .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
                         expression = Expression::ExpressionWithTypeArguments(node);
                         instantiation_brackets = Some(Span::new(open_bracket, self.node_end()));
                         continue;
@@ -633,6 +645,8 @@ impl<'a> Parser<'a> {
                         SyntaxKind::CallExpression,
                         start,
                     );
+                    self.nodes
+                        .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
                     self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::CallExpression(node);
                 }
@@ -640,11 +654,17 @@ impl<'a> Parser<'a> {
                 // the tag, not a separate expression.
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
                     let template = self.parse_template_literal(true);
+                    let mut list_span = None;
                     let (tag, type_arguments) = match expression {
-                        Expression::ExpressionWithTypeArguments(instantiation) => (
-                            instantiation.expression.unwrap_or(expression),
-                            instantiation.type_arguments,
-                        ),
+                        Expression::ExpressionWithTypeArguments(instantiation) => {
+                            let id = instantiation.node_id().unwrap();
+                            list_span = self.nodes.type_argument_list_span(id);
+                            self.nodes.set_type_argument_list_span(id, None);
+                            (
+                                instantiation.expression.unwrap_or(expression),
+                                instantiation.type_arguments,
+                            )
+                        }
                         _ => (expression, &[] as &[TypeNode<'a>]),
                     };
                     // `parser.go:5520`: the flag is inherited from the tag
@@ -660,6 +680,7 @@ impl<'a> Parser<'a> {
                         SyntaxKind::TaggedTemplateExpression,
                         start,
                     );
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                     self.mark_optional_chain(node.node_id(), is_chain);
                     expression = Expression::TaggedTemplateExpression(node);
                 }
@@ -687,7 +708,7 @@ impl<'a> Parser<'a> {
         let mut expression = self.parse_primary_expression();
         if self.at(SyntaxKind::LessThanToken) {
             let arguments_start = self.node_end();
-            if let Some(arguments) = self.try_parse(|parser| {
+            if let Some((arguments, list_span)) = self.try_parse(|parser| {
                 let arguments = parser.parse_type_arguments_for_call()?;
                 parser.at_instantiation_terminator().then_some(arguments)
             }) {
@@ -701,11 +722,14 @@ impl<'a> Parser<'a> {
                     SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
                 ) {
                     let arguments = self.arena.alloc_slice(&arguments);
-                    expression = Expression::ExpressionWithTypeArguments(self.finish_node(
+                    let node = self.finish_node(
                         ExpressionWithTypeArguments::new(Some(expression), arguments),
                         SyntaxKind::ExpressionWithTypeArguments,
                         start,
-                    ));
+                    );
+                    self.nodes
+                        .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
+                    expression = Expression::ExpressionWithTypeArguments(node);
                 }
             }
         }
@@ -845,6 +869,7 @@ impl<'a> Parser<'a> {
         // and optional chains do not. In `new a[0].C(x)` the old dot-only loop
         // instead built `(new a)[0].C(x)`, changing both types and source spans.
         let mut type_arguments = Vec::new();
+        let mut type_argument_list_span = None;
         loop {
             match self.token.kind {
                 SyntaxKind::DotToken => {
@@ -891,7 +916,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 SyntaxKind::LessThanToken | SyntaxKind::LessThanLessThanToken => {
-                    let Some(arguments) = self.try_parse(|p| {
+                    let Some((arguments, list_span)) = self.try_parse(|p| {
                         if p.at(SyntaxKind::LessThanLessThanToken) {
                             p.rescan_less_than();
                         }
@@ -933,29 +958,41 @@ impl<'a> Parser<'a> {
                             | SyntaxKind::TemplateHead
                     ) {
                         type_arguments = arguments;
+                        type_argument_list_span = Some(list_span);
                         break;
                     }
                     let arguments = self.arena.alloc_slice(&arguments);
-                    callee = Expression::ExpressionWithTypeArguments(self.finish_node(
+                    let node = self.finish_node(
                         ExpressionWithTypeArguments::new(Some(callee), arguments),
                         SyntaxKind::ExpressionWithTypeArguments,
                         callee_start,
-                    ));
+                    );
+                    self.nodes
+                        .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
+                    callee = Expression::ExpressionWithTypeArguments(node);
                 }
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
                     let template = self.parse_template_literal(true);
+                    let mut list_span = None;
                     let (tag, arguments) = match callee {
-                        Expression::ExpressionWithTypeArguments(instantiation) => (
-                            instantiation.expression.unwrap_or(callee),
-                            instantiation.type_arguments,
-                        ),
+                        Expression::ExpressionWithTypeArguments(instantiation) => {
+                            let id = instantiation.node_id().unwrap();
+                            list_span = self.nodes.type_argument_list_span(id);
+                            self.nodes.set_type_argument_list_span(id, None);
+                            (
+                                instantiation.expression.unwrap_or(callee),
+                                instantiation.type_arguments,
+                            )
+                        }
                         _ => (callee, &[] as &[TypeNode<'a>]),
                     };
-                    callee = Expression::TaggedTemplateExpression(self.finish_node(
+                    let node = self.finish_node(
                         TaggedTemplateExpression::new(Some(tag), None, arguments, Some(template)),
                         SyntaxKind::TaggedTemplateExpression,
                         callee_start,
-                    ));
+                    );
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
+                    callee = Expression::TaggedTemplateExpression(node);
                 }
                 _ => break,
             }
@@ -963,6 +1000,9 @@ impl<'a> Parser<'a> {
         if let Expression::ExpressionWithTypeArguments(instantiation) = callee {
             callee = instantiation.expression.unwrap_or(callee);
             type_arguments = instantiation.type_arguments.to_vec();
+            let id = instantiation.node_id().unwrap();
+            type_argument_list_span = self.nodes.type_argument_list_span(id);
+            self.nodes.set_type_argument_list_span(id, None);
         }
         if self.at(SyntaxKind::QuestionDotToken) {
             let span = self.nodes.span(callee.node_id().expect("a parsed callee has an id"));
@@ -985,6 +1025,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::NewExpression,
             start,
         );
+        self.nodes.set_type_argument_list_span(node.node_id().unwrap(), type_argument_list_span);
         Expression::NewExpression(node)
     }
 
@@ -2210,7 +2251,7 @@ impl<'a> Parser<'a> {
                     expression = Expression::NonNullExpression(node);
                 }
                 SyntaxKind::LessThanToken => {
-                    let Some(type_arguments) =
+                    let Some((type_arguments, list_span)) =
                         self.try_parse(Parser::parse_type_arguments_for_call)
                     else {
                         break;
@@ -2224,6 +2265,8 @@ impl<'a> Parser<'a> {
                             SyntaxKind::CallExpression,
                             start,
                         );
+                        self.nodes
+                            .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
                         expression = Expression::CallExpression(node);
                     } else {
                         let node = self.finish_node(
@@ -2231,6 +2274,8 @@ impl<'a> Parser<'a> {
                             SyntaxKind::ExpressionWithTypeArguments,
                             start,
                         );
+                        self.nodes
+                            .set_type_argument_list_span(node.node_id().unwrap(), Some(list_span));
                         expression = Expression::ExpressionWithTypeArguments(node);
                     }
                 }
@@ -2239,11 +2284,17 @@ impl<'a> Parser<'a> {
                     // Type arguments belong to the tagged-template node, not
                     // to an `ExpressionWithTypeArguments` wrapper around its
                     // tag (`parseMemberExpressionRest` upstream).
+                    let mut list_span = None;
                     let (tag, type_arguments) = match expression {
-                        Expression::ExpressionWithTypeArguments(instantiation) => (
-                            instantiation.expression.unwrap_or(expression),
-                            instantiation.type_arguments,
-                        ),
+                        Expression::ExpressionWithTypeArguments(instantiation) => {
+                            let id = instantiation.node_id().unwrap();
+                            list_span = self.nodes.type_argument_list_span(id);
+                            self.nodes.set_type_argument_list_span(id, None);
+                            (
+                                instantiation.expression.unwrap_or(expression),
+                                instantiation.type_arguments,
+                            )
+                        }
                         _ => (expression, &[] as &[TypeNode<'a>]),
                     };
                     let node = self.finish_node(
@@ -2256,6 +2307,7 @@ impl<'a> Parser<'a> {
                         SyntaxKind::TaggedTemplateExpression,
                         start,
                     );
+                    self.nodes.set_type_argument_list_span(node.node_id().unwrap(), list_span);
                     expression = Expression::TaggedTemplateExpression(node);
                 }
                 // Deliberately not `[`: an unparenthesised decorator takes a
