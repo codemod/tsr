@@ -482,22 +482,8 @@ impl<'a> Checker<'a, '_> {
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
             TypeNode::TupleTypeNode(node) => self.get_type_from_tuple_type_node(node),
-            TypeNode::FunctionTypeNode(node) => {
-                if let Some(ty) = node.node_id.and_then(|id| self.declared_callable_alias_type(id))
-                {
-                    ty
-                } else {
-                    self.get_type_from_function_type_node(node)
-                }
-            }
-            TypeNode::ConstructorTypeNode(node) => {
-                if let Some(ty) = node.node_id.and_then(|id| self.declared_callable_alias_type(id))
-                {
-                    ty
-                } else {
-                    self.get_type_from_constructor_type_node(node)
-                }
-            }
+            TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
+            TypeNode::ConstructorTypeNode(node) => self.get_type_from_constructor_type_node(node),
             TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
             // getTypeFromInferTypeNode reads the declared parameter identity.
             TypeNode::InferTypeNode(node) => node
@@ -7074,36 +7060,6 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         }
-    }
-
-    /// Ported from typescript-go's
-    /// `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
-    /// (`internal/checker/checker.go`): publish the alias-bearing anonymous
-    /// object without forcing its call/construct members. Signature consumers
-    /// resolve the binder-owned __type on demand; unavailable signature work
-    /// does not invalidate the declared object identity.
-    fn declared_callable_alias_type(&mut self, node: NodeId) -> Option<TypeId> {
-        let alias = self.alias_symbol_for_type_node(node)?;
-        if !self.local_type_parameters_of(alias).is_empty() {
-            return None;
-        }
-        let owner = self.binder.symbol_of(node)?;
-        let key = self.type_literal_key(node);
-        if let Some(&completed) = self.type_literal_types.get(&key) {
-            return Some(completed);
-        }
-        let name = self.binder.symbols().get(alias).name.to_string();
-        let ty = self.store.new_anonymous(TypeFlags::OBJECT, name, owner, false);
-        self.alias_named_signature_types.insert(ty);
-        self.type_literal_types.insert(key, ty);
-        // Existing consumers still read the signature vector directly. Prepare
-        // that metadata when supported, without making signature completion a
-        // prerequisite for the native object publication above. Absence is not
-        // an empty signature set: binder-owned demand remains authoritative.
-        if let Some(signature) = self.get_signature_from_declaration(node) {
-            self.signature_types.insert(ty, vec![signature]);
-        }
-        Some(ty)
     }
 
     /// The position of the alias's own type parameter that IS its body

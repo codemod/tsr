@@ -108,42 +108,35 @@ Current recovery evidence, replacing historical saved-branch claims:
   Receipts: `recovered-perf.txt`, `recovered-transitions.txt`,
   `recovered-target-tests.txt`, `semantic-focused-*.txt`.
 
-## Callable declaration publication — tsr-2zk.16.2.1
+## Binding value root — tsr-2zk.16.2.1
 
-The parent reported the pre-existing user test failure: F6 expected, `error`
-actual for `type F6 = ({ a: string }) => typeof string`. That reported failure was
-not rerun; the user test was neither changed nor committed.
+The parent fixed the preserved F6 test at `db726c9c` in `destructure.rs`:
+`get_type_for_binding_element_parent` now admits type-signature containers and
+uses the existing implied binding-pattern worker. Native
+`getTypeForVariableLikeDeclaration` reaches `getTypeFromBindingPattern`; the
+initializer-free identifier leaf in `getTypeFromBindingElement` is regular `any`.
+Thus the bound `string` and its `typeof string` query are actual `any`, not an
+unsupported return requiring an alias-name fallback.
 
-Native `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` creates the
-binder-owned anonymous object with its enclosing alias before signature member
-resolution. The existing function-types worker instead discarded its reservation
-when signature preparation returned unsupported. Owned `declared.rs` now publishes
-non-generic alias-bearing call/construct objects first, through the existing
-`type_literal_key` and `type_literal_types` owner. The helper represents the native
-object-publication boundary, not a function-name or failed-body heuristic.
-Supported signature preparation populates the existing signature vector for
-current eager consumers, but failure does not retract the completed object.
-Absence of a vector is not published as an empty signature set; demand consumers
-can still resolve the actual binder owner.
+The owned callable-publication workaround from `6163a7bd` and its
+workaround-specific test are removed. `function_types.rs` remains unchanged.
+The independent literal and alias-free semantic body changes remain. The user
+F6 test was neither rerun here, modified, nor committed.
 
-- Identity: contextual node key, binder `__type` owner, private Checker lifetime.
-- Publication: object completes before optional signature metadata; unsupported
-  signature preparation is not object failure or completed empty signatures.
-- Context: existing non-generic alias naming eligibility and contextual key;
-  no printed-name key, receiver conversion, or new semantic table.
-- Work: existing signature worker, no duplicate body traversal/cache. General lazy
-  signature consumer cutover remains integration-owned; no new shared API required.
-- Independent regression covers malformed/uncomputable F6, constructor alias, and
-  supported callable publication. Existing targeted function/alias tests pass.
-- Direct native CLI control matches complete diagnostics byte-for-byte: TS7031
-  binding element error and TS2322 call-result error. No suppression.
-- Unfiltered oracle versus `215d1b31`: 16 WRONG→RIGHT, 6 GAP→RIGHT, zero RIGHT losses
-  and vanished recognized keys. Summary 477,970 assertions: 469,818 RIGHT,
-  989 GAP, 7,163 WRONG. An initial fully lazy experiment caused 85 RIGHT losses;
-  it was rejected, not committed. Supported signature metadata remains prepared
-  until direct-vector consumers are migrated together.
-- Receipts: `lazy-tests.txt`, `lazy-native.txt`, `lazy-after.txt`,
-  `lazy-transitions.txt`, `verdict-lazy.tsv`. No full-workspace gate was rerun.
+Native rename controls cover `ordinary`, `string`, `number`, `boolean`, `any`,
+`unknown`, `never`, `object`, `symbol`, `bigint`, `undefined`, each through a
+function and constructor alias. Native emits exactly 22 TS7031 diagnostics, no
+missing-name diagnostic; declaration emit produces 22 `any` call/construct
+results. `alias_semantic_binding_renames.rs` checks those actual consumer types,
+not alias naming. It passes against the pinned parent-root worktree `db726c9c`
+with unchanged `declared.rs` and `function_types.rs`. It requires that parent
+commit when integrated; the old Box checkpoint lacks its binding-root fix.
+
+Receipts: `binding-renames.ts`, `native-renames-diagnostics.txt`,
+`native-renames/binding-renames.d.ts`, `binding-renames-parent-tests.txt` under
+ignored `target/recovery/alias`. Tests for the independent alias-body changes
+also pass after removal (`without-workaround-tests.txt`). No full-workspace gate
+or parent-reported F6 failure was rerun.
 
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
