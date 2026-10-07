@@ -401,3 +401,17 @@ binding-pattern type: `(({ u = 22 } = { u: 23 }) => u)()` records
 `{ u?: number; }`, while `({ r = 17 } = { r: 18 }) => r)({ r: 19 })` keeps
 `{ r: number; }` (tsgo `.types` identical). `iife_supplies_parameter_context`
 is that test for `contextual_binding_pattern`; no state.
+
+## 17. Property-assignment symbol type follows the final literal check (tsr-2zk.16.84)
+
+Upstream's `getTypeOfSymbol` for a `PropertyAssignment` runs
+`checkPropertyAssignment` -> `checkExpressionForMutableLocation`
+(`checker.go:13673`) lazily, so it sees the literal's final contextual type
+(after the call resolved), not the context-free first inference pass.
+`check_object_literal`'s §892 record into `symbol_types` (key: the member's
+binder symbol, owner: this checker) now lets the value declaration's latest
+check replace the entry; other declarations of a merged duplicate name still
+only fill an empty slot, so `getTypeOfSymbol`'s first-declaration answer is
+kept (`lastPropertyInLiteralWins`). Native control (tsgo `.types`):
+`id({ test: true })` -> `test : true`; `{ plain: true }` -> `plain : boolean`;
+`{ dup: 1, dup: "x" }` -> `dup : number` twice. No new state; no extra work.
