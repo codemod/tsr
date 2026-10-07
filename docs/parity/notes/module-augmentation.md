@@ -470,6 +470,24 @@ No new ModuleHost method is needed if the existing getter already returns the
 original ordered parameter IDs. Parent owns any compiler getter/caller edits;
 this commit does not touch compiler, signatures, printing or callable builder.
 
+## Ambient alias export-context experiment (tsr-2zk.16.149)
+
+Native declareModuleMember handles Alias before ExportContext: only explicit
+ExportSpecifier or exported ImportEquals goes to exports, other imports stay
+local in ambient modules too. Removing SourceFile-only admission guards in the
+owned binder gives the expected placement; semantic local/export ownership test
+passes. Full experiment gains three diagnostic cases but introduces 14 new
+previously RIGHT type losses beyond the held template cutover's 12 naming losses.
+Affected controls include moduleAugmentationImportsAndExports3 and
+privacyImportParseErrors. No acceptance or performance claim.
+
+Experimental source/test saved as ambient-alias-context-blocked.patch and
+ambient-alias-context-test.rs; production restored to held template source.
+Required serialized consumer boundary: ambient local alias lookup and qualified/
+annotation meaning must follow the actual local alias identity, not rely on its
+incorrect export-table presence. No new cache/API or ambient/name specialcase.
+Parent owns checker/declared consumer migration; .16.149 remains open.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
