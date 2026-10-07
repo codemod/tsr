@@ -631,6 +631,26 @@ fallback or test-name special case. Native CLI controls and focused target
 receipts nil-* retained; no wholecase/full no-loss/performance claim. Existing
 .16.180 open; owned source unchanged, format passes.
 
+## Getter JSDoc annotation precedence — tsr-2zk.16.200
+
+Native getReturnTypeFromAnnotation reads a getter's effective own return
+annotation before paired-setter effective annotation. Owned lookup previously
+consulted setter before the getter's separately stored JSDoc return tag. It now
+uses existing jsdoc_return_annotation immediately after written getter type,
+before paired setter. No parser host metadata, signature field, cache or receiver
+mapper added; raw annotation identity/completion stay canonical and Checker-local.
+
+Dedicated divergent getter/setter control fails before, passes after; five prior
+getter controls preserved. Pinned allowJs/checkJs strict declaration emit clean;
+complete cleaned checker tests pass. Full type/diagnostic dumps **zero verdict
+changes, zero prior RIGHT/correct losses or vanished keys**. No whole historical
+JSDoc target conversion; accessor symbol/reparser producer still owns residuals.
+Fresh domain41 wall **0.98402**, generic21 **0.98562** vsverified0eda302c;
+complete-work prooffalse, no release/exhaustive hotpath acceptance. Clean mirror
+contains no reverted nil/optionality experiments. Format correction also fixes
+numeric regression layout from766eaec8; no numeric behavior changed. Receipts
+getter-precedence-*; existing .16.200 claimed/open for broader target acceptance.
+
 The existing issue remains open: `bd prime` ran, but `bd show` and history cannot
 find `tsr-2zk.16.425` in this Box's local database. No duplicate issue created.
 Integration owner must update the authoritative existing issue.

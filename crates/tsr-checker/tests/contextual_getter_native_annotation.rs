@@ -69,6 +69,18 @@ fn jsdoc_setter_annotation_contextualizes_getter_return() {
 }
 
 #[test]
+fn getter_jsdoc_return_annotation_precedes_paired_setter_annotation() {
+    assert_eq!(
+        returned_object_type(
+            "class C { /** @returns {{ tag: 'a' | 'b' }} */ \
+             get value() { return { tag: 'a' }; } \
+             /** @param {{ tag: string }} value */ set value(value) {} }",
+        ),
+        "{ tag: \"a\"; }",
+    );
+}
+
+#[test]
 fn jsdoc_return_annotation_contextualizes_function_return() {
     assert_eq!(
         returned_object_type(

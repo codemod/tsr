@@ -1685,19 +1685,23 @@ impl<'a> Checker<'a, '_> {
             Some(Node::ArrowFunction(f)) => (f.r#type, false),
             Some(Node::MethodDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
             Some(Node::GetAccessorDeclaration(getter)) => {
-                let annotation = getter.r#type.or_else(|| {
-                    let symbol = self.binder.symbol_of(function)?;
-                    self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
-                        let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)? else {
-                            return None;
-                        };
-                        let parameter = setter.parameters.first()?;
-                        parameter.r#type.or_else(|| {
-                            self.jsdoc_parameter_annotation(parameter.node_id?)
-                                .map(|(annotation, _)| annotation)
+                let annotation = getter
+                    .r#type
+                    .or_else(|| self.jsdoc_return_annotation(function))
+                    .or_else(|| {
+                        let symbol = self.binder.symbol_of(function)?;
+                        self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                            let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)?
+                            else {
+                                return None;
+                            };
+                            let parameter = setter.parameters.first()?;
+                            parameter.r#type.or_else(|| {
+                                self.jsdoc_parameter_annotation(parameter.node_id?)
+                                    .map(|(annotation, _)| annotation)
+                            })
                         })
-                    })
-                });
+                    });
                 (annotation, false)
             }
             _ => (None, false),
