@@ -488,6 +488,24 @@ annotation meaning must follow the actual local alias identity, not rely on its
 incorrect export-table presence. No new cache/API or ambient/name specialcase.
 Parent owns checker/declared consumer migration; .16.149 remains open.
 
+## Lexical export-assignment container (tsr-2zk.16.293)
+
+Native bindExportAssignment uses container.Symbol(), not the inherited member
+owner cursor. Function-like containers intentionally do not replace that cursor
+for ordinary locals; ExportAssignment now reads actual container's node symbol
+for its export destination. Original Program SymbolId/NodeId ownership is
+preserved; no new cache or callable/template publisher changes.
+
+Semantic regression verifies function export= member exists on function and not
+enclosing namespace; fails before/passes after. exportInFunction sole type row
+converts from () => void to native { (): void; "export=": 0; }, one whole type
+case gained. Full dump adds no new RIGHT losses or vanished keys; the 12 known
+held-template T_1 losses remain in this Box, so aggregate zero-loss acceptance
+requires parent's integrated consumer tree. Native direct control emits TS1231;
+Box still omits that diagnostic, explicitly not a complete native-control pass.
+Binder test/clippy/format pass; Linux 21-sample CPU new/base 0.9870/0.9913.
+Native complete-work wall goal and integrated full configuration remain open.
+
 ## Receipts
 
 Box receipts live under ignored `target/recovery/recover-symbols/`, including
