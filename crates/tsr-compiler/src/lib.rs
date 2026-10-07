@@ -625,6 +625,59 @@ impl<'a> Program<'a> {
         &self.files
     }
 
+    /// `IsSourceFileFromExternalLibrary` (5b1047d program.go:1954): the loader's
+    /// completed lowest-depth ownership, not a test of the printed pathname.
+    #[must_use]
+    pub fn is_source_file_from_external_library(&self, file_index: usize) -> bool {
+        self.meta_datas
+            .get(file_index)
+            .is_some_and(|metadata| metadata.found_searching_node_modules)
+    }
+
+    /// sourceFileMayBeEmitted (5b1047d compiler/emitter.go:452-504), without
+    /// forced emit. `NoEmit` is a later emitter decision, not source eligibility.
+    /// Project-reference redirects and internal `NoEmitForJsFiles` have no
+    /// producers in this Program; their native exclusions are not claimed.
+    #[must_use]
+    pub fn source_file_may_be_emitted(&self, file_index: usize) -> bool {
+        let file = &self.files[file_index];
+        if tsr_path::is_declaration_file_name(file.file_name())
+            || self.is_source_file_from_external_library(file_index)
+        {
+            return false;
+        }
+        if tsr_parser::ScriptKind::from_file_name(file.file_name()) != tsr_parser::ScriptKind::Json
+        {
+            return true;
+        }
+        if self.options.out_dir.is_empty() {
+            return false;
+        }
+        if self.options.root_dir.is_empty() && self.options.config_file_path.is_empty() {
+            return true;
+        }
+        // GetCommonSourceDirectory and GetSourceFilePathInNewDirWorker. With
+        // an explicit root/config, this branch never computes a file-set LCA.
+        let common = if self.options.root_dir.is_empty() {
+            tsr_path::get_directory_path(&self.options.config_file_path)
+        } else {
+            &self.options.root_dir
+        };
+        let common = tsr_path::ensure_trailing_directory_separator(
+            &tsr_path::get_normalized_absolute_path(common, &self.current_directory),
+        );
+        let source =
+            tsr_path::get_normalized_absolute_path(file.file_name(), &self.current_directory);
+        let common_key =
+            tsr_path::get_canonical_file_name(&common, self.use_case_sensitive_file_names);
+        let source_key =
+            tsr_path::get_canonical_file_name(&source, self.use_case_sensitive_file_names);
+        let suffix =
+            if source_key.starts_with(&common_key) { &source[common.len()..] } else { &source };
+        let output = tsr_path::combine_paths(&self.options.out_dir, &[suffix]);
+        self.to_path(&output) != *file.path()
+    }
+
     /// The bundled `lib.*.d.ts` this program loaded, in load order.
     ///
     /// Load order is not incidental: a global interface declared in several libs
@@ -1536,6 +1589,108 @@ mod tests {
 
     fn host(files: &[(String, String)]) -> TestHost {
         TestHost { fs: tsr_vfs::InMemoryFileSystem::new(files.iter().cloned(), [], true) }
+    }
+
+    #[test]
+    fn external_source_ownership_uses_lowest_depth_not_directory_spelling() {
+        let arena = Arena::new();
+        let host = host(&[
+            ("/main.ts".into(), "import { item } from 'pkg'; export { item };".into()),
+            ("/node_modules/pkg/index.ts".into(), "export const item = 1;".into()),
+            ("/node_modules/pkg/package.json".into(), r#"{"types":"index.ts"}"#.into()),
+        ]);
+        for (roots, external) in [
+            (vec!["/main.ts".into()], true),
+            (vec!["/main.ts".into(), "/node_modules/pkg/index.ts".into()], false),
+        ] {
+            let program = Program::from_root_files(
+                &arena,
+                &host,
+                LoadOptions {
+                    compiler_options: CompilerOptions {
+                        no_lib: tsr_core::Tristate::True,
+                        ..Default::default()
+                    },
+                    root_file_names: roots,
+                    ..Default::default()
+                },
+            );
+            let index = program
+                .source_files()
+                .iter()
+                .position(|file| file.file_name() == "/node_modules/pkg/index.ts")
+                .unwrap();
+            assert_eq!(program.is_source_file_from_external_library(index), external);
+            assert_eq!(program.source_file_may_be_emitted(index), !external);
+        }
+    }
+
+    #[test]
+    fn json_emit_eligibility_preserves_actual_output_identity() {
+        let arena = Arena::new();
+        for (out_dir, expected) in [("", false), ("/project", false), ("/build", true)] {
+            let program = Program::in_arena(
+                &arena,
+                ProgramOptions {
+                    files: vec![("/project/data.json".into(), "{}".into())],
+                    compiler_options: CompilerOptions {
+                        config_file_path: "/project/tsconfig.json".into(),
+                        out_dir: out_dir.into(),
+                        no_emit: tsr_core::Tristate::True,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            assert_eq!(program.source_file_may_be_emitted(0), expected);
+        }
+    }
+
+    #[test]
+    fn non_eliding_same_depth_reference_loads_owner_without_starting_children() {
+        let arena = Arena::new();
+        let host = host(&[
+            ("/main.ts".into(), "import 'pkg-js'; import 'pkg-ts';".into()),
+            (
+                "/node_modules/pkg-js/package.json".into(),
+                r#"{"name":"pkg-js","version":"1.0.0","main":"index.js"}"#.into(),
+            ),
+            (
+                "/node_modules/pkg-js/index.js".into(),
+                "import './child.js'; export const value = 1;".into(),
+            ),
+            ("/node_modules/pkg-js/child.js".into(), "export const child = 2;".into()),
+            (
+                "/node_modules/pkg-ts/package.json".into(),
+                r#"{"name":"pkg-ts","version":"1.0.0","types":"index.ts"}"#.into(),
+            ),
+            (
+                "/node_modules/pkg-ts/index.ts".into(),
+                "/// <reference path=\"../pkg-js/index.js\" />\nexport {};".into(),
+            ),
+        ]);
+        let program = Program::from_root_files(
+            &arena,
+            &host,
+            LoadOptions {
+                compiler_options: CompilerOptions {
+                    no_lib: tsr_core::Tristate::True,
+                    allow_js: tsr_core::Tristate::True,
+                    max_node_module_js_depth: Some(0),
+                    ..Default::default()
+                },
+                root_file_names: vec!["/main.ts".into()],
+                ..Default::default()
+            },
+        );
+        let files: Vec<_> = program.source_files().iter().map(ProgramFile::file_name).collect();
+        assert_eq!(
+            files,
+            ["/node_modules/pkg-js/index.js", "/node_modules/pkg-ts/index.ts", "/main.ts"]
+        );
+        assert!(program.is_source_file_from_external_library(0));
+        assert!(program.is_source_file_from_external_library(1));
+        assert!(program.source_file("/node_modules/pkg-js/child.js").is_none());
     }
 
     fn duplicate_package_program<'a>(

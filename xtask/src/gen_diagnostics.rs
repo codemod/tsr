@@ -33,10 +33,10 @@ pub struct RawMessage {
     /// The stable numeric code, e.g. 1002.
     pub code: u32,
     /// Reported as an unused/unnecessary hint rather than a hard error.
-    #[serde(default)]
+    #[serde(default, rename = "reportsUnnecessary")]
     pub reports_unnecessary: bool,
     /// Reported as a deprecation.
-    #[serde(default)]
+    #[serde(default, rename = "reportsDeprecated")]
     pub reports_deprecated: bool,
     /// The misspelling is upstream's, inherited from the original TypeScript
     /// source; renaming it here would break parsing of the input file.
