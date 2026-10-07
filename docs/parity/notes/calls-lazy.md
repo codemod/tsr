@@ -517,3 +517,14 @@ cross Checker stores/options.
 Actual source applied; numeric-identity-check.log remains blocked by absent
 parent numeric/mapper/reference/expression fields. No runtime/cold-warm/perfproof
 claimed; existing behavioral distinct-map tests await actual integrated checker.
+
+### Predicate API scope and remaining discovery consumer
+
+Cached predicate lookup is must_use; mapped/cached predicate workers are now
+pub(crate) with scoped option_option allowance because completed absence differs
+from unsupported demand. No public re-export/shim or collapsed state. Parent
+canonical getter uses the same scoped convention. Nonforcing type-parameter
+discovery follows lazy mapper image edges; recursive print admission uses canonical
+return demand rather than raw pending slot. Parent reports four isolated API
+controls pass; local predicate-api-scope-check remains blocked by absent shared
+fields, so no local passing/full-gate/performance proof claimed.
