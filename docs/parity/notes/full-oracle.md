@@ -33,9 +33,10 @@ Largest **first-difference** clusters (not semantic root-cause certificates):
 | First differing TS2339 | 97 | parent member work |
 | First differing TS2345 | 85 | parent call/relation work |
 
-No previous RIGHT/vanished archive or saved oracle branch was reachable in this
-Box checkout (`git fsck` found no unreachable commits). The former-RIGHT gate
-therefore remains **unverified**, not passed. Issue `tsr-2zk.47.3.1` stays open.
+The fresh r2 run reproduced 7,598/14,965 exact RIGHT. Its prior gate compares
+all 7,598 RIGHT rows from the first c8185606 run: **0 losses, 0 missing rows**.
+The input/configuration manifest matches exactly. No older db726c9c RIGHT archive
+or saved oracle branch is reachable; that older gate remains unverified.
 The preserved failed machine was not accessed or destroyed.
 
 ## Running
@@ -43,10 +44,12 @@ The preserved failed machine was not accessed or destroyed.
 ```sh
 cargo build --release -p tsr-conformance \
   --example full_oracle_actual --example full_oracle_run
-target/release/examples/full_oracle_run "$PWD" "$PWD/target/full-oracle-c8185606"
+target/release/examples/full_oracle_run "$PWD" "$PWD/target/full-oracle-c8185606-r2" \
+  "$PWD/target/full-oracle-c8185606"
 ```
 
-The runner deliberately requires the c8185606 checker checkout. Oracle-only
+The runner verifies compiler inputs against c8185606 with a git diff gate;
+only oracle-owned files, this document and Beads metadata may differ. Oracle-only
 working files are compiled into the two examples without changing shared module
 exports. Native Go producers are installed via `go test -overlay`, never by
 editing the pinned submodule. Native libraries and corpus support inputs must be
@@ -74,24 +77,33 @@ and stderr and null stdin; parent-owned descriptors close after spawn. A
 has a denominator row. No EMFILE occurred in this full run.
 
 Native resume requires COMPLETE output and a receipt binding native revision,
-producer binary SHA-256, source SHA-256, variant and full input-manifest SHA-256.
+producer binary SHA-256, source SHA-256, variant, full input-manifest SHA-256 and
+artifact SHA-256. Actual receipts also bind request and output artifact hashes.
 Only complete equivalent native artifacts are reused. Actual output is always
 freshly produced and source/binary bound. Old output is removed before a fresh
 attempt, so a failed child cannot inherit a previous COMPLETE marker.
 
-Full receipts/output are in `target/full-oracle-c8185606/` (approximately 1.1 GiB,
+Full fresh receipts/output are in `target/full-oracle-c8185606-r2/` (approximately 1.1 GiB,
 ignored by git). **Transfer this directory before destroying the Box; fetching
 this branch does not transfer ignored artifacts.** The measurement used:
 
 - Native oracle binary SHA-256:
-  `74e3ccc001856f18a533ca2f913398b7e0d21729748f967120071f12cbcba70d`.
+  `ce73346778b98c91f3d042ad052ed9dd82fca0b602e9111b7598e8817fa69936`.
 - Actual oracle binary SHA-256:
-  `afd5df8dd235e6eb090e3b7e06f302b061523e4f892228d6c8e73ecc39434ab7`.
+  `d34db4feb4198898af6457055fe7abb01fa30a4d132f034a8e65e217c7f4700d`.
 - Input manifest SHA-256:
   `3c5d62305d52908bbd3e66b39003801b5b86273446dbc11c750dbd611f17e847`.
 
-A later source-formatting/receipt-safety rebuild was smoke-tested byte-identical
-on `compiler/2dArrays`; it is not relabeled as the measured binary.
+Durable report SHA-256 identities:
+
+- `manifest.tsv`: `48229a30f9516a166069f635aa770422d5e6473d340940f5a11c446695373ee5`
+- `results.tsv`: `85c3be4ef82a10d194a1f780e0890e9ee610c55dec60fef644d94973d4dc8675`
+- `prior-right.tsv`: `3880a9603a5280bd0e3d13e26927009c2f9d0316419a5b7c667cd4c637d3a3bd`
+- `summary.tsv`: `b14ccab91dbf03090780d8006c01926e990eb7c43c62b72211fd69b91fc87e8a`
+
+`results.tsv` enumerates every source/configuration result. The prior RIGHT
+ledger binds both prior artifacts. The previous c8185606 run remains in its own
+directory and retains its original binary identities; no checkpoint is relabeled.
 
 ## Verification and performance
 
