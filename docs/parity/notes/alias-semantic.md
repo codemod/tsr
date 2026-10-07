@@ -467,6 +467,18 @@ WRONG→RIGHT rows in `genericTupleWithSimplifiableElements`, zero former RIGHT 
 vanished keys. Seven fresh-process samples after/before 1.01259, after/native 1.61863;
 no no-hotpath/release performance claim. Receipts `tuple-rest-reuse-*`.
 
+## Source tuple any variadic operand
+
+The source tuple producer now routes the canonical any TypeId through existing
+normalization, matching native TupleNormalizer's any-to-Rest transition. This is
+not a flag-based errorType recovery; unsupported/error operands keep their earlier
+refusal. Fixed prefix/tail and readonly context unchanged; no cache/alias constructor
+change. Regression fails before and passes after; tuple targets pass. Native CLI
+fixed-slot diagnostics compare byte-for-byte. Available unfiltered oracle unchanged,
+zero former RIGHT losses/vanished keys. Seven fresh-process samples after/before
+0.98709, after/native 1.58266; complete-work/no-hotpath/release performance uncertified.
+Receipts `tuple-any-*`; reserved functions untouched.
+
 Full-configuration >=99.9% parity, preservation against disappeared historical
 RIGHT-key receipts, and verified equivalent-complete-work median <=0.50 remain
 uncertified. Existing oracle skips cannot certify those gates.

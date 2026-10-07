@@ -329,6 +329,17 @@ fn nested_tuple_spread_flattens_fixed_prefix_and_array_rest() {
 }
 
 #[test]
+fn source_tuple_any_spread_normalizes_to_unbounded_array_rest() {
+    assert_eq!(
+        declared_and_reference(
+            "interface Array<T> {} type Unused = string; declare let value: [number, ...any, boolean];",
+            "Unused",
+        ).1,
+        "[number, ...any[], boolean]",
+    );
+}
+
+#[test]
 fn parenthesized_parameter_body_retains_parameter_identity() {
     assert_eq!(
         declared_and_reference("type Id<T> = ((T)); declare let value: Id<string>;", "Id"),

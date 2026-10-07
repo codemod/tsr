@@ -3630,7 +3630,8 @@ impl<'a> Checker<'a, '_> {
             if resolved_elements.iter().any(|element| {
                 element.spread
                     && (self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
-                        || self.variadic_tuple_elements.contains_key(&element.r#type))
+                        || self.variadic_tuple_elements.contains_key(&element.r#type)
+                        || element.r#type == self.intrinsics.any)
             }) {
                 // Native createNormalizedTupleTypeEx distributes variadic union
                 // operands before positional normalization. Reuse the existing
