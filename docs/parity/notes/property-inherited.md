@@ -123,6 +123,97 @@ A coherent cross-owner port must rerun native controls and a full pair after
 integration. Historical C1/C2/C3 rejections in
 `docs/architecture/checker-inherited-this.md` are evidence, not current passes.
 
+## Base-first native-order experiment: rejected
+
+A second owned experiment instantiated each heritage base under the enclosing
+reference mapper before reading the supplying member with original derived
+this (`resolveObjectTypeMembers`, checker.go:19138). Unlike member-first
+composition, this retains all 47 `inferenceErasedSignatures` target type rows
+as RIGHT and fixes all seven inherited-class rows. Native Left/Right callback
+controls and indirect generic callback smoke pass. Four contextual target rows
+still require the contextual caller cutover.
+
+Completed full dumps reject this concrete implementation: 477,970 type rows
+produce 465,882 RIGHT, 10,749 WRONG, 1,339 GAP, with **3,915 previous RIGHT
+losses** and zero vanished keys. All 10,570 diagnostic cases complete, producing
+4,936 EMPTY_RIGHT, 4,148 RIGHT, 1,354 WRONG, 132 EMPTY_WRONG: **111 prior
+correct-case losses**, zero vanished keys. Therefore the base-first candidate
+is reverted, not published as a native-order success. The source-linked wrapper
+field exists only in the ignored copy and has no producer in these runs.
+
+Next producer prerequisite is native `instantiateTypeWithAlias` admission
+(checker.go:22104): unchanged types return immediately unless the type or its
+alias arguments could contain type variables. Mapping arbitrary concrete base
+references through the port's general instantiation worker demands completion
+that the native fast path avoids. Attribution of every loss is not proved;
+no heuristic mention test, error fallback or class-specific exception was added.
+Calls/inference owner must establish that native admission/completion contract
+before the owned base-first traversal can be retained. Existing completed-empty,
+active/provisional and unsupported results must remain distinct.
+
+Receipts: `target/recovery/property/base-first-{types,diagnostics}.tsv`,
+`base-first-transitions.json`, `base-first-control.txt`, `base-first-targets.tsv`,
+`base-first-smoke.log`, and `base-first-rejected.patch`. Initial background
+children were interrupted and excluded; the recorded full TSVs are from
+subsequent completed foreground children. No performance claim follows a
+correctness rejection; the prior safe supplier APIs remain committed.
+
+### Restoration correction and curated delivery
+
+Intervening Box auto-commit `d39c1507` captured the rejected experiment before
+restoration. A bare restore initially restored that snapshot, not the safe
+supplier-API checkpoint. The final restoration explicitly uses `16ff7c45` for
+`members.rs`; do not cherry-pick `d39c1507` as verified code. No base-first
+production candidate survives this correction.
+
+The four contextual rows require the raw-symbol branch to read
+`get_type_of_property_of_type(contextual, &name)?`, then skip the subsequent
+`instantiate_for_reference(contextual, property_type)` only for that already
+semantic branch. Keep mapping for raw branches and the later distinct live /
+intra-expression fixing mapper. Calls consume the resulting callback signature,
+not original-declaration parameter/return reconstruction or a second derived-this
+substitution. No shared field is needed for this contextual caller correction.
+These unowned producers are tracked on the existing issue.
+
+One additional reachable owned source-projection defect is fixed: after a source
+member miss, semantic value lookup now uses only wrapper filtered-signature
+augmentation, never its reused anonymous class symbol as a second member table.
+Source-miss projection smoke and strict all-target checker Clippy pass in the
+ignored parent-field copy. This does not certify the unimplemented parent mint
+or the rejected inherited-this cutover.
+
+## Calls-owner supplier mapper seam
+
+Existing native member operations are now checker-visible:
+
+```rust
+pub(crate) fn instantiate_for_reference_with_this(
+    &mut self, receiver: TypeId, declared: TypeId, this_argument: TypeId,
+) -> TypeId;
+pub(crate) fn get_type_of_property_with_this_argument(
+    &mut self, id: TypeId, name: &str, this_argument: TypeId,
+    skip_object_function_augment: bool,
+) -> Option<TypeId>;
+```
+
+Here `receiver`/`id` is the **supplying reference**, not the derived owner.
+Calls/contextual consumers pass the original derived this separately. The first
+API reuses the existing ordered parameter/formal-this mapper and
+`instantiate_type` publication/re-entry; it creates no extra cache or member
+image. A direct supplier control maps Base<string>/Base<number> callbacks to
+distinct Left/Right receivers and re-queries Left after Right. A wrong-owner
+countercontrol preserves the unmapped base parameter/this, proving that the
+receiving owner cannot stand in for the supplier. This smoke passes in the
+ignored parent-field workspace copy, against the retained direct native control.
+
+Calls-owner next action: `inference.rs::instantiate_signature_for_reference`
+currently maps only generic reference parameters. Preserve original derived
+this before signature instantiation/erasure; use this seam for declared member
+signature types rather than inventing a second mapper. Signature constraints
+containing `keyof this` still require the coordinated winning inherited-key
+producer and formal-this heritage context. No rejected member traversal cutover
+is re-enabled by exposing these APIs. Full parity/performance acceptance remains
+blocked on those shared producers, not claimed by the supplier smoke.
 ## Shared instantiation-expression prerequisite — tsr-2zk.16.56.1
 
 Owned member projections are implemented against the agreed parent field

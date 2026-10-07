@@ -1290,11 +1290,16 @@ impl Checker<'_, '_> {
         // getInstantiationExpressionType (5b1047d checker.go:10696) retains
         // source members, changing only signatures. Keep the exact source
         // receiver/alias context; source augmentation belongs to the wrapper.
-        if let Some(&source) = self.instantiation_expression_sources.get(&id)
-            && let Some(member) =
+        if let Some(&source) = self.instantiation_expression_sources.get(&id) {
+            if let Some(member) =
                 self.get_type_of_property_with_this_argument(source, name, source, true)
-        {
-            return Some(member);
+            {
+                return Some(member);
+            }
+            // A view has no second raw-symbol member table. After the source
+            // miss only its filtered-signature augmentation may contribute.
+            let property = self.get_property_of_type_ex(id, name, skip_object_function_augment)?;
+            return Some(self.get_type_of_symbol(property));
         }
         if name == "length"
             && let Some(body) = self.completed_array_placeholder_length_body(id)
