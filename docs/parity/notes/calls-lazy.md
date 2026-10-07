@@ -163,3 +163,21 @@ control emits TS2344; TSR's standalone CLI still exits zero because the parent's
 expression integration is absent here. Thus the signature API is verified, not
 end-to-end instantiation expressions. Native complete-work/perf gates remain
 unmet; no new whole-case pass is claimed.
+
+### Complete default mapper and constructor control
+
+`fillMissingTypeArguments` now preloads every unfilled parameter slot with
+errorType before evaluating defaults against the complete ordered mapper.
+JavaScript unknown/empty-object defaults use any, matching the existing native
+JS default rule. Unsupported default computation still declines, not a fake
+successful argument. The new constructor control proves both its parameter
+becomes number and its instance return becomes `Box<number>` through the same
+checked instantiation API. Constraint failure still reports TS2344 and returns
+`Some(None)` for parent retention of the original signature.
+
+Three signature API controls pass; full checker tests and clippy pass.
+`constructor-ratchet.json` preserves all prior passes and all 12,444 keys in
+both suites. The final JS empty-object adjustment was followed by target tests
+and clippy; no JS corpus parity claim is made for that final adjustment.
+Parent's structured instantiation-expression images and end-to-end native CLI
+controls are still required; this API does not choose an arity survivor.
