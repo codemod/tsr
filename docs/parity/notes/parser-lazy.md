@@ -458,6 +458,23 @@ must assess the small parser.ts increase and rerun baseline-isolated acceptance;
 no threshold waiver or verified whole-checker <=0.50 claim. No AST/scanner/shared
 checker changes.
 
+### Private identifier parameter diagnostic (tsr-2zk.2)
+
+Pinned parseParameterEx passes Private_identifiers_cannot_be_used_as_parameters
+to createIdentifierWithDiagnostic, which consumes the private token as an
+identifier after reporting. TSR's generic binding-name path instead reported
+TS18016. Candidate supplies native TS18009 and preserves the same consumed name,
+annotation/body and ordinary node publication. Native function/rest controls
+report exact [11,13)/[14,16) with complete message; isolated parser tests/clippy/
+fmt pass and privateNamesNotAllowedAsParameters converts RIGHT. Type rows stay
+unchanged and incremental RIGHT/EMPTY_RIGHT and all keys preserved; prior
+method-body candidate's two diagnostic losses remain in cumulative checkout.
+
+41pair x60 full-parse incremental wall/CPU parser.ts 0.994918/0.995161,
+dom 1.032960/1.031950 rejects standalone no-hotpath-regression. No scanner/AST/
+checker edits or test-specific private name handling. Candidate requires parent
+baseline-isolated perf/no-RIGHT gates before acceptance.
+
 ### Integration prerequisites still open
 
 - Parent owns target 3's `negated_truthiness_type` native default boolean

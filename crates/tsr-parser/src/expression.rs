@@ -2988,6 +2988,19 @@ impl<'a> Parser<'a> {
         // identifier plus an error (`thisTypeInFunctionsNegative`).
         let name = if self.at(SyntaxKind::ThisKeyword) && dot_dot_dot.is_none() {
             BindingName::Identifier(self.parse_identifier_name())
+        } else if self.at(SyntaxKind::PrivateIdentifier) {
+            // Native parseParameterEx supplies this diagnostic to
+            // createIdentifierWithDiagnostic, then consumes the private token
+            // as an identifier rather than manufacturing a missing name.
+            self.error_at_current(&messages::PRIVATE_IDENTIFIERS_CANNOT_BE_USED_AS_PARAMETERS);
+            let start = self.pos();
+            let text = self.token_value();
+            self.next_token();
+            BindingName::Identifier(self.finish_node(
+                Identifier::new(text),
+                SyntaxKind::Identifier,
+                start,
+            ))
         } else {
             self.parse_binding_name()
         };
