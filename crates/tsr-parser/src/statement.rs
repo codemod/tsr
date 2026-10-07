@@ -1158,10 +1158,15 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
-        let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
-            None
-        } else {
+        // `parseFunctionDeclaration` (`parser.go:1717`): only a `default`
+        // function may omit its name; any other reports TS1003 and gets a
+        // missing identifier.
+        let name = if !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DefaultKeyword)
+            || self.is_binding_identifier()
+        {
             Some(self.parse_identifier())
+        } else {
+            None
         };
         let type_parameters = self.parse_type_parameters();
         // Parameters and body are inside this function's own await context, not
