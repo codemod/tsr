@@ -276,6 +276,40 @@ source or CLI binary changed, so the full paired no-loss/missing-ID and native
 performance receipts remain unchanged. The investigation still claims no
 whole-case conversions or completed release gate.
 
+## Source-symbol query accessibility continuation
+
+Actual native/TSR CLI runs on the following control agree on TS2322 messages at
+`(3,7)`, `(4,50)`, and `(5,55)`, in source order:
+
+```typescript
+const keys = { a: 1, b: 2 };
+declare function source(): <K extends keyof typeof keys>(key: K) => K;
+const original: never = source;
+function shadow() { const keys = { c: 3 }; const view: never = source; }
+namespace Other { export const keys = { d: 4 }; const view: never = source; }
+```
+
+The actual corpus pipeline preserves `keyof typeof keys` at the original
+site, and uses `keyof typeof globalThis.keys` at both shadowed sites. The
+source object has keys `a,b`; the two shadows have keys `c` and `d`. These are
+distinct source symbols, not printed-text-equivalent inputs. The owned
+`track_existing_entity_name` / `serialize_type_name` query path retains the
+original source identity and qualifies its fallback name at the print site.
+
+A sixth integration regression exercises that exact site-aware visitor path
+via `written_annotation_text_at` on the retained return node. The real parsed
+and bound Checker emits all three expected forms. Release suite result:
+**6 passed, 0 failed, 0 ignored, 0 filtered out**. No production helper,
+cache, shared field or visibility change was introduced. A standalone rustc
+probe initially mixed CLI/test dependency profiles and failed to compile; it
+provided no behavioral evidence and was replaced by the coherent Cargo target.
+
+Compiler source/binary identity remains unchanged. Prior full unfiltered
+zero-RIGHT/EMPTY_RIGHT-loss and zero-missing-ID receipts, all-16-target blocked
+count, and unverified performance receipts therefore remain unchanged. This
+continuation guards a real accessibility boundary but does not claim a cluster
+conversion or a completed release goal.
+
 ## Serialized parent prerequisite
 
 Parent owns `signatures.rs`; this worker did not modify it.

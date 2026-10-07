@@ -83,6 +83,50 @@ fn written_parenthesized_constraints_are_not_replaced_by_semantic_types() {
 }
 
 #[test]
+fn constraint_query_uses_source_symbol_identity_at_shadowed_print_sites() {
+    let source = "const keys = { a: 1, b: 2 }; \
+                  declare function source(): <K extends keyof typeof keys>(key: K) => K; \
+                  const original = source; \
+                  function shadow() { const keys = { c: 3 }; const shadowView = source; } \
+                  namespace Other { export const keys = { d: 4 }; const siblingView = source; }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "constraint.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let symbol = bound.lookup_local(parsed.source_file.node_id.unwrap(), "source").unwrap();
+    let signature = checker.get_signatures_of_symbol(symbol).unwrap().remove(0);
+    for (name, expected) in [
+        ("original", "<K extends keyof typeof keys>(key: K) => K"),
+        ("shadowView", "<K extends keyof typeof globalThis.keys>(key: K) => K"),
+        ("siblingView", "<K extends keyof typeof globalThis.keys>(key: K) => K"),
+    ] {
+        let site = (0..u32::try_from(parsed.nodes.len()).unwrap())
+            .find_map(|index| {
+                let id = tsr_ast::NodeId::new(index);
+                matches!(parsed.node_map.get(id), Some(tsr_ast::Node::Identifier(identifier)) if identifier.text == name)
+                    .then_some(id)
+            })
+            .unwrap();
+        assert_eq!(
+            checker
+                .written_annotation_text_at(
+                    signature.written_return.unwrap(),
+                    signature.r#type,
+                    site
+                )
+                .unwrap(),
+            expected,
+        );
+    }
+}
+
+#[test]
 fn nested_generic_scopes_preserve_distinct_written_type_parameters() {
     assert_eq!(
         reused_return(
