@@ -125,6 +125,17 @@ file/symbol/pool identity, end references token. Export final schema only after
 these missing boundaries and TSR hooks are serialized. Temporary overlays are
 not committed as a production implementation or a complete proof artifact.
 
+## Parser consumer dependency (.16.405)
+
+Queued loader clean cutover after parser candidate bfaf6185 is transferred:
+replace loader.rs::parse_options JS-to-Tsx compiler-jsx-dependent promotion with
+ParseOptions::for_file(name). Preserve frontend batches, counters and publication;
+no parser edits or unavailable-library heuristic. Candidate bfaf6185 is absent
+locally and fetch of its short revision reports no remote ref. Existing local
+ParseOptions::for_file still lacks the supplied JavaScript/JSX variant cutover;
+do not remove the compatibility behavior before applying the real dependency.
+Full unfiltered corpus and sequential no-slowdown gates are required afterward.
+
 ## Comparator consumer dependency (.22.1)
 
 Model commit b6d2104f is absent locally; fetch of short revision fails (no remote
