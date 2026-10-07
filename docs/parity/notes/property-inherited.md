@@ -123,6 +123,41 @@ A coherent cross-owner port must rerun native controls and a full pair after
 integration. Historical C1/C2/C3 rejections in
 `docs/architecture/checker-inherited-this.md` are evidence, not current passes.
 
+## Base-first native-order experiment: rejected
+
+A second owned experiment instantiated each heritage base under the enclosing
+reference mapper before reading the supplying member with original derived
+this (`resolveObjectTypeMembers`, checker.go:19138). Unlike member-first
+composition, this retains all 47 `inferenceErasedSignatures` target type rows
+as RIGHT and fixes all seven inherited-class rows. Native Left/Right callback
+controls and indirect generic callback smoke pass. Four contextual target rows
+still require the contextual caller cutover.
+
+Completed full dumps reject this concrete implementation: 477,970 type rows
+produce 465,882 RIGHT, 10,749 WRONG, 1,339 GAP, with **3,915 previous RIGHT
+losses** and zero vanished keys. All 10,570 diagnostic cases complete, producing
+4,936 EMPTY_RIGHT, 4,148 RIGHT, 1,354 WRONG, 132 EMPTY_WRONG: **111 prior
+correct-case losses**, zero vanished keys. Therefore the base-first candidate
+is reverted, not published as a native-order success. The source-linked wrapper
+field exists only in the ignored copy and has no producer in these runs.
+
+Next producer prerequisite is native `instantiateTypeWithAlias` admission
+(checker.go:22104): unchanged types return immediately unless the type or its
+alias arguments could contain type variables. Mapping arbitrary concrete base
+references through the port's general instantiation worker demands completion
+that the native fast path avoids. Attribution of every loss is not proved;
+no heuristic mention test, error fallback or class-specific exception was added.
+Calls/inference owner must establish that native admission/completion contract
+before the owned base-first traversal can be retained. Existing completed-empty,
+active/provisional and unsupported results must remain distinct.
+
+Receipts: `target/recovery/property/base-first-{types,diagnostics}.tsv`,
+`base-first-transitions.json`, `base-first-control.txt`, `base-first-targets.tsv`,
+`base-first-smoke.log`, and `base-first-rejected.patch`. Initial background
+children were interrupted and excluded; the recorded full TSVs are from
+subsequent completed foreground children. No performance claim follows a
+correctness rejection; the prior safe supplier APIs remain committed.
+
 ## Calls-owner supplier mapper seam
 
 Existing native member operations are now checker-visible:
