@@ -424,8 +424,14 @@ Three upstream facts, one commit because each alone moved the same lines:
 Recovery base: `0e7824dd`. Native:
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
 `getTypeFactsWorker` / `isZeroBigInt` in `internal/checker/checker.go`.
-The saved `box/parity-printing` ref was not supplied to this Box; no snapshot or
-old branch was merged. Only `flow.rs` and dedicated flow-facts tests changed.
+The saved `box/parity-printing` ref was initially absent; after the parent
+published it, an explicit fetch recovered `origin/box/parity-printing` at
+`531e3c22`. Its `flow.rs` and this note are byte-identical to recovery base
+`0e7824dd`; the latest flow commit on both is `49663469`. There are no owned
+flow changes to cherry-pick. Snapshot `531e3c22` changes only parent-owned
+`checker.rs` and symbol-chain tests and was not replayed or treated as verified.
+No snapshot or old branch was merged. Only `flow.rs` and dedicated flow-facts
+tests changed.
 Protected narrowing, configuration and unary-expression work is unchanged.
 
 `normalise_bigint` stores canonical decimal digits with no `n` suffix and no
