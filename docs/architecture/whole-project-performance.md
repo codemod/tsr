@@ -64,19 +64,44 @@ observed input state before and after each child, including preflights and warmu
 Capture time, including setup and loaded-path discovery observations, is
 recorded separately from child wall/CPU/RSS.
 
-`observed_wall_ratio` is always an observation. `verified_wall_ratio` is null
-until complete cross-tool input coverage and actual performed checker work are
-verified, as well as matching options, loaded scope and stable diagnostics.
-Logical symlink paths remain distinct; only known bundled-library prefixes are
-normalized. `target_verified` also requires matching diagnostics and a ratio at
-most 0.50. The current harness does not yet collect complete query coverage or
-actual checked-work/worker telemetry, so its verified ratio remains null even
-when the public smoke project's loaded lists and diagnostics agree. Full-corpus
-correctness verification is separately required before the epic can close.
+`observed_wall_ratio` is always an observation. `verified_wall_ratio` equals
+it only when the work is shown equal (`work_comparable`):
 
-`--require-comparable` fails after saving evidence when performed work is
-unverified. Until the missing coverage and worker controls are implemented, use
-reports as observations; this flag cannot currently produce a passing speed gate.
+- **Complete diagnostics:** every timed sample's sorted multiline diagnostics
+  and exit code agree within and across tools (`diagnostics_stable`,
+  `diagnostics_match`).
+- **Effective options:** `--showConfig` outputs agree (`options_match`).
+- **Input identities:** `--listFilesOnly` lists agree (`scope_match`) and so
+  do the SHA-256 bytes of every loaded file (`loaded_inputs_match`); the
+  observed inputs did not change during the run (`inputs_unchanged`).
+  Logical symlink paths stay distinct; only bundled-library prefixes are
+  normalized, by name.
+- **Actual checked scope** (`actual_checked_work_verified`): after sampling,
+  one untimed run per tool records which files its checker pool checked and
+  on which checker. tsgo writes `checkSourceFile` spans with `checkerId` under
+  `--generateTrace` (`checker.go` `checkSourceFile`); TSR writes
+  `source_file_check` spans with `checker_id` to `TSR_WORK_TRACE`, which only
+  a `--features work-trace` build honors. The two `(file, checker)` lists must
+  be equal, complete (every span ended, the TSR invocation complete) and
+  non-empty, and each traced run's diagnostics and exit code must equal its
+  timed samples'. Equal checker ids also verify the pool size and the native
+  `i % checkers` file affinity (`bd tsr-1yb.1.2`).
+
+So a verified ratio needs the measured `--tsr` binary built with the trace:
+
+```sh
+cargo build --release -p tsr --features work-trace
+python3 scripts/whole_project_perf.py --project benches/projects/domain-model-large/tsconfig.json \
+  --tsgo target/tsgo-pinned --samples 21 --require-comparable --output /tmp/dml.json
+```
+
+The default build ignores `TSR_WORK_TRACE`, so its ratio stays unverified;
+self-comparisons for the hot-path gate (old TSR in the `--tsgo` slot, which
+ignores `--generateTrace`) are judged by CPU, not by this flag. Failed resolver
+probes are not compared (only loaded files are), and the full-corpus
+correctness requirement is separate. `target_verified` also requires a
+verified ratio at most 0.50. `--require-comparable` exits 1 after saving
+evidence when the work is not shown equal.
 
 ## Resolver input manifests
 
@@ -136,10 +161,8 @@ samples start. Fingerprinting warms OS caches; it is not a cold-cache benchmark.
 All supplied manifests are reported as partial. Directory-entry capture does
 not recursively hash unqueried descendants. Bundled library bytes, environment,
 unobserved queries and transient changes between snapshots remain unproved.
-`complete_input_equivalence_verified` and `actual_checked_work_verified` remain
-false. Parent `bd tsr-1yb.1.2` still owns permanent cross-tool performed-work
-telemetry; `bd tsr-1yb.1.2.2` owns cross-tool query capture and its coverage
-proof; `bd tsr-1yb.1.1.1` owns CLI trace delivery. The tracked empty-suffix
+Manifests feed `inputs_unchanged` only; `bd tsr-1yb.1.2.2` owns cross-tool
+query capture and its coverage proof. The tracked empty-suffix
 resolution defect `bd tsr-6.59` is also unaffected.
 
 Run the public controls with:
@@ -151,9 +174,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 They exercise manifest byte changes, missing candidate creation, symlink
 retargeting, extended/root config changes, directory additions/removals,
-compiler replacement and warmup mutations through real child processes. A
-matching loaded-list/options/diagnostics control verifies that incomplete work
-cannot pass `--require-comparable` or publish a verified ratio.
+compiler replacement and warmup mutations through real child processes. Fake
+compilers emitting both trace formats verify that matching checked work
+publishes the ratio, and that an absent trace or a file checked on a different
+checker cannot.
 
 The [sanitized validation receipt](benchmark-input-controls.json) records 30
 passing script tests, five alternating public pairs in each worker mode, and a

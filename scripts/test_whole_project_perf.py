@@ -247,7 +247,7 @@ class InputEvidenceTests(unittest.TestCase):
             self.assertTrue(by_path[str(root / "broken")]["symlinks"])
 
     def run_harness(self, root, mutation="", warmups=0, require_comparable=False,
-                    listed_path="main.ts", config_fifo=False):
+                    listed_path="main.ts", config_fifo=False, traced_checker=None):
         project = root / "project"
         project.mkdir()
         (project / "tsconfig.json").write_text('{"extends":"./extended.json"}')
@@ -273,6 +273,21 @@ class InputEvidenceTests(unittest.TestCase):
             "elif '--listFilesOnly' in sys.argv:\n"
             f" print(p / {listed_path!r})\n"
             "else:\n"
+            f" checker = {traced_checker!r}\n"
+            " main = str(p / 'main.ts')\n"
+            " if checker is not None and '--generateTrace' in sys.argv:\n"
+            "  d = pathlib.Path(sys.argv[sys.argv.index('--generateTrace') + 1])\n"
+            "  d.mkdir(exist_ok=True)\n"
+            "  span = {'name': 'checkSourceFile', 'args': {'checkerId': 0, 'path': main}}\n"
+            "  (d / 'trace.json').write_text(json.dumps([{**span, 'ph': 'B'}, {**span, 'ph': 'E'}]))\n"
+            " if checker is not None and 'TSR_WORK_TRACE' in __import__('os').environ:\n"
+            "  rows = [{'event': 'program_file', 'file_id': 0, 'path': main},\n"
+            "          {'event': 'work_begin', 'span_id': 0, 'operation': 'source_file_check',\n"
+            "           'checker_id': checker, 'file_ids': [0]},\n"
+            "          {'event': 'work_end', 'span_id': 0, 'outcome': 'returned'},\n"
+            "          {'event': 'invocation_end', 'state': 'complete'}]\n"
+            "  pathlib.Path(__import__('os').environ['TSR_WORK_TRACE']).write_text(\n"
+            "   ''.join(json.dumps(row) + '\\n' for row in rows))\n"
             f" {mutation or 'pass'}\n"
             " print('main.ts(1,1): error TS2322: intentional control')\n"
             " sys.exit(1)\n"
@@ -355,17 +370,28 @@ class InputEvidenceTests(unittest.TestCase):
             self.assertFalse(report["target_verified"])
             self.assertIsNone(report["verified_wall_ratio"])
 
-    def test_partial_inputs_and_loaded_scope_cannot_verify_speed(self):
-        for require_comparable in (False, True):
-            with self.subTest(require_comparable=require_comparable), tempfile.TemporaryDirectory() as directory:
-                result, report = self.run_harness(Path(directory), require_comparable=require_comparable)
-                self.assertEqual(result.returncode, int(require_comparable), result.stderr)
+    def test_matching_checked_work_verifies_the_ratio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(Path(directory), require_comparable=True,
+                                              traced_checker=0)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(report["loaded_inputs_match"])
+            self.assertTrue(report["actual_checked_work_verified"])
+            self.assertTrue(report["work_comparable"])
+            self.assertEqual(report["verified_wall_ratio"], report["observed_wall_ratio"])
+
+    def test_unobserved_or_differently_owned_checks_cannot_verify_speed(self):
+        for traced_checker in (None, 1):
+            with self.subTest(traced_checker=traced_checker), tempfile.TemporaryDirectory() as directory:
+                result, report = self.run_harness(Path(directory), require_comparable=True,
+                                                  traced_checker=traced_checker)
+                self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertEqual(report["status"], "completed")
                 self.assertTrue(report["inputs_unchanged"])
                 self.assertTrue(report["scope_match"])
                 self.assertTrue(report["options_match"])
                 self.assertTrue(report["diagnostics_match"])
-                self.assertFalse(report["complete_input_equivalence_verified"])
+                self.assertTrue(report["loaded_inputs_match"])
                 self.assertFalse(report["actual_checked_work_verified"])
                 self.assertFalse(report["work_comparable"])
                 self.assertIsNone(report["verified_wall_ratio"])

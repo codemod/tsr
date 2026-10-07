@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import signal
 import statistics
 import subprocess
@@ -46,14 +47,14 @@ def revision(path: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def process(command: list[str], cwd: Path, timeout: float) -> dict:
+def process(command: list[str], cwd: Path, timeout: float, env: dict | None = None) -> dict:
     """Temporary files avoid pipe deadlocks; wait4 owns reaping this child."""
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         started_at_unix_ns = time.time_ns()
         start = time.perf_counter()
         child = subprocess.Popen(
             command, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True,
-            env={**os.environ, "NO_COLOR": "1"},
+            env={**os.environ, "NO_COLOR": "1", **(env or {})},
         )
         timed_out = threading.Event()
 
@@ -138,6 +139,35 @@ def input_fingerprint(names: list[str]) -> str:
     return digest.hexdigest()
 
 
+def native_checked_files(trace_dir: Path, cwd: Path) -> dict:
+    """`--generateTrace` `checkSourceFile` spans (`checker.go` `checkSourceFile`).
+
+    Each span names the file and the pool checker (`checkerpool.go`) that ran
+    it; an unmatched begin/end means the observation is incomplete.
+    """
+    events = json.loads((trace_dir / "trace.json").read_text())
+    begins = [e for e in events if e.get("name") == "checkSourceFile" and e.get("ph") == "B"]
+    ends = sum(e.get("name") == "checkSourceFile" and e.get("ph") == "E" for e in events)
+    files = [[file_identity(e["args"]["path"], cwd), e["args"]["checkerId"]] for e in begins]
+    return {"files": sorted(files), "complete": ends == len(begins)}
+
+
+def tsr_checked_files(trace: Path, cwd: Path) -> dict:
+    """`source_file_check` spans of a `work-trace` build (`crates/tsr-execute/src/work_trace.rs`)."""
+    records = [json.loads(line) for line in trace.read_text().splitlines() if line.strip()]
+    paths = {r["file_id"]: r["path"] for r in records if r["event"] == "program_file"}
+    spans = {r["span_id"]: r for r in records
+             if r["event"] == "work_begin" and r["operation"] == "source_file_check"}
+    returned = {r["span_id"] for r in records
+                if r["event"] == "work_end" and r["outcome"] == "returned"}
+    files = [[file_identity(paths[file_id], cwd), span["checker_id"]]
+             for span in spans.values() for file_id in span["file_ids"]]
+    ended = [r for r in records if r["event"] == "invocation_end"]
+    complete = (set(spans) <= returned and len(ended) == 1 and ended[0]["state"] == "complete"
+                and all(len(span["file_ids"]) == 1 for span in spans.values()))
+    return {"files": sorted(files), "complete": complete}
+
+
 def summary(samples: list[dict]) -> dict:
     result = {}
     for field in ("wall_seconds", "user_seconds", "system_seconds", "peak_rss_bytes"):
@@ -211,11 +241,12 @@ def main() -> int:
         "input_discovery_observations": [],
         "harness_sha256": {name: inputs.file_hash(ROOT / "scripts" / name)
                            for name in ("whole_project_perf.py", "benchmark_inputs.py")},
-        "complete_input_equivalence_verified": False,
+        "loaded_inputs_match": False,
         "actual_checked_work_verified": False,
         "input_limits": [
+            "Loaded files and their bytes are compared; failed resolver probes are not.",
             "Query paths are caller-supplied; absent or partial capture cannot prove complete inputs.",
-            "Bundled library bytes, environment and unobserved queries are not covered.",
+            "Bundled library bytes are identified by name (both pinned to the oracle revision).",
             "Before/after snapshots cannot detect all transient changes between observations.",
             "Fingerprinting runs outside child timing and warms OS caches.",
         ],
@@ -238,7 +269,7 @@ def main() -> int:
                 "kind_counts": {kind: sum(row.get("kind") == kind for row in rows)
                                 for kind in ("file", "directory", "missing", "other")}}
 
-    def controlled_process(command: list[str]) -> dict | None:
+    def controlled_process(command: list[str], env: dict | None = None) -> dict | None:
         started = time.perf_counter()
         before = inputs.snapshot(input_paths)
         before_seconds = time.perf_counter() - started
@@ -250,7 +281,7 @@ def main() -> int:
             report.update(status="inputs_changed", inputs_unchanged=False)
             save()
             return None
-        measurement = process(command, cwd, args.timeout)
+        measurement = process(command, cwd, args.timeout, env)
         started = time.perf_counter()
         after = inputs.snapshot(input_paths)
         event.update(after=input_check(after), after_capture_seconds=time.perf_counter() - started,
@@ -358,6 +389,27 @@ def main() -> int:
             # Tuples round-trip through JSON as lists.
             report["pairs"][-1]["order"] = list(order)
             save()
+    # Untimed, after sampling: each tool's own record of the files its checker
+    # pool checked, and by which checker. Diagnostics must equal the samples'.
+    for name, binary in binaries.items():
+        trace_dir = Path(tempfile.mkdtemp(prefix=f"perf-{name}-trace-"))
+        if name == "tsgo":
+            run = controlled_process([str(binary), *flags, "--generateTrace", str(trace_dir)])
+        else:
+            run = controlled_process([str(binary), *flags],
+                                     {"TSR_WORK_TRACE": str(trace_dir / "work.jsonl")})
+        if run is None or not run["input_validation"]["stable"]:
+            return 1
+        try:
+            observed = (native_checked_files(trace_dir, cwd) if name == "tsgo"
+                        else tsr_checked_files(trace_dir / "work.jsonl", cwd))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            observed = {"files": [], "complete": False, "error": repr(error)}
+        shutil.rmtree(trace_dir, ignore_errors=True)
+        observed["exit_code"] = run["exit_code"]
+        observed["diagnostics_fingerprint"] = diagnostics(run["stdout"], cwd)["fingerprint"]
+        report["tools"][name]["checked_work"] = observed
+        save()
     for tool in report["tools"].values():
         tool["summary"] = summary(tool["samples"])
     report["diagnostics_stable"] = all(
@@ -371,16 +423,23 @@ def main() -> int:
     report["scope_match"] = ours["loaded_files_fingerprint"] == theirs["loaded_files_fingerprint"]
     report["options_match"] = not report["option_differences"]
     report["inputs_unchanged"] = all(event["stable"] for event in report["input_observations"])
+    report["loaded_inputs_match"] = (report["scope_match"]
+                                     and ours["input_fingerprint"] == theirs["input_fingerprint"])
+    work = [tool["checked_work"] for tool in (ours, theirs)]
+    report["actual_checked_work_verified"] = (
+        all(w["complete"] and w["files"] for w in work)
+        and work[0]["files"] == work[1]["files"]
+        and len(set(f for f, _ in work[0]["files"])) == len(work[0]["files"])
+        and all(w["diagnostics_fingerprint"] == tool["samples"][0]["diagnostics"]["fingerprint"]
+                and w["exit_code"] == tool["samples"][0]["exit_code"]
+                for w, tool in zip(work, (ours, theirs))))
     report["work_comparable"] = (report["scope_match"] and report["options_match"]
                                  and report["diagnostics_stable"] and report["diagnostics_match"]
-                                 and report["inputs_unchanged"]
-                                 and report["complete_input_equivalence_verified"]
+                                 and report["inputs_unchanged"] and report["loaded_inputs_match"]
                                  and report["actual_checked_work_verified"])
-    report["comparability_reasons"] = [
-        "Complete cross-tool query-input coverage is unverified.",
-        "Actual performed checker work and worker budgets are unverified.",
-    ]
-    for field in ("scope_match", "options_match", "diagnostics_stable", "diagnostics_match"):
+    report["comparability_reasons"] = []
+    for field in ("scope_match", "options_match", "diagnostics_stable", "diagnostics_match",
+                  "loaded_inputs_match", "actual_checked_work_verified"):
         if not report[field]:
             report["comparability_reasons"].append(f"{field} is false.")
     report["observed_wall_ratio"] = ours["summary"]["wall_seconds"]["median"] / theirs["summary"]["wall_seconds"]["median"]
@@ -390,7 +449,8 @@ def main() -> int:
     save()
     print(json.dumps({key: report[key] for key in (
         "observed_wall_ratio", "verified_wall_ratio", "scope_match", "options_match",
-        "diagnostics_stable", "diagnostics_match", "target_verified",
+        "diagnostics_stable", "diagnostics_match", "loaded_inputs_match",
+        "actual_checked_work_verified", "target_verified",
     )}))
     return 1 if args.require_comparable and not report["work_comparable"] else 0
 
