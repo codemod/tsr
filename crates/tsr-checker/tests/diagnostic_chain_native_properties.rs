@@ -139,6 +139,20 @@ fn nested_callback_parameters_retain_both_native_parameter_wrappers() {
 }
 
 #[test]
+fn callback_arity_failure_is_wrapped_by_its_parameter_context() {
+    let ds = diagnostics(
+        "declare let source: (cb: (a: any) => void) => void; let target: (cb: (a: any, b: any) => void) => void = source;",
+    );
+    assert_eq!(ds.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [2322]);
+    let mut text = String::new();
+    write_flattened_diagnostic_message(&mut text, &ds[0].message_chain()[0], "\n");
+    assert_eq!(
+        text,
+        "Types of parameters 'cb' and 'cb' are incompatible.\n  Target signature provides too few arguments. Expected 2 or more, but got 1."
+    );
+}
+
+#[test]
 fn compatible_properties_and_overload_alternative_do_not_publish_failed_chains() {
     let ds = diagnostics(
         "declare let source: { x: number }; let target: { x: number } = source; declare function f(x: { a: string }): void; declare function f(x: { a: number }): void; f({a: 1});",

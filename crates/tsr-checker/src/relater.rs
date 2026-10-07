@@ -2185,7 +2185,16 @@ impl Relater<'_, '_, '_> {
                     .unwrap_or(RelationResult::Unknown);
                 if report_errors {
                     if related == RelationResult::NotRelated {
-                        if let Some(child) = self.property_error.take()
+                        let child = self.property_error.take().or_else(|| {
+                            self.signature_error.take().map(|(minimum, count)| {
+                                tsr_diagnostics::Diagnostic::with_args(
+                                    &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                                    tsr_core::Span::new(0, 0),
+                                    [minimum.to_string(), count.to_string()],
+                                )
+                            })
+                        });
+                        if let Some(child) = child
                             && let (Some(source), Some(target)) = (
                                 source_signature.parameters.get(index),
                                 target_signature.parameters.get(index),

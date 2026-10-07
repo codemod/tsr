@@ -312,6 +312,24 @@ regression acceptance and is not attributed exclusively to this small delta;
 parent must evaluate the queued cumulative candidate with its performance owner.
 No release-ready or full-cluster claim. Receipts callback-*.
 
+## Callback arity chain context — tsr-2zk.1
+
+Pinned compareSignaturesRelated wraps any completed callback failure in outer
+TS2328, including callback arity TS2849. TSR's inline arity payload previously
+escaped that wrapper and appeared directly under TS2322. Existing callback
+publication now materializes that completed arity payload at the native wrapper
+boundary, using actual outer parameter names. No new arity query, member walk,
+cache or metadata. Verdict-only paths unchanged. Actual callback arity CLI
+reproduces missing wrapper before and matches complete native bytes after;
+permanent behavior regression, completed workspace release tests/clippy pass.
+Fresh full dumps preserve all protected 469785 RIGHT type and 9190 diagnostic
+keys; sixteen suites complete. Domain21 candidate/recovery-baseline observed wall
+1.0145, diagnostics match, complete-work verification null: no no-slowdown/release
+claim. Previous callback cumulative performance gate was also unmet; integration
+must retain this risk, not interpret correctness controls as a speed win.
+Receipts callback-arity-*; prior immutable hash
+1d95f230e71e40b1b759f39a7b5205b3890e7fa7 confirmed by bundle list-heads.
+
 ## Serialized integration prerequisites
 
 1. Integration owner: replace execute's head-only collector sorting/dedup with
