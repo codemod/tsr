@@ -1,6 +1,6 @@
 //! Independent TSR compiler artifacts. No expected output enters this module.
 use anyhow::{Context, Result, bail};
-use tsr_diagnostics::{Diagnostic, MessageFlags};
+use tsr_diagnostics::Diagnostic;
 use tsr_diagnostics::format::{DiagnosticFile, FormattingOptions, LocatedDiagnostic};
 use crate::{TestCase, TestFile, full_oracle::{Artifacts, Configuration, hex, unhex}, types_producer};
 
@@ -119,9 +119,11 @@ fn absolute(case: &TestCase, name: &str) -> String {
 }
 
 fn baseline_files(case: &TestCase, config: Option<&tsr_tsoptions::ParsedCommandLine>) -> Vec<TestFile> {
-    let is_config = |f: &&TestFile| crate::trace_case::config_name_from_file_name(&f.name).is_some();
-    let mut files: Vec<_> = case.files.iter().filter(is_config).cloned().collect();
-    let units: Vec<_> = case.files.iter().filter(|f| !is_config(f)).collect();
+    // makeUnitsFromTest removes only the first config unit. Further JSON/config
+    // inputs remain filesystem/baseline units, even when not Program sources.
+    let config_index = case.files.iter().position(|f| crate::trace_case::config_name_from_file_name(&f.name).is_some());
+    let mut files: Vec<_> = config_index.into_iter().map(|index| case.files[index].clone()).collect();
+    let units: Vec<_> = case.files.iter().enumerate().filter(|(index, _)| Some(*index) != config_index).map(|(_, file)| file).collect();
     let roots = config.map(|c| c.file_names.clone()).unwrap_or_else(||
         crate::trace_case::root_files_without_a_config(case, &case.files, case.current_directory.as_deref().unwrap_or("/.src")));
     files.extend(units.iter().filter(|f| roots.contains(&absolute(case, &f.name))).map(|f| (*f).clone()));
@@ -138,12 +140,11 @@ fn semantic_diagnostic(file: Option<&str>, texts: &std::collections::BTreeMap<St
         let marked = text.get(d.span.start as usize..d.span.end as usize).context("diagnostic end outside source")?;
         (before.encode_utf16().count(), marked.encode_utf16().count())
     } else { (0, 0) };
-    let flags = d.message.flags();
-    // This model does not expose native per-diagnostic flags. Preserve observed
-    // message defaults separately; unknown dynamic state must never claim false.
-    let mut out = format!("{},{},{},{},{},{},{},{},{},message-default:{},message-default:{},unavailable:skippedOnNoEmit,[", hex(file.unwrap_or("")),
+    // The model lacks per-diagnostic getters. Message defaults are not evidence
+    // of dynamic flags; do not infer any of the three native fields.
+    let mut out = format!("{},{},{},{},{},{},{},{},{},unavailable:reportsUnnecessary,unavailable:reportsDeprecated,unavailable:skippedOnNoEmit,[", hex(file.unwrap_or("")),
         d.span.start, d.span.len(), start, length, d.message.code(), d.message.category() as u8,
-        hex(d.message.key()), hex(&d.text()), flags.contains(MessageFlags::REPORTS_UNNECESSARY), flags.contains(MessageFlags::REPORTS_DEPRECATED));
+        hex(d.message.key()), hex(&d.text()));
     for arg in &d.args { out.push_str(&hex(arg)); out.push(';'); }
     out.push_str("],[");
     for child in d.message_chain() {

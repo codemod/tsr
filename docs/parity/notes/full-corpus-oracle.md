@@ -70,9 +70,9 @@ Still missing from that model:
 
 - Per-diagnostic `reports_unnecessary`, `reports_deprecated`, `skipped_on_no_emit`;
   message flags are not a substitute for diagnostic overrides. Native TS2695 is a
-  witnessed mismatch. Serialization now labels message defaults as
-  `message-default:<bool>` and dynamic state as `unavailable:skippedOnNoEmit`.
-  Neither compares exact with native booleans; no hardcoded false remains.
+  witnessed mismatch. Serialization marks all three per-diagnostic fields
+  `unavailable:<field>`; message defaults are not used as a heuristic.
+  These markers cannot compare exact with native booleans.
 - Signed/undefined global diagnostic spans: native compiler diagnostics use -1.
 - Native Program/global option diagnostics; `settingsSimpleTest` witnesses TS5108
   for removed Classic resolution. Compiler and diagnostics are owned elsewhere.
@@ -82,8 +82,8 @@ Required integration-owner contract for `b6d2104f`:
 
 1. `Diagnostic::reports_unnecessary() -> bool`, `reports_deprecated() -> bool`,
    `skipped_on_no_emit() -> bool`, backed by per-diagnostic state and real writers,
-   not code-specific consumer overrides. The current producer marks message
-   defaults and unavailable dynamic state explicitly; it is not lossless for those
+   not code-specific consumer overrides. The current producer marks all three
+   fields unavailable explicitly; it is not lossless for those
    fields. This is the minimal finalized diagnostic-owner metadata API request.
 2. Signed byte location accessors preserving native undefined `(-1, -1)` globals;
    root and recursive nodes need the same location contract. Keep existing AST
@@ -113,6 +113,10 @@ checks all files and renders through one private Program-backed Checker. This
 preserves TSR's actual alias/site printing, but equivalent native file affinity
 has not been proved. Record output/order differences; never normalize them away.
 No cross-file checker-affinity equivalence or four-checker performance claim is made.
+The compiler-owner query-mode/Program-global comparison and all-case counters
+remain prerequisites for the full suite, not a focused-control inference.
+Only the first config unit is extracted from type/error input ordering; additional
+JSON/config units remain filesystem and source-echo inputs as native requires.
 
 These are correctness prerequisites, not permission to exclude configurations,
 shrink the denominator, or mark the current producer as complete/lossless.
