@@ -3795,6 +3795,11 @@ impl<'a> Checker<'a, '_> {
             if resolved == error {
                 return error;
             }
+            let resolved = if optional && self.strict_null_checks {
+                self.get_optional_type(resolved, true)
+            } else {
+                resolved
+            };
             elements.push((resolved, optional));
             labels.push(label);
         }

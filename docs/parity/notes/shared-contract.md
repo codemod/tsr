@@ -11,3 +11,16 @@ optional slot before a required tail after concrete splicing becomes required
 with `undefined`; the all-rest array path reuses the resolved TypeIds instead
 of re-resolving the AST. No new cache; tuple owner/key unchanged.
 Carried from `box/recover-alias` (c6fa4c5b..f5f9116c), declared.rs only.
+
+## Optional tuple element optionality (tsr-2zk.16.79)
+
+The source tuple producer applies native `getTypeFromOptionalTypeNode`
+(`addOptionality(type, isProperty=true)`) under strictNullChecks before the
+slot is stored, so `[T?]` carries `T | undefined` (or missing under
+exactOptionalPropertyTypes) in its element TypeId, as tsgo prints
+`[string, (number | undefined)?]`. No new cache; tuple key already includes
+the ordered element type and optional mask. Tests that pinned the pre-port
+print (`array_literals`, `tuple_element_inference`, `tuples`) now expect the
+native print; `relater` exact-optional test fixes options before resolution,
+as native options are fixed per checker. domain-model CPU samples are bimodal
+(~0.39/0.43 s); 41-sample reruns 1.0104/0.9967, identical-binary control 0.9936.

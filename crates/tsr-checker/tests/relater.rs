@@ -409,20 +409,27 @@ fn array_to_rest_tuple_relations_keep_required_and_readonly_bounds() {
 
 #[test]
 fn exact_optional_tuple_targets_require_explicit_undefined() {
-    with_checker(
-        "let source: [number | undefined]; let target: [number?];",
-        |checker, statements| {
-            let source = annotation_type(checker, statements, 0);
-            let target = annotation_type(checker, statements, 1);
-            assert!(checker.is_type_assignable_to(source, target));
-            checker.apply_compiler_options(&tsr_core::CompilerOptions {
-                strict: tsr_core::Tristate::True,
-                exact_optional_property_types: tsr_core::Tristate::True,
-                ..Default::default()
-            });
-            assert!(!checker.is_type_assignable_to(source, target));
-        },
-    );
+    // getTypeFromOptionalTypeNode applies optionality when the element type is
+    // created, so the options must be fixed before the annotations resolve.
+    for exact in [false, true] {
+        with_checker(
+            "let source: [number | undefined]; let target: [number?];",
+            |checker, statements| {
+                checker.apply_compiler_options(&tsr_core::CompilerOptions {
+                    strict: tsr_core::Tristate::True,
+                    exact_optional_property_types: if exact {
+                        tsr_core::Tristate::True
+                    } else {
+                        tsr_core::Tristate::False
+                    },
+                    ..Default::default()
+                });
+                let source = annotation_type(checker, statements, 0);
+                let target = annotation_type(checker, statements, 1);
+                assert_eq!(checker.is_type_assignable_to(source, target), !exact);
+            },
+        );
+    }
 }
 
 #[test]

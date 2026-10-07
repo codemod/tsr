@@ -118,7 +118,7 @@ fn assignment_target_spreads_use_tuple_normalization() {
         type_of_last_array_literal(
             "let x: number; let r: [string?, boolean?]; [x, ...r] = null as any;"
         ),
-        "[number, string?, boolean?]"
+        "[number, (string | undefined)?, (boolean | undefined)?]"
     );
     assert_eq!(
         type_of_last_array_literal("let x: number; let r: string[]; [x, ...r] = null as any;"),
