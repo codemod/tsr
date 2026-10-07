@@ -181,6 +181,49 @@ configuration coverage belongs exclusively to parity-full-corpus.
   coverage and actual performed checker-worker budgets are unverified. These
   measurements do not meet or certify the <=0.50 release target.
 
+### Final publication and missing-key evidence
+
+The completed root implementation is commit `ebc34de0`; integration contract
+handoff is `bfe0e755`. The frozen release TSR SHA256 is
+`866e1c6ebe89bf98af5cd20e04fb44b93bb4f73a4cd3d84566c6021c0893211b`;
+the locally built pinned native binary SHA256 is
+`7b85aa10584504012af7b3ec075675649675f2d76ca4bde51019f425c5a62302`.
+
+Native completion for this root: resolveExternalModuleSymbol(false) obtains
+the terminal alias target, getMergedSymbol selects its canonical symbol,
+mergeModuleAugmentation checks Namespace meaning, and mergeSymbol publishes the
+successful source redirect using recordMergedSymbol. TSR resolves its supported
+external import-equals target chain before the same namespace check and calls
+Binder::merge_pairs only for accepted targets. The regression queries Item
+through bound.merged_symbol after merge_module_augmentations returns and observes
+both original and added members, while the unrelated Item stays distinct. The
+circular chain returns no target and no member publication. This proves the
+supported completed binder member image, not privateChecker alias-link
+publication or all native merge/diagnostic behavior. Existing Binder::merge_symbol
+publishes its redirect before recursive member merging rather than after it;
+binding is exclusive and consumers run after the returned BindResult. That
+existing ordering is not claimed equivalent for checker re-entry.
+
+Final explicit key-set comparison, treating actual verdict rows as keys: types
+477970 baseline/candidate keys, diagnostics 10570 baseline/candidate keys;
+missing=0 and extra=0 for both. The type dump contains multiline payloads, so
+physical line count is not the key denominator. Both complete byte streams are
+identical, stronger than the RIGHT-only loss check for this existing oracle.
+Coverage reports all 12444 discovered cases and writes its ordinary snapshots;
+no snapshot changes are committed. No strict expanded/variant native oracle
+completion is inferred from these normalized runs.
+
+Next owned root is export-star resolved-export identity/publication. Current
+export_star_member is a name-at-a-time traversal which drops collisions;
+native getExportsOfModuleWorker constructs the whole export table, keeps the
+first colliding target, records TS2308 collisions, and preserves type-only
+star metadata. A faithful next port needs integrator agreement on one exported
+semantic table result (ordered diagnostic events and type-only origins alongside
+SymbolIds), plus the checker state/diagnostic consumers outside ownership. It
+must not publish module-only results as printer accessibility results. No partial
+replacement or duplicate speculative cache is committed while that contract is
+unresolved.
+
 The external import-equals target boundary is implemented and exercised. The
 full assigned cluster and release goal remain blocked by the cross-owner
 prerequisites above; integration must not mark tsr-2zk.38 closed on this commit.
