@@ -259,3 +259,36 @@ intersection target's failing constituent (`report_relation_failure`,
 `jsx_attributes_context` does not resolve (overloads, generic React
 components whose inference declines, destructured-parameter components),
 attribute builders that decline, and the children half.
+
+## 5. Remaining clusters, with the blocker each was traced to
+
+Measured at `de35cd6` against the box's frozen baseline (`b23dd3d`).
+
+- **Attribute relation answers `Unknown` against React props (most of the
+  159 TS2322/2741/2739/2559 lines; every children case).** Traced on
+  `checkJsxChildrenProperty2`: `{ a: number; b: string; }` against
+  `IntrinsicAttributes & Prop` is `Unknown`. The relater's reasons probe
+  (`relater::reasons`) names `NoMembersTable`: the attributes type is minted
+  by `jsx_attributes_inference_type` (`jsx_intrinsic.rs`, the inference
+  lane's builder) as a `Named` with `members: None`, so the structural arm is
+  never reached. Publishing it as a fresh literal (certifying the member
+  table) was tried and moved nothing. Needed: mint it over the binder's
+  `JsxAttributes` symbol (`binder.rs:4730` binds it as `OBJECT_LITERAL`), or
+  let the relater read `anonymous_properties` for it — a builder/relater
+  change outside this lane. Blocks TS2745/2746/2747 (`elaborateJsxComponents`'
+  children half: `jsxChildrenIndividualErrorElaborations`,
+  `checkJsxChildrenProperty2`/`7`/`14`) and the TS2741 lines in those cases.
+- **Weak-type check inside an intersection target.** The same source answers
+  `NotRelated` against the `IntrinsicAttributes` constituent alone (no common
+  property with `{ key?: Key }`); upstream skips `isPerformingCommonPropertyChecks`
+  under `IntersectionStateTarget`. Relater (`relater.rs`), not this lane.
+- **TS2741 on an intersection target's constituent** (`tsxIntrinsicAttributeErrors`
+  29:2 prints TS2322): `report_relation_failure`'s missing-property path does
+  not descend into the failing constituent. `assignreport.rs`.
+- **TS2786 for overloaded/union tags** (`tsxElementResolution9`, 2 lines):
+  `chooseOverload`'s candidate, calls lane.
+- **`ElementType<any>` instantiation** (`jsxElementTypeLiteralWithGeneric`,
+  `jsxElementType` 91): §1.
+- **TS2607 through an `any` base** (`tsxSpreadAttributesResolution17`): §3.
+- **TS2604 after the alias mint is fixed**: §2's decline becomes dead code once
+  `r4-jsx-alias-mint-signatures.diff` lands.
