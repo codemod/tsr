@@ -171,6 +171,20 @@ impl Checker<'_, '_> {
         // `+null` is TS18050 under `@strict: false` too
         // (`docs/parity/notes/operators.md` §10).
         self.report_nullable_operand_of_type(operand, ty);
+        self.non_null_operand_type(ty)
+    }
+
+    /// The type half of `checkNonNullType` (`checker.go:7409`) for an
+    /// operator operand, with no reporter: `errorType` for `unknown` under
+    /// `strictNullChecks`, the non-nullable remainder otherwise, and
+    /// upstream's tail (`checker.go:7429`) — `errorType` for a nullable or
+    /// `never` result — in both modes. The `+` arm's *type*
+    /// (`binary.rs` `check_addition`) asks this; its diagnostics go through
+    /// [`Checker::check_non_null_type_reporting`].
+    pub(crate) fn non_null_operand_type(&mut self, ty: TypeId) -> TypeId {
+        if self.strict_null_checks && self.type_of(ty).flags.intersects(TypeFlags::UNKNOWN) {
+            return self.intrinsics.error;
+        }
         let non_null = self.check_non_null_type(ty);
         // Non-strict `GetNonNullableType` is the identity, and upstream's tail
         // (`checker.go:7429`) still answers `errorType` for a nullable or

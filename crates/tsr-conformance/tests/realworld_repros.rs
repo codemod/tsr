@@ -93,11 +93,11 @@ export const t: number = [sf, n];
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: logical assignment is not an assignment in get_initial_or_assigned_type"]
 fn logical_assignment_narrows_its_target() {
-    // `flow.rs` `get_initial_or_assigned_type` accepts only `=`; native
-    // `getAssignedType` (flow.go:2288) -> `getAssignedTypeOfBinaryExpression`
-    // (flow.go:2314) answers the right operand for `??=`, `||=`, `&&=` too.
+    // Native `getAssignedType` (flow.go:2288) ->
+    // `getAssignedTypeOfBinaryExpression` (flow.go:2314) answers the right
+    // operand for `??=`, `||=`, `&&=` as for `=` (`flow.rs`
+    // `get_initial_or_assigned_type`, tsr-2zk.923).
     check(
         "export function f(a: string | undefined, b: string) { a ??= b; return a.length; }
 export function g(a: string | undefined, b: string) { a ||= b; return a.length; }
@@ -234,7 +234,6 @@ export const b = { a: [1] } as { a?: number[]; c: number };
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: spelling suggestion for a missing import ignores `export *` members"]
 fn missing_import_suggests_re_exported_name() {
     // compiler/*.ts import `Diagnostics` from the `_namespaces/ts` barrel;
     // native TS2724 suggests `Diagnostic` found through `export *`.

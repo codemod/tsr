@@ -185,6 +185,9 @@ impl<'a> Checker<'a, '_> {
         {
             return self.index_infos_of_symbol(symbol, true, &mut Vec::new());
         }
+        if let Some(tuple) = self.tuple_index_infos(id) {
+            return tuple;
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
         };
@@ -209,6 +212,62 @@ impl<'a> Checker<'a, '_> {
                 })
                 .collect(),
         )
+    }
+
+    /// A tuple's index infos: the number index it inherits from its base.
+    ///
+    /// `getTupleBaseType` (`checker.go:19206`) makes a tuple target's base
+    /// `Array<E>` (`ReadonlyArray<E>` when readonly), where `E` is the union of
+    /// its element type arguments, a variadic element contributing
+    /// `T[number]`; `resolveObjectTypeMembers` copies the base's
+    /// `[n: number]: T` into the tuple's members, instantiated to `E`. An
+    /// optional element's argument already carries `undefined`
+    /// (`addOptionality` in `getTypeFromTupleTypeNode`), which this port keeps
+    /// in the optional mask instead, so it is added back here as
+    /// `variadic_tuple_index_union` does.
+    ///
+    /// `None` when `id` is not a tuple. `Some(None)` — a gap — for the
+    /// print-only shapes whose elements are resolved lazily
+    /// (`tuple_rest_tails`, `variadic_tuple_nodes`): answering "no index" for
+    /// them would be the confident wrong answer this function used to give
+    /// every tuple. No cache or side table: the element lists are the
+    /// existing tuple tables, read per call. `docs/parity/notes/r4-index2.md` §3.
+    fn tuple_index_infos(&mut self, id: TypeId) -> Option<Option<Vec<IndexInfo>>> {
+        let readonly;
+        let value = if let Some((elements, is_readonly)) = self.tuple_element_lists.get(&id) {
+            if self.tuple_rest_tails.contains_key(&id)
+                || self.variadic_tuple_nodes.contains_key(&id)
+            {
+                return Some(None);
+            }
+            readonly = *is_readonly;
+            let mut types = elements.clone();
+            if let Some(mask) = self.tuple_optional_masks.get(&id)
+                && mask.iter().any(|&optional| optional)
+            {
+                types.push(self.intrinsics.undefined);
+            }
+            self.get_union_type(&types)
+        } else if let Some((_, is_readonly)) = self.variadic_tuple_elements.get(&id) {
+            readonly = *is_readonly;
+            match self.variadic_tuple_index_union(id) {
+                Some(value) => value,
+                None => return Some(None),
+            }
+        } else if self.variadic_tuple_nodes.contains_key(&id)
+            || self.tuple_rest_tails.contains_key(&id)
+        {
+            return Some(None);
+        } else {
+            return None;
+        };
+        Some(Some(vec![IndexInfo {
+            components: None,
+            declaration: None,
+            key: self.intrinsics.number,
+            value,
+            readonly,
+        }]))
     }
 
     /// Pinned 5b1047d checker.go:23837/24115/25121 publishes the canonical array

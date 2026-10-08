@@ -1,0 +1,87 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index ab55643..873a0b3 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -386,6 +386,64 @@ impl<'a> Checker<'a, '_> {
+         (contextual != self.intrinsics.error).then_some(contextual)
+     }
+ 
++    /// Whether [`Checker::get_contextually_typed_parameter_type`]'s `None`
++    /// for this unannotated parameter is an **unresolved port path** rather
++    /// than upstream's nil (`getContextuallyTypedParameterType`,
++    /// `checker.go:29458`).
++    ///
++    /// Upstream's nil has exactly the sources
++    /// `implicit_any::contextual_parameter_type_is_absent` lists: no
++    /// contextual type, a contextual type with no usable signature
++    /// ([`ContextualSignature::Absent`]), or a signature too short for the
++    /// position (`tryGetTypeAtPosition`). Each is the implicit `any`
++    /// (`checker.go:18264`). Every other `None` is this port failing to
++    /// compute a type upstream computed, and the parameter's declaration
++    /// answers `errorType` for it, as
++    /// `getTypeForVariableLikeDeclaration`'s other unported arms do
++    /// (`docs/parity/notes/r4-anyaudit.md` §2).
++    ///
++    /// A parameter with an initializer is not asked: its road continues to
++    /// the initializer, which mints no `any`.
++    pub(crate) fn contextually_typed_parameter_is_unresolved(&mut self, parameter: NodeId) -> bool {
++        let Some(function) = self.nodes.parent(parameter) else { return false };
++        // Not a context-sensitive function or object-literal method: upstream's
++        // `isContextSensitiveFunctionOrObjectLiteralMethod` is false and the
++        // contextual type is nil.
++        let Some(parameters) = self.contextualisable_parameters(function) else { return false };
++        let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter)) else {
++            return false;
++        };
++        if parameters[index].initializer.is_some() {
++            return false;
++        }
++        // The IIFE arm (`checker.go:29463`) always answers for a parameter
++        // without an initializer; a `None` from it is an argument this port
++        // could not type.
++        if self.immediately_invoked_call(function).is_some() {
++            return true;
++        }
++        if self.has_no_contextual_type(function) {
++            return false;
++        }
++        let signature = match self.contextual_signature_result(function) {
++            None => return true,
++            Some(ContextualSignature::Absent) => return false,
++            Some(ContextualSignature::Present(signature)) => signature,
++        };
++        // A `this` parameter shifts the index (`checker.go:29489`), which the
++        // port declines; a rest that is not last is a grammar error whose
++        // parameter upstream also types from the context.
++        if parameters.iter().any(|p| is_this_parameter(p)) {
++            return true;
++        }
++        if parameters[index].dot_dot_dot_token.is_some() {
++            // `getRestTypeAtPosition` always answers.
++            return true;
++        }
++        // `tryGetTypeAtPosition` past the last parameter with no rest is nil.
++        self.signature_type_at_position(&signature, index).is_some()
++    }
++
+     /// The parameter list of `function`, if it is a form that can be
+     /// contextually typed.
+     ///
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 4bbaef5..f3fa03a 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -6196,6 +6196,13 @@ impl<'a> Checker<'a, '_> {
+         {
+             return Some(self.add_optionality_for_declaration(contextual, declaration));
+         }
++        // r4-anyaudit §2: a contextual type the port could not compute is
++        // not upstream's nil, so it is not the implicit `any` below.
++        if self.nodes.kind(declaration) == SyntaxKind::Parameter
++            && self.contextually_typed_parameter_is_unresolved(declaration)
++        {
++            return Some(self.intrinsics.error);
++        }
+         let initializer = self.initializer_of(declaration)?;
+ 
+         // `const data = [];` — upstream types the **symbol** `any[]` and leaves

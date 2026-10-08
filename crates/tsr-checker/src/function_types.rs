@@ -135,9 +135,11 @@ impl<'a> Checker<'a, '_> {
         // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
         // than dropping its arguments, an unaliased node renders structurally.
 
+        let mut alias_symbol = None;
         let alias_name = match self.alias_symbol_for_type_node(id) {
             None => None,
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                alias_symbol = Some(alias);
                 Some(self.binder.symbols().get(alias).name.to_string())
             }
             // §947.2: the alias currently being re-resolved renders its body
@@ -195,6 +197,12 @@ impl<'a> Checker<'a, '_> {
         // trace this closes). The set tells it to keep the name.
         if alias_named {
             self.alias_named_signature_types.insert(built);
+        }
+        // ADR-0045 rule 2: `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
+        // gives the type the alias `getAliasSymbolForTypeNode` answered
+        // (`Type.alias`), which `CompareTypes`' `getTypeNameSymbol` sorts by.
+        if let Some(alias) = alias_symbol {
+            self.alias_of.insert(built, (alias, Vec::new()));
         }
         // The structure the text was rendered from, kept reachable from the id
         // so `instantiate_type` can rebuild this type with substituted parts —
