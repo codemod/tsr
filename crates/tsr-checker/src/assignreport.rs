@@ -3483,7 +3483,26 @@ impl<'a> Checker<'a, '_> {
 
     /// A complete property-name list for an object type: the relation
     /// reporters' certified table, else `getPropertiesOfType`'s names.
+    ///
+    /// A function or constructor type literal (`() => any`) is an anonymous
+    /// type whose `__type` symbol holds only its signature, so
+    /// `resolveAnonymousTypeMembers` gives it no properties (the global
+    /// `Function` members are `getPropertyOfType`'s apparent-type fallback,
+    /// which `isKnownProperty`'s `getPropertyOfObjectType` does not take).
     fn certified_property_names(&mut self, t: TypeId) -> Option<Vec<String>> {
+        if let TypeData::Anonymous { symbol, .. } = self.type_of(t).data {
+            let declarations = &self.binder.symbols().get(symbol).declarations;
+            if !declarations.is_empty()
+                && declarations.iter().all(|&declaration| {
+                    matches!(
+                        self.nodes.kind(declaration),
+                        SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+                    )
+                })
+            {
+                return Some(Vec::new());
+            }
+        }
         match self.relation_property_table(t) {
             Some(table) => Some(table.into_iter().map(|(name, _)| name).collect()),
             None => self.get_property_names_of_type(t),

@@ -62,3 +62,15 @@ fn a_destructuring_assignment_types_its_right_by_the_left_literal() {
     );
     assert_eq!(actual, [excess("x", "{}"), excess("y", "{}"), excess("y", "{ x: number; }"),]);
 }
+
+/// `isKnownProperty` against a union with a function-type constituent: the
+/// function type literal has no properties (`excessPropertyErrorForFunctionTypes`).
+#[test]
+fn a_function_type_constituent_knows_no_property() {
+    let actual = diagnostics(
+        "type FunctionType = () => any;\n\
+         type DoesntWork = { a: number, c: number } | FunctionType;\n\
+         let doesntWork: DoesntWork = { a: 1, c: 2, d: 3 };\n",
+    );
+    assert_eq!(actual, [excess("d", "DoesntWork")]);
+}

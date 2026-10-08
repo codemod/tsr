@@ -210,7 +210,9 @@ drops).
 |---|---|---|---|
 | K. `checkObjectLiteral`'s pattern arm | `checkDestructuringShorthandAssigment2`, `declarationEmitDestructuringObjectLiteralPattern`/`1`, `destructuredLateBoundNameHasCorrectTypes`, `missingAndExcessProperties` (5) | Not ported: a literal typed by a binding pattern's implied type, or by the left of a destructuring assignment, reports TS2353 per unnamed member (`checker.go:13250`). | **fixed, §4.1** |
 | L. Conditional / mapped / reverse-mapped targets | `excessPropertyCheckIntersectionWithRecursiveType` (×3), `reverseMappedTypeLimitedConstraint` (×2), `typeSatisfaction_propNameConstraining` (`Partial<Record<Keys, unknown>>`) | The target never resolves to an enumerable object: conditional alias (`tsr-2zk.976`), reverse-mapped inference, and `Partial<Record<…>>` over a union of keys. | `relater.rs`, `mapped.rs`, `inference.rs` |
-| M. Union targets | `excessPropertyErrorForFunctionTypes` (`{…} \| (() => any)`), `excessPropertyCheckWithMultipleDiscriminants` 131:5, `switchStatements` 35:20 | `union_object_literal_failure` declines: a function-type constituent is no excess-check target and has to be filtered out (`isExcessPropertyCheckTarget`). The other two are discriminant matching with more than one discriminant. | `assignreport.rs` (next item) |
+| M. Function-type constituent | `excessPropertyErrorForFunctionTypes` (`{…} \| (() => any)`) | `isKnownProperty` asked the function type literal's property table, which TSR could not certify, so the excess verdict declined. | **fixed, §4.2** |
+| M2. Switch-case excess | `switchStatements` 35:20 | `case { id: 12, name: '' }` against `C`: `checkTypeComparableTo`'s `hasExcessProperties` reports TS2353. `check_switch_case_comparability` (`comparison_overlap.rs`) skips fresh literals because it has no access to the excess reporter. | diff, §4.3 |
+| M3. Several discriminants | `excessPropertyCheckWithMultipleDiscriminants` 131:5 | `Attribute2 = string \| StringAttribute \| NumberAttribute` (intersections with a generic base): `findMatchingDiscriminantType` over intersection constituents declines. | `assignreport.rs` remainder |
 | N. Generic-reference / alias tables | `excessPropertyCheckWithEmptyObject` 4:58 (`PropertyDescriptor & ThisType<any>`), `objectLiteralExcessProperties` 45:76 (`T extends IFoo`) | Already in r5-report2's remainder. | integrator's table diff / relater |
 | O. Index-signature contextual target | `objectLitIndexerContextualType` 18:5 (`y = { s: … }` against a number index) | Not reached: `isKnownProperty` against a number-only index signature with a non-numeric name. | `assignreport.rs` (next item) |
 | P. Symbol-keyed generic argument | `symbolProperty21` 10:5 (`[Symbol.toPrimitive]` against `I<T, U>` during inference) | Call path (argument against an inferred generic interface). | `calls.rs` |
@@ -284,3 +286,23 @@ Both loss checks are empty and types RIGHT is unchanged. Perf, median child
 CPU new/old at 41 samples: domain-model 1.012, generic-imports 1.004 (21
 samples: 1.029 / 1.020). The hook costs one parent-kind lookup per object
 literal on the path that finds no pattern.
+
+### 4.2 Function type literals have no properties (cluster M)
+
+`isKnownProperty` (`relater.go:719`) uses `getPropertyOfObjectType`, which
+reads the resolved members only. A function or constructor type literal's
+`__type` symbol holds just its signature, so `resolveAnonymousTypeMembers`
+gives it no properties. The global `Function` members are
+`getPropertyOfType`'s apparent-type fallback, which this lookup does not
+take. `certified_property_names` (`assignreport.rs`) answered `None` for
+every anonymous type, because an anonymous *function* or class type can carry
+expando or static members. It now answers the empty list for an anonymous
+type whose declarations are all `FunctionType`/`ConstructorType` nodes. That
+shape is the only one where emptiness is certain. The answer also feeds
+`isEmptyObjectType` for the excess check and the spelling-suggestion
+candidates.
+
+Measured against commit 4: `excessPropertyErrorForFunctionTypes` WRONG → RIGHT,
+no other line moved. Both loss checks are empty and types RIGHT is unchanged.
+Perf, median child CPU new/old at 21 samples: domain-model 0.997,
+generic-imports 1.012.
