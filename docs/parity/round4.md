@@ -368,3 +368,14 @@ on TypeScript's src/jsTyping; filed as `tsr-2zk.923`-`.935`, cause 1 noted on
 against the extending config's directory (`tsr-2zk.932`, config-breaking)
 and the composite TS6307 check (`tsr-2zk.931`). Owns `crates/tsr-tsoptions`
 config resolution and a new program-diagnostics function in `tsr-compiler`.
+
+### r4-realworld2 (`tsr-2zk.938`)
+
+Dispatched when `r4-classsyntax` finished (c7d0969, 6c196ce, ac3b6af, 58dacd9,
+213a326: TS2314 qualified/heritage arity, `this` in type queries and
+parameters (TS2683/2331/2680/2681/2730), compound-assignment contextual
+`this`, super-property accessibility TS2855/2513 via a measured call-site
+patch). Second read-only triage pass on TypeScript's `src/compiler` and
+`src/services`, which hung before the relation cache. Also: the unmerged
+r3-misc branch (reserved-name gate, mergeSymbol alias-target error, ambient
+module position checks, flow-graph isPostSuperFlowNode) is merged in batch C.
