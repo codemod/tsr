@@ -514,3 +514,15 @@ object literal the containing literal's contextual type, so
 `string`, while an unannotated `{ ...{ f: x => … } }` leaves `x` implicitly
 `any` (TS7006; tsgo control, both). `get_contextual_type` now has that arm.
 No state.
+
+## 24. Static class-expression fields read getTypeOfPropertyOfContextualType (tsr-2zk.16.305)
+
+`getContextualTypeForStaticPropertyDeclaration` (`checker.go:29612`) calls
+`getTypeOfPropertyOfContextualType` on the class expression's contextual type
+(not its apparent type); the union map skips `undefined`, so an optional slot
+or member typed `I | undefined` still supplies `I["x"]`:
+`let { c: c4 = class { static x = { a: "b" } } }: { c?: I } = {}` keeps
+`"b"` (tsgo's TS2322 elaborates `'"b"'`), while a `{ a: string }` member
+widens. The arm now reads `contextual_property_type` (the existing
+getTypeOfPropertyOfContextualType port). No state. Perf: domain-model has no
+class expressions; repeated 41-sample runs ranged 0.935–1.083 (noise).
