@@ -1006,12 +1006,17 @@ impl Checker<'_, '_> {
     /// the protocol decidably fails. Upstream reports the union's whole type
     /// when one constituent fails (`checker.go:6293`).
     ///
+    /// With `checkAssignability`, a found *next* type is checked against
+    /// `sent_type` (`undefinedType` everywhere but `yield*`, which sends its
+    /// generator's own next type) with the use's TS2763–TS2766 head.
+    ///
     /// Without a global `Iterable` the array-like road reports instead
     /// ([`Checker::check_array_like_iteration`]).
     pub(crate) fn check_iterated_type_or_element_type(
         &mut self,
         use_: IterationUse,
         input: TypeId,
+        sent_type: TypeId,
         error_node: NodeId,
     ) {
         if input == self.intrinsics.any || self.is_error(input) {
@@ -1027,11 +1032,50 @@ impl Checker<'_, '_> {
             self.check_array_like_iteration(use_, input, error_node);
             return;
         }
-        if let Ok(types) = self.get_iteration_types_of_iterable_ex(input, use_, Some(error_node))
-            && !types.has_types()
-        {
+        let Ok(types) = self.get_iteration_types_of_iterable_ex(input, use_, Some(error_node))
+        else {
+            return;
+        };
+        if let Some(next_type) = types.next_type {
+            self.check_iteration_sent_type(use_, sent_type, next_type, error_node);
+        }
+        if !types.has_types() {
             self.report_type_not_iterable_error(error_node, input, allow_async);
         }
+    }
+
+    /// The `checkAssignability` arm of `getIteratedTypeOrElementType`
+    /// (`checker.go:6118`): `checkTypeAssignableTo(sentType, nextType,
+    /// errorNode, head)` with the head the use's flag picks, for-of first.
+    /// A relation this port cannot decide reports nothing.
+    fn check_iteration_sent_type(
+        &mut self,
+        use_: IterationUse,
+        sent_type: TypeId,
+        next_type: TypeId,
+        error_node: NodeId,
+    ) {
+        let head: &'static tsr_diagnostics::Message = if use_.contains(IterationUse::FOR_OF_FLAG) {
+            &messages::CANNOT_ITERATE_VALUE_BECAUSE_THE_NEXT_METHOD_OF_ITS_ITERATOR_EXPECTS_TYPE_1_BUT_FOR_OF_WILL_ALWAYS_SEND_0
+        } else if use_.contains(IterationUse::SPREAD_FLAG) {
+            &messages::CANNOT_ITERATE_VALUE_BECAUSE_THE_NEXT_METHOD_OF_ITS_ITERATOR_EXPECTS_TYPE_1_BUT_ARRAY_SPREAD_WILL_ALWAYS_SEND_0
+        } else if use_.contains(IterationUse::DESTRUCTURING_FLAG) {
+            &messages::CANNOT_ITERATE_VALUE_BECAUSE_THE_NEXT_METHOD_OF_ITS_ITERATOR_EXPECTS_TYPE_1_BUT_ARRAY_DESTRUCTURING_WILL_ALWAYS_SEND_0
+        } else if use_.contains(IterationUse::YIELD_STAR_FLAG) {
+            &messages::CANNOT_DELEGATE_ITERATION_TO_VALUE_BECAUSE_THE_NEXT_METHOD_OF_ITS_ITERATOR_EXPECTS_TYPE_1_BUT_THE_CONTAINING_GENERATOR_WILL_ALWAYS_SEND_0
+        } else {
+            return;
+        };
+        if self.is_error(sent_type) || self.is_error(next_type) {
+            return;
+        }
+        if self.relate_ternary(sent_type, next_type, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::NotRelated
+        {
+            return;
+        }
+        let span = self.error_span(error_node);
+        self.report_relation_failure(error_node, span, None, sent_type, next_type, Some(head));
     }
 
     /// The array-like road of `getIteratedTypeOrElementType`
@@ -1184,7 +1228,8 @@ impl Checker<'_, '_> {
             } else {
                 IterationUse::DESTRUCTURING | IterationUse::POSSIBLY_OUT_OF_BOUNDS
             };
-            self.check_iterated_type_or_element_type(use_, parent_type, pattern_id);
+            let undefined = self.intrinsics.undefined;
+            self.check_iterated_type_or_element_type(use_, parent_type, undefined, pattern_id);
             return;
         }
         if !matches!(
@@ -1199,7 +1244,13 @@ impl Checker<'_, '_> {
         if declared == self.intrinsics.any || self.is_error(declared) {
             return;
         }
-        self.check_iterated_type_or_element_type(IterationUse::DESTRUCTURING, declared, holder);
+        let undefined = self.intrinsics.undefined;
+        self.check_iterated_type_or_element_type(
+            IterationUse::DESTRUCTURING,
+            declared,
+            undefined,
+            holder,
+        );
     }
 
     /// The source type `checkDestructuringAssignment` (`checker.go:12569`)
@@ -1257,9 +1308,11 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(source) = self.destructuring_assignment_source(node) else { return };
+        let undefined = self.intrinsics.undefined;
         self.check_iterated_type_or_element_type(
             IterationUse::DESTRUCTURING | IterationUse::POSSIBLY_OUT_OF_BOUNDS,
             source,
+            undefined,
             node,
         );
     }
@@ -1294,7 +1347,13 @@ impl Checker<'_, '_> {
         if self.binding_parent_is_array_like(spread_type) != Some(false) {
             return;
         }
-        self.check_iterated_type_or_element_type(IterationUse::SPREAD, spread_type, expression_id);
+        let undefined = self.intrinsics.undefined;
+        self.check_iterated_type_or_element_type(
+            IterationUse::SPREAD,
+            spread_type,
+            undefined,
+            expression_id,
+        );
     }
 
     /// The `ForInStatement` arm of `getTypeForVariableLikeDeclaration`
@@ -1349,10 +1408,10 @@ impl Checker<'_, '_> {
         let Some(operand) = yield_expression.expression else { return };
         let Some(operand_id) = operand.node_id() else { return };
         let Some(container) = self.containing_function(node) else { return };
-        let (asterisk, modifiers) = match self.node_map.get(container) {
-            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.modifiers),
-            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.modifiers),
-            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.modifiers),
+        let (asterisk, modifiers, annotation) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.modifiers, f.r#type),
+            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.modifiers, f.r#type),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.modifiers, f.r#type),
             _ => return,
         };
         if asterisk.is_none() {
@@ -1364,7 +1423,19 @@ impl Checker<'_, '_> {
         });
         let use_ = if is_async { IterationUse::ASYNC_YIELD_STAR } else { IterationUse::YIELD_STAR };
         let operand_type = self.check_expression(operand);
-        self.check_iterated_type_or_element_type(use_, operand_type, operand_id);
+        // checkYieldExpression's `signatureNextType` (`checker.go:10993`):
+        // the annotated return type's next iteration type orElse `anyType`;
+        // without an annotation upstream has no iteration types and sends
+        // `anyType`. An undecided annotation sends `errorType`, which the
+        // sent-type check skips.
+        let sent_type = match annotation {
+            Some(annotation) => {
+                let annotated = self.get_type_from_type_node(annotation);
+                self.annotated_yield_next_type(annotated, is_async).unwrap_or(self.intrinsics.error)
+            }
+            None => self.intrinsics.any,
+        };
+        self.check_iterated_type_or_element_type(use_, operand_type, sent_type, operand_id);
     }
 
     /// The type half of `checkRightHandSideOfForOf` (`checker.go:17678`):
@@ -1419,6 +1490,7 @@ impl Checker<'_, '_> {
         // `for (x of undefined)` is TS18050, `for (x of maybe)` TS18048.
         let checked = self.check_expression(expression);
         let input = self.check_non_null_type_reporting(checked, expression);
-        self.check_iterated_type_or_element_type(use_, input, expression_id);
+        let undefined = self.intrinsics.undefined;
+        self.check_iterated_type_or_element_type(use_, input, undefined, expression_id);
     }
 }
