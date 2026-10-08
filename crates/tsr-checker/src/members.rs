@@ -1809,10 +1809,25 @@ impl Checker<'_, '_> {
         if visiting.contains(&owner) {
             return None;
         }
+        // The binder outlives this borrow of `self`; no copy of the list.
+        let binder = self.binder;
+        let declarations = &binder.symbols().get(owner).declarations;
+        // Without an `extends` clause there is nothing to walk, and an owner
+        // that cannot recurse needs no entry on the path guard.
+        let extends_anything = declarations.iter().any(|&declaration| {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => return false,
+            };
+            clauses.iter().any(|clause| clause.token.kind == tsr_ast::SyntaxKind::ExtendsKeyword)
+        });
+        if !extends_anything {
+            return None;
+        }
         visiting.push(owner);
-        let declarations: Vec<tsr_ast::NodeId> =
-            self.binder.symbols().get(owner).declarations.iter().copied().collect();
-        for declaration in declarations {
+        for &declaration in declarations {
             let clauses = match self.node_map.get(declaration) {
                 Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
                 Some(Node::ClassExpression(node)) => node.heritage_clauses,
@@ -3475,7 +3490,6 @@ impl Checker<'_, '_> {
         if visiting.contains(&owner) {
             return None;
         }
-        visiting.push(owner);
         if let Some(&found) = self.binder.symbols().get(owner).members.get(name)
             && self.symbol_is_value(found)
         {
@@ -3490,7 +3504,14 @@ impl Checker<'_, '_> {
                 return Some(symbol);
             }
         }
-        for base in self.base_symbols_of(owner)? {
+        let bases = self.base_symbols_of(owner)?;
+        // The path guard matters only for the base walk: an owner answered
+        // by its own tables, or with no bases, cannot close a cycle, and an
+        // unrecorded miss re-searched through a diamond misses again.
+        if !bases.is_empty() {
+            visiting.push(owner);
+        }
+        for base in bases {
             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
                 return Some(found);
             }

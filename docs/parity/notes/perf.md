@@ -590,3 +590,32 @@ remaining native-faithful cuts are in files this lane does not own:
   before matching the intersection arm (allocates for every non-intersection
   constituent).
 - §13 C5 (objects/printing representation) unchanged.
+
+## §16 Allocation count on hot paths (base `470ec060`, pinned 1.96.0)
+
+macOS's allocator makes TSR's allocation churn far more expensive than on
+Linux glibc, so this round ranks allocation sites. Method: `valgrind
+--tool=dhat --num-callers=40` on a `profiling` build of domain-model-large
+(blocks per call site, attributed to the first frame outside `std`), and an
+`LD_PRELOAD` counter of `malloc`/`posix_memalign` calls on release builds
+(deterministic to ±2 across runs). Base: **8,112,413** mallocs + 241,892
+reallocs per run. Verified ratio at base: domain-model-large 0.971,
+domain-model 0.898, generic-imports 0.911.
+
+### §16.1 Path guards allocate only when the walk recurses
+
+Four cycle guards pushed onto a fresh `Vec` before knowing they would
+recurse: `is_generic_homomorphic_mapped_type_inner` (`mapped.rs`, every
+query, 580k allocations), `get_property_of_declared_symbol` (`members.rs`,
+every declared member lookup, 555k), `generic_heritage_member` (its owner
+plus a copy of the declaration list, 206k) and `binding_type_alias_body`
+(`destructure.rs`, 85k). Each now records its entry only where it can
+recurse: a non-mapped type, an owner answered by its own tables or with no
+bases, an owner without `extends`, the starting type (kept apart from the
+list). An unrecorded entry can only be re-searched through a diamond and
+answers the same. Answers unchanged; dumps byte-identical.
+
+mallocs 8,112,413 → **6,748,163** (−16.8%). Verified ratio:
+domain-model-large 0.971 → 0.942, domain-model 0.898 → 0.883,
+generic-imports 0.911 → 0.922 (noise band). CPU vs base: domain-model 1.015,
+generic-imports 0.999.
