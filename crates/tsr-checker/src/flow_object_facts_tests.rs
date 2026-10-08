@@ -113,7 +113,7 @@ fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
 }
 
 #[test]
-fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
+fn ordinary_and_runtime_this_false_branches_and_negation_read_native_facts() {
     let source = r#"function f(this: {p: "left"; q: 17}, x: {p: "right"; q: 23}) {
         if (!x) {type X = typeof x;}
         if (!this) {type Held = typeof this; this;}
@@ -135,9 +135,8 @@ fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
             let kind = checker.nodes.kind(id);
             if kind == SyntaxKind::PrefixUnaryExpression {
                 let ty = checker.check_expression_at_node(id);
-                // Native loose mode returns boolean. The separate object
-                // negation consumer does not read these facts yet; held here.
-                assert_eq!(checker.type_to_string(ty), "false");
+                // Loose ObjectFacts include Falsy, so `!object` is boolean.
+                assert_eq!(checker.type_to_string(ty), if null { "false" } else { "boolean" });
             } else if kind == SyntaxKind::ThisKeyword
                 && checker
                     .nodes
