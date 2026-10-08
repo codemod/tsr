@@ -108,3 +108,31 @@ it) the template copy did not have. The symbol-free
 
 **Falsifier.** A template expression whose folded literal differs from the
 baseline; the corpus loss check measures it.
+
+## §3 `computeConstantEnumMemberValue`'s switch reads the evaluator
+
+**Forcing constraint.** The switch (`checker.go:23997`–`:24020`) reports
+TS2477/TS2478 on a const enum's non-finite value, TS2474 (const) or TS1066
+(ambient) on a `nil` value, and TS18033 otherwise. Without a symbol-aware
+evaluator the port decided "`nil`" three different syntactic ways:
+`enum_member_name.rs` (§819/§821 of `checker-notes-diag2.md`: the symbol-free
+evaluator plus a reference-identifier / call guard), `enum_initializer_may_evaluate`
+(an over-approximation for TS18033), and `const_enum_numeric_value` (numeric
+arms only, for TS2477/TS2478). Each declined wherever an enum member or
+constant could be involved, and the guard over-reported TS2474 where a
+reference *does* fold (`constEnums`: `W5 = Enum1[`V`]`,
+`constEnumPropertyAccess3`) and under-reported where it does not
+(`constEnumErrors`: `Y = E1.Z` naming a missing member, `F = E * E`
+through prior members).
+
+**What changed.** All three ask `Checker::evaluate_constant(initializer,
+member)` (§1) — the same answer the member's declared type is built from.
+The three approximations are deleted; §819 and §821 carry a superseded note.
+The checks stay where their callers put them (`check.rs`'s member arm and
+`check_enum_member_name`); evaluating up to three times per member is
+syntactic work over one initializer, with any referenced enum's values
+already published.
+
+**Falsifier.** A TS1066/TS2474/TS18033/TS2477/TS2478 line that differs from
+the baseline where the evaluator's answer is the cause.
+

@@ -6,12 +6,10 @@
 //! does not fold is checked with `checkTypeAssignableTo(checkExpression(init),
 //! numberType)`.
 //!
-//! This port has no symbol-aware evaluator (`enum_member_name.rs`, §819), so
-//! "does not fold" is decided by [`Checker::enum_initializer_may_evaluate`], a
-//! syntactic over-approximation of `evaluator.NewEvaluator` with the checker's
-//! `evaluateEntity` (`checker.go:24024`): anything it cannot rule out is
-//! declined, so the rule reports only where upstream's evaluator answers
-//! `nil`. No cache, side table or traversal beyond the initializer's spine.
+//! "Does not fold" is the checker's evaluator answering `nil`
+//! ([`Checker::evaluate_constant`], ported below: `evaluator.NewEvaluator`
+//! with `evaluateEntity`, `checker.go:24024`). It replaced a syntactic
+//! over-approximation (`docs/parity/notes/r4-templates.md` §3).
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::{SymbolFlags, SymbolId};
@@ -39,7 +37,7 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        if self.enum_initializer_may_evaluate(at, 0) {
+        if self.evaluate_constant(at, node).is_some() {
             return;
         }
         let source = self.check_expression(initializer);
@@ -62,113 +60,11 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// Could `evaluate` (`evaluator.go:24`, skipping parentheses only) answer
-    /// a value for this expression? `true` wherever it might; `false` only for
-    /// shapes whose result is `nil` whatever their symbols resolve to, plus
-    /// identifiers that resolve to neither an enum member, a constant
-    /// variable `evaluateEntity` reads, nor the global `Infinity`/`NaN`.
-    fn enum_initializer_may_evaluate(&self, node: NodeId, depth: u32) -> bool {
-        if depth > 64 {
-            return true;
-        }
-        let mut node = node;
-        while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(node) {
-            let Some(inner) = wrapper.expression.and_then(|e| e.node_id()) else { return true };
-            node = inner;
-        }
-        match self.node_map.get(node) {
-            // Literals fold. Property and element accesses on an entity name go
-            // to `evaluateEntity` (`ast.IsEntityNameExpression`), whose
-            // enum-member reads this port cannot decide without symbols.
-            Some(
-                Node::StringLiteral(_)
-                | Node::NoSubstitutionTemplateLiteral(_)
-                | Node::NumericLiteral(_)
-                | Node::PropertyAccessExpression(_)
-                | Node::ElementAccessExpression(_),
-            ) => true,
-            Some(Node::PrefixUnaryExpression(unary)) => {
-                matches!(
-                    unary.operator.kind,
-                    SyntaxKind::PlusToken | SyntaxKind::MinusToken | SyntaxKind::TildeToken
-                ) && unary
-                    .operand
-                    .and_then(|e| e.node_id())
-                    .is_none_or(|operand| self.enum_initializer_may_evaluate(operand, depth + 1))
-            }
-            Some(Node::BinaryExpression(binary)) => {
-                let Some(token) = binary.operator_token else { return true };
-                let folds = matches!(
-                    token.kind,
-                    SyntaxKind::BarToken
-                        | SyntaxKind::AmpersandToken
-                        | SyntaxKind::GreaterThanGreaterThanToken
-                        | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
-                        | SyntaxKind::LessThanLessThanToken
-                        | SyntaxKind::CaretToken
-                        | SyntaxKind::AsteriskToken
-                        | SyntaxKind::SlashToken
-                        | SyntaxKind::PlusToken
-                        | SyntaxKind::MinusToken
-                        | SyntaxKind::PercentToken
-                        | SyntaxKind::AsteriskAsteriskToken
-                );
-                folds
-                    && [binary.left, binary.right].into_iter().all(|side| {
-                        side.and_then(|e| e.node_id())
-                            .is_none_or(|side| self.enum_initializer_may_evaluate(side, depth + 1))
-                    })
-            }
-            Some(Node::TemplateExpression(template)) => {
-                template.template_spans.iter().all(|span| {
-                    span.expression
-                        .and_then(|e| e.node_id())
-                        .is_none_or(|inner| self.enum_initializer_may_evaluate(inner, depth + 1))
-                })
-            }
-            Some(Node::Identifier(identifier)) => {
-                let Some(symbol) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    node,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                ) else {
-                    return false;
-                };
-                if matches!(identifier.text, "Infinity" | "NaN")
-                    && self.binder.globals().get(identifier.text) == Some(&symbol)
-                {
-                    return true;
-                }
-                let entry = self.binder.symbols().get(symbol);
-                // `resolveEntityName` follows an import alias to its target,
-                // which this binder lookup does not; an alias may name a
-                // constant variable or enum member elsewhere.
-                if entry.flags.intersects(SymbolFlags::ENUM_MEMBER | SymbolFlags::ALIAS) {
-                    return true;
-                }
-                entry.flags.intersects(SymbolFlags::VARIABLE)
-                    && entry.value_declaration.is_some_and(|declaration| {
-                        matches!(
-                            self.node_map.get(declaration),
-                            Some(Node::VariableDeclaration(variable))
-                                if variable.r#type.is_none() && variable.initializer.is_some()
-                        ) && self
-                            .combined_node_flags(declaration)
-                            .intersects(tsr_ast::NodeFlags::CONSTANT)
-                    })
-            }
-            _ => false,
-        }
-    }
-
     /// TS2477 / TS2478 — `computeConstantEnumMemberValue`'s const arm
     /// (`checker.go:24001`): a `const` enum member whose initializer evaluates
     /// to a non-finite number reports at the initializer, `NaN` with its own
-    /// message. Evaluated by [`Checker::const_enum_numeric_value`]; an
-    /// initializer it cannot fold declines (it may still evaluate upstream
-    /// through an enum member or constant).
+    /// message. Evaluated by [`Checker::evaluate_constant`] with the member
+    /// as `location`.
     pub(crate) fn check_const_enum_member_value(&mut self, node: NodeId) {
         let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
         let Some(at) = member.initializer.and_then(|initializer| initializer.node_id()) else {
@@ -182,7 +78,7 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        let Some(value) = self.const_enum_numeric_value(at, 0) else { return };
+        let Some(EnumConstant::Number(value)) = self.evaluate_constant(at, node) else { return };
         let message = if value.is_nan() {
             &messages::CONST_ENUM_MEMBER_INITIALIZER_WAS_EVALUATED_TO_DISALLOWED_VALUE_NAN
         } else if value.is_infinite() {
@@ -193,59 +89,6 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         self.report(file, Diagnostic::new(message, span));
-    }
-
-    /// `evaluate` (`evaluator.go`) restricted to the numeric arms that can
-    /// produce a non-finite value: numeric literals, the global `Infinity`
-    /// and `NaN` (`evaluateEntity`'s first arm, `checker.go:24032`), unary
-    /// `+`/`-`, and the arithmetic binary operators. Any other shape —
-    /// enum members, constants, strings, bitwise operators (always finite)
-    /// — answers `None`.
-    fn const_enum_numeric_value(&self, node: NodeId, depth: u32) -> Option<f64> {
-        if depth > 64 {
-            return None;
-        }
-        match self.node_map.get(node)? {
-            Node::ParenthesizedExpression(wrapper) => {
-                self.const_enum_numeric_value(wrapper.expression?.node_id()?, depth + 1)
-            }
-            Node::NumericLiteral(literal) => Some(tsr_core::jsnum::numeric_value(literal.text)),
-            Node::Identifier(identifier) if matches!(identifier.text, "Infinity" | "NaN") => {
-                let symbol = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    node,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                )?;
-                (self.binder.globals().get(identifier.text) == Some(&symbol))
-                    .then(|| if identifier.text == "NaN" { f64::NAN } else { f64::INFINITY })
-            }
-            Node::PrefixUnaryExpression(unary) => {
-                let operand =
-                    self.const_enum_numeric_value(unary.operand?.node_id()?, depth + 1)?;
-                match unary.operator.kind {
-                    SyntaxKind::PlusToken => Some(operand),
-                    SyntaxKind::MinusToken => Some(-operand),
-                    _ => None,
-                }
-            }
-            Node::BinaryExpression(binary) => {
-                let operator = binary.operator_token?.kind;
-                let left = self.const_enum_numeric_value(binary.left?.node_id()?, depth + 1)?;
-                let right = self.const_enum_numeric_value(binary.right?.node_id()?, depth + 1)?;
-                match operator {
-                    SyntaxKind::PlusToken => Some(left + right),
-                    SyntaxKind::MinusToken => Some(left - right),
-                    SyntaxKind::AsteriskToken => Some(left * right),
-                    SyntaxKind::SlashToken => Some(left / right),
-                    SyntaxKind::PercentToken => Some(left % right),
-                    SyntaxKind::AsteriskAsteriskToken => Some(left.powf(right)),
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
     }
 
     /// TS2651 — `A member initializer in a enum declaration cannot reference
