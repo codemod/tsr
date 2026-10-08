@@ -1126,7 +1126,11 @@ impl Checker<'_, '_> {
         let constraint_node =
             self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
                 match self.node_map.get(declaration) {
-                    Some(Node::TypeParameterDeclaration(parameter)) => parameter.constraint,
+                    // A JSDoc `@template {C}` constraint is the reparsed
+                    // parameter's (`gatherTypeParameters`).
+                    Some(Node::TypeParameterDeclaration(parameter)) => {
+                        parameter.constraint.or_else(|| self.jsdoc_template_constraint(declaration))
+                    }
                     _ => None,
                 }
             })?;

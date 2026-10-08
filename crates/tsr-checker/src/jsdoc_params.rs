@@ -893,7 +893,6 @@ impl<'a> Checker<'a, '_> {
     /// The constraint `gatherTypeParameters` (`parser/reparser.go:293`)
     /// gives a JSDoc type parameter: an `@template {C} T, U` tag's `{C}`
     /// becomes the reparsed constraint of its **first** parameter only.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-template-constraint.diff")]
     pub(crate) fn jsdoc_template_constraint(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
         let tag = self.nodes.parent(parameter)?;
         let Some(Node::JSDocTemplateTag(template)) = self.node_map.get(tag) else {
