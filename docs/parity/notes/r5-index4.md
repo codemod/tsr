@@ -49,3 +49,61 @@ That is a `this`-typing question, outside this lane.
 
 **Falsifier.** A baseline TS7017 that is missing where the receiver is
 `typeof globalThis`, or an extra one on a name that some global declares.
+
+## 2. r4-index3's two `get_index_infos_of_type` gaps, measured (not shipped)
+
+Both are measured against the baseline frozen at `f4ae684`, with §1 applied.
+
+**A bare primitive at the top level.** Native `getIndexInfosOfType(t)` reads
+`getReducedApparentType(t)`, so `string` answers `String`'s
+`readonly [index: number]: string`. Variant measured: map a `PRIMITIVE`
+receiver through `apparent_type` at the head of `get_index_infos_of_type`.
+Types: 2 gained (`objectRest:0:24`, `:0:25`), 12 lost (`nestedTypeVariableInfersLiteral`
+×6, `recursiveTypeReferences1` ×6). Diagnostics: 1 lost
+(`nestedTypeVariableInfersLiteral`). Root cause of the loss: the inference
+code (`inference.rs`, main's file) consumes this function for primitive
+sources. With the change, `direct("z")` against `A | A[]` sees `String`'s
+number index while inferring to `A[]`, and `A` becomes `string`
+(`Record<string, string>`; native `Record<"z", string>`). Native's
+inference reads the apparent type only after the naked-type-variable and
+priority handling of `inferToMultipleTypes`, which this port's inference
+does not mirror. The faithful change waits on that caller. Refused, with
+these numbers.
+
+**The union arm.** `union_index_infos` already maps *primitive* constituents
+through `apparent_type`. Variant measured: map every constituent, as
+`getReducedApparentType` does (type parameters to their constraint,
+`object` to `{}`). Both dumps were verdict-for-verdict identical to the
+baseline: 0 gained, 0 lost. Not shipped. A neutral change still costs a
+lookup on every union receiver, and no case asks for it.
+
+## 3. TS2536 (`checkIndexedAccessIndexType`), measured and refused
+
+This port has no TS2536 reporter: 20 baseline lines in 10 cases are missing,
+0 are present. Variant measured: the type-node check site
+(`check_indexed_access_type_index_type`) took each deferred `Object[Index]`
+the port mints (`deferred_indexed_access_types`) and related every index
+constituent to `resolved_keyof_type(Object)`. A number index on the
+apparent object admitted numeric keys. `relate_ternary` answering `Unknown`
+declined the report.
+
+Result: 1 line gained (`mappedTypeErrors2:13`), 14 false TS2536s added, and
+5 diagnostics cases lost (`conditionalTypeVarianceBigArrayConstraintsPerformance`,
+`neverAsDiscriminantType` ×2 configurations, `stringMappingReduction`,
+`templateLiteralTypes6`). The false reports all come from the relater
+answering a confident `NotRelated` where native proves the key assignable
+to `keyof`:
+
+- template-literal and string-mapping keys (`templateLiteralTypes5/6`,
+  `stringMappingReduction`);
+- `keyof (T & {})`-style operands (`unknownControlFlow:420`);
+- deep conditional and mapped keys (`ramdaToolsNoInfinite2`,
+  `mappedTypeInferenceFromApparentType`);
+- a private member of a generic constraint
+  (`indexedAccessPrivateMemberOfGenericConstraint`, native TS4105).
+
+The reporter shape is correct. Its precondition is a relater that does not
+answer `NotRelated` on generic-key-to-`keyof` pairs it cannot prove, and
+that is `relater.rs` (r5-relater4). Falsifier for re-trying it: rerun this
+variant after the relater's generic `keyof` arms land. Zero extra TS2536 on
+the diagnostics dump is the bar.
