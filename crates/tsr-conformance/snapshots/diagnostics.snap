@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4488/5502 (81.57%)
-Failed         : 1014
+Passed         : 4495/5502 (81.70%)
+Failed         : 1007
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1014 failures:
+First 100 of 1007 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -85,7 +85,7 @@ compiler/bigintArbirtraryIdentifier
 compiler/bigintIndex
   1 missing (first TS2322 at a.ts(15,1))
 compiler/bigintPropertyName
-  2 unexpected (first TS1005 at g.ts(35,4)), 23 missing
+  3 unexpected (first TS2322 at g.ts(26,18)), 22 missing
 compiler/bigintWithLib
   6 missing (first TS2769 at bigintWithLib.ts(19,34))
 compiler/bindingPatternCannotBeOnlyInferenceSource
@@ -96,8 +96,6 @@ compiler/builtinIterator
   7 missing (first TS2511 at builtinIterator.ts(38,1))
 compiler/cannotIndexGenericWritingError
   2 missing (first TS2862 at cannotIndexGenericWritingError.ts(4,5))
-compiler/capturedParametersInInitializers1
-  2 missing (first TS2373 at capturedParametersInInitializers1.ts(22,26))
 compiler/castOfYield
   2 unexpected (first TS2304 at castOfYield.ts(4,14)), 1 missing
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
@@ -212,3 +210,5 @@ compiler/controlFlowArrayErrors
   8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
 compiler/controlFlowFunctionLikeCircular1
   2 unexpected (first TS2456 at controlFlowFunctionLikeCircular_8.ts(5,10)), 11 missing
+compiler/controlFlowInstanceof
+  1 missing (first TS2339 at uglify.js(9,7))
