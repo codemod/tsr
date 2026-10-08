@@ -149,3 +149,27 @@ The 25 left are literal keys from non-string-literal nodes (number literal,
 unique symbol, enum member, `const` string; they need the property-absence
 certification `nonexistent_property.rs` owns), tuple receivers, and
 type-literal receivers whose index infos live in `declared.rs`.
+
+## 4. Type-literal index signatures: untyped value and invalid key (tsr-2zk.16.119)
+
+`getIndexInfosOfIndexSymbol` (`checker.go:19645-19658`) gives a signature
+without a written value type the value `any`, and adds no info for a
+signature without exactly one typed parameter or whose key has no valid
+constituent (`isValidIndexKeyType`). Native `typeToString`:
+`{ [x: string]; }` is `{ [x: string]: any; }`, `{ [index: any]; }` is `{}`,
+`{ [index: RegExp]; y: number }` is `{ y: number; }` (pinned `tsgo`).
+
+Owned half, committed: `index_signature_member` renders the untyped value as
+`any` and declines an invalid key (it used to render `[index: any]: …`, a
+confident wrong answer, when a value was written). Alone it moves no corpus
+line, because `declared.rs`' type-literal road turns the declined member
+into a whole-literal `error`.
+
+Caller half, NOT committed (not owned):
+`docs/parity/notes/r4-index-type-literal-degenerate-index.diff` makes
+`get_type_from_type_literal` skip a degenerate signature instead of declining
+the literal. Measured on top of this lane's commits: types +3 RIGHT
+(`parserIndexSignature8:0:0`, `:0:2`, `arraySigChecking:0:5`), 0 losses in
+either dump. Still open after it: a union key (`{ [x: string | number]: T }`
+is two infos upstream, printed as two members) keeps declining, because
+`index_signature_member` returns one member; the caller would need a list.

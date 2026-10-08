@@ -1219,7 +1219,27 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        let value_node = signature.r#type?;
+        // `getIndexInfosOfIndexSymbol` keeps only a valid key
+        // (`isValidIndexKeyType`, `checker.go:19655`); an invalid one
+        // contributes no member upstream, which the caller cannot yet say
+        // (`docs/parity/notes/r4-index.md` §4), so it still declines.
+        if !self.is_valid_index_key_type(key) {
+            return None;
+        }
+        let readonly = signature.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
+        });
+        // `valueType := c.anyType` without a written type (`checker.go:19649`):
+        // `{ [x: string]; }` prints `{ [x: string]: any; }`.
+        let Some(value_node) = signature.r#type else {
+            return Some(crate::objects::Member::Index {
+                readonly,
+                name: name.text.to_string(),
+                key: self.type_to_string(key),
+                value: "any".to_string(),
+            });
+        };
         let value = self.get_type_from_type_node(value_node);
         // §949, leg 1: §929's rule at the INDEX member. A value type this port
         // cannot resolve used to decline the member, and the caller turns a
@@ -1234,10 +1254,6 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
-        let readonly = signature.modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
-        });
         Some(crate::objects::Member::Index {
             readonly,
             name: name.text.to_string(),
