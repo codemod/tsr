@@ -2535,6 +2535,9 @@ impl Relater<'_, '_, '_> {
         }
         let target_has_string =
             target_infos.iter().any(|info| info.key == self.checker.intrinsics.string);
+        // indexSignaturesRelatedTo reports only for a non-primitive source
+        // (reportStructuralErrors), on the pair being explained.
+        let reporting = !source_is_primitive && self.diagnostic_pair == Some((source, target));
         let mut parts = Vec::with_capacity(target_infos.len());
         for info in &target_infos {
             if self.relation != Relation::StrictSubtype
@@ -2547,13 +2550,33 @@ impl Relater<'_, '_, '_> {
             // Unresolved source infos cannot prove that a declared index is absent.
             let source_infos = self.checker.get_index_infos_of_type(source)?;
             if let Some(from) = self.checker.get_applicable_index_info(source, info.key) {
-                parts.push(self.is_related_to(from.value, info.value));
+                let related = self.index_info_related_to(
+                    from.key,
+                    from.value,
+                    info,
+                    reporting && !parts.contains(&RelationResult::Unknown),
+                );
+                if related == RelationResult::NotRelated {
+                    return Some(related);
+                }
+                parts.push(related);
                 continue;
             }
             if (self.relation == Relation::StrictSubtype
                 && !self.checker.fresh_object_literal_types.contains(&source))
                 || !self.object_type_has_inferable_index(source)
             {
+                // typeRelatedToIndexInfo (relater.go:4603).
+                if reporting && !parts.contains(&RelationResult::Unknown) {
+                    self.property_error = Some(tsr_diagnostics::Diagnostic::with_args(
+                        &tsr_diagnostics::messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
+                        tsr_core::Span::new(0, 0),
+                        [
+                            self.checker.type_to_string(info.key),
+                            self.checker.type_to_string(source),
+                        ],
+                    ));
+                }
                 return Some(RelationResult::NotRelated);
             }
             let names = self.checker.get_property_names_of_type(source)?;
@@ -2585,15 +2608,125 @@ impl Relater<'_, '_, '_> {
                         .checker
                         .get_type_with_facts(member, crate::flow::TypeFacts::NE_UNDEFINED);
                 }
-                parts.push(self.is_related_to(member, info.value));
+                // membersRelatedToIndexInfo (relater.go:4636).
+                let (related, link) = self.relate_explained(
+                    member,
+                    info.value,
+                    reporting && !parts.contains(&RelationResult::Unknown),
+                );
+                if related == RelationResult::NotRelated {
+                    if let Some(link) = link {
+                        let printed = self.checker.get_property_of_type(source, name).map_or_else(
+                            || name.clone(),
+                            |symbol| self.checker.callable_property_name(symbol, name),
+                        );
+                        self.property_error = Some(tsr_diagnostics::Diagnostic::new_chain(
+                            Some(link),
+                            &tsr_diagnostics::messages::PROPERTY_0_IS_INCOMPATIBLE_WITH_INDEX_SIGNATURE,
+                            [printed],
+                        ));
+                    }
+                    return Some(related);
+                }
+                parts.push(related);
             }
             for source_info in &source_infos {
                 if self.checker.is_applicable_index_type(source_info.key, info.key) {
-                    parts.push(self.is_related_to(source_info.value, info.value));
+                    let related = self.index_info_related_to(
+                        source_info.key,
+                        source_info.value,
+                        info,
+                        reporting && !parts.contains(&RelationResult::Unknown),
+                    );
+                    if related == RelationResult::NotRelated {
+                        return Some(related);
+                    }
+                    parts.push(related);
                 }
             }
         }
         Some(RelationResult::all(parts))
+    }
+
+    /// indexInfoRelatedTo (relater.go:4678): the value types, explained by
+    /// "'K' index signatures are incompatible" (or the two-key form) above
+    /// the values' own link when `report`.
+    fn index_info_related_to(
+        &mut self,
+        source_key: TypeId,
+        source_value: TypeId,
+        target: &crate::index_signatures::IndexInfo,
+        report: bool,
+    ) -> RelationResult {
+        let (related, link) = self.relate_explained(source_value, target.value, report);
+        if related == RelationResult::NotRelated
+            && let Some(link) = link
+        {
+            use tsr_diagnostics::{Diagnostic, messages};
+            self.property_error = Some(if source_key == target.key {
+                Diagnostic::new_chain(
+                    Some(link),
+                    &messages::_0_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
+                    [self.checker.type_to_string(source_key)],
+                )
+            } else {
+                Diagnostic::new_chain(
+                    Some(link),
+                    &messages::_0_AND_1_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
+                    [
+                        self.checker.type_to_string(source_key),
+                        self.checker.type_to_string(target.key),
+                    ],
+                )
+            });
+        }
+        related
+    }
+
+    /// `isRelatedTo` with `reportErrors` when `report`: relates the pair as
+    /// the diagnostic pair and, on failure, answers its nested
+    /// `reportErrorResults` link above its completed explanation (`None`
+    /// where that explanation is unsupported). Without `report` it is a plain
+    /// relation. Walk-local state is restored either way.
+    fn relate_explained(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        report: bool,
+    ) -> (RelationResult, Option<tsr_diagnostics::Diagnostic>) {
+        if !report {
+            return (self.is_related_to(source, target), None);
+        }
+        let saved_pair = self.diagnostic_pair;
+        let saved_property = self.property_error.take();
+        let saved_signature = self.signature_error.take();
+        let saved_simple = std::mem::take(&mut self.simple_error);
+        let saved_marker = self.return_marker.take();
+        self.diagnostic_pair = Some((source, target));
+        let related = self.is_related_to(source, target);
+        self.diagnostic_pair = saved_pair;
+        let link = if related == RelationResult::NotRelated {
+            let child = self.property_error.take().or_else(|| {
+                self.signature_error.take().map(|(minimum, count)| {
+                    tsr_diagnostics::Diagnostic::with_args(
+                        &tsr_diagnostics::messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                        tsr_core::Span::new(0, 0),
+                        [minimum.to_string(), count.to_string()],
+                    )
+                })
+            });
+            let simple = std::mem::take(&mut self.simple_error);
+            (child.is_some() || simple)
+                .then(|| self.checker.nested_relation_error(source, target, child))
+                .flatten()
+        } else {
+            None
+        };
+        self.property_error = saved_property;
+        self.signature_error = saved_signature;
+        self.simple_error = saved_simple;
+        self.return_marker = saved_marker;
+        (related, link)
     }
 
     /// isObjectTypeWithInferableIndex (relater.go:4624): interfaces and classes

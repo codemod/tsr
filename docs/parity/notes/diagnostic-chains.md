@@ -707,3 +707,17 @@ both top-level reports). `nested_relation_link` no longer declines object
 sources against non-object targets. Open: the global `Object` source's
 missing-property child under TS2696 (`unmatched_property_report` still
 declines that source for the top-level head).
+
+## Index signature explanations — tsr-2zk.1
+
+`indexSignaturesRelatedTo`/`typeRelatedToIndexInfo`/`membersRelatedToIndexInfo`/
+`indexInfoRelatedTo` (relater.go:4578-4690) with `reportErrors` now explain the
+reporting pair: "'K' index signatures are incompatible" (or the two-key form)
+over the value pair's nested link, "Property 'p' is incompatible with index
+signature" over the member's link, and "Index signature for type 'K' is
+missing in type 'S'". Native returns on the first failed target info or member,
+so the walk now does too (a later undecided member no longer turns a decided
+failure into Unknown). `relate_explained` is the shared "relate as the
+diagnostic pair, answer its nested link" step; walk-local state, no cache, the
+extra walk happens only on the reported pair. Publication requires every
+earlier part decided, as native could have failed there first.
