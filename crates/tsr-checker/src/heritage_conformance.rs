@@ -401,12 +401,28 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(member_symbol) = self.binder.symbol_of(member) else { continue };
-            let name = self.binder.symbols().get(member_symbol).name.to_string();
             let is_static = self
                 .node_map
                 .get(member)
                 .and_then(modifiers_of)
                 .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::StaticKeyword));
+            // `getSymbolOfDeclaration(member)` is the *late-bound* symbol: a
+            // computed name `lateBindMember` binds (`[foo]` for a unique
+            // symbol, `[prop]` for a literal-typed const) is looked up under
+            // the name it was bound to, not `__computed` (`override21`,
+            // `overrideLateBindableName1`). A computed name that is not late
+            // bindable — a plain `symbol`, which `late_bound_members_of` also
+            // names for its index-info display — keeps `__computed` and finds
+            // no property, as natively (`overrideLateBindableIndexSignature1`).
+            let mut name = self.binder.symbols().get(member_symbol).name.to_string();
+            if name == "__computed" && self.has_late_bindable_name(member) {
+                let late_bound = self.late_bound_members_of(symbol, is_static);
+                if let Some((late_name, _)) =
+                    late_bound.iter().find(|(_, declaration)| *declaration == member)
+                {
+                    name.clone_from(late_name);
+                }
+            }
             let this_type = if is_static { static_type } else { class_type };
             if self.get_property_of_type(this_type, &name).is_none() {
                 continue;
@@ -486,6 +502,27 @@ impl Checker<'_, '_> {
                 ),
             }
         }
+    }
+
+    /// `hasLateBindableName` (`checker.go`) for a class member:
+    /// `isLateBindableName` — a computed name whose expression is an entity
+    /// name expression of a string-literal, number-literal or `unique symbol`
+    /// type (`TypeFlagsStringOrNumberLiteralOrUnique`).
+    fn has_late_bindable_name(&mut self, member: NodeId) -> bool {
+        let Some(name) = self.declaration_name_of(member) else { return false };
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return false;
+        };
+        let Some(expression) = computed.expression else { return false };
+        if !is_entity_name_expression(expression) {
+            return false;
+        }
+        let name_type = self.check_expression(expression);
+        self.store.get(name_type).flags.intersects(
+            crate::flags::TypeFlags::STRING_LITERAL
+                | crate::flags::TypeFlags::NUMBER_LITERAL
+                | crate::flags::TypeFlags::UNIQUE_ES_SYMBOL,
+        )
     }
 
     /// `c.error(member, …)` for the override diagnostics.
@@ -999,5 +1036,18 @@ impl Checker<'_, '_> {
             }
             _ => String::new(),
         }
+    }
+}
+
+/// `ast.IsEntityNameExpression`: an identifier, or a property access whose
+/// name is an identifier on an entity name expression.
+fn is_entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
+    match expression {
+        tsr_ast::Expression::Identifier(_) => true,
+        tsr_ast::Expression::PropertyAccessExpression(access) => {
+            matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                && access.expression.is_some_and(is_entity_name_expression)
+        }
+        _ => false,
     }
 }
