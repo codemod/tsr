@@ -457,3 +457,22 @@ It refused symbol-table pre-sizing. reserve_rehash is 4.7M of the 7.6M insert
 Ir, but pre-sizing would change iteration order at 97 checker sites. Go's map
 order is randomized, so tsgo cannot depend on it. r5-symtab's ADR decides the
 representation.
+
+### r5-index4 finished; r5-missingprop dispatched (`tsr-2zk.1048`)
+
+r5-index4 ported the typeof-globalThis TS7017 arm in `de9d3a7` (+3 cases).
+Its wide-radix-literal diff in tsr-core and printing.rs lands in batch U: a
+radix literal wider than u128 takes tryParseInt's big.Int → Float64 value,
+for +4 cases and +78 type lines, measured with no losses.
+
+It refused one change with a number: top-level primitive → apparent index
+infos measured +2 / −12 type lines and −1 case, and is blocked on
+inferToMultipleTypes ordering. The TS2536 port waits on the relater
+answering Unknown for unprovable generic keys (`tsr-2zk.1049`). The TS7053
+literal-key certification is filed as `.1050`.
+
+The freed slot went to r5-missingprop, picked from the batch-T base clusters:
+30 cases whose only wrong code is TS2741, and 21 whose only wrong code is
+TS2353. Also from those clusters: the gate's "gains" figure counts only
+WRONG→RIGHT, not EMPTY_WRONG→EMPTY_RIGHT. That explains why batch T showed +2
+cases where the boxes measured about +5.
