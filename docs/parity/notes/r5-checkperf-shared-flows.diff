@@ -1,0 +1,163 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index feed815..c829f37 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -378,7 +378,7 @@ pub struct Checker<'a, 'n> {
+     /// backwards walk is exponential on branchy code — a hang rather than a
+     /// wrong answer, which is why it is part of the port and not an
+     /// optimisation.
+-    pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
++    pub(crate) shared_flows: crate::perf_links::SharedFlows,
+     /// §52's reentrancy guard: operand nodes currently being typed FROM
+     /// INSIDE an equality-narrowing walk. Typing `value` can re-enter the
+     /// same reference's flow walk through the operand's own narrowing and
+@@ -1434,7 +1434,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             dependent_binding_parents_in_flight: rustc_hash::FxHashSet::default(),
+             flow_analysis_disabled: false,
+             flow_disabled_containers: rustc_hash::FxHashSet::default(),
+-            shared_flows: Vec::new(),
++            shared_flows: crate::perf_links::SharedFlows::default(),
+             narrow_value_stack: std::collections::HashSet::new(),
+             call_inference_signatures: rustc_hash::FxHashMap::default(),
+             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..9d20469 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -791,11 +791,7 @@ impl Checker<'_, '_> {
+             let flags = binder.flow().flags(flow);
+ 
+             if flags.contains(FlowFlags::SHARED) {
+-                if let Some(cached) = self.shared_flows[state.shared_flow_start..]
+-                    .iter()
+-                    .find(|(id, _)| *id == flow)
+-                    .map(|(_, t)| *t)
+-                {
++                if let Some(cached) = self.shared_flows.find(state.shared_flow_start, flow) {
+                     state.depth -= 1;
+                     return cached;
+                 }
+diff --git a/crates/tsr-checker/src/perf_links.rs b/crates/tsr-checker/src/perf_links.rs
+index a61703e..e143f78 100644
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -284,6 +284,83 @@ impl Checker<'_, '_> {
+     }
+ }
+ 
++// ---- r5-checkperf (`tsr-2zk.17`): the shared-flow stack's layout. ----
++
++/// Upstream's `c.sharedFlows` (`checker.go:799`, `flow.go:136`): the stack of
++/// `(flow node, flow type)` answers the backwards walk shares between
++/// branches of one `getFlowTypeOfReference`. Same stack, same truncation
++/// points, same answer: the first entry for the node at or after the
++/// query's `sharedFlowStart`.
++///
++/// Native finds it with a linear scan of the stack. On domain-model-large
++/// that scan averaged ~88 entries over 435,254 lookups, about 300 M Ir
++/// (`r5-checkperf.md` §3). Here each entry also records the position of the
++/// previous live entry for the same node, and `last` holds the newest
++/// position per node, so a lookup walks only that node's own entries (almost
++/// always none or one). `truncate` unlinks the dropped entries newest first,
++/// which restores `last` exactly.
++///
++/// The `Vec`-shaped methods (`len`, `push`, `truncate`) keep every existing
++/// call site unchanged.
++pub(crate) struct SharedFlows<T = crate::flow::FlowType> {
++    /// Per entry: its `FlowId::index`, and one plus the position of the
++    /// previous entry for the same id (`0` when it is the oldest).
++    links: Vec<(u32, u32)>,
++    types: Vec<T>,
++    /// Per id (indexed by it, grown on demand): one plus the position of its
++    /// newest entry, or `0` when it has none.
++    last: Vec<u32>,
++}
++
++impl<T> Default for SharedFlows<T> {
++    fn default() -> Self {
++        Self { links: Vec::new(), types: Vec::new(), last: Vec::new() }
++    }
++}
++
++fn flow_key(id: tsr_binder::FlowId) -> usize {
++    use tsr_core::Idx;
++    id.index()
++}
++
++impl<T: Copy> SharedFlows<T> {
++    pub(crate) fn len(&self) -> usize {
++        self.links.len()
++    }
++
++    pub(crate) fn push(&mut self, (id, flow_type): (tsr_binder::FlowId, T)) {
++        let id = flow_key(id);
++        if id >= self.last.len() {
++            self.last.resize(id + 1, 0);
++        }
++        let position = u32::try_from(self.links.len()).expect("shared-flow stack fits in u32");
++        self.links.push((u32::try_from(id).expect("a FlowId is a u32"), self.last[id]));
++        self.last[id] = position + 1;
++        self.types.push(flow_type);
++    }
++
++    pub(crate) fn truncate(&mut self, len: usize) {
++        while self.links.len() > len {
++            let (id, previous) = self.links.pop().expect("non-empty");
++            self.last[id as usize] = previous;
++        }
++        self.types.truncate(len);
++    }
++
++    /// The first entry for `id` at or after `start`, as native's
++    /// `for i := f.sharedFlowStart; i < len(c.sharedFlows); i++` finds it.
++    pub(crate) fn find(&self, start: usize, id: tsr_binder::FlowId) -> Option<T> {
++        let mut link = self.last.get(flow_key(id)).copied().unwrap_or(0);
++        let mut first = None;
++        while link != 0 && link as usize > start {
++            let position = link as usize - 1;
++            first = Some(position);
++            link = self.links[position].1;
++        }
++        first.map(|position| self.types[position])
++    }
++}
++
+ #[cfg(test)]
+ mod receiver_signature_kinds_tests {
+     use tsr_ast::{HasNodeId, NodeId};
+@@ -345,4 +422,35 @@ mod receiver_signature_kinds_tests {
+             },
+         );
+     }
++
++    #[test]
++    fn shared_flows_find_the_first_entry_at_or_after_start() {
++        use super::SharedFlows;
++        use tsr_binder::FlowId;
++        use tsr_core::Idx;
++        let id = |n: usize| FlowId::from_usize(n);
++        let ty = |n: usize| n * 10;
++        let mut flows = SharedFlows::<usize>::default();
++        // 40 entries: id k at position k, plus a second id-7 entry at 35.
++        for k in 0..40 {
++            flows.push((id(if k == 35 { 7 } else { k }), ty(k)));
++        }
++        for start in [0, 3, 8, 16, 17, 33, 36, 40] {
++            for k in 0..41 {
++                let want = (start..40).find(|&p| (if p == 35 { 7 } else { p }) == k).map(ty);
++                assert_eq!(flows.find(start, id(k)), want);
++            }
++        }
++        flows.truncate(20);
++        assert_eq!(flows.len(), 20);
++        assert!(flows.find(0, id(35)).is_none());
++        assert_eq!(flows.find(0, id(19)), Some(ty(19)));
++        // The truncated id-7 duplicate is gone; the first id-7 entry stays.
++        assert_eq!(flows.find(0, id(7)), Some(ty(7)));
++        assert!(flows.find(8, id(7)).is_none());
++        flows.truncate(0);
++        assert!(flows.find(0, id(7)).is_none());
++        flows.push((id(7), ty(99)));
++        assert_eq!(flows.find(0, id(7)), Some(ty(99)));
++    }
+ }

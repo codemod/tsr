@@ -20,12 +20,10 @@ impl Checker<'_, '_> {
         if let Some(&regular) = self.enum_member_regular.get(&id) {
             return regular;
         }
-        let ty = self.store.get(id);
-        if !ty.fresh {
+        if !self.store.get(id).fresh {
             return id;
         }
-        let (flags, data) = (ty.flags, ty.data.clone());
-        self.store.intern_literal(flags, data, false)
+        self.store.literal_twin(id, false)
     }
 
     /// The fresh form of a literal type.
@@ -36,8 +34,7 @@ impl Checker<'_, '_> {
         if ty.fresh || !ty.flags.intersects(TypeFlags::FRESHABLE) {
             return id;
         }
-        let (flags, data) = (ty.flags, ty.data.clone());
-        self.store.intern_literal(flags, data, true)
+        self.store.literal_twin(id, true)
     }
 
     /// The enum a member type belongs to, or the type unchanged.
