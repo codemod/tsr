@@ -1129,12 +1129,16 @@ impl<'a> Parser<'a> {
             SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
                 self.parse_type_assertion()
             }
-            SyntaxKind::FunctionKeyword => self.parse_function_expression(None, None),
+            SyntaxKind::FunctionKeyword => {
+                let jsdoc = self.leading_jsdoc_marker();
+                self.parse_function_expression(None, None, jsdoc)
+            }
             SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
                 // §205: the span starts at the `async`, not at `function`.
                 let modifier_start = self.pos();
+                let jsdoc = self.leading_jsdoc_marker();
                 let modifier = self.take_token();
-                self.parse_function_expression(Some(modifier), Some(modifier_start))
+                self.parse_function_expression(Some(modifier), Some(modifier_start), jsdoc)
             }
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
             // `(@dec class C {})` — a decorated class expression.
@@ -1511,6 +1515,10 @@ impl<'a> Parser<'a> {
         // `(): Promise<void> => {}`: the right type under the wrong
         // expression, which fails the line exactly as a wrong type does. §205.
         let modifier_start = self.pos();
+        // `jsdocScannerInfo` before the `async` (`parser.go:4341`,
+        // `:4505`): the comment is parsed by `withJSDoc` only once the
+        // arrow is finished.
+        let jsdoc = self.leading_jsdoc_marker();
         // `async` prefixes an arrow but is also an ordinary identifier, so it is
         // only consumed once the arrow is confirmed.
         let async_modifier = if self.at(SyntaxKind::AsyncKeyword) && self.async_starts_arrow() {
@@ -1568,6 +1576,8 @@ impl<'a> Parser<'a> {
                 SyntaxKind::ArrowFunction,
                 saved_start,
             );
+            let docs = self.parse_jsdoc_at(jsdoc);
+            self.attach_jsdoc(tsr_ast::Node::ArrowFunction(node), docs);
             return Some(Expression::ArrowFunction(node));
         }
 
@@ -1596,7 +1606,7 @@ impl<'a> Parser<'a> {
         // rewound here, so an `async` arrow keeps its return type.
         let allow_return_type =
             allow_ambiguity || allow_return_type_in_arrow_function || async_modifier.is_some();
-        if allow_return_type {
+        let arrow = if allow_return_type {
             self.parse_parenthesized_arrow_function(
                 modifier_start,
                 async_modifier,
@@ -1607,7 +1617,14 @@ impl<'a> Parser<'a> {
             self.try_parse(|p| {
                 p.parse_parenthesized_arrow_function(modifier_start, None, allow_ambiguity, false)
             })
+        };
+        // `parseParenthesizedArrowFunctionExpression`'s `withJSDoc`
+        // (`parser.go:4434`), on the arrow that survived.
+        if let Some(Expression::ArrowFunction(node)) = arrow {
+            let docs = self.parse_jsdoc_at(jsdoc);
+            self.attach_jsdoc(tsr_ast::Node::ArrowFunction(node), docs);
         }
+        arrow
     }
 
     /// typescript-go's `Parser.parseParenthesizedArrowFunctionExpression`
@@ -2323,6 +2340,7 @@ impl<'a> Parser<'a> {
         &mut self,
         async_modifier: Option<&'a Token<'a>>,
         modifier_start: Option<u32>,
+        jsdoc: Option<(u32, u32)>,
     ) -> Expression<'a> {
         // §205: `modifier_start` is the position of the `async` the caller
         // already consumed. Without it the node's span begins at `function`
@@ -2362,6 +2380,10 @@ impl<'a> Parser<'a> {
             SyntaxKind::FunctionExpression,
             start,
         );
+        // `parseFunctionExpression`'s `withJSDoc` (`parser.go:5711`): the
+        // comment is reparsed onto the function's own parameters.
+        let docs = self.parse_jsdoc_at(jsdoc);
+        self.attach_jsdoc(tsr_ast::Node::FunctionExpression(node), docs);
         Expression::FunctionExpression(node)
     }
 

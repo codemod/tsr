@@ -66,11 +66,26 @@ impl<'a> Parser<'a> {
     /// a bit test the scanner already computed, which is what makes it affordable
     /// to call at the head of every statement, member, and parameter.
     pub(crate) fn parse_leading_jsdoc(&mut self) -> &'a [&'a JSDoc<'a>] {
+        let marker = self.leading_jsdoc_marker();
+        self.parse_jsdoc_at(marker)
+    }
+
+    /// `jsdocScannerInfo` (`parser.go:414`): where the current token's
+    /// leading JSDoc lies, without parsing it. Upstream parses the comment
+    /// only in `withJSDoc`, once the node it documents is finished, so a
+    /// speculative parse that rewinds (an arrow function that turns out to be
+    /// a parenthesized expression) never parses a comment it does not keep.
+    pub(crate) fn leading_jsdoc_marker(&self) -> Option<(u32, u32)> {
         if !self.parse_jsdoc || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT) {
-            return &[];
+            return None;
         }
-        let full_start = self.scanner.full_start();
-        let token_start = self.pos();
+        Some((self.scanner.full_start(), self.pos()))
+    }
+
+    /// `withJSDoc`'s parse of the comments a [`Self::leading_jsdoc_marker`]
+    /// recorded.
+    pub(crate) fn parse_jsdoc_at(&mut self, marker: Option<(u32, u32)>) -> &'a [&'a JSDoc<'a>] {
+        let Some((full_start, token_start)) = marker else { return &[] };
         let ranges = jsdoc_ranges_in(self.source, full_start, token_start);
         if ranges.is_empty() {
             return &[];
