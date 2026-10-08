@@ -167,6 +167,12 @@ rule against a duplicate id, every start, and truncation.
 The scan variants left 51–92 M in `find` because about a quarter of lookups
 hit and many misses still saw a non-zero count from an outer query's entries.
 
+Gate (the diff on top of §5's commit): both dumps `cmp`-identical;
+`tsr-checker` tests pass. Interleaved wall (31 rounds) against the §5
+commit: domain-model-large **0.938 wall** / 0.991 CPU — the deep-flow file
+is on the critical path, so the wall moves more than the CPU — and
+domain-model 0.981 / 0.997.
+
 **How we would know it is wrong.** A flow answer that differs between the
 stack and a linear scan: the unit test pins the rule, and a §1 dump or CLI
 difference on a walk with a re-entered query (nested
@@ -213,7 +219,11 @@ receiver or mapper context.
 | plus `check_type_argument_arity`, `receiver_type_is_the_declared_one` | 1,188,133,585 | 5,074,403,745 (+1.0 M: first queries) |
 | four plus `is_matching_reference`, `contains_matching_reference`, `references_match`'s element arm | 1,187,944,586 | 5,069,812,190 (−0.07% more) |
 
-On dml the memo saw 246,951 requests and ran 82,885 walks. The four sites
+On dml the memo saw 246,951 requests and ran 82,885 walks. Gate (the diff
+on top of §5's commit): both dumps `cmp`-identical; `tsr-checker` tests
+pass. Interleaved wall (31 rounds) against the §5 commit: domain-model
+1.010 wall / 1.009 CPU, domain-model-large 0.983 / 1.004 — inside the ±2%
+noise floor (§1); Ir is the reliable measure here. The four sites
 capture about as much as r5-perf4's 132-site rewrite measured on its base
 (dm −1.27%), so the remaining 128 sites are not worth their conflict
 surface; they can be routed one at a time by whoever owns the file, when a
@@ -266,3 +276,87 @@ new/base **0.989 wall, 0.990 CPU** (control/base 1.016, 1.012); new/tsgo
 is interned (a new writer like `complete_object` on an interned id): its
 twin would then be stale. Today only `complete_object` rewrites a payload,
 and it drops the twins.
+
+## §6 Signature copies (`tsr-2zk.997`): one local diff, the representation written up
+
+**Forcing measurement** (dml check phase, base): `Signature::clone` 201,564
+calls, 112.5 M inclusive; `Signature` drops 199,770, 74.7 M; inside the
+clones, `Vec<Parameter>::clone` 46.5 M (115,020) and
+`Vec<TypeParameter>::clone` 24.6 M (226,416). Together about 4.1% of the
+check phase. The largest single clone caller is `signatures_of_type_kind`
+(45,566 clones, 21.0 M), then `instantiate_signature` (12.1 M),
+`instantiate_type` (10.8 M) and `resolve_call_signature_at` (8.2 M).
+
+**Local change** (`r5-checkperf-kind-filter.diff`, `flow.rs`, main's file):
+`signatures_of_type_kind`'s `signature_types` arm cloned the whole stored
+list and then filtered it by kind; it now filters the borrowed list and
+clones only the requested kind. Same signatures, same order, same
+`complete_signature_return` calls. Measured on top of §5's commit: dm
+1,190,949,247 → **1,189,081,899 (−0.16%)**; dml 5,176,857,053 →
+**5,167,433,189 (−0.18%)**; CLI output identical; both dumps
+`cmp`-identical; `tsr-checker` tests pass. Interleaved wall against the §5
+commit: domain-model 1.012 / 1.015 CPU (31 rounds); domain-model-large read
+1.046 wall at 31 rounds and **0.986 wall / 1.011 CPU** at 41 with a control
+in the rotation — noise, as expected for a 0.2% Ir change.
+
+**The representation change, not made.** Sharing parameter lists
+(`Rc<[Parameter]>`, or `Rc<Vec<_>>` with `make_mut` at writers) would remove
+most of the 46.5 M parameter copies and part of the drops, since 97,736 of
+the 115,020 parameter-list clones come from whole-`Signature` clones that
+never change the list. It is not a local change: `Signature` is built by
+struct literal at 29 sites, its `parameters` are read through `.parameters`
+in 37 checker files and mutated in place at about 28 sites in 10 files
+(`union_signatures.rs` 6, `decorators.rs` 4, `contextual.rs` 4,
+`jsdoc_params.rs` 3, and others), most of them owned by active lanes. The
+brief allows it only as a mechanical, local change; it is neither, so it is
+written up here for a single owner between rounds. Expected size: up to
+~2% of dml's check phase (the parameter copies plus their drops); what
+would show it was wrong to defer: a later profile where signature copies
+rank above name resolution (§4) and the allocator's callers (§2).
+
+## §7 The global table in type printing's scope walks (diff for the integrator)
+
+**Forcing measurement** (dml base): `best_name` (1,000 calls) 76.2 M
+inclusive, `symbol_chain` (800 calls) 111.6 M with `alias_in_scope_for`
+61.9 M and `module_alias_at` 34.4 M — about 4% of the check phase for
+fewer than 2,000 printed names, ~77,000 Ir per `alias_in_scope_for` call.
+Each call copies the *whole* global symbol table (lib.dom and friends,
+thousands of entries) into a `Vec`, scans it for the symbol's own name with
+string compares, then visits every entry only to skip the ones that are not
+`ALIAS`.
+
+**Native operation.** `getAccessibleSymbolChain`'s `trySymbolTable`
+(`symbolaccessibility.go:535-575`): a direct own-name hit by key, then the
+table's aliases. The global table is the binder's, immutable for the
+checker's lifetime.
+
+**Change** (`r5-checkperf-global-aliases.diff`, `checker.rs`):
+`Checker::global_alias_entries` lists the global table's `ALIAS`-flagged
+entries once, in the table's iteration order. `best_name` takes the global
+table's direct hit with `globals().get(own)` (keys are unique, so it is the
+entry the scan found) and loops over that list; `alias_in_scope_for` and
+`module_alias_at` take their global candidates from it. Every loop body
+begins with the `ALIAS` test, so a non-alias entry never had an effect; the
+order of the entries that do is unchanged. Convention record: native
+`trySymbolTable` over `globals`; key none (one list per private `Checker`,
+Program lifetime); complete on first computation (immutable binder state);
+no receiver or mapper context; work boundary one pass over the globals per
+checker instead of one per printed name. `export_equals_alias_name_at`
+and `symbol_chain`'s `try_table` over globals have the same shape but did
+not show in either profile; they are left alone.
+
+**Measured** (on top of §5's commit; CLI output identical):
+
+| | dm Ir | dml Ir |
+|---|---:|---:|
+| §5 commit | 1,190,949,247 | 5,176,857,053 |
+| `best_name` + `alias_in_scope_for` | 1,178,436,255 (−1.05%) | 5,114,552,149 (−1.20%) |
+| **plus `module_alias_at` (shipped)** | **1,175,689,308 (−1.28%)** | **5,099,867,106 (−1.49%)** |
+
+Both dumps `cmp`-identical; `tsr-checker` tests pass. Interleaved wall
+(31 rounds) against the §5 commit: domain-model 0.999 wall / 0.985 CPU,
+domain-model-large **0.952 wall** / 0.990 CPU.
+
+**How we would know it is wrong.** A global entry whose behaviour in these
+loops does not start with the `ALIAS` test (a new arm before it), or a
+binder that adds globals after checking starts.
