@@ -608,7 +608,7 @@ pub fn type_id_at_location_tracking<'a>(
         // where the ACCESS ITSELF fails: `Obj.fn = function(){}` records
         // `>Obj.fn : error` beside `>fn : any` — the same errorType, the
         // whole access taking the fast path and its NAME not.
-        if computed == error || computed == checker.intrinsics().any {
+        if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
@@ -635,7 +635,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(qualified) = qualified_name_to_check(id, nodes, map)
     {
         let computed = checker.check_qualified_name(qualified);
-        if computed == error || computed == checker.intrinsics().any {
+        if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
@@ -688,8 +688,8 @@ pub fn type_id_at_location_tracking<'a>(
                     .map_or(error, |expression| checker.check_expression(expression)),
                 None => error,
             };
-            if computed == error {
-                *saw_checker_error = true;
+            if is_error_identity(checker, computed) {
+                *saw_checker_error |= computed == error;
                 return checker.intrinsics().any;
             }
             return computed;
@@ -831,13 +831,13 @@ pub fn type_id_at_location_tracking<'a>(
             }
             None => error,
         };
-        if computed == error
+        if is_error_identity(checker, computed)
             && matches!(
                 nodes.kind(parent),
                 SyntaxKind::ExportAssignment | SyntaxKind::QualifiedName
             )
         {
-            *saw_checker_error = true;
+            *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
         return computed;
@@ -1151,7 +1151,7 @@ pub fn type_id_at_location_tracking<'a>(
     {
         let computed = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
-        if computed == error || computed == checker.intrinsics().any {
+        if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
             return checker.intrinsics().any;
         }
@@ -1165,7 +1165,7 @@ pub fn type_id_at_location_tracking<'a>(
     {
         let tag = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
-        if tag == error || tag == checker.intrinsics().any {
+        if is_error_identity(checker, tag) || tag == checker.intrinsics().any {
             *saw_checker_error |= tag == error;
             return checker.intrinsics().any;
         }
@@ -1201,7 +1201,7 @@ fn render(
     id: tsr_checker::types::TypeId,
 ) -> String {
     let error = checker.intrinsics().error;
-    // ADR-0047: the intrinsic-name fast path of `writeTypeOrSymbol`
+    // ADR-0048: the intrinsic-name fast path of `writeTypeOrSymbol`
     // (`type_symbol_baseline.go:378`) prints `errorType`'s intrinsic name,
     // `"error"`; every other rendering prints the node builder's `any`, which is
     // the name the checker gives `native_error`. The writer guards in
@@ -1211,6 +1211,18 @@ fn render(
         return "error".to_string();
     }
     checker.type_to_string_at(id, reference).unwrap_or_else(|| checker.type_to_string(error))
+}
+
+/// Whether `t` is either error identity: the port's gap or upstream's
+/// `errorType` (ADR-0048). The writer guards below are upstream's
+/// `writeTypeOrSymbol` conditions on an any-flagged type, so they apply to
+/// both identities; only the gap sets `saw_checker_error`, which reports the
+/// port's own failure to compute.
+fn is_error_identity(
+    checker: &tsr_checker::Checker<'_, '_>,
+    t: tsr_checker::types::TypeId,
+) -> bool {
+    t == checker.intrinsics().error || t == checker.intrinsics().native_error
 }
 
 /// Whether this identifier is a label name.
@@ -1352,7 +1364,7 @@ pub fn configured_checker<'a>(
 
 /// Which error identity, if any, a rendered line's **top-level** type is.
 ///
-/// The instrument ADR-0047 adds: with the port's gap and upstream's `errorType`
+/// The instrument ADR-0048 adds: with the port's gap and upstream's `errorType`
 /// split into two intrinsics, a line printed `any` by the writer can be traced
 /// back to which of the two the checker answered — the question ADR-0038 said
 /// no `.types` file could answer.
@@ -1366,6 +1378,40 @@ pub enum TopError {
     Other,
 }
 
+/// Which writer rewrite printed a line `any` although this port's checker
+/// answered its **gap** there (ADR-0048, `docs/parity/notes/r5-errorsplit2.md`
+/// §4). Narrowing the writer's gap->`any` rewrites to upstream's `errorType`
+/// would print exactly these lines `error` instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum GapRewrite {
+    /// A guard inside [`type_id_at_location_tracking`] (the name side of a
+    /// property access, a `typeof` qualified name, an import/export specifier
+    /// or assignment name, an intrinsic JSX tag) answered `any` for a gap.
+    AtLocation,
+    /// SS180, `hadErrorBaseline` (`type_symbol_baseline.go:379`).
+    HadErrorBaseline,
+    /// An import/export statement name (`type_symbol_baseline.go:380`).
+    StatementName,
+    /// The name of a `declare global` block.
+    GlobalAugmentation,
+    /// `IsPropertyAccessOrQualifiedName(node.Parent)` at the writer
+    /// (`type_symbol_baseline.go:383`).
+    AccessOrQualifiedParent,
+}
+
+/// One rendered line's identity: its top-level error kind and, when the
+/// writer printed the port's gap as `any`, which rewrite did it and what
+/// [`gap_reason`] names as the producer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineIdentity {
+    /// The computed type's top-level error identity.
+    pub top: TopError,
+    /// The first rewrite that printed the port's gap `any`, if one did.
+    pub rewrite: Option<GapRewrite>,
+    /// [`gap_reason`] for a rewritten gap, when attribution was asked for.
+    pub producer: Option<String>,
+}
+
 /// [`assertions_for_case_with_ids`] plus each line's [`TopError`]. Same walk,
 /// same checker, so the classification is of the very type the line printed.
 #[must_use]
@@ -1373,7 +1419,7 @@ pub fn assertions_for_case_with_error_kinds(
     arena: &tsr_core::Arena,
     case: &crate::TestCase,
     expected: &[FileTypes],
-) -> (Vec<Vec<Assertion>>, Vec<Vec<TopError>>) {
+) -> (Vec<Vec<Assertion>>, Vec<Vec<LineIdentity>>) {
     let program = program_for_case(arena, case);
     let mut kinds = Vec::new();
     let rendered = render_case(&program, case, expected, false, None, Some(&mut kinds));
@@ -1387,7 +1433,7 @@ fn render_case(
     expected: &[FileTypes],
     explain: bool,
     mut ids: Option<&mut Vec<Vec<NodeId>>>,
-    mut kinds: Option<&mut Vec<Vec<TopError>>>,
+    mut kinds: Option<&mut Vec<Vec<LineIdentity>>>,
 ) -> Vec<Vec<Assertion>> {
     // One checker for the whole program, not one per unit — which is upstream's
     // shape (`Program` has one `Checker`) and also means a lib type resolved for
@@ -1470,8 +1516,14 @@ fn render_case(
             }
             continue;
         };
-        let (rendered, visited, tops) =
-            render_file_with_kinds(&mut checker, program, file, case.had_error_baseline, explain);
+        let (rendered, visited, tops) = render_file_with_kinds(
+            &mut checker,
+            program,
+            file,
+            case.had_error_baseline,
+            explain,
+            kinds.is_some(),
+        );
         if let Some(ids) = ids.as_deref_mut() {
             ids.push(visited);
         }
@@ -1498,19 +1550,23 @@ pub fn render_file<'a>(
     explain: bool,
 ) -> (Vec<Assertion>, Vec<NodeId>) {
     let (rendered, visited, _) =
-        render_file_with_kinds(checker, program, file, had_error_baseline, explain);
+        render_file_with_kinds(checker, program, file, had_error_baseline, explain, false);
     (rendered, visited)
 }
 
-/// [`render_file`] plus each line's [`TopError`]: which error identity, if
-/// any, the line's computed type is (`docs/parity/notes/r4-errorsplit.md`).
+/// [`render_file`] plus each line's [`LineIdentity`]: which error identity, if
+/// any, the line's computed type is (`docs/parity/notes/r4-errorsplit.md`), and
+/// which writer rewrite printed a gap `any` (`r5-errorsplit2.md` §4).
+/// `attribute` also names each rewritten gap's producer through
+/// [`gap_reason`] — after the walk, so it cannot perturb the rendered types.
 fn render_file_with_kinds<'a>(
     checker: &mut tsr_checker::Checker<'a, '_>,
     program: &tsr_compiler::Program<'a>,
     file: &tsr_compiler::ProgramFile<'_>,
     had_error_baseline: bool,
     explain: bool,
-) -> (Vec<Assertion>, Vec<NodeId>, Vec<TopError>) {
+    attribute: bool,
+) -> (Vec<Assertion>, Vec<NodeId>, Vec<LineIdentity>) {
     let nodes = program.nodes();
     let node_map = program.node_map();
     let bound = program.binder();
@@ -1529,14 +1585,23 @@ fn render_file_with_kinds<'a>(
             node_map,
             |id| {
                 visited.push(id);
-                let computed = type_id_at_location(checker, bound, nodes, node_map, id);
-                tops.push(if computed == checker.intrinsics().error {
+                let mut saw_gap = false;
+                let computed =
+                    type_id_at_location_tracking(checker, bound, nodes, node_map, id, &mut saw_gap);
+                let top = if computed == checker.intrinsics().error {
                     TopError::Gap
                 } else if computed == checker.intrinsics().native_error {
                     TopError::Native
                 } else {
                     TopError::Other
-                });
+                };
+                // A label name sets the flag although its `errorType` is
+                // upstream's by construction (no checker query): not a gap.
+                let mut rewrite = (saw_gap
+                    && computed == checker.intrinsics().any
+                    && !is_label_name(id, nodes, node_map))
+                .then_some(GapRewrite::AtLocation);
+                let gap = top == TopError::Gap;
                 let mut answer = render(checker, id, computed);
                 // SS180 `hadErrorBaseline` (`type_symbol_baseline.go:379`,
                 // the FIRST condition of the guard chain): in a case that
@@ -1548,6 +1613,7 @@ fn render_file_with_kinds<'a>(
                 // `.errors.txt` baseline.
                 if had_error_baseline && answer == "error" {
                     answer = "any".to_string();
+                    rewrite = rewrite.or(gap.then_some(GapRewrite::HadErrorBaseline));
                 }
                 // SS204 `!ast.IsPropertyAccessOrQualifiedName(node.Parent)`
                 // (`type_symbol_baseline.go:383`, the THIRD condition). SS183
@@ -1586,6 +1652,7 @@ fn render_file_with_kinds<'a>(
                 // names over a module this port does not resolve.
                 if answer == "error" && is_import_or_export_statement_name(id, nodes, node_map) {
                     answer = "any".to_string();
+                    rewrite = rewrite.or(gap.then_some(GapRewrite::StatementName));
                 }
                 // §256, RE-TESTED AND STILL ZERO — the third of §179/§181's
                 // batch, and the one that keeps corollary 31 honest. The LABEL
@@ -1647,6 +1714,7 @@ fn render_file_with_kinds<'a>(
                     )
                 {
                     answer = "any".to_string();
+                    rewrite = rewrite.or(gap.then_some(GapRewrite::GlobalAugmentation));
                 }
                 // §255, REVERTED, and the re-test was worth running. §254
                 // established that a recorded +0 is true of a TREE rather than
@@ -1683,7 +1751,9 @@ fn render_file_with_kinds<'a>(
                     )
                 {
                     answer = "any".to_string();
+                    rewrite = rewrite.or(gap.then_some(GapRewrite::AccessOrQualifiedParent));
                 }
+                tops.push(LineIdentity { top, rewrite, producer: None });
                 if explain && answer == "error" {
                     gaps.push(id);
                 }
@@ -1697,6 +1767,13 @@ fn render_file_with_kinds<'a>(
                 if assertion.type_string == "error" {
                     let id = gaps.next().expect("one recorded gap per `error` line");
                     assertion.reason = Some(gap_reason(checker, bound, nodes, node_map, id));
+                }
+            }
+        }
+        if attribute {
+            for (line, &id) in tops.iter_mut().zip(&visited) {
+                if line.rewrite.is_some() {
+                    line.producer = Some(gap_reason(checker, bound, nodes, node_map, id));
                 }
             }
         }
