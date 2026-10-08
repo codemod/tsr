@@ -8744,11 +8744,11 @@ impl Checker<'_, '_> {
     /// is legal, `declare const x: number = 1` is TS1039, and the difference is
     /// the presence of `typeNode` rather than anything about the initialiser.
     ///
-    /// `isInitializerSimpleLiteralEnumReference` is **not** ported: it resolves
-    /// the reference to a literal enum member, and without it a
-    /// `declare const x = E.A` takes the invalid-initialiser branch. A *wrong
-    /// line* rather than a missing one, so the enum-reference shape declines
-    /// instead — see the `QualifiedName`/`PropertyAccess` arm below. §259.
+    /// The valid-initializer predicate, `isInitializerSimpleLiteralEnumReference`
+    /// included, is [`Checker::is_valid_ambient_const_initializer`]
+    /// (`grammar.rs`). §259 declined property accesses and identifiers while
+    /// the enum-reference arm was unported; that decline is gone
+    /// (`docs/parity/notes/r4-unused-grammar.md` §6).
     fn check_ambient_initializer(
         &mut self,
         node: NodeId,
@@ -8781,17 +8781,7 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
         let span = self.nodes.span(initializer_id);
         if is_const_or_readonly && annotation.is_none() {
-            // A reference — `E.A` — needs `isInitializerSimpleLiteralEnumReference`
-            // to judge, which is not ported. Declining is a missing line; the
-            // alternative is a wrong one.
-            if matches!(
-                initializer,
-                tsr_ast::Expression::PropertyAccessExpression(_)
-                    | tsr_ast::Expression::Identifier(_)
-            ) {
-                return;
-            }
-            if !is_simple_literal_initializer(initializer) {
+            if !self.is_valid_ambient_const_initializer(initializer) {
                 self.report(
                     file,
                     Diagnostic::new(
@@ -14525,22 +14515,6 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
         Node::ConstructorTypeNode(n) => n.modifiers,
         _ => return None,
     })
-}
-
-fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
-    match initializer {
-        tsr_ast::Expression::StringLiteral(_)
-        | tsr_ast::Expression::NumericLiteral(_)
-        | tsr_ast::Expression::BigIntLiteral(_)
-        | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_) => true,
-        // `-1` is `isInitializerStringOrNumberLiteralExpression`'s second arm:
-        // a prefix minus over a numeric literal, and nothing else.
-        tsr_ast::Expression::PrefixUnaryExpression(unary) => {
-            unary.operator.kind == SyntaxKind::MinusToken
-                && matches!(unary.operand, Some(tsr_ast::Expression::NumericLiteral(_)))
-        }
-        _ => false,
-    }
 }
 
 fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {

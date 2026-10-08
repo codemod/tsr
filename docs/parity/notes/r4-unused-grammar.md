@@ -150,3 +150,33 @@ the level `getCombinedNodeFlags` reaches for a declaration.
 
 Cases converted: `conformance/usingDeclarations.15`,
 `conformance/awaitUsingDeclarations.15` (both EMPTY_WRONG → EMPTY_RIGHT).
+
+## §6 TS1254: the enum-reference arm of the ambient initializer rule
+
+**Forcing fact.** `check_ambient_initializer` (`check.rs`, §259 of the diag2
+notes) declined every property access and identifier initializer because
+`isInitializerSimpleLiteralEnumReference` was unported, and treated element
+accesses and `true`/`false` as invalid. `ambientModuleWithTemplateLiterals`
+(`export const d = Bar['b'];` in a `declare namespace`) and
+`nodeModulesTypesVersionPackageExports` reported TS1254 where native reports
+nothing.
+
+**Native.** `checkGrammarVariableLikeDeclaration`'s ambient tail
+(`grammarchecks.go:1963`) accepts `isInitializerStringOrNumberLiteralExpression`
+(`:1978`), `isInitializerSimpleLiteralEnumReference` (`:1996` — a property
+access, or an element access with a literal argument on an entity name
+expression, whose `checkExpressionCached` type is `EnumLike`), `true`,
+`false`, and `isInitializerBigIntLiteralExpression` (`:1983`, including
+`-1n`).
+
+**Choice.** The whole predicate is `is_valid_ambient_const_initializer`
+(`grammar.rs`), and the decline is removed: an identifier initializer
+(`declare const x = y`) is invalid upstream and now reports. The type
+question is the checker's own `check_expression`, as upstream's
+`checkExpressionCached`; it runs only for a `const`/`readonly` ambient
+declaration without an annotation whose initializer is an access, so it is
+off every hot path (lib files annotate their declarations).
+
+Cases converted: `compiler/ambientModuleWithTemplateLiterals`,
+`conformance/nodeModulesTypesVersionPackageExports` (EMPTY_WRONG →
+EMPTY_RIGHT).
