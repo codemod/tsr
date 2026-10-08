@@ -716,3 +716,59 @@ impl Checker<'_, '_> {
         }
     }
 }
+
+impl Checker<'_, '_> {
+    /// `isTupleLikeType` (`internal/checker/checker.go:23544`):
+    ///
+    /// ```go
+    /// if isTupleType(t) || c.getPropertyOfType(t, "0") != nil { return true }
+    /// if c.isArrayLikeType(t) {
+    ///     if lengthType := c.getTypeOfPropertyOfType(t, "length"); lengthType != nil {
+    ///         return everyType(lengthType, func(t *Type) bool { return t.flags&TypeFlagsNumberLiteral != 0 })
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// The conjunction is evaluated length-first: the `length` test is a
+    /// property read, `isArrayLikeType` is a relation to `readonly any[]`,
+    /// and every array/tuple type whose `length` is `number` fails before the
+    /// relation runs. The answer is the same conjunction; see
+    /// `docs/parity/notes/r4-arrays.md` §1.
+    pub(crate) fn is_tuple_like_type(&mut self, id: TypeId) -> bool {
+        if self.tuple_element_lists.contains_key(&id)
+            || self.variadic_tuple_elements.contains_key(&id)
+            || self.get_property_of_type(id, "0").is_some()
+        {
+            return true;
+        }
+        let Some(length) = self.get_type_of_property_of_type(id, "length") else {
+            return false;
+        };
+        let every_number_literal = match &self.store.get(length).data {
+            TypeData::Union { types, .. } => {
+                let types = types.clone();
+                types
+                    .iter()
+                    .all(|&part| self.store.get(part).flags.contains(TypeFlags::NUMBER_LITERAL))
+            }
+            _ => self.store.get(length).flags.contains(TypeFlags::NUMBER_LITERAL),
+        };
+        every_number_literal && self.is_array_like_type(id)
+    }
+
+    /// `isArrayLikeType` (`internal/checker/checker.go:23520`): a reference
+    /// to the global `Array`/`ReadonlyArray`, or a non-nullable type
+    /// assignable to `readonly any[]`. An undecided relation answers `false`.
+    pub(crate) fn is_array_like_type(&mut self, id: TypeId) -> bool {
+        if self.tuple_array_like(id) {
+            return true;
+        }
+        if self.store.get(id).flags.intersects(TypeFlags::NULLABLE) {
+            return false;
+        }
+        let Some(array) = self.global_type_symbol("ReadonlyArray") else { return false };
+        let array = self.create_type_reference(array, vec![self.intrinsics.any]);
+        self.relate_ternary(id, array, crate::relater::Relation::Assignable)
+            == crate::relater::Ternary::Related
+    }
+}
