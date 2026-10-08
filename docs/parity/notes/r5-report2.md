@@ -272,10 +272,10 @@ Converted: `objectCreationExpressionInFunctionParameter`,
   (`taggedTemplatesWithIncompleteNoSubstitutionTemplate1`/`2`,
   `taggedTemplatesWithIncompleteTemplateExpressions1`; also
   `decoratorOnArrowFunction`): TSR adds TS2554 at the tag. Native's
-  `getEffectiveCallArguments`/`hasCorrectArity` treat an unterminated template
-  as having every argument (`isTaggedTemplate && !template.isUnterminated`
-  is the arity check's gate, `checker.go` `hasCorrectArity`), so no arity
-  error is possible.
+  `hasCorrectArity` (`checker.go`) sets `callIsIncomplete` for a tagged
+  template whose last literal is missing or unterminated
+  (`ast.IsUnterminatedLiteral`), and an incomplete call is not held to the
+  parameter count, so no arity error is reported.
 Both are `calls.rs`/`call_arity.rs` work for main's calls lane.
 
 ## 4. unmatched_property_report's alias and single-base declines
@@ -292,3 +292,21 @@ those declines is decided identically by the remaining code. It is a
 simplification with no measured effect; it may matter once the
 generic-reference-table diff (r5-report, landing in batch K) certifies generic
 references, which this measurement did not include.
+
+## 5. Import-call options are not elaborated (landed for r5-report)
+
+r5-report's measured
+[r5-report-import-call-no-elaboration.diff](r5-report-import-call-no-elaboration.diff),
+routed to this lane by the integrator: `checkImportCallExpression` relates the
+options argument with `checkTypeAssignableTo` (`checker.go:8291`), which
+passes no expression, so nothing is elaborated; `import_call.rs` passed the
+options node as the source node. Measured on top of `5888e05`: no verdict
+change, `importAttributes9` 3 → 1 differing lines (the expected 11:25 appears
+and the nested-member extra goes). Loss checks empty on both dumps. Perf
+median child CPU new/old at 21 samples: domain-model 1.022, generic-imports
+0.984.
+
+r5-report's parse-error-gate diff (`r5-report-parse-error-gate.diff`, the
+same nine sites) was superseded by §3, which also deletes the dead
+certification helpers and updates the tests that pinned the gate; both
+measured +3 (`privateNameInInExpressionTransform` ×3).
