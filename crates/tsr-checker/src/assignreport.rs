@@ -1900,6 +1900,7 @@ impl<'a> Checker<'a, '_> {
             source_text,
             target_text,
         );
+        let signature_error = self.wrapper_object_note(source, target, signature_error);
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
             attach_relation_child(&mut diagnostic, Some(signature_error));
@@ -2108,6 +2109,7 @@ impl<'a> Checker<'a, '_> {
         };
         let mut diagnostic =
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
+        let signature_error = self.wrapper_object_note(source, target, signature_error);
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
             attach_relation_child(&mut diagnostic, Some(signature_error));
@@ -2236,6 +2238,56 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `reportErrorResults` (relater.go:4705) reports a link of its own above
+    /// the structural `child` and below the pair's:
+    /// `tryElaborateErrorsForPrimitivesAndObjects` (relater.go:4408) for the
+    /// global `String`/`Number`/`Boolean`/`Symbol` type against its primitive,
+    /// and otherwise, for a non-primitive target (the switch takes the
+    /// object-to-primitive arm first), the `Object`-type note for the global
+    /// `Object` source.
+    pub(crate) fn wrapper_object_note(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        child: Option<Diagnostic>,
+    ) -> Option<Diagnostic> {
+        let TypeData::Named { members: Some(owner), .. } = self.type_of(source).data else {
+            return child;
+        };
+        let span = tsr_core::Span::new(0, 0);
+        let primitive_target = self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE);
+        let mut note = if !primitive_target
+            && self.global_type_symbol_with_arity("Object", 0) == Some(owner)
+        {
+            Diagnostic::new(
+                &messages::THE_OBJECT_TYPE_IS_ASSIGNABLE_TO_VERY_FEW_OTHER_TYPES_DID_YOU_MEAN_TO_USE_THE_ANY_TYPE_INSTEAD,
+                span,
+            )
+        } else {
+            let primitive = if target == self.intrinsics.string {
+                "String"
+            } else if target == self.intrinsics.number {
+                "Number"
+            } else if target == self.intrinsics.boolean {
+                "Boolean"
+            } else if target == self.intrinsics.es_symbol {
+                "Symbol"
+            } else {
+                return child;
+            };
+            if self.global_type_symbol_with_arity(primitive, 0) != Some(owner) {
+                return child;
+            }
+            Diagnostic::with_args(
+                &messages::_0_IS_A_PRIMITIVE_BUT_1_IS_A_WRAPPER_OBJECT_PREFER_USING_0_WHEN_POSSIBLE,
+                span,
+                [self.type_to_string(target), self.type_to_string(source)],
+            )
+        };
+        note.add_message_chain(child);
+        Some(note)
+    }
+
     /// [`Checker::relation_diagnostic`] without the related note:
     /// `reportRelationError`'s type-parameter target explanation.
     fn relation_explanation(
@@ -2311,16 +2363,10 @@ impl<'a> Checker<'a, '_> {
         target: TypeId,
         child: Option<Diagnostic>,
     ) -> Result<Diagnostic, Option<Diagnostic>> {
-        let source_flags = self.type_of(source).flags;
-        if self.exact_optional_property_types
-            || (source_flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
-                && !self
-                    .type_of(target)
-                    .flags
-                    .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
-        {
+        if self.exact_optional_property_types {
             return Err(child);
         }
+        let child = self.wrapper_object_note(source, target, child);
         let displayed = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed);
         let target_text = self.type_to_string(target);

@@ -690,3 +690,20 @@ missing string index of `String`, `"x" -> { [n: number]: any }` holds through
 failed (`primitive_structured_related_to`). With `reportStructuralErrors`
 false for a primitive source, a failed primitive pair's own reportRelationError
 link is its whole explanation (`simple_error`), so nested chains now carry it.
+
+## Leaf-pair links and wrapper notes — tsr-2zk.1
+
+`structuredTypeRelatedToWorker` reports nothing for an object source against a
+primitive target, a concrete source against a type-parameter target, or a
+nullable source against an object target; native's explanation is then the
+failed pair's own `reportRelationError` link, so these arms now set
+`simple_error` and nested chains carry the link. `reportErrorResults`
+(relater.go:4705) puts its own link between the structural child and the pair:
+`tryElaborateErrorsForPrimitivesAndObjects` (TS2692) for the global
+`String`/`Number`/`Boolean`/`Symbol` type against its primitive, or — only for
+a non-primitive target, since the object-to-primitive arm comes first — TS2696
+for the global `Object` source (`wrapper_object_note`, used by nested links and
+both top-level reports). `nested_relation_link` no longer declines object
+sources against non-object targets. Open: the global `Object` source's
+missing-property child under TS2696 (`unmatched_property_report` still
+declines that source for the top-level head).
