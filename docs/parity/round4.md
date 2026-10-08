@@ -461,3 +461,14 @@ arms of `relater.rs` and `variances.rs`; main has not touched either file in
 the last 18 hours. Also routed: main's 9ab8ce81 ports
 getPropertyTypeForIndexType's TS7053 in `nonexistent_property.rs`/`indexed.rs`,
 which r4-index3 must not duplicate.
+
+### r4-report (`tsr-2zk.956`; `.918`, `.1.2`)
+
+Dispatched when `r4-awaited` finished (06bafa0..37c6443: the awaited-type
+worker tells native nil from a gap, TS1062/TS1320/TS1064/TS1058 from the walk,
+self-referential alias placeholders; two measured patches for files it did not
+own go in through batch G; remaining causes filed as `tsr-2zk.957`-`.959`).
+TS2741 is the largest single-code cluster after TS2322/TS2345/TS2339: 32 cases
+at the batch-F baseline, in `reportRelationError`'s head swap. Main's
+relate-report lane (`tsr-2zk.1`) last touched `.1.2` two days ago (5b1ed61c), so
+the box builds on that and stops if main resumes.
