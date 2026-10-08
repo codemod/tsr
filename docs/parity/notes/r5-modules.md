@@ -128,12 +128,102 @@ Left, with the piece each waits for:
   the module indicator once per file (statements, else the flag-gated walk)
   and records it in `BindResult`; the eight checker call sites read that
   record instead of recomputing. Those call sites are hub-file lines
-  outside this lane. After it, the narrowing of
+  outside this lane. *Superseded by §2.4*, which landed a cheaper shape once
+  the integrator granted the call sites. After it, the narrowing of
   `import.meta.foo` is flow work (`isMatchingReference`'s `MetaProperty` arm,
   `flow.rs`, main's file).
 - **`new.target`'s type** (`checkNewTargetMetaProperty`'s return,
   `checker.go:10768`) keeps the dispatch's previous `errorType`. Not this
   lane's cluster; no census row names it.
+
+
+### 2.4 The module indicator, landed (commit 8)
+
+Granted by the integrator with the shape above: the parser flag, a
+once-per-file indicator, and the checker call sites reading it. What landed
+differs in one step, for a measured reason.
+
+- **Parser** (`tsr-parser/src/parser.rs`, `expression.rs`): one field,
+  `source_flags` (upstream's `p.sourceFlags`, a `NodeFlags` set rather than
+  a fourth `bool`, which clippy's `struct_excessive_bools` refuses), given
+  `POSSIBLY_CONTAINS_IMPORT_META` in the `import.meta` arm for any name but
+  `defer` (`parser.go:5195`) and stamped on the `SourceFile` node at the end
+  of `parse_source_file`. Main's parser lane touched only `statement.rs` in the
+  24 hours before (checked).
+- **Binder** (`tsr-binder/src/binder.rs`): `is_external_module_in(file,
+  nodes)` is `is_external_module(file)` (the statement scan, unchanged) or,
+  only for a flagged file, the `ast.IsImportMeta` walk. The binder's own
+  `is_module` uses it.
+- **Checker**: the ten `tsr_binder::is_external_module` calls in `check.rs`
+  and `checker.rs` (the granted files; I had said eight, counting before a
+  merge) pass `self.nodes`.
+
+Not landed: a `BindResult` record. The cost of the first diff was the
+*unconditional* walk over every script file (every lib file is one); with
+the flag the walk runs only for a file that contains `import.meta` and has
+no statement indicator, so recomputing the statement scan per call costs
+what it cost before. A per-file record would also have to be threaded
+through `publish_file`'s relocation for no measured gain. Callgrind,
+single-threaded, against commit 7: generic-imports 399,713,148 →
+399,713,553, domain-model 1,345,816,777 → 1,345,847,920 (+0.002%).
+
+Left as it was: the eleven calls in other lanes' files (`symbols.rs`,
+`strict_mode.rs`, `declared.rs`, `node_reuse.rs`, `meaning_mismatch.rs`,
+`index_signatures.rs`, `expressions.rs`, `emit_helpers.rs`,
+`this_expression.rs`, `symbol_access.rs`) still read statements only, so an
+`import.meta`-only file is a module to the binder and the ten call sites
+here and a script to those. Each is a one-token change to
+`is_external_module_in(source, self.nodes)`.
+
+Measured against commit 7, unfiltered, zero losses on either dump:
+`importMetaNarrowing` ×2 diagnostics EMPTY_WRONG → EMPTY_RIGHT (its TS2669
+`declare global` report is gone), 6 type lines WRONG → RIGHT and 2 WRONG →
+GAP (the narrowed `import.meta.foo`, flow work in `flow.rs`); nothing else
+moves.
+
+
+### 2.5 `moduleDetection`'s `Force` indicator, folded in (commit 9)
+
+r5-modfmt's measured diff (`docs/parity/notes/r5-modfmt-module-detection.diff`
+on `claude/beautiful-shannon-ar5gh0-r5-modfmt`), landed here at the
+integrator's request so one function holds the module indicator.
+`ast.GetExternalModuleIndicatorOptions(...).Force` (`ast/parseoptions.go:19`)
+— `moduleDetection: force`, or under `auto` a file forced by its format
+(`isFileForcedToBeModuleByFormat`, `:46`) — is computed per file by the
+program (`loader::force_module_indicator`, a new free function beside
+`implied_node_format_for_emit`) and passed into the bind
+(`bind_file_forcing_module` / `bind_into_with_jsdoc_forcing_module`). The
+binder's one decision is now: `is_external_module_in` (statements, then the
+flag-gated `import.meta` walk), else `Force` for a non-declaration,
+non-JSON file. `setCommonJSModuleIndicator`'s `ExternalModuleIndicator !=
+file` conjunct (`binder.go:927`) is `module_indicator_is_file`: a module by
+`Force` alone may still take a CommonJS indicator; one by syntax or by
+`import.meta` (whose indicator is a node, not the file) may not. r5-modfmt
+measured that conjunct as load-bearing (18 lines in
+`nodeModulesAllowJsCjsFromJs` and `modulePreserve4` lost without it).
+
+`Program::bind_source_files` changes only inside the per-file closures (a
+precomputed `force` vector indexed like the files); the fan-out decision
+(r5-loader's, on its own branch) is untouched. The checker's call sites do
+not see `Force` — as for `import.meta` in the other lanes' files (§2.4), a
+forced file is a module to the binder and a script to
+`is_external_module_in`'s callers; r5-modfmt's measurement was taken the
+same way.
+
+
+### 2.6 The remaining call sites, as a diff
+
+The integrator asked for the statement-only `tsr_binder::is_external_module`
+calls in other lanes' files as one measured diff, not edits:
+[`r5-modules-module-indicator-callsites.diff`](r5-modules-module-indicator-callsites.diff),
+fifteen calls in `meaning_mismatch.rs`, `symbol_access.rs`, `declared.rs`,
+`symbols.rs`, `strict_mode.rs` (3), `index_signatures.rs`, `expressions.rs`,
+`node_reuse.rs` (3), `emit_helpers.rs`, `this_expression.rs`,
+`member_completeness.rs` — eleven when §2.4 was written, four more arrived
+with merges. Each passes the node table to `is_external_module_in`.
+Measured on top of commit 9, unfiltered: no verdict and no printed line
+changes on either dump; callgrind −90 / −21,446 instructions. (The checker
+call sites do not see `Force`, §2.5; that is the binder's alone.)
 
 ## 3. `checkImportAttributes` (tsr-2zk.986)
 

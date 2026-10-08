@@ -1986,6 +1986,31 @@ pub(crate) fn implied_node_format_for_emit(
     ModuleKind::None
 }
 
+/// `ast.GetExternalModuleIndicatorOptions(...).Force` (`ast/parseoptions.go:19`):
+/// under `moduleDetection: force` every non-declaration file is a module; under
+/// `auto`, one `isFileForcedToBeModuleByFormat` (`:46`). The `JSX` option arm
+/// is not ported: it asks the parser whether the file contains a JSX tag.
+pub(crate) fn force_module_indicator(
+    options: &CompilerOptions,
+    file_name: &str,
+    metadata: &SourceFileMetaData,
+) -> bool {
+    if tsr_path::is_declaration_file_name(file_name) {
+        return false;
+    }
+    match options.emit_module_detection_kind() {
+        tsr_core::ModuleDetectionKind::Force => true,
+        tsr_core::ModuleDetectionKind::Auto => {
+            implied_node_format_for_emit(options, file_name, metadata) == ModuleKind::ESNext
+                || file_extension_is_one_of(
+                    file_name,
+                    &[EXTENSION_CJS, EXTENSION_CTS, EXTENSION_MJS, EXTENSION_MTS],
+                )
+        }
+        _ => false,
+    }
+}
+
 /// `ast.GetEmitModuleFormatOfFileWorker`.
 fn emit_module_format_of_file(
     options: &CompilerOptions,

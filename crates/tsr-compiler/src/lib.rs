@@ -479,6 +479,13 @@ impl<'a> Program<'a> {
         program
     }
 
+    /// `GetExternalModuleIndicatorOptions(fileName, options, metadata).Force`
+    /// (`ast/parseoptions.go:19`) for the file at `index`.
+    fn force_module_indicator(&self, index: usize) -> bool {
+        let Some(metadata) = self.meta_datas.get(index) else { return false };
+        loader::force_module_indicator(&self.options, self.files[index].file_name(), metadata)
+    }
+
     /// Bind every file that is not bound (`Program.BindSourceFiles`).
     ///
     /// Workers bind independent files into private symbols and flow graphs.
@@ -506,6 +513,10 @@ impl<'a> Program<'a> {
             front_end::workers(&self.options, files.len())
         };
         if workers > 1 {
+            let force: Vec<bool> = (self.bound_file_count..self.files.len())
+                .map(|index| self.force_module_indicator(index))
+                .collect();
+            let files = &self.files[self.bound_file_count..];
             let names = tsr_binder::PreparedNames::new(arena, &self.node_map);
             let nodes = &self.nodes;
             let node_map = &self.node_map;
@@ -515,7 +526,7 @@ impl<'a> Program<'a> {
                 files,
                 workers,
                 front_end::Lookahead::All,
-                |_, file| {
+                |index, file| {
                     // UMD declarations can reuse an earlier file's alias while
                     // declaring it. Keep that small ordered subset on the caller.
                     let ordered = file.node_range().any(|id| {
@@ -528,13 +539,14 @@ impl<'a> Program<'a> {
                         return None;
                     }
                     let jsdoc: Vec<_> = file.jsdoc().iter().collect();
-                    Some(tsr_binder::bind_file(
+                    Some(tsr_binder::bind_file_forcing_module(
                         &names,
                         nodes,
                         file.source_file(),
                         FileInfo { name: file.file_name(), text: file.text() },
                         &jsdoc,
                         file.node_range(),
+                        force[index],
                     ))
                 },
                 |index, local| {
@@ -544,13 +556,14 @@ impl<'a> Program<'a> {
                     } else {
                         let file = &files[index];
                         let jsdoc: Vec<_> = file.jsdoc().iter().collect();
-                        tsr_binder::bind_into_with_jsdoc(
+                        tsr_binder::bind_into_with_jsdoc_forcing_module(
                             previous,
                             arena,
                             file.source_file(),
                             nodes,
                             FileInfo { name: file.file_name(), text: file.text() },
                             &jsdoc,
+                            force[index],
                         )
                     };
                     diagnostic_ends.push(binder.diagnostics().len());
@@ -564,13 +577,15 @@ impl<'a> Program<'a> {
             let file = &self.files[index];
             let previous = std::mem::replace(&mut self.binder, BindResult::empty());
             let jsdoc: Vec<_> = file.jsdoc().iter().collect();
-            self.binder = tsr_binder::bind_into_with_jsdoc(
+            let force_module = self.force_module_indicator(index);
+            self.binder = tsr_binder::bind_into_with_jsdoc_forcing_module(
                 previous,
                 arena,
                 file.source_file(),
                 &self.nodes,
                 FileInfo { name: file.file_name(), text: file.text() },
                 &jsdoc,
+                force_module,
             );
             self.bind_diagnostic_ends.push(self.binder.diagnostics().len());
         }

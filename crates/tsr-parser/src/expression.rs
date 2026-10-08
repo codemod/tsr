@@ -481,6 +481,9 @@ impl<'a> Parser<'a> {
             self.next_token();
             self.next_token();
             let name = self.parse_identifier_name();
+            if name.text != "defer" {
+                self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_IMPORT_META;
+            }
             let keyword_token = self.alloc_token(import_token.kind, import_token.span);
             let node = self.finish_node(
                 MetaProperty::new(keyword_token, Some(name)),

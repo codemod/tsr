@@ -78,7 +78,7 @@ use tsr_ast::{NodeId, NodeMap, NodeTable, SourceFile, SyntaxKind};
 use tsr_core::Idx as _;
 use tsr_diagnostics::Diagnostic;
 
-pub use binder::{is_declaration_file, is_external_module};
+pub use binder::{is_declaration_file, is_external_module, is_external_module_in};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
 pub use names::PreparedNames;
@@ -208,6 +208,31 @@ pub fn bind_file<'a, 'n>(
     node_range: std::ops::Range<u32>,
 ) -> FileBindResult<'a, 'n> {
     binder::Binder::bind_independent(names, nodes, file, info, jsdoc, node_range)
+}
+
+/// [`bind_file`] under `moduleDetection`'s `Force` indicator option
+/// (`ast.GetExternalModuleIndicatorOptions`): a non-declaration file binds as
+/// a module whatever its statements.
+#[allow(clippy::too_many_arguments)]
+#[must_use]
+pub fn bind_file_forcing_module<'a, 'n>(
+    names: &'n PreparedNames<'a>,
+    nodes: &'n NodeTable,
+    file: &'a SourceFile<'a>,
+    info: FileInfo<'a>,
+    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    node_range: std::ops::Range<u32>,
+    force_module: bool,
+) -> FileBindResult<'a, 'n> {
+    binder::Binder::bind_independent_forcing(
+        names,
+        nodes,
+        file,
+        info,
+        jsdoc,
+        node_range,
+        force_module,
+    )
 }
 
 impl<'a> BindResult<'a> {
@@ -1644,6 +1669,23 @@ pub fn bind_into_with_jsdoc<'a>(
     jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
 ) -> BindResult<'a> {
     binder::Binder::resuming(arena, nodes, previous).bind_source_file_with_jsdoc(file, info, jsdoc)
+}
+
+/// [`bind_into_with_jsdoc`] under the `Force` indicator option
+/// ([`bind_file_forcing_module`]).
+#[must_use]
+pub fn bind_into_with_jsdoc_forcing_module<'a>(
+    previous: BindResult<'a>,
+    arena: &'a tsr_core::Arena,
+    file: &'a SourceFile<'a>,
+    nodes: &NodeTable,
+    info: FileInfo<'a>,
+    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    force_module: bool,
+) -> BindResult<'a> {
+    binder::Binder::resuming(arena, nodes, previous)
+        .forcing_module(force_module)
+        .bind_source_file_with_jsdoc(file, info, jsdoc)
 }
 
 #[cfg(test)]
