@@ -241,3 +241,134 @@ All five diffs (§1's four and this one) against the frozen base:
 
 The object-literal consumer adds one `jsdoc_entries` probe per member of
 every object literal, TypeScript included; the Ir above includes it.
+
+## 3. Diagnostics anchored inside JSDoc, and the JSDoc type walk
+
+**Forcing fact** (r5-jsdoc2 §2): `source_file_of_for_diagnostics` climbed
+parents to the `SourceFile` and dead-ended at the parentless JSDoc root, so
+every diagnostic anchored in a comment was silently dropped, and
+`r5-jsdoc2-jsdoc-type-walk.diff` (native's `checkSourceElement` over
+reparsed type nodes) could report nothing. With the crossing it lost 36
+rows; with §1's hop in place every TS2304/TS2503 of those is gone, and the
+rest root-cause to six more places that walk parents without crossing the
+comment, or that miss a reparsed position:
+
+| Loss (case) | Native | Port (file) |
+|---|---|---|
+| TS6133 importTag25 — the crossing **alone** | `@import`ed `T` is referenced from a `@type` once names resolve through the host (§1) | none: the crossing lands after the hop |
+| TS2503 importTag2/9 | `@import * as ns` reparses to a namespace import and binds `ns` | bind it like the named form (`binder.rs`); this lifts the `tsr-e2u` fence, which no type line now needs |
+| TS1228 returnTagTypeGuard | `getTypePredicateParent` (`checker.go:3099`): the reparsed `@returns` is the function's `Type` | `type_predicate_parent` also asks the owned `jsdoc_reparsed_return_owner` (`grammar.rs`) |
+| TS17020 checkJsdocTypeTag3 | `IsInJSFile` reads `NodeFlagsJavaScriptFile`, which native's parser puts on every node of a JS file, reparsed JSDoc included | the loader stamps the flag on each JSDoc root of a JS file as well as on the file root (`tsr-compiler` `loader.rs`, `lib.rs`) |
+| TS2526 jsDeclarationsThisTypes | `getThisContainer` from a reparsed `@returns {this}` reaches the method | `this_container` crosses the comment (`this_expression.rs`) |
+| TS2315 checkJsdocSatisfiesTag2 | `getIntendedTypeFromJSDocTypeReference`'s `Object.<K, V>` arm answers before `getTypeFromClassOrInterfaceReference` | the arity rule skips that reference (owned `is_jsdoc_record_object_reference`; `type_argument_arity.rs`) |
+| TS2315 overloadTag3 | a JS class's `@template` tags are its type parameters (`reparser.go:459`) | the arity rule counts them (owned `jsdoc_class_template_parameters`; `type_argument_arity.rs`) |
+
+Also in the set: `check_catch_clause_declaration` (`grammar.rs`) reads the
+reparsed `@type` (`checkCatchClause`, `checker.go:4247`) for TS1196, and
+the walk visits a class property's own `@type` (§2's host).
+
+**Where the JS-file bit comes from (measured).** Seven more rules ask
+`in_js_file` about JSDoc nodes once the walk reaches them (TS2304 in
+jsdocTypeDefAtStartOfFile and importTypeResolutionJSDocEOF, TS2749 in
+commonJSImportClassTypeReference, TS2583 in checkJsdocTypeTag8, …: each a
+JS-relaxed rule that took the comment for TypeScript). Three placements were
+measured:
+
+| Placement | domain-model Ir vs §2 | Losses |
+|---|---|---|
+| `Checker::in_js_file` crosses a JSDoc root to its host | +2.6 M (+0.22%) | 0 |
+| only the TS17019/17020 rule crosses | +0.2 M | 7 |
+| the loader stamps every JSDoc root of a JS file | +0.2 M | 0 |
+
+The first is a `kind` load at the root on every call, which a TypeScript
+project pays and never uses. The third is native's own arrangement — the
+parser sets `NodeFlagsJavaScriptFile` on every node of a JS file — moved to
+where TSR stamps the file root (the parser never sees the file name,
+ADR-0016): one `add_flags` per comment, in JS files only, so the
+TypeScript path does no new work. Its falsifier is a JSDoc root reached
+other than through a stamped table (a harness that parses a JS file and
+stamps only the root, like `dts_emit_suite`).
+
+The same measurement moved `source_file_of_for_diagnostics`' crossing into a
+`#[cold]` helper: written inline, its body became identical to
+`source_file_of`'s and the two were folded into one out-of-line function
+(+1.3 M Ir at `source_file_of`'s new callers). The `check_node` hook is gated
+on a per-file `file_is_js` set once in `check_source_file` (+1.8 M Ir
+ungated: a `jsdoc_entries` probe on every checked node of every file).
+
+**Ownership.** `jsdoc_checks.rs` (r5-jsdoc2's walk, now this lane's file)
+and the queries land as code with `#[expect(dead_code)]`. Because the
+crossing in `source_file_of_for_diagnostics` cannot land alone (importTag25),
+it ships inside `r5-jsdoc3-jsdoc-diagnostics.diff` with the `check_node`
+hook and the consumers above, applied after §1 and §2's five diffs.
+
+**Convention record.** No cache or table. The crossings are one
+`jsdoc_hosts` probe, reached only when a walk runs off a parentless node;
+the walk is r5-jsdoc2's (one `jsdoc_entries` probe per checked node, the
+replay answering from hash lookups when no comment applies).
+
+### 3.1 Landing order and measurements
+
+Apply `r5-jsdoc3-jsdoc-diagnostics.diff` after §1's four and §2's diff
+(binder, `check.rs`, `checker.rs`, `grammar.rs`, `this_expression.rs`,
+`type_argument_arity.rs`, `tsr-compiler` `lib.rs`/`loader.rs`, and the
+expectation removals in the two owned files), then §4's
+`r5-jsdoc3-template-constraint.diff`. The seven diffs applied in order
+reproduce byte-for-byte the tree measured below; `cargo test --workspace
+--release` passes with all seven applied.
+
+Unfiltered, against the frozen base:
+
+| Set | types RIGHT | diagnostics RIGHT / EMPTY_RIGHT | losses |
+|---|---|---|---|
+| §1–§2 | 544,145 | 5,355 / 5,581 | none |
+| r5-jsdoc2's walk + crossing on §1–§2, as first written | — | — | 3 (from r5-jsdoc2's 36) |
+| §1–§3 | 544,145 | **5,358 / 5,581** | **none** |
+| §1–§4 | **544,157** | **5,359 / 5,581** | **none** |
+
+Diagnostics WRONG → RIGHT for §3: jsdocClassMissingTypeArguments,
+importTag23, jsDeclarationsClasses(target=es2015); for §4:
+checkJsdocTypeTag4. Type lines for §4: jsdocTemplateTag3 12.
+
+**Perf** (§1–§4 against base). Ir: domain-model 1,199,538,490 →
+1,200,752,905 (+0.10%; §3–§4 add +0.02% over §2), generic-imports
+343,374,181 → 343,382,468 (+0.002%). Median child CPU, 41 samples:
+domain-model 0.984, generic-imports 1.016; `diagnostics_match` true.
+
+## 4. JSDoc `@template` constraints (item 4)
+
+**Native.** `gatherTypeParameters` (`parser/reparser.go:293`) clones an
+`@template {C} T, U` tag's first parameter with `{C}` as its constraint.
+TSR read constraints only from `TypeParameterDeclaration.constraint`
+(`members.rs` `type_parameter_constraint`, `getConstraintDeclaration`), so
+every JSDoc `@template` constraint — typedef, function and class alike — was
+lost. Owned query `jsdoc_template_constraint(parameter)`; the consumer is
+`r5-jsdoc3-template-constraint.diff` (`members.rs`).
+
+Converts checkJsdocTypeTag4's second TS2344 (`B<number>` against
+`@template {string} U`) and jsdocTemplateTag3's constrained-parameter lines.
+
+**Not done.** unmetTypeConstraintInJSDocImportCall: `check_type_argument_constraints`
+covers `TypeReferenceNode` only, and its argument is the unconstrained
+type parameter `T`, which the constraints lane's
+`relation_undecidable_for_constraint` declines regardless. extendsTag5:
+the walk does not visit `@augments`/`@extends` heritage, and the check
+would need `ExpressionWithTypeArguments` in `check_type_argument_constraints`.
+Both stay with the constraints lane.
+
+### 4.1 Measured
+
+On top of §1–§3: types +12 (jsdocTemplateTag3), diagnostics +1
+(checkJsdocTypeTag4), zero losses; the table in §3.1 has the totals.
+
+## 5. Remaining in the lane
+
+| Issue / case | Hypothesis | Site (owner) |
+|---|---|---|
+| `.16.107` typedefScope1 | typedefs declared at file scope; native binds the reparsed alias in the host's block | binder |
+| `.16.98` jsdocImportType | `isCommonJSRequire`'s ambient-declaration arm: a user-declared ambient `require` still makes `require("./m")` a require call | `calls.rs` |
+| jsdocCatchClauseWithTypeAnnotation (diag) | TS18046/TS2339 on `unknown` catch variables, TS2492 (catch redeclaration, not ported) | `grammar.rs`, property access |
+| unmetTypeConstraintInJSDocImportCall | `check_type_argument_constraints` covers `TypeReferenceNode` only; and the argument is a type parameter the constraints lane declines | `constraints.rs` |
+| extendsTag5 | the walk skips `@augments`/`@extends`; the constraint check needs `ExpressionWithTypeArguments` | `jsdoc_checks.rs`, `constraints.rs` |
+| walk coverage | casts, `@satisfies`, `@this`, full-signature `@type`, `@callback`, `@overload`, `@import`, export/accessor `@type` are not visited (`jsdoc_checks.rs` module doc) | `jsdoc_checks.rs` |
+| `symbol_access.rs` `has_visible_declarations` | same `getAnyImportSyntax` gap as §1.3 for the other printers | `symbol_access.rs` |
