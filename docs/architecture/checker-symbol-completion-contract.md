@@ -1244,3 +1244,34 @@ alias/export traversal, module sorting/serialization or full Checker evaluation.
 Ordinary/work-trace34 errors and full-lib-test90 still refuse runtime integration.
 All six goals and full native/corpus/performed-work/median ratio<=0.50 gates remain
 unfinished; prior augmentation/combined-symbol and naming admission gaps persist.
+
+
+The [selected semantic consumer continuation](checker-semantic-consumer-continuation.json)
+after `af503f38` migrates the existing diagnostic, JSX, enum, node-reuse,
+heritage/base/member and public conformance type readers to actual selected
+`SymbolRef` targets. Program syntax lookups lift once. Existing heritage memo
+keys, successful-only publication, unresolved retry and alias-active exclusion
+remain unchanged; this does not qualify native completed absence or MembersResolved.
+
+Fresh pinned `5b1047d` controls show that a pure default alias resolves transitively,
+module copies retain the original prototype child/parent/type, and an import-equals
+chain must prove namespace meaning. A class-only chain is rejected; a class with
+namespace meaning shares its namespace import's copied value type. Rust's old
+value-reader clone placement published the raw alias target and yielded a different
+TypeId through that chain. The existing factory now completes the selected copy's
+value link before AliasTarget publication, matching resolveESModuleSymbol and
+cloneTypeAsModuleType. getTypeOfAlias reads that published target. Existing copy
+admission/default/member boundaries stay explicit; no second memo is introduced.
+The synthetic prototype uses the retained source-type edge, without general origin
+recovery or changing other receivers. Generic prototypes retain any instantiation;
+current generic/inherited completeness refusals stay in force.
+
+The actual full library runs progress from 222/2 through 223/1 to 224/0, with no ignored
+or filtered tests. 23 selected integration tests and 8 native control rows pass.
+A failed native setup and a rejected Tail-sharing premise are preserved separately
+from native semantic evidence. Source/binary/fixture receipts and all 1,053 replay
+inputs remain in the artifact. Workspace runtime compiles, but public conformance
+test/example consumers and 141 strict library lint errors still refuse retention.
+No complete corpus, no-RIGHT-loss, work-count/allocation or qualified CLI speed gate
+is satisfied; all six goal tickets remain in progress. Correct identity/publication
+is a prerequisite to measuring reuse, not a speed result.

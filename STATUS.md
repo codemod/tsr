@@ -22,6 +22,20 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected semantic consumer continuation measured after `af503f38`, pinned native
+`5b1047d`: exact **40-source** passive replay covers **1,053 inputs**, **1,013
+unchanged**. Private Checker library ordinary/work-trace and workspace libraries/
+binaries compile. Actual full Checker library: **224 passed, 0 failed, 0 ignored**;
+three selected integration targets: **23 passed**. Fresh pinned native **8 rows**
+qualify prototype sharing, transitive default alias targets, namespace meaning,
+and shared module-copy alias identity. The copy now publishes at AliasTarget,
+matching native; no speed claim. Strict library Clippy reports **141 errors**;
+full workspace test/example consumers remain unmigrated. This is a replay
+checkpoint, with **no canonical Rust integration**, full corpus/no-RIGHT-loss,
+performed-work or equivalent-work median ratio<=0.50 qualification.
+[Source, failures and controls](docs/architecture/checker-semantic-consumer-continuation.json).
+
+
 Selected naming continuation after `b96ed671`, pinned native `5b1047d`: the
 existing best-name/alias/module naming and module property display workers now
 keep selected symbol identity. Exact two-file replay covers 1,053 inputs with
@@ -3854,6 +3868,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+After `af503f38`, selected semantic consumers and native module-copy AliasTarget
+publication reach **224/224 library tests** and **23 selected integration tests**.
+Next: migrate the conformance test/public query and diagnostic example consumers,
+resolve **141 strict library lint errors**, then run full native alias/recovery,
+combined-symbol, complete corpus/no-RIGHT-loss and performed-work qualification.
+All six goal tickets remain in progress. Current library/native controls do not
+establish member completion, a construction-count reduction or a CLI speed win.
+
+
 After the `b96ed671` selected naming continuation, migrate symbol-chain,
 reference/accessibility/value-name and enum-owner consumers, then the remaining
 semantic readers and full test/conformance query consumers. **34 library errors**
@@ -7653,6 +7676,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The selected-consumer candidate after `af503f38` remains refused for canonical
+runtime retention: **141 strict library Clippy errors** and unmigrated conformance
+test/example consumers. Earlier actual library **222/2** failures exposed the
+wrong prototype receiver and stale immediate default-alias expectation; successive
+**223/1** runs exposed namespace admission and raw-target versus module-copy
+publication. These failures are preserved; final actual library **224/0**, selected
+integration **23/0** and native **8 qualified rows** do not replace full workspace,
+corpus/no-RIGHT-loss, performed-work or median wall ratio<=0.50 gates. No weaker
+assertion, filtered suite or correctness prerequisite is accepted as a speed win.
+
 
 The private selected naming continuation after `b96ed671` remains refused by
 **34 ordinary/work-trace library errors** and **90 full lib-test no-run errors**.
@@ -16009,3 +16043,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `822edfa4` plus recorded five-file private overlay / native `5b1047d` | — | — | **Alias-result ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Import/export/entity channels and existing generic qualified keys retain selected handles; shallow namespace/module diagnostics and emit-helper signatures use actual selected metadata. Exact1053 inputs/fivechanged/1048unchanged replay. Ordinary/work-trace57 compile errors, full-lib-test113; predecessor71/127. Bounded own-export2pass, compiling origin and module-guard mutations each1fail, restored2pass; setup compile failure preserved separately. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six tickets in progress. [Replay](docs/architecture/checker-alias-result-continuation.json). |
 
 | 2026-10-08 | `b96ed671` plus exact two-file private overlay / native `5b1047d` | — | — | **Selected naming ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Best-name/alias/module naming and module property display retain actual selected identity; exact1053 inputs/twochanged/1051unchanged replay. Ordinary/work-trace34 compile errors, full-lib-test90; predecessor57/113. Bounded actual direct-name1pass, compiling origin mutation1fail, restored1pass. Native alias-only table scan/copy/publication profiling filed as tsr-1yb.11.5. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six goals in progress. [Replay](docs/architecture/checker-semantic-naming-continuation.json). |
+
+| 2026-10-08 | `af503f38` plus exact 40-source private overlay / native `5b1047d` | — | — | **Selected semantic consumers and module-copy publication, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,013 unchanged. Ordinary/work-trace library and workspace runtime compile; actual library 224/0/0, selected integration 23/0, native 8 rows. Canonical runtime retention refused by 141 strict lint errors and unmigrated conformance tests/examples; full corpus/work and ratio<=0.50 outstanding. [Replay](docs/architecture/checker-semantic-consumer-continuation.json). |
