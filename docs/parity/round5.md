@@ -84,3 +84,17 @@ tsgo 71.6 ms). The new box `r5-loader` takes the loader. Lazy JSDoc (37% of
 Ir) stays with `tsr-2zk.17.1`, which is claimed on main. Main's perf lane
 (`tsr-2zk.17`) is active on checker memos, so no second checker-perf box is
 dispatched.
+
+### r5-declemit2 finished; r5-modfmt dispatched (`tsr-2zk.1002`)
+
+r5-declemit2 landed two fixes, +3 cases: TS9026 for augmentation imports and
+TS4094 for class expressions written as type literals. Its remaining clusters
+are filed:
+- `tsr-2zk.999`, module specifiers into `node_modules` (TS2883 ×12, plus the
+  same cases' `.types` lines). It goes to `r5-modules`, which is the single
+  owner of module-specifier generation.
+- `tsr-2zk.1000`, a declaration-emit SymbolTracker with IsSymbolAccessible.
+- `tsr-2zk.1001`, checker-side TS4xxx producers.
+
+The new box `r5-modfmt` takes the module-format grammar (`.985`, 94 configured
+rows) and the readers for newly applied options (`.993`).
