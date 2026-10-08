@@ -271,5 +271,5 @@ call every class member already makes).
 | TS1320 awaited `then` | `crashInYieldStarInAsyncFunction`, `await_incorrectThisType` | `getAwaitedType`'s non-promise thenable report; not grammar. | awaited/iteration code |
 | TS1102 / TS2703 on a missing operand | `deleteOperatorInvalidOperations` | `delete ;` reports at the missing identifier's *full start* (`errorOnNode` on a missing node: `pos`, zero width); the port's spans are trimmed so it reports one column right. Same for the checker's TS2703. | shared error-span helper / parser missing-node spans |
 | TS1212 `yield` as identifier | `FunctionDeclaration8_es6`, `YieldExpression*_es6` (mixed with TS2304) | `checkContextualIdentifier`'s `YieldContext` arm and the parser's yield-context flag; the cases also miss TS2304. | parser (`YieldContext`) |
-| TS1101 in plain JS | `plainJSBinderErrors` (mixed) | TS1101 now reported for TS; the plain-JS case also misses TS18012. Unverified whether the JS host walk reaches `with`. | — |
+| TS18012 in plain JS | `plainJSBinderErrors` | Its TS1101 line now matches (§1); the case stays WRONG on TS18012 alone, outside this lane's codes. | — |
 | TS1260/1262/1214 escaped keywords | `scannerUnicodeEscapeInKeyword2` | scanner escape handling. | scanner/parser |
