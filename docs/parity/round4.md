@@ -259,3 +259,14 @@ once and caches in links. C1, C2 and C5 are integrated.
 - `r4-jsdoc` (7dd2df2): parameter-own `@type`, +7 type lines. Its three
   measured patches (+44 lines, +5 diagnostics cases) cost 4 losses and wait on
   `tsr-2zk.911`.
+
+### r4-anyaudit — single owner of the any/error-type split (`tsr-2zk.31`)
+
+Dispatched when `r4-arrays` finished (06ce5e6 with its relater patch, 907a249:
++39 type lines, +3 diagnostics cases). Several finished lanes stop on the same
+shared contract: TSR answers `any` (or prints its gap marker `error`) where
+native answers `errorType` or a concrete type (r4-arrays `.16.87`, calls
+round 1, decls §1). This box is the only one that changes that contract. It
+edits only the specific producer functions it names in its notes, re-checks
+`main`'s history of each before every push, and delivers anything else as a
+measured patch.
