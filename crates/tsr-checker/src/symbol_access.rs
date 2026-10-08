@@ -693,6 +693,14 @@ pub enum EmitAccessibility {
 pub enum TrackerReport {
     /// `ReportPrivateInBaseOfClassExpression(propertyName)`.
     PrivateInBaseOfClassExpression(String),
+    /// `ReportLikelyUnsafeImportRequiredError(specifier, symbolName)`
+    /// (`nodebuilderimpl.go:709`).
+    LikelyUnsafeImportRequired {
+        /// The specifier that dives into `node_modules`.
+        specifier: String,
+        /// `symbol.Name`; empty selects the two-argument message.
+        symbol_name: String,
+    },
 }
 
 /// Pinned tsgo 5b1047d: `EmitResolver` (`checker/emitresolver.go`), the
@@ -1294,10 +1302,12 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
             }
             _ => return Vec::new(),
         };
+        let mut reports = Vec::new();
+        self.unsafe_import_reports(ty, node, &mut reports);
         let crate::types::TypeData::Anonymous { symbol: class, .. } =
             self.checker.store.get(ty).data
         else {
-            return Vec::new();
+            return reports;
         };
         let symbols = self.checker.binder.symbols().get(class);
         // `symbol.ValueDeclaration`. This port's binder leaves it unset on a
@@ -1307,15 +1317,88 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
         let is_class_expression =
             value_declaration.is_some_and(|d| self.kind(d) == tsr_ast::SyntaxKind::ClassExpression);
         if !symbols.flags.contains(SymbolFlags::CLASS) || !is_class_expression {
-            return Vec::new();
+            return reports;
         }
-        let mut reports = Vec::new();
         // The instance side first: the construct signature precedes the
         // static properties in `createTypeNodesFromResolvedType`.
         let instance = self.checker.get_declared_type_of_symbol(class);
         self.report_private_properties(instance, &mut reports);
         self.report_private_properties(ty, &mut reports);
         reports
+    }
+
+    /// `ReportLikelyUnsafeImportRequiredError` (`nodebuilderimpl.go:681`-`:710`)
+    /// over the inferred type `ty` of `node`.
+    ///
+    /// The type is printed with the checker's specifier tracker on
+    /// (`Checker::unsafe_import_tracker`, filled where `symbol_chain`
+    /// generates an `import("…")` specifier into `node_modules`); each entry
+    /// is then put through the node builder's two escapes under `node16` /
+    /// `nodenext` resolution. A target emitted as ESM from a file of another
+    /// format already carries a `resolution-mode` attribute and is no error;
+    /// otherwise the specifier is generated again in the swapped mode, and a
+    /// result outside `node_modules` is written with the attribute instead.
+    /// What remains is reported, once per (specifier, symbol). Only the
+    /// qualified `import("…").T` route is tracked: the module-object route
+    /// (`typeof import("…")`, `symbol` = the module itself) is not, so its
+    /// reports are missed, never invented. r5-modules §6.
+    fn unsafe_import_reports(
+        &mut self,
+        ty: TypeId,
+        node: NodeId,
+        reports: &mut Vec<TrackerReport>,
+    ) {
+        use tsr_core::ModuleKind;
+        // A program with no `node_modules` file generates no such specifier;
+        // skip the serialization (r5-modules §6).
+        if self.checker.module_host.is_none_or(|host| !host.has_node_modules_files()) {
+            return;
+        }
+        let previous = self.checker.unsafe_import_tracker.replace(Vec::new());
+        let _ = self.checker.type_to_string_at(ty, node);
+        let found = std::mem::replace(&mut self.checker.unsafe_import_tracker, previous)
+            .unwrap_or_default();
+        if found.is_empty() {
+            return;
+        }
+        let Some(host) = self.checker.module_host else { return };
+        let node_next = host.specifier_options(ModuleKind::None).module_resolution_is_node_next;
+        let context_file = self.checker.source_file_of(node);
+        for entry in found {
+            if node_next && let Some(context_file) = context_file {
+                let format = |file: NodeId| host.implied_node_format_for_emit(file);
+                let target_file = self
+                    .checker
+                    .binder
+                    .symbols()
+                    .get(entry.module)
+                    .declarations
+                    .iter()
+                    .copied()
+                    .find(|&declaration| self.kind(declaration) == tsr_ast::SyntaxKind::SourceFile);
+                if target_file.is_some_and(|target| {
+                    format(target) == ModuleKind::ESNext && format(target) != format(context_file)
+                }) {
+                    continue;
+                }
+                let swapped = if format(context_file) == ModuleKind::ESNext {
+                    ModuleKind::CommonJS
+                } else {
+                    ModuleKind::ESNext
+                };
+                if self
+                    .checker
+                    .module_specifier_for_symbol_in_mode(entry.module, node, swapped)
+                    .is_some_and(|specifier| !specifier.contains("/node_modules/"))
+                {
+                    continue;
+                }
+            }
+            reports.push(TrackerReport::LikelyUnsafeImportRequired {
+                specifier: entry.specifier,
+                symbol_name: entry.symbol_name,
+            });
+        }
     }
 
     /// The `FlagsWriteClassExpressionAsTypeLiteral` arm of

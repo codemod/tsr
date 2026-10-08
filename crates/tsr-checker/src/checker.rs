@@ -608,6 +608,10 @@ pub struct Checker<'a, 'n> {
     /// `getEmitModuleKind` — `options.module`, or ES2015 for an ES2015-or-later
     /// target and `CommonJS` otherwise. §478.
     pub(crate) module_kind: tsr_core::ModuleKind,
+    /// The `ReportLikelyUnsafeImportRequiredError` sink
+    /// (`crate::module_specifiers::UnsafeImport`): `Some` only while
+    /// declaration emit serializes an inferred type. r5-modules §6.
+    pub(crate) unsafe_import_tracker: Option<Vec<crate::module_specifiers::UnsafeImport>>,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
     /// `compilerOptions.ImportHelpers.IsTrue()`, read by
@@ -1473,6 +1477,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_bind_call_apply: true,
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
+            unsafe_import_tracker: None,
             legacy_decorators: false,
             import_helpers: false,
             external_helpers: FxHashMap::default(),
@@ -2358,6 +2363,19 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   when it sits at the root, the one directory layout most of the corpus
     ///   mounts.
     fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
+        self.module_specifier_for_symbol_in_mode(module, reference, tsr_core::ModuleKind::None)
+    }
+
+    /// [`Checker::module_specifier_for_symbol`] under `getSpecifierForModuleSymbol`'s
+    /// `overrideImportMode` (`ModuleKind::None` for none): the mode the
+    /// existing-import, `node_modules` and ending choices read in place of the
+    /// importing file's default (r5-modules §6).
+    pub(crate) fn module_specifier_for_symbol_in_mode(
+        &self,
+        module: SymbolId,
+        reference: NodeId,
+        override_mode: tsr_core::ModuleKind,
+    ) -> Option<String> {
         let symbol = self.binder.symbols().get(module);
         // `tryGetModuleNameFromAmbientModule` (`modulespecifiers/specifiers.go:107`),
         // which `GetModuleSpecifiersWithInfo` asks before any path: a
@@ -2383,7 +2401,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             // `computeModuleSpecifiers`' existing-import arm comes before
             // any computed path (r5-modules §4).
             if let Some(from) = self.source_file_of(reference)
-                && let Some(existing) = self.existing_import_specifier(from, file)
+                && let Some(existing) = self.existing_import_specifier(from, file, override_mode)
             {
                 return Some(crate::printing::quote(&existing));
             }
@@ -2401,8 +2419,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             // when it names nothing, the relative specifier below is
             // upstream's fallback too (r5-modules §5).
             if to.contains("/node_modules/")
-                && let Some(name) =
-                    self.node_module_specifier(from_file, tsr_path::get_directory_path(&from), &to)
+                && let Some(name) = self.node_module_specifier(
+                    from_file,
+                    tsr_path::get_directory_path(&from),
+                    &to,
+                    override_mode,
+                )
             {
                 return Some(crate::printing::quote(&name));
             }
@@ -2410,7 +2432,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             // node builder's ending choice (r5-modules §4).
             let js_ending = self.module_specifier_uses_js_ending(
                 from_file,
-                host.default_resolution_mode_for_file(from_file),
+                if override_mode == tsr_core::ModuleKind::None {
+                    host.default_resolution_mode_for_file(from_file)
+                } else {
+                    override_mode
+                },
             )?;
             let (input, output) = self.js_extension_for_file(&to)?;
             let base = &to[..to.len() - input.len()];
@@ -3194,6 +3220,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     && stem.contains("node_modules/")
                     && let Some(specifier) = self.module_specifier_for_symbol(parent, reference)
                 {
+                    self.track_unsafe_import(&specifier, symbol, parent);
                     return Some(format!("import({specifier})."));
                 }
             }

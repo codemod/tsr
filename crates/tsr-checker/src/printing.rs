@@ -720,6 +720,7 @@ impl Checker<'_, '_> {
         &self,
         importing: tsr_ast::NodeId,
         target: tsr_ast::NodeId,
+        override_mode: tsr_core::ModuleKind,
     ) -> Option<String> {
         use tsr_ast::{Expression, ModuleReference, Node, Statement};
         let host = self.module_host?;
@@ -791,8 +792,12 @@ impl Checker<'_, '_> {
                 .find_map(|(_, usage, text)| resolves(usage, text).map(|mode| (text, mode)))
         });
         let (text, mode) = found?;
-        let target_mode = host.default_resolution_mode_for_file(importing);
         let none = tsr_core::ModuleKind::None;
+        let target_mode = if override_mode == none {
+            host.default_resolution_mode_for_file(importing)
+        } else {
+            override_mode
+        };
         if mode != target_mode && mode != none && target_mode != none {
             return None;
         }
