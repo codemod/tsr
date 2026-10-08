@@ -325,3 +325,19 @@ root-parallel baseline. All 116 targeted tests, Rust formatting and changed
 crate Clippy with warnings denied pass. The scoped pool is retained for its
 confirmed frontend benefit; broader native loader fidelity and the <=0.50
 release ratio remain open in the parent tasks.
+
+## Admission revised for lib-dominated programs (round 5, `tsr-2zk.995`)
+
+Two of the rules above changed after `r5-perf4` measured the default mode
+*slower* than `--singleThreaded` on the small public benches. The evidence
+and model are in [`r5-loader.md`](../parity/notes/r5-loader.md) §2–§3.
+
+- **Embedded lib texts are never dependency-pool jobs.** On all three
+  bench projects every pool job was an embedded lib, each paying two text
+  copies and an AST publication that the serial path (which borrows the
+  `&'static str`) does not. Non-static dependencies are admitted as before.
+- **Binding fans out only when the largest unbound file is at most half of
+  the unbound nodes** (and there are at least 10,000). The previous gate,
+  "the program has 10,000 nodes", admitted every program with a default lib.
+  The bind of the largest file is the critical path and publication is
+  serial after it, so a program dominated by `lib.dom.d.ts` lost wall time.
