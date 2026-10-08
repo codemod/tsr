@@ -163,8 +163,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) base_symbols: FxHashMap<(SymbolId, bool), Vec<SymbolId>>,
     /// Completed declared call/construct signatures of an interface or type
     /// literal symbol, owned by `Checker::signature_candidates_of_interface_symbol`.
-    pub(crate) interface_signatures:
-        FxHashMap<(SymbolId, crate::signatures::SignatureKind), Vec<crate::signatures::Signature>>,
+    pub(crate) interface_signatures: FxHashMap<
+        (crate::symbol_access::SymbolRef, crate::signatures::SignatureKind),
+        Vec<crate::signatures::Signature>,
+    >,
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
