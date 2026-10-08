@@ -4376,7 +4376,7 @@ mod property_name_tests {
         }
 
         let own = r#"static field = 11; static arrow = (n: number): string => 'field';
-static opaque = function({ "value": value }: { value: number }): number { return value; };
+static opaque = function({ [a + b]: value }: { value: number }): number { return value; };
 static own(n: number): string { return 'method'; }
 static get getter(): number { return 13; } static set setter(n: number) {}
 private static hidden = 19; protected static guarded = 23;
