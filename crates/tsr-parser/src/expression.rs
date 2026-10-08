@@ -2682,7 +2682,7 @@ impl<'a> Parser<'a> {
     /// p.nodePos(), Identifier_expected)` — right after the dot, at the next
     /// token's full start, "because the next token might actually be an
     /// identifier and the error would be quite confusing".
-    fn report_missing_right_side_of_dot(&mut self) {
+    pub(crate) fn report_missing_right_side_of_dot(&mut self) {
         self.error_at(&messages::IDENTIFIER_EXPECTED, Span::at(self.node_end()));
     }
 
