@@ -119,3 +119,32 @@ case's diagnostic list changed.
   computed names by design). Native's lookup misses and reports TS2504.
   Owner: member completeness. Once the absence is decidable, §2's
   incomplete-buffer rule already gives TS2504 without the related TS2322.
+
+## 4. `getIteratedTypeOrElementType`'s sent-type check (TS2763–TS2766)
+
+With `checkAssignability` (every `checkIteratedTypeOrElementType` call),
+upstream checks the caller's *sent* type against the protocol's *next*
+type before reading the yield type (`checker.go:6118`):
+`checkTypeAssignableTo(sentType, nextType, errorNode, head)`, where the
+head is chosen by the use's flag in the order for-of, spread,
+destructuring, `yield*`. `check_iterated_type_or_element_type` now takes
+`sent_type` and makes that check through `report_relation_failure` with
+the head; an undecidable relation reports nothing.
+
+The sent type is `undefinedType` at every check site but `yield*`
+(`checker.go:17680`, `:8064`, `:17749`, `:12648`, `:5876`). `yield*` sends
+`checkYieldExpression`'s `signatureNextType` (`checker.go:10993`): the
+annotated return type's next iteration type orElse `anyType`, which is the
+existing `annotated_yield_next_type` (r4-arrays' port of the same lines);
+without an annotation upstream has no iteration types and sends `anyType`.
+An annotation this port cannot decide sends `errorType`, which skips the
+check.
+
+**Measured** (against §2): `generatorAssignability` gains 9 of its 11
+lines (TS2764, TS2765 ×4, TS2763 ×2, TS2766 ×2); no other case's
+diagnostic list changed; zero losses in both checks. The case stays WRONG
+on its two async-over-sync lines (`for await (_ of g1)`, `yield* g1` in an
+async generator): the async slow attempt declines because
+`[Symbol.asyncIterator]` is not decidably absent on `Generator<…>`, whose
+members come through type-argument heritage (§3's `members.rs` gap), so
+the sync fast path that native reaches next is never asked.
