@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1587/1928 (82.31%)
-Assertion lines: 72280/78552 (92.02%)  — a gradient, not a pass rate
-Failed         : 341
+Passed         : 1590/1928 (82.47%)
+Assertion lines: 72303/78552 (92.04%)  — a gradient, not a pass rate
+Failed         : 338
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 341 failures:
+First 100 of 338 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -64,8 +64,6 @@ compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpro
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >Out : InexactOptionals<In> — expected >Out : Out
 compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=true)
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >Out : InexactOptionals<In> — expected >Out : Out
-compiler/declarationEmitModuleWithScopeMarker(target=es2015)
-  declarationEmitModuleWithScopeMarker.ts: >before : error — expected >before : () => typeof func
 compiler/declarationEmitSymlinkPaths(target=es2015)
   /packages/search-prefix/src/Store/NotificationStore.ts: >getNotification : () => NotificationResponse — expected >getNotification : () => import("../API/NotificationAPIUtils").NotificationResponse
 compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)
@@ -119,9 +117,7 @@ compiler/es5-yieldFunctionObjectLiterals(target=es2015)
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
   es5ExportDefaultClassDeclaration3.ts: >C : any — expected >C : typeof C
 compiler/es5ExportDefaultClassDeclaration4(target=es2015)
-  es5ExportDefaultClassDeclaration4.ts: >t : any — expected >t : typeof C
-compiler/es5ExportDefaultFunctionDeclaration4(target=es2015)
-  es5ExportDefaultFunctionDeclaration4.ts: >before : any — expected >before : () => typeof func
+  es5ExportDefaultClassDeclaration4.ts: >t : error — expected >t : typeof C
 compiler/es5ModuleInternalNamedImports(target=es2015)
   es5ModuleInternalNamedImports.ts: >M_A : any — expected >M_A : typeof M_M
 compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
@@ -228,3 +224,7 @@ compiler/spreadObjectPermutations(exactoptionalpropertytypes=true)
   spreadObjectPermutations.ts: >v_bc : { x?: string | number | undefined; } — expected >v_bc : { x?: string | number; }
 compiler/stableTypeOrdering(stabletypeordering=true)
   stableTypeOrdering.ts: >enumUnion : (x: Color | string | string[]) => any — expected >enumUnion : (x: Color | string | string[]) => string | string[] | Color
+compiler/strictNullEmptyDestructuring(target=es2015)
+  strictNullEmptyDestructuring.ts: >({} = null) : null — expected >({} = null) : any
+compiler/taggedTemplateStringsWithCurriedFunction(target=es2015)
+  taggedTemplateStringsWithCurriedFunction.ts: >f : (_: any) => any — expected >f : (_: any) => (..._: any[]) => string
