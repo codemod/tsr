@@ -286,10 +286,6 @@ impl<'a> Parser<'a> {
                 if let Some(function_type) = self.try_parse_function_type() {
                     return function_type;
                 }
-                if self.at(SyntaxKind::LessThanToken) {
-                    self.error_at_current(&messages::TYPE_EXPECTED);
-                    return self.missing_type();
-                }
                 self.next_token();
                 // Parentheses create a fresh conditional-type grammar context:
                 // `T extends (infer U extends number ? 1 : 0) ? ...` parses the
@@ -624,20 +620,13 @@ impl<'a> Parser<'a> {
         {
             return None;
         }
+        // Past that test upstream commits (`parseFunctionOrConstructorType`):
+        // `parseReturnType(EqualsGreaterThanToken)` reports a missing `=>`
+        // and parses the return type anyway, so `x: ()` is `'=>' expected`
+        // rather than a parenthesized type.
         let start = self.pos();
-        let parsed = self.try_parse(|p| {
-            let type_parameters = p.parse_type_parameters();
-            if !p.at(SyntaxKind::OpenParenToken) {
-                return None;
-            }
-            let parameters = p.parse_parameter_list();
-            if !p.at(SyntaxKind::EqualsGreaterThanToken) {
-                return None;
-            }
-            Some((type_parameters, parameters))
-        })?;
-
-        let (type_parameters, parameters) = parsed;
+        let type_parameters = self.parse_type_parameters();
+        let parameters = self.parse_parameter_list();
         self.expect(SyntaxKind::EqualsGreaterThanToken);
         // `(x: T) => x is U` is a predicate, same as a function's return type.
         let return_type = self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);
