@@ -108,6 +108,49 @@ written mapped type (`type M1 = { readonly [K in keyof O]: O[K] }; m1.a = 1`):
 `readonly_target.rs` does not read the mapped image's readonly flag. Not
 owned; reported, not ported.
 
+## §3 `tsr-2zk.16.121` — template optionality (not committed)
+
+Native (confirmed with tsgo): `getTemplateTypeFromMappedType` (checker.go:22697)
+adds optionality for `?`, so a `?` map's index value is `number | undefined`
+(`{ [P in keyof Foo]?: Foo[P] }["other"]`), and `createMappedTypeNodeFromType`
+(nodebuilderimpl.go:1471) prints `removeMissingType(template)`, i.e.
+`{ [P in keyof T]?: T[P] | undefined; }`.
+
+The owned arms (`mapped_type_text` and the index arm of
+`resolve_mapped_type_members_worker`) are ported in
+[`r4-mapped-template-optionality.diff`](r4-mapped-template-optionality.diff).
+Measured on top of the lane head: diagnostics dump unchanged; it converts
+none of the six target cases, because their lines come from code this lane
+does not own:
+
+- the printed `{ [P in keyof T]?: T[P] | undefined; }` lines are written
+  mapped type nodes printed by `declared.rs`' written-node renderer
+  (`written_type_text`), not by `mapped_type_text`;
+- `mappedTypeModifiers:100` (`Partial<Foo>["other"]`) goes through the
+  identity mint `declared.rs` `instantiate_identity_mapped_alias`, whose
+  index reads the source owner's index info without the `?` optionality.
+
+The diff was held at wrap-up (types dump not finished); both declared.rs
+arms are the next step for this issue.
+
+## §4 Held cross-lane diff: `keyof` through a type-argumented base
+
+[`r4-mapped-keyof-generic-base.diff`](r4-mapped-keyof-generic-base.diff)
+(`declared.rs` `collect_keyof_property_names`: follow `extends Base<number>`
+for key names via `base_symbols_of_ex(owner, false)`). Fixes the §1 `k2`
+probe (`keyof (OLE | OLF)` is `"kind"`, native TS2322). Measured on top of
+the lane head: diagnostics dump unchanged; the types dump did not finish
+before wrap-up, so it is not yet loss-checked on types.
+
+## Remaining differences seen (not owned)
+
+- TS2540 on assignment through a mapped property: `readonly_target.rs` does
+  not read the mapped member image's readonly flag (`Mutable<A | B>`'s
+  `x.flags = 1` reports TS2540; native does not). jsTyping: 4 lines
+  (binder.ts 2345/2348, nodeFactory.ts 2547/2548).
+- Printing a type-literal argument's optional property (`b?: 2` vs native
+  `b?: 2 | undefined`) inside `Readonly<…>`'s alias arguments.
+
 ## Ownership and work boundaries (checker port convention)
 
 - **Native operations:** `instantiateMappedType` union arm;
