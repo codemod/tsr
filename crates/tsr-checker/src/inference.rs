@@ -6048,6 +6048,7 @@ impl<'a> Checker<'a, '_> {
                 parameter.name = fresh_name;
             }
         }
+        self.carry_written_annotations_through_rename(&signature, &mut instantiated);
         instantiated
     }
 
