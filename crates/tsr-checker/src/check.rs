@@ -796,6 +796,7 @@ impl Checker<'_, '_> {
             _ => ambient,
         };
         self.check_unreachable(node, ambient);
+        self.check_module_format(node, typed, ambient);
         // `checkGrammarModifiers` runs on the declaration that carries the
         // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
         // is the statement-level shape and is declined, §103.
@@ -1591,30 +1592,10 @@ impl Checker<'_, '_> {
         }
         let Some(parent) = self.nodes.parent(node) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
-        // TS1203: `export =` is not available when emitting ECMAScript modules.
-        // The fixtures set only `@target`, with no `@module` and no
-        // `package.json`, so `GetImpliedNodeFormatForEmit` answers the module
-        // kind itself and upstream's parenthesis reduces to the comparison
-        // below. §478.
-        // **The third conjunct.** Upstream (`checker.go:5671`) requires, for an
-        // **ambient** file, that the implied node format be `ESNext`; a
-        // `.d.cts` is CommonJS by extension and `export =` is what it is for.
-        // This port has no `impliedNodeFormat`, so an ambient file is declined
-        // outright — a strict subset of upstream, and silence rather than the
-        // four wrong lines `extraonly` was carrying. §783.
-        if self.module_kind >= tsr_core::ModuleKind::ES2015
-            && self.module_kind != tsr_core::ModuleKind::Preserve
-            && !self.file_is_ambient
-            && let Some(file) = self.source_file_of_for_diagnostics(node)
-        {
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::EXPORT_ASSIGNMENT_CANNOT_BE_USED_WHEN_TARGETING_ECMASCRIPT_MODULES_CONSIDER_USING_EXPORT_DEFAULT_OR_ANOTHER_MODULE_FORMAT_INSTEAD,
-                    span,
-                ),
-            );
+        // TS1203 / TS1218: `checkExportAssignment`'s module-format tail
+        // (`checker.go:5669`), which reads the file's implied format for emit.
+        // §478, §783; `docs/parity/notes/r5-modfmt.md` §2.
+        if self.check_export_equals_module_format(node, parent, ambient) {
             return;
         }
         let exports_a_value = source.statements.iter().any(|statement| {
@@ -2933,16 +2914,21 @@ impl Checker<'_, '_> {
         };
         let symbol = self.binder.merged_symbol(symbol);
         let exports = &self.binder.symbols().get(symbol).exports;
-        if exports.is_empty()
-            || exports.contains_key("default")
-            || exports.contains_key(text.as_str())
-        {
+        if exports.is_empty() || exports.contains_key(text.as_str()) {
+            return;
+        }
+        // `exportDefaultSymbol = resolveExportByName(moduleSymbol, "default", …)`
+        // (`checker.go:14551`): through an `export =` value's properties, as
+        // `canHaveSyntheticDefault` below reads it.
+        if self.resolve_export_by_name(symbol, "default").is_some() {
             return;
         }
         // `exportDefaultSymbol == nil && !hasSyntheticDefault && !hasDefaultOnly`
         // (`checker.go:14566`) — the report is the **third** conjunct, and only
-        // the first was ported.
-        if self.can_have_synthetic_default(symbol) {
+        // the first was ported. `canHaveSyntheticDefault` is asked with the
+        // specifier as its usage, so the file formats decide under
+        // `node16`..`nodenext` (`r5-modfmt.md` §2.5).
+        if self.can_have_synthetic_default_for_usage(symbol, specifier) {
             return;
         }
         let printed = self.binder.symbols().get(symbol).name.to_string();
