@@ -54,6 +54,9 @@ reading the producer and the case, not taken from the classifier's label.
 | P7 | `get_type_of_accessors_worker` last arm (`symbols.rs`) | `any` | `anyType` (`checker.go:18545`) | — | faithful |
 | P8 | catch variable, shorthand ambient module, non-strict null/undefined widening, `autoType`/`autoArrayType` (`symbols.rs`) | `any` / `any[]` | the same `anyType` | — | faithful |
 | P9 | property / element access on an `any` receiver (`members.rs`, `indexed.rs`) | `any` | `any` when the receiver is native `any` | 157 LOST lines | propagation, not a producer: each follows its receiver's producer (mostly P1) |
+| P10 | `inferred_return_type` and the return aggregate in `return_type_from_body` (`signatures.rs`, §437) | `any` return for a body whose single return is TSR's `error` | `errorType` aggregate (prints `any`) when native's own return errored; otherwise the computed type | §437 measured 462 GAP→WRONG against 167 gained lines and +29 cases; re-surfaces in §5 (`nestedRecursiveLambda`) | §1.1: kept by its own recorded case calculus; owner: signatures (main) |
+| P11 | `parameter_of` (`signatures.rs`) for an annotation that does not resolve | `any` (stand-in for `errorType` at a printing position) | `errorType`, printed through the reused annotation node | — | §1.1: recorded |
+| P12 | `type_parameter_of` (`signatures.rs`) for a constraint that does not resolve | `any` constraint | the constraint's type, or `errorType` | — | recorded; not measured |
 
 ### Rows that look like `any` producers and are not
 
@@ -129,3 +132,36 @@ answers `any` go with it:
 `implicit_any::retained_return_position_report` (implicit-any-widening §3),
 decls §1's written-`any` trust gate for TS2403, and calls-inference §1's
 callee-provenance question.
+
+## §5 Two `getContextualType` arms for `has_no_contextual_type` (measured, not shipped)
+
+Both are faithful arms of `getContextualType`'s dispatch (`checker.go:29343`)
+missing from `has_no_contextual_type` (`signatures.rs`), and both were
+measured on the merged head `512083b` against its own dumps. Patch:
+`docs/parity/notes/r4-anyaudit-context-arms.diff` (both arms).
+
+- **`void` / `typeof` / `delete` operand** — no dispatch arm, so nil. Alone:
+  0 RIGHT losses, but **4 GAP → WRONG** (`nestedRecursiveLambda` 3/4/20/21):
+  the outer arrow of `void (r => (r => r))` now shows no context, its
+  inner arrow (the outer's *body*) still cannot, so the inner gaps and the
+  outer's return aggregate turns that `error` into `any` through P10. A
+  confident wrong where a gap was; not shipped alone.
+- **Arrow expression body** (`case ast.KindArrowFunction,
+  ast.KindReturnStatement`): the body is a return expression, so the
+  `ReturnStatement` arm's question is asked of the arrow. With the `void` arm:
+  **+8 GAP → RIGHT, +21 WRONG → RIGHT** (`nestedRecursiveLambda`,
+  `fatarrowfunctionsOptionalArgs`, `parseErrorIncorrectReturnToken`,
+  `reactReduxLikeDeferredInferenceAllowsAssignment`,
+  `asyncArrowFunctionCapturesArguments_es6`), 1 GAP → WRONG
+  (`instantiateTemplateTagTypeParameterOnVariableStatement` 3), and
+  **16 RIGHT → WRONG in `conditionalTypeDoesntSpinForever`**: the generic
+  outer arrow `<SO_FAR>(soFar) => (… ? {} : { name: <TYPE>(…) => x as T })`
+  now shows no context, and its inferred return prints the inner method's
+  return as `error` (`=> error`) although the inner arrow's own line stays
+  RIGHT. The inner signature is rebuilt on the no-contextual-return road
+  during the outer's return inference and loses its `as`-typed return there
+  — a return-inference defect in `signatures.rs`, not in the arm.
+
+**Next step.** Root-cause the inner-signature rebuild in
+`conditionalTypeDoesntSpinForever`; with it fixed, both arms ship together
+(+29) and P1's `nestedRecursiveLambda` losses (11 of 30) disappear with them.
