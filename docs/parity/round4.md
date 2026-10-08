@@ -428,3 +428,14 @@ a gap — is what this lane builds: a distinct gap intrinsic that keeps printing
 `error`, and a true `errorType` that prints `any`, introduced class by class
 where native's `errorType` is provable, with a superseding ADR. This box is the
 only one that changes the intrinsic contract.
+
+### r4-perf3 (`tsr-2zk.943`)
+
+Dispatched when `r4-perf2` finished (C3 reference-member memo -2.18% Ir, C2
+structured property-name memo -7.27%; corpus byte-identical; vs tsgo CPU
+0.50-0.61, wall 0.80-1.15). Its §6: tsgo's default mode spends 2.5x its
+single-threaded CPU (four checkers redo work), so the CPU ratio flatters TSR;
+on equal single-threaded work TSR's checker is ~2.2x tsgo's, and wall 0.50
+needs ~30% less checker CPU. This lane owns the infrastructure r4-perf2 named
+(Resolutions cycle counter, late-bound in-progress marker, shared property-name
+lists, is_pure_signature_type) and single-threaded attribution.
