@@ -1,0 +1,84 @@
+diff --git a/crates/tsr-checker/src/printing.rs b/crates/tsr-checker/src/printing.rs
+index 66bbe3f..2535b8d 100644
+--- a/crates/tsr-checker/src/printing.rs
++++ b/crates/tsr-checker/src/printing.rs
+@@ -868,7 +868,10 @@ pub fn normalise_number(text: &str) -> String {
+         if rest.is_empty() {
+             Some(0.0)
+         } else {
+-            u128::from_str_radix(rest, radix).ok().map(|v| v as f64)
++            u128::from_str_radix(rest, radix)
++                .ok()
++                .map(|v| v as f64)
++                .or_else(|| tsr_core::jsnum::wide_radix_value(rest, radix))
+         }
+     };
+     let value = if let Some(rest) =
+diff --git a/crates/tsr-core/src/jsnum.rs b/crates/tsr-core/src/jsnum.rs
+index fca2041..d664d50 100644
+--- a/crates/tsr-core/src/jsnum.rs
++++ b/crates/tsr-core/src/jsnum.rs
+@@ -19,7 +19,11 @@ pub fn numeric_value(text: &str) -> f64 {
+     let lower = cleaned.to_ascii_lowercase();
+     #[allow(clippy::cast_precision_loss)]
+     let radix_parse = |digits: &str, radix: u32| -> f64 {
+-        u128::from_str_radix(digits, radix).map_or(f64::NAN, |value| value as f64)
++        u128::from_str_radix(digits, radix)
++            .map(|value| value as f64)
++            .ok()
++            .or_else(|| wide_radix_value(digits, radix))
++            .unwrap_or(f64::NAN)
+     };
+     if let Some(digits) = lower.strip_prefix("0x") {
+         return radix_parse(digits, 16);
+@@ -40,6 +44,50 @@ pub fn numeric_value(text: &str) -> f64 {
+     cleaned.parse::<f64>().unwrap_or(f64::NAN)
+ }
+ 
++/// A power-of-two-radix integer too wide for `u128`, rounded to the nearest
++/// `f64` with ties to even, `Infinity` past the range: `jsnum.FromString`'s
++/// `big.Int.SetString(s, 0)` then `Float64()` (`internal/jsnum/string.go`).
++/// `None` for a digit outside the radix or a radix that is not 2, 8 or 16.
++#[must_use]
++#[allow(clippy::cast_precision_loss, reason = "a mantissa of at most 53 bits is exact in f64")]
++pub fn wide_radix_value(digits: &str, radix: u32) -> Option<f64> {
++    let width = match radix {
++        2 => 1,
++        8 => 3,
++        16 => 4,
++        _ => return None,
++    };
++    let mut bits = Vec::with_capacity(digits.len() * width);
++    for ch in digits.chars() {
++        let value = ch.to_digit(radix)?;
++        for shift in (0..width).rev() {
++            bits.push((value >> shift) & 1 == 1);
++        }
++    }
++    let first = bits.iter().position(|&bit| bit);
++    let Some(first) = first else { return Some(0.0) };
++    let bits = &bits[first..];
++    let mut exponent = i32::try_from(bits.len()).ok()? - 1;
++    if bits.len() <= 53 {
++        let mantissa = bits.iter().fold(0u64, |acc, &bit| (acc << 1) | u64::from(bit));
++        return Some(mantissa as f64);
++    }
++    let mut mantissa = bits[..53].iter().fold(0u64, |acc, &bit| (acc << 1) | u64::from(bit));
++    let guard = bits[53];
++    let sticky = bits[54..].iter().any(|&bit| bit);
++    if guard && (sticky || mantissa & 1 == 1) {
++        mantissa += 1;
++        if mantissa == 1 << 53 {
++            mantissa >>= 1;
++            exponent += 1;
++        }
++    }
++    if exponent > 1023 {
++        return Some(f64::INFINITY);
++    }
++    Some(mantissa as f64 * 2f64.powi(exponent - 52))
++}
++
+ /// Format a number the way JavaScript's `Number.prototype.toString` does —
+ /// `jsnum.Number.String`, which is what upstream's token values and `.d.ts`
+ /// literal re-spellings both carry.

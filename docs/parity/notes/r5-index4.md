@@ -107,3 +107,38 @@ answer `NotRelated` on generic-key-to-`keyof` pairs it cannot prove, and
 that is `relater.rs` (r5-relater4). Falsifier for re-trying it: rerun this
 variant after the relater's generic `keyof` arms land. Zero extra TS2536 on
 the diagnostics dump is the bar.
+
+## 4. Wide binary/octal/hex literals are `Infinity`, not their source text (diff)
+
+**Forcing constraint.** The scanner keeps a radix literal's token value
+(`"0b" + digits`). `jsnum.FromString` reads it through `tryParseInt`
+(`internal/jsnum/string.go`). When the digits overflow `int64`, that falls
+back to `big.Int.SetString(s, 0)` then `Float64()`: round to nearest, ties to
+even, `+Inf` past the `f64` range. This port parses with
+`u128::from_str_radix`. A wider literal fails, so `tsr_core::jsnum::numeric_value`
+answers `NaN` and `printing::normalise_number` keeps the source spelling. The
+1000-digit binary literal in `binaryIntegerLiteral*` is native's `Infinity`.
+The port printed its digits as both the member name and the literal type.
+With the member named wrongly, `obj1["0b11010"]` found no certified
+receiver and its TS7053 was missing.
+
+**The change.** `wide_radix_value` (`tsr-core/src/jsnum.rs`) rounds a
+power-of-two-radix digit string to `f64` exactly as `big.Float64` does. It
+keeps the top 53 significant bits, rounds on the guard bit with a sticky
+bit (ties to even), and answers `Infinity` past exponent 1023. Both
+`numeric_value` and `normalise_number` use it only when `u128` overflows,
+so every literal that parsed before keeps its value.
+
+Neither file is owned by this lane. The change is in
+[r5-index4-wide-radix-literal.diff](r5-index4-wide-radix-literal.diff).
+Measured on top of §1 against the frozen baseline:
+
+- **Diagnostics:** +4 cases (`binaryIntegerLiteral(target=es2015)`,
+  `binaryIntegerLiteralES6`, `octalIntegerLiteral(target=es2015)`,
+  `octalIntegerLiteralES6`).
+- **Types:** +78 RIGHT lines.
+- **Losses:** none in either dump.
+- **Checks:** `tsr-core` tests pass and `tsr-core` clippy is clean.
+
+**Falsifier.** A radix literal wider than 128 bits whose baseline value is
+not the correctly rounded `f64`.
