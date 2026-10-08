@@ -212,6 +212,88 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(message, span));
     }
 
+    /// TS2875, `getJsxNamespaceContainerForImplicitImport`'s report
+    /// (`jsx.go:1451-1486`): the runtime module the file imports
+    /// (`getJSXRuntimeImportSpecifier`, the loader's synthetic import,
+    /// `fileloader.go:551`) does not resolve. Upstream resolves it lazily for
+    /// the first JSX type question in the file and caches the answer in the
+    /// file's links, so the error is reported once, at `firstJSXTagInFile`:
+    /// the first `JsxElement`, `JsxSelfClosingElement` or (for a fragment)
+    /// `JsxOpeningFragment` of a pre-order walk. Here it is asked from that
+    /// tag's own check, which gives the same single report without a
+    /// per-file table.
+    ///
+    /// `resolveExternalModule` (`checker.go:15149`) reports the given message
+    /// only when no ambient module, resolution or pattern ambient module
+    /// answers. A specifier that resolves to a file the program does not hold
+    /// (an untyped package) reports TS7016 instead; that arm is not ported, so
+    /// any found resolution is silent.
+    pub(crate) fn check_jsx_runtime_module(&mut self, node: NodeId, typed: Node<'_>) {
+        let tag = match typed {
+            Node::JsxOpeningElement(_) => match self.nodes.parent(node) {
+                Some(parent) => match self.node_map.get(parent) {
+                    Some(Node::JsxElement(element))
+                        if element.opening_element.and_then(|opening| opening.node_id)
+                            == Some(node) =>
+                    {
+                        parent
+                    }
+                    _ => return,
+                },
+                None => return,
+            },
+            Node::JsxSelfClosingElement(_) | Node::JsxOpeningFragment(_) => node,
+            _ => return,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(host) = self.module_host else { return };
+        let Some(base) = host.jsx_implicit_import_base(file) else { return };
+        let runtime = if self.jsx_emit == tsr_core::JsxEmit::ReactJsxDev {
+            "jsx-dev-runtime"
+        } else {
+            "jsx-runtime"
+        };
+        let specifier = format!("{base}/{runtime}");
+        if self.ambient_module(&specifier).is_some()
+            || host.module_resolution_found(file, &specifier)
+            || (self.has_pattern_ambient_modules
+                && self.binder.pattern_ambient_module(&specifier).is_some())
+        {
+            return;
+        }
+        if self.first_jsx_tag_in(file, self.nodes.span(tag).start) != Some(tag) {
+            return;
+        }
+        let span = self.nodes.span(tag);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::THIS_JSX_TAG_REQUIRES_THE_MODULE_PATH_0_TO_EXIST_BUT_NONE_COULD_BE_FOUND_MAKE_SURE_YOU_HAVE_TYPES_FOR_THE_APPROPRIATE_PACKAGE_INSTALLED,
+                span,
+                [specifier],
+            ),
+        );
+    }
+
+    /// `firstJSXTagInFile` (`jsx.go:1458-1472`): the pre-order walk's first
+    /// `JsxElement` or `JsxSelfClosingElement`, or a fragment's opening.
+    /// Subtrees starting after `limit` cannot hold an earlier tag and are not
+    /// entered, so asking for the tag at `limit` walks only what precedes it.
+    fn first_jsx_tag_in(&self, root: NodeId, limit: u32) -> Option<NodeId> {
+        let node = self.node_map.get(root)?;
+        match node {
+            Node::JsxElement(_) | Node::JsxSelfClosingElement(_) => return Some(root),
+            Node::JsxFragment(fragment) => return fragment.opening_fragment?.node_id,
+            _ => {}
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(node, |child| children.push(child));
+        children
+            .into_iter()
+            .take_while(|&child| self.nodes.span(child).start <= limit)
+            .find_map(|child| self.first_jsx_tag_in(child, limit))
+    }
+
     /// `getJsxNamespaceContainerForImplicitImport` (`jsx.go:1451`): the module
     /// the automatic runtime imports — `GetJSXRuntimeImport`
     /// (`utilities.go:2794`), `<base>/jsx-runtime` or `/jsx-dev-runtime` —
@@ -219,8 +301,7 @@ impl Checker<'_, '_> {
     ///
     /// `None` when the classic runtime is selected or the module does not
     /// resolve. Upstream reports TS2875 at the file's first JSX tag in the
-    /// second case; that report is not ported, so an unresolved runtime is
-    /// silent here.
+    /// second case; that report is [`Checker::check_jsx_runtime_module`].
     pub(crate) fn jsx_implicit_import_container(&mut self, location: NodeId) -> Option<SymbolId> {
         let file = self.source_file_of_for_diagnostics(location)?;
         let host = self.module_host?;
