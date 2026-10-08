@@ -187,3 +187,18 @@ Its largest remaining blocker is outside JSX. Alias references such as
 lines (`tsr-2zk.1010`). TS2875 (`.988`) is back to open. The new box
 `r5-constraints2` takes TS2344 (`checkTypeArgumentConstraints`,
 `constraints.rs`) and TS2403 (`identity.rs`).
+
+### r5-intersections finished (+122 type lines); r5-index4 dispatched (`tsr-2zk.1012`)
+
+r5-intersections `cd9cc81` handles a constraint's own `{}` for a constrained
+type variable. TSR mints one `{}` per written literal where native shares one
+`emptyTypeLiteralType`, so the constraint's `{}` has to be recorded. Its four
+measured diffs are landed by the integrator:
+- getReducedType on printed types (+94);
+- union-with-intersection-origin instantiation (+13);
+- the base-constraint reduction with the getStringMappingType arm (+4);
+- the shared empty type literal (+3).
+
+Alias naming of single-constituent intersections, and alias references that
+enumerate as empty (`tsr-2zk.1010`), go to `r5-typeparams2` (`declared.rs`).
+The new box `r5-index4` takes the index-signature and index-access reports.
