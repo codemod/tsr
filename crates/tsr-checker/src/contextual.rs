@@ -1483,6 +1483,14 @@ impl<'a> Checker<'a, '_> {
             // SS115: a ternary BRANCH answers the conditional's own context;
             // the CONDITION answers nil
             // (getContextualTypeForConditionalOperand, checker.go:30022).
+            // `getContextualType`'s `KindExportAssignment` arm
+            // (`checker.go:29398`): `tryGetTypeFromTypeNode(parent)`. An
+            // export assignment's type node is only ever the reparsed
+            // JSDoc `@type` (`reparseHosted`).
+            Node::ExportAssignment(_) => {
+                let annotation = self.jsdoc_export_assignment_type(parent)?;
+                Some(self.get_type_from_type_node(annotation))
+            }
             Node::ConditionalExpression(conditional) => {
                 let is_branch = conditional.when_true.and_then(|e| e.node_id()) == Some(node)
                     || conditional.when_false.and_then(|e| e.node_id()) == Some(node);
@@ -2002,7 +2010,9 @@ impl<'a> Checker<'a, '_> {
         operand: NodeId,
     ) -> Option<TypeId> {
         use tsr_ast::SyntaxKind;
-        if let Some(annotation) = binary.r#type {
+        if let Some(annotation) =
+            binary.r#type.or_else(|| self.jsdoc_binary_type(binary_id, binary))
+        {
             return Some(self.get_type_from_type_node(annotation));
         }
         let right = binary.right.and_then(|expression| expression.node_id()) == Some(operand);
@@ -2022,7 +2032,12 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::AmpersandAmpersandEqualsToken
             | SyntaxKind::BarBarEqualsToken
             | SyntaxKind::QuestionQuestionEqualsToken => {
-                if !right || self.in_js_file(operand) {
+                // In a JS file only the assignment-declaration arm below is
+                // ported (an annotated variable's property, else nil); every
+                // other JS assignment still declines.
+                if !right
+                    || (self.in_js_file(operand) && self.binder.symbol_of(binary_id).is_none())
+                {
                     return None;
                 }
                 // getContextualTypeForAssignmentExpression avoids resolving
@@ -2065,18 +2080,26 @@ impl<'a> Checker<'a, '_> {
                         // Their synthetic prototype retains its ordinary
                         // contextual type, even if the binder attached an
                         // assignment to a merged function declaration.
-                        if !self
-                            .binder
-                            .symbols()
-                            .get(merged)
-                            .flags
-                            .contains(tsr_binder::SymbolFlags::CLASS)
+                        // In JS the class receiver is an assignment
+                        // declaration like any other: native answers nil
+                        // unless the receiver is an annotated variable.
+                        if self.in_js_file(operand)
+                            || !self
+                                .binder
+                                .symbols()
+                                .get(merged)
+                                .flags
+                                .contains(tsr_binder::SymbolFlags::CLASS)
                         {
                             let declaration = self.binder.symbols().get(symbol).value_declaration?;
                             if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
                                 return None;
                             }
-                            let annotation = self.type_annotation_of(declaration)?;
+                            // `symbol.ValueDeclaration.Type()`: in JS the
+                            // reparsed `@type` (`reparseHosted`).
+                            let annotation = self
+                                .type_annotation_of(declaration)
+                                .or_else(|| self.jsdoc_type_annotation(declaration))?;
                             let annotated = self.get_type_from_type_node(annotation);
                             return name
                                 .and_then(|name| self.contextual_property_type(annotated, &name));

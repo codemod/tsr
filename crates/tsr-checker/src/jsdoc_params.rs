@@ -720,10 +720,6 @@ impl<'a> Checker<'a, '_> {
     /// declaration that is its statement's expression takes the statement's
     /// `@type`. Read by `getContextualTypeForBinaryOperand`'s first line
     /// (`checker.go:29811`).
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
-    )]
     pub(crate) fn jsdoc_binary_type(
         &self,
         binary_id: NodeId,
@@ -744,10 +740,6 @@ impl<'a> Checker<'a, '_> {
     /// copies onto it in a JS file — the type `checkExportAssignment`
     /// checks the expression against (`check_jsdoc_annotated_initializer`)
     /// and `getContextualType`'s `KindExportAssignment` arm answers.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
-    )]
     pub(crate) fn jsdoc_export_assignment_type(&self, node: NodeId) -> Option<TypeNode<'a>> {
         if !self.in_js_file(node) {
             return None;
