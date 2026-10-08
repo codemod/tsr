@@ -1,0 +1,69 @@
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -1400,16 +1400,33 @@
+                     // propertiesRelatedTo needs only the target's names: an
+                     // enum object (`typeof E`, which carries a reverse-mapping
+                     // index) has no member table here but enumerates them.
+-                    return if self.has_members(apparent)
+-                        && (self.has_members(target)
++                    if !self.has_members(apparent)
++                        || !(self.has_members(target)
+                             || self.checker.get_property_names_of_type(target).is_some())
+-                        && self.properties_related_to(apparent, target)
+-                            == RelationResult::NotRelated
+                     {
+-                        RelationResult::NotRelated
++                        return RelationResult::Unknown;
++                    }
++                    let properties = self.properties_related_to(apparent, target);
++                    if properties == RelationResult::NotRelated {
++                        return RelationResult::NotRelated;
++                    }
++                    // The rest of the structural arm with `sourceIsPrimitive`
++                    // (relater.go:3864): signatures, then index signatures,
++                    // where a primitive source gets no `any`-valued exemption
++                    // and its apparent interface infers no index
++                    // (relater.go:4588, :4611).
++                    let signatures = if self.call_or_construct_bearing(target) {
++                        self.related_signatures(apparent, target).unwrap_or(RelationResult::Unknown)
+                     } else {
+-                        RelationResult::Unknown
++                        RelationResult::Related
+                     };
++                    if signatures == RelationResult::NotRelated {
++                        return RelationResult::NotRelated;
++                    }
++                    let indexes = self
++                        .related_index_signatures_ex(apparent, target, true)
++                        .unwrap_or(RelationResult::Unknown);
++                    return RelationResult::all([properties, signatures, indexes]);
+                 }
+                 return self.is_related_to(apparent, target);
+             }
+@@ -3028,6 +3045,18 @@
+         source: TypeId,
+         target: TypeId,
+     ) -> Option<RelationResult> {
++        self.related_index_signatures_ex(source, target, false)
++    }
++
++    /// `indexSignaturesRelatedTo` (relater.go:4578) with its
++    /// `sourceIsPrimitive` flag: the apparent type of a primitive source does
++    /// not take the `any`-valued string-index exemption.
++    fn related_index_signatures_ex(
++        &mut self,
++        source: TypeId,
++        target: TypeId,
++        source_is_primitive: bool,
++    ) -> Option<RelationResult> {
+         let target_infos = self.checker.get_index_infos_of_type(target)?;
+         if target_infos.is_empty() {
+             return Some(RelationResult::Related);
+@@ -3037,6 +3066,7 @@
+         let mut parts = Vec::with_capacity(target_infos.len());
+         for info in &target_infos {
+             if self.relation != Relation::StrictSubtype
++                && !source_is_primitive
+                 && target_has_string
+                 && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
+             {

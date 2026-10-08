@@ -485,6 +485,69 @@ bitflags::bitflags! {
 type ReferenceParts = (SymbolId, Vec<TypeId>);
 
 impl Checker<'_, '_> {
+    /// `isDiscriminantProperty` (relater.go:1087) over the union `types`: the
+    /// synthetic property's member types (createUnionOrIntersectionProperty,
+    /// checker.go:21452, over apparent constituents) are non-uniform, one is
+    /// a literal or pattern literal, and their union is not generic. A
+    /// private or protected member in a union that does not share one
+    /// declaration yields no property (checker.go:21556). `None` when a
+    /// constituent's member cannot be typed.
+    ///
+    /// The one computation of the predicate in this port. Native caches the
+    /// answer on the synthetic union property (`links.isDiscriminantProperty`);
+    /// this port builds no such symbol, so each call recomputes it.
+    pub(crate) fn is_discriminant_property_of_types(
+        &mut self,
+        types: &[TypeId],
+        name: &str,
+    ) -> Option<bool> {
+        let mut first = None;
+        let mut non_uniform = false;
+        let mut literal = false;
+        let mut members = Vec::new();
+        let mut declarations = Vec::new();
+        let mut non_public = false;
+        let mut partial = false;
+        for &part in types {
+            let part = self.apparent_type(part);
+            if self.is_error(part) || self.type_of(part).flags.contains(TypeFlags::NEVER) {
+                continue;
+            }
+            let Some(member) = self.get_type_of_property_of_type(part, name) else {
+                partial = true;
+                continue;
+            };
+            if self.is_gap(member) {
+                return None;
+            }
+            if let Some(symbol) = self.get_property_of_type(part, name) {
+                non_public |= self
+                    .property_has_modifier(symbol, tsr_ast::SyntaxKind::PrivateKeyword)
+                    || self.property_has_modifier(symbol, tsr_ast::SyntaxKind::ProtectedKeyword);
+                declarations.push(self.binder.symbols().get(symbol).value_declaration);
+            }
+            match first {
+                None => first = Some(member),
+                Some(seen) if seen != member => non_uniform = true,
+                Some(_) => {}
+            }
+            literal |= self.is_literal_type(member) || self.is_pattern_template(member);
+            members.push(member);
+        }
+        if first.is_none() || !non_uniform || !literal {
+            return Some(false);
+        }
+        let shared_declaration = declarations
+            .first()
+            .is_some_and(|first| first.is_some() && declarations.iter().all(|d| d == first));
+        if non_public && (partial || declarations.len() > 1) && !shared_declaration {
+            return Some(false);
+        }
+        let union = self.get_union_type(&members);
+        let (object, index) = self.spread_generic_flags(union, &mut Vec::new());
+        Some(!object && !index)
+    }
+
     /// The `(target, typeArguments)` pairs of two type references, as
     /// `structuredTypeRelatedToWorker`'s same-target arm (`relater.go:3821`)
     /// and `inferFromTypes`' reference arm read them.
@@ -1316,9 +1379,13 @@ impl Relater<'_, '_, '_> {
         // relation: `propertiesRelatedTo` runs before `indexSignaturesRelatedTo`
         // in structuredTypeRelatedToWorker (relater.go), so `number -> any[]`
         // fails on the missing `length` whatever the index infos say.
+        // A deferred `keyof` target is not an object type, whatever flags its
+        // written mint carries: its arm (relater.go:3489) compares the
+        // primitive itself.
         if s.intersects(TypeFlags::PRIMITIVE)
             && !s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
             && t.intersects(TypeFlags::OBJECT)
+            && !self.checker.deferred_keyof_operands.contains_key(&target)
         {
             let apparent = self.checker.apparent_type(source);
             if apparent != source {
@@ -1428,6 +1495,9 @@ impl Relater<'_, '_, '_> {
             if self.mapped_modifiers_reject(source, target) {
                 return RelationResult::NotRelated;
             }
+            if let Some(result) = self.generic_mapped_target_default(source, target) {
+                return result;
+            }
         }
         // propertiesRelatedTo (relater.go:4100) for a tuple target and a
         // source that is neither an array nor a tuple: the tuple's
@@ -1489,6 +1559,16 @@ impl Relater<'_, '_, '_> {
             && t.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE)
         {
             return RelationResult::NotRelated;
+        }
+        // The type-parameter target arm for a mapped source (relater.go:3423).
+        if t.contains(TypeFlags::TYPE_PARAMETER)
+            && s.contains(TypeFlags::OBJECT)
+            && !s.intersects(TypeFlags::INSTANTIABLE | composite)
+        {
+            self.checker.ensure_mapped_type_info(source);
+            if self.checker.mapped_types.contains_key(&source) {
+                return self.mapped_source_type_parameter_target(source, target);
+            }
         }
         // A concrete object, primitive or unknown cannot inhabit an arbitrary
         // target parameter. The simple relation already handles any/never and
@@ -1780,13 +1860,18 @@ impl Relater<'_, '_, '_> {
         {
             return Some(RelationResult::Related);
         }
-        if self.is_generic_mapped_target(source)
-            || self.checker.get_index_infos_of_type(source).is_none_or(|infos| !infos.is_empty())
-        {
-            return None;
+        // `!isGenericMappedType(source)`: a generic mapped source skips the
+        // arm; one this port cannot classify leaves it undecided.
+        match self.is_generic_mapped_type(source) {
+            Some(false) => {}
+            Some(true) => return None,
+            None => return Some(RelationResult::Unknown),
         }
         let target_keys = info.name_type.unwrap_or(info.constraint);
-        let source_keys = self.checker.resolved_keyof_type(source)?;
+        let source_keys = self.keyof_without_index_signatures(source);
+        let Some(source_keys) = source_keys else {
+            return Some(RelationResult::Unknown);
+        };
         let include_optional = info.optionality == Some(true);
         let filtered = if include_optional {
             let filtered = self.checker.get_intersection_type(&[target_keys, source_keys], None);
@@ -1837,6 +1922,327 @@ impl Relater<'_, '_, '_> {
             return Some(RelationResult::Unknown);
         };
         Some(self.is_related_to(indexed, template))
+    }
+
+    /// `getIndexTypeEx(source, IndexFlagsNoIndexSignatures)`
+    /// (`checker.go:26684`) for a source the generic-mapped-target arm
+    /// compares: the literal keys of its properties. `null`, `undefined` and
+    /// `void` have none. The port's `resolved_keyof_type` adds each index
+    /// info's key (and `number` beside a `string` key, as
+    /// `getIndexType` does), so those constituents are removed again; a
+    /// key this cannot account for leaves the keys unknown.
+    fn keyof_without_index_signatures(&mut self, source: TypeId) -> Option<TypeId> {
+        if self.checker.type_of(source).flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
+            return Some(self.checker.intrinsics.never);
+        }
+        let infos = self.checker.get_index_infos_of_type(source)?;
+        let keys = self.checker.resolved_keyof_type(source)?;
+        if infos.is_empty() {
+            return Some(keys);
+        }
+        let string = self.checker.intrinsics.string;
+        let has_string = infos.iter().any(|info| info.key == string);
+        let parts = self.union_constituents(keys).unwrap_or_else(|| vec![keys]);
+        let mut kept = Vec::with_capacity(parts.len());
+        for part in parts {
+            if infos.iter().any(|info| info.key == part)
+                || (has_string && part == self.checker.intrinsics.number)
+            {
+                continue;
+            }
+            if !self.checker.type_of(part).flags.intersects(
+                TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
+            ) {
+                return None;
+            }
+            kept.push(part);
+        }
+        Some(self.checker.get_union_type(&kept))
+    }
+
+    /// The rest of `structuredTypeRelatedToWorker` for `S[K]` against `T[J]`
+    /// once the components have not related (relater.go:3443-3488, :3652).
+    /// Under the assignable and comparable relations the target's write
+    /// constraint is tried, but only when neither `T`'s nor `J`'s base
+    /// constraint is generic. The source switch's type-variable case skips
+    /// a pair of indexed accesses, and the worker ends False (:3900).
+    ///
+    /// The write constraint (`getIndexedAccessTypeOrUndefined` with
+    /// `AccessFlagsWriting`) is not built here, so a pair that would reach it
+    /// stays `Unknown`. Only a generic object base (a type variable or a
+    /// generic mapped type) decides False: the port's base constraint of an
+    /// index is not always native's (`keyof T`'s is `string | number |
+    /// symbol` there), so an index the port reads as generic is no proof.
+    fn indexed_access_pair_after_components(&mut self, target_object: TypeId) -> RelationResult {
+        if !matches!(self.relation, Relation::Assignable | Relation::Comparable) {
+            return RelationResult::NotRelated;
+        }
+        let base_object = self.checker.base_constraint_or_type(target_object);
+        if self.checker.type_of(base_object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || self.is_generic_mapped_type(base_object) == Some(true)
+        {
+            return RelationResult::NotRelated;
+        }
+        RelationResult::Unknown
+    }
+
+    /// Whether `id` is (or has a constituent that is) the iteration
+    /// parameter `P` of a mapped type node `{ [P in Q]: X }`.
+    fn is_mapped_iteration_parameter(&self, id: TypeId) -> bool {
+        if let Some(parts) = self.union_constituents(id) {
+            return parts.into_iter().any(|part| self.is_mapped_iteration_parameter(part));
+        }
+        self.checker.type_parameter_symbols.get(&id).is_some_and(|&symbol| {
+            self.checker.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                self.checker.nodes.parent(declaration).is_some_and(|parent| {
+                    self.checker.nodes.kind(parent) == tsr_ast::SyntaxKind::MappedType
+                })
+            })
+        })
+    }
+
+    /// `isGenericMappedType` (`checker.go:24908`): a mapped type whose
+    /// constraint is a generic index type, or whose `as` clause, with the
+    /// constraint substituted for the iteration parameter, still is. `None`
+    /// when that substitution fails. Unlike [`Self::is_generic_mapped_target`],
+    /// which over-approximates for the arms that only decline, this is the
+    /// classification the generic-mapped default and `mappedTypeRelatedTo`
+    /// decide on.
+    fn is_generic_mapped_type(&mut self, id: TypeId) -> Option<bool> {
+        self.checker.ensure_mapped_type_info(id);
+        let Some(info) = self.checker.mapped_types.get(&id).cloned() else {
+            return Some(false);
+        };
+        if self.checker.is_generic_index_type(info.constraint) {
+            return Some(true);
+        }
+        let Some(name_type) = info.name_type else { return Some(false) };
+        let names = self.checker.instantiate_type(
+            name_type,
+            &[(info.parameter, info.constraint)],
+            &[info.parameter],
+            &[],
+        );
+        if names == self.checker.intrinsics.error {
+            return None;
+        }
+        Some(self.checker.is_generic_index_type(names))
+    }
+
+    /// `isEmptyObjectType` (`checker.go:26485`): `object`, a union with an
+    /// empty constituent, an intersection of empty constituents, or an object
+    /// type that is not a generic mapped type and resolves no properties,
+    /// index infos or signatures. `None` when a table cannot be read.
+    fn is_empty_object_type(&mut self, id: TypeId) -> Option<bool> {
+        let flags = self.checker.type_of(id).flags;
+        if flags.contains(TypeFlags::NON_PRIMITIVE) {
+            return Some(true);
+        }
+        if let Some(parts) = self.union_constituents(id) {
+            let mut undecided = false;
+            for part in parts {
+                match self.is_empty_object_type(part) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => undecided = true,
+                }
+            }
+            return if undecided { None } else { Some(false) };
+        }
+        if let Some(parts) = self.intersection_constituents(id) {
+            let mut undecided = false;
+            for part in parts {
+                match self.is_empty_object_type(part) {
+                    Some(false) => return Some(false),
+                    Some(true) => {}
+                    None => undecided = true,
+                }
+            }
+            return if undecided { None } else { Some(true) };
+        }
+        if !flags.contains(TypeFlags::OBJECT) {
+            return Some(false);
+        }
+        if self.is_generic_mapped_type(id)? {
+            return Some(false);
+        }
+        if self.checker.is_empty_anonymous_object_type(id) {
+            return Some(true);
+        }
+        if !self.checker.get_property_names_of_type(id)?.is_empty()
+            || !self.checker.get_index_infos_of_type(id)?.is_empty()
+        {
+            return Some(false);
+        }
+        for kind in
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+        {
+            if !self.checker.signatures_of_type_kind(id, kind)?.is_empty() {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// The default case of `structuredTypeRelatedToWorker`'s source switch
+    /// (`relater.go:3795-3812`) against a generic mapped target, reached once
+    /// the generic-mapped-target arm (`relater.go:3593`) has not related the
+    /// pair:
+    ///
+    /// - outside the subtype relations an empty object type relates to a
+    ///   mapped type with a `?` modifier (`isPartialMappedType`);
+    /// - a generic mapped source relates through `mappedTypeRelatedTo`;
+    /// - every other source is False. Native returns before the apparent
+    ///   type, the structural arm and the discriminated-union arm, so a
+    ///   generic mapped target is never compared member by member.
+    ///
+    /// `None` when the target is not a generic mapped type, or when the
+    /// source is not one the default case receives: type variables, `keyof`,
+    /// template-literal, string-mapping and conditional sources have their
+    /// own cases of the switch, and unions were decomposed earlier.
+    fn generic_mapped_target_default(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let flags = self.checker.type_of(source).flags;
+        if flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION | TypeFlags::ANY)
+            || self.checker.deferred_keyof_operands.contains_key(&source)
+            || self.checker.deferred_indexed_access_types.contains_key(&source)
+            || self.is_conditional(source)
+        {
+            return None;
+        }
+        match self.is_generic_mapped_type(target) {
+            Some(true) => {}
+            Some(false) => return None,
+            None => return Some(RelationResult::Unknown),
+        }
+        let info = self.checker.mapped_types.get(&target).cloned()?;
+        if !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && info.optionality == Some(true)
+        {
+            match self.is_empty_object_type(source) {
+                Some(true) => return Some(RelationResult::Related),
+                Some(false) => {}
+                None => return Some(RelationResult::Unknown),
+            }
+        }
+        match self.is_generic_mapped_type(source) {
+            Some(true) => {
+                let result = self.mapped_type_related_to(source, target);
+                if result != RelationResult::NotRelated {
+                    return Some(result);
+                }
+            }
+            Some(false) => {}
+            None => return Some(RelationResult::Unknown),
+        }
+        Some(RelationResult::NotRelated)
+    }
+
+    /// `mappedTypeRelatedTo` (`relater.go:3972`): `{ [P in S]: X }` relates to
+    /// `{ [Q in T]: Y }` when the modifiers allow it, `T` relates to `S`, the
+    /// `as` clauses agree under `P := Q`, and `X[P := Q]` relates to `Y`.
+    ///
+    /// Stated divergence: native instantiates the source constraint with
+    /// `reportUnmeasurableMapper`/`reportUnreliableMapper`, which only marks
+    /// variance measurements; this port has no such markers
+    /// (`docs/parity/notes/r5-relater5.md` §1).
+    fn mapped_type_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
+        let (Some(source_info), Some(target_info)) = (
+            self.checker.mapped_types.get(&source).cloned(),
+            self.checker.mapped_types.get(&target).cloned(),
+        ) else {
+            return RelationResult::Unknown;
+        };
+        if self.relation != Relation::Comparable {
+            let (Some(source_optionality), Some(target_optionality)) = (
+                self.combined_mapped_optionality(source, 0),
+                self.combined_mapped_optionality(target, 0),
+            ) else {
+                return RelationResult::Unknown;
+            };
+            if source_optionality > target_optionality {
+                return RelationResult::NotRelated;
+            }
+        }
+        let constraints = self.is_related_to_with_flags(
+            target_info.constraint,
+            source_info.constraint,
+            RecursionFlags::BOTH,
+        );
+        if constraints == RelationResult::NotRelated {
+            return RelationResult::NotRelated;
+        }
+        let map = [(source_info.parameter, target_info.parameter)];
+        let parameters = [source_info.parameter];
+        let error = self.checker.intrinsics.error;
+        let source_names = source_info
+            .name_type
+            .map(|names| self.checker.instantiate_type(names, &map, &parameters, &[]));
+        if source_names == Some(error) {
+            return RelationResult::Unknown;
+        }
+        if source_names != target_info.name_type {
+            return RelationResult::NotRelated;
+        }
+        let source_template = self.checker.mapped_template_type(&source_info);
+        let source_template =
+            self.checker.instantiate_type(source_template, &map, &parameters, &[]);
+        if source_template == error {
+            return RelationResult::Unknown;
+        }
+        let target_template = self.checker.mapped_template_type(&target_info);
+        let templates =
+            self.is_related_to_with_flags(source_template, target_template, RecursionFlags::BOTH);
+        RelationResult::all([constraints, templates])
+    }
+
+    /// `structuredTypeRelatedToWorker`'s type-parameter target arm
+    /// (`relater.go:3423`) for a mapped source: `{ [P in Q]: X }` relates to
+    /// `T` when `keyof T` relates to `Q`, the mapped type has no `?` modifier
+    /// and no `as` clause, and `X` relates to `T[P]`. Once the arm has not
+    /// related it, the source switch's default case is False: the structural
+    /// arm needs an object target and the discriminated arm a union one.
+    fn mapped_source_type_parameter_target(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> RelationResult {
+        let Some(info) = self.checker.mapped_types.get(&source).cloned() else {
+            return RelationResult::Unknown;
+        };
+        if info.name_type.is_some() {
+            return RelationResult::NotRelated;
+        }
+        let Some(keys) = self.checker.resolved_keyof_type(target) else {
+            return RelationResult::Unknown;
+        };
+        let keys = self.is_related_to_with_flags(keys, info.constraint, RecursionFlags::BOTH);
+        if keys == RelationResult::NotRelated {
+            return RelationResult::NotRelated;
+        }
+        let undecided_keys = keys == RelationResult::Unknown;
+        if info.optionality == Some(true) {
+            return if undecided_keys {
+                RelationResult::Unknown
+            } else {
+                RelationResult::NotRelated
+            };
+        }
+        let Some(indexed) =
+            self.checker.resolved_indexed_access_type(target, info.parameter, false)
+        else {
+            return RelationResult::Unknown;
+        };
+        let template = self.checker.mapped_template_type(&info);
+        let result = self.is_related_to_with_flags(template, indexed, RecursionFlags::BOTH);
+        match result {
+            RelationResult::NotRelated => RelationResult::NotRelated,
+            _ if undecided_keys => RelationResult::Unknown,
+            _ => result,
+        }
     }
 
     /// The comparable carve-out of the type-parameter target arm
@@ -2359,6 +2765,7 @@ impl Relater<'_, '_, '_> {
         } else {
             None
         };
+        let uninstantiated_return = source_signature.r#type;
         let source_signature = instantiated_source.as_ref().unwrap_or(source_signature);
         let source_count = self.checker.signature_parameter_count(source_signature);
         let source_minimum = self.checker.signature_min_argument_count(source_signature);
@@ -2521,7 +2928,26 @@ impl Relater<'_, '_, '_> {
                         ])
                     }
                 } else {
-                    self.is_related_to(source_signature.r#type, target_signature.r#type)
+                    let result =
+                        self.is_related_to(source_signature.r#type, target_signature.r#type);
+                    // instantiateSignatureInContextOf infers the source's type
+                    // parameters from the target's return type, through
+                    // inferFromObjectTypes' mapped-to-mapped arm (constraint to
+                    // constraint, template to template; inference.go:699).
+                    // `instantiate_signature_in_context` has no such arm, so a
+                    // generic mapped return erases to its constraint's image
+                    // (`<U>() => { [K in keyof U]: U[K] }` becomes `{}`) and a
+                    // failure is the missing inference's, not the relation's
+                    // (`higherOrderMappedIndexLookupInference`).
+                    if result == RelationResult::NotRelated
+                        && instantiated_source.is_some()
+                        && self.is_generic_mapped_type(uninstantiated_return) == Some(true)
+                        && self.is_generic_mapped_type(target_signature.r#type) == Some(true)
+                    {
+                        RelationResult::Unknown
+                    } else {
+                        result
+                    }
                 });
             }
         }
@@ -2622,6 +3048,21 @@ impl Relater<'_, '_, '_> {
                 && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
             {
                 continue;
+            }
+            // indexSignaturesRelatedTo (relater.go:4590): a generic mapped
+            // source against a target with a string index relates its
+            // template to each target index's value type.
+            if target_has_string {
+                match self.is_generic_mapped_type(source) {
+                    Some(true) => {
+                        let mapped = self.checker.mapped_types.get(&source).cloned()?;
+                        let template = self.checker.mapped_template_type(&mapped);
+                        parts.push(self.is_related_to(template, info.value));
+                        continue;
+                    }
+                    Some(false) => {}
+                    None => return None,
+                }
             }
             // Unresolved source infos cannot prove that a declared index is absent.
             let source_infos = self.checker.get_index_infos_of_type(source)?;
@@ -3131,7 +3572,32 @@ impl Relater<'_, '_, '_> {
                 if result != RelationResult::NotRelated {
                     return result;
                 }
+                // A mapped type's iteration parameter carries its declared
+                // constraint here, not the instance's: native's
+                // getTypeParameterFromMappedType instantiates it per mapped
+                // instance, so `P` of `MyMap<U>` is `keyof U` there and
+                // `keyof T` here (`mappedTypeParameterConstraint`). An index
+                // relation through one is no proof.
+                if indexes == RelationResult::NotRelated
+                    && (self.is_mapped_iteration_parameter(source_index)
+                        || self.is_mapped_iteration_parameter(target_index))
+                {
+                    return RelationResult::Unknown;
+                }
             }
+            // getNormalizedType's getSimplifiedIndexedAccessType
+            // (checker.go:27965) substitutes `{ [P in K]: E }[X]` to `E[P :=
+            // X]` (plus `undefined` for a `?` mapped type) before any relation,
+            // so native never relates such a pair as two indexed accesses.
+            // The substitution is not ported (the census's IAM bucket); the
+            // unsimplified pair is no proof (`mappedTypes5`'s
+            // `Partial<T>[P] -> T[P] | undefined`).
+            if self.is_generic_mapped_type(source_object) != Some(false)
+                || self.is_generic_mapped_type(target_object) != Some(false)
+            {
+                return RelationResult::Unknown;
+            }
+            return self.indexed_access_pair_after_components(target_object);
         }
         if let Some(constituents) = self.union_constituents(source) {
             // Every constituent of a source union must be related.
@@ -3338,6 +3804,7 @@ impl Relater<'_, '_, '_> {
                 } else {
                     self.checker.base_constraint_of_type(operand)
                 };
+            let mut constraint_keys = None;
             if let Some(constraint) = constraint.filter(|&constraint| constraint != operand)
                 && let Some(keys) = self.checker.resolved_keyof_type(constraint)
             {
@@ -3345,11 +3812,32 @@ impl Relater<'_, '_, '_> {
                 if result == RelationResult::Related {
                     return result;
                 }
+                constraint_keys = Some(result);
             }
             // An unimplemented operand relation cannot become a definite
             // negative merely by comparing the broad property-key domain.
             if direct == Some(RelationResult::Unknown) {
                 return RelationResult::Unknown;
+            }
+            // A primitive source has no case of the source switch that could
+            // still relate it (relater.go:3652-3812): its default case needs
+            // an object or generic mapped target, so the worker ends False
+            // (:3900). Decided only where this arm is native's: a type
+            // parameter operand, whose constraint is getConstraintOfTypeParameter
+            // either way, with no constraint or a definite failure against
+            // its constraint's keys (native requires TernaryTrue there).
+            let source_flags = self.checker.type_of(source).flags;
+            if source_flags.intersects(TypeFlags::PRIMITIVE)
+                && !source_flags.intersects(
+                    TypeFlags::INSTANTIABLE | TypeFlags::UNION | TypeFlags::INTERSECTION,
+                )
+                && self.checker.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && match constraint_keys {
+                    None => constraint.is_none() && !self.declares_written_constraint(operand),
+                    Some(result) => result == RelationResult::NotRelated,
+                }
+            {
+                return RelationResult::NotRelated;
             }
         }
         // structuredTypeRelatedToWorker's type-parameter target arm
@@ -3411,78 +3899,8 @@ impl Relater<'_, '_, '_> {
         if let Some(result) = self.comparable_type_parameter_pair(source, target) {
             return result;
         }
-        // The source-variable branch also explores an indexed access's
-        // constraint, except when both operands are indexed accesses and the
-        // object/index comparison above owns the relation (relater.go:3665).
-        if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
-            && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
-        {
-            if let Some(constraint) = self.checker.base_constraint_of_type(source) {
-                return if constraint != source {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                } else {
-                    RelationResult::Unknown
-                };
-            }
-            // No base constraint: native relates getConstraintOfType, or
-            // `unknown` for a nil one (relater.go:3668).
-            return match self.checker.constraint_of_type(source) {
-                crate::constraints::ConstraintOfType::Constraint(constraint)
-                    if constraint != source =>
-                {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                }
-                crate::constraints::ConstraintOfType::Nil => {
-                    let unknown = self.checker.intrinsics.unknown;
-                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
-                }
-                _ => RelationResult::Unknown,
-            };
-        }
-        // Synthetic polymorphic this is a source type variable too, not the
-        // object member table carried by its representation (relater.go:3665).
-        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !self.checker.type_parameter_symbols.contains_key(&source)
-            && let Some(constraint) = self.checker.type_parameter_constraint(source)
-            && constraint != source
-        {
-            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
-        }
-        // Source type variables explore their constraint under the same cycle
-        // guard (relater.go:3664). An unreadable written constraint is unknown.
-        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
-            && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
-            && let Some(declaration) =
-                self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
-                    match self.checker.node_map.get(id) {
-                        Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
-                        _ => None,
-                    }
-                })
-        {
-            let mut constraint = if declaration.constraint.is_some() {
-                let Some(constraint) = self.checker.type_parameter_constraint(source) else {
-                    return RelationResult::Unknown;
-                };
-                constraint
-            } else {
-                self.checker.intrinsics.unknown
-            };
-            // Constraint cycles do not justify a coinductive object relation.
-            // Stop type-parameter-only cycles before entering the pair cache;
-            // a constraint equal to the target keeps its direct identity proof.
-            let mut seen = vec![source];
-            while constraint != target
-                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
-            {
-                if seen.contains(&constraint) {
-                    return RelationResult::Unknown;
-                }
-                seen.push(constraint);
-                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
-                constraint = next;
-            }
-            return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+        if let Some(result) = self.type_variable_source_related_to(source, target) {
+            return result;
         }
         // A deferred keyof without a target IndexType inhabits the property-key
         // domain (relater.go:3694). The concrete operand/mapper stays intact.
@@ -3748,6 +4166,13 @@ impl Relater<'_, '_, '_> {
         if let Some(result) = target_conditional {
             return result;
         }
+        // The source switch's default case against a generic mapped target
+        // (relater.go:3805) precedes the apparent type and the structural arm.
+        if self.is_generic_mapped_target(target)
+            && let Some(result) = self.generic_mapped_target_default(source, target)
+        {
+            return RelationResult::any(source_intersection_result.into_iter().chain([result]));
+        }
         // structuredTypeRelatedToWorker's structural arm (relater.go:3864)
         // against an intrinsic object with no members: propertiesRelatedTo
         // and indexSignaturesRelatedTo have nothing to require, and
@@ -3836,6 +4261,91 @@ impl Relater<'_, '_, '_> {
         // Nothing was compared, so nothing was decided.
         reasons::note(reasons::Site::CompositeShape);
         RelationResult::Unknown
+    }
+
+    /// The source switch's type-variable case (relater.go:3652): an indexed
+    /// access or type parameter source explores its constraint. `None` when
+    /// the source is not one this case decides. Shared by the worker and the
+    /// union/intersection-target fallthrough (relater.go:3380).
+    fn type_variable_source_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        // The source-variable branch also explores an indexed access's
+        // constraint, except when both operands are indexed accesses and the
+        // object/index comparison above owns the relation (relater.go:3665).
+        if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
+            && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
+        {
+            if let Some(constraint) = self.checker.base_constraint_of_type(source) {
+                return Some(if constraint == source {
+                    RelationResult::Unknown
+                } else {
+                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+                });
+            }
+            // No base constraint: native relates getConstraintOfType, or
+            // `unknown` for a nil one (relater.go:3668).
+            return Some(match self.checker.constraint_of_type(source) {
+                crate::constraints::ConstraintOfType::Constraint(constraint)
+                    if constraint != source =>
+                {
+                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+                }
+                crate::constraints::ConstraintOfType::Nil => {
+                    let unknown = self.checker.intrinsics.unknown;
+                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
+                }
+                _ => RelationResult::Unknown,
+            });
+        }
+        // Synthetic polymorphic this is a source type variable too, not the
+        // object member table carried by its representation (relater.go:3665).
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.checker.type_parameter_symbols.contains_key(&source)
+            && let Some(constraint) = self.checker.type_parameter_constraint(source)
+            && constraint != source
+        {
+            return Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE));
+        }
+        // Source type variables explore their constraint under the same cycle
+        // guard (relater.go:3664). An unreadable written constraint is unknown.
+        if self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && let Some(&symbol) = self.checker.type_parameter_symbols.get(&source)
+            && let Some(declaration) =
+                self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                    match self.checker.node_map.get(id) {
+                        Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                        _ => None,
+                    }
+                })
+        {
+            let mut constraint = if declaration.constraint.is_some() {
+                let Some(constraint) = self.checker.type_parameter_constraint(source) else {
+                    return Some(RelationResult::Unknown);
+                };
+                constraint
+            } else {
+                self.checker.intrinsics.unknown
+            };
+            // Constraint cycles do not justify a coinductive object relation.
+            // Stop type-parameter-only cycles before entering the pair cache;
+            // a constraint equal to the target keeps its direct identity proof.
+            let mut seen = vec![source];
+            while constraint != target
+                && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
+            {
+                if seen.contains(&constraint) {
+                    return Some(RelationResult::Unknown);
+                }
+                seen.push(constraint);
+                let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };
+                constraint = next;
+            }
+            return Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE));
+        }
+        None
     }
 
     /// Whether `id` is a deferred conditional type. The CONDITIONAL flag
@@ -5009,7 +5519,7 @@ impl Relater<'_, '_, '_> {
         // findDiscriminantProperties (relater.go:1077), in source order.
         let mut discriminants: Vec<(String, Vec<TypeId>)> = Vec::new();
         for name in source_names.iter() {
-            match self.is_discriminant_property_of(target_types, name) {
+            match self.checker.is_discriminant_property_of_types(target_types, name) {
                 Some(true) => {}
                 Some(false) => continue,
                 None => return RelationResult::Unknown,
@@ -5160,66 +5670,6 @@ impl Relater<'_, '_, '_> {
             parts.push(RelationResult::Unknown);
         }
         RelationResult::all(parts)
-    }
-
-    /// isDiscriminantProperty (relater.go:1087) over the union `types`: the
-    /// synthetic property's member types (createUnionOrIntersectionProperty,
-    /// checker.go:21452, over apparent constituents) are non-uniform, one is
-    /// a literal or pattern literal, and their union is not generic. A
-    /// private or protected member in a union that does not share one
-    /// declaration yields no property (checker.go:21556). `None` when a
-    /// constituent's member cannot be typed.
-    fn is_discriminant_property_of(&mut self, types: &[TypeId], name: &str) -> Option<bool> {
-        let mut first = None;
-        let mut non_uniform = false;
-        let mut literal = false;
-        let mut members = Vec::new();
-        let mut declarations = Vec::new();
-        let mut non_public = false;
-        let mut partial = false;
-        for &part in types {
-            let part = self.checker.apparent_type(part);
-            if self.checker.is_error(part)
-                || self.checker.type_of(part).flags.contains(TypeFlags::NEVER)
-            {
-                continue;
-            }
-            let Some(member) = self.checker.get_type_of_property_of_type(part, name) else {
-                partial = true;
-                continue;
-            };
-            if self.checker.is_gap(member) {
-                return None;
-            }
-            if let Some(symbol) = self.checker.get_property_of_type(part, name) {
-                non_public |=
-                    self.checker.property_has_modifier(symbol, tsr_ast::SyntaxKind::PrivateKeyword)
-                        || self
-                            .checker
-                            .property_has_modifier(symbol, tsr_ast::SyntaxKind::ProtectedKeyword);
-                declarations.push(self.checker.binder.symbols().get(symbol).value_declaration);
-            }
-            match first {
-                None => first = Some(member),
-                Some(seen) if seen != member => non_uniform = true,
-                Some(_) => {}
-            }
-            literal |=
-                self.checker.is_literal_type(member) || self.checker.is_pattern_template(member);
-            members.push(member);
-        }
-        if first.is_none() || !non_uniform || !literal {
-            return Some(false);
-        }
-        let shared_declaration = declarations
-            .first()
-            .is_some_and(|first| first.is_some() && declarations.iter().all(|d| d == first));
-        if non_public && (partial || declarations.len() > 1) && !shared_declaration {
-            return Some(false);
-        }
-        let union = self.checker.get_union_type(&members);
-        let (object, index) = self.checker.spread_generic_flags(union, &mut Vec::new());
-        Some(!object && !index)
     }
 
     /// propertyRelatedTo (relater.go:4270) for one discriminant, with
