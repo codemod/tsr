@@ -6,7 +6,7 @@ Passed         : 96/96 (100.00%)
 Skipped        : 12348 (excluded from the denominator)
 
   12289  skipped: case does not set @traceResolution, so upstream records no trace
-  14  skipped: configuration-varied trace baselines (bd tsr-bb4.1)
+  14  skipped: configuration-varied trace baselines, judged per configuration by module_resolution_configured and file_loader_configured
   4  skipped: libReplacement resolves the bundled lib files through the module resolver, which the loader does not do (bd tsr-9or.5)
   8  skipped: upstream skips this case: unsupported baseUrl /
   1  skipped: upstream skips this case: unsupported baseUrl /.src/root/src
