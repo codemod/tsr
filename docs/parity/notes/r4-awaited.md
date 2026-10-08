@@ -205,3 +205,26 @@ applied, both dumps unfiltered): diagnostics +3 —
 `compiler/asyncFunctionReturnExpressionErrorSpans`,
 `compiler/promiseEmptyTupleNoException`, `conformance/asyncImportedPromise_es6`
 — types unchanged; both loss checks empty.
+
+## 6. `getPromisedTypeOfPromise` / `getAwaitedTypeOfPromise` for callers (`tsr-2zk.10.5`)
+
+**Forcing constraint.** Native exposes `GetPromisedTypeOfPromise`
+(`:28920`) and `getAwaitedTypeOfPromise` (`:31458`); their callers are in
+other lanes' files (TS2801 truthiness `:3861`, iteration `:6186`/`:6706`,
+relation elaboration `:9334`, property access `:11558`, operators `:12803`,
+contextual return `:20414`). `truthiness.rs` carried its own partial copy
+(`has_awaited_type_of_promise`: no `this` filter, no awaited step, a gap for
+every generic).
+
+**Decision.** `promised_type_of_promise` and `awaited_type_of_promise`
+(`Option<Native>`) over the §2 worker. Shipping them without a caller is dead
+code (clippy `-D warnings`), and `truthiness.rs` is not this lane's, so the
+pair and the truthiness switch (one call site; the local copy deleted) are
+delivered together as
+[`r4-awaited-promise-of-promise.diff`](r4-awaited-promise-of-promise.diff)
+(against `5b94a2f`).
+
+**Measured.** Both dumps byte-identical to the lane tip (TS2801 cases were
+already RIGHT; the change is faithfulness, not a conversion). Median child
+CPU, 41 samples, patched/unpatched HEAD builds: domain-model 1.009,
+generic-imports 1.018. Clippy adds nothing in the touched files.
