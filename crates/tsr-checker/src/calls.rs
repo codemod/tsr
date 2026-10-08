@@ -424,6 +424,58 @@ struct EffectiveArgument {
     spread: bool,
 }
 
+/// [`Checker::written_call_arguments`]: the written argument expressions and,
+/// for a tagged template, the template node that locates the synthetic
+/// `TemplateStringsArray` argument preceding them.
+struct WrittenArguments<'a> {
+    arguments: std::borrow::Cow<'a, [Expression<'a>]>,
+    template: Option<tsr_ast::NodeId>,
+}
+
+impl<'a> Checker<'a, '_> {
+    /// The written arguments `getEffectiveCallArguments` (`checker.go:30042`)
+    /// starts from for a call, `new` or tagged template. A tagged template's
+    /// list is the synthetic `TemplateStringsArray` argument, located at the
+    /// template (`createSyntheticExpression(template, …)`), then each span's
+    /// expression; `None` when a span has no expression (a parse error).
+    fn written_call_arguments(&self, node: tsr_ast::NodeId) -> Option<WrittenArguments<'a>> {
+        match self.node_map.get(node)? {
+            tsr_ast::Node::CallExpression(call) => Some(WrittenArguments {
+                arguments: std::borrow::Cow::Borrowed(call.arguments),
+                template: None,
+            }),
+            tsr_ast::Node::NewExpression(new) => Some(WrittenArguments {
+                arguments: std::borrow::Cow::Borrowed(new.arguments),
+                template: None,
+            }),
+            tsr_ast::Node::TaggedTemplateExpression(tagged) => {
+                let template = tagged.template?;
+                let arguments = match template {
+                    tsr_ast::TemplateLiteral::TemplateExpression(expression) => expression
+                        .template_spans
+                        .iter()
+                        .map(|span| span.expression)
+                        .collect::<Option<Vec<_>>>()?,
+                    tsr_ast::TemplateLiteral::NoSubstitutionTemplateLiteral(_) => Vec::new(),
+                };
+                Some(WrittenArguments {
+                    arguments: std::borrow::Cow::Owned(arguments),
+                    template: Some(Expression::from(template).node_id()?),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// `getGlobalTemplateStringsArrayType` (`checker.go`): the global
+    /// non-generic `TemplateStringsArray` interface; `None` when no lib
+    /// declares it.
+    fn global_template_strings_array_type(&mut self) -> Option<TypeId> {
+        let symbol = self.global_type_symbol_with_arity("TemplateStringsArray", 0)?;
+        Some(self.get_declared_type_of_symbol(symbol))
+    }
+}
+
 /// `checkNonNullTypeWithReporter`'s result for a callee.
 enum NonNullCallee {
     Type(TypeId),
@@ -625,15 +677,21 @@ impl Checker<'_, '_> {
         apparent: TypeId,
         kind: SignatureKind,
     ) -> CallArity {
-        let (type_arguments, arguments, callee, is_call) = match self.node_map.get(node) {
+        let Some(written) = self.written_call_arguments(node) else {
+            return CallArity::Undecided;
+        };
+        let (type_arguments, callee, is_call) = match self.node_map.get(node) {
             Some(tsr_ast::Node::CallExpression(call)) => {
-                (call.type_arguments, call.arguments, call.expression, true)
+                (call.type_arguments, call.expression, true)
             }
-            Some(tsr_ast::Node::NewExpression(new)) => {
-                (new.type_arguments, new.arguments, new.expression, false)
+            Some(tsr_ast::Node::NewExpression(new)) => (new.type_arguments, new.expression, false),
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => {
+                (tagged.type_arguments, None, false)
             }
             _ => return CallArity::Undecided,
         };
+        let tagged = written.template.is_some();
+        let arguments: &[Expression<'_>] = &written.arguments;
         if self.in_js_file(node) {
             return CallArity::Undecided;
         }
@@ -664,7 +722,7 @@ impl Checker<'_, '_> {
             if let [signature] = signatures.as_slice()
                 && signature.type_parameters.is_empty()
                 && signature.this_parameter.is_some()
-                && let Some(effective) = self.effective_call_arguments(arguments)
+                && let Some(effective) = self.effective_written_arguments(&written)
                 && self.has_correct_arity(signature, &effective, false) == Some(true)
                 && self.check_this_argument(node, signature, true) == Ternary::NotRelated
             {
@@ -721,11 +779,11 @@ impl Checker<'_, '_> {
             .filter(|(_, arity)| type_argument_arity_ok(arity))
             .map(|(signature, _)| signature)
             .collect();
-        let Some(effective) = self.effective_call_arguments(arguments) else {
+        let Some(effective) = self.effective_written_arguments(&written) else {
             return CallArity::Undecided;
         };
         let no_argument_list =
-            !is_call && self.new_has_no_argument_list(node, callee, type_arguments);
+            !is_call && !tagged && self.new_has_no_argument_list(node, callee, type_arguments);
         let mut applicable = false;
         for candidate in &candidates {
             match self.has_correct_arity(candidate, &effective, no_argument_list) {
@@ -744,7 +802,7 @@ impl Checker<'_, '_> {
                 && candidate.type_parameters.is_empty()
                 && type_arguments.is_empty()
                 && !effective.iter().any(|argument| argument.spread)
-                && effective.len() == arguments.len()
+                && effective.len() == arguments.len() + usize::from(tagged)
             {
                 return CallArity::Applicable(Some(Box::new(candidate.clone())));
             }
@@ -761,12 +819,12 @@ impl Checker<'_, '_> {
             {
                 return CallArity::ApplicableGeneric(Box::new(candidate.clone()));
             }
-            if is_call
+            if (is_call || tagged)
                 && type_arguments.is_empty()
                 && let Some(overloads) = self.non_generic_overload_candidates(
                     &candidates,
                     &effective,
-                    arguments.len(),
+                    arguments.len() + usize::from(tagged),
                     no_argument_list,
                 )
             {
@@ -789,15 +847,23 @@ impl Checker<'_, '_> {
     /// object literal's excess-property elaboration). An unsupported
     /// parameter type stops the walk.
     fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
-        let arguments = match self.node_map.get(node) {
-            Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
-            Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
-            _ => return,
-        };
+        let Some(written) = self.written_call_arguments(node) else { return };
         if self.check_this_argument(node, signature, true) != Ternary::Related {
             return;
         }
-        for (position, argument) in arguments.iter().enumerate() {
+        // A tagged template's synthetic first argument has the global
+        // `TemplateStringsArray` type (`getGlobalTemplateStringsArrayType`)
+        // and is reported at the template; it is no literal to elaborate.
+        let offset = usize::from(written.template.is_some());
+        if let Some(template) = written.template {
+            let Some(strings) = self.global_template_strings_array_type() else { return };
+            let Some(target) = self.signature_type_at_position(signature, 0) else { return };
+            if self.is_error(target) || self.report_argument_failure(template, strings, target) {
+                return;
+            }
+        }
+        for (index, argument) in written.arguments.iter().enumerate() {
+            let position = index + offset;
             let Some(argument_id) = argument.node_id() else { return };
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return;
@@ -965,10 +1031,18 @@ impl Checker<'_, '_> {
         node: tsr_ast::NodeId,
         candidates: &[Signature],
     ) -> bool {
-        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
-            return false;
+        let Some(written) = self.written_call_arguments(node) else { return false };
+        // A tagged template's synthetic `TemplateStringsArray` argument
+        // ([`Checker::written_call_arguments`]) relates first.
+        let strings = match written.template {
+            Some(_) => match self.global_template_strings_array_type() {
+                Some(strings) => Some(strings),
+                None => return false,
+            },
+            None => None,
         };
-        let arguments = call.arguments;
+        let offset = usize::from(strings.is_some());
+        let arguments: &[Expression<'_>] = &written.arguments;
         for argument in arguments {
             let mut inner = *argument;
             while let Expression::ParenthesizedExpression(parenthesized) = inner {
@@ -992,10 +1066,24 @@ impl Checker<'_, '_> {
                 Ternary::NotRelated => false,
                 Ternary::Unknown => return false,
             };
-            for (position, argument) in arguments.iter().enumerate() {
+            if applicable && let Some(strings) = strings {
+                let Some(target) = self.signature_type_at_position(candidate, 0) else {
+                    return false;
+                };
+                if self.is_error(target) {
+                    return false;
+                }
+                match self.relate_ternary(strings, target, Relation::Assignable) {
+                    Ternary::Related => {}
+                    Ternary::NotRelated => applicable = false,
+                    Ternary::Unknown => return false,
+                }
+            }
+            for (index, argument) in arguments.iter().enumerate() {
                 if !applicable {
                     break;
                 }
+                let position = index + offset;
                 let Some(target) = self.signature_type_at_position(candidate, position) else {
                     return false;
                 };
@@ -1601,6 +1689,19 @@ impl Checker<'_, '_> {
     /// a spread of a tuple type becomes one synthetic argument per element,
     /// a rest/variadic element a spread one. `None` when a spread's type is
     /// not settled.
+    /// [`Checker::effective_call_arguments`] behind a tagged template's
+    /// synthetic first argument.
+    fn effective_written_arguments(
+        &mut self,
+        written: &WrittenArguments<'_>,
+    ) -> Option<Vec<EffectiveArgument>> {
+        let mut effective = self.effective_call_arguments(&written.arguments)?;
+        if let Some(template) = written.template {
+            effective.insert(0, EffectiveArgument { node: template, spread: false });
+        }
+        Some(effective)
+    }
+
     fn effective_call_arguments(
         &mut self,
         arguments: &[Expression<'_>],
@@ -1945,10 +2046,11 @@ impl Checker<'_, '_> {
         let Some(tag_id) = tag.node_id() else { return };
         let tag_type = self.check_expression(tag);
         let apparent = self.apparent_type(tag_type);
-        if self.is_error(apparent)
-            || self.is_untyped_any_callee(tag_type, apparent)
-            || self.is_function_or_method_type(apparent)
-        {
+        if self.is_error(apparent) || self.is_untyped_any_callee(tag_type, apparent) {
+            return;
+        }
+        if self.is_function_or_method_type(apparent) {
+            self.check_tagged_template_resolution(node, apparent);
             return;
         }
         let (Some(call_count), Some(construct_count)) = (
@@ -1957,9 +2059,12 @@ impl Checker<'_, '_> {
         ) else {
             return;
         };
-        if call_count != 0
-            || self.is_untyped_signatureless_call(tag_type, apparent, call_count, construct_count)
-                != Some(false)
+        if call_count != 0 {
+            self.check_tagged_template_resolution(node, apparent);
+            return;
+        }
+        if self.is_untyped_signatureless_call(tag_type, apparent, call_count, construct_count)
+            != Some(false)
             || self.head_could_contain_type_variables(tag_type, 3)
         {
             return;
@@ -1977,6 +2082,31 @@ impl Checker<'_, '_> {
             return;
         }
         self.invocation_error(tag_id, false, SignatureKind::Call);
+    }
+
+    /// `resolveTaggedTemplateExpression`'s `resolveCall` (`checker.go:8719`,
+    /// `:8843`) over the effective arguments `[TemplateStringsArray,
+    /// ...substitutions]`: the arity report
+    /// ([`Checker::check_resolve_call_arity`], error node the tagged
+    /// template), then the argument report of a sole non-generic candidate
+    /// or of a non-generic overload set
+    /// ([`Checker::check_overload_candidates_arguments`]). A generic tag
+    /// reports no argument error yet. `callIsIncomplete`
+    /// (a template without its tail) is not modelled: such a file has parse
+    /// errors, and no call diagnostic runs in it.
+    fn check_tagged_template_resolution(&mut self, node: tsr_ast::NodeId, apparent: TypeId) {
+        match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
+            CallArity::Applicable(Some(signature)) => {
+                self.check_single_candidate_arguments(node, &signature);
+            }
+            CallArity::ApplicableOverloads(candidates) => {
+                self.check_overload_candidates_arguments(node, &candidates);
+            }
+            CallArity::Reported
+            | CallArity::Applicable(None)
+            | CallArity::ApplicableGeneric(_)
+            | CallArity::Undecided => {}
+        }
     }
 
     fn check_new_expression_head(&mut self, node: tsr_ast::NodeId) -> CallHead {

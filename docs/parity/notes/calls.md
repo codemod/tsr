@@ -76,3 +76,21 @@ No cache or traversal added; the composite list stays in
 `AsyncGenerator | AsyncIterable` stays clean (the return reduces to
 `AsyncIterator`). TS2345 message text still prints `'"h"'`/`'number |
 undefined'` where tsgo prints `'string'`/`'number'` (relation reporting).
+
+## Tagged templates run resolveCall's arity and argument reports (tsr-2zk.16.58)
+
+`check_tagged_template_diagnostics` stopped at the head. A tag with call
+signatures now runs `check_resolve_call_arity` over `getEffectiveCallArguments`'
+tagged list (`written_call_arguments`: a synthetic `TemplateStringsArray`
+argument located at the template, then the span expressions), reporting
+`getArgumentArityError` at the tagged template (excess span from the first
+surplus substitution). A sole non-generic candidate and a non-generic overload
+set then run the existing argument walks with the synthetic argument first
+(`getGlobalTemplateStringsArrayType` via `global_template_strings_array_type`).
+Not ported: generic tags' argument errors, and `callIsIncomplete` (a template
+without its tail only occurs in files with parse errors, where no call
+diagnostic runs). No cache or traversal; the span list is collected per
+diagnosed tagged template. Converts
+`taggedTemplateStringsWithIncompatibleTypedTags(ES6)`. Native control:
+`` foo `${1}${2}${3}` `` → TS2554 at the third substitution, `` foo `${1}${true}` ``
+→ TS2769 at `true`, `` foo `${1}${"2"}` `` stays clean, as tsgo.
