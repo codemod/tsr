@@ -83,7 +83,8 @@ running the structural arm unconditionally and seeing no losses.
 **Also declined:** a flags difference involving an enum (one enum has two
 representations here; even object-vs-enum declines because a qualified
 `M3.Color` annotation can resolve to an object-flagged type —
-`instantiatedModule` measured a loss when it was allowed); distinct type
+`instantiatedModule` measured a loss when it was allowed — narrowed in round
+5 to that misresolved enum image, `r5-constraints2.md` §3); distinct type
 parameters that share a declaring symbol or were freshly minted by
 `instantiate_signature_with_fresh_parameters`; type predicates
 (`compareTypePredicatesIdentical` unported); index, template-literal and

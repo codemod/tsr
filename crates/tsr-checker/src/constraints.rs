@@ -848,13 +848,12 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let declarations = self.local_type_parameters_of(symbol);
-        if declarations.is_empty() || reference.type_arguments.len() > declarations.len() {
+        let Some(parameters) = self.constraint_check_type_parameters(symbol) else { return };
+        if parameters.is_empty() || reference.type_arguments.len() > parameters.len() {
             return;
         }
-        let Some(parameters) = self.local_type_parameter_types_of(symbol) else { return };
-        let parameter_types: Vec<TypeId> = parameters.iter().map(|&(ty, _)| ty).collect();
-        let names: Vec<String> = parameters.iter().map(|(_, name)| name.clone()).collect();
+        let parameter_types: Vec<TypeId> = parameters.iter().map(|p| p.ty).collect();
+        let names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
         let constraints: Vec<Option<TypeId>> = parameter_types
             .iter()
             .map(|&parameter| self.type_parameter_constraint(parameter))
@@ -868,8 +867,8 @@ impl Checker<'_, '_> {
         for &argument in reference.type_arguments {
             arguments.push(self.get_type_from_type_node(argument));
         }
-        for (index, declaration) in declarations.iter().enumerate().skip(arguments.len()) {
-            let Some(default) = declaration.default_type else { return };
+        for (index, parameter) in parameters.iter().enumerate().skip(arguments.len()) {
+            let Some(default) = parameter.default else { return };
             let default = self.get_type_from_type_node(default);
             let map: Vec<(TypeId, TypeId)> =
                 parameter_types[..index].iter().copied().zip(arguments.iter().copied()).collect();
@@ -921,6 +920,173 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// `checkTypeParameter`'s default arm (`checker.go`, after the circular
+    /// default check): a type parameter with both a constraint and a default
+    /// must have a default assignable to the constraint instantiated with the
+    /// parameter mapped to that default, else TS2344 at the written default:
+    ///
+    /// ```text
+    /// checkTypeAssignableTo(defaultType, getTypeWithThisArgument(
+    ///     instantiateType(constraintType, newSimpleTypeMapper(tp, defaultType)),
+    ///     defaultType, false), tpNode.DefaultType, Type_0_does_not_satisfy_the_constraint_1)
+    /// ```
+    ///
+    /// The default is `getDefaultFromTypeParameter`'s resolved default; a
+    /// circular or not-yet-ported default (`Unsupported`) declines. A
+    /// declaration without its own default node reports nothing upstream
+    /// either (a nil error node). The relation is gated exactly as
+    /// [`Self::check_type_argument_constraints`] gates it (the generic
+    /// declines of §4 in `docs/parity/notes/r5-constraints2.md`), and a
+    /// constraint that is a class or interface type declines because
+    /// `getTypeWithThisArgument` is not ported here. No cache or side table.
+    pub(crate) fn check_type_parameter_default_constraint(&mut self, node: NodeId) {
+        let Some(tsr_ast::Node::TypeParameterDeclaration(declaration)) = self.node_map.get(node)
+        else {
+            return;
+        };
+        let (Some(default_node), Some(name)) = (declaration.default_type, declaration.name) else {
+            return;
+        };
+        let (Some(at), Some(symbol)) = (default_node.node_id(), self.binder.symbol_of(node)) else {
+            return;
+        };
+        let parameter = self.get_declared_type_of_symbol(symbol);
+        if parameter == self.intrinsics.error {
+            return;
+        }
+        let Some(constraint) = self.type_parameter_constraint(parameter) else { return };
+        let crate::declared::TypeParameterDefaultState::Resolved(Some(default)) =
+            self.get_resolved_type_parameter_default(parameter)
+        else {
+            return;
+        };
+        if self.is_error(constraint) || self.is_error(default) {
+            return;
+        }
+        let name = name.text.to_string();
+        let target =
+            self.instantiate_type(constraint, &[(parameter, default)], &[parameter], &[&name]);
+        if self.is_error(target)
+            || self.constraint_needs_this_argument(target)
+            || self.type_argument_node_is_generic(at)
+            || self.relation_undecidable_for_constraint(default)
+            || self.relation_undecidable_for_constraint(target)
+            || self.relate_ternary(default, target, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+            || !self.pair_is_reportable(default, target)
+        {
+            return;
+        }
+        let span = self.error_span(at);
+        self.report_relation_failure(
+            at,
+            span,
+            None,
+            default,
+            target,
+            Some(&tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
+        );
+    }
+
+    /// Whether `getTypeWithThisArgument(ty, this)` could differ from `ty`: a
+    /// class or interface type (or a reference to one), whose `this` type
+    /// the default would replace.
+    fn constraint_needs_this_argument(&self, ty: TypeId) -> bool {
+        if !self.store.get(ty).flags.intersects(TypeFlags::OBJECT) {
+            return false;
+        }
+        let symbol = match &self.store.get(ty).data {
+            TypeData::Named { members, .. } => *members,
+            _ => self.type_reference_targets.get(&ty).map(|(symbol, _)| *symbol),
+        };
+        symbol.is_some_and(|symbol| {
+            self.binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        })
+    }
+}
+
+/// One type parameter of a referenced class, interface or alias, as
+/// `checkTypeArgumentConstraints` sees it: its declared type, name and the
+/// first written default among its merged declarations.
+struct ReferencedTypeParameter<'a> {
+    ty: TypeId,
+    name: String,
+    default: Option<tsr_ast::TypeNode<'a>>,
+}
+
+impl<'a> Checker<'a, '_> {
+    /// `getTypeParametersForTypeAndSymbol` (`checker.go:17198`) for a class,
+    /// interface or alias symbol: `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias`
+    /// (`checker.go`) walks EVERY declaration of the symbol and keeps each
+    /// type parameter once (`core.AppendIfUnique` on the declared type). A
+    /// symbol merged with a value — `declare var Proxy` in the lib beside a
+    /// user `interface Proxy<T extends object>` — has a first declaration
+    /// with no type parameters, so a first-declaration read found none and
+    /// the check never ran (`docs/parity/notes/r5-constraints2.md` §1).
+    ///
+    /// The default is `getDefaultFromTypeParameter`'s: the first declaration
+    /// of the parameter that writes one. `None` when a parameter's declared
+    /// type cannot be built, which the caller treats as a decline.
+    fn constraint_check_type_parameters(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<ReferencedTypeParameter<'a>>> {
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let mut written: Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> = Vec::new();
+        for (position, declaration) in declarations.iter().enumerate() {
+            match self.node_map.get(*declaration) {
+                Some(tsr_ast::Node::ClassDeclaration(node)) => {
+                    written.extend(node.type_parameters.iter().copied());
+                }
+                Some(tsr_ast::Node::ClassExpression(node)) => {
+                    written.extend(node.type_parameters.iter().copied());
+                }
+                Some(tsr_ast::Node::InterfaceDeclaration(node)) => {
+                    written.extend(node.type_parameters.iter().copied());
+                }
+                Some(tsr_ast::Node::TypeAliasDeclaration(node)) => {
+                    written.extend(node.type_parameters.iter().copied());
+                }
+                // A JSDoc typedef/callback's `@template` tags hang off the
+                // symbol's comment; `local_type_parameters_of` reads them
+                // when that declaration is the first.
+                Some(tsr_ast::Node::JSDocTypedefTag(_) | tsr_ast::Node::JSDocCallbackTag(_))
+                    if position == 0 =>
+                {
+                    written.extend(self.local_type_parameters_of(symbol).iter().copied());
+                }
+                _ => {}
+            }
+        }
+        let mut parameters: Vec<ReferencedTypeParameter<'a>> = Vec::with_capacity(written.len());
+        for declaration in written {
+            let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = self.binder.merged_symbol(parameter);
+            let ty = self.get_declared_type_of_symbol(parameter);
+            if ty == self.intrinsics.error {
+                return None;
+            }
+            if let Some(existing) = parameters.iter_mut().find(|p| p.ty == ty) {
+                if existing.default.is_none() {
+                    existing.default = declaration.default_type;
+                }
+                continue;
+            }
+            parameters.push(ReferencedTypeParameter {
+                ty,
+                name: declaration.name?.text.to_string(),
+                default: declaration.default_type,
+            });
+        }
+        Some(parameters)
+    }
+}
+
+impl Checker<'_, '_> {
     /// A side of a constraint check whose relation this port cannot decide:
     /// an instantiable type (type parameter, indexed access, conditional,
     /// substitution, `keyof`, template or string mapping) or one mentioning a
@@ -934,10 +1100,17 @@ impl Checker<'_, '_> {
 
     /// The written-argument half of the same decline: a type argument whose
     /// syntax is generic: it names a type parameter, or writes a
-    /// conditional, indexed-access, mapped, `infer`, type-operator, template,
-    /// `typeof` or `this` type. This port may have resolved such a node
-    /// eagerly to a concrete type upstream keeps deferred, so its type is not
-    /// evidence about upstream's relation.
+    /// conditional, indexed-access, mapped, `infer`, type-operator, template
+    /// or `this` type. This port may have resolved such a node eagerly to a
+    /// concrete type upstream keeps deferred, so its type is not evidence
+    /// about upstream's relation.
+    ///
+    /// A `typeof` query is not in the list: `getTypeFromTypeQueryNode` is
+    /// the widened type of the named value, never a deferred type of its
+    /// own, so a query over a generic value is caught by the type-side
+    /// [`Self::relation_undecidable_for_constraint`] and one over a concrete
+    /// value (`Parameters<typeof C>`) is decidable
+    /// (`docs/parity/notes/r5-constraints2.md` §2).
     fn type_argument_node_is_generic(&self, node: NodeId) -> bool {
         let mut stack = vec![node];
         while let Some(current) = stack.pop() {
@@ -948,7 +1121,6 @@ impl Checker<'_, '_> {
                 | SyntaxKind::InferType
                 | SyntaxKind::TypeOperator
                 | SyntaxKind::TemplateLiteralType
-                | SyntaxKind::TypeQuery
                 | SyntaxKind::ThisType => return true,
                 SyntaxKind::TypeReference => {
                     if let Some(tsr_ast::Node::TypeReferenceNode(reference)) =
