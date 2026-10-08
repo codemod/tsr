@@ -524,3 +524,6 @@ per-file flag must become per-node.
   `parseExpected` (TS1005 `'of' expected`), then `in` may still make a
   for-in, which carries no `await` token. `'{0}' expected` spells a keyword
   as its text (`scanner.TokenToString`), not its kind name.
+- `abstract` member outside an abstract class (`checkGrammarModifiers`):
+  TS1244/TS1253 are `grammarErrorOnNode(modifier)`, spanning the `abstract`
+  keyword rather than the member.

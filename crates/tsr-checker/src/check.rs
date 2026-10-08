@@ -8423,11 +8423,14 @@ impl Checker<'_, '_> {
                     Node::PropertyDeclaration(n) => n.modifiers,
                     _ => return,
                 };
-                if !modifiers.iter().any(|modifier| {
-                    matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword)
-                }) {
+                let Some(abstract_modifier) = modifiers.iter().find_map(|modifier| match modifier {
+                    tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword => {
+                        t.node_id
+                    }
+                    _ => None,
+                }) else {
                     return;
-                }
+                };
                 let Some(parent) = self.nodes.parent(node) else { return };
                 if self.nodes.kind(parent) != SyntaxKind::ClassDeclaration {
                     return;
@@ -8443,8 +8446,9 @@ impl Checker<'_, '_> {
                 } else {
                     &messages::ABSTRACT_METHODS_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
                 };
+                // `grammarErrorOnNode(modifier, message)`: the `abstract`.
                 let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                let span = self.nodes.span(node);
+                let span = self.nodes.span(abstract_modifier);
                 self.report(file, Diagnostic::new(message, span));
             }
             _ => {}
