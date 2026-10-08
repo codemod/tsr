@@ -732,3 +732,15 @@ type to a 'W' constructor type" on the reporting pair
 match for the signature 'T'" for a source without signatures, which needs
 `signatureToString`'s default colon style; `Checker::signature_to_string`
 (signatures.rs) prints arrow style only.
+
+## Property privacy explanations — tsr-2zk.1
+
+`propertyRelatedTo` (relater.go:4276) returns on its privacy switch with
+"Types have separate declarations of a private property 'p'", "Property 'p' is
+private in type 'A' but not in type 'B'" or "Property 'p' is protected in type
+'A' but public in type 'B'" (`privacy_explanation`), published for a single
+source symbol when every earlier member was decided. The walk now returns on a
+failed privacy arm, as native does. The syntactic nominal-class shortcut keeps
+its verdict but, on the reporting pair, asks `properties_related_to` for the
+native explanation (kept only when that walk also fails). The protected-target
+arm (`isValidOverrideOf`, "is not a class derived from") stays undecided.

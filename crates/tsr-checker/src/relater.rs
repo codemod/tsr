@@ -1177,6 +1177,14 @@ impl Relater<'_, '_, '_> {
             && !self.class_declares_heritage(target)
             && let Some(answer) = self.checker.nominal_class_pair_verdict(source, target)
         {
+            // The reporting pair takes propertiesRelatedTo for its native
+            // explanation; the verdict stays the shortcut's.
+            if !answer
+                && self.diagnostic_pair == Some((source, target))
+                && self.properties_related_to(source, target) != RelationResult::NotRelated
+            {
+                self.property_error = None;
+            }
             return if answer { RelationResult::Related } else { RelationResult::NotRelated };
         }
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
@@ -1978,6 +1986,51 @@ impl Relater<'_, '_, '_> {
     }
 
     /// constructorVisibilitiesAreCompatible (relater.go:4520).
+    /// propertyRelatedTo's privacy messages (relater.go:4276) for a failed
+    /// pair of member symbols: separate private declarations, private on
+    /// one side only, or a protected source against a public target. A
+    /// protected target (isValidOverrideOf) is not decided by this port.
+    fn privacy_explanation(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        source_property: tsr_binder::SymbolId,
+        target_property: tsr_binder::SymbolId,
+        name: &str,
+    ) -> tsr_diagnostics::Diagnostic {
+        use tsr_diagnostics::{Diagnostic, messages};
+        let private = tsr_ast::SyntaxKind::PrivateKeyword;
+        let source_private = self.checker.property_has_modifier(source_property, private);
+        let target_private = self.checker.property_has_modifier(target_property, private);
+        let printed = self.checker.callable_property_name(target_property, name);
+        let span = tsr_core::Span::new(0, 0);
+        match (source_private, target_private) {
+            (true, true) => Diagnostic::with_args(
+                &messages::TYPES_HAVE_SEPARATE_DECLARATIONS_OF_A_PRIVATE_PROPERTY_0,
+                span,
+                [printed],
+            ),
+            (true, false) | (false, true) => {
+                let (private_side, other) =
+                    if source_private { (source, target) } else { (target, source) };
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_IS_PRIVATE_IN_TYPE_1_BUT_NOT_IN_TYPE_2,
+                    span,
+                    [
+                        printed,
+                        self.checker.type_to_string(private_side),
+                        self.checker.type_to_string(other),
+                    ],
+                )
+            }
+            (false, false) => Diagnostic::with_args(
+                &messages::PROPERTY_0_IS_PROTECTED_IN_TYPE_1_BUT_PUBLIC_IN_TYPE_2,
+                span,
+                [printed, self.checker.type_to_string(source), self.checker.type_to_string(target)],
+            ),
+        }
+    }
+
     /// constructorVisibilitiesAreCompatible (relater.go:4526): `None` when
     /// compatible, else the source and target `visibilityToString` texts.
     fn constructor_visibility_mismatch(
@@ -4449,6 +4502,23 @@ impl Relater<'_, '_, '_> {
                     }
                 }
                 let privacy = RelationResult::all(privacy);
+                if privacy == RelationResult::NotRelated {
+                    // propertyRelatedTo returns on the failed privacy arm,
+                    // explaining it on the reporting pair.
+                    if let [source_property] = source_properties[..]
+                        && self.diagnostic_pair == Some((source, target))
+                        && !parts.contains(&RelationResult::Unknown)
+                    {
+                        self.property_error = Some(self.privacy_explanation(
+                            source,
+                            target,
+                            source_property,
+                            target_property,
+                            &name,
+                        ));
+                    }
+                    return privacy;
+                }
                 if privacy != RelationResult::Related {
                     parts.push(privacy);
                     continue;
