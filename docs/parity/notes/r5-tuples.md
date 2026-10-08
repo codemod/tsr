@@ -65,7 +65,17 @@ Test: `a_tuple_inferred_from_optional_parameters_carries_undefined`
 
 ## Diffs outside owned files
 
-Each diff is measured on top of section 1 and sent to the integrator.
+D1 and D2 ship together as `docs/parity/notes/r5-tuples-declared.diff`.
+`git apply` takes it on top of `1ad41b2`. The `tuples.rs` hunk is D2's helper,
+which has no caller without the `declared.rs` hunk. Measured together on top
+of section 1, against section 1's dumps:
+
+- **+17 type lines, zero losses on both dumps.** Every diagnostics verdict is
+  unchanged.
+- **Perf** (median child CPU, 21 samples, against the frozen binary):
+  domain-model 0.971, generic-imports 0.993. `diagnostics_match` is true on
+  both.
+- **Workspace tests pass.**
 
 - **D1, `declared.rs` `tuple_type_node_structural` (variadic road).**
   - *Change:* apply `getTypeFromOptionalTypeNode` /
