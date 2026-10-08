@@ -1303,11 +1303,12 @@ impl<'a> Checker<'a, '_> {
                 {
                     return None;
                 }
-                // getContextualTypeForStaticPropertyDeclaration: only a
-                // named property of the enclosing apparent context supplies
-                // context; an index signature does not supply a fallback.
+                // getContextualTypeForStaticPropertyDeclaration
+                // (`checker.go:29612`): getTypeOfPropertyOfContextualType over
+                // the class expression's (non-apparent) contextual type, which
+                // maps a union and skips its non-object constituents
+                // (`I | undefined` for an optional slot or member).
                 let contextual = self.get_contextual_type(class)?;
-                let contextual = self.apparent_contextual_type(contextual);
                 let name = match declaration.name {
                     PropertyName::Identifier(name) => name.text.to_string(),
                     PropertyName::StringLiteral(name) => name.text.to_string(),
@@ -1320,7 +1321,7 @@ impl<'a> Checker<'a, '_> {
                     }
                     _ => return None,
                 };
-                self.get_type_of_property_of_type(contextual, &name)
+                self.contextual_property_type(contextual, &name)
             }
             // getContextualTypeForJsxExpression/Attribute/ChildJsxExpression
             // (pinned jsx.go): the wrapper is transparent, while body children
@@ -1330,6 +1331,9 @@ impl<'a> Checker<'a, '_> {
             Node::JsxExpression(_)
             | Node::ParenthesizedExpression(_)
             | Node::NonNullExpression(_) => self.get_contextual_type(parent),
+            // getContextualType's SpreadAssignment arm (`checker.go:29378`):
+            // `{ ...expr }`'s operand takes the containing literal's context.
+            Node::SpreadAssignment(_) => self.get_contextual_type(self.nodes.parent(parent)?),
             Node::JsxAttribute(_) | Node::JsxSpreadAttribute(_) => {
                 self.jsx_attribute_context(parent)
             }

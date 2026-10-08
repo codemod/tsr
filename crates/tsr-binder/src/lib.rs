@@ -70,6 +70,7 @@ mod names;
 mod narrowing;
 #[cfg(test)]
 mod parallel_tests;
+mod suggestion;
 mod symbol;
 
 use rustc_hash::FxHashMap;
@@ -81,6 +82,7 @@ pub use binder::{is_declaration_file, is_external_module};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
 pub use names::PreparedNames;
+pub use suggestion::{SuggestionHost, SuggestionWalk};
 pub use symbol::{
     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
 };
@@ -110,6 +112,10 @@ bitflags::bitflags! {
         const CONTAINS_THIS = 1 << 3;
         /// A `label:` that nothing `break`s or `continue`s to.
         const UNUSED_LABEL = 1 << 4;
+        /// A module declaration carrying the parser's `NodeFlagsAmbient`
+        /// context (declaration file, `declare`, or an ambient enclosing
+        /// module), which this parser does not publish on the node.
+        const AMBIENT_CONTEXT = 1 << 5;
     }
 }
 
@@ -1258,7 +1264,7 @@ impl<'a> BindResult<'a> {
             if (match node_map.get(node) {
                 Some(tsr_ast::Node::SourceFile(_)) => true,
                 Some(tsr_ast::Node::ModuleDeclaration(module)) => {
-                    nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                    self.facts(node).contains(NodeFacts::AMBIENT_CONTEXT)
                         && module.keyword.kind != SyntaxKind::GlobalKeyword
                 }
                 _ => false,
@@ -1321,6 +1327,9 @@ impl<'a> BindResult<'a> {
                 _ => None,
             };
             if let Some(mask) = exported
+                // `if name != InternalSymbolNameDefault` (`nameresolver.go:134`):
+                // only the default-local arm above admits the `default` key.
+                && (mask == SymbolFlags::ENUM_MEMBER || name != binder::INTERNAL_DEFAULT)
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
@@ -1392,81 +1401,6 @@ impl<'a> BindResult<'a> {
         // is the correct response to a hit and the wrong answer here.
         // `checker-notes-diag2.md` §202.
         self.lookup_scoped(Some(&self.globals), name, meaning)
-    }
-
-    /// Every name a lookup from `start` could reach, in no particular order.
-    ///
-    /// The same scope chain [`BindResult::resolve_name`] walks — enclosing
-    /// `locals`, a class or interface's `members`, a module's or enum's
-    /// `exports`, and finally `globals` — collected instead of searched.
-    ///
-    /// # Why this exists, and what it is not
-    ///
-    /// Upstream's `getSpellingSuggestion` (`checker.go`) is driven by
-    /// `forEachSymbol`, which walks the same chain. The checker's TS2304 rule
-    /// needs the *set* rather than a hit, because upstream reports a different
-    /// code (TS2552) when a near-miss exists and this port must stay silent
-    /// there rather than report the wrong one — see
-    /// `Checker::has_spelling_suggestion`.
-    ///
-    /// **It is not meaning-filtered**, deliberately: a suggestion of the wrong
-    /// meaning still makes upstream pick TS2552 over TS2304, so filtering would
-    /// narrow the set in the direction that manufactures wrong codes.
-    #[must_use]
-    pub fn names_in_scope(
-        &self,
-        nodes: &NodeTable,
-        node_map: &NodeMap<'a>,
-        start: NodeId,
-    ) -> Vec<&'a str> {
-        self.names_in_scope_with_meaning(nodes, node_map, start, SymbolFlags::all())
-    }
-
-    /// [`Binder::names_in_scope`], restricted to the names whose symbol carries
-    /// one of `meaning`'s flags.
-    ///
-    /// Upstream's `getSuggestedSymbolForNonexistentSymbol` searches
-    /// `symbolsInScope(location, meaning)` and **always** passes a meaning
-    /// (`checker.go`). Ignoring it is harmless where nearly every name in scope
-    /// is a value and wrong in a type position, where it offers a nearby
-    /// *variable* for a missing *type*: `parserRealSource13` was 105 wrong
-    /// TS2552 lines for one missing `AST`
-    /// (`docs/architecture/checker-notes-diag2.md` §202, §57).
-    #[must_use]
-    pub fn names_in_scope_with_meaning(
-        &self,
-        nodes: &NodeTable,
-        node_map: &NodeMap<'a>,
-        start: NodeId,
-        meaning: SymbolFlags,
-    ) -> Vec<&'a str> {
-        let _ = node_map;
-        let mut names: Vec<&'a str> = Vec::new();
-        let push = |names: &mut Vec<&'a str>, table: &SymbolTable<'a>| {
-            for (name, symbol) in table {
-                if self.symbols.get(*symbol).flags.intersects(meaning) {
-                    names.push(name);
-                }
-            }
-        };
-        let mut current = Some(start);
-        while let Some(node) = current {
-            if let Some(table) = self.locals.get(&node) {
-                push(&mut names, table);
-            }
-            if let Some(symbol) = self.symbol_of(node) {
-                let symbol = self.symbols.get(symbol);
-                if let Some(table) = symbol.members.as_ref() {
-                    push(&mut names, table);
-                }
-                if let Some(table) = symbol.exports.as_ref() {
-                    push(&mut names, table);
-                }
-            }
-            current = nodes.parent(node);
-        }
-        push(&mut names, &self.globals);
-        names
     }
 
     /// Every declaration merge the excludes masks forbade, as `(target, source)`.

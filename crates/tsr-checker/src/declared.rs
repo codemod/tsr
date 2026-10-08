@@ -561,6 +561,12 @@ impl<'a> Checker<'a, '_> {
             // (`checker.go:22960`): a WRITTEN `unique symbol` mints one type
             // per node (`checker-notes-callres.md` §27).
             TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::UniqueKeyword => {
+                // getTypeFromTypeOperatorNode checks the operand's exact kind
+                // before getESSymbolLikeTypeForNode can publish a unique identity.
+                if !matches!(node.r#type, Some(TypeNode::KeywordTypeNode(keyword)) if keyword.kind == SyntaxKind::SymbolKeyword)
+                {
+                    return self.intrinsics.error;
+                }
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 // §899: `getESSymbolLikeTypeForNode` (`checker.go:22982`) mints
                 // the unique type **only in a valid declaration position**:
@@ -924,7 +930,7 @@ impl<'a> Checker<'a, '_> {
                         return keys;
                     }
                 }
-                let deferred = match node.r#type {
+                let deferred = match direct_operand {
                     Some(TypeNode::TypeReferenceNode(operand))
                         if operand.type_arguments.is_empty() =>
                     {
@@ -972,7 +978,7 @@ impl<'a> Checker<'a, '_> {
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
-                        if let Some(operand) = node.r#type {
+                        if let Some(operand) = direct_operand {
                             let operand = self.get_type_from_type_node(operand);
                             if operand != self.intrinsics.error {
                                 self.deferred_keyof_operands.insert(id, operand);
@@ -2378,11 +2384,13 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let mut signatures = Vec::new();
+        let mut construct_signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
         let mut typed_properties: Vec<crate::objects::AnonymousProperty> =
             Vec::with_capacity(node.members.len());
         let mut typed_signatures = Vec::new();
+        let mut typed_construct_signatures = Vec::new();
         let mut typed_indexes = Vec::new();
         let mut seen_index_keys: Vec<TypeId> = Vec::new();
         // A merged duplicate member (below) changes the type's structure, but
@@ -2494,6 +2502,7 @@ impl<'a> Checker<'a, '_> {
                     return error;
                 };
                 let text = crate::objects::signature_member_text(self, &signature);
+                let construct = signature.kind == crate::signatures::SignatureKind::Construct;
                 let name = name.unwrap_or_default();
                 if is_property {
                     let Some(symbol) = self.binder.symbol_of(id) else { return error };
@@ -2548,10 +2557,18 @@ impl<'a> Checker<'a, '_> {
                     } else {
                         typed_properties.push(property);
                     }
+                } else if construct {
+                    typed_construct_signatures.push(signature);
                 } else {
                     typed_signatures.push(signature);
                 }
-                let bucket = if is_property { &mut properties } else { &mut signatures };
+                let bucket = if is_property {
+                    &mut properties
+                } else if construct {
+                    &mut construct_signatures
+                } else {
+                    &mut signatures
+                };
                 bucket.push(crate::objects::Member::Signature {
                     printed: format!("{prefix}{name}{text}"),
                 });
@@ -2885,6 +2902,10 @@ impl<'a> Checker<'a, '_> {
         {
             self.qualified_written_text.entry(id).or_insert(text);
         }
+        // Native createTypeNodesFromResolvedType groups CALL, CONSTRUCT, index
+        // and property members; source order remains within each signature set.
+        signatures.append(&mut construct_signatures);
+        typed_signatures.append(&mut typed_construct_signatures);
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
         let members = signatures;
@@ -4234,21 +4255,6 @@ impl<'a> Checker<'a, '_> {
     /// parameters\' defaults (`fillMissingTypeArguments`), and a default may
     /// reference an earlier parameter — which is substitution, so that case is a
     /// gap rather than a guess.
-    /// §952: the identifier a type node names, when it is a bare reference and
-    /// nothing else. The mapped-type shape test compares three positions
-    /// (`keyof T`, `T[P]`'s object and index) against written names, and an
-    /// identity template is exactly the case where all three are bare.
-    fn type_node_names(node: Option<TypeNode<'a>>) -> Option<&'a str> {
-        let TypeNode::TypeReferenceNode(reference) = node? else { return None };
-        if !reference.type_arguments.is_empty() {
-            return None;
-        }
-        match reference.type_name? {
-            tsr_ast::EntityName::Identifier(name) => Some(name.text),
-            tsr_ast::EntityName::QualifiedName(_) => None,
-        }
-    }
-
     /// §952: the symbol whose member table a type reads its properties from —
     /// the same two shapes [`Checker::get_property_of_type`] dispatches on.
     fn members_owner_of(&self, id: TypeId) -> Option<SymbolId> {
@@ -4268,28 +4274,49 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
+            && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type.and_then(Self::skip_type_parentheses)
             && let [parameter_declaration] = self.local_type_parameters_of(symbol)
-            && let Some(parameter_name) = parameter_declaration.name.map(|name| name.text)
+            && let Some(parameter_owner) = parameter_declaration.node_id.and_then(|id| self.binder.symbol_of(id))
             && let Some(mapped_parameter) = mapped.type_parameter
-            && let Some(key_name) = mapped_parameter.name.map(|name| name.text)
+            && let Some(key_owner) = mapped_parameter.node_id.and_then(|id| self.binder.symbol_of(id))
             // The constraint must be `keyof T` for the alias's own parameter —
             // upstream's `isHomomorphicMappedType` test, syntactically.
-            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint
+            && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint.and_then(Self::skip_type_parentheses)
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
-            && Self::type_node_names(operator.r#type) == Some(parameter_name)
+            && self.mapped_identity_operand_owner(operator.r#type) == Some(parameter_owner)
             // No `as` clause: a key remapping changes the NAMES, which is
             // exactly what reusing the source's owner cannot express.
             && mapped.name_type.is_none()
             // The template must be `T[P]` — the identity.
-            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type
-            && Self::type_node_names(access.object_type) == Some(parameter_name)
-            && Self::type_node_names(access.index_type) == Some(key_name)
+            && let Some(TypeNode::IndexedAccessTypeNode(access)) = mapped.r#type.and_then(Self::skip_type_parentheses)
+            && self.mapped_identity_operand_owner(access.object_type) == Some(parameter_owner)
+            && self.mapped_identity_operand_owner(access.index_type) == Some(key_owner)
         {
             Some(mapped)
         } else {
             None
         }
+    }
+
+    /// `ast.SkipTypeParentheses`: getTypeFromTypeNodeWorker resolves a
+    /// parenthesized type node as its operand.
+    fn skip_type_parentheses(mut node: TypeNode<'a>) -> Option<TypeNode<'a>> {
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+            node = parenthesized.r#type?;
+        }
+        Some(node)
+    }
+
+    /// Resolve an identity-template operand by binder identity, not spelling.
+    /// Native getHomomorphicTypeVariable/getTypeFromTypeNodeWorker resolve
+    /// parenthesized parameter operands before mapper selection.
+    fn mapped_identity_operand_owner(&self, node: Option<TypeNode<'a>>) -> Option<SymbolId> {
+        let node = Self::skip_type_parentheses(node?)?;
+        let TypeNode::TypeReferenceNode(reference) = node else { return None };
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)
     }
 
     /// A mapped alias reference whose normalization may remove the enclosing
@@ -4511,17 +4538,16 @@ impl<'a> Checker<'a, '_> {
                 return Some(self.create_type_reference(target, vec![mapped_element]));
             }
             let source_owner = self.members_owner_of(arguments[0])?;
-            let printed_arguments: Vec<String> =
-                arguments.iter().map(|&a| self.type_to_string(a)).collect();
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            let text = format!("{name}<{}>", printed_arguments.join(", "));
-            let key = (text.clone(), symbol, arguments.to_vec());
-            if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
+            // Native getTypeAliasInstantiation owns completed reuse by alias
+            // symbol and ordered type identities, never rendered argument text.
+            let key = (symbol, arguments.to_vec());
+            if let Some(&existing) = self.instantiations.get(&key) {
                 return Some(existing);
             }
+            let text = self.type_reference_text(symbol, arguments);
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(source_owner));
             self.mapped_identity_optionality.insert(minted, (optionality, readonly));
-            self.qualified_generic_reference_types.insert(key, minted);
+            self.instantiations.insert(key, minted);
             self.type_reference_targets.insert(minted, (symbol, arguments.to_vec()));
             return Some(minted);
         }
@@ -4877,7 +4903,7 @@ impl<'a> Checker<'a, '_> {
             // Syntactic gate FIRST: only a tuple body carrying a rest element
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
-            && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type
+            && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(Self::skip_type_parentheses)
             && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
             && self.variadic_alias_in_progress.insert(symbol)
         {
@@ -4976,7 +5002,8 @@ impl<'a> Checker<'a, '_> {
         // (`divergentAccessorsTypes6`). Registered in §926's written-text
         // channel, which only annotation-reuse sites read.
         if !node.type_arguments.is_empty()
-            && self.type_parameter_body_index(symbol).is_some()
+            && (self.type_parameter_body_index(symbol).is_some()
+                || self.alias_free_generic_alias_body(symbol).is_some())
             && let Some(id) = node.node_id
             && !self.qualified_written_text.contains_key(&id)
             && let Some(base) = Self::entity_name_text(node.type_name)
@@ -6082,6 +6109,36 @@ impl<'a> Checker<'a, '_> {
         {
             let _ = self.get_declared_type_of_symbol(symbol);
         }
+        if self.alias_free_generic_alias_body(symbol).is_some_and(|body| {
+            matches!(body, TypeNode::TypeOperatorNode(_))
+                || matches!(body, TypeNode::TypeQueryNode(query) if query.type_arguments.is_empty())
+        }) {
+            // Ported from typescript-go's getTypeAliasInstantiation and
+            // instantiateTypeWithAlias (internal/checker/checker.go): these
+            // constructors receive no alias. Complete the declared owner before
+            // reuse, then map semantic parameter identities in declaration order.
+            let declared = self.get_declared_type_of_symbol(symbol);
+            if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
+                return cached;
+            }
+            let local = self.local_type_parameters_of(symbol);
+            let mut parameters = Vec::with_capacity(local.len());
+            let mut parameter_names = Vec::with_capacity(local.len());
+            for parameter in local {
+                let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                    return self.intrinsics.error;
+                };
+                let Some(name) = parameter.name else { return self.intrinsics.error };
+                parameters.push(self.get_declared_type_of_symbol(owner));
+                parameter_names.push(name.text);
+            }
+            let mapper: Vec<_> =
+                parameters.iter().copied().zip(arguments.iter().copied()).collect();
+            let instantiated =
+                self.instantiate_type(declared, &mapper, &parameters, &parameter_names);
+            self.instantiations.insert((symbol, arguments), instantiated);
+            return instantiated;
+        }
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
@@ -6105,12 +6162,37 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && let Some(body @ TypeNode::KeywordTypeNode(keyword)) = alias.r#type
-            && keyword.kind != SyntaxKind::IntrinsicKeyword
+            && let Some(mut body) = alias.r#type
         {
-            let evaluated = self.get_type_from_type_node(body);
-            self.instantiations.insert((symbol, arguments), evaluated);
-            return evaluated;
+            // getTypeFromTypeNodeWorker unwraps parentheses before keyword
+            // resolution even under an active outer alias mapper.
+            while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                let Some(inner) = parenthesized.r#type else { return self.intrinsics.error };
+                body = inner;
+            }
+            if let TypeNode::KeywordTypeNode(keyword) = body
+                && keyword.kind != SyntaxKind::IntrinsicKeyword
+            {
+                let evaluated = self.get_type_from_type_node(body);
+                self.instantiations.insert((symbol, arguments), evaluated);
+                return evaluated;
+            }
+        }
+        // Ported from typescript-go's getTypeAliasInstantiation and
+        // instantiateTypeWithAlias (internal/checker/checker.go): a literal
+        // or keyword declared body is pre-existing and mapper-independent.
+        // ParenthesizedType is transparent in getTypeFromTypeNodeWorker.
+        // Reuse the SymbolId-owned declared publication and the existing
+        // ordered-TypeId instantiation key; never mint a nominal alias image.
+        if self.original_generic_keyword_alias_body(symbol).is_some()
+            || matches!(
+                self.alias_free_generic_alias_body(symbol),
+                Some(TypeNode::LiteralTypeNode(_))
+            )
+        {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            self.instantiations.insert((symbol, arguments), declared);
+            return declared;
         }
         if let Some(evaluated) = self.evaluate_conditional_alias(symbol, &arguments, None) {
             self.instantiations.insert((symbol, arguments), evaluated);
@@ -6120,8 +6202,15 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) =
                 self.binder.symbols().get(symbol).declarations.first().copied()
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && (matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
-                || self.is_closed_literal_union_alias(symbol, &arguments))
+            && (alias.r#type.is_some_and(|mut body| {
+                // getTypeFromTypeNodeWorker: parentheses are transparent before
+                // indexed-access resolution, including an alias's declared body.
+                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+                    let Some(inner) = parenthesized.r#type else { return false };
+                    body = inner;
+                }
+                matches!(body, TypeNode::IndexedAccessTypeNode(_))
+            }) || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
@@ -6808,15 +6897,11 @@ impl<'a> Checker<'a, '_> {
             // `substituteReturnTypeSatisfiesConstraint`,
             // `homomorphicMappedTypeNesting`). Everything else keeps the
             // name-with-parameters mint below.
-            if let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
-                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-                && let Some(body @ TypeNode::TypeReferenceNode(reference)) = alias.r#type
-                && reference.type_arguments.is_empty()
-                && matches!(reference.type_name, Some(tsr_ast::EntityName::Identifier(name))
-                    if parameters.iter().any(|parameter| parameter == name.text))
-            {
-                return self.get_type_from_type_node(body);
+            if let Some(index) = self.type_parameter_body_index(symbol) {
+                let parameter = self.local_type_parameters_of(symbol)[index];
+                if let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                    return self.get_declared_type_of_symbol(owner);
+                }
             }
             // §957: a GENERIC alias whose body is a REST-BEARING tuple prints the
             // STRUCTURE, not `Name<Params>`. Same normalisation axis §956 derived
@@ -6865,6 +6950,23 @@ impl<'a> Checker<'a, '_> {
                     return self.report_type_alias_circularity(symbol);
                 }
                 if resolved != error {
+                    if !matches!(body, TypeNode::TemplateLiteralTypeNode(_))
+                        && !matches!(body, TypeNode::TypeQueryNode(query) if !query.type_arguments.is_empty())
+                    {
+                        // getDeclaredTypeOfTypeAlias seeds its own ordered
+                        // parameter instantiation only after successful resolution.
+                        let local = self.local_type_parameters_of(symbol);
+                        let mut arguments = Vec::with_capacity(local.len());
+                        for parameter in local {
+                            let Some(owner) =
+                                parameter.node_id.and_then(|id| self.binder.symbol_of(id))
+                            else {
+                                return error;
+                            };
+                            arguments.push(self.get_declared_type_of_symbol(owner));
+                        }
+                        self.instantiations.insert((symbol, arguments), resolved);
+                    }
                     return resolved;
                 }
             }
@@ -7003,8 +7105,10 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// A generic alias body whose type constructor never takes an alias
-    /// symbol: a template literal, `keyof X`, or `typeof x` (parentheses
-    /// transparent). The declared type of such an alias is the body itself.
+    /// symbol: a literal, template literal, `keyof X`, or `typeof x`
+    /// (parentheses transparent). Ported from typescript-go's
+    /// `getDeclaredTypeOfTypeAlias` and `getTypeFromLiteralTypeNode`
+    /// (`internal/checker/checker.go`): existing literals retain their identity.
     fn alias_free_generic_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
@@ -7015,7 +7119,9 @@ impl<'a> Checker<'a, '_> {
             body = inner.r#type?;
         }
         match body {
-            TypeNode::TemplateLiteralTypeNode(_) | TypeNode::TypeQueryNode(_) => Some(body),
+            TypeNode::LiteralTypeNode(_)
+            | TypeNode::TemplateLiteralTypeNode(_)
+            | TypeNode::TypeQueryNode(_) => Some(body),
             TypeNode::TypeOperatorNode(operator)
                 if operator.operator.kind == SyntaxKind::KeyOfKeyword =>
             {
@@ -7045,11 +7151,9 @@ impl<'a> Checker<'a, '_> {
         if !reference.type_arguments.is_empty() {
             return None;
         }
-        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
-            return None;
-        };
+        let owner = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
         alias.type_parameters.iter().position(|parameter| {
-            parameter.name.is_some_and(|parameter_name| parameter_name.text == name.text)
+            parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(owner)
         })
     }
 
@@ -7347,9 +7451,11 @@ impl<'a> Checker<'a, '_> {
         if self.instantiation_depth == 100 {
             return None;
         }
-        let conditional = match alias.r#type {
-            Some(TypeNode::ConditionalTypeNode(conditional)) => conditional,
-            Some(TypeNode::TypeReferenceNode(reference)) if !parameters.is_empty() => {
+        // getTypeFromTypeNodeWorker resolves parenthesized bodies transparently;
+        // preserve the same conditional worker and its active mapper/frame.
+        let conditional = match Self::skip_type_parentheses(alias.r#type?)? {
+            TypeNode::ConditionalTypeNode(conditional) => conditional,
+            TypeNode::TypeReferenceNode(reference) if !parameters.is_empty() => {
                 return self.evaluate_conditional_alias_reference(reference, frame, result_alias);
             }
             _ => return None,
@@ -7433,14 +7539,9 @@ impl<'a> Checker<'a, '_> {
         frame: rustc_hash::FxHashMap<SymbolId, TypeId>,
         result_alias: Option<SymbolId>,
     ) -> Option<TypeId> {
-        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else { return None };
-        let target = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name.node_id?,
-            name.text,
-            SymbolFlags::TYPE,
-        )?;
+        // getTypeFromTypeAliasReference resolves the entity name through the
+        // canonical checker resolver, including qualified and import aliases.
+        let target = self.resolve_entity_name_ex(reference.type_name?, SymbolFlags::TYPE, false)?;
         if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }

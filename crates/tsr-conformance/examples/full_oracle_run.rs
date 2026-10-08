@@ -21,7 +21,7 @@
 //! denominator. See `docs/parity/notes/oracle.md`.
 use anyhow::{Context, Result, bail, ensure};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Write as _,
     fs,
     io::{BufRead, BufReader, Read, Seek, Write as _},
@@ -42,7 +42,8 @@ use tsr_conformance::full_oracle::{
 const USAGE: &str = "usage: full_oracle_run native NATIVE_DIR [--workers N] [--deadline S] [--filter SUBSTRING]
        full_oracle_run tsr NATIVE_DIR REPORT_DIR [--workers N] [--deadline S] [--filter SUBSTRING] [--per-process] [--allow-dirty]
        full_oracle_run gate BASE_REPORT CANDIDATE_REPORT
-       full_oracle_run summarize REPORT_DIR";
+       full_oracle_run summarize REPORT_DIR
+       full_oracle_run rank REPORT_DIR [TOP]";
 
 /// The native producer's sources: the overlay files that define its records.
 const NATIVE_SOURCES: [&str; 2] = ["full_oracle_native.go", "full_oracle_native_types.go"];
@@ -67,6 +68,12 @@ fn main() -> Result<()> {
         Some("summarize") => {
             ensure!(args.len() == 2, "{USAGE}");
             print!("{}", summarize(Path::new(&args[1]))?);
+            Ok(())
+        }
+        Some("rank") => {
+            ensure!(matches!(args.len(), 2 | 3), "{USAGE}");
+            let top = args.get(2).map_or(Ok(30), |n| n.parse())?;
+            print!("{}", rank(Path::new(&args[1]), top)?);
             Ok(())
         }
         Some("gate") => {
@@ -940,6 +947,219 @@ fn summarize(report: &Path) -> Result<String> {
     for (k, ids) in v {
         let ex: Vec<_> = ids.iter().take(3).map(|e| format!("`{e}`")).collect();
         writeln!(s, "| {k} | {} | {} |", ids.len(), ex.join(", "))?;
+    }
+    Ok(s)
+}
+
+/// Every function of the pinned native sources that names a diagnostic message,
+/// by message code: `package.function`. Read from `diagnostics_generated.go`
+/// (name → code) and every non-test `.go` file under `internal/` outside the
+/// editor packages, which publish nothing to a compilation.
+fn native_emitters(native: &Path) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let generated =
+        fs::read_to_string(native.join("internal/diagnostics/diagnostics_generated.go"))?;
+    let mut codes: HashMap<String, String> = HashMap::new();
+    for line in generated.lines() {
+        let Some(rest) = line.strip_prefix("var ") else { continue };
+        let Some((name, rest)) = rest.split_once(" = &Message{code: ") else { continue };
+        let code: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        codes.insert(name.to_string(), format!("TS{code}"));
+    }
+    let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut stack = vec![native.join("internal")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                let editor = ["diagnostics", "ls", "lsp", "project", "api", "fourslash"]
+                    .iter()
+                    .any(|p| path.ends_with(p));
+                if !editor {
+                    stack.push(path);
+                }
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            // Go source names are case-sensitive: `.go`, `_test.go`.
+            if path.extension().is_none_or(|e| e != "go") || name.ends_with("_test.go") {
+                continue;
+            }
+            let package = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let mut function = String::from("(package)");
+            for line in fs::read_to_string(&path)?.lines() {
+                if let Some(rest) = line.strip_prefix("func ") {
+                    let rest = if rest.starts_with('(') {
+                        rest.split_once(") ").map_or(rest, |(_, r)| r)
+                    } else {
+                        rest
+                    };
+                    function = rest.split(['(', '[']).next().unwrap_or_default().to_string();
+                }
+                for (i, _) in line.match_indices("diagnostics.") {
+                    let ident: String = line[i + "diagnostics.".len()..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
+                    if let Some(code) = codes.get(&ident) {
+                        out.entry(code.clone())
+                            .or_default()
+                            .insert(format!("{package}.{function}"));
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The native operation that answers a type-baseline row for a node:
+/// `getTypeOfNode`'s dispatch (`checker.go`) — a declaration's name reads its
+/// symbol, any other node is checked as an expression.
+fn type_operation(kind: &str, parent: &str) -> String {
+    let declares = parent.ends_with("Declaration")
+        || matches!(
+            parent,
+            "Parameter"
+                | "BindingElement"
+                | "PropertySignature"
+                | "MethodSignature"
+                | "PropertyAssignment"
+                | "ShorthandPropertyAssignment"
+                | "EnumMember"
+                | "TypeParameter"
+                | "GetAccessor"
+                | "SetAccessor"
+                | "ImportSpecifier"
+                | "ExportSpecifier"
+                | "ImportClause"
+                | "NamespaceImport"
+        );
+    match kind {
+        "Identifier" | "PrivateIdentifier" if declares => {
+            format!("getTypeOfSymbol ({parent} name)")
+        }
+        "Identifier" if parent == "PropertyAccessExpression" => {
+            "checkPropertyAccessExpression (name)".to_string()
+        }
+        "Identifier" if parent == "QualifiedName" => "checkQualifiedName (name)".to_string(),
+        "Identifier" => "checkIdentifier".to_string(),
+        "?" => "?".to_string(),
+        other => format!("check{other}"),
+    }
+}
+
+/// A ranking bucket: class, code, native operation, node context.
+type Bucket = (String, String, String, String);
+
+/// Ranked root causes of a complete TSR report: each non-exact case is
+/// attributed to its first difference ([`oracle::blocker`]) and bucketed by the
+/// native operation that publishes or answers it plus the node it sits on.
+#[allow(clippy::too_many_lines)]
+fn rank(report: &Path, top: usize) -> Result<String> {
+    let (_, native, corpus, _) = checkouts()?;
+    let identity = read_identity(report)?;
+    ensure!(identity.get("kind").map(String::as_str) == Some("tsr"), "not a TSR report");
+    let native_dir = PathBuf::from(identity.get("native_dir").context("native_dir")?);
+    let emitters = native_emitters(&native)?;
+    let text = fs::read_to_string(report.join("results.tsv"))?;
+    let rows: Vec<Vec<&str>> = text
+        .lines()
+        .skip(1)
+        .map(|l| l.split('\t').collect())
+        .filter(|r: &Vec<&str>| r[3] != "EXACT" && !oracle::excluded(r[3]))
+        .collect();
+    let cases_root = corpus.join("tests/cases");
+    let emitter_label = |code: &str| -> String {
+        let Some(set) = emitters.get(code) else { return "no native emitter".to_string() };
+        let mut v: Vec<_> = set.iter().map(String::as_str).collect();
+        if v.len() > 3 {
+            let n = v.len();
+            v.truncate(3);
+            return format!("{} +{} more", v.join(" / "), n - 3);
+        }
+        // `/`, not `|`: the label lands in a markdown table cell.
+        v.join(" / ")
+    };
+    let lines = parallel(
+        rows.len(),
+        std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get),
+        || (),
+        |(), i| {
+            let r = &rows[i];
+            let key = readable_key(&format!("{}\t{}", r[1], r[2]));
+            if r[3] != "WRONG" {
+                return Ok(format!("{}\t\t{}\t-\t\t{key}\n", r[4], clean(r[5])));
+            }
+            let index: usize = r[0].parse()?;
+            let dir = report.join(format!("cases/{index:05}"));
+            let native_text = fs::read_to_string(dir.join("native.tsv"))?;
+            let tsr_text = fs::read_to_string(dir.join("actual.tsv"))?;
+            let (n, t) = (Stream::parse(&native_text), Stream::parse(&tsr_text));
+            let Some(b) = oracle::blocker(&n, &t) else {
+                return Ok(format!("{}\t\tunattributed\t-\t\t{key}\n", r[4]));
+            };
+            let request =
+                fs::read_to_string(native_dir.join(format!("cases/{index:05}/request.tsv")))?;
+            let request = oracle::Request::from_row(request.trim_end_matches('\n'))?;
+            let (kind, parent) =
+                oracle::blocker_context(&cases_root.join(&request.identity), &request, &b)
+                    .unwrap_or_else(|_| ("?".into(), "?".into()));
+            if b.row.is_some() {
+                let answer = match b.types.as_ref().map(|(x, y)| (x.as_str(), y.as_str())) {
+                    Some((_, "error")) => "TSR error",
+                    Some((_, "any")) => "TSR any",
+                    Some(("any" | "error", _)) => "native any",
+                    Some(_) => "both types",
+                    None => "row shape",
+                };
+                return Ok(format!(
+                    "{}\t\t{} [{answer}]\t{kind}<{parent}>\t\t{key}\n",
+                    b.class,
+                    type_operation(&kind, &parent)
+                ));
+            }
+            let op = emitter_label(&b.code);
+            let via =
+                if b.code == b.head_code { String::new() } else { format!(" in {}", b.head_code) };
+            Ok(format!("{}\t{}{via}\t{op}\t{kind}<{parent}>\t{}\t{key}\n", b.class, b.code, b.side))
+        },
+    )?;
+    // (class, code, operation, node context) -> (cases, examples, side).
+    let mut buckets: BTreeMap<Bucket, (usize, Vec<String>, String)> = BTreeMap::new();
+    let mut per_class: BTreeMap<String, usize> = BTreeMap::new();
+    for l in &lines {
+        let f: Vec<&str> = l.trim_end_matches('\n').split('\t').collect();
+        *per_class.entry(f[0].to_string()).or_default() += 1;
+        let e = buckets
+            .entry((f[0].into(), f[1].into(), f[2].into(), f[3].into()))
+            .or_insert_with(|| (0, Vec::new(), f[4].to_string()));
+        e.0 += 1;
+        if e.1.len() < 3 {
+            e.1.push(format!("`{}`", f[5]));
+        }
+    }
+    let mut ranked: Vec<_> = buckets.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
+    let mut s = String::new();
+    writeln!(
+        s,
+        "{} non-exact cases, {} buckets.\n\n| # | cases | class | code | native operation | node<parent> | side | examples |\n|---|---|---|---|---|---|---|---|",
+        lines.len(),
+        ranked.len()
+    )?;
+    for (i, ((class, code, op, context), (n, ex, side))) in ranked.iter().take(top).enumerate() {
+        writeln!(
+            s,
+            "| {} | {n} | {class} | {code} | {op} | {context} | {side} | {} |",
+            i + 1,
+            ex.join(", ")
+        )?;
+    }
+    let mut classes: Vec<_> = per_class.into_iter().collect();
+    classes.sort_by_key(|c| std::cmp::Reverse(c.1));
+    writeln!(s, "\n| class | cases |\n|---|---|")?;
+    for (c, n) in classes {
+        writeln!(s, "| {c} | {n} |")?;
     }
     Ok(s)
 }

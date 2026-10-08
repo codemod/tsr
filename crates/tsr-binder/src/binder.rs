@@ -312,6 +312,12 @@ pub(crate) struct Binder<'a, 'n> {
     export_context: bool,
     /// Whether we are inside a `declare` module.
     in_ambient_module: bool,
+    /// The parser's `NodeFlagsAmbient` context for module declarations: a
+    /// declaration file, a `declare` modifier, or an enclosing ambient module.
+    /// Published as [`NodeFacts::AMBIENT_CONTEXT`] because this parser does not
+    /// set the flag. Unlike `in_ambient_module`, a string-literal name alone
+    /// does not set it.
+    ambient_context: bool,
     /// The symbols of this file's `declare global { … }` / `global { … }` blocks
     /// whose exports merge into [`Binder::globals`].
     ///
@@ -626,6 +632,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             has_flow_effects: false,
             export_context: false,
             in_ambient_module: false,
+            ambient_context: false,
             global_augmentations: Vec::new(),
             module_augmentations,
             pattern_ambient_module_augmentations,
@@ -1319,7 +1326,11 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         let saved_export_context = self.export_context;
         let saved_in_ambient = self.in_ambient_module;
+        let saved_ambient_context = self.ambient_context;
         if let Node::ModuleDeclaration(module) = node {
+            self.ambient_context =
+                self.ambient_context || self.in_declaration_file || has_declare(module.modifiers);
+            self.set_fact(id, NodeFacts::AMBIENT_CONTEXT, self.ambient_context);
             // Recorded *before* `in_ambient_module` is overwritten below: the
             // gate reads the ambience of the scope this block sits in, not the
             // one it creates.
@@ -1387,6 +1398,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.this_container = saved_this_container;
         self.export_context = saved_export_context;
         self.in_ambient_module = saved_in_ambient;
+        self.ambient_context = saved_ambient_context;
     }
 
     /// Whether this `global { … }` block's exports become globals.

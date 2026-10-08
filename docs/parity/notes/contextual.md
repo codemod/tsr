@@ -505,3 +505,24 @@ an object or type-parameter constituent answered nothing. Removed:
 assignable to '"prefix"'` (tsgo), i.e. the tuple slot is the element's context;
 `[1]` under `[0] | Promise<[0]>` is `[1]`, under `Promise<[0]>` `number[]`.
 The unit test that pinned the refusal is deleted. No state.
+
+## 23. getContextualType's SpreadAssignment arm (tsr-2zk.16.182)
+
+`getContextualType` (`checker.go:29378`) gives the operand of `...expr` in an
+object literal the containing literal's contextual type, so
+`const a: { f: (x: string) => void } = { ...{ f: x => … } }` types `x` as
+`string`, while an unannotated `{ ...{ f: x => … } }` leaves `x` implicitly
+`any` (TS7006; tsgo control, both). `get_contextual_type` now has that arm.
+No state.
+
+## 24. Static class-expression fields read getTypeOfPropertyOfContextualType (tsr-2zk.16.305)
+
+`getContextualTypeForStaticPropertyDeclaration` (`checker.go:29612`) calls
+`getTypeOfPropertyOfContextualType` on the class expression's contextual type
+(not its apparent type); the union map skips `undefined`, so an optional slot
+or member typed `I | undefined` still supplies `I["x"]`:
+`let { c: c4 = class { static x = { a: "b" } } }: { c?: I } = {}` keeps
+`"b"` (tsgo's TS2322 elaborates `'"b"'`), while a `{ a: string }` member
+widens. The arm now reads `contextual_property_type` (the existing
+getTypeOfPropertyOfContextualType port). No state. Perf: domain-model has no
+class expressions; repeated 41-sample runs ranged 0.935–1.083 (noise).

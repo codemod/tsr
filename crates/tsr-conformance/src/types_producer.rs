@@ -373,7 +373,7 @@ pub fn baseline_line(source: &str, line_starts: &[u32], node_start: u32) -> u32 
 }
 
 /// Advance past whitespace and comments, as `scanner.SkipTrivia` does.
-fn skip_trivia(source: &str, mut pos: usize) -> usize {
+pub(crate) fn skip_trivia(source: &str, mut pos: usize) -> usize {
     let bytes = source.as_bytes();
     if pos == 0 && tsr_scanner::is_shebang_trivia(source) {
         pos = tsr_scanner::scan_shebang_trivia(source);
