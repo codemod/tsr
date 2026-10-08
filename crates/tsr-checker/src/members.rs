@@ -712,6 +712,16 @@ impl Checker<'_, '_> {
         self.access_member_lookup(stripped, right.text, node.node_id)
     }
 
+    /// Whether `ty` has the shape every minted polymorphic `this` type has: a
+    /// type parameter named `this`. A superset of the minted set (an object
+    /// literal's `literal_this_types` share the shape), used only as an exact
+    /// negative filter.
+    fn is_minted_this_type_shape(&self, ty: TypeId) -> bool {
+        let ty = self.store.get(ty);
+        ty.flags.contains(TypeFlags::TYPE_PARAMETER)
+            && matches!(&ty.data, TypeData::Named { text, .. } if text == "this")
+    }
+
     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`
     /// (`checker.go:11244`): apparent type, the `any` fast path, the member
     /// lookup, and flow narrowing keyed on the access node itself.
@@ -879,8 +889,24 @@ impl Checker<'_, '_> {
         // substitution site completes the rule WITHOUT unifying the mints
         // (that unification is rock #3's prerequisite for the
         // representation work, and is deliberately not attempted here).
-        let this_minted: Vec<TypeId> =
-            self.this_types.values().chain(self.this_type_nodes.values()).copied().collect();
+        //
+        // Every minted this-type is a `TYPE_PARAMETER` named `this` (the five
+        // `this_types`/`this_type_nodes` insert sites all use `new_named`),
+        // so one walk for *any* such parameter is an exact negative for the
+        // per-mint walks below. Without it each access walked the member's
+        // type graph once per this-type minted so far in the whole program:
+        // 454,195 walks, 9.7% of all instructions on a 100-module project
+        // (`docs/parity/notes/perf.md` §12 C5). Native substitutes `this`
+        // once, through the receiver's mapper (`getTypeWithThisArgument`).
+        let may_mention_this = property_type != this_argument
+            && self.mentions_type_parameter_where(property_type, &|candidate| {
+                self.is_minted_this_type_shape(candidate)
+            });
+        let this_minted: Vec<TypeId> = if may_mention_this {
+            self.this_types.values().chain(self.this_type_nodes.values()).copied().collect()
+        } else {
+            Vec::new()
+        };
         let property_type =
             if property_type != this_argument && this_minted.contains(&property_type) {
                 this_argument
