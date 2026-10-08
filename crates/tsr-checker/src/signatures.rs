@@ -1117,17 +1117,34 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         symbol: SymbolId,
         kind: SignatureKind,
-        visiting: &mut Vec<SymbolId>,
+        visiting: &mut Vec<crate::symbol_access::SymbolRef>,
     ) -> Option<Vec<Signature>> {
         let symbol = self.binder.merged_symbol(symbol);
-        if let Some(done) = self.interface_signatures.get(&(symbol, kind)) {
+        let symbol = self.symbols.bound(symbol).expect("signature owner belongs to this Program");
+        self.signature_candidates_of_interface_symbol_ref(&symbol, kind, visiting)
+    }
+
+    /// Native 5b1047d resolveObjectTypeMembers (checker.go:19106): preserve
+    /// the actual merged owner and signature kind in the existing completed
+    /// store. A private clone's declarations are selected directly; origin is
+    /// never a cache key. Declaration/mapper signature identity is unchanged.
+    /// Incomplete base/declaration results remain unpublished.
+    fn signature_candidates_of_interface_symbol_ref(
+        &mut self,
+        symbol: &crate::symbol_access::SymbolRef,
+        kind: SignatureKind,
+        visiting: &mut Vec<crate::symbol_access::SymbolRef>,
+    ) -> Option<Vec<Signature>> {
+        let symbol =
+            self.symbols.merged_symbol(symbol).expect("signature owner belongs to this Checker");
+        if let Some(done) = self.interface_signatures.get(&(symbol.clone(), kind)) {
             return Some(done.clone());
         }
         if visiting.contains(&symbol) {
             return None;
         }
-        visiting.push(symbol);
-        let result = self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        visiting.push(symbol.clone());
+        let result = self.signature_candidates_of_interface_symbol_worker(&symbol, kind, visiting);
         visiting.pop();
         if let Some(signatures) = &result {
             self.interface_signatures.insert((symbol, kind), signatures.clone());
@@ -1137,12 +1154,16 @@ impl<'a> Checker<'a, '_> {
 
     fn signature_candidates_of_interface_symbol_worker(
         &mut self,
-        symbol: SymbolId,
+        symbol: &crate::symbol_access::SymbolRef,
         kind: SignatureKind,
-        visiting: &mut Vec<SymbolId>,
+        visiting: &mut Vec<crate::symbol_access::SymbolRef>,
     ) -> Option<Vec<Signature>> {
-        let declarations: Vec<NodeId> =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        let declarations: Vec<NodeId> = self
+            .symbols
+            .view(symbol)
+            .expect("signature owner belongs to this Checker")
+            .declarations()
+            .to_vec();
         let mut elements: Vec<NodeId> = Vec::new();
         let mut inherited: Vec<Signature> = Vec::new();
         for declaration in declarations {
@@ -8566,6 +8587,7 @@ mod tests {
                     ),
                 ] {
                     let arena = tsr_core::Arena::new();
+                    let source = format!("{source} interface Extra {{ {readable} }}");
                     let parsed = tsr_parser::parse(&arena, &source);
                     assert!(parsed.diagnostics.is_empty());
                     let bound = tsr_binder::bind(
@@ -8587,7 +8609,94 @@ mod tests {
                         Some(0),
                         "opposite signature kind remains known empty",
                     );
+                    let original = checker.symbols.bound(bound.globals()["Function"]).unwrap();
+                    let copy = checker.symbols.clone_symbol(&original).unwrap();
+                    let twin = checker.symbols.clone_symbol(&original).unwrap();
+                    let extra = bound.symbols().get(bound.globals()["Extra"]).declarations[0];
+                    checker.symbols.append_declaration(&copy, extra).unwrap();
+                    for handle in [&twin, &copy, &original, &copy, &twin] {
+                        let selected_expected = if handle == &copy {
+                            expected.map(|count| count + 1)
+                        } else {
+                            expected
+                        };
+                        assert_eq!(
+                            checker
+                                .signature_candidates_of_interface_symbol_ref(
+                                    handle,
+                                    kind,
+                                    &mut Vec::new()
+                                )
+                                .map(|set| set.len()),
+                            selected_expected,
+                            "selected private declarations and completed results stay distinct",
+                        );
+                        assert_eq!(
+                            checker
+                                .signature_candidates_of_interface_symbol_ref(
+                                    handle,
+                                    opposite,
+                                    &mut Vec::new()
+                                )
+                                .map(|set| set.len()),
+                            Some(0),
+                            "static and call/construct kinds stay separate",
+                        );
+                    }
                 }
+            }
+        }
+    }
+
+    /// Bound compatibility must retain the Program's cross-file merge before
+    /// entering the checker-local owner domain.
+    #[test]
+    fn interface_signature_bound_entry_follows_program_merge() {
+        let arena = tsr_core::Arena::new();
+        let mut nodes = tsr_ast::NodeTable::new();
+        let mut node_map = tsr_ast::NodeMap::new();
+        let mut bound = tsr_binder::BindResult::empty();
+        let mut declarations = Vec::new();
+        for (name, source) in [
+            ("first.d.ts", "interface Owner { (x: number): number; new (x: number): Owner; }"),
+            ("second.d.ts", "interface Owner { (x: string): string; new (x: string): Owner; }"),
+        ] {
+            let parsed = tsr_parser::parse_into(
+                &arena,
+                source,
+                tsr_parser::ParseOptions::default(),
+                &mut nodes,
+                &mut node_map,
+            );
+            assert!(parsed.diagnostics.is_empty());
+            let tsr_ast::Statement::InterfaceDeclaration(interface) =
+                parsed.source_file.statements[0]
+            else {
+                panic!("interface fixture");
+            };
+            declarations.push(interface.node_id.unwrap());
+            bound = tsr_binder::bind_into(
+                bound,
+                &arena,
+                parsed.source_file,
+                &nodes,
+                tsr_binder::FileInfo { name, text: source },
+            );
+        }
+        let owners: Vec<_> =
+            declarations.iter().map(|&node| bound.symbol_of(node).unwrap()).collect();
+        let merged = bound.merged_symbol(owners[1]);
+        assert_ne!(owners[1], merged, "fixture must expose a stale per-file owner");
+        let mut checker = crate::Checker::new(&bound, &nodes, &node_map);
+        for kind in [super::SignatureKind::Call, super::SignatureKind::Construct] {
+            for owner in [owners[1], merged, owners[0], owners[1]] {
+                assert_eq!(
+                    checker
+                        .signature_candidates_of_interface_symbol(owner, kind, &mut Vec::new())
+                        .map(|set| set.len()),
+                    Some(2),
+                    "every bound entry selects the complete Program merge",
+                );
             }
         }
     }

@@ -636,6 +636,117 @@ There is no main runtime change, full corpus gate or equivalent-work speed win.
 Actual expensive-worker attribution remains `tsr-1yb.11`, and the release target
 remains verified TSR/pinned-tsgo median wall ratio <=0.50.
 
+### Selected metadata and heritage consumer continuation
+
+Frozen main `27ec35b7` continues the actual owner migration under
+`tsr-1yb.7.7.2.1`. Selected flags, declarations, reference names and raw member/
+export presence now come from `CheckerSymbols` views. Generic-alias cycle keys,
+narrowing completeness, class-extends and heritage traversal retain actual
+handles. Bound declaration entry points lift explicitly; the existing heritage
+syntax resolver still supplies bound targets. Its private alias/entity dispatch
+remains unfinished under `tsr-1yb.7.7.3`. These are existing cache and traversal
+domain changes, preserving their active-alias refusal, cycle and depth policies.
+
+Native `5b1047d` `hasBaseType`/`getTargetType` (`checker.go:19551`) compares actual
+targets, not names or overlapping declarations. The reader's existing class
+member-order control now parses `Shape extends Base`, clones each actual symbol,
+and proves the private Shape follows bound Base but does not derive from the
+distinct private Base clone. The test first failed to compile for the missing
+selected heritage API; after migrating the existing base-cache worker/key and
+walks, all 209 library tests pass. This is a direct private-handle control, not a
+new native execution or full module-clone certificate.
+
+The full draft remains uncompiled: 70 type mismatches across 19 files, down from
+114 after intermediate 98/86/71-error checks. The separate parsed module-owner
+test still fails Head/raw `SymbolId(1)`. Both fmt checks pass. Strict reader
+Clippy returns to the inherited six library/five test errors after fixing two
+new lints. Borrowed declaration iteration removes the narrowing-presence walk's
+temporary vector; no measured performance benefit is claimed. Short owner
+clones end immutable borrows before mutable work, without copying whole type
+payloads. Each slice has 1,053 stable inputs and the reader binary identifies its
+source root. Canonical reconstruction from runtime plus inherited archives
+checks all 684 Rust files per slice before and after the exact three/24-file
+deltas. All 33 historical fields stay identical; the
+[archive](checker-module-clone-progress.json) adds
+`selected_metadata_heritage_continuation`, including failed checks/corrections.
+
+Selected symbol/type/value, general alias/reference factory, member/static/
+index/signature and naming dispatch are still required. Native
+`getVariancesWorker`/`createMarkerType` (`relater.go`) store variance on the actual
+symbol's links and instantiate that owner's declared type. Their source was
+read here; the actual factory must migrate before variance reuse can retain
+private owners. Full factory/this/mapper, previously-RIGHT corpus and equivalent
+complete-work median <=0.50 gates remain unverified. No canonical runtime or
+speed win follows from this checkpoint.
+
+### Interface signature owner integration
+
+The production continuation at frozen main `f1ba6b6b` changes the existing
+`interface_signatures` key and visiting stack to `(SymbolRef, SignatureKind)`
+and `SymbolRef`, respectively. The selected worker reads the actual merged
+owner's declarations through `CheckerSymbols::view`. The bound entry preserves
+`binder.merged_symbol` before lifting the handle, an explicit Program boundary
+for current named-type and heritage callers;
+there is no private-to-origin conversion and no second result store.
+This is a prerequisite under `tsr-1yb.7.7.2.1`, not completion of its private
+type/factory and natural import-owner migration.
+
+The native pin is `5b1047d`. `resolveDeclaredMembers`
+(`internal/checker/checker.go:19612`) obtains declared call/construct signatures
+from the selected owner's `__call`/`__new` member symbols.
+`getSignaturesOfStructuredType` (18963) and `resolveObjectTypeMembers` (19106)
+read and publish the structured type's fields. TSR retains its existing
+declaration walk and completed-result policy here: `Some`, including empty,
+publishes; an unreadable declaration, failed base or active cycle returns
+`None` and does not publish. Declaration/mapper signature identity and
+per-base instantiation before receiver substitution are unchanged. Actual
+native member-table construction and provisional/reset publication remain
+under `tsr-1yb.33.1`; broader construction/reuse remains under
+`tsr-1yb.4.2.1`. This key migration does not certify those protocols.
+
+Fresh native controls make that distinction observable. Appending a second
+interface declaration to one private owner, without updating its member slot,
+returns counts `[1,1,1,1,1]`, contradicting the initial setup expectation.
+The corrected direct record control also constructs that owner's private
+`__call`/`__new` slot before its first read. It returns `[1,2,1,2,1]` for twin,
+copy, original, copy, twin in all four call/construct and cold/checked-first
+combinations. Distinct declared types, repeat identity, declaration signature
+identity, opposite-kind emptiness and an unredirected original all hold.
+Both runs are byte identical; all 55,105 native inputs stay stable. This is
+a fully formed private-record control, not a natural module-clone producer.
+The failed compile/setup attempts are preserved rather than counted as passes.
+
+The strengthened existing Rust unreadable-interface control varies strict
+null checking, call/construct kind, inherited and unreadable declarations,
+and two independent private clones. A compiling origin-substitution mutant
+fails `Some(0)` versus `Some(1)`, so the control detects selecting the source
+instead of the actual owner. Local review also exposed a dropped Program
+merge redirect in the initial wrapper: a compiled two-file interface fixture
+returned `Some(1)` instead of `Some(2)`. Restoring that redirect at the bound
+boundary passes the same test for call and construct kinds through stale and
+merged entry points. The final production package passes 1,556 tests and
+the workspace passes 3,241, with three and 19 existing ignores. Current
+unfiltered expected-driven outputs are byte identical to frozen `f1ba6b6b`:
+552,533 type rows and 12,238 diagnostic cases, with zero previously RIGHT
+losses. These outputs are a preservation gate, not fresh full-native parity.
+An initial present-but-empty `TSR_FILTER` excluded all diagnostic cases; those
+zero-case attempts are invalid and retained. Qualified diagnostic runs unset
+the variable. Formatting passes. Strict workspace Clippy reproduces seven
+inherited errors on both baseline and final candidate: five checker errors
+(in both library and test builds) and two `tsr-dts` accessibility-test errors.
+There are no new lint errors in the owned paths. The earlier five-error
+workspace result did not reach those two test errors; it remains historical.
+
+The wider private reader passes 209 library tests; the complete owner draft
+still fails compilation with 69 `E0308` errors, down from 70. Its full
+factory/mapper and natural alias controls remain unexecuted. No performance,
+allocation, worker reduction or coverage improvement is claimed. The
+equivalent complete-work median TSR/native <=0.50 requirement remains open.
+[Evidence](checker-interface-signature-owner.json) records exact production
+inputs/binaries, native control source, failed controls, private two-file delta
+replays and all remaining compiler diagnostics; the preceding historical
+module-clone archive remains unchanged.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
