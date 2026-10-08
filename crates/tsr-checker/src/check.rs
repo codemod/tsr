@@ -8586,7 +8586,9 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        // `grammarErrorOnNode` → `c.error(node)`: the declaration's error
+        // span, which is its name.
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::with_args(

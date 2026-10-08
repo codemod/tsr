@@ -484,3 +484,6 @@ per-file flag must become per-node.
   `grammar.rs`, which now returns whether it reported), so the span is the
   statement's first token; the once-per-block flag records the report
   result, as `hasReportedStatementInAmbientContext` does.
+- `const` without initializer (`checkGrammarVariableDeclaration`): TS1155 is
+  `grammarErrorOnNode(node)`, i.e. the declaration's error span (its name),
+  not the whole declaration.
