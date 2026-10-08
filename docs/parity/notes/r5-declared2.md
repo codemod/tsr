@@ -125,3 +125,118 @@ commit): generic-imports 342,890,644 → 342,886,851 (−0.001%); domain-model
 nothing in `declared.rs` (its pre-existing findings are in
 `enum_initializer.rs`, `index_signatures.rs`, `signatures.rs`,
 `templates.rs` and `tsr-dts` tests).
+
+## 2. `tsr-2zk.1042` — when a tuple alias keeps its name
+
+### 2.1 The native rule
+
+getTypeFromArrayOrTupleTypeNode (`:24115`) has two outcomes for a tuple
+written as an alias's body:
+
+- **no variadic element** (`:24121`, isDeferredTypeReferenceNode answers true
+  because getAliasSymbolForTypeNode finds the alias): a *deferred* type
+  reference, and createDeferredTypeReference (`:25121`) attaches
+  getAliasForTypeNode's alias. It prints the alias name (`T06`, `T04`, `Foo<T, U>`);
+- **a variadic element**: createNormalizedTupleTypeEx, which takes no alias.
+  It prints the structure.
+
+An element is variadic when getTupleElementFlags (`:24709`) says so: a rest
+(or a `...`-labelled member) whose operand has no array element type node
+(getArrayElementTypeNode, `:24185`: an array type node, parentheses, or a
+one-element tuple over such a rest). `...string[]` and `...[...string[]]` are
+Rest; `...T`, `...Array<string>`, `...Numbers`, `...[a: string]`, `...any`,
+`...number` and `...(T extends 0 ? [c] : [])` are Variadic.
+
+The port approximated this split twice. §956/§959 (non-generic aliases)
+named a rest-bearing body unless "a rest's operand is a written reference" or
+"normalization produced an element list"; §957 (generic aliases) printed the
+structure for *any* rest. Both are replaced by `is_variadic_tuple_element`,
+which is getTupleElementFlags' test. The old proxies agreed on most of the
+corpus; they disagreed on `[item: any, ...any]` and `[any, ...remainder:
+any]` (`namedTupleMembersErrors`, named before, structural natively) and on
+`[...any]` (`variadicTuples1` `AnyArr`).
+
+This parser builds a labelled rest as `RestTypeNode(NamedTupleMember(T))`
+rather than native's `NamedTupleMember` with a `...` token (§956's note), so
+`rest_element_operand` unwraps that nesting before getArrayElementTypeNode's
+test.
+
+### 2.2 Instantiation follows the same split
+
+- **References to a variadic alias** (the existing §40 road in
+  `create_type_reference_with_display`) are now gated on a variadic element
+  rather than on any rest, so a non-variadic generic rest tuple
+  (`type U<T> = [T, ...T[]]`) keeps its alias on reference (`U<0>`), as a
+  deferred reference instantiates with its alias (getObjectTypeInstantiation).
+  No corpus line moved either way; the gate is the native one.
+- **A rest over a deferred conditional** (`...(T extends 0 ? [fourth: "c"] :
+  [])`, `partiallyNamedTuples` `AddMixedConditional`). instantiateType maps
+  the conditional and normalizes around its result. The print-only
+  conditional mint cannot be instantiated by `instantiate_type`, so when that
+  answers `error` the road evaluates the alias body under the alias's
+  arguments (§92's `evaluate_alias_body`, the port's existing frame-bound
+  instantiation) and takes the normalized tuple or array it builds.
+- **An alias declared as a reference to a normalized-tuple alias**
+  (`type V30<A> = Tup3<A, string[], number[]>` over `type Tup3<…> = [...T, ...U,
+  ...V]`, `variadicTuples2` V30–V52). getTypeFromTypeAliasReference
+  instantiates Tup3's declared type with V30's alias, and
+  getObjectTypeInstantiation re-creates a non-deferred reference through
+  createNormalizedTypeReference, dropping the alias. So V30 declares the
+  structure, and so does every reference to V30.
+  `alias_declares_normalized_tuple` follows a chain of such references
+  (bounded at 8) to a variadic tuple body.
+
+### 2.3 Variadic primitives are rests of `errorType`
+
+TupleNormalizer.normalize (`:23374`): a variadic operand that is not any,
+not generic, not a tuple and not array-like becomes a rest of `errorType`.
+`[...string]` records `any[]` (`restTupleElements1` T08) and
+`[first: string, ...rest: number]` records `[first: string, ...rest: any[]]`.
+The old comment (§959) called this "inventing that error's recovery"; it is
+native's own branch. The operand becomes ADR-0048's `native_error` (upstream's
+`errorType` identity), which `normalize_variadic_tuple` already treats as an
+any-flagged variadic. Only primitive operands are decided here, since they
+are never array-like; an object operand keeps the old spelling until the
+port answers isArrayLikeType for it.
+
+### 2.4 `keyof` of a tuple carries its origin
+
+getLiteralTypeFromProperties (`:26723`) attaches `keyof T` as the key union's
+origin when the operand is a Reference, and a tuple is one. The tuple arm of
+`resolved_keyof_type_worker` returned the bare union, so
+`ToAnonymousTuple<[boolean, number]>`'s template printed the expanded keys
+(`partiallyNamedTuples` 16–22). It now attaches the origin, as the property
+arm already did.
+
+### 2.5 Not converted
+
+- `singletonLabeledTuple:0:17` (`AliasRest extends [unknown]` with
+  `type AliasRest = [...p: number[]]`). The alias is a name over an array
+  normalization; the conditional sees a member-less name and defers. Native
+  relates the deferred reference's target. Needs the named copy to carry the
+  array's identity; not attempted.
+- `namedTupleMembersErrors` 8 (`[first: string, rest: ...string[]?]`, a
+  JSDoc-style postfix `...`), 11/12 (self-referential variadic rests, which
+  native reports as circular and declares `any`). The parser and
+  `circular_alias.rs` own those.
+- `restTupleElements1` 9/76/79/91 and `variadicTuples2` 200+ are inference
+  and indexed-access lines, not alias naming.
+
+### 2.6 Measured
+
+Unfiltered, against §1's commit (whose dumps are this item's base; both are
+zero-loss against the frozen base `9efedcf`):
+
+| | before | after |
+|---|---|---|
+| diagnostics RIGHT + EMPTY_RIGHT | 10960 | 10960 |
+| type lines RIGHT | 544715 | 544738 (+23) |
+| losses (diag / types) | | 0 / 0 |
+
+Gains: `variadicTuples2` 9 (V30–V52), `partiallyNamedTuples` 9 (16–18,
+20–22, 26–28), `namedTupleMembersErrors` 3 (2, 3, 10), `restTupleElements1` 1
+(8), `variadicTuples1` 1 (`AnyArr`). Ir vs the base binary: generic-imports
+342,895,768 → 342,868,204 (−0.008%); domain-model 1,194,512,792 →
+1,194,001,918 (−0.04%). Median child CPU, 21 samples: generic-imports 0.982,
+domain-model 1.027; `diagnostics_match: true`. Tests pass; no clippy finding
+in touched code. Unit tests: `crates/tsr-checker/tests/r5_declared2.rs`.

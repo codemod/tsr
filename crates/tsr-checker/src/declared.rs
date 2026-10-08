@@ -3606,62 +3606,18 @@ impl<'a> Checker<'a, '_> {
             if structural == error {
                 return error;
             }
-            // §956: a rest-bearing body is named ONLY when it stayed a PRINT-ONLY
-            // variadic. §40's 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`
-            // reproduce exactly when this is left out, which is what established
-            // the distinction: a rest over a CONCRETE tuple SPLICES into a real
-            // element list, and that list is what access, instantiation and the
-            // relater consume — putting a bare name over it loses them. A body
-            // that stayed a spelling has no such consumers, so the name is free.
-            //
-            // `variadic_tuple_nodes` is the print-only mint's own registration
-            // (§791), so the test is "did the body remain a spelling" rather than
-            // a syntactic re-derivation of the same question.
-            // A rest whose operand is written as a NAMED REFERENCE also loses the
-            // alias, and that was derived from the oracle rather than guessed —
-            // 42 non-generic rest-bearing tuple aliases across the corpus
-            // baselines split cleanly:
-            //
-            // ```
-            // type T06 = [string, ...string[]]          >T06 : T06                    NAME
-            // type NonEmptyStringArray =
-            //            [string, ...Array<string>]     >… : [string, ...string[]]     STRUCT
-            // type Unbounded = [...Numbers, boolean]    >… : [...number[], boolean]    STRUCT
-            // type T04 = [...[...string[]]]             >T04 : T04                    NAME
-            // ```
-            //
-            // The axis is whether NORMALISATION REWROTE anything. `...string[]` is
-            // already normal, so the tuple upstream creates carries the alias;
-            // `...Array<string>` and `...Numbers` normalise to `...string[]` and
-            // `...number[]`, which creates a DIFFERENT tuple and the alias is not
-            // on it. A rest over a tuple LITERAL that splices is the same story and
-            // the `variadic_tuple_nodes` test above already catches it
-            // (`MixedSpread`), while `[...[...string[]]]` splices to itself and
-            // keeps the name.
-            let rest_over_a_reference = node.elements.iter().any(|element| {
-                let TypeNode::RestTypeNode(rest) = element else { return false };
-                match rest.r#type {
-                    Some(TypeNode::TypeReferenceNode(_)) => true,
-                    Some(TypeNode::NamedTupleMember(member)) => {
-                        matches!(member.r#type, Some(TypeNode::TypeReferenceNode(_)))
-                    }
-                    _ => false,
-                }
-            });
-            // §959 corrects §956's proxy here. It read
-            // `!variadic_tuple_nodes.contains_key(&structural)` — "the body did not
-            // stay a print-only spelling" — which was right while a rest-bearing body
-            // had only TWO outcomes, a spelling or a spliced tuple. The reduction
-            // above adds a THIRD, an ARRAY, and the old test sent
-            // `type T03 = [...string[]]` and `type V15 = [...string[], ...number[]]`
-            // to the structure where upstream names both.
-            //
-            // The question was always *"did normalisation produce a positional TUPLE
-            // this name would hide"*, so ask that directly: a spliced tuple registers
-            // in `tuple_element_lists` and neither a spelling nor an array does.
-            if node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
-                && (self.tuple_element_lists.contains_key(&structural) || rest_over_a_reference)
-            {
+            // getTypeFromArrayOrTupleTypeNode (checker.go:24121): a tuple
+            // with a VARIADIC element is built by createNormalizedTupleType,
+            // which takes no alias, so the alias prints its structure
+            // (`type List = [item: any, ...any]` records
+            // `>List : [item: any, ...any[]]`, `namedTupleMembersErrors`). Any
+            // other alias body is a deferred reference carrying the alias
+            // (`type T06 = [string, ...string[]]` records `>T06 : T06`;
+            // `type T04 = [...[...string[]]]` records `>T04 : T04`).
+            // This replaces §956/§959's proxies ("a rest over a reference", "a
+            // spliced element list"), which approximated getTupleElementFlags'
+            // Rest/Variadic split (`docs/parity/notes/r5-declared2.md` §2).
+            if node.elements.iter().any(|&element| Self::is_variadic_tuple_element(element)) {
                 return structural;
             }
             let name = self.binder.symbols().get(alias).name.to_string();
@@ -3681,6 +3637,100 @@ impl<'a> Checker<'a, '_> {
             return named;
         }
         self.tuple_type_node_structural(node)
+    }
+
+    /// getArrayElementTypeNode (checker.go:24185): the element type node of
+    /// an array type node, of a parenthesized one, or of a one-element tuple
+    /// whose only element is a rest over one. A labelled rest is
+    /// `RestTypeNode(NamedTupleMember(..))` in this parser (native's
+    /// `NamedTupleMember` with a `...` token), so the member is unwrapped.
+    fn array_element_type_node(node: TypeNode<'a>) -> Option<TypeNode<'a>> {
+        match node {
+            TypeNode::ParenthesizedTypeNode(parenthesized) => {
+                Self::array_element_type_node(parenthesized.r#type?)
+            }
+            TypeNode::TupleTypeNode(tuple) => match tuple.elements {
+                [TypeNode::RestTypeNode(rest)] => {
+                    Self::array_element_type_node(Self::rest_element_operand(rest)?)
+                }
+                [TypeNode::NamedTupleMember(member)] if member.dot_dot_dot_token.is_some() => {
+                    Self::array_element_type_node(member.r#type?)
+                }
+                _ => None,
+            },
+            TypeNode::ArrayTypeNode(array) => array.element_type,
+            _ => None,
+        }
+    }
+
+    /// The operand of a rest element, through this parser's labelled-rest
+    /// nesting (`...name: T` is `RestTypeNode(NamedTupleMember(T))`).
+    fn rest_element_operand(rest: &tsr_ast::RestTypeNode<'a>) -> Option<TypeNode<'a>> {
+        match rest.r#type? {
+            TypeNode::NamedTupleMember(member) => member.r#type,
+            operand => Some(operand),
+        }
+    }
+
+    /// getTupleElementFlags' VARIADIC arm (checker.go:24709): a rest element
+    /// whose operand has no array element type node (`...T`, `...Array<X>`,
+    /// `...[a: string]`, `...any`). getTypeFromArrayOrTupleTypeNode
+    /// (checker.go:24121) builds a tuple with such an element through
+    /// createNormalizedTupleType, which takes no alias; every other tuple
+    /// written as an alias's body is a deferred reference carrying the alias.
+    fn is_variadic_tuple_element(element: TypeNode<'a>) -> bool {
+        let operand = match element {
+            TypeNode::RestTypeNode(rest) => Self::rest_element_operand(rest),
+            TypeNode::NamedTupleMember(member) if member.dot_dot_dot_token.is_some() => {
+                member.r#type
+            }
+            _ => return false,
+        };
+        operand.is_some_and(|operand| Self::array_element_type_node(operand).is_none())
+    }
+
+    /// The generic type alias a written reference with type arguments names,
+    /// if any.
+    fn alias_reference_target(
+        &self,
+        reference: &tsr_ast::TypeReferenceNode<'a>,
+    ) -> Option<SymbolId> {
+        if reference.type_arguments.is_empty() {
+            return None;
+        }
+        let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        let target = self.binder.merged_symbol(target);
+        (self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && !self.local_type_parameters_of(target).is_empty())
+        .then_some(target)
+    }
+
+    /// Whether a generic alias's declared type is a tuple built by
+    /// createNormalizedTupleType (a body with a variadic element,
+    /// checker.go:24121), directly or through a chain of alias references
+    /// that each re-create it (getObjectTypeInstantiation's non-deferred
+    /// reference arm). Such a type carries no alias, so neither does any
+    /// alias declared as a reference to it. Bounded by `depth`.
+    fn alias_declares_normalized_tuple(&self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        let Some(mut body) = self.type_alias_body(symbol) else { return false };
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            let Some(inner) = parenthesized.r#type else { return false };
+            body = inner;
+        }
+        match body {
+            TypeNode::TupleTypeNode(tuple) => {
+                tuple.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                self.alias_reference_target(reference).is_some_and(|target| {
+                    target != symbol && self.alias_declares_normalized_tuple(target, depth + 1)
+                })
+            }
+            _ => false,
+        }
     }
 
     /// The structural mint behind [`Checker::get_type_from_tuple_type_node`].
@@ -3767,6 +3817,23 @@ impl<'a> Checker<'a, '_> {
                 } else {
                     resolved
                 };
+                // TupleNormalizer.normalize (checker.go:23374): a variadic
+                // operand that is neither any, generic, a tuple nor array-like
+                // becomes a rest of `errorType` (`[...string]` records
+                // `any[]`, `[first: string, ...rest: number]` records
+                // `[first: string, ...rest: any[]]`). Only primitive operands
+                // are decided here: they are never array-like.
+                let operand_flags = self.store.get(resolved).flags;
+                let resolved = if spread
+                    && Self::is_variadic_tuple_element(*element)
+                    && operand_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+                    && !operand_flags
+                        .intersects(TypeFlags::UNION | TypeFlags::INSTANTIABLE | TypeFlags::ANY)
+                {
+                    self.intrinsics.native_error
+                } else {
+                    resolved
+                };
                 resolved_elements.push(crate::tuples::TupleElement {
                     r#type: resolved,
                     spread,
@@ -3839,7 +3906,8 @@ impl<'a> Checker<'a, '_> {
                 element.spread
                     && (self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
                         || self.variadic_tuple_elements.contains_key(&element.r#type)
-                        || element.r#type == self.intrinsics.any)
+                        || element.r#type == self.intrinsics.any
+                        || element.r#type == self.intrinsics.native_error)
             }) {
                 // Native createNormalizedTupleTypeEx distributes variadic union
                 // operands before positional normalization. Reuse the existing
@@ -3900,11 +3968,14 @@ impl<'a> Checker<'a, '_> {
             // The ALIAS road is untouched, which is §956's rule doing its work:
             // `type T03 = [...string[]]` still prints `T03` because nothing was
             // rewritten, while `V16 = [...string[], ...Array<number>]` prints the
-            // structure — the two differ only in §956's reference test.
+            // structure — the two differ in getTupleElementFlags' Rest/Variadic
+            // split (`is_variadic_tuple_element`).
             //
-            // A rest over something that is NOT an array-like keeps the decline:
-            // `[...string]` is upstream's `any[]` by way of an ERROR, and answering
-            // it here would be inventing that error's recovery.
+            // A rest over a PRIMITIVE never reaches here: it is TupleNormalizer's
+            // errorType rest (above). Any other non-array-like operand keeps the
+            // decline until the port answers isArrayLikeType for it
+            // (`docs/parity/notes/r5-declared2.md` §2.3 corrects §959's
+            // reading of `[...string]`).
             if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
                 let mut element_types = Vec::with_capacity(node.elements.len());
                 let mut every_operand_is_an_array = true;
@@ -5048,7 +5119,7 @@ impl<'a> Checker<'a, '_> {
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
             && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(Self::skip_type_parentheses)
-            && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            && body_tuple.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
             && self.variadic_alias_in_progress.insert(symbol)
         {
             let body = self.get_type_from_type_node(body_node);
@@ -5076,9 +5147,49 @@ impl<'a> Checker<'a, '_> {
                         self.variadic_alias_in_progress.remove(&symbol);
                         return resolved;
                     }
+                    // instantiateType over a rest whose operand is a deferred
+                    // conditional (`...(T extends 0 ? [c: "c"] : [])`): the
+                    // conditional is instantiated with the mapper and the
+                    // tuple normalized around its result. The print-only
+                    // conditional mint cannot be instantiated here, so the
+                    // body is evaluated under the alias's bindings instead
+                    // (§92's frame-bound evaluation of the same mapper), and
+                    // the normalized tuple or array it builds is the answer.
+                    if let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
+                        && (self.tuple_element_lists.contains_key(&evaluated)
+                            || self.variadic_tuple_elements.contains_key(&evaluated)
+                            || self.tuple_spread_array_element(evaluated).is_some())
+                    {
+                        self.variadic_alias_in_progress.remove(&symbol);
+                        return evaluated;
+                    }
                 }
             }
             self.variadic_alias_in_progress.remove(&symbol);
+        }
+        // An alias declared as a reference to a normalized-tuple alias
+        // (`type V30<A> = Tup3<A, string[], number[]>`) declares that
+        // alias's instantiation, which carries no alias
+        // (getObjectTypeInstantiation re-creates a non-deferred reference
+        // through createNormalizedTypeReference); its own instantiation is
+        // the same evaluation under its arguments.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::TypeReferenceNode(_))
+            )
+            && self.alias_declares_normalized_tuple(symbol, 0)
+            && self.variadic_alias_in_progress.insert(symbol)
+        {
+            let evaluated = self.evaluate_alias_body(symbol, &arguments);
+            self.variadic_alias_in_progress.remove(&symbol);
+            if let Some(evaluated) = evaluated
+                && (self.tuple_element_lists.contains_key(&evaluated)
+                    || self.variadic_tuple_elements.contains_key(&evaluated)
+                    || self.tuple_spread_array_element(evaluated).is_some())
+            {
+                return evaluated;
+            }
         }
         // §952: a generic alias whose body is a HOMOMORPHIC IDENTITY mapped
         // type — `{ [P in keyof T]: T[P] }`, with any combination of the `?` and
@@ -7305,11 +7416,34 @@ impl<'a> Checker<'a, '_> {
             if let Some(declaration) = self.type_alias_declaration_of(symbol)
                 && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
                 && let Some(TypeNode::TupleTypeNode(body)) = alias.r#type
-                && body.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+                && body.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
             {
                 let structural = self.get_type_from_type_node(TypeNode::TupleTypeNode(body));
                 if structural != error {
                     return structural;
+                }
+            }
+            // getTypeFromTypeAliasReference over such an alias
+            // (instantiateTypeWithAlias → getObjectTypeInstantiation): a
+            // non-deferred tuple reference is re-created by
+            // createNormalizedTypeReference, and the new alias is dropped
+            // with it. `type V30<A extends unknown[]> = Tup3<A, string[],
+            // number[]>` over `type Tup3<…> = [...T, ...U, ...V]` records
+            // `>V30 : [...A, ...(string | number)[]]` (`variadicTuples2`).
+            if let Some(TypeNode::TypeReferenceNode(reference)) = self.type_alias_body(symbol)
+                && let Some(target) = self.alias_reference_target(reference)
+                && target != symbol
+                && self.alias_declares_normalized_tuple(target, 0)
+            {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(TypeNode::TypeReferenceNode(reference));
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+                if resolved != error {
+                    return resolved;
                 }
             }
             // getDeclaredTypeOfTypeAlias (checker.go:23837) declares the body
@@ -9249,7 +9383,12 @@ impl<'a> Checker<'a, '_> {
                     false,
                 )
             }));
-            return Some(self.get_union_type(&keys));
+            // getLiteralTypeFromProperties (checker.go:26723): a tuple is a
+            // Reference, so the key union carries `keyof [A, B]` as its
+            // origin (`partiallyNamedTuples`).
+            let union = self.get_union_type(&keys);
+            let text = format!("keyof {}", self.type_to_string(target));
+            return Some(self.union_with_origin_text(union, text));
         }
         if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
             return Some(self.intrinsics.never);
