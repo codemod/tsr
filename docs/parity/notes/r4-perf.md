@@ -138,3 +138,155 @@ this code; its row is the noise floor.
 a type literal or interface declared inside a function or alias prints
 different signatures depending on whether it was first requested inside an
 alias evaluation. The ancestor test is the piece to suspect first.
+
+## §3 C9 — heritage entity symbols and instantiated bases
+
+**Forcing measurement.** After C7, `instantiated_heritage_base` was 2.43% and
+`heritage_entity_symbol` 1.32% of inclusive Ir on the 100-module project, now
+reached mostly from `generic_heritage_member` (29,913 calls of each per
+member lookup through a generic base) rather than from the signature walk.
+
+### `PerfLinks::heritage_entity_symbols`
+
+**Native operation.** `resolveEntityName` (`checker.go:15772`) on a heritage
+clause's expression, whose answer native keeps in the name's
+`links.resolvedSymbol` (read again by `getTypeFromClassOrInterfaceReference`
+and `resolveBaseTypesOfInterface`/`resolveBaseTypesOfClass` through
+`getBaseTypes`, `:19167`). Consumers: `base_symbol_of_heritage_entry`
+(members), base-type and heritage-conformance walks, `symbols.rs`' qualified
+receiver.
+
+**Identity and owner.** Key: the heritage expression's `NodeId` and the
+requested `SymbolFlags` meaning (`TYPE` for the entry, `NAMESPACE` for each
+qualifier). Value: the merged, alias-resolved `SymbolId`. Private `Checker`,
+Program lifetime.
+
+**Publication.** Only `Some`. The resolution is binder scope lookup plus
+`resolve_alias`, whose own table (`alias_targets`) is final once `Resolved`;
+an alias still `Resolving` answers `None` here (its chain stops at the alias
+symbol, which carries no `TYPE`/`NAMESPACE` meaning), so a `Some` was computed
+through finished aliases only and is final. `None` (unresolvable name, a
+circular alias, the wrong meaning) is recomputed every time, as before.
+No mapper, receiver or alias-evaluation context is read: binder lookups are
+syntax-directed.
+
+**Work boundary.** `BindResult::resolve_name` and the alias chain;
+42,734 requests, 42,530 hits after C7.
+
+### `PerfLinks::heritage_bases`
+
+**Native operation.** `getTypeFromClassOrInterfaceReference` with
+`fillMissingTypeArguments` for one heritage entry, computed once into the
+derived type's `resolvedBaseTypes` by `resolveBaseTypesOfInterface`
+(`:19498`) / `resolveBaseTypesOfClass`. Consumers: `generic_heritage_member`,
+C7's signature walk, index-signature and base-type walks, heritage
+conformance, the JSX component class lookup.
+
+**Identity and owner.** Key: base `SymbolId`, the location `NodeId` (it
+decides the JavaScript default rule), and the written argument slice named by
+its first node and its length (one contiguous node list, so these identify
+it). A slice whose first node has no id is never memoised. Value: the
+reference `TypeId`. Private `Checker`, Program lifetime.
+
+**Publication.** Same gates as C7: admitted by `memo_frames` over the base's
+declarations plus the first argument (or the location), so an
+alias-evaluation frame whose parameter scope encloses the reference keeps the
+old frame-sensitive computation; mapped-template and print frames are never
+admitted; the computation runs with the admitted frames taken; publication
+needs no active resolution or flow loop and a non-error result. `None` (arity
+mismatch, an argument that resolved to error) is recomputed.
+
+**Work boundary.** Argument type resolution, default instantiation and
+`create_type_reference`; 32,518 requests, 32,043 hits, 203 published
+computations after C7.
+
+### `memo_frames` cost
+
+The admission test is not free. On the first C9 build, `memo_frames` was
+0.92% self Ir plus 0.89% for copying each symbol's declaration list into a
+`Vec` for it. The shipped form borrows the declarations from the binder (a
+`&'a` reference, so no clone is needed while `self` is mutably borrowed) and
+reuses one scratch buffer for the scope owners; the remaining 0.92% self is
+the ancestor walk itself, run for the about two thirds of requests made under an
+alias-evaluation frame. A cheaper containment test (a pre-order node-range
+check) would remove most of it; it needs a node-range table this port does not
+have, so it is not built.
+
+**Measured** (§1 method, output identical to base on every row):
+
+| | Ir | Δ vs previous | Δ vs `c02dbbd` |
+|---|---:|---:|---:|
+| C7 (`65847cb`) | 3,664,043,246 | — | −9.56% |
+| + C9 heritage tables, cloning admission | 3,588,368,878 | −2.07% | −11.43% |
+| + borrowed declarations, scratch buffer (shipped) | 3,530,032,122 | −1.63% | **−12.87%** |
+
+
+**Corpus.** Both unfiltered dumps `cmp`-identical to the `c02dbbd` baseline;
+both §5 loss checks empty. Tests: the same two pre-existing failures as §2,
+none new.
+
+**Wall and CPU** (default scheduling, 21 samples, medians; `self` is C9
+against the C7 binary `65847cb`):
+
+| Project | self wall | self CPU | vs tsgo wall | vs tsgo CPU |
+|---|---:|---:|---:|---:|
+| generic-imports | 0.997 | 0.985 | 84.9 / 79.0 ms (1.076) | 0.569 |
+| domain-model | 1.002 | 1.004 | 177.9 / 229.0 ms (0.777) | 0.522 |
+| domain-model-large | 1.021 | 1.002 | 716.6 / 839.6 ms (**0.854**) | 0.571 |
+
+Default-mode self ratios are inside this box's noise (§1 of `perf-r3.md`:
+A/A up to ±2.6% wall). `--singleThreaded` domain-model-large, where the
+checker is the whole run: against C7, 15 samples, wall 0.982, CPU 0.990;
+against `c02dbbd`, 11 samples, 1,549.8 vs 1,690.7 ms (**0.917**), CPU 0.917.
+
+**How we would know it is wrong.** A §5 loss; or a heritage reference inside
+a generic function whose base type differs between a first request inside an
+alias evaluation and one outside it (the admission test is the suspect).
+
+## §4 C8 — `couldContainTypeVariables` in front of `mentions_type_parameter`: refused this round
+
+**Measured ceiling.** After C7+C9, every `mentions_type_parameter` walk
+together is 1.66% of inclusive Ir (`mentions_type_parameter_inner` via
+`mentions_type_parameter`), plus 0.23% for `access_member_lookup`'s this-type
+walk (round 3's C5 already cut the latter from 11.1%). A perfect negative
+filter cannot save more than ~1.9%.
+
+**Why it is not a cheap exact filter here.** Native's
+`couldContainTypeVariables` (`checker.go:22184`) is *shallow*: it reads the
+type's flags, a reference's node and type arguments, an anonymous type's
+symbol flags and a union's members, and caches the bit in `objectFlags` on
+the type itself, whose identity and shape are fixed at creation. TSR's walk is
+*deep* (signature parameters, property types, mapped and deferred side
+tables), and two of its inputs are not final when first read:
+`TypeStore::complete_object` rewrites a reserved id's data in place, and
+`peek_property_type`/`peek_parameter_type` skip edges whose types are not yet
+published. A cached "cannot contain" for such a type could later become wrong.
+The walk also falls back to printing the type and testing names when `names`
+is non-empty, so a "reaches no type parameter" bit alone is not exact for
+those callers. Making it exact needs either an "edges final" bit on types, or
+a two-bit answer (reaches a type parameter / reaches a print fallback) that is
+only cached for types built complete. That is more machinery than a 1.9%
+ceiling pays for while larger items remain (§5).
+
+**What would change this:** `mentions_type_parameter` growing back above
+~5% of Ir, or a type-store change that marks types whose edges are final.
+
+## §5 Attribution after C7+C9 (inclusive Ir, 100-module project)
+
+| TSR function (native operation) | Share | Note |
+|---|---:|---|
+| `evaluate_conditional_alias` | 15.5% | conditional alias bodies re-evaluated per reference |
+| `get_type_of_symbol` | 11.0% | — |
+| `get_property_names_of_type` / `collect_structured_property_names` | 10.8% / 9.9% | property-name lists rebuilt per query; native keeps resolved members |
+| `check_type_alias_circularity` | 9.2% | — |
+| `get_signature_from_declaration` (`getSignatureFromDeclaration`, `links.resolvedSignature`) | 8.7% | uncached |
+| `instantiate_for_reference_with_this` (round 3's C3, not landed) | 7.5% | — |
+| `compare_symbols` + the `(String, SymbolId)` sort | 4.3% + ~4% | main's `c71b2e3` already caches the sort key |
+| `signature_candidates_of_named_type` | 2.4% | receiver mapper over the C7 list per query; native caches resolved members per instantiated reference |
+| malloc/free | ~25% self | allocation count |
+
+None of these is in this lane's owned functions. The next memo in the same
+shape is `signature_candidates_of_named_type` per `(receiver TypeId, kind)`
+under the C7 gates, then `get_signature_from_declaration` per declaration
+(native `links.resolvedSignature`), which needs the lazy-return publication
+states in `signatures.rs` respected.

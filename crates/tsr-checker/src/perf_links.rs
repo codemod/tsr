@@ -10,6 +10,7 @@ use tsr_binder::SymbolId;
 
 use crate::checker::Checker;
 use crate::signatures::{Signature, SignatureKind};
+use crate::types::TypeId;
 
 /// Memo tables owned by one [`Checker`]. Nothing here is shared between
 /// checkers: every key and value names ids of the owning checker's stores.
@@ -22,7 +23,27 @@ pub(crate) struct PerfLinks {
     /// on the symbol's declared type, read through `getSignaturesOfType`.
     /// Holds only decided answers (`r4-perf.md` §2).
     pub(crate) interface_signatures: [FxHashMap<SymbolId, Vec<Signature>>; 3],
+    /// A heritage entity name's resolved symbol, keyed by the name's
+    /// expression node and the requested meaning: native `resolveEntityName`
+    /// publishing `links.resolvedSymbol` on the heritage expression. Holds
+    /// only `Some` answers (`r4-perf.md` §3).
+    pub(crate) heritage_entity_symbols: FxHashMap<(NodeId, u32), SymbolId>,
+    /// A heritage reference's instantiated base type, keyed by the base
+    /// symbol, the reference location and the written argument slice (its
+    /// first node and length): native `getTypeFromClassOrInterfaceReference`
+    /// under `resolveBaseTypesOfInterface`/`resolveBaseTypesOfClass`, whose
+    /// answer lands in `resolvedBaseTypes`. Holds only decided answers
+    /// (`r4-perf.md` §3).
+    pub(crate) heritage_bases: FxHashMap<HeritageBaseKey, TypeId>,
+    /// Reused buffer for [`Checker::memo_frames`]' scope owners.
+    owners_scratch: Vec<NodeId>,
 }
+
+/// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the
+/// first written type argument's node and the written argument count. A
+/// written argument list is one contiguous node list, so its first node and
+/// length name the slice.
+pub(crate) type HeritageBaseKey = (SymbolId, Option<NodeId>, Option<NodeId>, usize);
 
 pub(crate) const fn signature_kind_slot(kind: SignatureKind) -> usize {
     match kind {
@@ -68,31 +89,61 @@ impl Checker<'_, '_> {
     pub(crate) fn interface_signature_frames(
         &mut self,
         symbol: SymbolId,
-    ) -> Option<Vec<FxHashMap<SymbolId, crate::types::TypeId>>> {
+    ) -> Option<Vec<FxHashMap<SymbolId, TypeId>>> {
+        let binder = self.binder;
+        self.memo_frames(&binder.symbols().get(symbol).declarations, None)
+    }
+
+    /// Admit a memo request whose answer is computed from the syntax under
+    /// `anchors` and `extra` (and from what that syntax names lexically):
+    /// `None` when the caller's frames may change it, else the caller's
+    /// alias-evaluation frames, taken so the computation runs without them.
+    /// The caller restores them. See [`Self::interface_signature_frames`] for
+    /// the rule.
+    pub(crate) fn memo_frames(
+        &mut self,
+        anchors: &[NodeId],
+        extra: Option<NodeId>,
+    ) -> Option<Vec<FxHashMap<SymbolId, TypeId>>> {
         if self.mapped_template_depth > 0 || self.identity_unmapped_type_parameters {
             return None;
         }
         if self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty) {
             return Some(std::mem::take(&mut self.alias_evaluation_bindings));
         }
-        let mut owners: Vec<NodeId> = Vec::new();
+        let mut owners = std::mem::take(&mut self.perf_links.owners_scratch);
+        owners.clear();
+        let admitted = self.collect_bound_scope_owners(&mut owners)
+            && anchors.iter().copied().chain(extra).all(|anchor| {
+                let mut current = Some(anchor);
+                while let Some(node) = current {
+                    if owners.contains(&node) {
+                        return false;
+                    }
+                    current = self.nodes.parent(node);
+                }
+                true
+            });
+        self.perf_links.owners_scratch = owners;
+        admitted.then(|| std::mem::take(&mut self.alias_evaluation_bindings))
+    }
+
+    /// The scope owner of every parameter the open alias-evaluation frames
+    /// bind; `false` when one has no recognised owner.
+    fn collect_bound_scope_owners(&self, owners: &mut Vec<NodeId>) -> bool {
         for frame in &self.alias_evaluation_bindings {
             for &parameter in frame.keys() {
                 for &declaration in &self.binder.symbols().get(parameter).declarations {
-                    owners.push(self.type_parameter_scope_owner(declaration)?);
+                    let Some(owner) = self.type_parameter_scope_owner(declaration) else {
+                        return false;
+                    };
+                    if !owners.contains(&owner) {
+                        owners.push(owner);
+                    }
                 }
             }
         }
-        for &declaration in &self.binder.symbols().get(symbol).declarations {
-            let mut current = Some(declaration);
-            while let Some(node) = current {
-                if owners.contains(&node) {
-                    return None;
-                }
-                current = self.nodes.parent(node);
-            }
-        }
-        Some(std::mem::take(&mut self.alias_evaluation_bindings))
+        true
     }
 
     /// The node whose subtree is a type parameter declaration's scope: its
