@@ -225,19 +225,20 @@ impl<'a> Checker<'a, '_> {
         id: TypeId,
         visited: &mut Vec<TypeId>,
     ) -> bool {
+        // Only a mapped type recurses; anything else answers without
+        // recording a visit (and without allocating the visited list).
+        let Some(mapped) = self.mapped_types.get(&id) else { return false };
         if visited.contains(&id) {
             return false;
         }
         visited.push(id);
-        self.mapped_types.get(&id).is_some_and(|mapped| {
-            self.deferred_keyof_operands.get(&mapped.constraint).is_some_and(|operand| {
-                self.store
-                    .get(*operand)
-                    .flags
-                    .intersects(crate::flags::TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || (mapped.homomorphic_symbol.is_some()
-                        && self.is_generic_homomorphic_mapped_type_inner(*operand, visited))
-            })
+        self.deferred_keyof_operands.get(&mapped.constraint).is_some_and(|operand| {
+            self.store
+                .get(*operand)
+                .flags
+                .intersects(crate::flags::TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                || (mapped.homomorphic_symbol.is_some()
+                    && self.is_generic_homomorphic_mapped_type_inner(*operand, visited))
         })
     }
     /// getConstraintTypeFromMappedType/getTemplateTypeFromMappedType. Keep
