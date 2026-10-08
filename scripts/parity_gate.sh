@@ -3,16 +3,19 @@
 #
 #   scripts/parity_gate.sh freeze <dir>          build release, dump verdicts of the current tree
 #   scripts/parity_gate.sh compare <before> <after>
-#   scripts/parity_gate.sh oracle <dir> [--workers N] [--deadline S] [--filter SUBSTRING]
-#   scripts/parity_gate.sh oracle-compare <base-oracle-dir> <candidate-oracle-dir>
+#   scripts/parity_gate.sh oracle-native <native-dir> [--workers N] [--deadline S] [--filter SUBSTRING]
+#   scripts/parity_gate.sh oracle-tsr <native-dir> <report-dir> [--workers N] [--deadline S] [--filter S] [--per-process]
+#   scripts/parity_gate.sh oracle-compare <base-report-dir> <candidate-report-dir>
 #
 # `compare` fails when any previously RIGHT type assertion or RIGHT/EMPTY_RIGHT
 # diagnostic case changes verdict OR disappears from the after dump: a vanished
 # key is a loss, never a silent join drop (tsr-2zk.47.2). It measures only the
 # legacy expected-driven suites; it does not certify exact full-corpus parity.
-# `oracle` runs the exact native-vs-TSR oracle on the committed tree and
-# `oracle-compare` fails when a case exact in the base run is not exact, or is
-# absent, in the candidate run (docs/parity/notes/oracle.md).
+# `oracle-native` freezes the pinned native artifacts once; `oracle-tsr` runs the
+# committed tree's TSR against a frozen native run of the same identity, and
+# `oracle-compare` lists exact gains, losses and missing cases and fails when a
+# case exact in the base report is not exact, or is absent, in the candidate
+# (docs/parity/notes/oracle.md).
 set -euo pipefail
 
 cmd=${1:-}
@@ -67,14 +70,14 @@ compare)
     }' "$b/diag.tsv" "$a/diag.tsv" || status=1
   exit $status
   ;;
-oracle)
-  out=${2:?usage: parity_gate.sh oracle <dir> [args]}
-  shift 2
+oracle-native|oracle-tsr)
+  [ $# -ge $([ "$cmd" = oracle-native ] && echo 2 || echo 3) ] \
+    || { echo "usage: parity_gate.sh oracle-native <native-dir> | oracle-tsr <native-dir> <report-dir> [args]" >&2; exit 2; }
+  shift
   root=$(git rev-parse --show-toplevel)
-  cd "$root"
   target=${CARGO_TARGET_DIR:-$root/target}
-  cargo build -q --release -p tsr-conformance --example full_oracle_run --example full_oracle_actual
-  "$target/release/examples/full_oracle_run" run "$out" "$@"
+  (cd "$root" && cargo build -q --release -p tsr-conformance --example full_oracle_run --example full_oracle_actual)
+  "$target/release/examples/full_oracle_run" "${cmd#oracle-}" "$@"
   ;;
 oracle-compare)
   b=${2:?usage: parity_gate.sh oracle-compare <base> <candidate>}
@@ -85,7 +88,7 @@ oracle-compare)
   "$target/release/examples/full_oracle_run" gate "$b" "$a"
   ;;
 *)
-  sed -n '2,16p' "$0"
+  sed -n '2,18p' "$0"
   exit 2
   ;;
 esac

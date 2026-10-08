@@ -58,7 +58,7 @@ func TestFullOracle(t *testing.T) {
 }
 
 // runCompilerTests order: the regression (compiler) runner, then conformance; each
-// in EnumerateFiles order; configurations in GetFileBasedTestConfigurations order.
+// in EnumerateFiles order; a source's configurations sorted by name.
 func oraclePlan(t *testing.T, out *os.File) {
 	for _, runner := range []*CompilerBaselineRunner{
 		NewCompilerBaselineRunner(TestTypeRegression, true),
@@ -94,6 +94,10 @@ func oraclePlan(t *testing.T, out *os.File) {
 					}
 					rows = append(rows, fmt.Sprintf("CASE\t%s\t%s\t%s\n", id, oracleHex(c.Name), strings.Join(options, ",")))
 				}
+				// GetFileBasedTestConfigurations builds the varying options from a map
+				// range, so its order is random per process; the set is not. Sorting
+				// by configuration name makes the plan (and its SHA-256) reproducible.
+				sort.Strings(rows)
 				published = true
 			})
 			// A t.Fatal inside configuration expansion publishes no configuration:

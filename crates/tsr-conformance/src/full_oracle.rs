@@ -64,15 +64,131 @@ pub fn unhex(s: &str) -> Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
-/// SHA-256 of a file, via `sha256sum`.
+/// Lowercase hex SHA-256 (FIPS 180-4) of `data`. In-process, so binding every
+/// artifact of a run costs no process per file.
+#[must_use]
+pub fn sha256_bytes(data: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a_2f98,
+        0x7137_4491,
+        0xb5c0_fbcf,
+        0xe9b5_dba5,
+        0x3956_c25b,
+        0x59f1_11f1,
+        0x923f_82a4,
+        0xab1c_5ed5,
+        0xd807_aa98,
+        0x1283_5b01,
+        0x2431_85be,
+        0x550c_7dc3,
+        0x72be_5d74,
+        0x80de_b1fe,
+        0x9bdc_06a7,
+        0xc19b_f174,
+        0xe49b_69c1,
+        0xefbe_4786,
+        0x0fc1_9dc6,
+        0x240c_a1cc,
+        0x2de9_2c6f,
+        0x4a74_84aa,
+        0x5cb0_a9dc,
+        0x76f9_88da,
+        0x983e_5152,
+        0xa831_c66d,
+        0xb003_27c8,
+        0xbf59_7fc7,
+        0xc6e0_0bf3,
+        0xd5a7_9147,
+        0x06ca_6351,
+        0x1429_2967,
+        0x27b7_0a85,
+        0x2e1b_2138,
+        0x4d2c_6dfc,
+        0x5338_0d13,
+        0x650a_7354,
+        0x766a_0abb,
+        0x81c2_c92e,
+        0x9272_2c85,
+        0xa2bf_e8a1,
+        0xa81a_664b,
+        0xc24b_8b70,
+        0xc76c_51a3,
+        0xd192_e819,
+        0xd699_0624,
+        0xf40e_3585,
+        0x106a_a070,
+        0x19a4_c116,
+        0x1e37_6c08,
+        0x2748_774c,
+        0x34b0_bcb5,
+        0x391c_0cb3,
+        0x4ed8_aa4a,
+        0x5b9c_ca4f,
+        0x682e_6ff3,
+        0x748f_82ee,
+        0x78a5_636f,
+        0x84c8_7814,
+        0x8cc7_0208,
+        0x90be_fffa,
+        0xa450_6ceb,
+        0xbef9_a3f7,
+        0xc671_78f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09_e667,
+        0xbb67_ae85,
+        0x3c6e_f372,
+        0xa54f_f53a,
+        0x510e_527f,
+        0x9b05_688c,
+        0x1f83_d9ab,
+        0x5be0_cd19,
+    ];
+    let mut tail = data[data.len() - data.len() % 64..].to_vec();
+    tail.push(0x80);
+    while tail.len() % 64 != 56 {
+        tail.push(0);
+    }
+    tail.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
+    for block in data[..data.len() - data.len() % 64].chunks_exact(64).chain(tail.chunks_exact(64))
+    {
+        let mut w = [0u32; 64];
+        for (i, word) in block.chunks_exact(4).enumerate() {
+            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+        let mut v = h;
+        for i in 0..64 {
+            let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
+            let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
+            let t1 = v[7].wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
+            let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
+            let t2 = s0.wrapping_add(maj);
+            v = [t1.wrapping_add(t2), v[0], v[1], v[2], v[3].wrapping_add(t1), v[4], v[5], v[6]];
+        }
+        for (x, y) in h.iter_mut().zip(v) {
+            *x = x.wrapping_add(y);
+        }
+    }
+    let mut out = String::with_capacity(64);
+    for x in h {
+        let _ = write!(out, "{x:08x}");
+    }
+    out
+}
+
+/// SHA-256 of a file's bytes.
 ///
 /// # Errors
 ///
-/// The tool is missing or fails.
+/// The file is unreadable.
 pub fn sha256(path: &Path) -> Result<String> {
-    let out = Command::new("sha256sum").arg(path).output().context("running sha256sum")?;
-    ensure!(out.status.success(), "sha256sum {} failed", path.display());
-    Ok(String::from_utf8(out.stdout)?.split_whitespace().next().context("empty hash")?.into())
+    Ok(sha256_bytes(&fs::read(path).with_context(|| format!("reading {}", path.display()))?))
 }
 
 /// Write `content` to `path` through a synced temporary file and a rename.
@@ -163,6 +279,21 @@ impl Request {
             .map(|(k, v)| format!("{}={}", hex(k), hex(v)))
             .collect::<Vec<_>>()
             .join(",")
+    }
+
+    /// Decode a plan `CASE identity variant options` row.
+    ///
+    /// # Errors
+    ///
+    /// Not a `CASE` row, or malformed fields.
+    pub fn from_row(row: &str) -> Result<Self> {
+        let f: Vec<_> = row.split('\t').collect();
+        ensure!(f.len() == 4 && f[0] == "CASE", "request is not a plan CASE row");
+        Ok(Request {
+            identity: unhex(f[1])?,
+            variant: unhex(f[2])?,
+            options: Request::decode_options(f[3]).context("request options")?,
+        })
     }
 
     /// Decode a plan row's option field.
@@ -816,9 +947,25 @@ pub fn load_results(path: &Path) -> Result<Vec<ResultRow>> {
     Ok(out)
 }
 
-/// The transition gate between two complete reports: every key exact in `base`
-/// must be present and exact in `candidate`. Returns the report text and whether
-/// it passed.
+/// Identity keys two TSR reports must share to be compared: the frozen native
+/// run they were measured against and the population and deadline they used.
+const COMPARABLE: [&str; 11] = [
+    "native_revision",
+    "corpus_revision",
+    "producer_source_sha256:full_oracle_native.go",
+    "producer_source_sha256:full_oracle_native_types.go",
+    "native_binary_sha256",
+    "plan_sha256",
+    "native_results_sha256",
+    "native_deadline_seconds",
+    "native_filter",
+    "tsr_deadline_seconds",
+    "tsr_filter",
+];
+
+/// The transition gate between two complete TSR reports: every key exact in
+/// `base` must be present and exact in `candidate`. Lists every exact gain,
+/// loss and missing key. Returns the report text and whether it passed.
 ///
 /// # Errors
 ///
@@ -835,24 +982,18 @@ pub fn gate(base: &Path, candidate: &Path) -> Result<(String, bool)> {
     let (bi, ci) = (ident(base)?, ident(candidate)?);
     for (dir, i) in [(base, &bi), (candidate, &ci)] {
         ensure!(
-            i.get("status").map(String::as_str) == Some("complete"),
-            "{} is not a complete run",
+            i.get("kind").map(String::as_str) == Some("tsr")
+                && i.get("status").map(String::as_str) == Some("complete"),
+            "{} is not a complete TSR report",
             dir.display()
         );
     }
     let mut out = String::new();
-    for key in [
-        "native_revision",
-        "corpus_revision",
-        "native_binary_sha256",
-        "plan_sha256",
-        "deadline_seconds",
-        "filter",
-    ] {
+    for key in COMPARABLE {
         let (a, b) = (bi.get(key), ci.get(key));
         ensure!(a == b, "incomparable runs: {key} differs ({a:?} vs {b:?})");
     }
-    for key in ["source_commit", "tsr_binary_sha256"] {
+    for key in ["source_commit", "source_dirty", "tsr_binary_sha256", "tsr_mode"] {
         let _ = writeln!(
             out,
             "{key}\t{}\t{}",
@@ -861,48 +1002,48 @@ pub fn gate(base: &Path, candidate: &Path) -> Result<(String, bool)> {
         );
     }
     let b = load_results(&base.join("results.tsv"))?;
-    let c: HashMap<_, _> = load_results(&candidate.join("results.tsv"))?
-        .into_iter()
-        .map(|r| (r.key.clone(), r))
-        .collect();
-    let (mut lost, mut missing, mut gained, mut exact_b, mut exact_c) = (0, 0, 0, 0, 0);
-    let mut lines = String::new();
-    let base_keys: std::collections::HashSet<_> = b.iter().map(|r| r.key.clone()).collect();
+    let c = load_results(&candidate.join("results.tsv"))?;
+    let index = |rows: &[ResultRow]| -> HashMap<String, usize> {
+        rows.iter().enumerate().map(|(i, r)| (r.key.clone(), i)).collect()
+    };
+    let (bk, ck) = (index(&b), index(&c));
+    let exact = |rows: &[ResultRow]| rows.iter().filter(|r| r.outcome == "EXACT").count();
+    let (mut lost, mut missing, mut gained) = (Vec::new(), Vec::new(), Vec::new());
     for r in &b {
-        let was = r.outcome == "EXACT";
-        exact_b += usize::from(was);
-        match c.get(&r.key) {
-            None if was => {
-                missing += 1;
-                let _ = writeln!(lines, "MISSING\t{}", readable_key(&r.key));
-            }
-            Some(now) if was && now.outcome != "EXACT" => {
-                lost += 1;
-                let _ = writeln!(
-                    lines,
-                    "LOST\t{}\t{}\t{}\t{}",
-                    readable_key(&r.key),
-                    now.outcome,
-                    now.class,
-                    now.detail
-                );
-            }
-            Some(now) if !was && now.outcome == "EXACT" => gained += 1,
-            _ => {}
+        if r.outcome != "EXACT" {
+            continue;
+        }
+        match ck.get(&r.key).map(|&i| &c[i]) {
+            None => missing.push(format!("MISSING\t{}", readable_key(&r.key))),
+            Some(now) if now.outcome != "EXACT" => lost.push(format!(
+                "LOST\t{}\t{}\t{}\t{}",
+                readable_key(&r.key),
+                now.outcome,
+                now.class,
+                now.detail
+            )),
+            Some(_) => {}
         }
     }
-    for r in c.values() {
-        exact_c += usize::from(r.outcome == "EXACT");
-        if !base_keys.contains(&r.key) && r.outcome == "EXACT" {
-            gained += 1;
+    for r in &c {
+        let was = bk.get(&r.key).map(|&i| b[i].outcome.as_str());
+        if r.outcome == "EXACT" && was != Some("EXACT") {
+            gained.push(format!("GAINED\t{}\t{}", readable_key(&r.key), was.unwrap_or("ABSENT")));
         }
     }
     let _ = writeln!(
         out,
-        "exact\t{exact_b}\t{exact_c}\noracle: exact_gained={gained} exact_lost={lost} exact_missing={missing}"
+        "exact\t{}\t{}\noracle: exact_gained={} exact_lost={} exact_missing={}",
+        exact(&b),
+        exact(&c),
+        gained.len(),
+        lost.len(),
+        missing.len()
     );
-    out.push_str(&lines);
-    Ok((out, lost + missing == 0))
+    for l in lost.iter().chain(&missing).chain(&gained) {
+        let _ = writeln!(out, "{l}");
+    }
+    Ok((out, lost.is_empty() && missing.is_empty()))
 }
 
 /// `compiler/foo.ts [variant]` from a hex result key.
@@ -986,6 +1127,27 @@ mod tests {
             Some("types:line-placement")
         );
         assert_eq!(class(&base, ""), Some("types:no-sections"));
+    }
+
+    #[test]
+    fn sha256_matches_fips_vectors_across_padding_boundaries() {
+        assert_eq!(
+            sha256_bytes(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_bytes(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // 56 bytes: the length no longer fits the first block.
+        assert_eq!(
+            sha256_bytes(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+        assert_eq!(
+            sha256_bytes(&vec![b'a'; 1_000_000]),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
     }
 
     #[test]

@@ -2,65 +2,87 @@
 
 Beads: tsr-2zk.47.3, tsr-2zk.47.1, tsr-2zk.47.2, tsr-2zk.47.3.1.
 
-## Command
+## Commands
 
 ```sh
-scripts/parity_gate.sh oracle /tmp/oracle/base          # committed tree only
+scripts/parity_gate.sh oracle-native /tmp/oracle/native                 # once per native identity
+scripts/parity_gate.sh oracle-tsr /tmp/oracle/native /tmp/oracle/base   # committed base tree
+scripts/parity_gate.sh oracle-tsr /tmp/oracle/native /tmp/oracle/cand   # committed candidate
 scripts/parity_gate.sh oracle-compare /tmp/oracle/base /tmp/oracle/cand
 ```
 
-`oracle` = `full_oracle_run run DIR [--workers N] [--deadline S] [--filter SUBSTRING]`.
-The report directory must be empty: nothing resumes. Outputs: `identity.tsv`,
-`plan.tsv`, `results.tsv`, `summary.md`, `cases/NNNNN/{request,native,actual}.tsv`
-(the TSR copy is deleted when byte-identical to native).
+`oracle-native` = `full_oracle_run native DIR [--workers N] [--deadline S] [--filter SUBSTRING]`;
+`oracle-tsr` = `full_oracle_run tsr NATIVE_DIR DIR [--workers N] [--deadline S]
+[--filter SUBSTRING] [--per-process] [--allow-dirty]`. Output directories must be
+empty: nothing resumes. Native: `identity.tsv`, `plan.tsv`, `native.tsv`,
+`cases/NNNNN/{request,native}.tsv` (console output kept only for failures).
+TSR: `identity.tsv`, `results.tsv`, `summary.md`, `workers/N.stderr`, and
+`cases/NNNNN/{native,actual}.tsv` only for non-exact cases (`actual.stderr`
+for failures).
 
-`oracle-compare` (`full_oracle_run gate`) exits 1 when a key that is `EXACT` in
-the base is not `EXACT` in the candidate or is absent from it (tsr-2zk.47.2). It
-refuses runs whose native revision, corpus revision, native binary SHA-256,
-plan SHA-256, deadline or filter differ, and either run that is not `complete`.
+`oracle-compare` (`full_oracle_run gate`) prints one `LOST`, `MISSING` or
+`GAINED` line per case and exits 1 when a key `EXACT` in the base is not `EXACT`
+in the candidate or is absent from it (tsr-2zk.47.2). It refuses reports that
+are not complete TSR reports or whose native identity (revisions, native
+producer sources, native binary, plan, native results, native deadline and
+filter) or TSR deadline and filter differ.
 
 ## Identity (`identity.tsv`)
 
-Source commit (a dirty `crates/`, `xtask/`, `Cargo.*` aborts unless
-`--allow-dirty`, which is recorded), pinned native revision and clean checkout,
-corpus submodule revision and clean checkout, SHA-256 of both frozen worker
-binaries (copied read-only into `bin/` before use) and of the three producer
-sources, workers, deadline, filter, worker environment, plan SHA-256, results
-SHA-256, `status` (`running` → `complete`; a failed discovery writes
-`discovery-<outcome>` and publishes no population).
+Native run: pinned native revision and clean checkout, corpus submodule
+revision and clean checkout, SHA-256 of the two Go producer sources and of the
+frozen native test binary (copied read-only into `bin/`), deadline, filter,
+worker environment, plan SHA-256, `native.tsv` SHA-256 (each row carries its
+artifact's SHA-256), `status` (`running` → `complete`; a failed discovery
+writes `discovery-<outcome>` and publishes no population).
+
+TSR run: refuses a native directory that is not `complete`, whose native or
+corpus revision differs from the checkout's, whose Go producer sources changed
+since, or whose binary, plan or results no longer hash to the recorded values;
+every native artifact is re-hashed before it is compared. Records the source
+commit (a dirty `crates/`, `xtask/`, `Cargo.*` aborts unless `--allow-dirty`,
+which is recorded), the native directory and the SHA-256 of its identity, the
+inherited native keys, the frozen TSR worker binary's SHA-256, `tsr_mode`,
+deadline, filter, results SHA-256 and `status`.
 
 ## Population (expected-independent)
 
 `full_oracle_native.go` (a `go test -overlay` of the pinned
 `internal/testrunner`, checkout untouched) emits the plan in `runCompilerTests`
-order: regression then conformance runner, `EnumerateTestFiles` order,
-`GetFileBasedTestConfigurations` order. `skippedTests` rows are `LISTED_SKIP`;
-a configuration expansion that fails (`t.Fatal`/panic) is one
-`DISCOVERY_FAILED` row. Discovery is bounded (900 s); timeout or failure aborts
-the run. No committed baseline is read by either producer.
+order: regression then conformance runner, `EnumerateTestFiles` order, a
+source's configurations sorted by name (`GetFileBasedTestConfigurations`
+builds them from a Go map range, so its own order is random per process; the
+set is not). `skippedTests` rows are `LISTED_SKIP`; a configuration expansion
+that fails (`t.Fatal`/panic) is one `DISCOVERY_FAILED` row. Discovery is
+bounded (900 s); timeout or failure aborts the run. No committed baseline is
+read by either producer.
 
 ## Per-case outcome
 
-Two bounded processes (default deadline 60 s, kill + reap):
+Native, once per native identity (bounded process, default deadline 60 s, kill
+and reap): `getCompilerFileBasedTest` → `newCompilerTest` →
+`SkipUnsupportedCompilerOptions` (skipped → `NATIVE_SKIPPED`) → records of
+`c.result.Diagnostics` and `DoTypeAndSymbolBaseline`'s walk;
+`TS_TEST_PROGRAM_SINGLE_THREADED=true` (one checker, the test default).
 
-- native: `getCompilerFileBasedTest` → `newCompilerTest` →
-  `SkipUnsupportedCompilerOptions` (skipped → `NATIVE_SKIPPED`) → records of
-  `c.result.Diagnostics` and `DoTypeAndSymbolBaseline`'s walk;
-  `TS_TEST_PROGRAM_SINGLE_THREADED=true` (one checker, the test default).
-- TSR: `full_oracle::actual` with the native configuration map verbatim. Case
-  program = `types_producer::program_and_config_for_case` at `/.src`; one
-  configured checker; `compileFilesWithHost` collection (config, parse, JS
-  syntax, `bind_and_check_diagnostics` with the program's bind diagnostics,
-  include processor, isolated-declaration diagnostics) then
-  `sort_and_deduplicate_located_diagnostics`; type rows via
-  `types_producer::render_file` through the same checker,
-  `hadErrorBaseline = !diagnostics.is_empty()`, over `toBeCompiled ++
-  otherFiles` filtered to loaded files (JSON included), skipped by
-  `@noTypesAndSymbols`.
+TSR, per candidate: `full_oracle::actual` with the native configuration map
+verbatim. Case program = `types_producer::program_and_config_for_case` at
+`/.src`; one configured checker; `compileFilesWithHost` collection (config,
+parse, JS syntax, `bind_and_check_diagnostics` with the program's bind
+diagnostics, include processor, isolated-declaration diagnostics) then
+`sort_and_deduplicate_located_diagnostics`; type rows via
+`types_producer::render_file` through the same checker, `hadErrorBaseline =
+!diagnostics.is_empty()`, over the harness `toBeCompiled ++ otherFiles` filtered
+to loaded files (JSON included), skipped by `@noTypesAndSymbols`.
 
-Outcomes: `EXACT`, `WRONG`, `NATIVE_FAILED`, `NATIVE_TIMEOUT`, `TSR_FAILED`,
-`TSR_TIMEOUT`, `DISCOVERY_FAILED` are all in the denominator; only
-`NATIVE_SKIPPED` and `LISTED_SKIP` (no native baseline exists) are excluded.
+Default `serve` mode: one long-lived `full_oracle_actual --serve` per worker
+slot, one case per request line, each case on a fresh thread (no thread-local
+state crosses cases; the only process-wide input is the immutable bundled-lib
+text). A per-case deadline kills the worker (`TSR_TIMEOUT`); a panic or abort
+ends the worker, the case is `TSR_FAILED` with that case's stderr, and the slot
+starts a new worker, so no case runs after another case's unwinding.
+`--per-process` runs one process per case; the two modes must publish
+byte-identical artifacts (checked over the full corpus, below).
 
 ## Exactness
 
