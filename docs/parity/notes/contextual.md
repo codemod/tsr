@@ -493,3 +493,15 @@ longer reaches `any`, and the exclusion was the defect:
 `{ a: { k: 'x' | 'y'; }; }`; it is now `{ a: { k: "x"; }; }`, and a
 `k: string` constraint still gives `{ a: { k: string; }; }` (tsgo
 diagnostics). Removed; no state, no new work boundary beyond upstream's.
+
+## 22. getContextualTypeForElementExpression drops answerless union constituents (tsr-2zk.16.176)
+
+`getContextualTypeForElementExpression` (`checker.go:29972`) is a `mapTypeEx`
+over the contextual union, which drops a constituent with no element type
+(no tuple slot, `"0"` property, number index or iterated type).
+`contextual_type_for_element_expression` declined the whole union instead when
+an object or type-parameter constituent answered nothing. Removed:
+`const v: ['prefix'] | { named: 'other' } = ['x']` reports `'"x"' is not
+assignable to '"prefix"'` (tsgo), i.e. the tuple slot is the element's context;
+`[1]` under `[0] | Promise<[0]>` is `[1]`, under `Promise<[0]>` `number[]`.
+The unit test that pinned the refusal is deleted. No state.

@@ -2249,25 +2249,17 @@ impl<'a> Checker<'a, '_> {
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
             let types = types.clone();
             let mut mapped = Vec::new();
+            // mapTypeEx drops a constituent with no element type: `[0]`
+            // against `[0] | Promise<[0]>` reads the tuple alone.
             for part in types {
-                match self.contextual_type_for_element_expression(
+                if let Some(element) = self.contextual_type_for_element_expression(
                     part,
                     index,
                     length,
                     first_spread,
                     last_spread,
                 ) {
-                    Some(element) => mapped.push(element),
-                    // A missing object lookup may be an unresolved mapped/index
-                    // signature. Dropping it would fabricate a contextual
-                    // signature from the other union constituents.
-                    None if self.store.get(part).flags.intersects(
-                        crate::flags::TypeFlags::OBJECT | crate::flags::TypeFlags::TYPE_PARAMETER,
-                    ) =>
-                    {
-                        return None;
-                    }
-                    None => {}
+                    mapped.push(element);
                 }
             }
             return (!mapped.is_empty()).then(|| self.get_union_type_without_reduction(&mapped));
@@ -3734,17 +3726,6 @@ mod tests {
             panic!("no subtype reduction");
         };
         assert!(types.contains(&slot));
-    }
-
-    #[test]
-    fn contextual_tuple_reader_preserves_incomplete_union_refusal() {
-        let source = "type Target = ['prefix'] | { named: 'other' }; \
-                      type Linked = Target; declare const v: Linked;";
-        for mode in [(false, false), (true, false), (true, true)] {
-            for warm in [false, true] {
-                assert_eq!(tuple_context(source, mode, warm, 0, None, (None, None)), None);
-            }
-        }
     }
 
     #[test]
