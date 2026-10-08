@@ -1398,7 +1398,13 @@ impl Relater<'_, '_, '_> {
         // non-structured target. `Baz -> undefined` reads NotRelated, which
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
-        if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+        // isRelatedToEx (relater.go:2605) answers an object source against a
+        // primitive target by isSimpleTypeRelatedTo alone, whose only object
+        // arms are the any/unknown/never/nonprimitive targets above; none
+        // relates an object to a `unique symbol`.
+        if s.intersects(TypeFlags::OBJECT)
+            && (self.flag_decidable(target) || t == TypeFlags::UNIQUE_ES_SYMBOL)
+        {
             return RelationResult::NotRelated;
         }
         // In strict mode unknown includes null and undefined, so it cannot
