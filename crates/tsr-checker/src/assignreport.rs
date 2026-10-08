@@ -594,17 +594,22 @@ impl<'a> Checker<'a, '_> {
     /// yield iteration type (`getIterationTypesOfGeneratorFunctionReturnType`,
     /// orElse `anyType`), at the operand or else the `yield` itself.
     ///
-    /// Declined: `yield*` (its yielded type is the delegated iterable's
-    /// iterated type, `checkIteratedTypeOrElementType`) and async generators
-    /// (the yielded type is awaited first, `getAwaitedType`).
+    /// For `yield*`, the yielded type is the delegated iterable's iterated
+    /// type (`checkIteratedTypeOrElementType` with `IterationUseYieldStar`,
+    /// [`Checker::yield_star_operand_types`]: `anyType` for a `never` or
+    /// non-iterable operand, whose own errors the iteration check reports);
+    /// an undecided protocol declines. The excess-property check is the
+    /// plain operand's only: a `yield*` operand's elements are related, not
+    /// the written literal.
+    ///
+    /// Declined: async generators (the yielded type is awaited first,
+    /// `getAwaitedType`).
     pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
         if self.in_js_file(node) {
             return;
         }
         let Some(Node::YieldExpression(expression)) = self.node_map.get(node) else { return };
-        if expression.asterisk_token.is_some() {
-            return;
-        }
+        let yield_star = expression.asterisk_token.is_some();
         let Some(container) = self.containing_function(node) else { return };
         let (asterisk, annotation, modifiers) = match self.node_map.get(container) {
             Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.r#type, f.modifiers),
@@ -640,17 +645,94 @@ impl<'a> Checker<'a, '_> {
         };
         let target = yield_type.unwrap_or(self.intrinsics.any);
         if let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) {
-            let source = self.check_expression_at_node(operand);
+            let operand_type = self.check_expression_at_node(operand);
+            if yield_star {
+                // getYieldedTypeOfYieldExpression (`checker.go:11019`).
+                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, false) else {
+                    return;
+                };
+                self.report_assignability_failure(operand, operand, yielded, target);
+                return;
+            }
             let before = self.diagnostics.len();
             self.check_excess_properties(target, operand);
             if self.diagnostics.len() != before {
                 return;
             }
-            self.report_assignability_failure(operand, operand, source, target);
-        } else {
+            self.report_assignability_failure(operand, operand, operand_type, target);
+        } else if !yield_star {
             let undefined = self.intrinsics.undefined;
             self.report_assignability_failure_with(node, None, undefined, target);
         }
+    }
+
+    /// `checkSignatureDeclaration`'s generator arm (`checker.go:2757`): a
+    /// generator with a body (`FunctionFlagsInvalid` clear) and a written
+    /// return type reports TS2505 at the annotation when it is `void`, else
+    /// `checkGeneratorInstantiationAssignabilityToReturnType`
+    /// (`checker.go:29697`) with the annotation as error node: `Generator`
+    /// (`AsyncGenerator`) instantiated with the annotation's own yield,
+    /// return (orElse yield) and next (orElse `unknown`) iteration types must
+    /// be assignable to it. The instantiation is the one
+    /// `generator_instantiation_assignable_to_return_type` (`iteration.rs`)
+    /// relates without an error node; an undecided iteration query declines.
+    /// No cache or side table.
+    pub(crate) fn check_generator_return_annotation(&mut self, node: NodeId) {
+        if self.in_js_file(node) {
+            return;
+        }
+        let (asterisk, annotation, modifiers, has_body) = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(f)) => {
+                (f.asterisk_token, f.r#type, f.modifiers, f.body.is_some())
+            }
+            Some(Node::MethodDeclaration(f)) => {
+                (f.asterisk_token, f.r#type, f.modifiers, f.body.is_some())
+            }
+            Some(Node::FunctionExpression(f)) => {
+                (f.asterisk_token, f.r#type, f.modifiers, f.body.is_some())
+            }
+            _ => return,
+        };
+        if asterisk.is_none() || !has_body {
+            return;
+        }
+        let Some(annotation) = annotation else { return };
+        let Some(at) = annotation.node_id() else { return };
+        let return_type = self.get_type_from_type_node(annotation);
+        if self.is_gap(return_type) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        if return_type == self.intrinsics.void {
+            self.report(
+                file,
+                Diagnostic::new(&messages::A_GENERATOR_CANNOT_HAVE_A_VOID_TYPE_ANNOTATION, span),
+            );
+            return;
+        }
+        let is_async = has_async(modifiers);
+        let slot = |checker: &mut Self, kind| {
+            checker.get_iteration_type_of_generator_function_return_type(
+                kind,
+                return_type,
+                is_async,
+            )
+        };
+        let Ok(yield_type) = slot(self, crate::iteration::IterationTypeKind::Yield) else { return };
+        let yield_type = yield_type.unwrap_or(self.intrinsics.any);
+        let Ok(generator_return) = slot(self, crate::iteration::IterationTypeKind::Return) else {
+            return;
+        };
+        let generator_return = generator_return.unwrap_or(yield_type);
+        let Ok(next_type) = slot(self, crate::iteration::IterationTypeKind::Next) else { return };
+        let next_type = next_type.unwrap_or(self.intrinsics.unknown);
+        let Ok(instantiation) =
+            self.create_generator_type(yield_type, generator_return, next_type, is_async)
+        else {
+            return;
+        };
+        self.report_relation_failure(at, span, None, instantiation, return_type, None);
     }
 
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
