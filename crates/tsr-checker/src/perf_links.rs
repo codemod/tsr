@@ -65,6 +65,9 @@ pub(crate) struct PerfLinks {
     pub(crate) receiver_signature_kinds: FxHashMap<TypeId, (bool, bool)>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
+    /// Reused `visiting` path for a property walk started from an empty path
+    /// (`r5-perf4.md` §4).
+    pub(crate) visiting_scratch: Vec<SymbolId>,
 }
 
 /// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the
