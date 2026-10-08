@@ -2982,6 +2982,78 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// `checkAsyncFunctionReturnType` (`checker.go:2776`), reached from
+    /// `checkSignatureDeclaration` (`:2764`) for a function whose flags are
+    /// exactly `Async` (not a generator, not bodiless) and that has a written
+    /// return type: TS1064 at the annotation when it is not a reference to
+    /// the global `Promise`, otherwise `checkAwaitedType` with TS1058 at the
+    /// function. A gap in the awaited walk reports nothing.
+    pub(crate) fn check_async_function_return_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (annotation, generator, modifiers, has_body) = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::FunctionExpression(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::MethodDeclaration(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::ArrowFunction(f)) => (f.r#type, false, f.modifiers, f.body.is_some()),
+            _ => return,
+        };
+        if generator
+            || !has_body
+            || !crate::check::has_modifier(modifiers, SyntaxKind::AsyncKeyword)
+        {
+            return;
+        }
+        let Some(annotation) = annotation else { return };
+        let Some(annotation_node) = annotation.node_id() else { return };
+        let return_type = self.get_type_from_type_node(annotation);
+        if return_type == self.intrinsics.error {
+            return;
+        }
+        // `getGlobalPromiseTypeChecked() != emptyGenericType`.
+        let Some(promise) = self.global_type_symbol_with_arity("Promise", 1) else { return };
+        let promise = self.binder.merged_symbol(promise);
+        // A generic alias reference (`PromiseAlias<void>`) is its instantiated
+        // body natively, so the reference test reads the body (§1 of the notes).
+        let body = self.binding_type_alias_body(return_type);
+        let is_promise_reference = self
+            .type_reference_targets
+            .get(&body)
+            .is_some_and(|&(target, _)| self.binder.merged_symbol(target) == promise);
+        if !is_promise_reference {
+            let awaited =
+                match self.awaited_type_no_alias_worker(return_type, &mut Vec::new(), None) {
+                    None => return,
+                    Some(awaited) => awaited.unwrap_or(self.intrinsics.void),
+                };
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(annotation_node);
+            let printed = self.type_to_string(awaited);
+            self.report(
+                file,
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::THE_RETURN_TYPE_OF_AN_ASYNC_FUNCTION_OR_METHOD_MUST_BE_THE_GLOBAL_PROMISE_T_TYPE_DID_YOU_MEAN_TO_WRITE_PROMISE_0,
+                    span,
+                    [printed],
+                ),
+            );
+            return;
+        }
+        self.check_awaited_type(
+            return_type,
+            false,
+            node,
+            &tsr_diagnostics::messages::THE_RETURN_TYPE_OF_AN_ASYNC_FUNCTION_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+        );
+    }
+
     /// getAwaitedTypeEx (checker.go:31257): concrete unwrapping precedes the
     /// optional global Awaited<T> alias instantiation.
     pub(crate) fn awaited_type(&mut self, id: TypeId) -> Option<TypeId> {

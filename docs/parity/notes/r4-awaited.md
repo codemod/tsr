@@ -95,3 +95,39 @@ WRONG on TS1064/TS1058, §3).
 
 **Falsifier.** A TS1062/TS1320 that native does not report on a decided
 walk, or a union await whose dropped `nil` constituent native keeps.
+
+## 3. `checkAsyncFunctionReturnType`: TS1064 and TS1058 (`tsr-2zk.10.1`)
+
+**Forcing constraint.** `checkSignatureDeclaration` (`:2764`) runs
+`checkAsyncFunctionReturnType` (`:2776`) for a function whose flags are
+exactly `Async` (not a generator; a bodiless declaration is `Invalid`) and
+that has a written return type: TS1064 at the annotation unless the type is a
+reference to the global `Promise` — its argument is
+`typeToString(getAwaitedTypeNoAlias(returnType) ?? voidType)` — otherwise
+`checkAwaitedType(returnType, false, node, TS1058)` at the function. Neither
+had a producer.
+
+**Decision.** `check_async_function_return_type`, called once per function
+node from the diagnostics walk (`check.rs`, the arm that already runs
+`check_all_code_paths_return_or_throw`). The TS1064 argument uses the
+worker's tri-state: native `nil` prints `void`, a gap reports nothing.
+`getGlobalPromiseTypeChecked() == emptyGenericType` (no global `Promise<T>`)
+returns without reporting; native's TS2318 for the missing global is not
+this function's.
+
+**Measured wrong turn.** The first build tested `isReferenceToType` on the
+held reference and reported TS1064 on `async function f(): PromiseAlias<void>`
+(`type PromiseAlias<T> = Promise<T>`) — five EMPTY_RIGHT → EMPTY_WRONG losses
+(`asyncAliasReturnType_es5/_es6`, `asyncAwait_es5/_es6/_es2017`). Native's
+alias instantiation *is* `Promise<void>`; the test now reads the alias body
+(`binding_type_alias_body`), the same projection as §1.
+
+**Converted.** `conformance/asyncQualifiedReturnType_es6`.
+`asyncFunctionDeclaration15_es6` now has every TS1064; it still lacks
+line 17's TS1058, which is the *inferred* return type's `checkAwaitedType`
+(`getReturnTypeFromBody`, `:20149`/`:20287`, `signatures.rs`/`flow.rs`).
+`asyncImportedPromise_es6` has its TS1064 and lacks the TS2322 of
+`checkReturnStatement`'s async arm (§5).
+
+**Falsifier.** A TS1064 on an annotation native's `isReferenceToType`
+accepts, or a TS1058 on a function whose return type native awaits.

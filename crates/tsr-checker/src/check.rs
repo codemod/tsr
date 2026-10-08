@@ -974,6 +974,7 @@ impl Checker<'_, '_> {
                 | Node::GetAccessorDeclaration(_)
         ) {
             self.check_all_code_paths_return_or_throw(node);
+            self.check_async_function_return_type(node);
         }
         if matches!(
             typed,
