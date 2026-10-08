@@ -43,3 +43,16 @@ Not fixed here (outside owned files):
 - `extendsTag5`'s four wrong TS2315 lines: a JS class's `@template` type
   parameters are not in `local_type_parameters_of` (`declared.rs`), so the
   class reads as non-generic (r4-jsdoc's `@template` hosting).
+
+## §2 TS2683/TS2331/TS7041 on `typeof this`: `checkIdentifier`'s first arm
+
+`typeof this.x` parses the `this` as an **identifier** (`parseEntityName`
+with `allowReservedWords`), not a `ThisKeyword`, so the walk's
+`ThisKeyword` dispatch never saw it. Native's `checkIdentifier`
+(`checker.go:11043`) sends an identifier with `ast.IsThisInTypeQuery` to
+`checkThisExpression`, which runs every arm (TS17009, TS2331, TS2465,
+TS7041, TS2683). The port adds that dispatch for identifiers, reusing
+`flow.rs`'s existing `is_this_in_type_query`; the test is a node-map read and
+a text compare per identifier.
+
+Measured: `typeofThis` TS2683 x3, TS2331 x2, TS7041 x1 fixed; none lost.

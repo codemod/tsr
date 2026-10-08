@@ -1069,6 +1069,9 @@ impl Checker<'_, '_> {
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_expression_diagnostics(node);
         }
+        if self.nodes.kind(node) == SyntaxKind::Identifier {
+            self.check_this_in_type_query_diagnostics(node);
+        }
         if self.nodes.kind(node) == SyntaxKind::ThisType {
             self.check_this_type_node(node);
         }

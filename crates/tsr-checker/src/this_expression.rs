@@ -349,6 +349,17 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// `checkIdentifier`'s first arm (`checker.go:11043`): an identifier
+    /// `this` heading a type query's entity name (`typeof this.x`,
+    /// `ast.IsThisInTypeQuery`) is checked as `checkThisExpression`.
+    pub(crate) fn check_this_in_type_query_diagnostics(&mut self, node: NodeId) {
+        if self.is_this_in_type_query(node) {
+            self.check_this_expression_diagnostics(node);
+        }
+    }
+}
+
+impl Checker<'_, '_> {
     /// TS2526 — `A 'this' type is available only in a non-static member of a
     /// class or interface.`
     ///
