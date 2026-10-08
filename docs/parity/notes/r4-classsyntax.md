@@ -56,3 +56,26 @@ TS7041, TS2683). The port adds that dispatch for identifiers, reusing
 a text compare per identifier.
 
 Measured: `typeofThis` TS2683 x3, TS2331 x2, TS7041 x1 fixed; none lost.
+
+## §3 TS2680/TS2681/TS2730/TS2784: `checkParameter`'s `this` arm
+
+Not ported before. `checkParameter` (`checker.go:2654`) reports, for a
+parameter named `this` (or `new`): TS2680 when it is not first, TS2681 on a
+constructor, construct signature or constructor type, TS2730 on an arrow
+function, TS2784 on an accessor. Ported whole, in that order, at the
+parameter. `GetContainingFunction(param)` is the parameter's parent; a parent
+whose list `unused.rs`'s `parameters_of` does not enumerate (index
+signatures, JSDoc function types) is never given TS2680, so a missing list
+cannot read as "not first".
+
+Measured: `thisTypeInFunctionsNegative` TS2681 x3, TS2680 x2, TS2730 x4
+fixed; none lost.
+
+**Accepted:** `assertionTypePredicates1` (already WRONG) gains TS2680 and
+TS2784 at `set p2(x: asserts this is string)`. Native parses
+`asserts this is string` in a parameter's type as a type predicate (TS1228);
+TSR's parser recovers with TS1005 and a second parameter named `this`, which
+this arm then reports. The fix is the parser's (type predicates in
+`parseType`), not a decline here: native runs `checkParameter` on files with
+parse errors too, and `thisTypeInFunctionsNegative`'s own fixed lines sit in
+such a file.

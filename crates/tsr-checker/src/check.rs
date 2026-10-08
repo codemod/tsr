@@ -422,6 +422,7 @@ impl Checker<'_, '_> {
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
+                self.check_this_parameter_position(node);
                 self.check_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
                 ambient
