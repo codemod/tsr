@@ -181,6 +181,35 @@ Measured against commit 7, unfiltered, zero losses on either dump:
 GAP (the narrowed `import.meta.foo`, flow work in `flow.rs`); nothing else
 moves.
 
+
+### 2.5 `moduleDetection`'s `Force` indicator, folded in (commit 9)
+
+r5-modfmt's measured diff (`docs/parity/notes/r5-modfmt-module-detection.diff`
+on `claude/beautiful-shannon-ar5gh0-r5-modfmt`), landed here at the
+integrator's request so one function holds the module indicator.
+`ast.GetExternalModuleIndicatorOptions(...).Force` (`ast/parseoptions.go:19`)
+— `moduleDetection: force`, or under `auto` a file forced by its format
+(`isFileForcedToBeModuleByFormat`, `:46`) — is computed per file by the
+program (`loader::force_module_indicator`, a new free function beside
+`implied_node_format_for_emit`) and passed into the bind
+(`bind_file_forcing_module` / `bind_into_with_jsdoc_forcing_module`). The
+binder's one decision is now: `is_external_module_in` (statements, then the
+flag-gated `import.meta` walk), else `Force` for a non-declaration,
+non-JSON file. `setCommonJSModuleIndicator`'s `ExternalModuleIndicator !=
+file` conjunct (`binder.go:927`) is `module_indicator_is_file`: a module by
+`Force` alone may still take a CommonJS indicator; one by syntax or by
+`import.meta` (whose indicator is a node, not the file) may not. r5-modfmt
+measured that conjunct as load-bearing (18 lines in
+`nodeModulesAllowJsCjsFromJs` and `modulePreserve4` lost without it).
+
+`Program::bind_source_files` changes only inside the per-file closures (a
+precomputed `force` vector indexed like the files); the fan-out decision
+(r5-loader's, on its own branch) is untouched. The checker's call sites do
+not see `Force` — as for `import.meta` in the other lanes' files (§2.4), a
+forced file is a module to the binder and a script to
+`is_external_module_in`'s callers; r5-modfmt's measurement was taken the
+same way.
+
 ## 3. `checkImportAttributes` (tsr-2zk.986)
 
 `crates/tsr-checker/src/import_attributes.rs`, one hook line at the end of

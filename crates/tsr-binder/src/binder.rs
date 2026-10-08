@@ -250,6 +250,14 @@ pub(crate) struct Binder<'a, 'n> {
     /// *parser* recorded; see [`is_external_module`] for why the binder computes
     /// it instead.
     is_module: bool,
+    /// `ExternalModuleIndicatorOptions.Force` (`ast/parseoptions.go:19`):
+    /// the program's `moduleDetection` makes this non-declaration file a
+    /// module whatever its statements.
+    force_module: bool,
+    /// `ExternalModuleIndicator == file`: module-ness came from `Force`,
+    /// which does not stop a `CommonJS` indicator (`setCommonJSModuleIndicator`,
+    /// `binder.go:927`).
+    module_indicator_is_file: bool,
     /// Names a UMD module claims globally (`export as namespace N`).
     ///
     /// Upstream's `file.GlobalExports`. Separate from the module's exports
@@ -372,6 +380,19 @@ impl<'a, 'n> Binder<'a, 'n> {
         jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
         range: std::ops::Range<u32>,
     ) -> crate::FileBindResult<'a, 'n> {
+        Self::bind_independent_forcing(names, nodes, file, info, jsdoc, range, false)
+    }
+
+    /// [`Binder::bind_independent`] with the parser's `Force` indicator option.
+    pub(crate) fn bind_independent_forcing(
+        names: &'n crate::PreparedNames<'a>,
+        nodes: &'n NodeTable,
+        file: &'a SourceFile<'a>,
+        info: FileInfo<'a>,
+        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+        range: std::ops::Range<u32>,
+        force_module: bool,
+    ) -> crate::FileBindResult<'a, 'n> {
         assert!(
             range.start <= range.end && range.end as usize <= nodes.len(),
             "invalid file node range"
@@ -387,6 +408,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             range.start as usize,
             (range.end - range.start) as usize,
         )
+        .forcing_module(force_module)
         .bind_file_body(file, info, jsdoc);
         assert!(binder.global_exports.is_empty(), "UMD alias declarations require ordered binding");
         let root = file.node_id.expect("registered source file");
@@ -610,6 +632,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             expando_assignments: Vec::new(),
             expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
+            force_module: false,
+            module_indicator_is_file: false,
             global_exports,
             globals,
             merged,
@@ -655,6 +679,12 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.bind_source_file_with_jsdoc(file, info, &[])
     }
 
+    /// Set the `Force` external-module-indicator option for the next file.
+    pub(crate) fn forcing_module(mut self, force_module: bool) -> Self {
+        self.force_module = force_module;
+        self
+    }
+
     pub(crate) fn bind_source_file_with_jsdoc(
         self,
         file: &'a SourceFile<'a>,
@@ -697,12 +727,19 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.in_declaration_file = is_declaration_file(file_name);
         self.export_context = self.in_declaration_file && !file_has_export_declarations(file);
         self.in_js_file = is_javascript_file(file_name);
-        // `getImportMetaIfNecessary` (`ast/parseoptions.go:101`): with no
-        // statement indicator, `import.meta` anywhere makes the file a module.
-        // Gated, as upstream gates it, on the parser's
-        // `PossiblyContainsImportMeta` flag, so the walk runs only for a file
-        // that has an `import.meta` (r5-modules §2.4).
-        self.is_module = is_external_module_in(file, self.nodes);
+        // `getExternalModuleIndicator` (`ast/parseoptions.go:60`) in one
+        // place: module syntax or `import.meta` (`is_external_module_in`,
+        // its walk gated on the parser's `PossiblyContainsImportMeta`
+        // flag), else — not for a declaration or JSON file — the `Force`
+        // option. Only the `Force` arm makes the indicator the file itself,
+        // which a CommonJS indicator may still follow
+        // (`set_commonjs_module_indicator`). r5-modules §2.4, §2.5.
+        let syntactic_module = is_external_module_in(file, self.nodes);
+        self.module_indicator_is_file = !syntactic_module;
+        self.is_module = syntactic_module
+            || (self.force_module
+                && !self.in_declaration_file
+                && !file_name.to_ascii_lowercase().ends_with(".json"));
         self.file_node = root_id;
         self.file_symbol_name = remove_file_extension(file_name);
         if self.is_module {
@@ -3548,13 +3585,17 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// `module.exports` entirely — it is an ordinary assignment to a global
     /// there — so the first test is that the file is not already one.
     fn set_commonjs_module_indicator(&mut self) -> bool {
-        if self.is_module {
+        if self.is_module && !self.module_indicator_is_file {
             return false;
         }
         if !self.commonjs_module {
             self.commonjs_module = true;
-            let file = self.file_node;
-            self.bind_source_file_as_external_module(file);
+            // `if b.file.ExternalModuleIndicator == nil`: a forced module
+            // already has its file symbol.
+            if !self.is_module {
+                let file = self.file_node;
+                self.bind_source_file_as_external_module(file);
+            }
         }
         true
     }
