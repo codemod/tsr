@@ -380,12 +380,9 @@ fn dynamic_call_specifier(
 /// docs: this port does not track source flags, and the walk gives the same
 /// answer.
 ///
-/// **That arm is currently unreachable.** This parser builds `import.meta` as a
-/// `PropertyAccessExpression` over an `ImportKeyword` token rather than as a
-/// `MetaProperty` (bd tsr-9or.4), so a file whose only module indicator is
-/// `import.meta` reads as a script. It is written against the node upstream
-/// produces rather than the one this parser produces, so that fixing the parser
-/// fixes this too instead of breaking it. No `.trace.json` baseline reaches it.
+/// The parser builds `import.meta` as a `MetaProperty` (bd tsr-9or.4, closed
+/// by tsr-2zk.990), so this arm is live: a file whose only module indicator is
+/// `import.meta` reads as a module, as upstream's does.
 #[must_use]
 pub fn is_file_probably_external_module(file: &SourceFile<'_>) -> bool {
     for statement in file.statements {
@@ -673,11 +670,10 @@ mod tests {
         let parsed = parse(&arena, "const x = 1;");
         assert!(!is_file_probably_external_module(parsed.source_file));
 
-        // Known gap, asserted so it is visible rather than merely absent: this
-        // parser does not build a `MetaProperty` for `import.meta`, so the
-        // `getImportMetaIfNecessary` arm never fires (bd tsr-9or.4). When the
-        // parser is fixed this assertion flips and this test must too.
+        // `getImportMetaIfNecessary`: `import.meta` anywhere in the file makes
+        // it a module, now that the parser builds the `MetaProperty` upstream
+        // does (bd tsr-9or.4, tsr-2zk.990).
         let import_meta = parse(&arena, "const u = import.meta.url;");
-        assert!(!is_file_probably_external_module(import_meta.source_file));
+        assert!(is_file_probably_external_module(import_meta.source_file));
     }
 }

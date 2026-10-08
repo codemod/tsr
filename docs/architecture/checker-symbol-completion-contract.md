@@ -327,13 +327,102 @@ Strict library Clippy still fails on the one unused module-copy writer in this
 slice; that writer is consumed by the broader uncompiled migration.
 
 The broader migration preserves actual owners through propagated and
-instantiated signatures, alias remints and module-value construction. Its latest
-library check has 98 diagnostics across 20 consumer files, down from 107.
+instantiated signatures, alias remints and module-value construction. At that stage, its
+library check had 98 diagnostics across 20 consumer files, down from 107.
 Merged owner reads, declarations, members, class signatures, naming and native
 cache/publication keys still require migration. This is private progress, with
 no canonical runtime, full-corpus qualification or speed gain. The existing
 [progress receipt](checker-module-clone-progress.json) carries the exact native
 sources, both Rust patches, source/binary hashes, failures and final logs.
+
+### Raw-owner continuation
+
+The same frozen `85f9c4cb` continuation now reads actual private flags,
+ordered declarations and raw export keys at ten anonymous-owner consumer
+sites. The existing static-member and private-name completeness predicates
+use validated views, and the `keyof` reader retains its declaration/name sort.
+Export-name iteration uses the selected table without an intermediate
+collection; it does not imply completed native members. Bound enum-member
+owners are lifted into the validated domain for exact comparison with the
+receiver, so a fresh private enum copy is not confused with its source.
+
+Four direct pinned-native observations confirm independent raw/copy/twin
+export tables, copied const-enum flags and enum-member parent identity. Adding
+an export only to the copy leaves the source and twin unchanged. These are
+native operation controls, not ordinary CLI work counts or timing samples.
+Two bound-path characterizations pass before implementation. The private
+reader controls mutate only the copy's declarations; compiling origin-fallback
+and empty-private-export mutants fail two and one tests respectively. Both
+mutations restore exact bytes before final qualification.
+
+The final frozen slice passes 446 debug tests: 199 library, 16 ownership and
+231 integration, with one existing ignore and the known red parsed owner test
+explicitly filtered. Source manifests remain unchanged during verification.
+Strict library Clippy still fails on one unused module-copy writer. The broader
+owner cutover now has 85 compiler diagnostics across 16 consumer files, down
+from 98; it is not an executable checker. The existing progress receipt
+preserves eight-file slice and seventeen-file cutover patches, native sources,
+binary/source hashes and all gate logs. No canonical runtime, full-corpus or
+performance gain is claimed.
+
+The next boundary is merged-owner publication and its cache consumers.
+Native `getMergedSymbol` is one redirect, and native `mergeSymbol` makes a
+private copy of a nontransient target. Rust's existing Binder mutates a bound
+target and follows a bounded redirect chain. Neither an origin fallback nor
+that legacy bound normalization establishes native private identity. Continue
+this boundary under `tsr-1yb.7.7.2` and `tsr-1yb.33.1` before completing the
+parsed module-owner and alias-stack gates.
+
+### Symbol-key continuation on current main
+
+The prior writer/signature/raw-reader patches replay onto frozen main
+`1cea3449` without conflicts. Its separate baseline target passes 194 checker
+library tests. The new private key slice changes the existing value-type and
+declared-type maps and symbol resolution frames to `SymbolRef`, then lifts
+existing bound callers through the same Checker-owned accessors. Undefined's
+seed and later queries share one `CheckerSymbols` instance. Signature and
+base-constraint keys remain separate entities; no duplicate cache or origin
+fallback is introduced. This is an ownership prerequisite, not measured reuse.
+
+Two direct native observations at `5b1047d1`, cold and checked-first, call the
+real `cloneTypeAsModuleType`, `cloneSymbol`, `pushTypeResolution`,
+`findResolutionCycleStartIndex`, `popTypeResolution` and
+`typeResolutionHasProperty`. Source/head/twin declared-type frames push
+true/true/true; repeating head returns false, leaves depth three and pops
+false/false/true. A different property kind does not close that cycle. Native
+record clones inherit neither the source's already-computed value type nor its
+declared type. The Rust controls use real parsed owners and ordinary bound
+getters to publish those source types, then query the actual publication reader
+for fresh private copies. A compiling origin-key mutant fails the latter
+control; its exact source bytes are restored before final verification.
+
+The source-qualified slice passes 453 debug tests: 206 library, 16 ownership
+and 231 integration, with one existing ignore and the known parsed import-owner
+red explicitly filtered. Its separate refreshed run still fails because the
+namespace-import value carries the raw owner. The separate targets and unchanged 1,053-file
+manifests tie those results to the actual slice executable. Strict library
+Clippy reports six errors: five also occur on the exact current-main baseline,
+and the additional unused module-copy writer remains unintegrated. No lint is
+suppressed. The [progress receipt](checker-module-clone-progress.json) preserves
+26-file slice and 32-file full-cutover patches, verified lossless replays, native
+source/output and binary identities, API/compiler failures and the semantic
+mutation failure. Historical `85f9c4cb` fields remain unchanged.
+
+Twelve further Anonymous-owner consumers now carry actual flags, cache/frame
+keys, raw parent/name or exact identity in the full private cutover. They are
+not qualified by the passing slice. Its compiler gate moves from 85 errors at
+replay, through 89 and 72, to 69 across twelve files; these are compiler
+observations, not a count of remaining work. The full checker still does not
+compile. Type/declared/member/class/naming consumers, other owner caches and
+merged publication remain unfinished.
+
+The existing publication predicate also excludes `intrinsics.error`, while
+native tests whether a link is nonnil. The port still conflates unsupported work
+and some computed failures at that boundary. This key migration does not
+certify all error/completion states or authorize broader reuse; preserve that
+boundary under `tsr-1yb.7.7.2` and `tsr-1yb.7.7.3`. The unfiltered parsed owner,
+alias-stack, full previously-RIGHT/diagnostic/performed-work and ordinary CLI
+performance gates still follow. No canonical runtime or speed win is retained.
 
 ## Consumer boundaries
 

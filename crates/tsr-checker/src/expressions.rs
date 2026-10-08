@@ -1152,6 +1152,7 @@ impl Checker<'_, '_> {
             // guard on `name` came off and the naming lives with the other
             // spellings in `symbols.rs`. A symbol the walk cannot name still
             // refuses there, exactly as this guard refused here.
+            Expression::MetaProperty(node) => self.check_meta_property_type(node),
             Expression::ClassExpression(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {
