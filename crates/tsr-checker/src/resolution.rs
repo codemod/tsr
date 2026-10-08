@@ -343,6 +343,15 @@ pub trait ModuleHost {
         SpecifierOptions::default()
     }
 
+    /// Whether any program file lives under `node_modules`. Every specifier
+    /// `ReportLikelyUnsafeImportRequiredError` can see is generated for such
+    /// a file (`symbol_chain`'s `node_modules` arm), so without one the
+    /// declaration-emit tracker has nothing to find. Defaulted to `true`,
+    /// which never skips the search.
+    fn has_node_modules_files(&self) -> bool {
+        true
+    }
+
     /// `module.IsApplicableVersionedTypesKey`: a `types@<range>` condition
     /// whose range admits this compiler's version. Defaulted to `false`.
     fn is_applicable_versioned_types_key(&self, _key: &str) -> bool {

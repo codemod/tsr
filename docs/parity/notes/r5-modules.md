@@ -403,3 +403,73 @@ declaration emitter's symbol tracker
 specifier the node builder generates contains `/node_modules/`), and this
 port has no producer for it. The specifier it needs now exists
 (`module_specifier_for_symbol`); the producer is declaration-emit work.
+
+## 6. TS2883: `ReportLikelyUnsafeImportRequiredError` (tsr-2zk.999)
+
+Granted by the integrator after §5, in r5-declemit2's tracker half (merged
+into this branch from `claude/beautiful-shannon-ar5gh0-r5-declemit2`, whose
+`inferred_type_reports` / `TrackerReport` it extends).
+
+**Native.** `typeReferenceToTypeNode`'s import-type arm
+(`nodebuilderimpl.go:660`-`:710`) generates `chain[0]`'s specifier; under
+`node16`/`nodenext` resolution a target emitted as ESM from a file of
+another format is generated in ESM mode *with* a `resolution-mode`
+attribute. If the specifier still contains `/node_modules/`
+(`FlagsAllowNodeModulesRelativePaths` is never set by declaration emit), it
+is generated again in the swapped mode (CommonJS for an ESM file, ESM
+otherwise); a result outside `node_modules` is written with the attribute.
+Otherwise the tracker reports `ReportLikelyUnsafeImportRequiredError(oldSpecifier,
+symbol.Name)` (`tracker.go:97`), at `errorLocation()` and naming
+`errorDeclarationNameWithFallback()`.
+
+**Here.** The serializer is the string printer, so the report is a sink:
+`Checker::unsafe_import_tracker` (`Some` only during one call) records
+`(specifier, symbol name, module)` where `symbol_chain`'s `node_modules` arm
+generates the `import("…").T` qualifier (`track_unsafe_import`,
+`module_specifiers.rs`). `DeclarationEmitResolver::inferred_type_reports`
+(`symbol_access.rs`) turns the sink on, prints the inferred type with the
+declaration as the enclosing node (`type_to_string_at`), and puts each
+entry through the two escapes above; the swapped-mode retry is
+`module_specifier_for_symbol_in_mode`, the existing specifier function
+with upstream's `overrideImportMode` threaded through the existing-import
+arm, the ending choice and `tryDirectoryWithPackageJson`'s import mode.
+`tsr_dts::accessibility` turns `LikelyUnsafeImportRequired` into TS2883 (or
+the two-argument message for an empty symbol name) with
+`errorDeclarationNameWithFallback`'s fallbacks (`export=`, `default`,
+`(Missing)`), and the conformance adapter maps the variant.
+
+Checker port convention record for the sink: native operation
+`SymbolTracker.ReportLikelyUnsafeImportRequiredError`; key identity none
+(a list, deduplicated by entry, one inferred type at a time); owner the
+`inferred_type_reports` call that installs and takes it (the previous value
+is restored, so a nested call cannot leak entries); publication states
+`None` (not tracking) / `Some(list)`; receiver/alias context the
+declaration being serialized; expensive work the one `type_to_string_at`
+print per asked declaration.
+
+**Cost, and the gate.** Printing every inferred type that declaration emit
+asks about is new work: both perf benches run declaration diagnostics, and
+the first version cost +2.5% / +2.3% instructions (callgrind,
+single-threaded: generic-imports 399,702,766 → 409,827,411, domain-model
+1,345,866,129 → 1,377,167,871; the printer's existing-import walk and
+module-indicator calls). Every specifier the sink can record is generated
+for a module file whose path contains `/node_modules/`, so
+`ModuleHost::has_node_modules_files` (the program has at least one) is an
+exact precondition, and the print is skipped without it. Gated:
+399,713,148 and 1,345,816,777 (+0.003% / −0.004%).
+
+Not tracked: the module-object route (`typeof import("…")`, whose `symbol`
+is the module itself) — its reports are missed, never invented.
+
+Measured: diagnostics +10 rows (`declarationEmitUnsafeImportSymbolName`,
+`legacyNodeModulesExportsSpecifierGenerationConditions`,
+`nodeModulesExportsBlocksSpecifierResolution` ×4,
+`nodeModulesExportsSourceTs` ×4), zero losses on either dump; types
+unchanged. The merged r5-declemit2 commits add their own +3
+(`declarationEmitMixinPrivateProtected`, `isolatedDeclarationErrorsAugmentation`,
+`privateFieldsInClassExpressionDeclaration`). The four TS2883 rows left
+print a different specifier or type today: `declarationEmitReexportedSymlinkReference3`
+(a symlinked package, §5.2), `declarationEmitUsingTypeAlias1`,
+`declarationEmitCommonJsModuleReferencedType` (a tuple-returning
+signature's members) and `declarationEmitObjectAssignedDefaultExport` (the
+default export's intersection type).
