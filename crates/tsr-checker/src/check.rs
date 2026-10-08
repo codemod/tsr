@@ -10879,35 +10879,11 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        // **A bare `yield` is an IDENTIFIER outside a generator**, in
-        // non-strict code — `function f(yield = yield) {}` and
-        // `{ [yield]: foo }` are legal and upstream's parser builds an
-        // identifier there. This parser builds a `YieldExpression`, so the rule
-        // would report on a name. Requiring an operand bounds it to the
-        // unambiguous form. **Owner: `tsr_parser`'s yield-context tracking** —
-        // 11 wrong lines measured, `FunctionDeclaration3_es6` and
-        // `FunctionDeclaration8_es6` at the head of them (§104).
-        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
-        if yielded.expression.is_none() {
-            return;
-        }
-        // The other two shapes `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
-        // (`parser.go:4171`) rejects, both decidable from the finished tree:
-        //
-        // - **`yield(foo)` is a CALL.** `(` is not an identifier, keyword or
-        //   literal, so upstream reads `yield` as the callee. This parser builds
-        //   a yield whose operand is a parenthesized expression.
-        // - **`yield * []` is a MULTIPLICATION.** `*` fails the lookahead too,
-        //   so outside a generator the asterisk is the operator. Inside one it
-        //   is `yield*`, which is why this is guarded by the context below
-        //   rather than declined outright.
-        //
-        // Both are §104's wrong column and both belong to `tsr_parser` (§106);
-        // these bounds keep the rule quiet until it is fixed there.
-        if matches!(yielded.expression, Some(tsr_ast::Expression::ParenthesizedExpression(_))) {
-            return;
-        }
-        if yielded.asterisk_token.is_some() {
+        // The parser ports `isYieldExpression`: outside a yield context a
+        // bare `yield` is an identifier, `yield(foo)` a call and `yield * x`
+        // a multiplication, so every `YieldExpression` here is one upstream
+        // also built.
+        if !matches!(self.node_map.get(node), Some(Node::YieldExpression(_))) {
             return;
         }
         // A **computed property name is evaluated in the ENCLOSING context**,

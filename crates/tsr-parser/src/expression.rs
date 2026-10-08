@@ -175,7 +175,7 @@ impl<'a> Parser<'a> {
     ) -> Expression<'a> {
         let start = self.pos();
 
-        if self.at(SyntaxKind::YieldKeyword) {
+        if self.is_yield_expression() {
             return self.parse_yield_expression();
         }
         if let Some(arrow) = self.try_parse_arrow_function(allow_return_type_in_arrow_function) {
@@ -296,30 +296,49 @@ impl<'a> Parser<'a> {
         left
     }
 
+    /// typescript-go's `Parser.isYieldExpression` (`parser.go:4150`): in a
+    /// yield context `yield` always opens one; elsewhere only when an
+    /// identifier, keyword or literal follows on the same line (`yield foo`
+    /// is no expression otherwise, while `yield(foo)` and `yield * x` are a
+    /// call and a multiplication).
+    fn is_yield_expression(&mut self) -> bool {
+        if !self.at(SyntaxKind::YieldKeyword) {
+            return false;
+        }
+        if self.in_yield_context() {
+            return true;
+        }
+        self.look_ahead(Self::next_token_is_identifier_or_keyword_or_literal_on_same_line)
+    }
+
+    /// `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine` (`parser.go:4011`).
+    fn next_token_is_identifier_or_keyword_or_literal_on_same_line(&mut self) -> bool {
+        self.next_token();
+        !self.token.has_preceding_line_break()
+            && (self.token.kind == SyntaxKind::Identifier
+                || self.token.kind.is_keyword()
+                || matches!(
+                    self.token.kind,
+                    SyntaxKind::NumericLiteral
+                        | SyntaxKind::BigIntLiteral
+                        | SyntaxKind::StringLiteral
+                ))
+    }
+
+    /// typescript-go's `Parser.parseYieldExpression` (`parser.go:4176`): an
+    /// operand (optionally after `*`) only when one starts on the same line.
     fn parse_yield_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.next_token();
-        let asterisk =
-            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
-        // `yield` may stand alone. Besides the usual statement enders, a closing
-        // delimiter ends it too: `{ [yield]: 1 }` and `f(yield)` are both legal.
-        // **`yield` may stand alone; `yield*` may not.** Once upstream takes the
-        // asterisk it calls `parseAssignmentExpression` unconditionally, and
-        // that call is what reports `Expression expected` for `yield*` with
-        // nothing after it. The test below is right for the bare form and was
-        // applied to both because they share a function.
-        // `docs/architecture/checker-notes-diag2.md` §572.
-        let has_operand = asterisk.is_some()
-            || (!self.can_parse_semicolon()
-                && !self.token.has_preceding_line_break()
-                && !matches!(
-                    self.token.kind,
-                    SyntaxKind::CloseBracketToken
-                        | SyntaxKind::CloseParenToken
-                        | SyntaxKind::CommaToken
-                        | SyntaxKind::ColonToken
-                ));
-        let expression = if has_operand { Some(self.parse_assignment_expression()) } else { None };
+        let (asterisk, expression) = if !self.token.has_preceding_line_break()
+            && (self.at(SyntaxKind::AsteriskToken) || self.is_start_of_expression())
+        {
+            let asterisk =
+                if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+            (asterisk, Some(self.parse_assignment_expression()))
+        } else {
+            (None, None)
+        };
         let node = self.finish_node(
             YieldExpression::new(asterisk, expression),
             SyntaxKind::YieldExpression,
@@ -1280,7 +1299,13 @@ impl<'a> Parser<'a> {
             // — a `KeywordExpression` has no name — so every such reference
             // became anonymous. Upstream falls through to `parseIdentifier()`
             // here for the same reason.
-            kind if kind.is_keyword() && !crate::statement::is_reserved_word(kind) => {
+            // `parseIdentifierWithDiagnostic(Expression_expected)` takes the
+            // keyword only where `isIdentifier` does: `yield` in a generator
+            // falls through to the report below.
+            kind if kind.is_keyword()
+                && !crate::statement::is_reserved_word(kind)
+                && self.is_identifier() =>
+            {
                 Expression::Identifier(self.parse_identifier())
             }
             _ => {
@@ -1489,12 +1514,14 @@ impl<'a> Parser<'a> {
             // `{ async m() { await x } }` — an object-literal method's await
             // context is its own, exactly as a class method's is. §193.
             let is_async = Self::is_async(&modifiers);
-            let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
-                let parameters = parser.parse_parameter_list();
-                let return_type = parser.parse_return_type_annotation();
-                let body = FunctionBody::Block(parser.parse_block());
-                (parameters, return_type, Some(body))
-            });
+            let is_generator = asterisk.is_some();
+            let (parameters, return_type, body) =
+                self.with_function_context(is_generator, is_async, |parser| {
+                    let parameters = parser.parse_parameter_list();
+                    let return_type = parser.parse_return_type_annotation();
+                    let body = FunctionBody::Block(parser.parse_block());
+                    (parameters, return_type, Some(body))
+                });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -1619,7 +1646,8 @@ impl<'a> Parser<'a> {
             // `parseArrowFunctionExpressionBody` sets the await context from
             // `isAsync` (`parser.go:4484`) — the *body*'s context, which is why
             // it is entered after the `=>` rather than around the parameter.
-            let body = self.with_await_context(async_modifier.is_some(), |p| {
+            // It clears the yield context.
+            let body = self.with_function_context(false, async_modifier.is_some(), |p| {
                 p.parse_arrow_body(allow_return_type_in_arrow_function)
             });
             let parameters = self.arena.alloc_slice(&[parsed]);
@@ -1705,7 +1733,8 @@ impl<'a> Parser<'a> {
             // Parameters take the signature's await context (`parser.go:3299`),
             // the body the same one (`:4484`); the `=>` between them is
             // neither's.
-            parser.with_await_context(is_async, |parser| {
+            // An arrow's signature flags never carry `ParseFlagsYield`.
+            parser.with_function_context(false, is_async, |parser| {
                 let parameters = if allow_ambiguity {
                     parser.parse_parameter_list()
                 } else {
@@ -1729,7 +1758,7 @@ impl<'a> Parser<'a> {
             last_token,
             SyntaxKind::EqualsGreaterThanToken | SyntaxKind::OpenBraceToken
         ) {
-            self.with_await_context(is_async, |p| {
+            self.with_function_context(false, is_async, |p| {
                 p.parse_arrow_body(allow_return_type_in_arrow_function)
             })
         } else {
@@ -1820,7 +1849,7 @@ impl<'a> Parser<'a> {
                         && (tristate == Some(true)
                             || p.look_ahead(|p| {
                                 p.parse_type_parameters();
-                                p.with_await_context(true, |p| {
+                                p.with_function_context(false, true, |p| {
                                     p.parse_unambiguous_parameter_list().is_some()
                                 })
                             }))
@@ -2411,6 +2440,8 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+        let is_generator = asterisk.is_some();
+        let is_async = async_modifier.is_some();
         // A function expression's name is optional and scoped to itself.
         let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             None
@@ -2418,13 +2449,14 @@ impl<'a> Parser<'a> {
             Some(self.parse_identifier())
         };
         let type_parameters = self.parse_type_parameters();
-        // The signature's own await context — see `parse_function_declaration`.
-        let is_async = async_modifier.is_some();
-        let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
-            let parameters = parser.parse_parameter_list();
-            let return_type = parser.parse_return_type_annotation();
-            (parameters, return_type, FunctionBody::Block(parser.parse_block()))
-        });
+        // The signature's own yield/await context — see
+        // `parse_function_declaration`.
+        let (parameters, return_type, body) =
+            self.with_function_context(is_generator, is_async, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                (parameters, return_type, FunctionBody::Block(parser.parse_block()))
+            });
 
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);
@@ -2497,14 +2529,17 @@ impl<'a> Parser<'a> {
                 && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16))
     }
 
-    /// typescript-go's `Parser.isIdentifier` (`parser.go`): an identifier or
-    /// a contextual keyword, except `await` inside an await context. The
-    /// `yield`-in-generator half is unported with the yield context (§193).
+    /// typescript-go's `Parser.isIdentifier` (`parser.go:6248`): an
+    /// identifier or a contextual keyword, except `yield` inside a yield
+    /// context and `await` inside an await context.
     pub(crate) fn is_identifier(&self) -> bool {
         if self.at(SyntaxKind::Identifier) {
             return true;
         }
-        if self.at(SyntaxKind::AwaitKeyword) && self.in_await_context {
+        if self.at(SyntaxKind::YieldKeyword) && self.in_yield_context() {
+            return false;
+        }
+        if self.at(SyntaxKind::AwaitKeyword) && self.in_await_context() {
             return false;
         }
         self.token.kind.is_keyword()
@@ -2529,32 +2564,15 @@ impl<'a> Parser<'a> {
     /// gets the first right and the second wrong; a port with neither, as this
     /// one had, gets the first wrong and the second right. §193.
     fn is_await_expression(&mut self) -> bool {
-        if self.in_await_context {
+        if self.in_await_context() {
             return true;
         }
-        self.look_ahead(|parser| {
-            parser.next_token();
-            // `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
-            // (`parser.go:4011`).
-            !parser.token.has_preceding_line_break()
-                && (parser.token.kind == SyntaxKind::Identifier
-                    || parser.token.kind.is_keyword()
-                    || matches!(
-                        parser.token.kind,
-                        SyntaxKind::NumericLiteral
-                            | SyntaxKind::BigIntLiteral
-                            | SyntaxKind::StringLiteral
-                    ))
-        })
+        self.look_ahead(Self::next_token_is_identifier_or_keyword_or_literal_on_same_line)
     }
 
     /// Whether a left-hand-side expression can start at the cursor.
     ///
-    /// Upstream's `isStartOfLeftHandSideExpression` (`parser.go:6167`). The one
-    /// deviation is the fallback: upstream's is `isIdentifier`, which refuses
-    /// `yield`/`await` inside a yield or await context, and this port has no
-    /// yield context (§193), so it uses [`Self::is_binding_identifier`] —
-    /// upstream's own context-free variant of the same test.
+    /// Upstream's `isStartOfLeftHandSideExpression` (`parser.go:6167`).
     pub(crate) fn is_start_of_left_hand_side_expression(&mut self) -> bool {
         match self.token.kind {
             SyntaxKind::ThisKeyword
@@ -2585,7 +2603,7 @@ impl<'a> Parser<'a> {
                     SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken | SyntaxKind::DotToken
                 )
             }),
-            _ => self.is_binding_identifier(),
+            _ => self.is_identifier(),
         }
     }
 

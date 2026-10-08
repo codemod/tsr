@@ -200,21 +200,15 @@ pub struct Parser<'a> {
     /// the loop header malformed. A counter rather than a bool because the
     /// restriction nests: `for ((a in b);;)` re-enables it inside the parens.
     pub(crate) no_in: u32,
-    /// Whether `await` is a keyword here rather than an identifier.
-    ///
-    /// Upstream's `NodeFlagsAwaitContext` bit of `Parser.contextFlags`
-    /// (`parser.go:6380`). A bool with save-and-restore rather than a counter,
-    /// because the context is *set to a value* at each boundary and not merely
-    /// pushed: a non-async function nested inside an async one turns it back
-    /// **off**, which a counter cannot express. Use
-    /// [`Parser::with_await_context`].
-    ///
-    /// Only `await` is tracked. Upstream carries `YieldContext` and
-    /// `DisallowInContext` in the same word; `no_in` below is this port's
-    /// counter for the third, and the yield context has no reader here yet —
-    /// `is_binding_identifier` is upstream's own context-free test, and
-    /// `isYieldExpression`'s context half is unported. §193.
-    pub(crate) in_await_context: bool,
+    /// Upstream's `Parser.contextFlags` yield/await bits
+    /// (`NodeFlagsYieldContext`, `NodeFlagsAwaitContext`, `parser.go:6364`):
+    /// set *to a value* at each signature boundary and restored after, so a
+    /// non-async function nested in an async one turns `await` back into an
+    /// identifier. Set through [`Parser::with_function_context`] from a
+    /// signature's `*`/`async`; cleared by arrow bodies (yield), class static
+    /// blocks (yield; await on), enum members and property initializers.
+    /// `DisallowInContext` is `no_in`.
+    context_flags: tsr_ast::NodeFlags,
     /// Non-zero while a nested type may not consume a conditional `extends`.
     ///
     /// The extends-side of a conditional type uses this to resolve
@@ -343,7 +337,7 @@ impl<'a> Parser<'a> {
             // makes top-level `await` legal there; this port does not make that
             // decision in the parser, so a top-level `await` outside a function
             // still goes through `isAwaitExpression`'s lookahead half. §193.
-            in_await_context: false,
+            context_flags: tsr_ast::NodeFlags::empty(),
             disallow_conditional_types: 0,
             parsing_contexts: 0,
             jsdoc: Vec::new(),
@@ -533,22 +527,32 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Run `f` with [`Self::in_await_context`] set to `value`, restoring it after.
-    ///
-    /// Upstream's `saveContextFlags := p.contextFlags` /
-    /// `p.setContextFlags(ast.NodeFlagsAwaitContext, …)` /
-    /// `p.contextFlags = saveContextFlags` triple, which appears at every
-    /// signature, function body, arrow body, class static block and enum body
-    /// in `parser.go`.
-    pub(crate) fn with_await_context<T>(
+    /// Run `f` with both the yield and await context bits set, restoring them
+    /// after: a signature's `ParseFlagsYield`/`ParseFlagsAwait` applied by
+    /// `parseParametersWorker` and `parseFunctionBlock` (`parser.go:3298`,
+    /// `:3498`), or a construct that clears both.
+    pub(crate) fn with_function_context<T>(
         &mut self,
-        value: bool,
+        in_yield: bool,
+        in_await: bool,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let saved = std::mem::replace(&mut self.in_await_context, value);
+        let saved = self.context_flags;
+        self.context_flags.set(tsr_ast::NodeFlags::YIELD_CONTEXT, in_yield);
+        self.context_flags.set(tsr_ast::NodeFlags::AWAIT_CONTEXT, in_await);
         let result = f(self);
-        self.in_await_context = saved;
+        self.context_flags = saved;
         result
+    }
+
+    /// `inYieldContext` (`parser.go:6364`).
+    pub(crate) fn in_yield_context(&self) -> bool {
+        self.context_flags.contains(tsr_ast::NodeFlags::YIELD_CONTEXT)
+    }
+
+    /// `inAwaitContext` (`parser.go:6380`).
+    pub(crate) fn in_await_context(&self) -> bool {
+        self.context_flags.contains(tsr_ast::NodeFlags::AWAIT_CONTEXT)
     }
 
     fn save_state(&self) -> ParserState {

@@ -493,3 +493,15 @@ per-file flag must become per-node.
   identifierOrKeyword` is TS1003 right after the dot with a missing
   identifier, so `var x: M.` before `namespace N {` leaves the declaration
   intact.
+- Yield context (`NodeFlagsYieldContext`, `isYieldExpression`,
+  `parseYieldExpression`, `isIdentifier`): the parser keeps upstream's
+  `contextFlags` yield/await bits; the yield bit is set beside
+  the await context by `with_function_context` from each signature's `*`
+  (function declarations/expressions, class and object-literal methods) and
+  cleared by constructors, accessors, arrow signatures/bodies, class static
+  blocks, enum members, property initializers and type-member parameters.
+  Outside it `yield` opens an expression only before an identifier, keyword
+  or literal on the same line; inside it `yield` is no identifier, so
+  `<T> yield 0` in a generator is TS1109. `yield` takes an operand only when
+  one starts on the same line. The checker's TS1163 declines that stood in
+  for the missing context are removed.
