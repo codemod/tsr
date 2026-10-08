@@ -672,6 +672,16 @@ impl<'a> Checker<'a, '_> {
         if self.nodes.kind(declaration) != SyntaxKind::NamespaceImport {
             return None;
         }
+        // `resolveESModuleSymbol` (`checker.go:15568`) asks
+        // `getTypeWithSyntheticDefaultOnly` before anything else: a JSON
+        // module imported with ES syntax under node16+ is `{ default: T }`.
+        if let Some(specifier) = self.import_declaration_specifier(declaration)
+            && let Some(module) = self.resolve_external_module_name(declaration, specifier)
+            && let Some(wrapper) =
+                self.get_type_with_synthetic_default_only(target, module, specifier)
+        {
+            return Some(wrapper);
+        }
         let target = self.resolve_alias_fully(target);
         let target_flags = self.binder.symbols().get(target).flags;
         let kind = if target_flags.contains(SymbolFlags::CLASS) {
@@ -687,7 +697,7 @@ impl<'a> Checker<'a, '_> {
             // (`module_clone_default_symbol`). names-modules notes §5.
             None
         } else {
-            return None;
+            return self.namespace_import_default_member_type(declaration, value);
         };
         // resolveESModuleSymbol's `module.exports` arm answers that export
         // itself, not a module copy (`namespace_import_module_exports`).
@@ -741,6 +751,40 @@ impl<'a> Checker<'a, '_> {
             self.anonymous_properties.insert(clone, (properties, false));
         }
         Some(clone)
+    }
+
+    /// `resolveESModuleSymbol`'s third arm (`checker.go:15610`) for a module
+    /// whose type has a `default` member and neither signatures nor an
+    /// ESM-to-CommonJS reference (those two are [`Checker::module_clone_type`]'s
+    /// own arms): a structured type becomes
+    /// [`Checker::get_type_with_synthetic_default_import_type`]. `None` keeps
+    /// the plain module type, which is also native's answer when the module
+    /// cannot have a synthetic default (`syntheticType = t`, cloned unchanged).
+    /// `docs/parity/notes/r5-modexports.md` §3.
+    fn namespace_import_default_member_type(
+        &mut self,
+        declaration: NodeId,
+        value: TypeId,
+    ) -> Option<TypeId> {
+        // `TypeFlagsStructuredType`: Object | Union | Intersection.
+        if !self
+            .store
+            .get(value)
+            .flags
+            .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::INTERSECTION)
+            || self.get_property_of_type_ex(value, "default", true).is_none()
+        {
+            return None;
+        }
+        let owner = self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))?;
+        let specifier = self.external_module_name(owner)?;
+        // The `module.exports` arm answers that export, not a module type.
+        if self.namespace_import_module_exports(owner, specifier).is_some() {
+            return None;
+        }
+        let module = self.resolve_external_module_name(declaration, specifier)?;
+        let synthetic = self.get_type_with_synthetic_default_import_type(value, module, specifier);
+        (synthetic != value).then_some(synthetic)
     }
 
     /// The synthetic default aliases the export-equals value. Reuse that
@@ -1512,13 +1556,12 @@ impl<'a> Checker<'a, '_> {
         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
         // same shape, the specifier just lives on the tag.
         let specifier = match self.node_map.get(parent)? {
-            // §292's narrowing: an import carrying ATTRIBUTES declines — the
-            // attribute validity rules are unported, and upstream errors the
-            // whole import where this road would type through it
-            // (`importAttributes7/8`, the pair's 2 R→W).
-            Node::ImportDeclaration(import) if import.attributes.is_none() => {
-                import.module_specifier
-            }
+            // `getTargetOfImportClause` (`checker.go:14528`) does not read the
+            // attributes: `import a from "./a" with { … }` types through, and
+            // `checkImportAttributes` (`import_attributes.rs`) reports on the
+            // attributes alone. §292's decline predated that port;
+            // `docs/parity/notes/r5-modexports.md` §2.
+            Node::ImportDeclaration(import) => import.module_specifier,
             Node::JSDocImportTag(import) => import.module_specifier,
             _ => return None,
         };
@@ -1755,7 +1798,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `isOnlyImportableAsDefault` (`checker.go:14800`): under `node16`..
     /// `nodenext`, an ES-syntax usage of a JSON module.
-    fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
+    pub(crate) fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
         if !(tsr_core::ModuleKind::Node16..=tsr_core::ModuleKind::NodeNext)
             .contains(&self.module_kind)
         {
@@ -1958,11 +2001,10 @@ impl<'a> Checker<'a, '_> {
         if export.module_specifier.is_some() {
             // `ast.ModuleExportNameIsDefault` reads `Text()`, so a
             // string-literal `"default"` takes the default road too.
-            if export.attributes.is_none()
-                && specifier
-                    .property_name
-                    .or(specifier.name)
-                    .is_some_and(crate::module_exports::module_export_name_is_default)
+            if specifier
+                .property_name
+                .or(specifier.name)
+                .is_some_and(crate::module_exports::module_export_name_is_default)
             {
                 let module_specifier = export.module_specifier?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
@@ -2011,7 +2053,6 @@ impl<'a> Checker<'a, '_> {
                 .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))
                 .is_some_and(crate::module_exports::module_export_name_is_default)
             && let Some(Node::ImportDeclaration(node)) = self.node_map.get(import)
-            && node.attributes.is_none()
         {
             let module_specifier = node.module_specifier?.node_id()?;
             let module = self.resolve_external_module_name(declaration, module_specifier)?;
