@@ -226,7 +226,12 @@ impl<'a> Checker<'a, '_> {
     /// `get_index_infos_of_type` and `get_type_of_property_of_type` queries,
     /// run once per checked declaration. A type whose property table cannot be
     /// enumerated (`None`) is declined rather than checked partially.
-    fn check_index_constraints_of_type(&mut self, ty: TypeId, owner: SymbolId, is_static: bool) {
+    pub(crate) fn check_index_constraints_of_type(
+        &mut self,
+        ty: TypeId,
+        owner: SymbolId,
+        is_static: bool,
+    ) {
         let Some(infos) = self.get_index_infos_of_type(ty) else { return };
         if infos.is_empty() {
             return;
