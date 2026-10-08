@@ -1313,7 +1313,7 @@ impl Checker<'_, '_> {
 
     /// getTypeWithThisArgument retains the original receiver when member
     /// lookup proceeds through its apparent constraint.
-    fn get_type_of_property_with_this_argument(
+    pub(crate) fn get_type_of_property_with_this_argument(
         &mut self,
         id: TypeId,
         name: &str,
