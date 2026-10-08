@@ -460,3 +460,30 @@ It now records which tables exist (locals, exports, class-expression name,
 globals) in the same order and copies each when the loop reaches it, so a
 name found in its file's locals never copies globals. Iteration order within
 a table is the table's own, as before.
+
+### §15.5 Interface call/construct signatures publish once per checker
+
+Native op: `resolveClassOrInterfaceMembers` → `resolveObjectTypeMembers`
+(pinned 5b1047d) stores an interface's declared `CallSignatures` /
+`ConstructSignatures` on its structured type; every later
+`getSignaturesOfType` reads them. TSR's
+`signature_candidates_of_interface_symbol` (`signatures.rs`) re-walked the
+heritage clauses on every query — resolving each base entity,
+instantiating it (`instantiated_heritage_base`) and instantiating the base's
+signatures — and `get_property_of_type_ex` asks for both kinds on every
+property miss of an object type (the `Function`/`Object` augment test).
+
+- **Key and owner:** (merged interface or type-literal symbol, kind) →
+  `Vec<Signature>` in `Checker::interface_signatures`, private to the
+  checker for its lifetime, like native per-checker type links.
+- **Publication:** only a completed `Some` is stored. `None` (a cycle on the
+  `visiting` stack, an unresolvable or invalid base, an unbuilt
+  declaration) is not stored and recomputes, exactly as before.
+- **Receiver context:** the stored set is the declared type's, before the
+  receiver mapper; `signature_candidates_of_named_type` still instantiates
+  it for each receiver per query.
+- **Work boundary:** domain-model-large, all four checkers: 372k queries →
+  7.3k worker runs; 99.9% of hits are empty sets.
+
+Dumps byte-identical to the base. Checker-0 CPU −6% against the previous
+step (15 pairs).

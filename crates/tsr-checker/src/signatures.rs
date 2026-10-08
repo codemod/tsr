@@ -189,7 +189,7 @@ pub struct TypeParameter {
 /// selects `ast.KindConstructorType` for a construct signature
 /// (`nodebuilderimpl.go:2712`) and puts the `abstract` modifier on the node it
 /// builds when the flag is set (`nodebuilderimpl.go:1834`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignatureKind {
     /// `(x: T) => U`.
     Call,
@@ -1091,6 +1091,21 @@ impl<'a> Checker<'a, '_> {
     /// resolveObjectTypeMembers: declared signatures precede inherited ones.
     /// Each base is instantiated before its signatures enter the derived set.
     /// A symbol stack rejects cycles without truncating valid deep inheritance.
+    ///
+    /// # Publication (`resolveObjectTypeMembers`, pinned 5b1047d)
+    ///
+    /// Native resolves an interface's declared type's members once
+    /// (`resolveClassOrInterfaceMembers` → `resolveObjectTypeMembers`, its
+    /// `CallSignatures`/`ConstructSignatures` stored on the structured type).
+    /// The answer here is that declared set — before the receiver's mapper,
+    /// which [`Checker::signature_candidates_of_named_type`] applies per
+    /// query — so it is keyed by the merged interface/type-literal symbol and
+    /// the kind, owned by this checker for its lifetime (`interface_signatures`).
+    /// Only a completed `Some` publishes; `None` (a cycle on the `visiting`
+    /// stack, an unresolvable base or an unbuilt declaration) is not stored and
+    /// is recomputed on the next query, as before. The expensive work it saves
+    /// is the base walk: `base_symbol_of_heritage_entry`,
+    /// `instantiated_heritage_base` and the per-base signature instantiation.
     fn signature_candidates_of_interface_symbol(
         &mut self,
         symbol: SymbolId,
@@ -1098,10 +1113,27 @@ impl<'a> Checker<'a, '_> {
         visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<Signature>> {
         let symbol = self.binder.merged_symbol(symbol);
+        if let Some(done) = self.interface_signatures.get(&(symbol, kind)) {
+            return Some(done.clone());
+        }
         if visiting.contains(&symbol) {
             return None;
         }
         visiting.push(symbol);
+        let result = self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        visiting.pop();
+        if let Some(signatures) = &result {
+            self.interface_signatures.insert((symbol, kind), signatures.clone());
+        }
+        result
+    }
+
+    fn signature_candidates_of_interface_symbol_worker(
+        &mut self,
+        symbol: SymbolId,
+        kind: SignatureKind,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<Signature>> {
         let declarations: Vec<NodeId> =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut elements: Vec<NodeId> = Vec::new();
@@ -1170,7 +1202,6 @@ impl<'a> Checker<'a, '_> {
         // Own members first, then the bases' — upstream appends the inherited
         // set after the declared one.
         candidates.extend(inherited);
-        visiting.pop();
         Some(candidates)
     }
 

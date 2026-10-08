@@ -156,6 +156,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
     /// `aliasSymbolLinks.aliasTarget`, owned by [`Checker::resolve_alias`].
     pub(crate) alias_targets: FxHashMap<SymbolId, crate::symbols::AliasTarget>,
+    /// Completed declared call/construct signatures of an interface or type
+    /// literal symbol, owned by `Checker::signature_candidates_of_interface_symbol`.
+    pub(crate) interface_signatures:
+        FxHashMap<(SymbolId, crate::signatures::SignatureKind), Vec<crate::signatures::Signature>>,
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
@@ -1356,6 +1360,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
             alias_targets: FxHashMap::default(),
+            interface_signatures: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
             file_commonjs_machinery: FxHashMap::default(),
             global_this_type: None,
