@@ -47,7 +47,7 @@ pub(crate) struct PerfLinks {
     /// `resolveObjectTypeMembers` publishing the declared type's
     /// `resolvedProperties`, read by name. Holds only decided answers
     /// (`r4-perf2.md` §3).
-    pub(crate) structured_property_names: FxHashMap<SymbolId, Vec<String>>,
+    pub(crate) structured_property_names: FxHashMap<SymbolId, std::rc::Rc<[String]>>,
     /// The `(owner, is_static)` entries of `Checker::late_bound_member_names`
     /// whose `late_bound_members_of` computation is running: their parked
     /// empty list is a placeholder, not a completed answer. Native resolves

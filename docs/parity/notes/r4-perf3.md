@@ -144,3 +144,30 @@ operations is within noise (+0.005% when measured on the full stack:
 
 **How we would know it is wrong.** A completed late-bound list missing from
 a published C2 name list — the unit tests above pin the active case.
+
+## §4 Shared property-name lists (`get_property_names_of_type_shared`)
+
+**Forcing measurement.** At §3's state, every C2 hit cloned the published
+`Vec<String>` (r4-perf2 §3: 1.18% Ir), and the consumers then dropped it:
+`Relater::is_pure_signature_type` alone asked 36,811 times on p100 (of
+24,189 C2 reads in all) and freed 262,806 allocations doing so.
+
+**Change.** `PerfLinks::structured_property_names` holds `Rc<[String]>`.
+`get_property_names_of_type`'s body becomes `property_names_of_type`,
+answering a private `PropertyNames::{Owned(Vec), Shared(Rc)}`;
+`get_property_names_of_type` keeps its `Option<Vec<String>>` signature
+(`into_vec`, a copy only for a shared list — what the clone cost before),
+and `get_property_names_of_type_shared` answers `Option<Rc<[String]>>`
+(`into_shared`: no copy for a shared list, one header move for a built
+one). Same enumeration, same order, same side effects; only the return
+representation differs. Callers are not migrated wholesale: the 100 call
+sites are in 20 files owned by other lanes, and only one is hot —
+`is_pure_signature_type`, migrated here. Others move when a profile names
+them (the next is `properties_related_to_with_optionals`, 8,840 calls,
+0.4% in `into_vec`).
+
+**Identity, owner, publication.** Unchanged from r4-perf2 §3; `Rc` is not
+`Send`, which is fine because `PerfLinks` is one checker's.
+
+**How we would know it is wrong.** It cannot change an answer unless a
+consumer mutated a list it got from the memo, which `Rc<[String]>` forbids.
