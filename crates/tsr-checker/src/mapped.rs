@@ -47,13 +47,16 @@ impl<'a> Checker<'a, '_> {
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<TypeId> {
         let info = self.mapped_type_info(node)?;
+        if !self.is_generic_mapped_info(&info) {
+            return self.resolved_mapped_object(info);
+        }
         let text = self.mapped_type_text(&info)?;
         let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
         self.mapped_types.insert(ty, info);
         Some(ty)
     }
 
-    fn mapped_type_text(&self, info: &MappedTypeInfo) -> Option<String> {
+    fn mapped_type_text(&mut self, info: &MappedTypeInfo) -> Option<String> {
         let Some(Node::MappedTypeNode(node)) = self.node_map.get(info.declaration) else {
             return None;
         };
@@ -75,7 +78,16 @@ impl<'a> Checker<'a, '_> {
             } else {
                 self.type_to_string(info.constraint)
             };
-        let template = self.type_to_string(info.template);
+        // createMappedTypeNodeFromType (nodebuilderimpl.go:1471) prints
+        // removeMissingType(getTemplateTypeFromMappedType(t), isOptional): the
+        // template with `?`'s optionality, minus the missing type that exact
+        // optional properties add (r4-mapped.md §3).
+        let template = if self.exact_optional_property_types {
+            info.template
+        } else {
+            self.mapped_template_type(info)
+        };
+        let template = self.type_to_string(template);
         let readonly = match node.readonly_token.map(|token| token.kind) {
             None => "",
             Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
@@ -292,6 +304,19 @@ impl<'a> Checker<'a, '_> {
         } else {
             modifiers_source = self.indirect_mapped_modifiers_source(constraint);
             self.mapped_constraint_type(constraint)
+        };
+        // getConstraintFromTypeParameter (checker.go:17085): an `any` key
+        // constraint of a mapped type parameter is stringNumberSymbolType.
+        let constraint = if constraint != self.intrinsics.error
+            && self.store.get(constraint).flags.contains(crate::flags::TypeFlags::ANY)
+        {
+            self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ])
+        } else {
+            constraint
         };
         self.mapped_template_depth += 1;
         let template = self.get_type_from_type_node(template);
@@ -561,7 +586,12 @@ impl<'a> Checker<'a, '_> {
                 }
                 keys.push(key);
             }
-            if let Some(indexes) = self.get_index_infos_of_type(source) {
+            // forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType
+            // (checker.go:22731): an `any` modifiers type contributes a
+            // string key in place of index signatures.
+            if self.store.get(source).flags.contains(TypeFlags::ANY) {
+                keys.push(self.intrinsics.string);
+            } else if let Some(indexes) = self.get_index_infos_of_type(source) {
                 keys.extend(indexes.into_iter().map(|index| index.key));
             }
         } else {
@@ -652,8 +682,21 @@ impl<'a> Checker<'a, '_> {
         names
     }
 
-    fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
+    /// isTypeUsableAsPropertyName/getPropertyNameFromType (checker.go): a
+    /// string or number literal key names a property by its value. Native
+    /// also admits enum literals; that arm is held until flow names an
+    /// enum-member element access as tryGetNameFromEntityNameExpression does
+    /// (r5-mapped3.md §2).
+    fn mapped_key_property_name(&self, ty: TypeId) -> Option<String> {
         use crate::types::TypeData;
+        match &self.store.get(ty).data {
+            TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
+        use crate::{flags::TypeFlags, types::TypeData};
         let Some(info) = self.mapped_types.get(&id).cloned() else { return };
         if self.anonymous_properties.contains_key(&id) {
             return;
@@ -681,18 +724,13 @@ impl<'a> Checker<'a, '_> {
                 if self.signature_parameter_type_is_generic(name) {
                     return;
                 }
+                // Keys naming one property share it; native unions their key
+                // types under the shared name (resolveMappedTypeMembers).
+                let property_name = self.mapped_key_property_name(name);
                 if let Some((_, keys, _)) = members.iter_mut().find(|(existing, _, _)| {
-                    matches!(
-                        self.store.get(name).data,
-                        TypeData::StringLiteral(_) | TypeData::NumberLiteral(_)
-                    ) && (existing == &name
-                        || match (&self.store.get(*existing).data, &self.store.get(name).data) {
-                            (
-                                TypeData::StringLiteral(a) | TypeData::NumberLiteral(a),
-                                TypeData::StringLiteral(b) | TypeData::NumberLiteral(b),
-                            ) => a == b,
-                            _ => false,
-                        })
+                    property_name.is_some()
+                        && (existing == &name
+                            || self.mapped_key_property_name(*existing) == property_name)
                 }) {
                     *keys = self.get_union_type(&[*keys, key]);
                 } else {
@@ -708,20 +746,26 @@ impl<'a> Checker<'a, '_> {
         let mut properties = Vec::new();
         let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
         for (name_type, key, first_key) in members {
-            let name = match &self.store.get(name_type).data {
-                TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
-                _ => None,
-            };
-            let Some(name) = name else {
+            let Some(name) = self.mapped_key_property_name(name_type) else {
+                // The index-signature arm instantiates templateType, which
+                // getTemplateTypeFromMappedType built with addOptionality
+                // (checker.go:22697): `Partial`-style `?` maps include
+                // undefined in the index value (r4-mapped.md §3).
+                let template = self.mapped_template_type(&info);
                 let value = self.instantiate_type(
-                    info.template,
+                    template,
                     &[(info.parameter, key)],
                     &[info.parameter],
                     &[],
                 );
-                if self.is_valid_index_key_type(name_type) || name_type == self.intrinsics.any {
-                    let key = if name_type == self.intrinsics.any {
+                let name_flags = self.store.get(name_type).flags;
+                if self.is_valid_index_key_type(name_type)
+                    || name_flags.intersects(TypeFlags::ANY | TypeFlags::ENUM)
+                {
+                    let key = if name_flags.intersects(TypeFlags::ANY | TypeFlags::STRING) {
                         self.intrinsics.string
+                    } else if name_flags.intersects(TypeFlags::NUMBER | TypeFlags::ENUM) {
+                        self.intrinsics.number
                     } else {
                         name_type
                     };
@@ -751,10 +795,7 @@ impl<'a> Checker<'a, '_> {
             {
                 continue;
             }
-            let source_name = match &self.store.get(first_key).data {
-                TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
-                _ => None,
-            };
+            let source_name = self.mapped_key_property_name(first_key);
             let source_property = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.get_property_of_type(source, name));
@@ -847,7 +888,7 @@ impl<'a> Checker<'a, '_> {
         parameters: &[TypeId],
         names: &[&str],
     ) -> TypeId {
-        use crate::{flags::TypeFlags, objects::Member};
+        use crate::flags::TypeFlags;
         let Some(mut info) = self.mapped_types.get(&id).cloned() else {
             return self.intrinsics.error;
         };
@@ -895,12 +936,21 @@ impl<'a> Checker<'a, '_> {
         {
             return self.intrinsics.error;
         }
-        let Some(text) = self.mapped_type_text(&info) else { return self.intrinsics.error };
+        self.resolved_mapped_object(info).unwrap_or(self.intrinsics.error)
+    }
+
+    /// createTypeNodeFromObjectType (nodebuilderimpl.go:2690) for a mapped
+    /// type: resolveMappedTypeMembers' table printed as a type literal. When
+    /// member resolution declines, the mapped form stands in, as
+    /// createMappedTypeNodeFromType would print it.
+    fn resolved_mapped_object(&mut self, info: MappedTypeInfo) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, objects::Member};
+        let text = self.mapped_type_text(&info)?;
         let mapped = self.store.new_named(TypeFlags::OBJECT, text, None);
         self.mapped_types.insert(mapped, info.clone());
         self.resolve_mapped_type_members(mapped);
         let Some((properties, _)) = self.anonymous_properties.get(&mapped).cloned() else {
-            return mapped;
+            return Some(mapped);
         };
         let indexes = self.object_literal_index_infos.get(&mapped).cloned().unwrap_or_default();
         let mut members: Vec<_> = indexes
@@ -923,7 +973,25 @@ impl<'a> Checker<'a, '_> {
         self.mapped_types.insert(result, info);
         self.anonymous_properties.insert(result, (properties, true));
         self.object_literal_index_infos.insert(result, indexes);
-        result
+        Some(result)
+    }
+
+    /// isGenericMappedType (checker.go:24908): a generic key domain, or an
+    /// `as` clause that is still generic once the constraint is substituted
+    /// for the iteration type parameter.
+    fn is_generic_mapped_info(&mut self, info: &MappedTypeInfo) -> bool {
+        if self.is_generic_index_type(info.constraint) {
+            return true;
+        }
+        info.name_type.is_some_and(|name| {
+            let name = self.instantiate_type(
+                name,
+                &[(info.parameter, info.constraint)],
+                &[info.parameter],
+                &[],
+            );
+            self.is_generic_index_type(name)
+        })
     }
 
     /// instantiateMappedArrayType/instantiateMappedTupleType
@@ -1553,5 +1621,39 @@ function read<T extends { a: string; b: number } | { a: string; c: boolean }, K 
                 }
             }
         }
+    }
+
+    #[test]
+    fn any_key_domains_resolve_to_index_signatures() {
+        // getConstraintFromTypeParameter (checker.go:17085): an `any` key
+        // constraint is string | number | symbol. An `any` modifiers type
+        // contributes a string key (checker.go:22731).
+        let source = "type Id<T> = { [K in keyof T]: T[K] };
+function read(a: { [P in any]: number }, b: Id<any>) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-any-keys.ts", text: source },
+        );
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[1] else {
+            panic!("function");
+        };
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.strict_null_checks = true;
+        let a = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+        let keys: Vec<_> = checker
+            .get_index_infos_of_type(a)
+            .unwrap()
+            .iter()
+            .map(|index| checker.type_to_string(index.key))
+            .collect();
+        assert_eq!(keys, ["string", "number", "symbol"]);
+        let b = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+        let indexes = checker.get_index_infos_of_type(b).unwrap_or_default();
+        assert!(indexes.iter().all(|index| index.key == checker.intrinsics.string));
     }
 }

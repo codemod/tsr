@@ -1,0 +1,54 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index 6b17315..c184c4e 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -4304,6 +4304,22 @@ impl Checker<'_, '_> {
+                 key_expression = self.initializer_of(declaration)?;
+             } else if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ENUM_MEMBER) {
+                 return None;
++            } else {
++                // tryGetNameFromEntityNameExpression (flow.go:1770): an enum
++                // member names its initializer's literal, or, without an
++                // initializer, its own property name (`m[E.A]` is `m.A`'s
++                // reference name, not the member value).
++                let declaration = self.binder.symbols().get(symbol).value_declaration?;
++                if !self.value_use_declared_before_use(declaration, argument.node_id()?) {
++                    return None;
++                }
++                let Some(Node::EnumMember(member)) = self.node_map.get(declaration) else {
++                    return None;
++                };
++                match member.initializer {
++                    Some(initializer) => key_expression = initializer,
++                    None => return Some(self.binder.symbols().get(symbol).name.to_string()),
++                }
+             }
+         }
+         let key = self.check_expression(key_expression);
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index a3a5248..3c0507b 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -683,14 +683,16 @@ impl<'a> Checker<'a, '_> {
+     }
+ 
+     /// isTypeUsableAsPropertyName/getPropertyNameFromType (checker.go): a
+-    /// string or number literal key names a property by its value. Native
+-    /// also admits enum literals; that arm is held until flow names an
+-    /// enum-member element access as tryGetNameFromEntityNameExpression does
+-    /// (r5-mapped3.md §2).
++    /// string, number or enum literal key names a property by its value.
+     fn mapped_key_property_name(&self, ty: TypeId) -> Option<String> {
+-        use crate::types::TypeData;
++        use crate::types::{EnumLiteralValue, TypeData};
+         match &self.store.get(ty).data {
+-            TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
++            TypeData::StringLiteral(name)
++            | TypeData::NumberLiteral(name)
++            | TypeData::EnumLiteral {
++                value: EnumLiteralValue::String(name) | EnumLiteralValue::Number(name),
++                ..
++            } => Some(name.clone()),
+             _ => None,
+         }
+     }
