@@ -338,6 +338,21 @@ upstream function that has none.
 | `grammar.rs:1164` | `check_catch_clause_declaration` | ANY | `checker.go:4254` | `is_type_any` | AnyOrUnknown (flag test beside) |
 | `variances.rs:188` | `create_variance_marker_type` | BOTH | `relater.go:1416` | `is_error` | isErrorType(declared) |
 
+### §2.7 Sites added by the merge of the integration branch (`a1e453dc`)
+
+r5-relater4's `type_related_to_discriminated_type` (`relater.go:1077`) and
+its `is_discriminant_property_of` (`relater.go:1087`) brought three new calls;
+r5-intersections' `reduce_constrained_intersection` rewrite removed one
+(DECLINE, already `is_gap`). The merge conflict in `iteration.rs`
+(`get_iteration_types_of_iterable_ex`) took r5-iteration's
+`iteration_reduced_type` step and this lane's `is_type_any` arm.
+
+| site | function | class | native | predicate now | reason |
+|---|---|---|---|---|---|
+| `relater.rs:4474` | `type_related_to_discriminated_type` | DECLINE | `relater.go:1077` | `is_gap` | the discriminant's source property type has no native test; only the gap is undecidable |
+| `relater.rs:4636` | `is_discriminant_property_of` | ERRORTYPE | `checker.go:21469` | `is_error` | `createUnionOrIntersectionProperty` skips `isErrorType` constituents |
+| `relater.rs:4645` | `is_discriminant_property_of` | DECLINE | `checker.go:21469` | `is_gap` | no native test on the member type |
+
 ## §3 Measurements
 
 ### §3.1 Commit 1: the audit and the propagation arms
@@ -388,11 +403,83 @@ slot): domain-model 1.002 (21 samples); generic-imports 1.070 at 21 samples,
 **0.990 at 41** (its check phase is about 1 ms of an ~80 ms run, r5-perf4).
 `diagnostics_match: true` on both.
 
+### §3.2 Rebased on the integration branch (`a1e453dc`): the flow leak closes
+
+The integrator landed r5-errorsplit2's flow, P4 and empty-name diffs. The
+base re-frozen there: types 543,727 RIGHT / 1,026 GAP / 7,780 WRONG;
+diagnostics 5,304 RIGHT / 5,576 EMPTY_RIGHT / 1,287 WRONG / 71 EMPTY_WRONG.
+`ceiling`: credited gap **14,715**, `native_error` lines 10,892, wholesale
+narrowing cost 15,385 — the flow diff's 10,000 `largeControlFlowGraph`
+`data[0]` lines, whose `native_error` receiver answered the gap through the
+element-access road, exactly as r5-errorsplit2 §7 predicted.
+
+This lane's tree merged onto it (plus §2.7's three sites), unfiltered, both
+dumps: **zero transitions**, both loss checks empty. `ceiling`:
+
+| | base `a1e453dc` | this lane |
+|---|---:|---:|
+| credited gap (matched lines whose type is the gap) | 14,715 | **4,710** |
+| `native_error` lines (matched) | 10,892 (10,851) | 20,895 (20,854) |
+| wholesale narrowing, RIGHT→GAP | 15,385 | 5,380 |
+
+The 10,005 lines left the gap through `check_element_access_type`'s
+`errorType` receiver arm (`checker.go:8152`): the element access now answers
+upstream's identity and the SS180 rewrite prints it `any` as upstream's
+writer does, so the line is matched by computation rather than credited.
+
+Tests pass; perf (median child CPU against the `a1e453dc` binary, 21
+samples): domain-model 0.954, generic-imports 1.007.
+
 ## §4 Held diffs
 
-- [`r5-errorsplit3-members-receiver.diff`](r5-errorsplit3-members-receiver.diff):
-  `check_property_access_expression`'s `errorType` receiver answers
-  `errorType` (`checker.go:11314-11320`). `members.rs` is main's active file
-  (commits in the 24 hours before this lane), so the arm ships as a diff.
-  Measured inside the commit-1 tree: zero transitions; it matters once the
-  final `else` switches (§5).
+- [`r5-errorsplit3-final-else.diff`](r5-errorsplit3-final-else.diff), applies
+  to `ca1e75a6`: `checkIdentifier`'s final `else` (a name absent in every
+  meaning in a file with no import machinery, `checker.go:11048`) answers
+  `native_error`, **together with** `check_property_access_expression`'s
+  `errorType` receiver arm (`members.rs`, `checker.go:11314-11320`: an
+  any-like receiver that `isErrorType` answers `errorType` whatever the
+  member). `members.rs` is main's active file (commits on `origin/main` in
+  the 24 hours before this lane, re-checked before shipping), so the pair is
+  a diff for the integrator. §5 has the measurements.
+
+## §5 The final `else` switch, measured
+
+Measured three ways, unfiltered, both dumps:
+
+| tree | base | type losses | diag losses | other transitions | credited gap | `native_error` lines (matched) | narrowing RIGHT→GAP |
+|---|---|---:|---:|---|---:|---:|---:|
+| commit 1 + switch + `members.rs` arm | `2919d8c` | 0 | 0 | +2 WRONG→RIGHT, 5 WRONG→GAP | — | — | — |
+| commit 1 + switch, **no** `members.rs` arm | `2919d8c` | **2** | **1** | as above | — | — | — |
+| `ca1e75a6` + switch + `members.rs` arm (the diff) | `a1e453dc` | 0 | 0 | +2 WRONG→RIGHT, 1 WRONG→GAP | 4,710 → **4,554** | 20,895 → 24,385 (24,310) | 5,380 → 5,158 |
+
+- **r5-errorsplit2's residual is gone.** `assignmentRestElementWithErrorSourceType`
+  (`[...c] : any[]`) holds: the destructuring-target road and the
+  normalizer arm of §3.1 carry upstream's `errorType` as a Rest of itself.
+- **The `members.rs` arm is required.** Without it the property-access
+  road answers the gap for an `errorType` receiver and the gap's contextual
+  decline drops `parser509534:0:5`/`:0:11` (the function assigned to
+  `module.exports.route`) and adds `destructuringParameterDeclaration4`'s
+  extra TS2345 — r5-errorsplit2's §2 finding, reproduced.
+- **Gains:** `jsFileCompilationExternalPackageError:2:6` (`c : error`, a case
+  with no `.errors.txt`: upstream's `errorType` takes the writer's fast path)
+  and `typeofInObjectLiteralType:0:0` (`c: typeof b` inside a type literal).
+- **The WRONG→GAP lines are false `native_error` claims**, not upstream's
+  `errorType`: names the port fails to resolve reach the final `else`.
+  - `jsDeclarationsComputedNames(target=es2015):1:13`: a JSDoc
+    `@param {typeof TopLevelSym | typeof InnerSym}` whose names resolve
+    natively (`unique symbol | unique symbol`). JSDoc name resolution is
+    not this lane's.
+  - On `2919d8c` also `importMetaNarrowing` ×4, the `meta` name of
+    `import.meta` reaching `checkIdentifier`. Gone on `a1e453dc`:
+    r5-modules ported `checkMetaProperty`.
+
+  Before the switch these lines answered `any` (WRONG). Now they print
+  `error` (GAP), which is the honest verdict. The identity claim is still
+  wrong, so they are listed here rather than counted as converted.
+- **P10 (the return aggregate) needs no code.** With the switch,
+  `function r() { return nosuch; }` aggregates `native_error`, which
+  `awaited_type_no_alias` passes through (any-flagged) and
+  `inferred_return_type` keeps. Its `error → any` stand-in still applies to
+  the gap only, which is the native-verified rule (r5-errorsplit2 §6).
+- **P11/P12 are left alone**, per r5-errorsplit2 §6: natively they are the
+  unresolved-reference type, not `errorType`.

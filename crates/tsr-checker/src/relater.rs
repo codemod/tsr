@@ -4471,7 +4471,7 @@ impl Relater<'_, '_, '_> {
             let Some(source_type) = self.checker.get_type_of_property_of_type(source, name) else {
                 return RelationResult::Unknown;
             };
-            if self.checker.is_error(source_type) {
+            if self.checker.is_gap(source_type) {
                 return RelationResult::Unknown;
             }
             // getNonMissingTypeOfSymbol, then Distributed().
@@ -4642,7 +4642,7 @@ impl Relater<'_, '_, '_> {
                 partial = true;
                 continue;
             };
-            if self.checker.is_error(member) {
+            if self.checker.is_gap(member) {
                 return None;
             }
             if let Some(symbol) = self.checker.get_property_of_type(part, name) {
