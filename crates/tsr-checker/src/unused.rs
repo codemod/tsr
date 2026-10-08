@@ -339,7 +339,15 @@ impl Checker<'_, '_> {
             // lines.
             Some(Node::ShorthandPropertyAssignment(shorthand)) => shorthand.name.node_id(),
             Some(Node::PropertyAssignment(assignment)) => assignment.name.node_id(),
-            Some(Node::BindingElement(element)) => element.property_name.and_then(|n| n.node_id()),
+            // `checkVariableLikeDeclaration`'s binding-element arm
+            // (`checker.go:5832`) marks the property named by
+            // `PropertyNameOrName()` — the property name when written, else the
+            // binding name itself unless it is a nested pattern: `let { species }
+            // = this` reads `species`.
+            Some(Node::BindingElement(element)) => element
+                .property_name
+                .and_then(|n| n.node_id())
+                .or_else(|| element.name.and_then(|n| n.node_id())),
             _ => None,
         };
         let Some(named) = named else { return };

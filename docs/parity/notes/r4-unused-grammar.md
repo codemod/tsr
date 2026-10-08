@@ -180,3 +180,15 @@ off every hot path (lib files annotate their declarations).
 Cases converted: `compiler/ambientModuleWithTemplateLiterals`,
 `conformance/nodeModulesTypesVersionPackageExports` (EMPTY_WRONG →
 EMPTY_RIGHT).
+
+## §7 A shorthand binding element reads the member it names
+
+`checkVariableLikeDeclaration` (`checker.go:5829-5839`) marks, for every
+binding element, the property of the parent type named by
+`PropertyNameOrName()` — the written property name, or the binding name when
+there is none (and it is not a nested pattern). The by-name stand-in noted
+only the property name, so `let { species } = this;` left a private
+constructor parameter property `species` unread and reported TS6138
+(`compiler/unusedLocalProperty`, EMPTY_WRONG → EMPTY_RIGHT). Like every other
+entry of the stand-in this marks by text, the over-approximating direction
+the module header fixes.
