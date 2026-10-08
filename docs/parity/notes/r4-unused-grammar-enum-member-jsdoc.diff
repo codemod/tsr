@@ -1,0 +1,29 @@
+diff --git a/crates/tsr-parser/src/declaration.rs b/crates/tsr-parser/src/declaration.rs
+index 80e8778..32f250f 100644
+--- a/crates/tsr-parser/src/declaration.rs
++++ b/crates/tsr-parser/src/declaration.rs
+@@ -656,6 +656,7 @@ impl<'a> Parser<'a> {
+ 
+     /// typescript-go's `Parser.parseEnumMember` (`parser.go`).
+     fn parse_enum_member(&mut self) -> &'a EnumMember<'a> {
++        let docs = self.parse_leading_jsdoc();
+         let member_start = self.pos();
+         let member_name = self.parse_property_name();
+         let initializer = if self.eat(SyntaxKind::EqualsToken) {
+@@ -663,11 +664,14 @@ impl<'a> Parser<'a> {
+         } else {
+             None
+         };
+-        self.finish_node(
++        let member = self.finish_node(
+             EnumMember::new(member_name, initializer, &[], None),
+             SyntaxKind::EnumMember,
+             member_start,
+-        )
++        );
++        // `parseEnumMember` (`parser.go`) is `withJSDoc(finishNode(...), hasJSDoc)`.
++        self.attach_jsdoc(tsr_ast::Node::EnumMember(member), docs);
++        member
+     }
+ 
+     /// Type arguments in a heritage clause, which may be absent —
