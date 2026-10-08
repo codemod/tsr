@@ -120,18 +120,78 @@ Tests: `tests/errortype_producers.rs` pins `null + null` and `1 + undefined`
 as `native_error`, with `"a" + null` (string) and `any + any` (`anyType`) as
 controls.
 
-## §4 Narrowing, re-measured after each switch
+## §4 Commit 2: a JSX element without `JSX.Element` answers `errorType`; a fragment `anyType`
+
+`getJsxType` (`jsx.go:1295`) answers `errorType` when the `JSX` namespace or
+its `Element` export is absent (`:1303`). `checkJsxElement` and
+`checkJsxSelfClosingElement` return that as is (`jsx.go:72`, `:101`).
+`checkJsxFragment` turns an `isErrorType` element type into `anyType`
+(`jsx.go:123`).
+
+`expressions.rs`'s `check_jsx_element` answered the gap for a missing hop.
+§249 there had tried `any` and measured 36 to 69 RIGHT→WRONG lines, so it was
+reverted. That attempt gave the *element* `anyType`, which is upstream's
+answer only for a fragment. With ADR-0048's split, each form takes its own
+native identity:
+
+- an element or self-closing element: `native_error`;
+- a fragment: `any` when the element type is upstream's `isErrorType`;
+- the gap, when the declared `Element` type is itself the gap.
+
+**Probe join** (each arm alone first):
+
+| arm | lines moved | native `errorType` | native `anyType` | native other |
+|---|---:|---:|---:|---:|
+| element / self-closing → `native_error` | 601 | 599 | 0 | 2 |
+| fragment → `any` | 27 | 0 | **27** | 0 |
+
+The two "other" lines are false claims. They are
+`jsxNamespaceGlobalReexport:2:2` and `jsxNamespaceImplicitImportJSXNamespace:2:2`
+(`<div></div> : JSX.Element` natively). The port's `jsx_type_symbol` does not
+follow a `JSX` namespace re-exported through a global or implicit import.
+Both were WRONG before and stay WRONG. They are listed here, not counted as
+converted. Five more moved lines in `conflictMarkerTrivia3` do not align with
+the probe (parse recovery, §1).
+
+**Measured** cumulatively with commit 1 (unfiltered, both dumps, against
+`22a5e1a`):
+
+| | base | commits 1+2 |
+|---|---:|---:|
+| types RIGHT / GAP / WRONG | 544,668 / 965 / 6,900 | **544,688 / 956 / 6,889** |
+| diagnostics | 5,374 / 5,584 / 1,217 / 63 | unchanged, zero transitions |
+| type / diagnostics losses | — | **0 / 0** |
+| credited gap | 4,056 | **3,184** |
+| `native_error` lines (matched) | 26,106 (26,020) | 26,968 (26,873) |
+| wholesale narrowing RIGHT→GAP | 4,504 | **3,768** |
+
+**Gains (+20: 11 WRONG→RIGHT, 9 GAP→RIGHT).** Every one is a computed type
+around a JSX element whose `JSX` namespace is not in scope:
+
+- `view : () => any[]` (a method returning an array of elements) in
+  `jsxEmitWithAttributes`, `jsxFactoryAndReactNamespace`,
+  `jsxFactoryIdentifier`, `jsxFactoryNotIdentifierOrQualifiedName{,2}` and
+  `jsxFactoryQualifiedName`, plus each method's array literal;
+- `{ wrong: any; }` in both `jsxSpreadTag` targets;
+- fragments: `jsxFragmentAndFactoryUsedOnFragmentUse` ×2 and
+  `inlineJsxAndJsxFragPragmaOverridesCompilerOptions` ×4.
+
+Tests: `tests/errortype_producers.rs` pins `<div />` without a namespace as
+`native_error` and `<></>` as `any`, with a declared `JSX.Element` as the
+control.
+
+## §9 Narrowing, re-measured after each switch
 
 ADR-0048's decision log narrows a rewrite only at zero RIGHT cost. The cost
 of each rewrite, as RIGHT→GAP lines:
 
-| rewrite | base (`22a5e1a`) | commit 1 |
-|---|---:|---:|
-| `HadErrorBaseline` | 3,375 | 3,184 |
-| `AtLocation` | 732 | 732 |
-| `StatementName` | 312 | 312 |
-| `AccessOrQualifiedParent` | 62 | 62 |
-| `GlobalAugmentation` | 23 | 23 |
-| **total** | 4,504 | 4,313 |
+| rewrite | base (`22a5e1a`) | commit 1 | commit 2 |
+|---|---:|---:|---:|
+| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 |
+| `AtLocation` | 732 | 732 | 732 |
+| `StatementName` | 312 | 312 | 312 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 |
+| `GlobalAugmentation` | 23 | 23 | 23 |
+| **total** | 4,504 | 4,313 | 3,768 |
 
 No rewrite reaches zero, so none is narrowed.

@@ -265,3 +265,19 @@ credited gap 4,056 → **3,802**.
 | `GlobalAugmentation` | 23 |
 
 None costs zero, so none is narrowed. The residual fell 4,504 → 4,313.
+
+### 2026-10-08 — step 5, commit 2: JSX element `errorType`, fragment `anyType`; no rewrite narrowed
+
+The probe answers §249's question in `expressions.rs` by identity. A JSX
+element with no `JSX.Element` in scope is `errorType` (`jsx.go:1303`): 599 of
+601 moved lines. A fragment is `anyType` (`jsx.go:123`): 27 of 27. The two
+exceptions are the port's own JSX-namespace misses, and they were already
+WRONG (notes §4).
+
+**Measured** cumulatively with commit 1 (unfiltered, both dumps, against
+`22a5e1a`): zero losses; types +20 (11 WRONG→RIGHT, 9 GAP→RIGHT); credited gap
+3,802 → **3,184**.
+
+**Narrowing**, per rewrite: `HadErrorBaseline` 2,639, `AtLocation` 732,
+`StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
+None costs zero, so none is narrowed. The residual fell 4,313 → 3,768.

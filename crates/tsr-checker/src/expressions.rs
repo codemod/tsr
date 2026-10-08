@@ -1158,8 +1158,9 @@ impl Checker<'_, '_> {
 
     /// `getJsxType(JsxNames.Element, location)` (`jsx.go:1275`, `:1295`),
     /// reduced to the resolving path: the `JSX` namespace in scope at the
-    /// element, its `Element` export, that symbol's declared type. Every
-    /// missing hop is a gap — `errorType` — never a substitute.
+    /// element, its `Element` export, that symbol's declared type. A missing
+    /// hop is upstream's `errorType` (`jsx.go:1303`), never a substitute; a
+    /// fragment turns it into `anyType` (`checkJsxFragment`, `jsx.go:123`).
     pub(crate) fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
         let Some(id) = id else { return self.intrinsics.error };
         // §249, INDUCED AND REVERTED, both variants measured. Recorded here
@@ -1207,10 +1208,27 @@ impl Checker<'_, '_> {
         if let Some(opening) = opening {
             self.jsx_attributes_context(opening);
         }
-        let Some(element) = self.jsx_type_symbol(id, "Element") else {
-            return self.intrinsics.error;
+        // ADR-0048 settles §249's question by identity rather than by
+        // spelling. `getJsxType` answers `errorType` when the namespace or
+        // its `Element` is absent (`jsx.go:1303`), and `checkJsxFragment`
+        // turns an `isErrorType` element type into `anyType` (`jsx.go:123`).
+        // §249's `any` gave the *element* `anyType`, which is not upstream's
+        // identity: it prints and propagates as `anyType` where upstream's
+        // `errorType` does not. Each answer is upstream's own identity, and
+        // the writer decides the spelling. Verified line by
+        // line against the native identity probe: elements 599 `errorType`
+        // lines, fragments 27 `anyType` lines
+        // (`docs/parity/notes/r5-errorsplit5.md` §4). A declared `Element`
+        // type that is the gap stays the gap.
+        let fragment = matches!(self.node_map.get(id), Some(Node::JsxFragment(_)));
+        let element_type = match self.jsx_type_symbol(id, "Element") {
+            Some(element) => self.get_declared_type_of_symbol(element),
+            None => self.intrinsics.native_error,
         };
-        self.get_declared_type_of_symbol(element)
+        if fragment && self.is_error(element_type) && !self.is_gap(element_type) {
+            return self.intrinsics.any;
+        }
+        element_type
     }
 
     /// Ported from `Checker.checkTypeOfExpression` (`checker.go:10617`).

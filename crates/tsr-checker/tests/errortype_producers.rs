@@ -84,3 +84,25 @@ fn adding_null_to_a_string_is_still_string() {
 fn adding_any_to_any_is_any() {
     assert_eq!(initializer_identity("t.ts", "declare var a: any; var x = a + a;"), Identity::Any);
 }
+
+/// `getJsxType` with no `JSX` namespace in scope answers `errorType`
+/// (`jsx.go:1303`). `conformance/jsxUnclosedParserRecovery`.
+#[test]
+fn a_jsx_element_without_a_jsx_namespace_is_native_error() {
+    assert_eq!(initializer_identity("t.tsx", "var x = <div />;"), Identity::NativeError);
+}
+
+/// `checkJsxFragment` turns that `errorType` into `anyType` (`jsx.go:123`).
+/// `compiler/jsxFactoryButNoJsxFragmentFactory`.
+#[test]
+fn a_jsx_fragment_without_a_jsx_namespace_is_any() {
+    assert_eq!(initializer_identity("t.tsx", "var x = <></>;"), Identity::Any);
+}
+
+/// The control: a declared `JSX.Element` is the element's type, fragment or
+/// not.
+#[test]
+fn a_declared_jsx_element_is_the_element_type() {
+    let source = "declare namespace JSX { interface Element { e: 1 } }\nvar x = <></>;";
+    assert_eq!(initializer_identity("t.tsx", source), Identity::Other("Element".to_owned()));
+}
