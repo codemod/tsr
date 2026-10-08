@@ -569,3 +569,18 @@ The freed slot went to r5-typetriage. The integrator's clusters are keyed on
 diagnostic codes, which fits type-print failures badly. With ~7,400 type lines
 still WRONG, the next lanes need a root-cause table ranked by the number of
 cases each cause alone blocks.
+
+### r5-declared finished; r5-declared2 dispatched (`tsr-2zk.1061`)
+
+r5-declared landed two commits:
+- `08095b7`, `.1034`: inline deferred conditionals carry CONDITIONAL, with the
+  distributive constraint and forConstraint (+3 cases). The flags diff's 0:71
+  loss was not in flow.rs: the inline mint had no constraint.
+- `e9d15e8`, `.979`: qualified alias and enum references answer a twin of the
+  declared type (+1 case).
+
+Its isEnumTypeRelatedTo diff in relater.rs lands in batch W and is gated
+unfiltered there. The intersection-alias diff, which covers `.1010` and alias
+naming together, measured +60 lines and +3 cases filtered but loses 1 line and
+1 case. It is held as `.1061` for r5-declared2, the next single owner of
+declared.rs, which also takes `.1042`, `.1043` and `.1059`.
