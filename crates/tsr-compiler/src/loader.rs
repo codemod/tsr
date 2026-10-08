@@ -1130,6 +1130,16 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             && let Some(root) = tsr_ast::Node::SourceFile(parsed.source_file).node_id()
         {
             self.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+            // Native's flag is on every node of the file, reparsed JSDoc
+            // included; a comment's root has no parent edge to the file
+            // root, so it carries the bit itself (`r5-jsdoc3.md` §3).
+            for (_, docs) in parsed.jsdoc.iter() {
+                for doc in docs {
+                    if let Some(id) = doc.node_id {
+                        self.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+                    }
+                }
+            }
         }
         // A bundled default-library file gets its bit the same way
         // (printseam §7): the loader is the one place holding both the name

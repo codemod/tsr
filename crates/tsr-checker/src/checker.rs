@@ -939,6 +939,10 @@ pub struct Checker<'a, 'n> {
     /// `reportUnused` (`checker.go:7092`) asks for it at a node the walk has
     /// already left.
     pub(crate) file_is_ambient: bool,
+    /// Whether the file being checked is a JS file: the reparsed JSDoc type
+    /// nodes [`Checker::jsdoc_reparsed_type_nodes`] answers exist only
+    /// there, so `check_node` asks it only then.
+    pub(crate) file_is_js: bool,
     /// The source files this program is *checking*, as opposed to the ones it
     /// merely holds.
     ///
@@ -1575,6 +1579,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unused_check_nodes: Vec::new(),
             referenced_member_names: crate::unused::MemberNames::default(),
             file_is_ambient: false,
+            file_is_js: false,
             checked_files: rustc_hash::FxHashSet::default(),
             #[cfg(feature = "work-trace")]
             work_observer: None,

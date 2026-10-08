@@ -3507,7 +3507,19 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 // the §219 qualification hazard — the first
                                 // draft turned `importTag2`'s gap into a wrong
                                 // line exactly that way. `bd tsr-e2u`'s fence.
-                                Some(tsr_ast::NamedImportBindings::NamespaceImport(_)) | None => {}
+                                Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
+                                    if let (Some(name), Some(id)) =
+                                        (namespace.name, namespace.node_id)
+                                    {
+                                        self.declare_jsdoc_symbol(
+                                            root,
+                                            name.text,
+                                            SymbolFlags::ALIAS,
+                                            id,
+                                        );
+                                    }
+                                }
+                                None => {}
                             }
                         }
                         JSDocTag::JSDocCallbackTag(callback) => {

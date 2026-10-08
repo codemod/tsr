@@ -150,6 +150,7 @@ impl Checker<'_, '_> {
         self.report_merge_conflicts();
         self.file_has_parse_errors = context.has_parse_errors;
         self.file_is_ambient = context.ambient;
+        self.file_is_js = self.in_js_file(file);
         self.reset_unused_state();
         self.check_top_level_declare_modifiers(file, context.ambient);
         self.check_node(file, context.ambient, 0);
@@ -1122,6 +1123,11 @@ impl Checker<'_, '_> {
         self.check_jsdoc_link_references(node);
         self.check_unmatched_jsdoc_parameters(node);
         self.check_jsdoc_satisfies_tags(node, ambient);
+        if self.file_is_js {
+            for reparsed in self.jsdoc_reparsed_type_nodes(node) {
+                self.check_node(reparsed, ambient, depth + 1);
+            }
+        }
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
@@ -14538,14 +14544,34 @@ impl Checker<'_, '_> {
         self.source_file_of_for_diagnostics(node)
     }
 
+    /// The file a diagnostic anchored at `node` belongs to.
+    ///
+    /// A reparsed JSDoc node is parented under its host upstream
+    /// (`finishReparsedNode`, `parser/reparser.go`), so a diagnostic anchored
+    /// inside a comment belongs to the host's file. Here the comment's root
+    /// has no parent edge (the parser's `attach_jsdoc`), and a walk that
+    /// dead-ended there dropped the diagnostic; it crosses to the host as
+    /// [`Checker::source_file_of`] does. `docs/parity/notes/r5-jsdoc3.md` §3.
     pub(crate) fn source_file_of_for_diagnostics(&self, node: NodeId) -> Option<NodeId> {
         let mut current = node;
         loop {
             if self.nodes.kind(current) == SyntaxKind::SourceFile {
                 return Some(current);
             }
-            current = self.nodes.parent(current)?;
+            current = match self.nodes.parent(current) {
+                Some(parent) => parent,
+                None => self.jsdoc_diagnostic_host(current)?,
+            };
         }
+    }
+
+    /// The host a parentless JSDoc root crosses to for
+    /// [`Self::source_file_of_for_diagnostics`]. Out of line: only a
+    /// diagnostic anchored inside a comment reaches it.
+    #[cold]
+    #[inline(never)]
+    fn jsdoc_diagnostic_host(&self, root: NodeId) -> Option<NodeId> {
+        self.jsdoc_hosts.get(&root).copied()
     }
 }
 

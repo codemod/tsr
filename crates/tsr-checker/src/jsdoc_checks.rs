@@ -42,7 +42,6 @@ impl<'a> Checker<'a, '_> {
     /// in upstream's order: a declaration's own type, then (for the comment
     /// `node` hosts) its typedef aliases, which `reparseList` appends after
     /// the host statement.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-jsdoc-diagnostics.diff")]
     pub(crate) fn jsdoc_reparsed_type_nodes(&self, node: NodeId) -> Vec<NodeId> {
         let mut out = Vec::new();
         let kind = self.nodes.kind(node);

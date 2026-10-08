@@ -772,7 +772,6 @@ impl<'a> Checker<'a, '_> {
     /// declaration's initializer of a variable statement, a property's
     /// initializer, an export or return expression, or an expression
     /// statement's right-most assigned expression, through `satisfies`.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-jsdoc-diagnostics.diff")]
     pub(crate) fn jsdoc_function_like_host(&self, host: NodeId) -> Option<NodeId> {
         let expression = match self.node_map.get(host)? {
             Node::VariableStatement(statement) => {
@@ -806,7 +805,6 @@ impl<'a> Checker<'a, '_> {
     /// for `getTypePredicateParent` (`checker.go:3099`): native parents the
     /// clone under the function, so a `@returns {x is T}` predicate is in
     /// return-type position. `None` for any other node in a comment.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-jsdoc-diagnostics.diff")]
     pub(crate) fn jsdoc_reparsed_return_owner(&self, type_node: NodeId) -> Option<NodeId> {
         let mut root = type_node;
         while let Some(parent) = self.nodes.parent(root) {
@@ -836,7 +834,6 @@ impl<'a> Checker<'a, '_> {
     /// `gatherTypeParameters(jsDoc, false)` (`:293`) over its last comment —
     /// every `@template` tag's parameters in order, none when the comment
     /// declares a typedef or callback. Empty for any other node.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-jsdoc-diagnostics.diff")]
     pub(crate) fn jsdoc_class_template_parameters(
         &self,
         class: NodeId,
@@ -873,7 +870,6 @@ impl<'a> Checker<'a, '_> {
     /// (`Object.<K, V>`: a `Record` instantiation, or `any`) — a JSDoc
     /// reference that never reaches `getTypeFromClassOrInterfaceReference`,
     /// so neither its arity rule nor `checkNoTypeArguments` runs on it.
-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-jsdoc-diagnostics.diff")]
     pub(crate) fn is_jsdoc_record_object_reference(&self, reference: NodeId) -> bool {
         let Some(Node::TypeReferenceNode(node)) = self.node_map.get(reference) else {
             return false;

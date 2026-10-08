@@ -303,7 +303,11 @@ impl Checker<'_, '_> {
             Node::MethodSignatureDeclaration(signature) => signature.r#type,
             _ => None,
         };
-        (return_type.and_then(|t| t.node_id()) == Some(node)).then_some(parent)
+        (return_type.and_then(|t| t.node_id()) == Some(node))
+            .then_some(parent)
+            // A reparsed `@returns` type is its function's `Type`
+            // (`reparseHosted`, `parser/reparser.go:514`).
+            .or_else(|| self.jsdoc_reparsed_return_owner(node))
     }
 
     /// The first arms of `Checker.checkExternalImportOrExportDeclaration`
@@ -1158,7 +1162,10 @@ impl Checker<'_, '_> {
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
             return;
         };
-        if let Some(type_node) = variable.r#type {
+        // `declaration.Type()`: in JS the reparsed `@type`.
+        if let Some(type_node) =
+            variable.r#type.or_else(|| self.jsdoc_self_hosted_type(declaration))
+        {
             let ty = self.get_type_from_type_node(type_node);
             // `is_error` is upstream's `errorType`, which carries `TypeFlagsAny`.
             if !self.is_type_any(ty)
