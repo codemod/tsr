@@ -99,7 +99,8 @@ impl Checker<'_, '_> {
         let mut current = self.nodes.parent(operator);
         while let Some(node) = current {
             match self.nodes.kind(node) {
-                SyntaxKind::Parameter | SyntaxKind::TypePredicate => return true,
+                SyntaxKind::TypePredicate => return true,
+                SyntaxKind::Parameter => return false,
                 SyntaxKind::TypeParameter => {
                     return matches!(self.node_map.get(node),
                         Some(Node::TypeParameterDeclaration(parameter))
@@ -113,13 +114,7 @@ impl Checker<'_, '_> {
                 | SyntaxKind::CallSignature
                 | SyntaxKind::ConstructSignature
                 | SyntaxKind::FunctionType
-                | SyntaxKind::ConstructorType => {
-                    // Its only direct type-node child is the return annotation.
-                    return !matches!(
-                        self.nodes.kind(child),
-                        SyntaxKind::Parameter | SyntaxKind::TypeParameter
-                    );
-                }
+                | SyntaxKind::ConstructorType => return false,
                 SyntaxKind::VariableDeclaration
                 | SyntaxKind::PropertyDeclaration
                 | SyntaxKind::PropertySignature
