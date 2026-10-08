@@ -5218,6 +5218,7 @@ impl<'a> Checker<'a, '_> {
                     ),
                 );
             }
+            self.circular_any_declarations.insert(declaration);
             return self.intrinsics.any;
         }
         if let Some(file) = self.source_file_of_for_diagnostics(declaration)

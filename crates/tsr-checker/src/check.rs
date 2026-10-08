@@ -9214,6 +9214,20 @@ impl Checker<'_, '_> {
         if !flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             return true;
         }
+        // **A circular initializer's `any` is upstream's `any`.**
+        // `reportCircularityError` answers `anyType` for an unannotated
+        // variable or parameter that reaches itself, and this port's
+        // resolution frame answers the same at the same point
+        // (`docs/parity/notes/r5-constraints2.md` §7).
+        if ty == self.intrinsics.any
+            && self.circular_any_declarations.contains(&declaration)
+            && matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::VariableDeclaration | SyntaxKind::Parameter
+            )
+        {
+            return true;
+        }
         let annotation = match self.node_map.get(declaration) {
             // **No annotation and no initializer is a written `any` too.**
             // `getTypeForVariableLikeDeclaration` answers `anyType` for a

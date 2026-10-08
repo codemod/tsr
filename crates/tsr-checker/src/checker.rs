@@ -1165,6 +1165,11 @@ pub struct Checker<'a, 'n> {
     /// and its failed pop both make; this set is that de-duplication only and
     /// never certifies a type.
     pub(crate) circularity_reported: rustc_hash::FxHashSet<NodeId>,
+    /// Unannotated declarations whose symbol type is `reportCircularityError`'s
+    /// `anyType` (checker.go:18822): the `any` upstream computes too, not a
+    /// fallback for an unported path. Read by TS2403's trusted-`any` rule
+    /// (`docs/parity/notes/r5-constraints2.md` §7).
+    pub(crate) circular_any_declarations: rustc_hash::FxHashSet<NodeId>,
     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
@@ -1613,6 +1618,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             pending_signature_returns: FxHashMap::default(),
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
             circularity_reported: rustc_hash::FxHashSet::default(),
+            circular_any_declarations: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
             perf_links: crate::perf_links::PerfLinks::default(),
             instantiated_signatures: FxHashMap::default(),
