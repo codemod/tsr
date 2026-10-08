@@ -582,6 +582,60 @@ older records plus `reference_this_member_continuation`, including failed API,
 iterator-lifetime and patch-format checks. No main runtime change, complete
 corpus gate or equivalent-work <=0.50 speed certificate follows.
 
+### Alias-body, relation and declaration-walk owner continuation
+
+Frozen main `55dd4941` continues the preceding full-owner archive. Native
+`5b1047d` `getTypeAliasInstantiation` (`checker.go:23641`) selects the actual
+symbol's links before looking up ordered arguments and alias context. The
+existing Rust `alias_body_evaluations` map now retains `SymbolRef` rather than
+`SymbolId`; its existing body/conditional evaluation and result publication
+remain unchanged. This is a domain migration, not a new cache or expanded
+reuse policy. The broader native mapper and alias-key contract remains under
+`tsr-1yb.4.1.2`; the Rust alias-body slice still lacks the full native factory.
+
+Bound entry points lift their owner explicitly and share selected-owner workers
+for alias bodies, conditional evaluation, branch capture, conditional declaration
+discovery, closed literal unions and NoInfer admission. Selected declarations
+come from the actual view; their syntax nodes and parameter binding symbols stay
+Binder-owned. The enclosing result-alias presentation identity stays in its
+existing declaration domain. The inner conditional-reference entity resolver
+remains bound, tracked by `tsr-1yb.7.7.2.1`/`tsr-1yb.7.7.3`; no origin projection
+or conversion of an unsupported private target to native unknown is added.
+
+Full-draft reference relation pairs and `getRecursionIdentity` readers now carry
+actual handles. The recursion comparison borrows that identity through nested
+intersections. Global identity comparisons explicitly lift bound globals;
+selected merged-symbol reads use `CheckerSymbols`. Raw keyof enumeration reads
+actual member edges and declaration order. Array-base and private-name walks
+track selected owners while their existing heritage syntax resolver supplies
+bound declaration targets. These traversals retain their previous cycle and
+refusal rules; they neither publish completed member fields nor introduce
+another semantic store. Symbol/type, naming, member, signature, variance and
+private heritage dispatch are still incomplete.
+
+The compilable reader slice passes all 209 library tests. The strengthened
+literal-union control checks that a selected-owner alias-body query reuses the
+already evaluated union without changing the existing cache; its API-red check
+failed for the missing method before implementation. The parsed import-owner
+test still fails Head/raw `SymbolId(1)`. Full compilation is still red: 114
+errors across 25 files, comprising 108 type mismatches and six ownership moves,
+versus the inherited 204 errors. The private class/reference/this/mapper test
+has not executed. Compiler counts are not semantic coverage or speed scores.
+
+Both formatter checks pass. Strict reader Clippy retains the inherited six
+library/five library-test errors after correcting the newly introduced wrapper
+semicolon lint. Each Rust slice has 1,053 stable qualification inputs and the
+reader executable identifies this source root. Exact-byte delta replay covers
+three reader files and 35 full-draft files, with 684 Rust files equal per replay;
+all inherited preimages are checked against canonical archived sources or the
+runtime base. The [lossless archive](checker-module-clone-progress.json) adds
+`alias_relation_owner_continuation` without altering historical fields. Failed
+checks and their corrections remain recorded. No native execution is newly
+qualified here; earlier native controls retain their original source labels.
+There is no main runtime change, full corpus gate or equivalent-work speed win.
+Actual expensive-worker attribution remains `tsr-1yb.11`, and the release target
+remains verified TSR/pinned-tsgo median wall ratio <=0.50.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
