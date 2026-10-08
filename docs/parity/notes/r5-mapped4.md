@@ -143,3 +143,27 @@ Full parity run after §2: checker_types 8,236 → 8,242 of 9,538 (configured
 (21 samples, vs the frozen base binary): domain-model 0.987, generic-imports
 1.028; `diagnostics_match: true`. Callgrind Ir: domain-model 1,201,902,760 →
 1,200,935,103 (−0.08%), generic-imports 343,419,388 → 343,421,473 (+0.001%).
+
+## 3. Linear member-table merge in resolveMappedTypeMembers (committed)
+
+Re-measuring r5-mapped3's declared-route diff (§4) showed
+`hugeDeclarationOutputGetsTruncatedWithError` going from 172 ms to 8,440 ms
+(45 → 375 MiB). Its `{ [K in manyprops]: { [K2 in manyprops]: … } }` has
+676 × 676 members. Callgrind put 34% of Ir in `String::clone` and 14% in
+`memcmp` under `resolve_mapped_type_members_worker`: two scans were
+quadratic in the key count. The key-merge `find` rebuilt
+`mapped_key_property_name` (a new `String`) for every earlier member on
+every key, and the duplicate-name check walked every earlier property.
+
+Native keys its member table by name (`resolveMappedTypeMembers` →
+`addMemberForKeyTypeWorker`, a symbol table lookup). The port now keeps a
+name → first-member index and a name set. The first member a name lands on is
+the one the old `find` returned, because a later key with the same name
+always merged into that member and never became a member itself. So the
+result is identical.
+
+**Measured:** both dumps byte-identical to the base (key, verdict, want, got)
+and no slow cases. On that file's CLI check with the route applied: 7.39 s →
+2.46 s. Bench Ir: domain-model 1,195,807,596 → 1,195,675,981 (−0.01%),
+generic-imports 342,893,926 → 342,907,113 (+0.004%). Median CPU new/old:
+domain-model 1.029, generic-imports 0.962 (21 samples).

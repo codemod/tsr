@@ -731,6 +731,11 @@ impl<'a> Checker<'a, '_> {
         // resolveMappedTypeMembers combines source keys before substituting
         // the template, so colliding names see the entire key union.
         let mut members: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
+        // The first member each property name landed on: resolveMappedTypeMembers
+        // keys its member table by name, so the merge below is a lookup, not
+        // a rescan of every earlier member (r5-mapped4.md §3).
+        let mut member_by_name: rustc_hash::FxHashMap<String, usize> =
+            rustc_hash::FxHashMap::default();
         for key in keys {
             let name = info.name_type.map_or(key, |name| {
                 self.instantiate_type(name, &[(info.parameter, key)], &[info.parameter], &[])
@@ -752,13 +757,15 @@ impl<'a> Checker<'a, '_> {
                 // Keys naming one property share it; native unions their key
                 // types under the shared name (resolveMappedTypeMembers).
                 let property_name = self.mapped_key_property_name(name);
-                if let Some((_, keys, _)) = members.iter_mut().find(|(existing, _, _)| {
-                    property_name.is_some()
-                        && (existing == &name
-                            || self.mapped_key_property_name(*existing) == property_name)
-                }) {
+                if let Some(&index) =
+                    property_name.as_ref().and_then(|name| member_by_name.get(name))
+                {
+                    let keys = &mut members[index].1;
                     *keys = self.get_union_type(&[*keys, key]);
                 } else {
+                    if let Some(property_name) = property_name {
+                        member_by_name.insert(property_name, members.len());
+                    }
                     members.push((name, key, key));
                 }
             }
@@ -769,6 +776,7 @@ impl<'a> Checker<'a, '_> {
         // setStructuredTypeMembers does. Types are published after substitution.
         self.anonymous_properties.insert(id, (Vec::new(), true));
         let mut properties = Vec::new();
+        let mut property_names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
         for (name_type, key, first_key) in members {
             let Some(name) = self.mapped_key_property_name(name_type) else {
@@ -814,10 +822,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 continue;
             };
-            if properties
-                .iter()
-                .any(|property: &crate::objects::AnonymousProperty| property.name == name)
-            {
+            if !property_names.insert(name.clone()) {
                 continue;
             }
             let source_name = self.mapped_key_property_name(first_key);
