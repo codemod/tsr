@@ -1,0 +1,285 @@
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 6d1aee24..bfba61c8 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -164,6 +164,7 @@ pub mod member_completeness;
+ pub mod members;
+ pub mod merge_conflicts;
+ mod merged_export_spaces;
++mod module_exports;
+ mod module_format;
+ pub mod module_specifiers;
+ mod name_suggestion;
+diff --git a/crates/tsr-checker/src/module_exports.rs b/crates/tsr-checker/src/module_exports.rs
+new file mode 100644
+index 00000000..cbd6b1e5
+--- /dev/null
++++ b/crates/tsr-checker/src/module_exports.rs
+@@ -0,0 +1,28 @@
++//! The text of a `ModuleExportName`, identifier or string literal.
++//!
++//! ES2022 lets an import or export specifier name the export with a string
++//! literal — `export { x as "<X>" }`, `import { "<X>" as y }`. Upstream never
++//! distinguishes the two spellings once it has the name: every reader goes
++//! through `Node.Text()` (`internal/ast/ast.go`), and the binder keys the
++//! module's `exports` table by the same text (`getDeclarationName`,
++//! `internal/binder/binder.go`; here `export_name` in
++//! `crates/tsr-binder/src/binder.rs`). So the checker's lookups must too, or a
++//! string-literal export is bound under a key no lookup can reach. See
++//! `docs/parity/notes/r5-modexports.md` §1.
++
++/// `name.Text()` for a `ModuleExportName` (`internal/ast/ast.go`, `Node.Text`):
++/// the identifier's text or the string literal's cooked value. The binder keys
++/// `exports` by exactly this text.
++pub(crate) fn module_export_name_text(name: tsr_ast::ModuleExportName<'_>) -> &str {
++    match name {
++        tsr_ast::ModuleExportName::Identifier(name) => name.text,
++        tsr_ast::ModuleExportName::StringLiteral(name) => name.text,
++    }
++}
++
++/// `ast.ModuleExportNameIsDefault` (`internal/ast/utilities.go:2539`):
++/// `node.Text() == InternalSymbolNameDefault`, so `{ "default" as d }` is the
++/// default import exactly as `{ default as d }` is.
++pub(crate) fn module_export_name_is_default(name: tsr_ast::ModuleExportName<'_>) -> bool {
++    module_export_name_text(name) == "default"
++}
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 8b834c0e..9cddfdf2 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1955,10 +1955,13 @@ impl<'a> Checker<'a, '_> {
+         let export = self.node_map.get(declaration_of_export)?;
+         let Node::ExportDeclaration(export) = export else { return None };
+         if export.module_specifier.is_some() {
++            // `ast.ModuleExportNameIsDefault` reads `Text()`, so a
++            // string-literal `"default"` takes the default road too.
+             if export.attributes.is_none()
+-                && let Some(tsr_ast::ModuleExportName::Identifier(name)) =
+-                    specifier.property_name.or(specifier.name)
+-                && name.text == "default"
++                && specifier
++                    .property_name
++                    .or(specifier.name)
++                    .is_some_and(crate::module_exports::module_export_name_is_default)
+             {
+                 let module_specifier = export.module_specifier?.node_id()?;
+                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
+@@ -2002,10 +2005,10 @@ impl<'a> Checker<'a, '_> {
+         let clause = self.nodes.parent(named_imports)?;
+         let import = self.nodes.parent(clause)?;
+         if let Some(Node::ImportSpecifier(specifier)) = self.node_map.get(declaration)
+-            && let Some(tsr_ast::ModuleExportName::Identifier(name)) = specifier
++            && specifier
+                 .property_name
+                 .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))
+-            && name.text == "default"
++                .is_some_and(crate::module_exports::module_export_name_is_default)
+             && let Some(Node::ImportDeclaration(node)) = self.node_map.get(import)
+             && node.attributes.is_none()
+         {
+@@ -2073,11 +2076,11 @@ impl<'a> Checker<'a, '_> {
+     fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
+         let module_specifier = self.external_module_name(node)?;
+         let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
+-        // `specifier.PropertyNameOrName()` (`checker.go:14677`). A string
+-        // literal name — `import { "a-b" as c }` — is a valid module export
+-        // name upstream; it is not looked up here because
+-        // `SymbolTable` keys are the identifier text and the two spellings have
+-        // not been checked to agree. `None` is a miss.
++        // `specifier.PropertyNameOrName()` (`checker.go:14677`), read through
++        // `name.Text()`. A string-literal name — `import { "a-b" as c }` — is
++        // a valid module export name, and the binder keys `exports` by its
++        // cooked text exactly as it keys an identifier, so one lookup serves
++        // both (`docs/parity/notes/r5-modexports.md` §1).
+         let name = match self.node_map.get(specifier)? {
+             Node::ImportSpecifier(node) => {
+                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
+@@ -2085,7 +2088,7 @@ impl<'a> Checker<'a, '_> {
+             Node::ExportSpecifier(node) => node.property_name.or(node.name),
+             _ => return None,
+         }?;
+-        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
++        let name = crate::module_exports::module_export_name_text(name);
+         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
+         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
+         // for both callers here: its synthetic-default and
+@@ -2094,7 +2097,7 @@ impl<'a> Checker<'a, '_> {
+         // neither.
+         let target = self.resolve_external_module_symbol(module_symbol);
+         if target == module_symbol {
+-            return self.get_export_of_module(module_symbol, name.text);
++            return self.get_export_of_module(module_symbol, name);
+         }
+ 
+         // Native routes the export name `default` through
+@@ -2104,7 +2107,7 @@ impl<'a> Checker<'a, '_> {
+         // alias denotes the synthetic default module object, not that property.
+         // Preserve the prior miss until the dedicated default road can retain
+         // its per-site alias spelling.
+-        if name.text == "default" {
++        if name == "default" {
+             return None;
+         }
+ 
+@@ -2113,7 +2116,7 @@ impl<'a> Checker<'a, '_> {
+         // exports belong to the original module. Looking only in either place
+         // loses the other meaning.
+         let target_type = self.get_type_of_symbol(target);
+-        let value = self.get_property_of_type_ex(target_type, name.text, true);
++        let value = self.get_property_of_type_ex(target_type, name, true);
+         let value_was_found = value.is_some();
+         // This semantic resolver must not outrun the site-aware spelling lane.
+         // A pure alias target can replace a written local type name with the
+@@ -2157,8 +2160,8 @@ impl<'a> Checker<'a, '_> {
+         // target's exports are carried over from the original module; its
+         // unrelated value exports must not replace a target property.
+         let target_exports = &self.binder.symbols().get(self.binder.merged_symbol(target)).exports;
+-        let supplemental = target_exports.get(name.text).copied().or_else(|| {
+-            let supplemental = self.get_export_of_module(module_symbol, name.text)?;
++        let supplemental = target_exports.get(name).copied().or_else(|| {
++            let supplemental = self.get_export_of_module(module_symbol, name)?;
+             let flags = self.get_symbol_flags(supplemental);
+             (flags.intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+                 && !flags.intersects(SymbolFlags::VALUE))
+diff --git a/crates/tsr-checker/tests/module_export_names.rs b/crates/tsr-checker/tests/module_export_names.rs
+new file mode 100644
+index 00000000..149df4d2
+--- /dev/null
++++ b/crates/tsr-checker/tests/module_export_names.rs
+@@ -0,0 +1,135 @@
++//! String-literal module export names: `export { x as "<X>" }` and
++//! `import { "<X>" as y }` (tsr-2zk.991).
++//!
++//! `getExternalModuleMember` (`checker.go:14667`) reads
++//! `specifier.PropertyNameOrName().Text()`, and the binder keys a module's
++//! `exports` by the same text, so a string-literal name is looked up exactly as
++//! an identifier is. `docs/parity/notes/r5-modexports.md` §1.
++//!
++//! | mutation | reddens |
++//! |---|---|
++//! | `get_external_module_member` answers `None` for a string-literal name again | all three positive tests |
++//! | `module_export_name_text` returns `""` for a string literal | all three positive tests |
++
++use tsr_ast::{NodeId, NodeMap, NodeTable, SyntaxKind};
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, resolution::ModuleHost};
++use tsr_core::Arena;
++
++/// `"./m"` names the fixture called `m` (as in `tests/cross_file_aliases.rs`).
++struct Fixtures {
++    files: Vec<(&'static str, NodeId)>,
++}
++
++impl ModuleHost for Fixtures {
++    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
++        self.resolved_module(importing_file, specifier).is_some()
++    }
++
++    fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
++        let name = specifier.strip_prefix("./").unwrap_or(specifier);
++        self.files.iter().find(|(fixture, _)| *fixture == name).map(|&(_, id)| id)
++    }
++}
++
++struct Fixture<'a> {
++    nodes: NodeTable,
++    node_map: NodeMap<'a>,
++    bound: BindResult<'a>,
++    host: Fixtures,
++}
++
++/// Parse and bind several files into one identity space (ADR-0034).
++fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> {
++    let mut nodes = NodeTable::new();
++    let mut node_map = NodeMap::new();
++    let mut parsed = Vec::new();
++    for (name, source) in files {
++        let source: &'a str = arena.alloc_str(source);
++        let file = tsr_parser::parse_into(
++            arena,
++            source,
++            tsr_parser::ParseOptions::default(),
++            &mut nodes,
++            &mut node_map,
++        );
++        assert!(file.diagnostics.is_empty(), "fixture {name} must parse");
++        parsed.push((*name, source, file.source_file));
++    }
++    let mut bound = BindResult::empty();
++    let mut host = Fixtures { files: Vec::new() };
++    for (name, source, source_file) in parsed {
++        let file_name: &'a str = arena.alloc_str(&format!("/{name}.ts"));
++        host.files.push((name, source_file.node_id.expect("a parsed file has an id")));
++        bound = tsr_binder::bind_into(
++            bound,
++            arena,
++            source_file,
++            &nodes,
++            tsr_binder::FileInfo { name: file_name, text: source },
++        );
++    }
++    Fixture { nodes, node_map, bound, host }
++}
++
++/// The type of the alias an import or export specifier binds under `name`.
++fn type_of_alias(fixture: &Fixture<'_>, name: &str) -> String {
++    let mut checker = Checker::with_module_host(
++        &fixture.bound,
++        &fixture.nodes,
++        &fixture.node_map,
++        Some(&fixture.host),
++    );
++    let symbol = (0..u32::try_from(fixture.nodes.len()).expect("node count fits in u32"))
++        .map(NodeId::new)
++        .filter(|&id| {
++            matches!(
++                fixture.nodes.kind(id),
++                SyntaxKind::ImportSpecifier | SyntaxKind::ExportSpecifier
++            )
++        })
++        .filter_map(|id| fixture.bound.symbol_of(id))
++        .find(|&symbol| fixture.bound.symbols().get(symbol).name == name)
++        .unwrap_or_else(|| panic!("no import or export specifier named `{name}`"));
++    let id = checker.get_type_of_symbol(symbol);
++    checker.type_to_string(id)
++}
++
++#[test]
++fn a_named_import_of_a_string_literal_export_resolves() {
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("m", "const v = 17; export { v as \"<X>\" };"),
++            ("main", "import { \"<X>\" as y } from './m'; y;"),
++        ],
++    );
++    assert_eq!(type_of_alias(&fixture, "y"), "17");
++}
++
++#[test]
++fn a_string_literal_re_export_of_a_string_literal_export_resolves() {
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("m", "const v = 17; export { v as \"<X>\" };"),
++            ("r", "export { \"<X>\" as \"<Y>\" } from './m';"),
++            ("main", "import { \"<Y>\" as y } from './r'; y;"),
++        ],
++    );
++    assert_eq!(type_of_alias(&fixture, "<Y>"), "17");
++    assert_eq!(type_of_alias(&fixture, "y"), "17");
++}
++
++#[test]
++fn a_string_literal_name_that_spells_an_identifier_export_resolves() {
++    // The binder keys `exports` by text, so `"v"` and `v` are one key.
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[("m", "export const v = 17;"), ("main", "import { \"v\" as y } from './m'; y;")],
++    );
++    assert_eq!(type_of_alias(&fixture, "y"), "17");
++}

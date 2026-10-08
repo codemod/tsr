@@ -1,0 +1,493 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index c7f30207..d58bb2a0 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2686,6 +2686,17 @@ impl Checker<'_, '_> {
+         let Some((literal, module)) = resolved else {
+             return self.promise_of_any();
+         };
++        // `:8307`: `getTypeWithSyntheticDefaultOnly` of the resolved module —
++        // a JSON module under node16+ ESM is `Promise<{ default: T }>`.
++        if let Some(specifier_id) = tsr_ast::Node::from(specifier).node_id() {
++            let es_module = self.resolve_external_module_symbol(module);
++            if let Some(synthetic) =
++                self.get_type_with_synthetic_default_only(es_module, module, specifier_id)
++            {
++                let promise = self.global_type_symbol_with_arity("Promise", 1)?;
++                return Some(self.create_type_reference(promise, vec![synthetic]));
++            }
++        }
+         // Interned per (module, written spelling): duplicate mints would
+         // churn prints (the bar's falsifier c).
+         // SS196: the specifier is a STRING and prints escaped —
+@@ -2708,6 +2719,16 @@ impl Checker<'_, '_> {
+             self.qualified_reference_types.insert(key, minted);
+             minted
+         };
++        // `:8309`: `getTypeWithSyntheticDefaultImportType` of the module type.
++        // Only a module without `export =` is asked: `namespace` stands for
++        // the module symbol's type, which is not the `export =` target's
++        // (`docs/parity/notes/r5-modexports.md` §3).
++        let namespace = match tsr_ast::Node::from(specifier).node_id() {
++            Some(specifier_id) if self.resolve_external_module_symbol(module) == module => {
++                self.get_type_with_synthetic_default_import_type(namespace, module, specifier_id)
++            }
++            _ => namespace,
++        };
+         let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+         Some(self.create_type_reference(promise, vec![namespace]))
+     }
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index feed8152..3a1316f1 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -818,6 +818,12 @@ pub struct Checker<'a, 'n> {
+     /// Module copies have distinct identity, but share their source's property
+     /// symbols. Native cloneTypeAsModuleType's originating import/target links.
+     pub(crate) module_value_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
++    /// Native `cachedTypes` under `CachedTypeKindDefaultOnlyType` and
++    /// `CachedTypeKindSyntheticType` (`checker.go:15632`, `:15646`), keyed by
++    /// the module value type. `crate::module_exports`; its convention record
++    /// is `docs/parity/notes/r5-modexports.md` §3.
++    pub(crate) synthetic_default_types:
++        FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
+     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+     pub(crate) any_function_type: Option<TypeId>,
+     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
+@@ -1526,6 +1532,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+                 (intrinsics.unknown_empty_object, (Vec::new(), true)),
+             ]),
+             module_value_clones: FxHashMap::default(),
++            synthetic_default_types: FxHashMap::default(),
+             instantiated_objects: rustc_hash::FxHashMap::default(),
+             any_function_type: None,
+             non_inferrable_types: rustc_hash::FxHashSet::default(),
+diff --git a/crates/tsr-checker/src/module_exports.rs b/crates/tsr-checker/src/module_exports.rs
+index cbd6b1e5..1f1e4489 100644
+--- a/crates/tsr-checker/src/module_exports.rs
++++ b/crates/tsr-checker/src/module_exports.rs
+@@ -26,3 +26,127 @@ pub(crate) fn module_export_name_text(name: tsr_ast::ModuleExportName<'_>) -> &s
+ pub(crate) fn module_export_name_is_default(name: tsr_ast::ModuleExportName<'_>) -> bool {
+     module_export_name_text(name) == "default"
+ }
++
++/// Which of native's two synthetic-default caches a type lives in
++/// (`CachedTypeKindDefaultOnlyType` / `CachedTypeKindSyntheticType`).
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++pub(crate) enum SyntheticDefaultKind {
++    /// `getTypeWithSyntheticDefaultOnly` (`checker.go:15632`).
++    DefaultOnly,
++    /// `getTypeWithSyntheticDefaultImportType` (`checker.go:15646`).
++    SyntheticImport,
++}
++
++impl crate::Checker<'_, '_> {
++    /// `getTypeWithSyntheticDefaultOnly` (`checker.go:15632`): a module that
++    /// is only importable as a default — a JSON module (or `.d.json.ts`)
++    /// imported with ES syntax under `node16`..`nodenext`
++    /// (`isOnlyImportableAsDefault`, `checker.go:14800`) — reads as
++    /// `{ default: T }` for a namespace import or a dynamic `import()`.
++    ///
++    /// `symbol` is the resolved module (`resolveExternalModuleSymbol`),
++    /// `specifier` the module specifier of the usage. `None` is native's `nil`:
++    /// the module is importable some other way, or its type is an error.
++    ///
++    /// Convention record (`docs/conventions.md`): pinned native operation
++    /// `getTypeWithSyntheticDefaultOnly`; key the module value's `TypeId`
++    /// (native `typeId: t.id`), owned by
++    /// [`crate::Checker::synthetic_default_types`]; published once, complete,
++    /// never revised; receiver context none (the wrapper depends on the value
++    /// type alone — the usage only decides whether it is asked for); the
++    /// expensive work is `get_type_of_symbol` of the module, which the
++    /// `isOnlyImportableAsDefault` test gates, so ordinary imports pay one
++    /// module-kind comparison.
++    pub(crate) fn get_type_with_synthetic_default_only(
++        &mut self,
++        symbol: tsr_binder::SymbolId,
++        original: tsr_binder::SymbolId,
++        specifier: tsr_ast::NodeId,
++    ) -> Option<crate::types::TypeId> {
++        if !self.is_only_importable_as_default(original, specifier) {
++            return None;
++        }
++        let value = self.get_type_of_symbol(symbol);
++        if self.is_error(value) {
++            return None;
++        }
++        let key = (SyntheticDefaultKind::DefaultOnly, value);
++        if let Some(&cached) = self.synthetic_default_types.get(&key) {
++            return Some(cached);
++        }
++        let wrapper = self.create_default_property_wrapper_for_module(value);
++        self.synthetic_default_types.insert(key, wrapper);
++        Some(wrapper)
++    }
++
++    /// `getTypeWithSyntheticDefaultImportType` (`checker.go:15646`): when the
++    /// module can have a synthetic default for this usage
++    /// (`canHaveSyntheticDefault`, `checker.go:14818`), the module's type
++    /// spread with `{ default: <the module> }`, so a real `default` member is
++    /// overridden — per emit, `__importStar` wraps a module with no
++    /// `__esModule` marker. Otherwise `value` itself.
++    ///
++    /// Native's wrapper here is owned by a `TypeLiteral` symbol rather than
++    /// an object literal one; the spread result is the same anonymous object
++    /// either way. Convention record: as
++    /// [`Self::get_type_with_synthetic_default_only`], under
++    /// [`SyntheticDefaultKind::SyntheticImport`]. Native caches by the value
++    /// type alone although the answer depends on the usage too; that quirk
++    /// is kept (`docs/parity/notes/r5-modexports.md` §3).
++    pub(crate) fn get_type_with_synthetic_default_import_type(
++        &mut self,
++        value: crate::types::TypeId,
++        original: tsr_binder::SymbolId,
++        specifier: tsr_ast::NodeId,
++    ) -> crate::types::TypeId {
++        if self.is_error(value) {
++            return value;
++        }
++        let key = (SyntheticDefaultKind::SyntheticImport, value);
++        if let Some(&cached) = self.synthetic_default_types.get(&key) {
++            return cached;
++        }
++        let synthetic = if self.can_have_synthetic_default_for_usage(original, specifier) {
++            let wrapper = self.create_default_property_wrapper_for_module(value);
++            if self.is_valid_spread_type(value) {
++                self.get_spread_type(value, wrapper, None, false)
++            } else {
++                wrapper
++            }
++        } else {
++            value
++        };
++        self.synthetic_default_types.insert(key, synthetic);
++        synthetic
++    }
++
++    /// `createDefaultPropertyWrapperForModule` (`checker.go:15707`): an
++    /// anonymous object whose one member is `default`, typed as the module.
++    ///
++    /// Native's member is a fresh alias symbol whose `aliasTarget` is the
++    /// module; its type is the module's type. This port's checker cannot mint
++    /// symbols into the binder's store, so the member is an
++    /// [`crate::objects::AnonymousProperty`] carrying that type directly —
++    /// the representation `getRestType`'s anonymous objects already use
++    /// ([`crate::Checker::mint_rest_properties`]), which property access,
++    /// enumeration and printing read without a symbol.
++    fn create_default_property_wrapper_for_module(
++        &mut self,
++        value: crate::types::TypeId,
++    ) -> crate::types::TypeId {
++        let printed = self.type_to_string(value);
++        let default = crate::objects::AnonymousProperty {
++            accessor_write: None,
++            method: false,
++            origin: None,
++            checked_declaration: None,
++            name: "default".to_owned(),
++            printed_name: "default".to_owned(),
++            printed_slot: crate::objects::PrintedSlot::printed(printed),
++            optional: false,
++            readonly: false,
++            slot: crate::objects::PropertySlot::resolved(value),
++        };
++        self.mint_rest_properties(vec![default], Vec::new())
++    }
++}
+diff --git a/crates/tsr-checker/src/spreads.rs b/crates/tsr-checker/src/spreads.rs
+index 4c708811..eb26079f 100644
+--- a/crates/tsr-checker/src/spreads.rs
++++ b/crates/tsr-checker/src/spreads.rs
+@@ -73,7 +73,7 @@ impl Checker<'_, '_> {
+ 
+     /// Native getSpreadType folds whole types before resolving concrete members.
+     /// Union distribution and generic intersections must precede property lookup.
+-    fn get_spread_type(
++    pub(crate) fn get_spread_type(
+         &mut self,
+         mut left: TypeId,
+         mut right: TypeId,
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 9cddfdf2..72caa8e3 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -671,6 +671,16 @@ impl<'a> Checker<'a, '_> {
+         if self.nodes.kind(declaration) != SyntaxKind::NamespaceImport {
+             return None;
+         }
++        // `resolveESModuleSymbol` (`checker.go:15568`) asks
++        // `getTypeWithSyntheticDefaultOnly` before anything else: a JSON
++        // module imported with ES syntax under node16+ is `{ default: T }`.
++        if let Some(specifier) = self.import_declaration_specifier(declaration)
++            && let Some(module) = self.resolve_external_module_name(declaration, specifier)
++            && let Some(wrapper) =
++                self.get_type_with_synthetic_default_only(target, module, specifier)
++        {
++            return Some(wrapper);
++        }
+         let target = self.resolve_alias_fully(target);
+         let target_flags = self.binder.symbols().get(target).flags;
+         let kind = if target_flags.contains(SymbolFlags::CLASS) {
+@@ -686,7 +696,7 @@ impl<'a> Checker<'a, '_> {
+             // (`module_clone_default_symbol`). names-modules notes §5.
+             None
+         } else {
+-            return None;
++            return self.namespace_import_default_member_type(declaration, value);
+         };
+         // resolveESModuleSymbol's `module.exports` arm answers that export
+         // itself, not a module copy (`namespace_import_module_exports`).
+@@ -742,6 +752,40 @@ impl<'a> Checker<'a, '_> {
+         Some(clone)
+     }
+ 
++    /// `resolveESModuleSymbol`'s third arm (`checker.go:15610`) for a module
++    /// whose type has a `default` member and neither signatures nor an
++    /// ESM-to-CommonJS reference (those two are [`Checker::module_clone_type`]'s
++    /// own arms): a structured type becomes
++    /// [`Checker::get_type_with_synthetic_default_import_type`]. `None` keeps
++    /// the plain module type, which is also native's answer when the module
++    /// cannot have a synthetic default (`syntheticType = t`, cloned unchanged).
++    /// `docs/parity/notes/r5-modexports.md` §3.
++    fn namespace_import_default_member_type(
++        &mut self,
++        declaration: NodeId,
++        value: TypeId,
++    ) -> Option<TypeId> {
++        // `TypeFlagsStructuredType`: Object | Union | Intersection.
++        if !self
++            .store
++            .get(value)
++            .flags
++            .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::INTERSECTION)
++            || self.get_property_of_type_ex(value, "default", true).is_none()
++        {
++            return None;
++        }
++        let owner = self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))?;
++        let specifier = self.external_module_name(owner)?;
++        // The `module.exports` arm answers that export, not a module type.
++        if self.namespace_import_module_exports(owner, specifier).is_some() {
++            return None;
++        }
++        let module = self.resolve_external_module_name(declaration, specifier)?;
++        let synthetic = self.get_type_with_synthetic_default_import_type(value, module, specifier);
++        (synthetic != value).then_some(synthetic)
++    }
++
+     /// The synthetic default aliases the export-equals value. Reuse that
+     /// alias's value/readonly metadata rather than a constructor property.
+     ///
+@@ -1511,13 +1555,12 @@ impl<'a> Checker<'a, '_> {
+         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
+         // same shape, the specifier just lives on the tag.
+         let specifier = match self.node_map.get(parent)? {
+-            // §292's narrowing: an import carrying ATTRIBUTES declines — the
+-            // attribute validity rules are unported, and upstream errors the
+-            // whole import where this road would type through it
+-            // (`importAttributes7/8`, the pair's 2 R→W).
+-            Node::ImportDeclaration(import) if import.attributes.is_none() => {
+-                import.module_specifier
+-            }
++            // `getTargetOfImportClause` (`checker.go:14528`) does not read the
++            // attributes: `import a from "./a" with { … }` types through, and
++            // `checkImportAttributes` (`import_attributes.rs`) reports on the
++            // attributes alone. §292's decline predated that port;
++            // `docs/parity/notes/r5-modexports.md` §2.
++            Node::ImportDeclaration(import) => import.module_specifier,
+             Node::JSDocImportTag(import) => import.module_specifier,
+             _ => return None,
+         };
+@@ -1754,7 +1797,7 @@ impl<'a> Checker<'a, '_> {
+ 
+     /// `isOnlyImportableAsDefault` (`checker.go:14800`): under `node16`..
+     /// `nodenext`, an ES-syntax usage of a JSON module.
+-    fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
++    pub(crate) fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
+         if !(tsr_core::ModuleKind::Node16..=tsr_core::ModuleKind::NodeNext)
+             .contains(&self.module_kind)
+         {
+@@ -1957,11 +2000,10 @@ impl<'a> Checker<'a, '_> {
+         if export.module_specifier.is_some() {
+             // `ast.ModuleExportNameIsDefault` reads `Text()`, so a
+             // string-literal `"default"` takes the default road too.
+-            if export.attributes.is_none()
+-                && specifier
+-                    .property_name
+-                    .or(specifier.name)
+-                    .is_some_and(crate::module_exports::module_export_name_is_default)
++            if specifier
++                .property_name
++                .or(specifier.name)
++                .is_some_and(crate::module_exports::module_export_name_is_default)
+             {
+                 let module_specifier = export.module_specifier?.node_id()?;
+                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
+@@ -2010,7 +2052,6 @@ impl<'a> Checker<'a, '_> {
+                 .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))
+                 .is_some_and(crate::module_exports::module_export_name_is_default)
+             && let Some(Node::ImportDeclaration(node)) = self.node_map.get(import)
+-            && node.attributes.is_none()
+         {
+             let module_specifier = node.module_specifier?.node_id()?;
+             let module = self.resolve_external_module_name(declaration, module_specifier)?;
+diff --git a/crates/tsr-checker/tests/synthetic_default.rs b/crates/tsr-checker/tests/synthetic_default.rs
+new file mode 100644
+index 00000000..fdb838e4
+--- /dev/null
++++ b/crates/tsr-checker/tests/synthetic_default.rs
+@@ -0,0 +1,154 @@
++//! Synthetic `default` on a namespace import under `module: node16`+
++//! (tsr-2zk.992): `getTypeWithSyntheticDefaultOnly` (`checker.go:15632`) and
++//! `getTypeWithSyntheticDefaultImportType` (`checker.go:15646`), reached from
++//! `resolveESModuleSymbol` (`checker.go:15568`).
++//! `docs/parity/notes/r5-modexports.md` §2–§3.
++//!
++//! | mutation | reddens |
++//! |---|---|
++//! | `get_type_with_synthetic_default_only` answers `None` | [`an_es_namespace_import_of_json_has_only_a_default`] **only** |
++//! | `namespace_import_default_member_type` answers `None` | [`a_commonjs_namespace_import_of_json_with_a_default_member_is_spread`] **only** |
++//! | `namespace_import_default_member_type` skips the `default`-member test | [`a_commonjs_namespace_import_of_json_without_a_default_member_is_the_json`] **only** |
++
++use tsr_ast::{NodeId, NodeMap, NodeTable, SyntaxKind};
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, resolution::ModuleHost};
++use tsr_core::{Arena, ModuleKind};
++
++/// `"./x"` names the fixture `x`; usages emit as ESM from `.mts` files and as
++/// CommonJS from `.cts` files (`GetEmitSyntaxForUsageLocation`).
++struct Fixtures {
++    files: Vec<(&'static str, NodeId)>,
++}
++
++impl ModuleHost for Fixtures {
++    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
++        self.resolved_module(importing_file, specifier).is_some()
++    }
++
++    fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
++        let name = specifier.strip_prefix("./").unwrap_or(specifier);
++        self.files.iter().find(|(fixture, _)| *fixture == name).map(|&(_, id)| id)
++    }
++
++    fn emit_syntax_for_usage_location(&self, importing_file: NodeId, _usage: NodeId) -> ModuleKind {
++        match self.files.iter().find(|&&(_, id)| id == importing_file) {
++            Some((name, _)) if name.ends_with(".mts") => ModuleKind::ESNext,
++            Some((name, _)) if name.ends_with(".cts") => ModuleKind::CommonJS,
++            _ => ModuleKind::None,
++        }
++    }
++}
++
++struct Fixture<'a> {
++    nodes: NodeTable,
++    node_map: NodeMap<'a>,
++    bound: BindResult<'a>,
++    host: Fixtures,
++}
++
++/// Parse and bind several files into one identity space (ADR-0034); a
++/// `.json` fixture parses as JSON.
++fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> {
++    let mut nodes = NodeTable::new();
++    let mut node_map = NodeMap::new();
++    let mut parsed = Vec::new();
++    for (name, source) in files {
++        let source: &'a str = arena.alloc_str(source);
++        let options = tsr_parser::ParseOptions {
++            script_kind: if name.ends_with(".json") {
++                tsr_parser::ScriptKind::Json
++            } else {
++                tsr_parser::ScriptKind::TypeScript
++            },
++            ..tsr_parser::ParseOptions::default()
++        };
++        let file = tsr_parser::parse_into(arena, source, options, &mut nodes, &mut node_map);
++        assert!(file.diagnostics.is_empty(), "fixture {name} must parse");
++        parsed.push((*name, source, file.source_file));
++    }
++    let mut bound = BindResult::empty();
++    let mut host = Fixtures { files: Vec::new() };
++    for (name, source, source_file) in parsed {
++        let file_name: &'a str = arena.alloc_str(&format!("/{name}"));
++        host.files.push((name, source_file.node_id.expect("a parsed file has an id")));
++        bound = tsr_binder::bind_into(
++            bound,
++            arena,
++            source_file,
++            &nodes,
++            tsr_binder::FileInfo { name: file_name, text: source },
++        );
++    }
++    Fixture { nodes, node_map, bound, host }
++}
++
++/// The type of the namespace import `name`, checked under `module: node16`.
++fn type_of_namespace_import(fixture: &Fixture<'_>, name: &str) -> String {
++    let mut checker = Checker::with_module_host(
++        &fixture.bound,
++        &fixture.nodes,
++        &fixture.node_map,
++        Some(&fixture.host),
++    );
++    let options = tsr_core::CompilerOptions {
++        module: ModuleKind::Node16,
++        ..tsr_core::CompilerOptions::default()
++    };
++    checker.apply_compiler_options(&options);
++    let symbol = (0..u32::try_from(fixture.nodes.len()).expect("node count fits in u32"))
++        .map(NodeId::new)
++        .filter(|&id| fixture.nodes.kind(id) == SyntaxKind::NamespaceImport)
++        .filter_map(|id| fixture.bound.symbol_of(id))
++        .find(|&symbol| fixture.bound.symbols().get(symbol).name == name)
++        .unwrap_or_else(|| panic!("no namespace import named `{name}`"));
++    let id = checker.get_type_of_symbol(symbol);
++    checker.type_to_string(id)
++}
++
++#[test]
++fn an_es_namespace_import_of_json_has_only_a_default() {
++    // `isOnlyImportableAsDefault`: JSON modules get no named exports in ESM.
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("config.json", "{ \"version\": 1 }"),
++            ("main.mts", "import * as ns from './config.json'; ns;"),
++        ],
++    );
++    assert_eq!(type_of_namespace_import(&fixture, "ns"), "{ default: { version: number; }; }");
++}
++
++#[test]
++fn a_commonjs_namespace_import_of_json_with_a_default_member_is_spread() {
++    // A JSON module binds its value as `export =`, so it can have a synthetic
++    // default (`canHaveSyntheticDefault`), which overrides its own `default`.
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("package.json", "{ \"name\": \"pkg\", \"default\": \"misdirection\" }"),
++            ("main.cts", "import * as ns from './package.json'; ns;"),
++        ],
++    );
++    assert_eq!(
++        type_of_namespace_import(&fixture, "ns"),
++        "{ name: string; default: { name: string; default: string; }; }"
++    );
++}
++
++#[test]
++fn a_commonjs_namespace_import_of_json_without_a_default_member_is_the_json() {
++    // `resolveESModuleSymbol`'s third arm needs signatures, a `default`
++    // member, or an ESM-to-CommonJS reference; none holds.
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("config.json", "{ \"version\": 1 }"),
++            ("main.cts", "import * as ns from './config.json'; ns;"),
++        ],
++    );
++    assert_eq!(type_of_namespace_import(&fixture, "ns"), "{ version: number; }");
++}
