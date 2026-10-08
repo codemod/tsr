@@ -20,12 +20,14 @@
 //!
 //! # What is walked, and what is declined
 //!
-//! Only the written-annotation half: `TypeReference`, `TypeQuery`, heritage
+//! Mostly the written-annotation half: `TypeReference`, `TypeQuery`, heritage
 //! `ExpressionWithTypeArguments` and `import x = N.y`. Declarations whose type
 //! upstream *infers* go through the node builder's `SymbolTracker`
-//! (`transform.go:1667`, `CreateTypeOfDeclaration`), which this port does not
-//! have; they are not walked, so their errors are missed rather than invented.
-//! The same holds for every arm below marked *declined*: each skips a subtree
+//! (`transform.go:1667`, `CreateTypeOfDeclaration`); this port has the
+//! tracker side ([`TrackerReport`]) and asks the resolver for the reports of
+//! the node-builder arms it reaches (`docs/parity/notes/r5-declemit2.md` §3).
+//! Every other inferred type's errors are missed rather than invented. The
+//! same holds for every arm below marked *declined*: each skips a subtree
 //! upstream would visit, never visits one upstream skips.
 
 use rustc_hash::FxHashSet;
@@ -66,6 +68,32 @@ pub trait AccessibilityResolver {
     ) -> EntityNameVisibility;
     /// `IsImplementationOfOverload`.
     fn is_implementation_of_overload(&mut self, node: NodeId) -> bool;
+    /// `IsImportRequiredByAugmentation`, asked of an `import` declaration.
+    fn is_import_required_by_augmentation(&mut self, _import: NodeId) -> bool {
+        false
+    }
+    /// The `SymbolTracker` calls the node builder makes serializing the
+    /// inferred type of `node`: `CreateTypeOfDeclaration` for a variable
+    /// declaration or an export assignment, `CreateTypeOfExpression` for an
+    /// `ExpressionWithTypeArguments`.
+    fn inferred_type_reports(&mut self, _node: NodeId) -> Vec<TrackerReport> {
+        Vec::new()
+    }
+}
+
+/// A `checker.SymbolTracker` call (`checker/symboltracker.go`) the walk turns
+/// into a diagnostic (`SymbolTrackerImpl`, `tracker.go`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrackerReport {
+    /// `ReportPrivateInBaseOfClassExpression(propertyName)` (`tracker.go:131`).
+    PrivateInBaseOfClassExpression(String),
+}
+
+/// The `SymbolTrackerSharedState` options the walk reads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WalkOptions {
+    /// `isolatedDeclarations` (`tracker.go:238`).
+    pub isolated_declarations: bool,
 }
 
 /// Report the accessibility errors for written names in one TypeScript file.
@@ -80,15 +108,32 @@ pub fn written_name_diagnostics(
     text: &str,
     resolver: &mut impl AccessibilityResolver,
 ) -> Vec<Diagnostic> {
+    declaration_walk_diagnostics(file, nodes, map, text, WalkOptions::default(), resolver)
+}
+
+/// [`written_name_diagnostics`] with the transform's options, which add the
+/// `isolatedDeclarations` errors the transform itself raises (TS9026).
+#[must_use]
+pub fn declaration_walk_diagnostics(
+    file: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    text: &str,
+    options: WalkOptions,
+    resolver: &mut impl AccessibilityResolver,
+) -> Vec<Diagnostic> {
     let Some(Node::SourceFile(source)) = map.get(file) else { return Vec::new() };
     let mut walk = Walk {
         nodes,
         map,
         text,
+        options,
         resolver,
         enclosing: file,
         context: None,
         suppress: false,
+        error_name_node: None,
+        fallback: Vec::new(),
         late_marked: Vec::new(),
         transformed: FxHashSet::default(),
         out: Vec::new(),
@@ -116,6 +161,7 @@ struct Walk<'a, 'n, 'r, R> {
     nodes: &'n NodeTable,
     map: &'n NodeMap<'a>,
     text: &'n str,
+    options: WalkOptions,
     resolver: &'r mut R,
     /// `tx.enclosingDeclaration`.
     enclosing: NodeId,
@@ -124,6 +170,10 @@ struct Walk<'a, 'n, 'r, R> {
     context: Option<Context>,
     /// `tx.suppressNewDiagnosticContexts`.
     suppress: bool,
+    /// `tx.state.errorNameNode`.
+    error_name_node: Option<NodeId>,
+    /// `SymbolTrackerImpl.fallbackStack`.
+    fallback: Vec<NodeId>,
     /// `tx.state.lateMarkedStatements`.
     late_marked: Vec<NodeId>,
     /// The keys of `tx.lateStatementReplacementMap`.
@@ -183,10 +233,99 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
     /// (`export default <expr>` goes through the node builder: declined).
     fn visit_declaration_statements(&mut self, id: NodeId) {
         match self.kind(id) {
-            K::ExportDeclaration | K::ExportAssignment => {}
+            K::ExportDeclaration => {}
+            K::ExportAssignment => self.transform_export_assignment(id),
             _ => {
                 if self.transformed.insert(id) {
                     self.transform_top_level_declaration(id);
+                }
+            }
+        }
+    }
+
+    /// `transformExportAssignment` (`transform.go:1210`), for its `_default`
+    /// arm: an expression that is neither an identifier, a class expression,
+    /// a function-like expression nor a primitive literal gets a synthesized
+    /// variable typed by `ensureType(assignment)`, under the
+    /// `Default_export_of_the_module_has_or_is_using_private_name_0` context
+    /// with the assignment pushed as the tracker's fallback node (`:1251`).
+    /// The identifier arm writes `export default <name>` and checks nothing
+    /// here; the class and function arms rebuild declarations (declined).
+    fn transform_export_assignment(&mut self, id: NodeId) {
+        let Some(Node::ExportAssignment(assignment)) = self.map.get(id) else { return };
+        let Some(expression) = assignment.expression.and_then(|e| e.node_id()) else { return };
+        if self.kind(expression) == K::Identifier {
+            return;
+        }
+        // `SkipOuterExpressions(expression, OEKExpressionTypePassthrough)`.
+        let mut unwrapped = expression;
+        loop {
+            let inner = match self.map.get(unwrapped) {
+                Some(Node::ParenthesizedExpression(n)) => n.expression,
+                Some(Node::AsExpression(n)) => n.expression,
+                Some(Node::TypeAssertion(n)) => n.expression,
+                Some(Node::SatisfiesExpression(n)) => n.expression,
+                Some(Node::NonNullExpression(n)) => n.expression,
+                _ => break,
+            };
+            match inner.and_then(|e| e.node_id()) {
+                Some(inner) => unwrapped = inner,
+                None => return,
+            }
+        }
+        if matches!(
+            self.kind(unwrapped),
+            K::ClassExpression | K::FunctionExpression | K::ArrowFunction
+        ) {
+            return;
+        }
+        // `IsPrimitiveLiteralValue(unwrapParenthesizedExpression(e), true)`
+        // takes the initializer arm, which serializes no type. Every arm the
+        // tracker reports here is an object type, so declining any literal-
+        // or prefix-shaped expression loses nothing.
+        if matches!(
+            self.kind(unwrapped),
+            K::StringLiteral
+                | K::NumericLiteral
+                | K::BigIntLiteral
+                | K::NoSubstitutionTemplateLiteral
+                | K::TrueKeyword
+                | K::FalseKeyword
+                | K::PrefixUnaryExpression
+        ) {
+            return;
+        }
+        let previous_context = self.context;
+        self.context = Some(Context::ForNode(id));
+        self.fallback.push(id);
+        // `ensureType(assignment)`: an export assignment has no name.
+        let previous_name = self.error_name_node.take();
+        self.track_inferred_type(id);
+        self.error_name_node = previous_name;
+        self.fallback.pop();
+        self.context = previous_context;
+    }
+
+    /// The `SymbolTrackerImpl` side of a node-builder call
+    /// (`tracker.go:44`–`:141`): each report becomes its diagnostic at
+    /// `errorLocation()` — `errorNameNode`, else the fallback stack's top.
+    fn track_inferred_type(&mut self, node: NodeId) {
+        let reports = self.resolver.inferred_type_reports(node);
+        if reports.is_empty() {
+            return;
+        }
+        let Some(location) = self.error_name_node.or_else(|| self.fallback.last().copied()) else {
+            return;
+        };
+        let span = self.nodes.span(location);
+        for report in reports {
+            match report {
+                TrackerReport::PrivateInBaseOfClassExpression(name) => {
+                    self.out.push(Diagnostic::with_args(
+                        &m::PROPERTY_0_OF_EXPORTED_ANONYMOUS_CLASS_TYPE_MAY_NOT_BE_PRIVATE_OR_PROTECTED,
+                        span,
+                        vec![name],
+                    ));
                 }
             }
         }
@@ -240,7 +379,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         self.late_marked.retain(|&statement| statement != id);
         match self.kind(id) {
             K::ImportEqualsDeclaration => return self.transform_import_equals_declaration(id),
-            K::ImportDeclaration => return,
+            K::ImportDeclaration => return self.transform_import_declaration(id),
             _ => {}
         }
         if self.is_declaration_and_not_visible(id) {
@@ -317,6 +456,11 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
     fn transform_class_declaration(&mut self, id: NodeId, class: &tsr_ast::ClassDeclaration<'a>) {
         let previous_enclosing = self.enclosing;
         self.enclosing = id;
+        // `tx.state.errorNameNode = input.Name()` and the class pushed as the
+        // fallback node (`transform.go:1983`). Native does not restore
+        // `errorNameNode` afterwards; every later reader sets its own.
+        self.error_name_node = class.name.and_then(|name| name.node_id);
+        self.fallback.push(id);
         self.ensure_type_params(id, class.type_parameters);
         // Parameter properties first.
         let constructor = class.members.iter().find_map(|member| match member {
@@ -342,14 +486,73 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         for member in class.members {
             self.visit_opt(class_element_id(member));
         }
-        // `getEffectiveBaseTypeNode` with a non-entity-name expression is
-        // serialized by the node builder (`CreateTypeOfExpression`): declined.
-        // Its clause is filtered out of the visited heritage clauses below
-        // either way (`transformHeritageClause`).
+        // `getEffectiveBaseTypeNode` with a non-entity-name, non-`null`
+        // expression is serialized by the node builder
+        // (`CreateTypeOfExpression`, `transform.go:2018`) as the type of a
+        // synthesized `<name>_base` variable. Its clause is filtered out of
+        // the visited heritage clauses below either way
+        // (`transformHeritageClause`).
+        if let Some(base) = self.non_entity_base_type_node(class) {
+            self.track_inferred_type(base);
+        }
         for clause in class.heritage_clauses {
             self.visit_opt(clause.node_id);
         }
+        self.fallback.pop();
         self.enclosing = previous_enclosing;
+    }
+
+    /// `getEffectiveBaseTypeNode` (`transform.go:1997`) when its expression is
+    /// neither an entity-name expression nor `null`: the first type of the
+    /// `extends` clause.
+    fn non_entity_base_type_node(&self, class: &tsr_ast::ClassDeclaration<'a>) -> Option<NodeId> {
+        let clause =
+            class.heritage_clauses.iter().find(|clause| clause.token.kind == K::ExtendsKeyword)?;
+        let base = clause.types.first()?;
+        let expression = base.expression.and_then(|e| e.node_id());
+        if self.is_entity_name_expression(expression)
+            || expression.is_none_or(|e| self.kind(e) == K::NullKeyword)
+        {
+            return None;
+        }
+        base.node_id
+    }
+
+    /// `transformImportDeclaration` (`transform.go:2471`), for the one error
+    /// it raises: a named-imports declaration none of whose bindings is
+    /// visible is kept bare only when an augmentation needs it, which
+    /// `isolatedDeclarations` cannot express. A side-effect import, a
+    /// default-only import and a namespace import return before that arm
+    /// (`:2472`, `:2491`, `:2509`), as upstream's do.
+    ///
+    /// Upstream raises this on the *first* transform of the statement; a
+    /// later late-painted re-transform finds a visible binding and returns
+    /// earlier, but the diagnostic already added stays. Visiting the
+    /// statement once in order reproduces that.
+    fn transform_import_declaration(&mut self, id: NodeId) {
+        let Some(Node::ImportDeclaration(import)) = self.map.get(id) else { return };
+        let Some(clause) = import.import_clause else { return };
+        let Some(tsr_ast::NamedImportBindings::NamedImports(named)) = clause.named_bindings else {
+            return;
+        };
+        if clause.name.is_some()
+            && let Some(clause_id) = clause.node_id
+            && self.resolver.is_declaration_visible(clause_id)
+        {
+            return;
+        }
+        let elements: Vec<NodeId> = named.elements.iter().filter_map(|e| e.node_id).collect();
+        if elements.into_iter().any(|element| self.resolver.is_declaration_visible(element)) {
+            return;
+        }
+        if self.resolver.is_import_required_by_augmentation(id)
+            && self.options.isolated_declarations
+        {
+            self.out.push(Diagnostic::new(
+                &m::DECLARATION_EMIT_FOR_THIS_FILE_REQUIRES_PRESERVING_THIS_IMPORT_FOR_AUGMENTATIONS_THIS_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS,
+                self.nodes.span(id),
+            ));
+        }
     }
 
     /// `transformImportEqualsDeclaration` (`transform.go:2448`).
@@ -711,8 +914,17 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         {
             self.visit(written);
         }
-        // An absent annotation is `CreateTypeOfDeclaration` /
-        // `CreateReturnTypeOfSignatureDeclaration`: declined.
+        // An absent annotation is `CreateTypeOfDeclaration` (`:1667`), with
+        // `errorNameNode` the declaration's name. Only a variable
+        // declaration's is asked (`inferred_type_reports`);
+        // `CreateReturnTypeOfSignatureDeclaration` and the other declaration
+        // kinds are declined.
+        if written.is_none() && matches!(node, Node::VariableDeclaration(_)) {
+            let previous_name = self.error_name_node;
+            self.error_name_node = self.name_of_declaration(id);
+            self.track_inferred_type(id);
+            self.error_name_node = previous_name;
+        }
     }
 
     /// `checkEntityNameVisibility` (`transform.go:1697`) with

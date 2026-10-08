@@ -6,7 +6,8 @@
 
 use tsr_ast::{Node, NodeId, NodeMap, NodeTable};
 use tsr_dts::accessibility::{
-    AccessibilityResolver, EntityNameVisibility, written_name_diagnostics,
+    AccessibilityResolver, EntityNameVisibility, TrackerReport, WalkOptions,
+    declaration_walk_diagnostics, written_name_diagnostics,
 };
 
 struct Stub<'n, 'a> {
@@ -96,4 +97,86 @@ fn what_the_declaration_file_drops_is_not_walked() {
     // An unannotated declaration's type is inferred by the node builder,
     // which this walk declines; its initializer is never visited.
     assert!(diagnostics("export const x = null as unknown as hidden;").is_empty());
+}
+
+/// A resolver for the node-builder arms: every declaration visible except
+/// import bindings, every import required by an augmentation, and every
+/// inferred type reporting one private class-expression member.
+struct Tracking<'n, 'a> {
+    map: &'n NodeMap<'a>,
+}
+
+impl AccessibilityResolver for Tracking<'_, '_> {
+    fn precalculate_declaration_emit_visibility(&mut self, _file: NodeId) {}
+
+    fn is_declaration_visible(&mut self, node: NodeId) -> bool {
+        !matches!(self.map.get(node), Some(Node::ImportSpecifier(_) | Node::ImportClause(_)))
+    }
+
+    fn is_entity_name_visible(
+        &mut self,
+        _entity_name: NodeId,
+        _enclosing: NodeId,
+    ) -> EntityNameVisibility {
+        EntityNameVisibility::Accessible(Vec::new())
+    }
+
+    fn is_implementation_of_overload(&mut self, _node: NodeId) -> bool {
+        false
+    }
+
+    fn is_import_required_by_augmentation(&mut self, _import: NodeId) -> bool {
+        true
+    }
+
+    fn inferred_type_reports(&mut self, _node: NodeId) -> Vec<TrackerReport> {
+        vec![TrackerReport::PrivateInBaseOfClassExpression("#p".into())]
+    }
+}
+
+/// `(code, column)` of each diagnostic the node-builder arms produce.
+fn tracked(source: &str, isolated_declarations: bool) -> Vec<(u32, u32)> {
+    let arena = tsr_core::Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let parsed = tsr_parser::parse_into(&arena, source, Default::default(), &mut nodes, &mut map);
+    let file = parsed.source_file.node_id.unwrap();
+    let mut resolver = Tracking { map: &map };
+    let options = WalkOptions { isolated_declarations };
+    let mut out: Vec<(u32, u32)> =
+        declaration_walk_diagnostics(file, &nodes, &map, source, options, &mut resolver)
+            .into_iter()
+            .map(|d| (d.message.code(), d.span.start + 1))
+            .collect();
+    out.sort_unstable();
+    out
+}
+
+#[test]
+fn an_inferred_type_reports_at_the_tracker_error_location() {
+    // `errorNameNode`: the variable's name.
+    assert_eq!(tracked("export const cls = f();", false), [(4094, 14)]);
+    // An annotated variable is not inferred.
+    assert!(tracked("export const cls: C = f();", false).is_empty());
+    // `export default <expr>`: no name, so the assignment (fallback node).
+    assert_eq!(tracked("export default f();", false), [(4094, 1)]);
+    // The identifier, class-expression and function-like arms build no type.
+    assert!(tracked("export default g;", false).is_empty());
+    assert!(tracked("export default (class {});", false).is_empty());
+    assert!(tracked("export default () => 1;", false).is_empty());
+    // `extends <expr>`: the class name, or the class when it has none.
+    assert_eq!(tracked("export class D extends f() {}", false), [(4094, 14)]);
+    assert_eq!(tracked("export default class extends f() {}", false), [(4094, 1)]);
+    assert!(tracked("export class E extends B {}", false).is_empty());
+    assert!(tracked("export class E extends A.B {}", false).is_empty());
+}
+
+#[test]
+fn an_import_kept_for_an_augmentation_reports_only_under_isolated_declarations() {
+    assert_eq!(tracked("import { a } from \"./m\";", true), [(9026, 1)]);
+    assert!(tracked("import { a } from \"./m\";", false).is_empty());
+    // Default-only and namespace imports return before the augmentation arm.
+    assert!(tracked("import d from \"./m\";", true).is_empty());
+    assert!(tracked("import * as ns from \"./m\";", true).is_empty());
+    assert!(tracked("import \"./m\";", true).is_empty());
 }

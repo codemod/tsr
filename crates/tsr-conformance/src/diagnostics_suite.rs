@@ -398,9 +398,10 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     // `GetEmitDeclarations()` (`core/compileroptions.go:349`): the
     // `isolatedDeclarations` family (`tsr_dts::analyze`, ADR-0021) and the
     // accessibility errors for names written in emitted declarations
-    // (`tsr_dts::accessibility`, over the checker's `EmitResolver`). Errors the
-    // node builder's `SymbolTracker` raises for *inferred* types have no
-    // producer (`docs/parity/notes/r4-declemit.md` §3).
+    // (`tsr_dts::accessibility`, over the checker's `EmitResolver`). Of the
+    // errors the node builder's `SymbolTracker` raises for *inferred* types,
+    // only the arms in `docs/parity/notes/r5-declemit2.md` §3 have a producer
+    // (`r4-declemit.md` §3 for the rest).
     let emit_declarations = options.declaration.is_true() || options.composite.is_true();
     if emit_declarations {
         let isolated = options.isolated_declarations.is_true();
@@ -435,11 +436,12 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
             if javascript || unit.file.file_name().contains("/node_modules/") {
                 continue;
             }
-            let found = tsr_dts::accessibility::written_name_diagnostics(
+            let found = tsr_dts::accessibility::declaration_walk_diagnostics(
                 unit.id,
                 program.nodes(),
                 program.node_map(),
                 unit.file.text(),
+                tsr_dts::accessibility::WalkOptions { isolated_declarations: isolated },
                 &mut resolver,
             );
             reported.extend(found.into_iter().map(|d| (position, d)));
@@ -516,6 +518,27 @@ impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '
 
     fn is_implementation_of_overload(&mut self, node: NodeId) -> bool {
         self.0.is_implementation_of_overload(node)
+    }
+
+    fn is_import_required_by_augmentation(&mut self, import: NodeId) -> bool {
+        self.0.is_import_required_by_augmentation(import)
+    }
+
+    fn inferred_type_reports(
+        &mut self,
+        node: NodeId,
+    ) -> Vec<tsr_dts::accessibility::TrackerReport> {
+        use tsr_checker::symbol_access::TrackerReport as Checker;
+        use tsr_dts::accessibility::TrackerReport as Walk;
+        self.0
+            .inferred_type_reports(node)
+            .into_iter()
+            .map(|report| match report {
+                Checker::PrivateInBaseOfClassExpression(name) => {
+                    Walk::PrivateInBaseOfClassExpression(name)
+                }
+            })
+            .collect()
     }
 }
 
