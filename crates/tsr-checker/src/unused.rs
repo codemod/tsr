@@ -345,7 +345,102 @@ impl Checker<'_, '_> {
         let Some(named) = named else { return };
         let Some(text) = self.identifier_text_of(named) else { return };
         let text = text.to_string();
+        if self.is_self_this_member_access(node, &text) {
+            return;
+        }
         self.note_member_name(&text);
+    }
+
+    /// The `isSelfTypeAccess` arm of `markPropertyAsReferenced`
+    /// (`checker.go:27718`): a member reached through `this` from inside the
+    /// member's *own* body is not a reference to it.
+    ///
+    /// Upstream asks `FindAncestor(nodeForCheckWriteOnly,
+    /// IsFunctionLikeDeclaration).Symbol() == prop`. With `this` as the
+    /// receiver, the nearest function-like ancestor being a class method or
+    /// accessor *named* `text` is the by-name form of that question: inside
+    /// that body `this` is the class's own instance, and its member `text` is
+    /// that very declaration. An arrow or function expression in between is
+    /// the nearest ancestor instead, and the reference counts — as upstream.
+    ///
+    /// The two `this`-receiver shapes upstream passes `isSelfTypeAccess = true`
+    /// for: a property or element access whose expression is `this`
+    /// (`checkPropertyAccessExpressionOrQualifiedName`,
+    /// `getPropertyTypeForIndexType` via `isSelfTypeAccess`), and a
+    /// destructuring-assignment property whose source is written `this`
+    /// (`checkObjectLiteralDestructuringPropertyAssignment`'s `rightIsThis`,
+    /// set only at the top level by `checkBinaryLikeExpression`,
+    /// `checker.go:12339`). The static path's `Class.member` receiver is
+    /// [`Checker::reference_is_inside_named_member`]'s.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §2.
+    fn is_self_this_member_access(&self, node: NodeId, text: &str) -> bool {
+        let this_receiver = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                access.expression.and_then(|e| e.node_id())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                access.expression.and_then(|e| e.node_id())
+            }
+            Some(Node::ShorthandPropertyAssignment(_) | Node::PropertyAssignment(_)) => {
+                self.destructuring_source_of_property(node)
+            }
+            _ => None,
+        }
+        .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::ThisKeyword);
+        if !this_receiver {
+            return false;
+        }
+        let Some(method) = self.nodes.ancestors(node).find(|&a| {
+            matches!(
+                self.nodes.kind(a),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+            )
+        }) else {
+            return false;
+        };
+        let class_member = matches!(
+            self.nodes.kind(method),
+            SyntaxKind::MethodDeclaration | SyntaxKind::GetAccessor | SyntaxKind::SetAccessor
+        ) && self.nodes.parent(method).is_some_and(|class| {
+            matches!(
+                self.nodes.kind(class),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
+        class_member
+            && self
+                .name_node_of(method)
+                .and_then(|name| self.identifier_text_of(name))
+                .is_some_and(|owner| owner == text)
+    }
+
+    /// For a property of an object literal that is the whole left-hand side
+    /// of an `=` destructuring assignment, the right-hand side — the
+    /// expression `checkBinaryLikeExpression` tests for `rightIsThis`
+    /// (`checker.go:12339`). `None` for a nested pattern, where upstream
+    /// passes `false`.
+    fn destructuring_source_of_property(&self, property: NodeId) -> Option<NodeId> {
+        let literal = self.nodes.parent(property)?;
+        if self.nodes.kind(literal) != SyntaxKind::ObjectLiteralExpression {
+            return None;
+        }
+        // `left.Kind == ast.KindObjectLiteralExpression` — the left operand
+        // itself, parentheses not skipped.
+        let parent = self.nodes.parent(literal)?;
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
+        if binary.operator_token.map(|token| token.kind) != Some(SyntaxKind::EqualsToken)
+            || binary.left.and_then(|l| l.node_id()) != Some(literal)
+        {
+            return None;
+        }
+        binary.right.and_then(|r| r.node_id())
     }
 
     /// Every string-literal value a type can be — the type itself, or each

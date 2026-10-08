@@ -104,3 +104,36 @@ scanned from the node's start, which includes its modifiers and decorators
 as upstream's `node.Pos()` does (`export class {}` reports on `export`).
 
 Case converted: `compiler/exportClassWithoutName`.
+
+## §2 A private member read through `this` from its own body
+
+**Forcing fact.** `noUnusedLocals_selfReference` (`class P { private m() {
+this.m; } }`) and `noUnusedLocals_destructuringAssignment` (`private f() {
+({ f } = this); }`) each missed one TS6133: the by-name stand-in for
+`markPropertyAsReferenced` (`unused.rs`, `note_member_name_at`) marked the
+name on every read.
+
+**Native.** `markPropertyAsReferenced` (`checker.go:27718`): when
+`isSelfTypeAccess`, the nearest `IsFunctionLikeDeclaration` ancestor of the
+access whose symbol *is* the property leaves it unmarked. `isSelfTypeAccess`
+is true for a `this` receiver (`checker.go:27275`), and the destructuring
+path passes `rightIsThis` only for a top-level `{…} = this`
+(`checkBinaryLikeExpression`, `checker.go:12339`).
+
+**Choice.** The by-name form: the receiver is `this` (or the top-level
+destructuring source is `this`), and the nearest function-like ancestor is a
+class method or accessor whose name text is the member's. Inside such a body
+`this` is that class's instance, so the property `this.<name>` resolves to
+that declaration — the symbol identity native compares. An arrow or function
+expression in between is the nearest ancestor instead and the read counts,
+as upstream. The static `Class.member` receiver keeps its own key and
+`reference_is_inside_named_member` rule (§704 of the diag2 notes).
+
+**What would make it wrong.** A `this` whose type is not the enclosing class
+(a `this:` parameter on a method — methods cannot rebind `this` that way
+without a function-like in between) or a member inherited under the same name
+from a base class: `this.m` inside an override `m` reads the *derived* `m`,
+which is the same name and the same answer.
+
+Cases converted: `compiler/noUnusedLocals_destructuringAssignment`,
+`compiler/noUnusedLocals_selfReference`.
