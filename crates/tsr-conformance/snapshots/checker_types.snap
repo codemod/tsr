@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8254/9538 (86.54%)
-Assertion lines: 471531/478855 (98.47%)  — a gradient, not a pass rate
-Failed         : 1284
+Passed         : 8293/9538 (86.95%)
+Assertion lines: 471735/478855 (98.51%)  — a gradient, not a pass rate
+Failed         : 1245
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1284 failures:
+First 100 of 1245 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -45,8 +45,6 @@ compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: any) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : <TBase extends Constructor>(Base: TBase) => any — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
-compiler/arrayBindingPatternOmittedExpressions
-  arrayBindingPatternOmittedExpressions.ts: >f : any — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
 compiler/arrayDestructuringInSwitch2
   arrayDestructuringInSwitch2.ts: >n : any — expected >n : never
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
@@ -65,8 +63,6 @@ compiler/arrowExpressionJs
   mytest.js: >{ ...value } : T | {} — expected >{ ...value } : {}
 compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: >c : any — expected >c : (x: any) => void
-compiler/asyncImportNestedYield
-  asyncImportNestedYield.ts: >foo : error — expected >foo : () => AsyncGenerator<string, void, string>
 compiler/augmentExportEquals3
   file1.ts: >foo : typeof foo — expected >foo : typeof import("./file1")
 compiler/augmentExportEquals4
@@ -127,8 +123,6 @@ compiler/checkJsdocTypeTagOnExportAssignment5
   b.js: >a : any — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment6
   b.js: >a : any — expected >a : import("./a").Foo
-compiler/checkJsdocTypeTagOnExportAssignment8
-  a.js: >{    a: 'a',    b: 'b'} : { a: string; b: string; } — expected >{    a: 'a',    b: 'b'} : { a: string; b: "b"; }
 compiler/checkMergedGlobalUMDSymbol
   test.ts: >m : typeof THREE — expected >m : typeof import("./three")
 compiler/checkerInitializationCrash
@@ -182,15 +176,13 @@ compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
 compiler/complicatedIndexesOfIntersectionsAreInferencable
   complicatedIndexesOfIntersectionsAreInferencable.ts: >x : string extends "validate" | "initialValues" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validate" | "initialValues" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>> — expected >x : string extends "initialValues" | "validate" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "initialValues" | "validate" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>>
 compiler/computedPropertiesInDestructuring1
-  computedPropertiesInDestructuring1.ts: >f1 : any — expected >f1 : ({ ["bar"]: x }: { bar: number; }) => void
+  computedPropertiesInDestructuring1.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesInDestructuring1_ES6
-  computedPropertiesInDestructuring1_ES6.ts: >f1 : any — expected >f1 : ({ ["bar"]: x }: { bar: number; }) => void
+  computedPropertiesInDestructuring1_ES6.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesWithSetterAssignment
   /a.ts: >foo[k] : Set<string> — expected >foo[k] : Iterable<string>
 compiler/computedPropertyBindingElementDeclarationNoCrash1
   computedPropertyBindingElementDeclarationNoCrash1.ts: >key : any — expected >key : string
-compiler/computedPropertyNameWithImportedKey
-  /b.ts: >fn : error — expected >fn : ({ [a]: value }: any) => string
 compiler/computedTypesKeyofNoIndexSignatureType
   computedTypesKeyofNoIndexSignatureType.ts: >Compute : Compute<A> — expected >Compute : { [K in keyof A]: A[K] extends infer T ? { [K_1 in keyof T]: T[K_1] extends infer T_1 ? { [K_2 in keyof T_1]: T_1[K_2] extends infer T_2 ? { [K_3 in keyof T_2]: T_2[K_3] extends infer T_3 ? { [K_4 in keyof T_3]: T_3[K_4] extends infer T_4 ? { [K_5 in keyof T_4]: T_4[K_5] extends infer T_5 ? { [K_6 in keyof T_5]: T_5[K_6] extends infer T_6 ? { [K_7 in keyof T_6]: T_6[K_7] extends infer T_7 ? { [K_8 in keyof T_7]: T_7[K_8] extends infer T_8 ? { [K_9 in keyof T_8]: T_8[K_9] extends infer T_9 ? { [K_10 in keyof T_9]: any; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; }
 compiler/concatTuples
@@ -213,3 +205,11 @@ compiler/conflictingDeclarationsImportFromNamespace2
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
 compiler/constEnumNoEmitReexport
   ReExportDefault.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
+compiler/constEnumNoPreserveDeclarationReexport
+  ReExport.d.ts: >MyConstEnum : typeof import("./ConstEnum.d").MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
+compiler/constEnumPreserveEmitReexport
+  ReExport.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
+compiler/constEnums
+  constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
+compiler/constraintWithIndexedAccess
+  constraintWithIndexedAccess.ts: >allAreFunctionsAsExpected : TypeHardcodedAsParameterWithoutReturnType<"Boat", "description" | "displacement" | "maxGroundSpeed" | "name" | "requiresLicense"> — expected >allAreFunctionsAsExpected : allAreFunctionsAsExpected
