@@ -53,8 +53,8 @@ callers report them through `checkAwaitedType` (`:31232`). The port's worker
 answered `None` for those *and* for undecidable steps, so no caller could
 report without risking a diagnostic on a gap.
 
-**Decision.** The worker returns `Option<Option<TypeId>>`: `Some(Some(t))`
-native's type, `Some(None)` native's `nil`, `None` a gap. The public
+**Decision.** The worker returns `Option<Native>`: `Some(Native::Type(t))`
+native's type, `Some(Native::Nil)` native's `nil`, `None` a gap. The public
 `awaited_type_no_alias` flattens it (callers unchanged). The new
 `check_awaited_type` collects the walk's reports and emits them only when the
 whole walk is decidable — a report from one union constituent is not emitted

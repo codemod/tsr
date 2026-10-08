@@ -16,6 +16,24 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// A decided answer of the `getAwaitedType` family: native's type, or
+/// native's `nil`. Wrapped in `Option`, `None` is this port's gap.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Native {
+    Type(TypeId),
+    Nil,
+}
+
+impl Native {
+    /// The type, or `None` for native's `nil`.
+    pub(crate) fn ty(self) -> Option<TypeId> {
+        match self {
+            Native::Type(t) => Some(t),
+            Native::Nil => None,
+        }
+    }
+}
+
 /// The error node, head message and collected reports of one
 /// [`Checker::check_awaited_type`] walk (`getAwaitedTypeNoAliasEx`'s
 /// `errorNode`/`diagnosticMessage`), emitted only when the walk is decidable.
@@ -3031,7 +3049,7 @@ impl Checker<'_, '_> {
             let awaited =
                 match self.awaited_type_no_alias_worker(return_type, &mut Vec::new(), None) {
                     None => return,
-                    Some(awaited) => awaited.unwrap_or(self.intrinsics.void),
+                    Some(awaited) => awaited.ty().unwrap_or(self.intrinsics.void),
                 };
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let span = self.error_span(annotation_node);
@@ -3231,7 +3249,7 @@ impl Checker<'_, '_> {
     /// mapper/alias frames; lookup and this filtering retain the original
     /// receiver. No new member image or publication state is introduced.
     pub(crate) fn awaited_type_no_alias(&mut self, id: TypeId) -> Option<TypeId> {
-        self.awaited_type_no_alias_worker(id, &mut Vec::new(), None).flatten()
+        self.awaited_type_no_alias_worker(id, &mut Vec::new(), None).and_then(Native::ty)
     }
 
     /// `checkAwaitedType` (`checker.go:31232`) with its error node: the
@@ -3254,12 +3272,12 @@ impl Checker<'_, '_> {
                 self.report(file, diagnostic);
             }
         }
-        let Some(awaited) = awaited else { return Some(self.intrinsics.error) };
+        let Native::Type(awaited) = awaited else { return Some(self.intrinsics.error) };
         if with_alias { self.create_awaited_type_if_needed(awaited) } else { Some(awaited) }
     }
 
     /// `getAwaitedTypeNoAliasEx` (`checker.go:31270`), arm for arm:
-    /// `Some(Some(t))` is native's type, `Some(None)` native's `nil` (reported
+    /// `Some(Native::Type(t))` is native's type, `Some(Native::Nil)` native's `nil` (reported
     /// into `reports` when present), `None` a gap. Reports are collected and
     /// emitted by the caller only when the whole walk is decidable.
     ///
@@ -3278,13 +3296,13 @@ impl Checker<'_, '_> {
         id: TypeId,
         stack: &mut Vec<TypeId>,
         mut reports: Option<&mut AwaitedReports>,
-    ) -> Option<Option<TypeId>> {
+    ) -> Option<Native> {
         if id == self.intrinsics.error {
             return None;
         }
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
-            return Some(Some(id));
+            return Some(Native::Type(id));
         }
         // Native recognizes an existing Awaited alias before constraint work.
         if flags.contains(TypeFlags::CONDITIONAL)
@@ -3295,7 +3313,7 @@ impl Checker<'_, '_> {
                     })
             })
         {
-            return Some(Some(id));
+            return Some(Native::Type(id));
         }
         let is_union = matches!(self.store.get(id).data, TypeData::Union { .. });
         if stack.contains(&id) {
@@ -3304,7 +3322,7 @@ impl Checker<'_, '_> {
             }
             // `slices.Contains(c.awaitedTypeStack, t)` for a union.
             Self::report_awaited_recursion(self, reports);
-            return Some(None);
+            return Some(Native::Nil);
         }
         // Native's `getTypeAliasInstantiation` result *is* the instantiated
         // body carrying an alias, so `PromiseOrValue<U>` reaches the union arm
@@ -3319,7 +3337,10 @@ impl Checker<'_, '_> {
                 stack.push(id);
                 let awaited = self.awaited_type_no_alias_worker(body, stack, reports);
                 stack.pop();
-                return awaited.map(|awaited| awaited.map(|t| if t == body { id } else { t }));
+                return awaited.map(|awaited| match awaited {
+                    Native::Type(t) if t == body => Native::Type(id),
+                    other => other,
+                });
             }
         }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
@@ -3334,11 +3355,11 @@ impl Checker<'_, '_> {
                         gap = true;
                         break;
                     }
-                    Some(Some(awaited)) => {
+                    Some(Native::Type(awaited)) => {
                         changed |= awaited != part;
                         mapped.push(awaited);
                     }
-                    Some(None) => changed = true,
+                    Some(Native::Nil) => changed = true,
                 }
             }
             stack.pop();
@@ -3346,27 +3367,27 @@ impl Checker<'_, '_> {
                 return None;
             }
             if !changed {
-                return Some(Some(id));
+                return Some(Native::Type(id));
             }
             if mapped.is_empty() {
-                return Some(None);
+                return Some(Native::Nil);
             }
-            return Some(Some(self.get_union_type(&mapped)));
+            return Some(Native::Type(self.get_union_type(&mapped)));
         }
         if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
-            return Some(Some(id));
+            return Some(Native::Type(id));
         }
         // Retention must precede promised-type lookup: awaiting a constrained
         // generic thenable yields Awaited<T>, not its constraint's value type.
         if self.is_awaited_type_needed(id)? {
-            return Some(Some(id));
+            return Some(Native::Type(id));
         }
         let mut this_type_for_error = None;
         let promised = self.promised_type_of_promise_worker(id, &mut this_type_for_error)?;
-        if let Some(promised) = promised {
+        if let Native::Type(promised) = promised {
             if promised == id || stack.contains(&promised) {
                 Self::report_awaited_recursion(self, reports);
-                return Some(None);
+                return Some(Native::Nil);
             }
             stack.push(id);
             let awaited = self.awaited_type_no_alias_worker(promised, stack, reports);
@@ -3393,9 +3414,9 @@ impl Checker<'_, '_> {
                 };
                 reports.diagnostics.push(diagnostic);
             }
-            return Some(None);
+            return Some(Native::Nil);
         }
-        Some(Some(id))
+        Some(Native::Type(id))
     }
 
     /// TS1062 at the awaited error node (`checker.go:31289`, `:31341`).
@@ -3422,10 +3443,10 @@ impl Checker<'_, '_> {
         &mut self,
         id: TypeId,
         this_type_for_error: &mut Option<TypeId>,
-    ) -> Option<Option<TypeId>> {
+    ) -> Option<Native> {
         use crate::relater::{Relation, Ternary};
         if self.store.get(id).flags.contains(TypeFlags::ANY) {
-            return Some(None);
+            return Some(Native::Nil);
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
             && arguments.len() == 1
@@ -3436,15 +3457,15 @@ impl Checker<'_, '_> {
                     .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
             });
             if is_promise {
-                return Some(Some(arguments[0]));
+                return Some(Native::Type(arguments[0]));
             }
         }
         // Primitives with a `{ then() }` won't be unwrapped/adopted.
         if self.all_types_assignable_to_primitive(id) {
-            return Some(None);
+            return Some(Native::Nil);
         }
         let Some(then) = self.get_type_of_property_of_type(id, "then") else {
-            return Some(None);
+            return Some(Native::Nil);
         };
         if then == self.intrinsics.error {
             return None;
@@ -3456,12 +3477,12 @@ impl Checker<'_, '_> {
             .flags
             .intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::PRIMITIVE | TypeFlags::NEVER)
         {
-            return Some(None);
+            return Some(Native::Nil);
         }
         let signatures =
             self.signatures_of_type_kind(then, crate::signatures::SignatureKind::Call)?;
         if signatures.is_empty() {
-            return Some(None);
+            return Some(Native::Nil);
         }
         let mut callbacks = Vec::new();
         for signature in &signatures {
@@ -3483,7 +3504,7 @@ impl Checker<'_, '_> {
             );
         }
         if callbacks.is_empty() {
-            return Some(None);
+            return Some(Native::Nil);
         }
         if callbacks.contains(&self.intrinsics.error) {
             return None;
@@ -3494,12 +3515,12 @@ impl Checker<'_, '_> {
         // `IsTypeAny`, or `never` (no `onfulfilled` parameter at all), whose
         // `getSignaturesOfType` is empty: both are native's `nil`.
         if self.store.get(callbacks).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
-            return Some(None);
+            return Some(Native::Nil);
         }
         let signatures =
             self.signatures_of_type_kind(callbacks, crate::signatures::SignatureKind::Call)?;
         if signatures.is_empty() {
-            return Some(None);
+            return Some(Native::Nil);
         }
         let values: Vec<_> = signatures
             .iter()
@@ -3510,7 +3531,7 @@ impl Checker<'_, '_> {
         if values.contains(&self.intrinsics.error) {
             return None;
         }
-        self.union_with_subtype_reduction(&values).map(Some)
+        self.union_with_subtype_reduction(&values).map(Native::Type)
     }
 
     fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {
