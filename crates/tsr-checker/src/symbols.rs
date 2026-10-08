@@ -6532,6 +6532,11 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ParameterDeclaration(node)) = self.node_map.get(parameter) else {
             return None;
         };
+        // `reparseHosted`'s `KindParameter` arm: the parameter's own `@type`
+        // was reparsed first, so a later `@param` finds `param.Type` set.
+        if let Some(annotation) = self.jsdoc_parameter_hosted_type(parameter) {
+            return Some((annotation, false));
+        }
         let Some(tsr_ast::BindingName::Identifier(identifier)) = node.name else { return None };
         let name = identifier.text;
         let function = self.nodes.parent(parameter)?;
