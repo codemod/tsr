@@ -410,13 +410,6 @@ impl Checker<'_, '_> {
             self.report_primitive_type_as_value(node, text);
             return true;
         }
-        // `maybeMappedType`'s **syntactic half** (`checker.go:1710-1716`).
-        // Upstream then asks a type question this port cannot ask here and
-        // picks a different message when the answer is yes; declining the whole
-        // shape suppresses rather than mis-codes. Owner: `checker_types`.
-        if self.maybe_mapped_type_position(node) {
-            return false;
-        }
         // `resolveName(errorLocation, name, SymbolFlagsType &^ SymbolFlagsValue)`
         // — narrower than this port's ladder, and written upstream's way.
         // `c.resolveSymbol(…)` then `getSymbolFlags`: an alias answers by its
@@ -435,6 +428,20 @@ impl Checker<'_, '_> {
         }
         let message = if is_es2015_or_later_constructor_name(text) {
             &messages::_0_ONLY_REFERS_TO_A_TYPE_BUT_IS_BEING_USED_AS_A_VALUE_HERE_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_ES2015_OR_LATER
+        } else if self.maybe_mapped_type(node, symbol) {
+            // TS2690: `{ [K]: T }` was meant as `{ [P in K]: T }`.
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+            let span = self.error_span(node);
+            let key = if text == "K" { "P" } else { "K" };
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_ONLY_REFERS_TO_A_TYPE_BUT_IS_BEING_USED_AS_A_VALUE_HERE_DID_YOU_MEAN_TO_USE_1_IN_0,
+                    span,
+                    [text.to_string(), key.to_string()],
+                ),
+            );
+            return true;
         } else {
             &messages::_0_ONLY_REFERS_TO_A_TYPE_BUT_IS_BEING_USED_AS_A_VALUE_HERE
         };
@@ -619,19 +626,38 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// The syntactic half of `maybeMappedType` (`checker.go:1707`).
-    fn maybe_mapped_type_position(&self, node: NodeId) -> bool {
+    /// `maybeMappedType` (`checker.go:1708`): the name is the computed key of
+    /// the only member of a type literal, and the type it names is a union
+    /// whose every member is assignable to a string or number literal kind
+    /// (`allTypesAssignableToKindEx(t, StringOrNumberLiteral, strict)`).
+    fn maybe_mapped_type(&mut self, node: NodeId, symbol: tsr_binder::SymbolId) -> bool {
         let mut at = node;
-        loop {
+        let literal = loop {
             let Some(parent) = self.nodes.parent(at) else { return false };
             if !matches!(
                 self.nodes.kind(parent),
                 SyntaxKind::ComputedPropertyName | SyntaxKind::PropertySignature
             ) {
-                return self.nodes.kind(parent) == SyntaxKind::TypeLiteral;
+                break parent;
             }
             at = parent;
+        };
+        let Some(Node::TypeLiteralNode(literal)) = self.node_map.get(literal) else { return false };
+        if literal.members.len() != 1 {
+            return false;
         }
+        let declared = self.get_declared_type_of_symbol(symbol);
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(declared).data else {
+            return false;
+        };
+        let types = types.clone();
+        types.iter().all(|&member| {
+            self.is_type_assignable_to_kind(
+                member,
+                crate::flags::TypeFlags::STRING_LITERAL | crate::flags::TypeFlags::NUMBER_LITERAL,
+                true,
+            ) != crate::relater::Ternary::NotRelated
+        })
     }
 
     /// `isExportAssignmentExpressionName` (`checker/utilities.go:144`).

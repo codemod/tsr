@@ -206,3 +206,26 @@ lines → 1 — the remaining one is TS2749 where TS2709 was before, at
 re-exported as `default`) this port does not resolve; that miss predates
 this change. Perf (21 samples): `domain-model` 0.981, `generic-imports`
 1.019.
+
+## §5. `maybeMappedType`: TS2690 for `{ [K]: T }` (`tsr-2zk.6.3`)
+
+`checkAndReportErrorForUsingTypeAsValue` picks TS2690 ("Did you mean to use
+'P in K'?") over TS2693 when `maybeMappedType` (`checker.go:1708`) holds:
+the name is the computed key of the **only** member of a type literal and
+`getDeclaredTypeOfSymbol` is a union every member of which
+`isTypeAssignableToKindEx(…, StringOrNumberLiteral, strict)` admits. The
+port carried only the syntactic half and declined the whole shape, recorded
+as "a type question this port cannot ask here". It can now:
+`get_declared_type_of_symbol` and `is_type_assignable_to_kind`
+(`operator_operands.rs`, whose `NumberLike` arm is what admits `number` for
+the `NumberLiteral` bit, as upstream's) are both available. Also moved to
+upstream's position — after the value test and `export =` guard rather than
+before the lookup.
+
+The answer is read as `!= NotRelated`: upstream's `isTypeAssignableTo` is a
+boolean whose `Maybe` counts as related.
+
+Measured (on top of §4): diagnostics **+1** (`typeUsedAsTypeLiteralIndex`:
+three TS2690 and one TS2693, the two-member literal), 0 lost, no other line
+moved in any TS2690/2693/2708/2709/2749/2304 case; types unchanged. Perf
+(21 samples): `domain-model` 1.005, `generic-imports` 0.999.
