@@ -324,3 +324,16 @@ cff77b4b and is dropped. Owns `expressions.rs` `awaited_type`,
 `getAwaitedType`, `getAwaitedTypeNoAlias`, `getPromisedTypeOfPromise`,
 `getAwaitedTypeOfPromise`, `checkAwaitedType` and the thenable reports
 (TS1320, TS1058, TS1062, TS2794).
+
+### r4-subtype — strict-subtype relation arms (`tsr-2zk.921`)
+
+Dispatched when `r4-unions` finished (53b9ef8, 2f373c3, a128679, e8f0d2e:
++49 type lines, 5 cases; its alias-of-signature patch, +20 lines, is queued;
+patch B waits as `tsr-2zk.922`). Owns only the relater arms that leave the 40
+listed strict-subtype pairs in the undecided tail; not the indexed-access
+target arm (main's relate-7, f2c97d13) and not diagnostic-chain code (main's
+`tsr-2zk.22`).
+
+Note: `main` landed aee0d31b and d67ff023 (~03:05 UTC), which duplicate the
+r3-perf C1/C5/C2 patches integrated here at ~02:30; the next `main` merge keeps
+`main`'s versions.
