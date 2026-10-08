@@ -138,3 +138,61 @@ with none hashes nothing.
 
 **Measured:** generic-imports 349,539,491 → **345,084,338 Ir (−1.27%)**;
 domain-model 1,203,757,273 → 1,198,132,683.
+
+## §5 Rewinds that emitted nothing skip the diagnostics drop glue
+
+**Forcing measurement.** `drop_glue::<[Diagnostic]>` was 1.84 M Ir on
+generic-imports: `Vec::truncate` to the current length still calls the
+out-of-line slice drop on an empty tail, and `Scanner::restore` (52,448
+calls) and `Parser::restore_state` (every `look_ahead`) truncate their
+diagnostics on each rewind, almost always to the length they already have.
+
+**Change.** Both truncate only when the saved count is below the current
+length. `Scanner::restore` is this lane's (non-JSDoc scanner); the
+one-line guard in `Parser::restore_state` (`parser.rs`) sits in main's
+active parser lane and is the whole of this lane's edit there.
+
+**Measured:** generic-imports 345,084,338 → **342,986,191 Ir (−0.61%)**;
+domain-model 1,198,132,683 → 1,195,416,613.
+
+## §6 Measured and refused
+
+1. **Pre-sizing symbol tables** (members/exports from the declaring node's
+   member count; globals from the file's statement count). The growth
+   rehashes are the largest remaining binder item (4.7 M Ir of the 7.6 M
+   insert cost, 9,895 `reserve_rehash` calls for 26,679 inserts, most of
+   them first allocations of small member tables). Refused without a build:
+   `SymbolTable` is `FxHashMap<&str, SymbolId>`, a public alias read in 53
+   places outside the binder, and hashbrown's iteration order depends on
+   the insertion history (a direct insert and a rehash can place colliding
+   keys in different slots even at the same bucket count). The checker has
+   97 `.iter()`/`.values()` sites over member, export and local tables;
+   auditing every one for order sensitivity is outside a performance-only
+   lane. **What would change this:** a `SymbolTable` with a defined
+   iteration order (insertion-ordered, as upstream's consumers are written
+   against `SymbolTable` maps they sort or never iterate for output), after
+   which capacity is free to choose.
+2. **Replacing `push_children` with a callback visitor** in
+   `bind_each_child`: the binder's share is 1.5 M self plus ~1.4 M of
+   `Vec` pushes; the scratch vector is already reused, so the remaining
+   cost is the per-child capacity check. Not worth a generated-code change
+   in `tsr-ast` (not this lane's).
+3. **JSDoc** (~40% of generic-imports' Ir: `bump`/`peek` from the JSDoc
+   scanner, `jsdoc_ranges_in`, `parse_leading_jsdoc`'s `Vec` growth): main's
+   `tsr-2zk.17.1`; not touched.
+
+## §7 What is left, by measured size
+
+Callgrind, generic-imports after §5 (342.99 M Ir):
+
+1. JSDoc (main), as r5-bind §7 listed it.
+2. Binder: symbol-table growth (§6.1), then a flat profile of per-node
+   dispatch (`bind_inner`, `bind_children`, `declare`, `classify`).
+3. Parser list building: `Vec` growth for 16-byte elements in
+   `parse_object_type_members`, `parse_modifiers_ex`, `parse_type_arguments`
+   and the conditional-type descent (~3 M Ir), then `arena.alloc_slice`
+   copies. A reusable scratch stack would remove the growth; main's parser
+   lane is active, so it is not done here.
+4. `NodeTable::push` (~8 M Ir over four parallel `Vec`s) and
+   `record_parent_of_children` (4.2 M): `tsr-ast`/parser layout, already
+   reserved per file.

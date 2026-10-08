@@ -284,7 +284,12 @@ impl<'a> Scanner<'a> {
         self.full_start = state.full_start;
         self.limit = state.limit;
         self.token = state.token;
-        self.diagnostics.truncate(state.diagnostic_count);
+        // Guarded: `Vec::truncate` to the current length still calls the
+        // out-of-line `[Diagnostic]` drop glue on an empty tail, and almost
+        // every rewind (a lookahead) emitted nothing (r5-binperf.md §5).
+        if state.diagnostic_count < self.diagnostics.len() {
+            self.diagnostics.truncate(state.diagnostic_count);
+        }
         // The decoded value belongs to the token we just discarded.
         self.value = None;
     }
