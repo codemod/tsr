@@ -923,7 +923,12 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             .copied()
             .filter(|&index| {
                 let task = &self.tasks[index];
+                // A process-lifetime text (an embedded lib) is borrowed and
+                // parsed straight into the shared tables at its visit; a job
+                // would copy the text twice and publish a copy of its AST,
+                // which measured slower on every bench (r5-loader.md §2).
                 if task.is_for_automatic_type_directive
+                    || self.host.fs().read_static(&task.file_name).is_some()
                     || self.claimed.contains_key(&task.path)
                     || self.prepared_roots.contains_key(&task.path)
                     || self.prefetched.contains_key(&task.file_name)
