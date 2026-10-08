@@ -1,0 +1,151 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 14e3f52..1352b7f 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1110,6 +1110,9 @@ impl Checker<'_, '_> {
+         self.check_jsdoc_link_references(node);
+         self.check_unmatched_jsdoc_parameters(node);
+         self.check_jsdoc_satisfies_tags(node, ambient);
++        for reparsed in self.jsdoc_reparsed_type_nodes(node) {
++            self.check_node(reparsed, ambient, depth + 1);
++        }
+         let mut children = [const { None }; INLINE_CHILDREN];
+         let mut count = 0usize;
+         let mut overflow: Vec<NodeId> = Vec::new();
+@@ -14370,7 +14373,13 @@ impl Checker<'_, '_> {
+             if self.nodes.kind(current) == SyntaxKind::SourceFile {
+                 return Some(current);
+             }
+-            current = self.nodes.parent(current)?;
++            // A reparsed JSDoc node is parented under its host upstream
++            // (`finishReparsedNode`); here the comment's root has no parent
++            // edge, so cross to the host as `source_file_of` does.
++            current = match self.nodes.parent(current) {
++                Some(parent) => parent,
++                None => *self.jsdoc_hosts.get(&current)?,
++            };
+         }
+     }
+ }
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 29d5aa1..9f60faf 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -149,6 +149,7 @@ pub mod intrinsics;
+ mod iteration;
+ mod js_case_data;
+ mod jsdoc_annotations;
++mod jsdoc_checks;
+ mod jsdoc_full_signature;
+ mod jsdoc_links;
+ mod jsdoc_modifiers;
+diff --git a/crates/tsr-checker/src/jsdoc_checks.rs b/crates/tsr-checker/src/jsdoc_checks.rs
+new file mode 100644
+index 0000000..4535a44
+--- /dev/null
++++ b/crates/tsr-checker/src/jsdoc_checks.rs
+@@ -0,0 +1,104 @@
++//! The JSDoc type nodes upstream's `checkSourceElement` visits.
++//!
++//! typescript-go reparses a JS file's JSDoc into ordinary AST
++//! (`internal/parser/reparser.go`): a typedef becomes a
++//! `JSTypeAliasDeclaration` statement (`reparseUnhosted`), and a hosted
++//! `@type`/`@param`/`@returns` becomes the `Type` of the declaration,
++//! parameter or function it documents (`reparseHosted`). The checker then
++//! walks those nodes like written ones — `checkVariableLikeDeclaration`,
++//! `checkParameter`, `checkSignatureDeclaration` and
++//! `checkTypeAliasDeclaration` each `checkSourceElement` their type — so every
++//! type-node rule (TS2344's `checkTypeArgumentConstraints`, arity, …) runs on
++//! them.
++//!
++//! This port keeps JSDoc in the `jsdoc_entries` side table
++//! ([ADR-0046](../../../docs/adr/0046-jsdoc-reparse-is-a-checker-query.md)),
++//! so `check_node`'s child walk never reaches a comment. This module answers,
++//! for one node, the reparsed type nodes the native walk would reach through
++//! it, and `check_node` visits each with the same walk. Each is the node the
++//! typing road already reads for the same slot (`jsdoc_type_annotation`,
++//! [`Checker::jsdoc_reparsed_parameter_type`], the replay's `return_type`), so
++//! the checked node and the typed node cannot disagree.
++//!
++//! Not yet covered, each a reparsed node upstream also checks: casts
++//! (`makeNewCast`), `@satisfies`, `@this`, a function's full-signature
++//! `@type`, `@template` constraints, `@augments`/`@implements` heritage, a
++//! `@callback` signature, `@overload` signatures and `@import` declarations;
++//! and hosted `@type` on property, export and accessor hosts, whose typing
++//! read is not ported either (`docs/parity/notes/r4-jsdoc.md` §2.3, §3).
++//! See `docs/parity/notes/r5-jsdoc2.md` §2.
++//!
++//! No cache or side table: one `jsdoc_entries` probe per node, and for a
++//! parameter or function the replay [`Checker::jsdoc_reparsed_function`]
++//! answers from hash lookups when no comment applies.
++
++use tsr_ast::{JSDocTag, Node, NodeId, SyntaxKind, TypeNode};
++
++use crate::checker::Checker;
++use crate::jsdoc_params::top_level_tags;
++
++impl<'a> Checker<'a, '_> {
++    /// The reparsed type nodes `checkSourceElement` reaches through `node`,
++    /// in upstream's order: a declaration's own type, then (for the comment
++    /// `node` hosts) its typedef aliases, which `reparseList` appends after
++    /// the host statement.
++    pub(crate) fn jsdoc_reparsed_type_nodes(&self, node: NodeId) -> Vec<NodeId> {
++        let mut out = Vec::new();
++        let kind = self.nodes.kind(node);
++        let reparses = matches!(
++            kind,
++            SyntaxKind::VariableDeclaration
++                | SyntaxKind::Parameter
++                | SyntaxKind::FunctionDeclaration
++                | SyntaxKind::FunctionExpression
++                | SyntaxKind::ArrowFunction
++                | SyntaxKind::MethodDeclaration
++                | SyntaxKind::Constructor
++                | SyntaxKind::GetAccessor
++                | SyntaxKind::SetAccessor
++        );
++        let docs = self.jsdoc_entries.get(&node);
++        if !reparses && docs.is_none() {
++            return out;
++        }
++        if !self.in_js_file(node) {
++            return out;
++        }
++        let mut push = |ty: Option<TypeNode<'a>>| {
++            if let Some(id) = ty.and_then(|ty| Node::from(ty).node_id()) {
++                out.push(id);
++            }
++        };
++        match self.node_map.get(node) {
++            // `checkVariableLikeDeclaration` → `checkSourceElement(node.Type())`.
++            Some(Node::VariableDeclaration(declaration)) if declaration.r#type.is_none() => {
++                push(self.jsdoc_type_annotation(node));
++            }
++            // `checkParameter` → `checkVariableLikeDeclaration`.
++            Some(Node::ParameterDeclaration(parameter)) if parameter.r#type.is_none() => {
++                push(self.jsdoc_reparsed_parameter_type(node));
++            }
++            // `checkSignatureDeclaration` → `checkSourceElement(node.Type())`.
++            Some(_) if reparses && kind != SyntaxKind::VariableDeclaration => {
++                if self.function_like_parts(node).is_some_and(|parts| !parts.return_type) {
++                    let reparsed = self.jsdoc_reparsed_function(node);
++                    if reparsed.full_signature.is_none() {
++                        push(reparsed.return_type);
++                    }
++                }
++            }
++            _ => {}
++        }
++        // `reparseUnhosted`'s typedef arm: every comment, not only the last.
++        for doc in docs.copied().unwrap_or_default() {
++            for tag in top_level_tags(doc.tags) {
++                if let JSDocTag::JSDocTypedefTag(typedef) = tag
++                    && let Some(Node::JSDocTypeExpression(expression)) = typedef.type_expression
++                {
++                    push(expression.r#type);
++                }
++            }
++        }
++        out
++    }
++}
