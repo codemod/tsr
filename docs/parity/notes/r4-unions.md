@@ -84,3 +84,30 @@ class as its members symbol. So `[Alpha, Beta]` kept both constructors
 `conformance/constructorTagOnClassConstructor` and
 `compiler/abstractClassUnionInstantiation` (8 lines), plus the target lines of
 `conformance/typeRelationships`.
+
+## 4. `emptyTypeLiteralType` sorts after declared object types (`tsr-2zk.16.89`)
+
+**Native.** `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
+(`checker.go:22933`) answers the shared `emptyTypeLiteralType` for a
+member-less, unaliased literal (`:22939`). That type's symbol is created
+without declarations (`:1024`). `CompareTypes`' object arm orders by
+`compareSymbols`, and `compareSymbolsWorker` (`utilities.go:366`) puts a
+symbol with declarations before one without. So `{} | { b: number }` prints
+`{ b: number; } | {}`.
+
+**TSR before.** A written `{}` is minted per node, carrying its own `__type`
+symbol with a declaration, so `compare_type_symbols` ordered it by source
+position and printed `{}` first.
+
+**Change.** `compare_type_symbols` treats a type that
+`is_unaliased_empty_type_literal` identifies as having no declaration
+position. That predicate already exists as the port's completed identity
+for `emptyTypeLiteralType` (`declared.rs`). It is read-only, and no new
+state is added. Merging the per-node mints into one shared type would be
+the faithful representation. It is outside this lane's files and would also
+change interning, so it is not attempted here.
+
+**Measured.** 12 lines gained, 0 lost; diagnostics unchanged. Converts
+`conformance/spreadUnion2` (11 lines), plus one line in
+`conformance/unknownControlFlow`. Perf median CPU ratio 0.993 / 0.997 (21
+samples).

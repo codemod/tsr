@@ -1313,6 +1313,8 @@ impl Checker<'_, '_> {
     /// `compareSymbolsWorker`'s `s1 == nil => 1` (`:370`).
     fn compare_type_symbols(
         &self,
+        a: TypeId,
+        b: TypeId,
         left: &crate::types::Type,
         right: &crate::types::Type,
     ) -> Ordering {
@@ -1320,7 +1322,15 @@ impl Checker<'_, '_> {
         if !left.flags.intersects(TypeFlags::OBJECT) || !right.flags.intersects(TypeFlags::OBJECT) {
             return Ordering::Equal;
         }
-        let position = |data: &TypeData| -> Option<u32> {
+        let position = |id: TypeId, data: &TypeData| -> Option<u32> {
+            // A member-less, unaliased type literal is upstream's shared
+            // `emptyTypeLiteralType` (`checker.go:22939`), whose symbol is
+            // created with no declarations (`:1024`). `compareSymbolsWorker`
+            // sorts a declaration-less symbol AFTER a declared one (`:381`),
+            // so `{}` follows `{ b: number; }` whatever their source order.
+            if self.is_unaliased_empty_type_literal(id) {
+                return None;
+            }
             let symbol = match data {
                 TypeData::Anonymous { symbol, .. } => Some(*symbol),
                 TypeData::Named { members, .. } => *members,
@@ -1329,7 +1339,7 @@ impl Checker<'_, '_> {
             let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
             Some(self.nodes.span(declaration).start)
         };
-        match (position(&left.data), position(&right.data)) {
+        match (position(a, &left.data), position(b, &right.data)) {
             (Some(x), Some(y)) => x.cmp(&y),
             (Some(_), None) => Ordering::Less,
             (None, Some(_)) => Ordering::Greater,
@@ -1460,7 +1470,7 @@ impl Checker<'_, '_> {
             // decides two anonymous object literals, and without it they fell
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
-            .then_with(|| self.compare_type_symbols(left, right))
+            .then_with(|| self.compare_type_symbols(a, b, left, right))
             // compareTypeMappers orders instantiations of the same anonymous
             // member by their mapped types. Equal source lists identify the
             // flat mapper shape retained by instantiate_signature_type.
