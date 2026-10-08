@@ -190,3 +190,105 @@ is why overlap is asked of names rather than of "is an array reference".
   report order, not elaboration.
 - `intersectionPropertyCheck` 7:3: the source `T & { a: boolean }` relation is
   `Unknown` (relater).
+
+## 3. The whole-file parse-error gate (tsr-2zk.981)
+
+### Forcing constraint
+
+`checkSourceFile` (`checker.go:2196`) checks every statement of a file whatever
+its parse diagnostics; `checkVariableLikeDeclaration`, `checkReturnStatement`,
+`checkAssignmentOperator` and the rest carry no syntax gate. TSR's report
+functions in `assignreport.rs` returned early whenever the file had any parse
+diagnostic (`file_has_parse_errors`): assignment, `in`, for-of reference,
+binding-element initializer, yield, return and arrow-body reports outright, and
+variable and parameter initializers unless a source-text scan
+(`has_complete_source_variable_initializer` and its four helpers, ~350 lines)
+certified the declaration's own text as complete.
+
+### What was done
+
+The gate is removed from all nine sites in `assignreport.rs`, and the
+certification scan, which only fed the gate, is deleted. Parse recovery
+already hands the checker `error` types for missing nodes, and the relation
+reporters treat an `error` side as related (`assignability_pair_is_reportable`),
+which is native's protection too.
+
+The checker-notes history (`checker-notes-diag2.md` §40.3, "The parse-error
+gate") already measured this gate per rule: §40.3 deleted it for TS2304 at
++6, and another rule kept it at −1. Measured here for the assignment reporters:
++3 cases, no loss.
+
+### Tests that pinned the gate
+
+`tests/function_initializer.rs` and `tests/source_variable_initializer.rs`
+(tsr-conformance) asserted the gate's declines. Their own comments record
+the native answer where it differs: the bodiless function expression's TS2322
+at (4,5)/(6,34)/(7,5) and the escaped `\u006fbject` binding's TS2739 at (7,5)
+were "pending parity gaps, not native silence". TSR now reports exactly those,
+and the assertions are updated to them. The host-identity tests now assert the
+reports do not depend on the module host's source text, and the ambient
+declines are unchanged. Three recovery fixtures (`MissingHeader`, `Signature`,
+`ParameterRecovery`) record no native bag, so nothing is asserted of them
+either way. These files are not this lane's; the change is the gate's.
+
+### What it exposed (already WRONG, not losses)
+
+Five TS2322 lines, all from defects outside this file that the gate had been
+hiding in files that happen to carry a parse error:
+- `functionsMissingReturnStatementsAndExpressions(target=es2015)` 111/115/
+  120/124: an empty arrow body against a contextual `() => undefined`
+  returns `void` instead of `undefined` (triage bucket X13,
+  `signatures.rs` `return_type_from_body`). The file's TS1003 at 153 had
+  gated every declaration in it.
+- `bigintPropertyName` g.ts 26:18: a bigint-literal member name (`4n = 0`,
+  `{ 4n: "" }`) binds no property natively (the TS2741s at 20:7 and 30:7 show
+  the literal's `3n`/`5n` are not `"3n"`/`"5n"`); TSR binds `"4n"` on both
+  sides and relates them. Binder/parser naming, not the reporter.
+
+### The calls.rs / call_arity.rs half (not applied: not owned)
+
+`check_call_expression_diagnostics`, `check_new_expression_diagnostics`,
+`check_tagged_template_diagnostics` (`calls.rs`) and `check_call_arity`,
+`check_new_arity` (`call_arity.rs`) carry the same gate. The diff removing it
+is [r5-report2-calls-parse-gate.diff](r5-report2-calls-parse-gate.diff),
+measured below on top of this lane's commits.
+
+### The calls.rs / call_arity.rs diff, measured
+
+[r5-report2-calls-parse-gate.diff](r5-report2-calls-parse-gate.diff) on top of
+`5f78d39`: **+18 cases, 5 losses**, so it is *not* landable as it stands.
+Converted: `objectCreationExpressionInFunctionParameter`,
+`taggedTemplatesWithIncompleteTemplateExpressions3`–`6`,
+`newOperatorErrorCases`, `parserMissingLambdaOpenBrace1`,
+`templateStringInObjectLiteral`(`ES6`), `templateStringInPropertyName1`/`2`,
+`templateStringInPropertyNameES6_1`/`_2`, `typeAssertions`; positions
+4842/1263 → 4792/1272. The losses are two recovery shapes the gate hid:
+- `super<T>()` (`superWithTypeArgument`, `errorSuperCalls`; also extra lines
+  in `superWithTypeArgument2`/`3`): TSR adds TS2558 at the type arguments.
+  Native's parser reports TS2754 there (`parser.go:5222`) and drops the type
+  arguments from the node, so the checker never sees them. The fix is the
+  parser's, then the gate can go.
+- A tagged template whose template is unterminated
+  (`taggedTemplatesWithIncompleteNoSubstitutionTemplate1`/`2`,
+  `taggedTemplatesWithIncompleteTemplateExpressions1`; also
+  `decoratorOnArrowFunction`): TSR adds TS2554 at the tag. Native's
+  `getEffectiveCallArguments`/`hasCorrectArity` treat an unterminated template
+  as having every argument (`isTaggedTemplate && !template.isUnterminated`
+  is the arity check's gate, `checker.go` `hasCorrectArity`), so no arity
+  error is possible.
+Both are `calls.rs`/`call_arity.rs` work for main's calls lane.
+
+## 4. unmatched_property_report's alias and single-base declines
+
+r5-report's §1 added `missing_property_chain`, which decides `chainArgsMatch`
+for the head swap from the normalized pair. With it,
+`unmatched_property_report`'s own alias and single-base declines
+(`relater.rs`, not owned) are redundant: the reference's members are the
+base's when the derived declares none, and an alias names the same members.
+[r5-report2-unmatched-property-declines.diff](r5-report2-unmatched-property-declines.diff)
+removes them. Measured on top of `5f78d39`: **no diagnostic line changes on
+either dump** (positions 4842/1263 before and after). Every pair that reached
+those declines is decided identically by the remaining code. It is a
+simplification with no measured effect; it may matter once the
+generic-reference-table diff (r5-report, landing in batch K) certifies generic
+references, which this measurement did not include.

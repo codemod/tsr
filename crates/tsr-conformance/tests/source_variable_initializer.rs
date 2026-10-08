@@ -65,40 +65,42 @@ fn contextual_binding_keywords_keep_native_initializer_bags() {
 }
 
 #[test]
-fn last_reserved_word_and_escaped_bindings_keep_their_source_declines() {
+fn last_reserved_word_declines_and_escaped_bindings_report() {
     let source = "interface BoundaryRequired { tag: string; count: number }\nconst broken = ;\nvar implements: BoundaryRequired = {};\nvar with: BoundaryRequired = {};\nvar after: BoundaryRequired = {};\nvar escaped: BoundaryRequired = {};\nvar \\u006fbject: BoundaryRequired = {};\n";
     // `with` is LastReservedWord, while `implements` is the first permitted
     // binding keyword. Native has no written variable owner for `var with`.
-    // The escaped object binding retains the frozen Unicode-escape decline;
-    // its native TS2739 at (7,5) remains a known unsupported occurrence.
+    // The escaped object binding reports native's TS2739 at (7,5) since the
+    // parse-error gate went (r5-report2 §3, tsr-2zk.981).
     for source in [source.to_string(), source.replace('\n', "\r\n")] {
         let actual: Vec<_> = reported_for(&case(&source))
             .into_iter()
             .filter(|d| d.code == 2322 || d.code == 2739)
             .map(|d| (d.line, d.column, d.code))
             .collect();
-        assert_eq!(actual, [(3, 5, 2739), (5, 5, 2739), (6, 5, 2739)]);
+        assert_eq!(actual, [(3, 5, 2739), (5, 5, 2739), (6, 5, 2739), (7, 5, 2739)]);
     }
 }
 
 #[test]
-fn unavailable_or_foreign_source_does_not_certify_a_declaration() {
+fn relation_reports_do_not_depend_on_the_source_host() {
     let arena = Arena::new();
     let program = types_producer::program_for_case(&arena, &case(SOURCE));
     let foreign_arena = Arena::new();
     let foreign = types_producer::program_for_case(&foreign_arena, &case(SOURCE));
     let file = program.source_file("initializer.ts").unwrap().source_file().node_id.unwrap();
     assert_eq!(file, foreign.source_file("initializer.ts").unwrap().source_file().node_id.unwrap());
-    for host in [None, Some(&foreign as &dyn ModuleHost)] {
+    // With no parse-error gate the relation reports do not depend on the
+    // module host's source text: every host reports SOURCE's nine.
+    for host in [None, Some(&foreign as &dyn ModuleHost), Some(&program as &dyn ModuleHost)] {
         let mut checker =
             Checker::with_module_host(program.binder(), program.nodes(), program.node_map(), host);
         checker.check_source_file(file, FileContext { ambient: false, has_parse_errors: true });
-        assert!(
-            checker
-                .diagnostics()
-                .iter()
-                .all(|(_, d)| d.message.code() != 2322 && d.message.code() != 2739)
-        );
+        let relations = checker
+            .diagnostics()
+            .iter()
+            .filter(|(_, d)| d.message.code() == 2322 || d.message.code() == 2739)
+            .count();
+        assert_eq!(relations, 9);
     }
 }
 
@@ -147,19 +149,17 @@ fn packed_repeated_declarations_keep_each_occurrence() {
 }
 
 #[test]
-fn swallowed_body_is_not_a_source_file_owned_positive() {
-    // Native reports at the two later declarations. The bodiless function
-    // expression's body is empty (`parseBlock` without its `{`), so `swallowed`
-    // is an ordinary declaration and its TS2739 is native's; the TS2322 at
-    // (4,5) on the recovered function owner is still a pending parity gap, not
-    // native silence.
+fn swallowed_body_and_recovered_owner_report_as_native() {
+    // The bodiless function expression's body is empty (`parseBlock` without
+    // its `{`), so `swallowed` is an ordinary declaration and its TS2739 is
+    // native's, as is the TS2322 at (4,5) on the recovered function owner.
     let source = "export {};\ninterface Required { tag: string; count: number }\nvar before: Required = {};\nvar recovered: Required = function () ;\nvar swallowed: Required = {};";
     let actual: Vec<_> = reported_for(&case(source))
         .into_iter()
         .filter(|d| d.code == 2322 || d.code == 2739)
         .map(|d| (d.line, d.column, d.code))
         .collect();
-    assert_eq!(actual, [(3, 5, 2739), (5, 5, 2739)]);
+    assert_eq!(actual, [(3, 5, 2739), (4, 5, 2322), (5, 5, 2739)]);
 }
 
 #[test]
