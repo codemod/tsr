@@ -71,3 +71,20 @@ fn for_constraint_adds_the_true_branch_of_an_overlapping_extends_type() {
         format!("{prelude}function f<T extends string>(x: Foo<T>) {{ let t: false = x; }}");
     assert_eq!(codes(&narrow), vec!["TS2322".to_string()]);
 }
+
+/// getTypeFromTypeAliasReference (checker.go:23580) through a qualified name:
+/// `N.Yep` is the alias's declared object type, so a fresh literal with the
+/// wrong discriminant is not assignable to either constituent
+/// (`namespaceDisambiguationInUnion`). The print-only mint had no members and
+/// the relation was undecided (`tsr-2zk.979`).
+#[test]
+fn a_qualified_alias_reference_relates_as_its_declared_type() {
+    let prelude = "namespace Foo { export type Yep = { type: \"foo.yep\" } }\n\
+        namespace Bar { export type Yep = { type: \"bar.yep\" } }\n";
+    let wrong = format!("{prelude}const x = {{ type: \"wat\" }};\nconst v: Foo.Yep | Bar.Yep = x;");
+    assert_eq!(codes(&wrong), vec!["TS2322".to_string()]);
+    let right = format!(
+        "{prelude}const y = {{ type: \"foo.yep\" as const }};\nconst v: Foo.Yep | Bar.Yep = y;"
+    );
+    assert_eq!(codes(&right), Vec::<String>::new());
+}
