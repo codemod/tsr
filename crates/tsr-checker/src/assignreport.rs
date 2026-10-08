@@ -1118,8 +1118,8 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The object literal expression a fresh object-literal type was checked
-    /// from (its symbol's single declaration), when it has no spread.
-    fn fresh_object_literal_node(&self, source: TypeId) -> Option<NodeId> {
+    /// from (its symbol's single declaration), and whether it has a spread.
+    fn fresh_object_literal_node(&self, source: TypeId) -> Option<(NodeId, bool)> {
         if !self.fresh_object_literal_types.contains(&source) {
             return None;
         }
@@ -1132,15 +1132,53 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ObjectLiteralExpression(node)) = self.node_map.get(literal) else {
             return None;
         };
-        // shouldCheckAsExcessProperty reads each *final* property's
-        // declaration parent: a key a later spread overrides is the spread's,
-        // which `excess_properties_verdict`'s written-member walk cannot see.
-        if node.properties.iter().any(|property| {
+        let spread = node.properties.iter().any(|property| {
             matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
-        }) {
+        });
+        Some((literal, spread))
+    }
+
+    /// `hasExcessProperties` (`relater.go:2714`) for a fresh literal with a
+    /// spread against a non-union target. The walk is over the literal
+    /// type's *final* properties: `shouldCheckAsExcessProperty` admits only
+    /// one whose value declaration's parent is the literal itself, so a
+    /// spread's keys, and a written key a later spread overrides, are never
+    /// excess. The first one `isKnownProperty` rejects is reported at its
+    /// declaration's name. `None` for a union target (its discriminant
+    /// reduction reads written members) and wherever a step is undecidable.
+    fn spread_literal_excess_property(
+        &mut self,
+        literal: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<(NodeId, String, TypeId)> {
+        if self.type_of(target).flags.contains(TypeFlags::UNION)
+            || !self.is_excess_property_check_target(target)
+            || self.in_js_file(literal)
+            || self.excess_check_target_admits_any_property(target)?
+        {
             return None;
         }
-        Some(literal)
+        let properties = self.anonymous_properties.get(&source)?.0.clone();
+        for property in properties {
+            let declaration = self.binder.symbols().get(property.origin?).value_declaration?;
+            if self.nodes.parent(declaration) != Some(literal) {
+                continue;
+            }
+            if self.is_known_property(target, &property.name)? {
+                continue;
+            }
+            let name = match self.node_map.get(declaration) {
+                Some(Node::PropertyAssignment(node)) => node.name.node_id(),
+                Some(Node::ShorthandPropertyAssignment(node)) => node.name.node_id(),
+                Some(Node::MethodDeclaration(node)) => node.name.node_id(),
+                Some(Node::GetAccessorDeclaration(node)) => node.name.node_id(),
+                Some(Node::SetAccessorDeclaration(node)) => node.name.node_id(),
+                _ => None,
+            }?;
+            return Some((name, property.name, target));
+        }
+        None
     }
 
     /// `ast.SkipParentheses`.
@@ -2097,12 +2135,20 @@ impl<'a> Checker<'a, '_> {
         // moves the error node to the excess member (TS2353/TS2561). A union
         // target took that path in `union_object_literal_failure`.
         if union_literal.is_none()
-            && let Some(literal) = self.fresh_object_literal_node(source)
-            && let Some(ExcessProperties::Excess { at, name, error_target }) =
-                self.excess_properties_verdict(literal, source, target)
+            && let Some((literal, spread)) = self.fresh_object_literal_node(source)
+            && let Some((excess_at, name, error_target)) = if spread {
+                self.spread_literal_excess_property(literal, source, target)
+            } else {
+                match self.excess_properties_verdict(literal, source, target) {
+                    Some(ExcessProperties::Excess { at, name, error_target }) => {
+                        Some((at, name, error_target))
+                    }
+                    _ => None,
+                }
+            }
         {
             probe!(PROBE_REPORTED);
-            return self.report_excess_property(at, &name, error_target);
+            return self.report_excess_property(excess_at, &name, error_target);
         }
         if self.report_weak_type_failure(at, span, source, target) {
             probe!(PROBE_REPORTED);
@@ -3458,6 +3504,13 @@ impl<'a> Checker<'a, '_> {
             return Ok(Some(member));
         }
         let apparent = self.apparent_type(t);
+        // getApparentType leaves `undefined`, `null` and `void` as they are,
+        // and getPropertyOfObjectType and the index lookup find nothing on a
+        // non-object type: an optional member's `T | undefined` reads
+        // `undefined` for that constituent (getTypeOfPropertyInType).
+        if self.type_of(apparent).flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
+            return Ok(None);
+        }
         let key = self.property_name_key_type(name);
         if let Some(info) = self.get_applicable_index_info(apparent, key) {
             return Ok(Some(info.value));
