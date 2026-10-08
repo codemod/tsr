@@ -148,3 +148,30 @@ async generator): the async slow attempt declines because
 `[Symbol.asyncIterator]` is not decidably absent on `Generator<…>`, whose
 members come through type-argument heritage (§3's `members.rs` gap), so
 the sync fast path that native reaches next is never asked.
+
+## 5. `getIterationTypesOfIterable` iterates the reduced type
+
+`getIterationTypesOfIterable` starts with `t = c.getReducedType(t)`
+(`checker.go:6266`), so `{ a: "foo" } & { a: "bar" }` is iterated, and
+reported, as `never`, and a union drops such constituents
+(`getReducedUnionType`, `:21844`). The engine iterated the written
+intersection, whose `[Symbol.iterator]` lookup is not decidably absent, and
+declined. `iteration_reduced_type` is that step, built on the shared
+`isDiscriminantWithNeverType` port (`intersection_has_never_discriminant`,
+`flow.rs`); `reportTypeNotIterableError` names the reduced type, as the
+worker's does.
+
+The slow path's property lookup also takes `getPropertyOfType`'s
+`getReducedApparentType` (`:21860`) for a type parameter: `T extends
+{ a: "foo" } & { a: "bar" }` has no members, so `[Symbol.iterator]` is
+absent and TS2488 names `T`. Only the `never` answer is taken from the
+reduced apparent type; any other type parameter keeps the existing lookup.
+
+**Not ported:** `isConflictingPrivateProperty`, the other half of
+`isNeverReducedProperty`. The shared predicate does not cover it, so an
+intersection of classes with conflicting private members stays unreduced
+here.
+
+**Measured** (against §4): diagnostics +1 (`iterableWithNeverAsUnionMember`
+WRONG → RIGHT, all three TS2488), types unchanged, zero losses in both
+checks, and no other case's diagnostic list changed.
