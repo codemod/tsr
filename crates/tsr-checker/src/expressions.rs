@@ -1145,6 +1145,9 @@ impl Checker<'_, '_> {
             // spellings in `symbols.rs`. A symbol the walk cannot name still
             // refuses there, exactly as this guard refused here.
             Expression::MetaProperty(node) => self.check_meta_property_type(node),
+            Expression::ExpressionWithTypeArguments(node) => node
+                .node_id
+                .map_or(self.intrinsics.error, |id| self.check_expression_with_type_arguments(id)),
             Expression::ClassExpression(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {

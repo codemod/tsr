@@ -735,6 +735,7 @@ impl Checker<'_, '_> {
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 self.check_type_argument_constraints(node);
+                self.check_instantiation_expression_reports(node);
                 ambient
             }
             Node::TypeParameterDeclaration(_) => {
@@ -742,6 +743,10 @@ impl Checker<'_, '_> {
                 self.check_circular_type_parameter_default(node);
                 self.check_type_parameter_default_constraint(node);
                 self.check_type_alias_variance_annotation(node);
+                ambient
+            }
+            Node::TypeQueryNode(_) => {
+                self.check_instantiation_expression_reports(node);
                 ambient
             }
             Node::TypeLiteralNode(_) => {

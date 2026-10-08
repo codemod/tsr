@@ -175,6 +175,9 @@ pub struct Checker<'a, 'n> {
     /// One `unique symbol` per WRITTEN `unique symbol` type node
     /// (`checker-notes-callres.md` §27).
     pub(crate) unique_symbol_nodes: FxHashMap<NodeId, TypeId>,
+    /// `uniqueESSymbolTypes` (checker.go:22982): one `unique symbol` per
+    /// declaration symbol (`crate::unique_symbols`).
+    pub(crate) unique_es_symbol_types: FxHashMap<SymbolId, TypeId>,
     /// One `this` type per class/interface declaration — upstream's
     /// `d.thisType` for TYPE-POSITION `this` (`checker-notes-callres.md`
     /// §28).
@@ -825,6 +828,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) synthetic_default_types:
         FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
+    pub(crate) instantiation_expressions:
+        crate::instantiation_expressions::InstantiationExpressionLinks,
     pub(crate) any_function_type: Option<TypeId>,
     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
     pub(crate) non_inferrable_types: rustc_hash::FxHashSet<TypeId>,
@@ -1411,6 +1417,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_import_machinery: FxHashMap::default(),
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
+            unique_es_symbol_types: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
             qualified_reference_types: FxHashMap::default(),
             qualified_generic_reference_types: FxHashMap::default(),
@@ -1534,6 +1541,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_value_clones: FxHashMap::default(),
             synthetic_default_types: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
+            instantiation_expressions:
+                crate::instantiation_expressions::InstantiationExpressionLinks::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),
             index_components: Vec::new(),
