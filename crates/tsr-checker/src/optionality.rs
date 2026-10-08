@@ -238,6 +238,10 @@ impl Checker<'_, '_> {
     pub(crate) fn is_optional_declaration(&self, declaration: NodeId) -> bool {
         let Some(node) = self.node_map.get(declaration) else { return false };
         let token = match node {
+            // A JS parameter's `?` may be reparsed from its `@param`.
+            Node::ParameterDeclaration(n) if n.question_token.is_none() => {
+                return self.jsdoc_reparsed_parameter_question(declaration);
+            }
             Node::ParameterDeclaration(n) => n.question_token,
             Node::MappedTypeNode(n) => n.question_token,
             Node::NamedTupleMember(n) => n.question_token,

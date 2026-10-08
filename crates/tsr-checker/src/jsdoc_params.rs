@@ -498,10 +498,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// No cache: [`Self::jsdoc_reparsed_function`] answers with hash lookups
     /// for the common uncommented function.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
-    )]
     pub(crate) fn jsdoc_reparsed_parameter_question(&self, parameter: NodeId) -> bool {
         let Some(function) = self.nodes.parent(parameter) else { return false };
         let Some(parts) = self.function_like_parts(function) else { return false };
@@ -520,10 +516,6 @@ impl<'a> Checker<'a, '_> {
     /// `None` for a parameter with a written type, which needs no reparse.
     ///
     /// No cache, as for [`Self::jsdoc_reparsed_parameter_question`].
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
-    )]
     pub(crate) fn jsdoc_reparsed_parameter_type(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
         if let Some(hosted) = self.jsdoc_parameter_hosted_type(parameter) {
             return Some(hosted);

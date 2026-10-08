@@ -364,13 +364,18 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(parts) = self.signature_parts_of(declaration) else { return false };
-        parts.parameters.iter().any(|parameter| parameter.r#type.is_none())
-            || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
-                && !parts
-                    .parameters
-                    .first()
-                    .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
-                && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
+        // `param.Type()` includes the reparsed JSDoc type (ADR-0046).
+        parts.parameters.iter().any(|parameter| {
+            parameter.r#type.is_none()
+                && parameter
+                    .node_id
+                    .is_none_or(|id| self.jsdoc_reparsed_parameter_type(id).is_none())
+        }) || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
+            && !parts
+                .parameters
+                .first()
+                .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
+            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
     }
 
     /// Only parameters with no written type read the contextual fixing mapper.
@@ -1641,12 +1646,35 @@ impl<'a> Checker<'a, '_> {
                             if matches!(expression.r#type, Some(TypeNode::JSDocOptionalType(_))));
                     // A bracketed parameter prints its written annotation;
                     // {T=} carries explicit undefined in the signature too.
-                    if self.strict_null_checks && suffix_optional {
+                    if self.strict_null_checks && (suffix_optional || *bracketed) {
                         typed = self.get_optional_type(typed, false);
                     }
                     parameter.set_type(typed);
+                    // `serializeTypeForDeclaration` reuses the reparsed
+                    // annotation as it reuses a written one; JSDoc-only
+                    // node kinds are `nodecopy.go`'s rewrites, not ported.
+                    if *bracketed
+                        && let TypeNode::JSDocTypeExpression(expression) = annotation
+                        && let Some(inner) = expression.r#type
+                        && !matches!(
+                            inner,
+                            TypeNode::JSDocOptionalType(_)
+                                | TypeNode::JSDocNullableType(_)
+                                | TypeNode::JSDocNonNullableType(_)
+                                | TypeNode::JSDocAllType(_)
+                                | TypeNode::JSDocVariadicType(_)
+                        )
+                    {
+                        parameter.written_text = self.reuse_annotation(inner, typed);
+                    }
                     parameter.optional |= *bracketed || suffix_optional;
                 }
+            }
+            // `makeQuestionIfOptional`'s reparsed `?` (`@param [x]`).
+            if node.question_token.is_none()
+                && node.node_id.is_some_and(|id| self.jsdoc_reparsed_parameter_question(id))
+            {
+                parameter.optional = true;
             }
             if index == 0 && parameter.name == "this" {
                 this_parameter = Some(parameter);
