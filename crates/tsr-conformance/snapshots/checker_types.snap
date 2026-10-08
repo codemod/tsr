@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8247/9538 (86.46%)
-Assertion lines: 471402/478855 (98.44%)  — a gradient, not a pass rate
-Failed         : 1291
+Passed         : 8254/9538 (86.54%)
+Assertion lines: 471531/478855 (98.47%)  — a gradient, not a pass rate
+Failed         : 1284
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1291 failures:
+First 100 of 1284 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -28,9 +28,9 @@ compiler/aliasErrors
 compiler/aliasInaccessibleModule2
   aliasInaccessibleModule2.ts: >X : any — expected >X : typeof N
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
-  aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >ErrAlias : ErrAlias<U> — expected >ErrAlias : { new (): ErrImpl<U>; prototype: ErrImpl<any>; } & (() => U)
+  aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : ErrAlias<number> — expected >e : { new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
-  aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >ClassAlias : ClassAlias<T> — expected >ClassAlias : typeof Class<T>
+  aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >ClassAlias : { new (): Class<T>; prototype: Class<any>; } — expected >ClassAlias : typeof Class<T>
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : ExtendedMapper<any, any, [any]> — expected >a : a
 compiler/aliasOnMergedModuleInterface
@@ -65,8 +65,6 @@ compiler/arrowExpressionJs
   mytest.js: >{ ...value } : T | {} — expected >{ ...value } : {}
 compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: >c : any — expected >c : (x: any) => void
-compiler/assignmentToInstantiationExpression
-  assignmentToInstantiationExpression.ts: >obj.fn<number> : any — expected >obj.fn<number> : (() => number) | undefined
 compiler/asyncImportNestedYield
   asyncImportNestedYield.ts: >foo : error — expected >foo : () => AsyncGenerator<string, void, string>
 compiler/augmentExportEquals3
@@ -213,3 +211,5 @@ compiler/conflictingDeclarationsImportFromNamespace1
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
 compiler/conflictingDeclarationsImportFromNamespace2
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
+compiler/constEnumNoEmitReexport
+  ReExportDefault.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum

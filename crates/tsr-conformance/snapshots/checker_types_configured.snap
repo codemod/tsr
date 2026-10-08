@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1643/1928 (85.22%)
-Assertion lines: 73266/78552 (93.27%)  — a gradient, not a pass rate
-Failed         : 285
+Passed         : 1646/1928 (85.37%)
+Assertion lines: 73275/78552 (93.28%)  — a gradient, not a pass rate
+Failed         : 282
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 285 failures:
+First 100 of 282 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -153,13 +153,9 @@ compiler/nonNullableAndObjectIntersections(strict=true)
 compiler/operationsAvailableOnPromisedType(target=es2015)
   operationsAvailableOnPromisedType.ts: >[...c] : any — expected >[...c] : any[]
 compiler/optionalChainWithInstantiationExpression1(target=es2019)
-  optionalChainWithInstantiationExpression1.ts: >a?.b<c>.d : any — expected >a?.b<c>.d : number
+  optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
 compiler/optionalChainWithInstantiationExpression1(target=es2020)
-  optionalChainWithInstantiationExpression1.ts: >a?.b<c>.d : any — expected >a?.b<c>.d : number
-compiler/optionalChainWithInstantiationExpression2(target=es2019)
-  optionalChainWithInstantiationExpression2.ts: >a<b>?.() : error — expected >a<b>?.() : "b type" | undefined
-compiler/optionalChainWithInstantiationExpression2(target=es2020)
-  optionalChainWithInstantiationExpression2.ts: >a<b>?.() : error — expected >a<b>?.() : "b type" | undefined
+  optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
 compiler/optionalParamReferencingOtherParams2(target=es2015)
   optionalParamReferencingOtherParams2.ts: >strange : (x?: number, y?: string) => string — expected >strange : (x?: number, y?: any) => any
 compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)
@@ -174,8 +170,6 @@ compiler/shadowedReservedCompilerDeclarationsWithNoEmit(target=es2015)
   shadowedReservedCompilerDeclarationsWithNoEmit.ts: >t : any — expected >t : typeof C2
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
   shorthandPropertyAssignmentsInDestructuring.ts: >a : any — expected >a : { s: number; }
-compiler/sourceMap-LineBreaks(target=es2015)
-  sourceMap-LineBreaks.ts: >"line 1\line 2" : "line 1line 2" — expected >"line 1\line 2" : "line 1\u0085line 2"
 compiler/sourceMapValidationDestructuringForArrayBindingPattern2(target=es2015)
   sourceMapValidationDestructuringForArrayBindingPattern2.ts: >[, nameA] : (string | undefined)[] — expected >[, nameA] : [undefined, string]
 compiler/sourceMapValidationDestructuringForArrayBindingPatternDefaultValues2(target=es2015)
@@ -227,4 +221,10 @@ conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
   arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
   arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
