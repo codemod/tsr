@@ -415,7 +415,16 @@ impl<'a> Checker<'a, '_> {
         let mut state = ReplayState {
             has_type_parameters: !parts.type_parameters.is_empty(),
             has_return_type: parts.return_type,
-            typed: parts.parameters.iter().map(|p| p.r#type.is_some()).collect(),
+            // A parameter's own `@type` was reparsed when the parameter
+            // finished, before any comment of the function's.
+            typed: parts
+                .parameters
+                .iter()
+                .map(|p| {
+                    p.r#type.is_some()
+                        || p.node_id.is_some_and(|id| self.jsdoc_parameter_hosted_type(id).is_some())
+                })
+                .collect(),
             this: if parts.parameters.first().is_some_and(|p| {
                 matches!(p.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
             }) {
@@ -440,6 +449,38 @@ impl<'a> Checker<'a, '_> {
             Self::replay_hosted_tags(doc, parts.parameters, &mut state, &mut out);
         }
         out
+    }
+
+    /// The type `reparseHosted`'s `KindJSDocTypeTag` arm writes onto an
+    /// unannotated parameter from the parameter's **own** comment
+    /// (`parser/reparser.go:363`, `case ast.KindParameter`):
+    /// `function f(/** @type {string} */ message)`.
+    ///
+    /// Only the last comment is hosted (`reparseTags`' `isLast`), and the first
+    /// `@type` tag with a type expression wins: once it has set `Type`, a later
+    /// tag fails the `parent.Type() == nil` test and falls through to
+    /// `getFunctionLikeHost`, which a parameter never is. A parameter is
+    /// finished before its function, so this precedes every `@param` and
+    /// `@type` the function's own comments reparse onto it.
+    ///
+    /// No cache: one hash lookup that almost always misses, then one comment's
+    /// tags, and only in a JS file.
+    pub(crate) fn jsdoc_parameter_hosted_type(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+        let doc = self.jsdoc_entries.get(&parameter)?.last()?;
+        if !self.in_js_file(parameter) {
+            return None;
+        }
+        match self.node_map.get(parameter)? {
+            Node::ParameterDeclaration(declaration) if declaration.r#type.is_none() => {}
+            _ => return None,
+        }
+        doc.tags.iter().find_map(|tag| match tag {
+            JSDocTag::JSDocTypeTag(tag) => match tag.type_expression {
+                Some(Node::JSDocTypeExpression(expression)) => expression.r#type,
+                _ => None,
+            },
+            _ => None,
+        })
     }
 
     /// The written type-parameter list, parameters and return-annotation

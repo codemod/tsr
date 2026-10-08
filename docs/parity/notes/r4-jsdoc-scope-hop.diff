@@ -1,0 +1,128 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index a7cad79..b4afcc0 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -216,6 +216,9 @@ pub(crate) struct Binder<'a, 'n> {
+     /// checker's late binding and the conformance harness both need to read the
+     /// expression back.
+     computed_names: rustc_hash::FxHashMap<NodeId, NodeId>,
++    /// `JSDoc comment -> the node it documents`: the one edge the tree omits
++    /// (the parser's `attach_jsdoc`). See [`crate::BindResult::jsdoc_host`].
++    jsdoc_hosts: rustc_hash::FxHashMap<NodeId, NodeId>,
+     /// Declaration node → its name node, for anchoring redeclaration diagnostics.
+     ///
+     /// A `NodeId` alone cannot reach the tree — [`NodeTable`] holds kind, span,
+@@ -426,6 +429,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             pattern_ambient_module_augmentations,
+             undefined_symbol,
+             computed_names,
++            jsdoc_hosts,
+             diagnostics,
+             flow,
+             node_flow,
+@@ -473,6 +477,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             pattern_ambient_module_augmentations.into_iter().map(|(name, id)| (name, symbol(id))),
+         );
+         binder.computed_names.extend(computed_names);
++        binder.jsdoc_hosts.extend(jsdoc_hosts);
+         binder.diagnostics.extend(diagnostics);
+         binder.facts.extend(facts);
+         binder.end_flow.extend(end_flow.into_iter().map(|(node, id)| (node, flow(id))));
+@@ -537,6 +542,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             pattern_ambient_module_augmentations,
+             undefined_symbol,
+             computed_names,
++            jsdoc_hosts,
+             diagnostics,
+             mut flow,
+             node_flow,
+@@ -592,6 +598,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             jsdoc_type_hosts: rustc_hash::FxHashSet::default(),
+             this_container: NodeId::ZERO,
+             computed_names,
++            jsdoc_hosts,
+             name_nodes: rustc_hash::FxHashMap::default(),
+             expando_assignments: Vec::new(),
+             expando_initializers: rustc_hash::FxHashMap::default(),
+@@ -748,6 +755,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+         BindResult {
+             max_depth: self.max_depth,
+             computed_names: self.computed_names,
++            jsdoc_hosts: self.jsdoc_hosts,
+             global_exports: self.global_exports,
+             globals: self.globals,
+             merged: self.merged,
+@@ -3296,6 +3304,9 @@ impl<'a, 'n> Binder<'a, 'n> {
+         use tsr_ast::JSDocTag;
+         for (host, docs) in jsdoc {
+             for doc in *docs {
++                if let Some(doc_id) = doc.node_id {
++                    self.jsdoc_hosts.insert(doc_id, *host);
++                }
+                 // Native reparents the gathered template nodes under a
+                 // JSTypeAliasDeclaration (reparser.go::reparseUnhosted's
+                 // typedef/callback arms, `gatherTypeParameters` with
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index a0ad2cb..b36fdc1 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -165,6 +165,7 @@ pub struct BindResult<'a> {
+     /// its declared type — seeding the slot unconditionally would clobber it.
+     undefined_symbol: Option<SymbolId>,
+     computed_names: FxHashMap<NodeId, NodeId>,
++    jsdoc_hosts: FxHashMap<NodeId, NodeId>,
+     diagnostics: Vec<Diagnostic>,
+     flow: FlowStore,
+     node_flow: Vec<Option<FlowId>>,
+@@ -238,6 +239,7 @@ impl<'a> BindResult<'a> {
+             pattern_ambient_module_augmentations: FxHashMap::default(),
+             undefined_symbol: None,
+             computed_names: FxHashMap::default(),
++            jsdoc_hosts: FxHashMap::default(),
+             diagnostics: Vec::new(),
+             flow: FlowStore::new(),
+             node_flow: Vec::new(),
+@@ -291,6 +293,25 @@ impl<'a> BindResult<'a> {
+         self.computed_names.get(&declaration).copied()
+     }
+ 
++    /// The node a JSDoc comment documents — the parent edge the tree omits
++    /// (the parser's `attach_jsdoc`).
++    #[must_use]
++    pub fn jsdoc_host(&self, doc: NodeId) -> Option<NodeId> {
++        self.jsdoc_hosts.get(&doc).copied()
++    }
++
++    /// The next location of a name-resolution walk. Native's reparser
++    /// (`parser/reparser.go` `reparseTags`, `finishReparsedNode`) parents a
++    /// JSDoc type under its host, so `resolveName`
++    /// (`binder/nameresolver.go`) climbs from a JSDoc type reference through
++    /// the host's scopes; here the walk dead-ends at the comment and crosses
++    /// to its host instead.
++    fn scope_parent(&self, nodes: &NodeTable, node: NodeId) -> Option<NodeId> {
++        nodes.parent(node).or_else(|| {
++            if nodes.kind(node) == SyntaxKind::JSDoc { self.jsdoc_host(node) } else { None }
++        })
++    }
++
+     /// Duplicate-identifier and related errors, in discovery order.
+     #[must_use]
+     pub fn diagnostics(&self) -> &[Diagnostic] {
+@@ -1183,7 +1204,7 @@ impl<'a> BindResult<'a> {
+                     // Upstream clears `result` and falls out of the switch, so
+                     // the walk continues outward rather than stopping here.
+                     last = Some(node);
+-                    current = nodes.parent(node);
++                    current = self.scope_parent(nodes, node);
+                     continue;
+                 }
+                 // TypeScript 1.0 spec (April 2014) §3.4.1: a type parameter's
+@@ -1340,7 +1361,7 @@ impl<'a> BindResult<'a> {
+             }
+ 
+             last = Some(node);
+-            current = nodes.parent(node);
++            current = self.scope_parent(nodes, node);
+         }
+         // The walk has run off the top of the file. Upstream's
+         // `resolveNameHelper` ends at `c.globals` (`nameresolver.go`), which is
