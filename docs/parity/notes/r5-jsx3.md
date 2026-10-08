@@ -147,6 +147,10 @@ excess `offspring` now fails the relation first, §3). Right lines added in
 still-WRONG cases: `jsxElementType` 110:6 and 111:19,
 `contextuallyTypedStringLiteralsInJsxAttributes02` 37:57 and 40:44.
 
+**Coverage run** (`--bin coverage`): `checker_types` 8183/9538 (unchanged:
+no type line moved), `diagnostics` 4404 → 4413/5502, `diagnostics_configured`
+672 → 674/1089.
+
 **Performance** (median child CPU against the frozen binary; the bench
 projects contain no JSX): domain-model 0.981 (21 samples), generic-imports
 1.053 at 21 → 0.946 at 41; diagnostics match. No cache, side table or
@@ -167,10 +171,37 @@ before the relation instead of after a failed one.
   or `declared.rs` minting the body with an alias attached) — not this
   lane's files. This is the same producer shape `r4-jsx.md` §2 met for
   signatures.
+- **Binding-pattern props (J6, `tsxStatelessFunctionComponents1` 29:15,
+  31:15).** `function Meet({name = 'world'})`: the props target
+  `IntrinsicAttributes & { name?: string | undefined; }` relates `Unknown`
+  and its pattern-implied member table is not certified
+  (`relation_members_are_complete` false), so neither the relation nor the
+  excess override decides. Producer: the binding-pattern parameter type
+  (`getTypeFromObjectBindingPattern`, `destructure.rs`/`declared.rs`).
+- **Discriminated union props (J6, `tsxSpreadAttributesResolution6` 15:10).**
+  The props target is a union (the intersection distributes over
+  `TextProps`), so `hasExcessProperties` needs `findMatchingDiscriminantType`.
+  The port exists but is private to `assignreport.rs`
+  (`find_matching_discriminant_type`); making it `pub(crate)` lets
+  `jsx_excess_attribute`'s union arm call it. The final report would then
+  still meet `report_relation_failure`'s union-target decline (r5-report).
+- **Children split against `Iterable` (J5,
+  `jsxChildrenIndividualErrorElaborations` 63:3, 67:16, 73:9, 74:9).**
+  `Cb | Cb[]` with `type Cb = (x: number) => string`: relating `Cb` to
+  `Iterable<any, void, undefined>` answers `Unknown`, and `Cb` enumerates no
+  property names (`get_property_names_of_type` → `None`; an aliased function
+  type is `Anonymous { signature: false }`). Upstream's answer is `false`
+  (no `[Symbol.iterator]`). Relater / function-alias producer (M4).
+- **TS2741 inside an intersection target** (`jsxElementType` 34:2 …59:2):
+  `report_relation_failure` prints TS2322 where upstream descends to the
+  failing constituent — `tsr-2zk.918`, r5-report.
 - **Fragments (J5, `jsxFragmentWrongType` 6:28).** `getJSXFragmentType`
   (`jsx.go:500`) → `resolveCall` on `React.Fragment`'s signatures with a
   children-only attributes type, error node the opening fragment. Not
-  ported here.
+  ported: in the one corpus case the props target is `React.Fragment`'s
+  managed conditional (`string extends keyof P ? P : Pick<…>`), which relates
+  `Unknown` (traced on the `<React.Fragment>` element of the same file, 7:47),
+  so a faithful port converts nothing yet.
 - **Children elaboration against intersection/union children types**
   (`checkJsxChildrenProperty4`, `jsxChildrenIndividualErrorElaborations`):
   `r4-jsx2.md` §5's declines (union children target needs
