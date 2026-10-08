@@ -434,6 +434,7 @@ impl<'a> Checker<'a, '_> {
             Node::SetAccessorDeclaration(node) => node.parameters.first()?.r#type,
             _ => None,
         }
+        .or_else(|| self.jsdoc_accessor_annotation(declaration))
     }
 
     /// The type of an alias symbol — `import q = M.a`.

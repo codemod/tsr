@@ -538,10 +538,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// No cache: the replay answers from hash lookups when no comment
     /// applies.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc2-accessor-annotation.diff, which removes this"
-    )]
     pub(crate) fn jsdoc_accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         match self.node_map.get(declaration)? {
             Node::GetAccessorDeclaration(getter) if getter.r#type.is_none() => {
