@@ -495,3 +495,22 @@ measured loss names an upstream piece that is missing:
 Its successor, r5-relater6, takes IAM, Unknown for unprovable generic keys
 (`.1049`, which unblocks TS2536), the as-clause mapped types, IAW, B16, and a
 cached isDiscriminantProperty. The uncached version measured +0.41% Ir.
+
+### r5-vardecl finished; r5-instexpr dispatched
+
+r5-vardecl made three changes:
+- checkVariableLikeDeclaration's and checkAccessorDeclaration's getTypeOfSymbol
+  call (TS2502 on unused self-references), with three declines that wait on
+  deferred resolution;
+- identity's generic-mapped arms;
+- TS2371 in parameter patterns.
+
+That is +8 cases with no losses. Running the structural identity arm on
+inferred operands was refused: +3/−5 cases. Its remainder outside the lane is
+filed as `tsr-2zk.1054` (flow.rs) and `.1055` (relater.rs).
+
+The freed slot went to r5-instexpr. The obvious diagnostic clusters (TS7006,
+TS2339/TS18046, TS2345/TS2769) are main's active lanes (`.11`, `.4`, `.9`), so
+the lane was picked from the type-line clusters instead: instantiation
+expressions (`tsr-2zk.1006`; instantiationExpressionErrors alone has 66 WRONG
+lines) and unique-symbol identity (`.1005`; uniqueSymbolsErrors has 34).
