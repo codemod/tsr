@@ -547,3 +547,18 @@ Converts `classWithMultipleBaseClasses`, `elaboratedErrors`,
 `genericArrayExtenstions`, `implementArrayInterface`,
 `untypedFunctionCallsWithTypeParameters1`, `classImplementsMergedClassInterface`,
 `mergedInterfacesWithInheritedPrivates`, `mergedInterfacesWithInheritedPrivates2`.
+
+## 22. `super` accessibility head: TS2513 and TS2855 (tsr-2zk.4)
+
+`checkPropertyAccessibilityAtLocation` (`checker.go:11786`) starts its
+`isSuper` arm before any accessibility modifier: an abstract member is TS2513
+(`Abstract method '{0}' in class '{1}' cannot be accessed via super
+expression.`), then a non-static member with an `isClassInstanceProperty`
+declaration (`utilities.go:1017`: a class property without `accessor`, or a
+JS expando assignment rooted at `this`, not `C.prototype.x`/`C.x`) is TS2855.
+`property_accessibility_error` returned before reaching either for a public
+member. Same declaration choice (`modifier_declaration_of`), no cache.
+Controls: `super.g()` (method), `super.h` (`accessor`) and static `super.s`
+stay silent; `super.p` on a private field is TS2855, not TS2341, as natively.
+Converts `classFieldSuperNotAccessible`, `classFieldSuperNotAccessibleJs`,
+`classAbstractSuperCalls`.

@@ -1373,6 +1373,33 @@ impl Checker<'_, '_> {
     ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
         let node = location;
         let declaration = self.modifier_declaration_of(property, writing)?;
+        // The `isSuper` head: an abstract member (TS2513), then a non-static
+        // member with a class instance property declaration (TS2855), are
+        // inaccessible through `super` whatever their accessibility.
+        if is_super {
+            if self.member_declaration_has(declaration, SyntaxKind::AbstractKeyword) {
+                let declaring = self.containing_class_of(declaration)?;
+                let declaring_name = self.class_declared_type_text(declaring)?;
+                return Some((
+                    &messages::ABSTRACT_METHOD_0_IN_CLASS_1_CANNOT_BE_ACCESSED_VIA_SUPER_EXPRESSION,
+                    vec![name.to_string(), declaring_name],
+                ));
+            }
+            if !self.member_declaration_has(declaration, SyntaxKind::StaticKeyword)
+                && self
+                    .binder
+                    .symbols()
+                    .get(property)
+                    .declarations
+                    .iter()
+                    .any(|&declaration| self.is_class_instance_property(declaration))
+            {
+                return Some((
+                    &messages::CLASS_FIELD_0_DEFINED_BY_THE_PARENT_CLASS_IS_NOT_ACCESSIBLE_IN_THE_CHILD_CLASS_VIA_SUPER,
+                    vec![name.to_string()],
+                ));
+            }
+        }
         let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);
         if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
             return None;
@@ -1435,6 +1462,58 @@ impl Checker<'_, '_> {
             &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_THROUGH_AN_INSTANCE_OF_CLASS_1_THIS_IS_AN_INSTANCE_OF_CLASS_2,
             vec![name.to_string(), enclosing_name, containing_text],
         ))
+    }
+
+    /// `isClassInstanceProperty` (`utilities.go:1017`): a class property
+    /// declaration without `accessor`, or in JS an expando assignment whose
+    /// target is neither a prototype member (`C.prototype.x`) nor a static
+    /// name (`C.x`), i.e. one rooted at `this`.
+    fn is_class_instance_property(&self, declaration: NodeId) -> bool {
+        match self.node_map.get(declaration) {
+            Some(Node::PropertyDeclaration(property)) => {
+                self.nodes.parent(declaration).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    )
+                }) && !property.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::AccessorKeyword)
+                })
+            }
+            Some(Node::BinaryExpression(binary)) if self.in_js_file(declaration) => {
+                let Some(left) = binary.left.and_then(|left| left.node_id()) else {
+                    return false;
+                };
+                let receiver = match self.node_map.get(left) {
+                    Some(Node::PropertyAccessExpression(access)) => access.expression,
+                    Some(Node::ElementAccessExpression(access)) => access.expression,
+                    _ => return false,
+                };
+                let Some(mut root) = receiver.and_then(|receiver| receiver.node_id()) else {
+                    return false;
+                };
+                // `IsPrototypeAccess(left.Expression())`.
+                if let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(root)
+                    && access.name.is_some_and(|name| {
+                        matches!(name, tsr_ast::MemberName::Identifier(name)
+                            if name.text == "prototype")
+                    })
+                {
+                    return false;
+                }
+                // `!IsBindableStaticNameExpression(left, excludeThisKeyword)`:
+                // the dotted chain is rooted at `this`.
+                while let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(root) {
+                    let Some(next) = access.expression.and_then(|e| e.node_id()) else {
+                        return false;
+                    };
+                    root = next;
+                }
+                self.nodes.kind(root) == SyntaxKind::ThisKeyword
+            }
+            _ => false,
+        }
     }
 
     /// `getDeclarationModifierFlagsFromSymbol(prop) & NonPublicAccessibilityModifier`.
