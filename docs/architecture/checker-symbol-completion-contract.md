@@ -1275,3 +1275,38 @@ test/example consumers and 141 strict library lint errors still refuse retention
 No complete corpus, no-RIGHT-loss, work-count/allocation or qualified CLI speed gate
 is satisfied; all six goal tickets remain in progress. Correct identity/publication
 is a prerequisite to measuring reuse, not a speed result.
+
+The [conformance consumer continuation](checker-conformance-consumer-continuation.json)
+after `124ea18d` moves the original module, generic naming and typedef variance
+controls onto selected symbol views and existing semantic workers. Genuine syntax
+lookups lift at the Program boundary. The existing public reference constructor
+now accepts the actual selected owner, and all three in-repo call sites migrate;
+its ordered arguments, checker-local instantiation keys and worker stay unchanged.
+
+The first actual conformance run exposed two callers violating AliasTarget's
+alias-only invariant. Native checkImportDeclaration checks a default clause only
+when it has a name, while the NamespaceImport child owns a namespace alias. TSR
+now follows that traversal rather than relaxing resolveAlias. The JSX factory
+namespace reader follows native resolveSymbolEx's pure-alias test: directly named
+VALUE/TYPE/NAMESPACE owners are retained, and only pure aliases force the existing
+resolver. No new cache, resolution stack, worker or ownership projection is added.
+
+Independent pinned native controls cover thirteen default-chain shapes, three
+alias spellings and both query orders with warm repeats: **78 rows**. Pure aliases
+follow indirection to the original module or local declaration, parenthesized
+exports retain their property and self-imports publish unknown/error. Two stale
+immediate-target assertions were corrected from those rows. All selected type
+and duplicate-aware diagnostic assertions remain; actual conformance progresses
+from **29/5**, **31/3**, **32/2** to **34/0**. The unchanged broad library224/0 and
+selected checker integration23/0 also pass on the final source.
+
+A source-stable Clippy run supplied **121 MachineApplicable edits**, confined to
+unused imports/mut, redundant borrows, implicit string clones, doc ticks, identity
+maps and an equivalent conditional branch inversion. Exact spans and predecessor
+bytes are retained with the replay. No Option<Option> publication state was collapsed,
+no blanket lint suppression added and no public/semantic worker deleted. Strict
+library diagnostics fall from141 to28; final all-targets still reports25 type
+mismatches across seven examples, and later borrow checking can expose more after
+those callers migrate. Canonical runtime acceptance remains refused. Full corpus,
+native recovery/member qualification, actual expensive-worker/allocation attribution
+and equivalent complete-work median ratio<=0.50 remain required for all six goals.

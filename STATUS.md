@@ -22,6 +22,19 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Conformance consumer continuation measured after `124ea18d`, pinned native
+`5b1047d`: exact **34-source** passive replay covers **1,053 inputs**, **1,019
+unchanged**. Actual full Checker library **224/0/0**, selected checker integration
+**23/0**, selected conformance **34/0**; work-trace library compiles. Native **78
+rows** qualify transitive default targets, parenthesized export properties and
+self-import unknown/error across thirteen shapes and two query orders. Native
+import binding and pure-alias admission fixes restore diagnostic/JSX controls.
+Strict library Clippy falls from **141 to 28 errors** after 121 machine suggestions;
+final all-targets keep-going check exposes **25 ownership mismatches in seven
+examples**. This remains a private replay checkpoint: no canonical Rust/runtime
+integration, full corpus/no-RIGHT-loss, performed-work or verified median
+ratio<=0.50 qualification. [Source and controls](docs/architecture/checker-conformance-consumer-continuation.json).
+
 Selected semantic consumer continuation measured after `af503f38`, pinned native
 `5b1047d`: exact **40-source** passive replay covers **1,053 inputs**, **1,013
 unchanged**. Private Checker library ordinary/work-trace and workspace libraries/
@@ -3868,6 +3881,13 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+After `124ea18d`, all selected conformance tests compile and **34 pass** alongside
+**224 library** and **23 selected checker integration** tests. Next: migrate the
+seven conformance examples with **25 observed ownership mismatches**, remove the
+remaining **28 strict library lint diagnostics** while preserving three-state
+publication, then run the full native/corpus and actual-work gates. No completed
+performance ticket or speed gain follows from these correctness fixes.
+
 After `af503f38`, selected semantic consumers and native module-copy AliasTarget
 publication reach **224/224 library tests** and **23 selected integration tests**.
 Next: migrate the conformance test/public query and diagnostic example consumers,
@@ -7676,6 +7696,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The conformance-consumer candidate after `124ea18d` is still refused for runtime
+retention by **25 observed example ownership mismatches** and **28 strict library
+lint diagnostics**. Initial selected conformance **29/5**, then **31/3** and
+**32/2** runs exposed nameless import-clause traversal, non-alias JSX resolution
+and stale immediate-default expectations. Native **78 rows** qualify the corrected
+expectations; final **34/0** preserves every selected assertion. These narrow
+controls do not replace full workspace/corpus, performed-work or median
+ratio<=0.50 qualification. [Failures and replay](docs/architecture/checker-conformance-consumer-continuation.json).
 
 The selected-consumer candidate after `af503f38` remains refused for canonical
 runtime retention: **141 strict library Clippy errors** and unmigrated conformance
@@ -16045,3 +16074,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `b96ed671` plus exact two-file private overlay / native `5b1047d` | — | — | **Selected naming ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Best-name/alias/module naming and module property display retain actual selected identity; exact1053 inputs/twochanged/1051unchanged replay. Ordinary/work-trace34 compile errors, full-lib-test90; predecessor57/113. Bounded actual direct-name1pass, compiling origin mutation1fail, restored1pass. Native alias-only table scan/copy/publication profiling filed as tsr-1yb.11.5. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six goals in progress. [Replay](docs/architecture/checker-semantic-naming-continuation.json). |
 
 | 2026-10-08 | `af503f38` plus exact 40-source private overlay / native `5b1047d` | — | — | **Selected semantic consumers and module-copy publication, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,013 unchanged. Ordinary/work-trace library and workspace runtime compile; actual library 224/0/0, selected integration 23/0, native 8 rows. Canonical runtime retention refused by 141 strict lint errors and unmigrated conformance tests/examples; full corpus/work and ratio<=0.50 outstanding. [Replay](docs/architecture/checker-semantic-consumer-continuation.json). |
+
+| 2026-10-08 | `124ea18d` plus exact 34-source private overlay / native `5b1047d` | — | — | **Conformance consumers and native alias admission, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,019 unchanged. Actual library224/0/0, checker integration23/0, conformance34/0 and native78 rows; work-trace compiles. 121 compiler suggestions reduce strict lint141 to28; keep-going all-targets reports25 mismatches in seven examples. Canonical runtime, full corpus/work and ratio<=0.50 gates remain unfinished. [Replay](docs/architecture/checker-conformance-consumer-continuation.json). |
