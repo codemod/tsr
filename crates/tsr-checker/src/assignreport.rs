@@ -3318,6 +3318,24 @@ impl<'a> Checker<'a, '_> {
         Some(ExcessProperties::None)
     }
 
+    /// `hasExcessProperties` (`relater.go:2714`) as `isRelatedTo` runs it for
+    /// a fresh object literal source in any relation, reported: TS2353 /
+    /// TS2561 at the excess member. Answers whether it reported; a decided
+    /// "no excess" and an undecided verdict both answer `false`.
+    pub(crate) fn report_fresh_literal_excess_property(
+        &mut self,
+        node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        match self.excess_properties_verdict(node, source, target) {
+            Some(ExcessProperties::Excess { at, name, error_target }) => {
+                self.report_excess_property(at, &name, error_target)
+            }
+            _ => false,
+        }
+    }
+
     /// TS2353 / TS2561 for [`ExcessProperties::Excess`]: `hasExcessProperties`'
     /// object-literal report (`relater.go:2714`). An identifier name with a
     /// spelling suggestion among the error target's properties

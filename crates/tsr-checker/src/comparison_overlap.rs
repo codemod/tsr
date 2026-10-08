@@ -144,10 +144,19 @@ impl Checker<'_, '_> {
             // A fresh object literal fails `checkTypeComparableTo` in
             // `hasExcessProperties` first (`relater.go:2714`), which reports
             // TS2353 on the property instead of TS2678 on the clause
-            // (`switchStatements`' `case { id: 12, name: '' }`). That
-            // reporter is not this rule's, so the clause is left silent.
-            if self.fresh_object_literal_types.contains(&case_type)
-                || self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
+            // (`switchStatements`' `case { id: 12, name: '' }`), once
+            // `isTypeEqualityComparableTo(expressionType, caseType)` has
+            // failed. Any other fresh-literal outcome is left silent.
+            if self.fresh_object_literal_types.contains(&case_type) {
+                if self.relate_ternary(expression_type, case_type, Relation::Comparable)
+                    == Ternary::NotRelated
+                    && let Some(at) = case_expression.node_id()
+                {
+                    self.report_fresh_literal_excess_property(at, case_type, expression_type);
+                }
+                continue;
+            }
+            if self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
                 || !self.assignability_pair_is_reportable(case_type, expression_type)
                 || self.relate_ternary(expression_type, case_type, Relation::Comparable)
                     != Ternary::NotRelated
