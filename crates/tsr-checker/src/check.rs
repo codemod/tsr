@@ -8700,16 +8700,10 @@ impl Checker<'_, '_> {
             }) {
                 continue;
             }
-            let Some(file_id) = self.source_file_of_for_diagnostics(id) else { continue };
-            // `grammarErrorOnFirstToken` — the node's own start, which is the
-            // first token's start once trivia is skipped.
-            let span = self.nodes.span(id);
-            self.report(
-                file_id,
-                Diagnostic::new(
-                    &messages::TOP_LEVEL_DECLARATIONS_IN_D_TS_FILES_MUST_START_WITH_EITHER_A_DECLARE_OR_EXPORT_MODIFIER,
-                    span,
-                ),
+            // `grammarErrorOnFirstToken(node, …)`.
+            self.grammar_error_on_first_token(
+                id,
+                &messages::TOP_LEVEL_DECLARATIONS_IN_D_TS_FILES_MUST_START_WITH_EITHER_A_DECLARE_OR_EXPORT_MODIFIER,
             );
             // `checkGrammarTopLevelElementsForRequiredDeclareModifier` returns
             // on the **first** offender.
@@ -9536,7 +9530,7 @@ impl Checker<'_, '_> {
             None => &messages::A_RETURN_STATEMENT_CAN_ONLY_BE_USED_WITHIN_A_FUNCTION_BODY,
         };
         // `grammarErrorOnFirstToken(node, …)` — the `return` keyword.
-        self.report_grammar_at(Some(node), message);
+        self.grammar_error_on_first_token(node, message);
     }
 
     /// `checkGrammarClassLikeDeclaration` and
@@ -9581,10 +9575,13 @@ impl Checker<'_, '_> {
                             return;
                         }
                         if let Some(second) = clause.types.get(1) {
-                            self.report_grammar_at(
-                                second.node_id,
-                                &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
-                            );
+                            // `grammarErrorOnFirstToken(typeNodes[1], …)`.
+                            if let Some(second) = second.node_id {
+                                self.grammar_error_on_first_token(
+                                    second,
+                                    &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
+                                );
+                            }
                             return;
                         }
                     }
@@ -9893,14 +9890,10 @@ impl Checker<'_, '_> {
             return;
         };
         if self.nodes.kind(container) == SyntaxKind::PropertyDeclaration {
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                    span,
-                ),
+            // `GetRangeOfTokenAtPosition(sourceFile, node.Pos())`: the `await`.
+            self.grammar_error_on_first_token(
+                node,
+                &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
             );
             return;
         }
@@ -9910,16 +9903,11 @@ impl Checker<'_, '_> {
         if self.has_async_modifier(container) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         // `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` — the `await`
         // keyword, which is the node's first token.
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                span,
-            ),
+        self.grammar_error_on_first_token(
+            node,
+            &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
         );
     }
 
@@ -10761,14 +10749,9 @@ impl Checker<'_, '_> {
         if in_generator {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
-                span,
-            ),
+        self.grammar_error_on_first_token(
+            node,
+            &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
         );
     }
 
@@ -10797,9 +10780,10 @@ impl Checker<'_, '_> {
         }) else {
             return;
         };
-        let Some(file) = self.source_file_of_for_diagnostics(decorator) else { return };
-        let span = self.nodes.span(decorator);
-        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
+        // `grammarErrorOnFirstToken(decorator, …)`: the decorator's `@`.
+        if !self.grammar_error_on_first_token(decorator, &messages::DECORATORS_ARE_NOT_VALID_HERE) {
+            return;
+        }
         // `reportObviousDecoratorErrors(node)` is the **first** test in
         // `checkGrammarModifiers` and its `true` returns from the whole
         // function (`grammarchecks.go:218`), so the per-keyword switch never
@@ -12225,11 +12209,9 @@ impl Checker<'_, '_> {
         if !modifiers.iter().any(|m| matches!(m, tsr_ast::ModifierLike::Decorator(_))) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // `grammarErrorOnFirstToken(node)` — the node's own start, which is the
-        // decorator's `@`.
-        let span = self.nodes.span(node);
-        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
+        // `grammarErrorOnFirstToken(node)` — the node's first token, which is
+        // the decorator's `@`.
+        self.grammar_error_on_first_token(node, &messages::DECORATORS_ARE_NOT_VALID_HERE);
     }
 
     /// TS18006 — `Classes may not have a field named 'constructor'.`
@@ -12656,11 +12638,15 @@ impl Checker<'_, '_> {
         if self.is_function_like_or_static_block(parent)
             || matches!(self.nodes.kind(parent), SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
         {
-            if self.ambient_statement_reported.insert(node) {
-                self.report_grammar(
+            // Both arms report through `grammarErrorOnFirstToken`: the span is
+            // the statement's first token, not the whole statement.
+            if !self.ambient_statement_reported.contains(&node)
+                && self.grammar_error_on_first_token(
                     node,
                     &messages::AN_IMPLEMENTATION_CANNOT_BE_DECLARED_IN_AMBIENT_CONTEXTS,
-                );
+                )
+            {
+                self.ambient_statement_reported.insert(node);
                 return true;
             }
             return false;
@@ -12668,9 +12654,13 @@ impl Checker<'_, '_> {
         if matches!(
             self.nodes.kind(parent),
             SyntaxKind::Block | SyntaxKind::ModuleBlock | SyntaxKind::SourceFile
-        ) && self.ambient_statement_reported.insert(parent)
+        ) && !self.ambient_statement_reported.contains(&parent)
+            && self.grammar_error_on_first_token(
+                node,
+                &messages::STATEMENTS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS,
+            )
         {
-            self.report_grammar(node, &messages::STATEMENTS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS);
+            self.ambient_statement_reported.insert(parent);
             return true;
         }
         // "We must be parented by a statement. If so, there's no need to report
