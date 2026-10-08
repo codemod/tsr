@@ -54,6 +54,20 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected alias-consumer continuation after evidence delivery `c236a387`, native
+`5b1047d`: the existing declared dispatcher, type-parameter owner back-edge,
+constraint/default/inference/recursion/rendering readers and generic-reference
+worker now retain selected handles privately. Homomorphic metadata and callable
+export preparation retain actual owners. Source-stable compiler counts are
+116→93→89→84; final ordinary/work-trace both retain **84 E0308**. Exact
+18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes.
+An unrelated rustfmt test-module traversal change was restored exactly.
+`AnonymousProperty.origin` and conditional binding frames remain explicit raw-ID
+boundaries. The draft cannot execute; no native/runtime/corpus/performance
+qualification or canonical Rust change. All six tickets and complete-work
+<=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-alias-consumer-continuation.json).
+
 Selected alias-resolver continuation after evidence delivery `c92a8cb0`, native
 `5b1047d`: the existing alias links now retain selected owner/target handles,
 completed-unknown publication and type-only declaration metadata. AliasTarget
@@ -3779,6 +3793,17 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Alias-consumer continuation after `c236a387`: migrate the existing
+`AnonymousProperty.origin` field and its spread/order/inference/reporting/display
+readers together, then selected conditional binding frames. Do not drop private
+origins, project to source IDs or add parallel semantic fields. Remaining naming,
+entity/export/member, grammar, JSX, flow and reuse consumers are exposed by
+**84 E0308** in both compiler modes. The declared dispatcher, type-parameter
+metadata and generic worker now carry selected identity, but have no runtime
+qualification. Native controls, full corpus/performed-work preservation and
+ordinary wall/CPU/RSS confirmation remain required.
+[Exact replay and compiler evidence](docs/architecture/checker-alias-consumer-continuation.json).
 
 Alias continuation after `c92a8cb0`: migrate the selected alias result through
 the remaining declaration/entity, export/member, naming, grammar, JSX, flow and
@@ -7523,6 +7548,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The alias-consumer private draft after `c236a387` is refused for canonical
+runtime integration by **84 E0308** in both ordinary and work-trace checks.
+Intermediate counts 116→93→89→84 record the actual consumer migration, not
+semantic correctness or faster checking. Callable export preparation exposes
+`AnonymousProperty.origin: Option<SymbolId>` as a real private-image boundary;
+conditional mapper frames still require selected keys. No source-origin
+projection or dropped target is accepted as a compiler repair. Full native
+publication/alias controls, no previously RIGHT losses, equivalent checked work
+and the <=0.50 target remain unverified; all six tickets stay in progress.
+[Source-bound checkpoint](docs/architecture/checker-alias-consumer-continuation.json).
 
 The alias-resolver draft after `c92a8cb0` is refused for canonical runtime
 integration by **93 E0308** in both ordinary and work-trace checks, down from
@@ -15808,3 +15844,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `640120e4` / native `5b1047d` | — | — | **Selected value-worker private continuation.** Exact ten-file replay verifies 1,053 inputs/1,043 unchanged. Accessor/callable/variable cache and frame owners, assignment constructor-flow classification/base reads, completed callable identity and work observation retain actual selected symbols. Compiler 27→26→25; final ordinary/work-trace builds both retain25 E0308. No canonical Rust or runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-value-owner-continuation.json). |
 
 | 2026-10-08 | `c92a8cb0` / native `5b1047d` | — | — | **Selected alias resolver private continuation.** Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Existing alias links retain selected owner/target and type-only metadata, completed-unknown publication and shared AliasTarget stack; separate resolving bit and bounded cycle/suggestion walks removed. Ten actual generic stack passes and two detected mutants exclude Checker-specific code. Widened alias result exposes100 E0308; final ordinary/work-trace each93 after selected suggestion/visibility/truthy migration. No compiling private checker, canonical Rust, alias runtime/native/corpus or performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-owner-continuation.json). |
+
+| 2026-10-08 | `c236a387` / native `5b1047d` | — | — | **Selected alias-consumer private continuation.** Existing declared dispatcher and alias link, type-parameter metadata/constraint/default/inference/recursion/render scopes, generic-reference worker, homomorphic variable and callable export/readonly/name reads retain actual selected identities. Exact 18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes and unrelated rustfmt child restored. Compiler 116→93→89→84; final ordinary/work-trace both84 E0308. AnonymousProperty.origin and conditional frame keys are real unresolved boundaries, with no source-ID projection or dropped targets. No compiling private checker, canonical Rust, native/runtime/corpus/performed-work or speed qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-consumer-continuation.json). |

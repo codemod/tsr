@@ -870,6 +870,45 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [alias-consumer private continuation](checker-alias-consumer-continuation.json)
+after `c236a387` extends the existing declared dispatcher to selected symbols.
+Native `5b1047d` `tryGetDeclaredTypeOfSymbol` (23678),
+`getDeclaredTypeOfTypeParameter` (23829) and `getDeclaredTypeOfAlias` (24094)
+provide its operation boundary. Type-parameter mints record the actual selected
+symbol; alias dispatch uses the one resolver and retains the source alias's
+completed declared link. Class/interface, type alias, enum and enum-member
+branches remain in the same dispatcher. This is private implementation progress;
+its current publication policies are not certified native completion.
+
+The existing type-parameter back-edge, homomorphic variable and rendering scope
+retain selected handles. Constraint/default/const/inferred-declaration reads use
+that symbol's own metadata; fresh inference parameters retain its identity,
+matching native `cloneTypeParameter` and `getRecursionIdentity`. Syntax-owned
+shadow candidates and qualified namespace mints lift genuine Program IDs before
+comparison/keying. Generic-reference/default/body work stays in the existing
+worker with the original written site/alias policy. No new semantic cache,
+mapper, producer or origin projection is introduced.
+
+Callable export preparation reads actual selected export edges and declarations,
+then uses the existing selected type getter and readonly/name workers. Its
+`AnonymousProperty.origin` write exposes the remaining raw-ID member-image
+boundary. The existing field and all spread/order/inference/reporting/display
+consumers require one coordinated migration; dropping private origins or storing
+a second parallel field would preserve the wrong owner model. Conditional
+binding maps remain syntax-ID keyed and cannot accept a selected parameter
+without their own boundary migration. These limits are recorded in
+`tsr-1yb.4.2.1` and `tsr-1yb.7.7.3`; actual expensive-worker reuse remains
+unqualified under `tsr-1yb.33.1`.
+
+Exact 18-file replay verifies 1,053 inputs/1,035 unchanged. Source-stable
+compiler counts are 116→93→89→84, with final ordinary/work-trace both84
+E0308. Owned formatting passes; rustfmt's unrelated test-child change is restored
+from the exact predecessor. Existing const/default/constraint/member tests were
+inspected, but the private checker cannot execute them yet. No current native
+matrix, runtime/full-corpus/no-prior-RIGHT-loss/performed-work or whole-CLI
+wall/CPU/RSS qualification ran. All six goal tickets and the equivalent
+complete-work TSR/native <=0.50 target remain unfinished.
+
 The [alias-resolver private continuation](checker-alias-owner-continuation.json)
 after `c92a8cb0` ports the existing alias links to selected owner and target
 identities. Native `5b1047d` `resolveAlias`/`resolveIndirectionAlias`/`tryResolveAlias`
