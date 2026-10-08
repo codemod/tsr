@@ -584,3 +584,29 @@ unfiltered there. The intersection-alias diff, which covers `.1010` and alias
 naming together, measured +60 lines and +3 cases filtered but loses 1 line and
 1 case. It is held as `.1061` for r5-declared2, the next single owner of
 declared.rs, which also takes `.1042`, `.1043` and `.1059`.
+
+### Type-line triage landed (r5-typetriage)
+
+r5-typetriage clustered the 7,379 WRONG and 988 GAP type lines (1,517 cases) by
+root cause. Its cases.tsv, lines.tsv and classify.py regenerate the table at
+any head.
+
+Cases solely blocked, by owner:
+
+| Owner | Cases solely blocked |
+|---|---|
+| Unclaimed | 175 |
+| r5-declared | 155 |
+| JS-file lines | 113 |
+| Symbol-chain printer (main `.39`) | 93 |
+| errorType GAP | 93 |
+| Module exports | 71 |
+| Unaligned lines | 52 |
+
+The unclaimed causes are now filed or claimed:
+- `.1062`: function-declaration type answers error (14 cases).
+- `.1063`: object-literal `this` (11 cases, main's contextual.rs).
+- `.1064`: flow undefined/optionality (26 cases, main's flow.rs, needs a split
+  by construct).
+- `.16.65` (T_1 rename, 21 cases) and `.16.233` (escaping) go to r5-typetriage,
+  which owns printing.rs.
