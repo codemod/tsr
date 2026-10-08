@@ -439,3 +439,13 @@ on equal single-threaded work TSR's checker is ~2.2x tsgo's, and wall 0.50
 needs ~30% less checker CPU. This lane owns the infrastructure r4-perf2 named
 (Resolutions cycle counter, late-bound in-progress marker, shared property-name
 lists, is_pure_signature_type) and single-threaded attribution.
+
+### r4-index3 (`tsr-2zk.951`; `.945`, `.946`)
+
+Dispatched when `r4-realworld2` finished (docs/parity/notes/r4-realworld2.md:
+TypeScript's src/compiler and src/services now finish; compiler TSR 428 vs
+native 86, services 750 vs 260; new causes filed as `tsr-2zk.945`-`.950`, N4
+is the existing `.16.264`; the remaining wall is the cost of checking
+checker.ts, not duplicated work). This lane takes N1 and N2 in the index files.
+Also: integration missed 3 workspace test failures (intrinsic count 26 -> 29
+after the interned `""`/`0`/`0n`); fixed, and gates now run the workspace tests.
