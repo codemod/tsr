@@ -262,3 +262,124 @@ fn unresolved_node_core_module_reports_install_types_hint() {
         &[(1, 30, 2591)],
     );
 }
+
+// ---------------------------------------------------------------------------
+// r4-realworld2 (`tsr-2zk.938`): TypeScript's own `src/compiler` and
+// `src/services`. Method and counts: `docs/parity/notes/r4-realworld2.md`.
+
+#[test]
+#[ignore = "tsr-2zk.938: type alias reached through a namespace-qualified name is opaque to relations"]
+fn namespace_qualified_alias_reference_is_the_aliased_type() {
+    // Native `getTypeFromTypeReference` -> `getTypeReferenceType` ->
+    // `getTypeFromTypeAliasReference` (checker.go) answers the alias's
+    // declared type for `a.TA` exactly as for `TA`; TSR answers a type that
+    // relates to nothing and prints `a.TA`. services: `textChanges.TypeAnnotatable`,
+    // `codefix.ImportOrRequireAliasDeclaration`, `FindAllReferences.Entry`.
+    check(
+        "namespace a { export type TA = string | number; }
+declare const v: a.TA;
+export const n: string | number = v;
+export const m: boolean = v;
+",
+        &[(4, 14, 2322)],
+    );
+}
+
+#[test]
+#[ignore = "tsr-2zk.938: enum literal property widened under a union contextual type reached indirectly"]
+fn enum_literal_member_keeps_literal_under_indirect_union_context() {
+    // Native `checkObjectLiteral` -> `getWidenedLiteralLikeTypeForContextualType`
+    // keeps `K.R` because `isLiteralOfContextualType` sees `K.R | K.T` through
+    // `getContextualTypeForObjectLiteralElement`; TSR widens to `K` when the
+    // literal's contextual union comes via an array element, a conditional
+    // branch or a rest argument. services: `{ kind: ChangeKind.Text, ... }`
+    // pushed to `Change[]`, `{ type: DefinitionKind.Symbol, ... }`.
+    check(
+        "enum K { R, T }
+type C = { kind: K.R } | { kind: K.T; text: string };
+declare const cs: C[];
+cs.push({ kind: K.R });
+export function f(): C[] { return [{ kind: K.R }]; }
+export function g(b: boolean): C | undefined { return b ? undefined : { kind: K.R }; }
+",
+        &[],
+    );
+}
+
+#[test]
+#[ignore = "tsr-2zk.938: index infos of an intersection skip a primitive constituent's apparent type"]
+fn branded_string_intersection_has_string_number_index() {
+    // Native `getIndexInfosOfType` reads `getReducedApparentType`, and
+    // `getApparentTypeOfIntersectionType` maps `string` to `String`, whose
+    // `[index: number]: string` applies. TSR `get_index_infos_of_type`
+    // (index_signatures.rs) recurses into the raw `string` constituent and
+    // finds none; r4-index's TS7053 arm then reports it (compiler `Path`).
+    check(
+        "type Path = string & { __pathBrand: any };
+declare const p: Path;
+declare const i: number;
+export const c: number = p[i];
+",
+        &[(4, 14, 2322)],
+    );
+}
+
+#[test]
+#[ignore = "tsr-2zk.938: TS7053 arm reports an access whose applicable index info has an error value type"]
+fn index_signature_with_error_valued_info_is_not_an_implicit_any_access() {
+    // Native `getPropertyTypeForIndexType` (checker.go:27129-27184) reaches
+    // TS7053 only when no index info applies. Here the string index applies;
+    // its value `V | boolean` is cause 1's `errorType` in TSR, so the access
+    // answers error and `index_access_reports.rs`
+    // `report_implicit_any_element_access` reads that as "no index info".
+    // compiler: `options[name]` on `CompilerOptions`/`OptionsBase` (21 lines).
+    // Passes once either cause 1 lands or the arm checks the applicable info.
+    check(
+        "type V = string | number;
+interface O { [k: string]: V | boolean; }
+export function f(o: O, n: string) { return o[n]; }
+",
+        &[],
+    );
+}
+
+#[test]
+#[ignore = "tsr-2zk.938: mapped type over an intersection loses its members once an object literal is related to it"]
+fn mapped_intersection_keeps_members_after_object_literal_relation() {
+    // `declare const v: W; v.u` resolves when it is checked before any
+    // object literal is related to `W`; after `const w: W = { u: true }`,
+    // `w.u`, `(w as W).u` and a later `v.u` all report TS2339. So it is not
+    // flow narrowing but the member table of the mapped type over an
+    // intersection, which depends on what was asked first. Native
+    // `resolveMappedTypeMembers` / `instantiateMappedType`
+    // (`isArrayOrTupleOrIntersection` arm) has no such order. TSR:
+    // `mapped.rs` member resolution under the relater. services:
+    // `Mutable<ImportsCollection & { useRequire: boolean }>` in
+    // importFixes.ts (15 lines).
+    check(
+        "type M<T> = { [K in keyof T]: T[K] };
+const w: M<{ d?: string } & { u: boolean }> = { u: true };
+export const z = w.u;
+",
+        &[],
+    );
+}
+
+#[test]
+#[ignore = "tsr-2zk.938: assignment narrowing rejects a literal with a context-typed arrow in an optional function property"]
+fn assignment_narrowing_accepts_context_typed_arrow_in_optional_property() {
+    // Native `getAssignmentReducedType` (flow.go) narrows `H | undefined` to
+    // `H` because the initializer is assignable to `H`; the declaration
+    // itself reports nothing in either tool. TSR's `flow.rs`
+    // `get_assignment_reduced_type` keeps the declared type: its final
+    // assignability guard rejects the initializer's type when an
+    // unannotated arrow sits in an optional function-typed property
+    // (annotating `x`, or making `d` required, agrees). services.ts
+    // `compilerHost` (`directoryExists`/`getDirectories` arrows), 7 lines.
+    check(
+        "interface H { d?: (x: string) => boolean; }
+export function m() { let h: H | undefined = { d: x => true }; return h.d; }
+",
+        &[],
+    );
+}
