@@ -111,3 +111,21 @@ Its generic-reference property-table diff (`member_completeness.rs`/`declared`
 tables) is landed by the integrator and re-measured in the batch gate.
 `r5-report2` keeps the same `assignreport.rs` ownership for the census buckets
 `.974`, `.975` and `.981`.
+
+### r5-loader finished; r5-classfields dispatched (`tsr-2zk.1004`)
+
+r5-loader `ec62ee2`:
+- embedded lib texts are never dependency-pool jobs;
+- parallel bind only runs when no single file dominates.
+
+Results:
+- generic-imports wall vs tsgo went from 1.165 to **0.978**, and its CPU fell
+  20%.
+- domain-model went from 0.929 to 0.865.
+- Both dumps are byte-identical.
+
+tsgo gets nothing from parallelism on generic-imports either, so the rest of
+that ratio is per-file front-end speed: lazy JSDoc (`tsr-2zk.17.1`, main) and a
+pipelined bind (`tsr-2zk.1003`, an ADR-0003-level change). The new box
+`r5-classfields` takes the target- and useDefineForClassFields-gated class
+checks (`.987`).
