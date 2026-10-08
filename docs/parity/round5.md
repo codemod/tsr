@@ -333,3 +333,17 @@ That is +4 diagnostics cases and +17 type lines. Its conditional producers in
 `declared.rs` are filed as `tsr-2zk.1034`. The new box `r5-relater5` takes the
 generic mapped arms (`.977`), the decidable Unknowns (`.983`), and one shared
 isDiscriminantProperty.
+
+### r5-decls finished (+6 cases); r5-vardecl dispatched (`tsr-2zk.1036`)
+
+r5-decls ported:
+- overload adjacency by source trivia (TS2391);
+- getBaseConstructorTypeOfClass without the parse-error gate (TS2507);
+- late-bound duplicate keys (TS2300).
+
+Its this-heritage diff is landed by the integrator; the late-bind-member diff
+was verified only on a filtered run and stays held. r5-typeparams2 had been
+idle for hours waiting on a yes/no for its follow-ons. It was told to take
+`.1034`, `.1010`, the alias naming and `.979`. Lesson: follow-on messages to a
+box say "take it" explicitly. The new box `r5-vardecl` takes
+checkVariableLikeDeclaration (TS2502, the remaining TS2403).
