@@ -64,8 +64,11 @@
 //! `docs/architecture/checker-oracle.md` records for the two `.types`/`.symbols`
 //! suites:
 //!
-//! - **Configuration-varied** baselines, until `bd tsr-bb4.1` runs per
-//!   configuration. There is no single expected output to compare against.
+//! - **Configuration-varied** baselines. A case whose directives vary
+//!   (`@target: es2015, esnext`) is compiled by upstream only under each named
+//!   configuration, never as itself, so this row skips it and
+//!   [`DiagnosticsConfigured`] judges each configuration against its own
+//!   `case(target=es2015).errors.txt` (ADR-0047).
 //! - **Known divergences** (`.errors.txt.diff`): upstream records that its own
 //!   output differs from TypeScript's, so the baseline is not a specification.
 //! - **Cases upstream recorded no output for at all.** 617 of them. A missing
@@ -103,44 +106,102 @@ impl Suite for Diagnostics {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
-        if case.has_varied_errors() {
+        if case.configuration.is_none() && case.has_varied_errors() {
             return Outcome::Skipped {
-                reason: "configuration-varied baseline (bd tsr-bb4.1)".into(),
+                reason: "configuration-varied baseline, judged per configuration by \
+                         diagnostics_configured"
+                    .into(),
             };
         }
-        if case.has_known_divergence() {
-            return Outcome::Skipped {
-                reason: "upstream records a known divergence from TypeScript".into(),
-            };
-        }
-        // Absence is evidence only when something else proves the case ran.
-        if !case.has_any_baseline() {
-            return Outcome::Skipped { reason: "upstream recorded no output for this case".into() };
-        }
-        let Ok(baseline) = case.expected_errors() else {
-            return Outcome::Failed { reason: "baseline did not load".into() };
-        };
-        let mut expected: Vec<BaselineDiagnostic> =
-            baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
-        if expected.is_empty() {
-            return Outcome::Skipped {
-                reason: "the case expects no diagnostics (see parser_typescript)".into(),
-            };
-        }
-        expected.sort_unstable();
-
-        let Ok(test) = case.load() else {
-            return Outcome::Failed { reason: "case did not load".into() };
-        };
-
-        let mut actual = reported_for(&test);
-        actual.sort_unstable();
-
-        if actual == expected {
-            return Outcome::Passed;
-        }
-        Outcome::Failed { reason: summarise(&expected, &actual) }
+        judge_compilation(case)
     }
+}
+
+/// `diagnostics`, over each named configuration of a case whose directives
+/// vary ([`crate::Corpus::configured`]), against that configuration's own
+/// `case(<configuration>).errors.txt`.
+///
+/// The judgement is [`Diagnostics`]' exactly; only the population differs,
+/// and it is reported as its own row so the plain row's denominator does not
+/// move (ADR-0047).
+pub struct DiagnosticsConfigured;
+
+impl Suite for DiagnosticsConfigured {
+    fn name(&self) -> &'static str {
+        "diagnostics_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the diagnostics suite's judgement for each configuration upstream's runner \
+         compiles a configuration-varied case under (`// @target: es2015, esnext`), \
+         against that configuration's suffixed .errors.txt"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.configuration.is_none() {
+            return Outcome::Skipped { reason: "not a named configuration".into() };
+        }
+        judge_compilation(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
+    }
+}
+
+/// Why upstream wrote nothing for a compilation: its runner skipped the
+/// options (`SkipUnsupportedCompilerOptions`, which the variants reach most
+/// often — `target=es5`, `module=system`), or it recorded no output for a
+/// reason this harness cannot see.
+///
+/// Shared with [`crate::types_suite`], so both per-configuration rows give
+/// a skipped configuration the same reason.
+#[must_use]
+pub fn no_output_reason(case: &CaseEntry) -> String {
+    if case.configuration.is_some()
+        && let crate::trace_case::CompilationSetup::Skip(reason) =
+            crate::trace_case::prepare_compilation(case)
+    {
+        return reason;
+    }
+    "upstream recorded no output for this case".into()
+}
+
+/// One compilation's judgement: the case as discovered, or one of its named
+/// configurations.
+fn judge_compilation(case: &CaseEntry) -> Outcome {
+    if case.has_known_divergence() {
+        return Outcome::Skipped {
+            reason: "upstream records a known divergence from TypeScript".into(),
+        };
+    }
+    // Absence is evidence only when something else proves the case ran.
+    if !case.has_any_baseline() {
+        return Outcome::Skipped { reason: no_output_reason(case) };
+    }
+    let Ok(baseline) = case.expected_errors() else {
+        return Outcome::Failed { reason: "baseline did not load".into() };
+    };
+    let mut expected: Vec<BaselineDiagnostic> =
+        baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
+    if expected.is_empty() {
+        return Outcome::Skipped {
+            reason: "the case expects no diagnostics (see parser_typescript)".into(),
+        };
+    }
+    expected.sort_unstable();
+
+    let Ok(test) = case.load() else {
+        return Outcome::Failed { reason: "case did not load".into() };
+    };
+
+    let mut actual = reported_for(&test);
+    actual.sort_unstable();
+
+    if actual == expected {
+        return Outcome::Passed;
+    }
+    Outcome::Failed { reason: summarise(&expected, &actual) }
 }
 
 /// Every diagnostic this port reports for a case, positioned as the baseline

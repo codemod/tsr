@@ -106,6 +106,16 @@ pub trait Suite {
     fn judge(&self, case: &CaseEntry) -> Judgement {
         Judgement { outcome: self.run(case), lines: None }
     }
+
+    /// Whether this suite judges each named configuration of a varied case
+    /// ([`crate::Corpus::configured`]) rather than the cases as discovered.
+    ///
+    /// A separate population, so a suite's existing row keeps its
+    /// denominator and the per-configuration one is reported beside it
+    /// (ADR-0047).
+    fn per_configuration(&self) -> bool {
+        false
+    }
 }
 
 /// Tallied results for one suite.
