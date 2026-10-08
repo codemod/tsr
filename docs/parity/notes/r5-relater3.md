@@ -164,3 +164,54 @@ pins that it must not. Test:
 Perf (21 samples): domain-model 1.011, generic-imports 1.021. `Ir` over §4's
 binary is +0.04% / +0.004%: one base walk per structural pair whose target
 declares no signature of its own.
+
+## 6. Namespace object types — `typeof N` relates over its exports
+
+r4-heritage §5 recorded `clodulesDerivedClasses` (TS2417) as "typeof namespace
+vs typeof namespace answers Unknown". The relater's `has_members` admitted a
+`TypeData::Anonymous` only when it carried signatures. A namespace's value type
+(`typeof N`, native `createObjectType(ObjectFlagsAnonymous, symbol)` with the
+exports as members) has none, so every relation with it as a side fell to
+row 3 (`NoMembersTable`). That covered even `const w: { f(): number } = B`.
+
+`is_namespace_object_symbol` admits an anonymous type whose symbol is a
+VALUE_MODULE not merged with a function, class or enum, since those keep
+their own arms. The structural arm then relates properties, signatures and
+indexes as native does. Property names and types come from the existing
+`get_property_names_of_type` / `get_type_of_property_of_type` readers, and
+`object_type_has_inferable_index` already counts VALUE_MODULE.
+
+Two tests outside this lane's files pinned the old `Unknown`. Both are moved to
+native's answer:
+
+- `tsr-conformance/tests/module_augmentation_absence.rs`: the augmented module
+  object is Function-related, which is what its header says native does
+  (renamed `merged_augmentation_proves_function_relation`).
+- `tsr-checker/tests/symbol_chain.rs`
+  `module_copy_calls_require_a_certified_empty_global_function`: a namespace
+  value is now an untyped call (`isUntypedFunctionCall`, checker.go:9936) for
+  three more global `Function` shapes. Two have a `[key: string]: any` index,
+  own or inherited, which a namespace object satisfies through its inferable
+  index. The third is empty through a generic base. The two rows whose
+  `Function` inherits a call/construct signature stay errors, because §5
+  made inherited signatures target requirements.
+
+Measured against the frozen base with §1–§5: +14 diagnostics cases over §5,
+all WRONG → RIGHT. They are `aliasAssignments`, `esModuleInteropDefaultImports`,
+`moduleNodeDefaultImports` ×4, `typeofAmbientExternalModules`,
+`typeofExternalModules`, `typeofInternalModules`,
+`everyTypeWithAnnotationAndInvalidInitializer`,
+`forStatementsMultipleInvalidDecl`, `importCallExpressionCheckReturntype1`,
+`invalidMultipleVariableDeclarations`,
+`typesOnlyExternalModuleStillHasInstance` and `valuesMergingAcrossModules`.
+Types are unchanged and both loss checks are empty. Perf at 41 samples:
+domain-model 1.029, generic-imports 0.977. The first 21-sample run read
+generic-imports 1.035 and domain-model 1.029. `Ir` over §5's binary is
++0.0006% / −0.003%, so the CPU spread is run noise.
+
+`clodulesDerivedClasses` itself is still WRONG. Its relation now decides:
+`typeof Path` to `typeof Shape` answers NotRelated through `Utils`. But the
+TS2417 is not emitted. r4-heritage §4 records the heritage check's
+merged-source decline for a class merged with a namespace, which is not in
+this lane. The printer also says `typeof Utils` where native says
+`typeof Path.Utils`.

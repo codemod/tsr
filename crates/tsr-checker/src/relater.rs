@@ -1969,11 +1969,25 @@ impl Relater<'_, '_, '_> {
             || match &self.checker.type_of(id).data {
                 TypeData::Named { members: Some(_), .. }
                 | TypeData::Anonymous { signature: true, .. } => true,
+                TypeData::Anonymous { symbol, .. } if self.is_namespace_object_symbol(*symbol) => {
+                    true
+                }
                 TypeData::Anonymous { .. } => {
                     self.checker.signatures_of_type(id).is_some_and(|list| !list.is_empty())
                 }
                 _ => false,
             }
+    }
+
+    /// A namespace's object type (`typeof N`, `getTypeOfSymbol` of a value
+    /// module, checker.go `createObjectType(ObjectFlagsAnonymous, symbol)`)
+    /// whose members are its exports. Native resolves its members like any
+    /// anonymous object type; a namespace merged with a function, class or
+    /// enum keeps its own arms.
+    fn is_namespace_object_symbol(&self, symbol: SymbolId) -> bool {
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        flags.intersects(SymbolFlags::VALUE_MODULE)
+            && !flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::ENUM)
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
