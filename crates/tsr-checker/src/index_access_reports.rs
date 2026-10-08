@@ -6,7 +6,9 @@
 //! index type that is nullable or not assignable to a string, number or
 //! symbol kind; such an index never reaches the property or index-signature
 //! lookups above it. TS2537 is the arm for a non-literal `string`/`number`
-//! key with no applicable index signature.
+//! key with no applicable index signature. TS7015/TS7053 are the
+//! `noImplicitAny` arms for an element access whose non-literal key no index
+//! signature takes (`report_implicit_any_element_access`).
 //!
 //! These reports run at check sites over types `check_expression` and
 //! `get_type_from_type_node` already cached; they add no table.
@@ -131,6 +133,158 @@ impl Checker<'_, '_> {
             return;
         }
         self.report_invalid_index_types(object_type, index_type, argument_id);
+        self.report_implicit_any_element_access(node, object_type, index_type, argument_id);
+    }
+
+    /// `getPropertyTypeForIndexType`'s access-expression arm
+    /// (`checker.go:27129-27184`) for a key that names no property: no
+    /// applicable index info and no string index fallback (`:27085`) on the
+    /// reduced apparent object type is TS7015 at the index when the object
+    /// has a number index, else TS7053 at the access, under `noImplicitAny`.
+    ///
+    /// Scope: every visited key constituent is a NON-literal valid key
+    /// (`string`, `number`, a pattern, a non-unique `symbol`, a tagged
+    /// intersection), so `hasPropName` is false and the static-member and
+    /// spelling-suggestion arms cannot apply. A literal key names a property
+    /// and its miss is `check_nonexistent_property`'s; a union mixing both is
+    /// declined whole. Only the first missing constituent reports
+    /// (`AccessFlagsSuppressNoImplicitAnyError`, `:26985`).
+    ///
+    /// The access must itself have failed: `check_expression` of the element
+    /// access is this port's `getIndexedAccessTypeOrUndefined` answer, so a
+    /// resolved type (the for-in numeric substitution, a tuple, a mapped
+    /// index) is never reported over. Declined: a nullable, generic, JS- or
+    /// object-literal receiver (the last answers a property union, `:27135`),
+    /// `typeof globalThis`, a `get`/`set` member (TS7052's suggestion,
+    /// `getSuggestionForNonexistentIndexSignature`, is not ported), and an
+    /// index-info table this port cannot complete. No cache or table:
+    /// queries already cached by `check_expression` and
+    /// `get_index_infos_of_type`. `docs/parity/notes/r4-index.md` §3.
+    fn report_implicit_any_element_access(
+        &mut self,
+        node: NodeId,
+        object_type: TypeId,
+        index_type: TypeId,
+        argument: NodeId,
+    ) {
+        if !self.no_implicit_any {
+            return;
+        }
+        let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+        // `NodeFlagsOptionalChain` on any link: the chain's own road.
+        if access.question_dot_token.is_some()
+            || self.nodes.flags(node).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN)
+        {
+            return;
+        }
+        let resolved = self.check_expression(tsr_ast::Expression::ElementAccessExpression(access));
+        if !self.is_error(resolved) && resolved != self.intrinsics.unresolved {
+            return;
+        }
+        let object_flags = self.store.get(object_type).flags;
+        if self.is_error(object_type)
+            || self.is_error(index_type)
+            || object_flags.intersects(
+                TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER | TypeFlags::NULLABLE,
+            )
+            || matches!(&self.store.get(object_type).data, TypeData::Union { types, .. }
+                if types.iter().any(|&part| self.store.get(part).flags.intersects(TypeFlags::NULLABLE)))
+            || self.has_instantiable_constituent(object_type)
+            || self.has_instantiable_constituent(index_type)
+            || self.indexed_access_index_is_generic(index_type)
+            || self.mentions_registered_type_parameter(object_type)
+            || self.mentions_registered_type_parameter(index_type)
+            || self.is_js_literal_type(object_type)
+            // `:27135` answers a `string`/`number` key with the property union
+            // and a literal key with TS2339; an `any` key falls through to the
+            // TS7053 arm like any other receiver.
+            || index_type != self.intrinsics.any && self.is_object_literal_type(object_type)
+            || Some(object_type) == self.global_this_type
+            || !self.index_infos_are_declared(object_type)
+        {
+            return;
+        }
+        let constituents = match &self.store.get(index_type).data {
+            TypeData::Union { types, .. }
+                if !self.store.get(index_type).flags.intersects(TypeFlags::BOOLEAN) =>
+            {
+                types.clone()
+            }
+            _ => vec![index_type],
+        };
+        for &part in &constituents {
+            let flags = self.store.get(part).flags;
+            if flags.intersects(
+                TypeFlags::STRING_LITERAL
+                    | TypeFlags::NUMBER_LITERAL
+                    | TypeFlags::UNIQUE_ES_SYMBOL
+                    | TypeFlags::ENUM_LITERAL
+                    | TypeFlags::BOOLEAN_LITERAL
+                    | TypeFlags::NEVER,
+            ) || self.is_valid_index_access_key_type(part) != Some(true)
+                || self.is_error(part)
+                || flags.intersects(TypeFlags::ANY) && part != self.intrinsics.any
+            {
+                return;
+            }
+        }
+        let apparent = self.apparent_type(object_type);
+        if self.is_error(apparent)
+            || self.store.get(apparent).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER)
+            || matches!(self.store.get(apparent).data, TypeData::Named { members: None, .. })
+                && !self.type_reference_targets.contains_key(&apparent)
+                && !self.tuple_element_lists.contains_key(&apparent)
+        {
+            return;
+        }
+        let Some(infos) = self.get_index_infos_of_type(apparent) else { return };
+        if infos.iter().any(|info| self.is_error(info.key) || self.is_error(info.value)) {
+            return;
+        }
+        let has_string = infos.iter().any(|info| info.key == self.intrinsics.string);
+        // `isApplicableIndexType(any, key)` holds for every key kind (`any` is
+        // assignable to each), so an `any` key misses only on a receiver with
+        // no index info at all.
+        if has_string
+            || index_type == self.intrinsics.any && !infos.is_empty()
+            || constituents
+                .into_iter()
+                .all(|part| self.get_applicable_index_info(apparent, part).is_some())
+        {
+            return;
+        }
+        // `getIndexTypeOfType(objectType, numberType)` reads the ORIGINAL
+        // object type; its index infos are the apparent type's for every
+        // non-primitive receiver admitted above.
+        let Some(original_infos) = self.get_index_infos_of_type(object_type) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        if original_infos.iter().any(|info| info.key == self.intrinsics.number) {
+            let span = self.error_span(argument);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_INDEX_EXPRESSION_IS_NOT_OF_TYPE_NUMBER,
+                    span,
+                ),
+            );
+            return;
+        }
+        // getSuggestionForNonexistentIndexSignature asks a `get`/`set` member's
+        // single call signature; declined rather than guessed.
+        if ["get", "set"].iter().any(|name| self.get_property_of_type(apparent, name).is_some()) {
+            return;
+        }
+        let span = self.error_span(node);
+        let index_text = self.type_to_string(index_type);
+        let object_text = self.type_to_string(object_type);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
+                span,
+                [index_text, object_text],
+            ),
+        );
     }
 
     /// `getTypeFromIndexedAccessTypeNode` (`checker.go:24164`): the access
@@ -697,6 +851,61 @@ impl Checker<'_, '_> {
             .then_some(t);
         }
         self.destructuring_assignment_source(node)
+    }
+
+    /// Whether `get_index_infos_of_type` answers `ty`'s index infos from
+    /// declarations it reads completely — a class, interface or type literal
+    /// (`index_infos_of_symbol`), a class or enum object, a primitive's
+    /// apparent interface, a mapped type that resolved an index — so an empty answer
+    /// is upstream's "no index signature". Tuples (whose `Array` base index
+    /// is not represented there) and mapped or other alias instantiations are
+    /// not certified.
+    fn index_infos_are_declared(&mut self, ty: TypeId) -> bool {
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(ty).data
+        {
+            let types = types.clone();
+            return types.into_iter().all(|part| self.index_infos_are_declared(part));
+        }
+        if self.tuple_element_lists.contains_key(&ty)
+            || self.variadic_tuple_elements.contains_key(&ty)
+        {
+            return false;
+        }
+        // A mapped type (or an alias instantiation, `Record<string, V>`)
+        // publishes the index infos its key set resolved to; one whose key set
+        // this port did not resolve (`{ [P in keyof any]: V }`) publishes none,
+        // so only a non-empty answer is certified.
+        let alias_reference = self.type_reference_targets.get(&ty).is_some_and(|&(symbol, _)| {
+            self.binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+        });
+        if alias_reference || self.mapped_types.contains_key(&ty) {
+            return self.get_index_infos_of_type(ty).is_some_and(|infos| !infos.is_empty());
+        }
+        let flags = self.store.get(ty).flags;
+        if flags.intersects(
+            TypeFlags::STRING_LIKE
+                | TypeFlags::NUMBER_LIKE
+                | TypeFlags::BOOLEAN_LIKE
+                | TypeFlags::BIG_INT_LIKE
+                | TypeFlags::ES_SYMBOL_LIKE,
+        ) {
+            return true;
+        }
+        match self.store.get(ty).data {
+            TypeData::Named { members: Some(_), .. } => true,
+            TypeData::Anonymous { symbol, .. } => self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::ENUM),
+            _ => false,
+        }
     }
 
     /// Whether `ty` or a union/intersection constituent is instantiable, or is

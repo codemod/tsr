@@ -195,8 +195,13 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(typed) = self.node_map.get(node) else { return };
+        self.check_construct_emit_helpers(node, typed);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
+                self.check_import_in_namespace(
+                    node,
+                    declaration.module_specifier.and_then(|s| s.node_id()),
+                );
                 // `import "x"` with no clause is a **side-effect import**, and
                 // upstream gives it its own message — `checkImportDeclaration`'s
                 // `else if` branch at `checker.go:5321`, guarded by
@@ -247,6 +252,10 @@ impl Checker<'_, '_> {
                 if let Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) =
                     declaration.module_reference
                 {
+                    self.check_import_in_namespace(
+                        node,
+                        reference.expression.and_then(|e| e.node_id()),
+                    );
                     self.check_module_specifier(
                         node,
                         reference.expression.and_then(|e| e.node_id()),
@@ -287,6 +296,9 @@ impl Checker<'_, '_> {
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_object_type_for_duplicate_declarations(node);
+                // `checkClassOrInterfaceForDuplicateIndexSignatures`
+                // (`checker.go:4389`), from `checkClassLikeDeclaration`.
+                self.check_duplicate_index_signatures(node);
                 ambient
             }
             // `declare module "m" { … }` and `declare namespace N { … }` are
@@ -312,6 +324,8 @@ impl Checker<'_, '_> {
                     );
                 }
                 self.check_global_augmentation_position(node);
+                self.check_ambient_module_export_modifier(node);
+                self.check_nested_ambient_module(node);
                 self.check_namespace_merge_position(node, ambient);
                 if let Some(name) = declaration.name.and_then(|n| n.node_id()) {
                     self.check_module_augmentation_name(node, name);
@@ -366,6 +380,7 @@ impl Checker<'_, '_> {
                         self.check_const_enum_member_value(at);
                         self.check_enum_member_forward_references(at);
                         self.check_enum_member_auto_value(at);
+                        self.check_enum_member_isolated_modules(at);
                     }
                 }
                 self.check_reserved_enum_name(declaration);
@@ -423,6 +438,7 @@ impl Checker<'_, '_> {
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
+                self.check_this_parameter_position(node);
                 self.check_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
                 ambient
@@ -791,6 +807,7 @@ impl Checker<'_, '_> {
             Node::AwaitExpression(_) => {
                 self.check_await_in_parameter_initializer(node);
                 self.check_await_in_non_async_function(node);
+                self.check_await_operand_awaited(node);
             }
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
@@ -972,6 +989,7 @@ impl Checker<'_, '_> {
                 | Node::GetAccessorDeclaration(_)
         ) {
             self.check_all_code_paths_return_or_throw(node);
+            self.check_async_function_return_type(node);
         }
         if matches!(
             typed,
@@ -1070,6 +1088,9 @@ impl Checker<'_, '_> {
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_expression_diagnostics(node);
+        }
+        if self.nodes.kind(node) == SyntaxKind::Identifier {
+            self.check_this_in_type_query_diagnostics(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisType {
             self.check_this_type_node(node);
@@ -4300,6 +4321,11 @@ impl Checker<'_, '_> {
         // `primitiveTypeAssignment`. These names resolve to no symbol here
         // because they are keywords rather than globals, so the existing
         // "resolves as a TYPE" decline never sees them.
+        // …**unless they resolve.** Upstream reaches the cascade only when
+        // `getResolvedSymbol` fails, and `declare function string()` is a
+        // value named `string`
+        // (`classReferencedInContextualParameterWithinItsOwnBaseExpression`).
+        // r4-helpers notes §7.
         if matches!(
             text,
             "string"
@@ -4312,7 +4338,14 @@ impl Checker<'_, '_> {
                 | "never"
                 | "unknown"
                 | "void"
-        ) {
+        ) && self
+            .resolve_name_with_export_alias(
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
+            .is_none()
+        {
             // **A heritage position has its own three messages**, and they are
             // what makes those nine lines right rather than wrong: upstream's
             // `checkAndReportErrorForUsingTypeAsValue` reports TS2863 / TS2864 /
@@ -4342,7 +4375,12 @@ impl Checker<'_, '_> {
             // `void`, `object`, `symbol` and `bigint`, which upstream's
             // `isPrimitiveTypeName` does not list and which stay declined here.
             // §948.
-            if !upstream_six || self.file_has_parse_errors {
+            // **No parse-error gate.** §949 added one to hide 48 extra lines in
+            // files the parser recovered; upstream reports TS2693 in such
+            // files (`autoLift2`, `createArray`, `parserUnterminatedGeneric2`
+            // are parse-error fixtures whose baselines carry it). Re-measured
+            // without it: +7 cases, 0 lost. `docs/parity/notes/r4-helpers.md` §2.
+            if !upstream_six {
                 return;
             }
         }
@@ -8533,9 +8571,6 @@ impl Checker<'_, '_> {
         text: &str,
         message: &'static tsr_diagnostics::Message,
     ) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if !matches!(
             text,
             "any"
@@ -8746,11 +8781,11 @@ impl Checker<'_, '_> {
     /// is legal, `declare const x: number = 1` is TS1039, and the difference is
     /// the presence of `typeNode` rather than anything about the initialiser.
     ///
-    /// `isInitializerSimpleLiteralEnumReference` is **not** ported: it resolves
-    /// the reference to a literal enum member, and without it a
-    /// `declare const x = E.A` takes the invalid-initialiser branch. A *wrong
-    /// line* rather than a missing one, so the enum-reference shape declines
-    /// instead — see the `QualifiedName`/`PropertyAccess` arm below. §259.
+    /// The valid-initializer predicate, `isInitializerSimpleLiteralEnumReference`
+    /// included, is [`Checker::is_valid_ambient_const_initializer`]
+    /// (`grammar.rs`). §259 declined property accesses and identifiers while
+    /// the enum-reference arm was unported; that decline is gone
+    /// (`docs/parity/notes/r4-unused-grammar.md` §6).
     fn check_ambient_initializer(
         &mut self,
         node: NodeId,
@@ -8783,17 +8818,7 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
         let span = self.nodes.span(initializer_id);
         if is_const_or_readonly && annotation.is_none() {
-            // A reference — `E.A` — needs `isInitializerSimpleLiteralEnumReference`
-            // to judge, which is not ported. Declining is a missing line; the
-            // alternative is a wrong one.
-            if matches!(
-                initializer,
-                tsr_ast::Expression::PropertyAccessExpression(_)
-                    | tsr_ast::Expression::Identifier(_)
-            ) {
-                return;
-            }
-            if !is_simple_literal_initializer(initializer) {
+            if !self.is_valid_ambient_const_initializer(initializer) {
                 self.report(
                     file,
                     Diagnostic::new(
@@ -9377,26 +9402,6 @@ impl Checker<'_, '_> {
                 ),
             );
         }
-    }
-
-    /// Does this subtree contain a `super(...)` call, not descending into a
-    /// nested function-like?
-    pub(crate) fn subtree_calls_super(&self, node: NodeId) -> bool {
-        if let Some(Node::CallExpression(call)) = self.node_map.get(node)
-            && call
-                .expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SuperKeyword)
-        {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(node) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| {
-            !self.is_function_like_or_static_block(child) && self.subtree_calls_super(child)
-        })
     }
 
     /// TS2481 — `Cannot initialize outer scoped variable '{0}' in the same
@@ -13660,10 +13665,18 @@ impl Checker<'_, '_> {
         // The augmentation test: the *containing file* must be a module. A
         // `declare module "x"` in a plain script is an ambient external module
         // declaration and declares the module rather than augmenting one.
-        let is_augmentation = matches!(
-            self.node_map.get(file),
-            Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
-        );
+        //
+        // And the declaration must be the file's own statement:
+        // `IsModuleAugmentationExternal`'s other arm, an augmentation nested
+        // in a script's ambient module, sits in an ambient module block, which
+        // `mergeModuleAugmentation`'s `moduleName.Parent.Parent` ambient test
+        // exempts; one nested in a namespace is no augmentation at all (TS2435,
+        // [`Checker::check_nested_ambient_module`]). `misc-checks.md` §20.
+        let is_augmentation = self.nodes.parent(node) == Some(file)
+            && matches!(
+                self.node_map.get(file),
+                Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
+            );
         if !is_augmentation {
             return;
         }
@@ -13678,6 +13691,130 @@ impl Checker<'_, '_> {
                 &messages::INVALID_MODULE_NAME_IN_AUGMENTATION_MODULE_0_CANNOT_BE_FOUND,
                 span,
                 [text],
+            ),
+        );
+    }
+
+    /// TS2668 — `'export' modifier cannot be applied to ambient modules and
+    /// module augmentations since they are always visible.`
+    ///
+    /// `bindModuleDeclaration` (`binder.go:773`): an ambient module
+    /// (`ast.IsAmbientModule`: a string-literal name or `declare global`)
+    /// carrying a syntactic `export`, reported with `errorOnFirstToken` —
+    /// the node's first modifier, which need not be the `export`
+    /// (`declare export module "m"` reports at `declare`). A binder
+    /// diagnostic upstream; reported from the check walk here because the
+    /// binder's per-file diagnostics carry no first-token helper, and the rule
+    /// reads only syntax. `misc-checks.md` §20.
+    fn check_ambient_module_export_modifier(&mut self, node: NodeId) {
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+        if !self.is_ambient_module_node(node)
+            || !has_modifier(module.modifiers, SyntaxKind::ExportKeyword)
+        {
+            return;
+        }
+        let span = match module.modifiers.first() {
+            Some(tsr_ast::ModifierLike::Token(token)) => {
+                token.node_id.map(|id| self.nodes.span(id))
+            }
+            _ => None,
+        };
+        let Some(span) = span else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::EXPORT_MODIFIER_CANNOT_BE_APPLIED_TO_AMBIENT_MODULES_AND_MODULE_AUGMENTATIONS_SINCE_THEY_ARE_ALWAYS_VISIBLE,
+                span,
+            ),
+        );
+    }
+
+    /// TS2435 — `Ambient modules cannot be nested in other modules or
+    /// namespaces.`
+    ///
+    /// `checkModuleDeclaration`'s `isAmbientExternalModule` tail
+    /// (`checker.go:5188-5216`), its last arm: a string-named module that is
+    /// not an external augmentation (`ast.IsModuleAugmentationExternal`) and
+    /// whose parent is not a script (`ast.IsGlobalSourceFile`). A parent that
+    /// is a source file is always one or the other, so the arm is reached
+    /// exactly when the declaration sits in a module block that is not a
+    /// script's top-level ambient module. The `declare global` spelling of the
+    /// same arm is TS2669 ([`Checker::check_global_augmentation_position`]).
+    ///
+    /// Upstream returns before the tail when `checkGrammarModuleElementContext`
+    /// fails (a module declaration outside a file or module block), so such a
+    /// declaration is skipped. `misc-checks.md` §20.
+    fn check_nested_ambient_module(&mut self, node: NodeId) {
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::ModuleName::StringLiteral(name)) = module.name else { return };
+        let Some(name) = name.node_id else { return };
+        let Some(block) = self.nodes.parent(node) else { return };
+        if self.nodes.kind(block) != SyntaxKind::ModuleBlock {
+            return;
+        }
+        // `IsModuleAugmentationExternal`'s module-block arm: the block's
+        // owner is an ambient module directly in a script.
+        let owner = self.nodes.parent(block);
+        let augmentation = owner.is_some_and(|owner| {
+            self.is_ambient_module_node(owner)
+                && matches!(
+                    self.nodes.parent(owner).and_then(|file| self.node_map.get(file)),
+                    Some(Node::SourceFile(source)) if !tsr_binder::is_external_module(source)
+                )
+        });
+        if augmentation {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AMBIENT_MODULES_CANNOT_BE_NESTED_IN_OTHER_MODULES_OR_NAMESPACES,
+                span,
+            ),
+        );
+    }
+
+    /// TS1147 — `Import declarations in a namespace cannot reference a
+    /// module.`
+    ///
+    /// `checkExternalImportOrExportDeclaration` (`checker.go:5332`), the
+    /// position arm, for `import … from "m"` and `import x = require("m")`:
+    /// a declaration whose parent is neither a source file nor an ambient
+    /// module's block reports at the module name. A missing or non-string
+    /// module name returns earlier upstream (a parse error, or TS1141), and
+    /// `checkGrammarModuleElementContext` returns before this for a
+    /// declaration outside a file or module block. The export spelling is
+    /// TS1194 ([`Checker::check_export_declaration_in_namespace`]).
+    /// [`Checker::external_import_is_positioned_for_resolution`] is the same
+    /// test, which already withholds resolution. `misc-checks.md` §20.
+    fn check_import_in_namespace(&mut self, node: NodeId, module_name: Option<NodeId>) {
+        let Some(module_name) = module_name else { return };
+        let span = self.nodes.span(module_name);
+        if span.start == span.end
+            || !matches!(self.node_map.get(module_name), Some(Node::StringLiteral(_)))
+        {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if !matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+        ) {
+            return;
+        }
+        if self.external_import_is_positioned_for_resolution(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(module_name) else { return };
+        let span = self.error_span(module_name);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::IMPORT_DECLARATIONS_IN_A_NAMESPACE_CANNOT_REFERENCE_A_MODULE,
+                span,
             ),
         );
     }
@@ -14527,22 +14664,6 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
         Node::ConstructorTypeNode(n) => n.modifiers,
         _ => return None,
     })
-}
-
-fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
-    match initializer {
-        tsr_ast::Expression::StringLiteral(_)
-        | tsr_ast::Expression::NumericLiteral(_)
-        | tsr_ast::Expression::BigIntLiteral(_)
-        | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_) => true,
-        // `-1` is `isInitializerStringOrNumberLiteralExpression`'s second arm:
-        // a prefix minus over a numeric literal, and nothing else.
-        tsr_ast::Expression::PrefixUnaryExpression(unary) => {
-            unary.operator.kind == SyntaxKind::MinusToken
-                && matches!(unary.operand, Some(tsr_ast::Expression::NumericLiteral(_)))
-        }
-        _ => false,
-    }
 }
 
 fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {

@@ -2333,10 +2333,13 @@ impl<'a> Checker<'a, '_> {
             };
             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
             self.signature_types.insert(built, vec![signature]);
-            if alias.is_some() {
+            if let Some(alias) = alias {
                 // The alias name is the print; the site re-render that
                 // collapses the signature applies to an unaliased literal.
                 self.alias_named_signature_types.insert(built);
+                // ADR-0045 rule 2: the type-literal constructor records the
+                // alias `getAliasSymbolForTypeNode` answered (`Type.alias`).
+                self.alias_of.insert(built, (alias, Vec::new()));
             }
             return built;
         }
@@ -2572,6 +2575,25 @@ impl<'a> Checker<'a, '_> {
                 // type that looks correct. The narrow test — an empty
                 // parameter list — is what separates them.
                 if index.parameters.is_empty() {
+                    continue;
+                }
+                // getIndexInfosOfIndexSymbol (checker.go:19645-19658): a
+                // signature without exactly one typed parameter, or whose key
+                // has no valid constituent (`isValidIndexKeyType`), adds no
+                // info, so `{ [index: any]; }` is `{}`.
+                let degenerate = match index.parameters {
+                    [parameter] => parameter.r#type.is_none_or(|key| {
+                        let key = self.get_type_from_type_node(key);
+                        let keys = match &self.store.get(key).data {
+                            crate::types::TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![key],
+                        };
+                        !self.is_error(key)
+                            && !keys.into_iter().any(|key| self.is_valid_index_key_type(key))
+                    }),
+                    _ => true,
+                };
+                if degenerate {
                     continue;
                 }
                 let Some(rendered) = self.index_signature_member(index) else { return error };

@@ -213,6 +213,7 @@ impl Checker<'_, '_> {
             return self.next_base_constraint(body);
         }
         if self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            self.resolve_constraint_mapped_type_parameters(ty);
             let constraint = self.type_parameter_constraint(ty)?;
             return self.next_base_constraint(constraint);
         }
@@ -720,5 +721,157 @@ impl Checker<'_, '_> {
                 .unwrap_or_default(),
         };
         members.into_iter().any(|member| self.relation_undecidable_within(member, depth - 1))
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// The eager half of `getTypeFromMappedTypeNode` (`checker.go:24255`)
+    /// that `getConstraintFromTypeParameter` (`checker.go:17071`) reaches
+    /// while it resolves a declared type parameter's constraint node: every
+    /// mapped type the node builds calls `getConstraintTypeFromMappedType`,
+    /// which is `getConstraintOfTypeParameter` of the mapped type's own
+    /// parameter, guarded by `hasNonCircularBaseConstraint`. Inside this
+    /// parameter's `ResolvedBaseConstraint` frame that closes
+    /// `T extends { [P in T]: number }`'s cycle T -> P -> T, so both frames
+    /// fail and both report TS2313 (`incorrectRecursiveMappedTypeConstraint`).
+    ///
+    /// This port mints a mapped type per evaluation rather than once per node,
+    /// so the step runs here, where native's first evaluation of a constraint
+    /// node happens (`docs/parity/notes/r4-typeparams.md` §2). Instantiated
+    /// parameters take their target's constraint (`tp.target`) and are skipped,
+    /// as native resolves no node for them.
+    fn resolve_constraint_mapped_type_parameters(&mut self, ty: TypeId) {
+        if self.instantiated_type_parameters.contains_key(&ty) {
+            return;
+        }
+        let Some(&symbol) = self.type_parameter_symbols.get(&ty) else { return };
+        // getConstraintDeclaration (`checker.go:29132`): the first declaration
+        // that has a constraint.
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let Some(constraint) =
+            declarations.iter().find_map(|&declaration| match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => parameter.constraint,
+                _ => None,
+            })
+        else {
+            return;
+        };
+        self.resolve_eager_mapped_type_parameters(constraint);
+    }
+
+    /// Walk the constituents `getTypeFromTypeNode` resolves eagerly — not a
+    /// type literal's or signature's members, nor a mapped type's template —
+    /// and resolve each mapped type's parameter base constraint.
+    fn resolve_eager_mapped_type_parameters(&mut self, node: tsr_ast::TypeNode<'a>) {
+        use tsr_ast::TypeNode;
+        match node {
+            TypeNode::MappedTypeNode(mapped) => {
+                let Some(parameter) = mapped
+                    .type_parameter
+                    .and_then(|parameter| parameter.node_id)
+                    .and_then(|id| self.binder.symbol_of(id))
+                else {
+                    return;
+                };
+                let parameter = self.get_declared_type_of_symbol(parameter);
+                if parameter != self.intrinsics.error {
+                    self.base_constraint_of_type(parameter);
+                }
+            }
+            TypeNode::ParenthesizedTypeNode(inner) => {
+                if let Some(inner) = inner.r#type {
+                    self.resolve_eager_mapped_type_parameters(inner);
+                }
+            }
+            TypeNode::TypeOperatorNode(operator) => {
+                if let Some(inner) = operator.r#type {
+                    self.resolve_eager_mapped_type_parameters(inner);
+                }
+            }
+            TypeNode::ArrayTypeNode(array) => {
+                if let Some(element) = array.element_type {
+                    self.resolve_eager_mapped_type_parameters(element);
+                }
+            }
+            TypeNode::UnionTypeNode(union) => {
+                for &member in union.types {
+                    self.resolve_eager_mapped_type_parameters(member);
+                }
+            }
+            TypeNode::IntersectionTypeNode(intersection) => {
+                for &member in intersection.types {
+                    self.resolve_eager_mapped_type_parameters(member);
+                }
+            }
+            TypeNode::IndexedAccessTypeNode(access) => {
+                for part in [access.object_type, access.index_type].into_iter().flatten() {
+                    self.resolve_eager_mapped_type_parameters(part);
+                }
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                for &argument in reference.type_arguments {
+                    self.resolve_eager_mapped_type_parameters(argument);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Checker;
+
+    /// The TS2313 spans `check_source_file` reports for `source`, as text.
+    fn circular_constraint_reports(source: &str) -> Vec<String> {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let root = parsed.source_file.node_id.expect("registered file");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "circular.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.check_source_file(
+            root,
+            crate::check::FileContext { ambient: false, has_parse_errors: false },
+        );
+        checker
+            .diagnostics
+            .iter()
+            .filter(|(_, diagnostic)| {
+                diagnostic.message.code()
+                    == tsr_diagnostics::messages::TYPE_PARAMETER_0_HAS_A_CIRCULAR_CONSTRAINT.code()
+            })
+            .map(|(_, diagnostic)| {
+                source[diagnostic.span.start as usize..diagnostic.span.end as usize].to_string()
+            })
+            .collect()
+    }
+
+    /// `incorrectRecursiveMappedTypeConstraint`: building the constraint's
+    /// mapped type resolves its key parameter's constraint, which is `T`
+    /// again, so both `T` and `P` report (native reports both, at their
+    /// constraint nodes).
+    #[test]
+    fn mapped_constraint_over_its_own_parameter_is_circular() {
+        let mut reports = circular_constraint_reports(
+            "function sum<T extends { [P in T]: number }, K extends keyof T>(n: number, v: T, k: K) {}",
+        );
+        reports.sort();
+        assert_eq!(reports, ["T", "{ [P in T]: number }"]);
+    }
+
+    /// A mapped constraint whose key parameter reaches another parameter is
+    /// not a cycle.
+    #[test]
+    fn mapped_constraint_over_another_parameter_is_not_circular() {
+        let reports = circular_constraint_reports(
+            "function f<U, T extends { [P in keyof U]: number }>(u: U, t: T) {}",
+        );
+        assert!(reports.is_empty(), "{reports:?}");
     }
 }

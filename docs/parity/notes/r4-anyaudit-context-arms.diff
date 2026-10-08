@@ -1,0 +1,35 @@
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index da2eba9..94a6ca6 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -4757,6 +4757,30 @@ impl<'a> Checker<'a, '_> {
+                 Some(Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_)) => {
+                     return true;
+                 }
++                // `void`, `typeof` and `delete` operands have no arm in
++                // `getContextualType`'s dispatch (`checker.go:29343`) either:
++                // nil, as for the unary operators above
++                // (`docs/parity/notes/r4-anyaudit.md` §5).
++                Some(
++                    Node::VoidExpression(_) | Node::TypeOfExpression(_) | Node::DeleteExpression(_),
++                ) => {
++                    return true;
++                }
++                // `case ast.KindArrowFunction, ast.KindReturnStatement`
++                // (`checker.go:29358`): an arrow's expression BODY is a
++                // return expression, so the `ReturnStatement` arm's question
++                // is asked of the arrow itself. An immediately invoked arrow
++                // takes the call's context (`getContextualReturnType`'s IIFE
++                // arm), which this walk does not climb to, so it is not shown.
++                Some(Node::ArrowFunction(arrow)) => {
++                    if arrow.body.and_then(|body| body.node_id()) != Some(position)
++                        || arrow.r#type.is_some()
++                        || self.immediately_invoked_call(parent).is_some()
++                    {
++                        return false;
++                    }
++                    return self.declaration_takes_no_contextual_return(parent, false);
++                }
+                 // A unary operand has **no arm at all** in that dispatch, so
+                 // it answers nil — absence is showable, exactly as it is for
+                 // an expression statement and for the operators the

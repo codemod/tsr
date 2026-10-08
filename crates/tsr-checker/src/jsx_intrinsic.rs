@@ -66,6 +66,30 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `getJsxElementPropertiesName` (`jsx.go:1084`) when it answers a member
+    /// name: `JSX.ElementAttributesProperty` with exactly one property. `None`
+    /// covers upstream's `""` and `InternalSymbolNameMissing` answers as well
+    /// as an unenumerable container — callers act only on a definite name.
+    pub(crate) fn jsx_element_properties_member_name(
+        &mut self,
+        location: NodeId,
+    ) -> Option<String> {
+        self.jsx_container_property(location, "ElementAttributesProperty")
+            .filter(|name| !name.is_empty())
+    }
+
+    /// The attributes type `checkJsxAttributes` answers for an opening-like
+    /// element outside inference (`createJsxAttributesTypeFromAttributesProperty`,
+    /// `jsx.go:709`, `CheckModeNormal`): the same builder inference reads,
+    /// with each initializer checked for a mutable location under its
+    /// contextual type. `None` where the builder declines.
+    pub(crate) fn jsx_checked_attributes_type(
+        &mut self,
+        opening: NodeId,
+    ) -> Option<crate::types::TypeId> {
+        self.jsx_attributes_inference_type(opening, false)
+    }
+
     pub(crate) fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
         if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
             return Some("children".to_string());
@@ -468,10 +492,11 @@ impl Checker<'_, '_> {
             }
         }
         let members = self.property_members(&properties);
+        let symbol = self.binder.symbol_of(attributes.node_id?);
         let ty = self.store.new_named(
             crate::flags::TypeFlags::OBJECT,
             crate::objects::render_object_type(&members),
-            None,
+            symbol,
         );
         if non_inferrable {
             self.non_inferrable_types.insert(ty);

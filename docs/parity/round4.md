@@ -337,3 +337,81 @@ target arm (main's relate-7, f2c97d13) and not diagnostic-chain code (main's
 Note: `main` landed aee0d31b and d67ff023 (~03:05 UTC), which duplicate the
 r3-perf C1/C5/C2 patches integrated here at ~02:30; the next `main` merge keeps
 `main`'s versions.
+
+### r4-rwfix — real-world causes 2, 12, 15 (`tsr-2zk.923`, `.930`, `.933`)
+
+Dispatched when `r4-helpers` finished (7 commits: construct-level emit-helper
+call sites and TS2693/TS2690 value-position arms, +14 diagnostics cases; its
+harness `@importHelpers` patch, +7 cases, and binder base-class scope patch
+are queued). Owns `flow.rs` `get_initial_or_assigned_type`, `expressions.rs`
+`is_in_compound_like_assignment`, `check.rs` `module_specifier_unfindable`,
+`symbols.rs` `report_missing_module_export` (none touched by `main` since
+`b3cd078d`), and the repro tests for those causes in
+`crates/tsr-conformance/tests/realworld_repros.rs`.
+
+### r4-perf2 (`tsr-2zk.937`)
+
+Dispatched when `r4-perf` finished (65847cb C7 -9.56% Ir, cdc49ee C9 -3.66%;
+corpus byte-identical; vs native tsgo CPU 0.52-0.57, wall 0.78-1.08; C8
+refused: ceiling ~1.9% Ir and no exact cached negative until types carry an
+"edges final" bit). Owns `instantiate_for_reference_with_this` (C3),
+`signature_candidates_of_named_type`, `get_property_names_of_type` /
+`collect_structured_property_names` memo wrappers and `perf_links.rs`; plus a
+measurement-only attribution of the wall-vs-CPU gap (checker pool balance).
+
+### r4-config — tsconfig resolution and program diagnostics (`tsr-2zk.936`)
+
+Dispatched when `r4-realworld` finished (docs/parity/notes/r4-realworld.md:
+16 root causes covering 748/818 TSR-only and 107/107 native-only diagnostics
+on TypeScript's src/jsTyping; filed as `tsr-2zk.923`-`.935`, cause 1 noted on
+`.16.46`). This lane takes causes 13 and 14: inherited `include` resolved
+against the extending config's directory (`tsr-2zk.932`, config-breaking)
+and the composite TS6307 check (`tsr-2zk.931`). Owns `crates/tsr-tsoptions`
+config resolution and a new program-diagnostics function in `tsr-compiler`.
+
+### r4-realworld2 (`tsr-2zk.938`)
+
+Dispatched when `r4-classsyntax` finished (c7d0969, 6c196ce, ac3b6af, 58dacd9,
+213a326: TS2314 qualified/heritage arity, `this` in type queries and
+parameters (TS2683/2331/2680/2681/2730), compound-assignment contextual
+`this`, super-property accessibility TS2855/2513 via a measured call-site
+patch). Second read-only triage pass on TypeScript's `src/compiler` and
+`src/services`, which hung before the relation cache. Also: the unmerged
+r3-misc branch (reserved-name gate, mergeSymbol alias-target error, ambient
+module position checks, flow-graph isPostSuperFlowNode) is merged in batch C.
+
+### r4-heritage (`tsr-2zk.939`, `.3.2`)
+
+Dispatched when `r4-index2` finished (7d4e420 TS2374 key-type grouping over
+merged declarations, b9dd8e2 TS7053 any-key arm; its tuple-number-index and
+class-expression patches are in batch D). Owns `heritage_conformance.rs` (no
+`main` commit since `b3cd078d`): interface index constraints once per symbol
+from the first checked declaration, no parse-error early return, and the
+TS2415/2416/2417/2420/2430 clusters. Not `tsr-2zk.3.6` (main's decls lane).
+
+### r4-mapped (`tsr-2zk.925`, `.16.121`)
+
+Dispatched when `r4-config` finished (b87c323: inherited include/exclude/files
+rebased per extends hop, a config in another directory now finds 83 files
+instead of 0; f1a82fc: composite TS6307 with native include-reason chains, all
+77/83 lines on jsTyping/typingsInstallerCore byte-identical to native). Owns
+`mapped.rs`' instantiation and member-resolution functions (main touched the
+file only for laziness accessor routing, 39dd8de9): homomorphic mapped types
+over a union with a generic base and over an array intersection (real-world
+causes 5 and 8), and the template optionality/index arm.
+
+### Wave after r4-jsx2 / r4-subtype / r4-typeparams
+
+Outcomes (all in batch D): r4-jsx2 1d0f8ab + its relater/members prerequisite
+(+25 diagnostics cases); r4-subtype ba34b01..1a31445 (37 of 40 strict-subtype
+pairs decided, +34 type lines, +2 cases); r4-typeparams 8666fa6 (TS2313 via
+the mapped-type constraint step), which unblocks r4-operators' held `+`
+patches (batch E). r4-typeparams' merged-parameter diff (+126 lines) stays held
+on 6 losses and +3% Ir until a per-symbol memo exists.
+
+Dispatched:
+- `r4-variants` (`tsr-2zk.940`): configuration-varied baselines are skipped by
+  the diagnostics and types suites (793 / 2,032), so every parity number so
+  far excludes them. Per-variant scoring will change the denominators; plain
+  and varied counts are reported separately.
+- `r4-operators2` (`tsr-2zk.941`), `r4-constraints` (`tsr-2zk.942`).

@@ -1080,6 +1080,13 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
+        // A qualified alias reference's print-only mint carries the ALIAS as
+        // its member table; no call or construct member is read from a
+        // type-alias declaration, so an empty answer would not be
+        // `getSignaturesOfType`'s. Unresolved, not empty (r4-jsx.md §2).
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
         let signatures =
             self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;
         signatures
@@ -4195,6 +4202,26 @@ impl<'a> Checker<'a, '_> {
     /// are not in that list; an object-literal method is, and it is exactly
     /// the shape `may_return_never` already discriminates — the two facts are
     /// the same upstream boundary read off two fields.
+    /// `getContextualReturnType` (`checker.go:29665`) for an unannotated get
+    /// accessor: nil exactly when no accessor of the pair carries the type
+    /// annotation `getAnnotatedAccessorTypeNode` would read. A late-bound
+    /// (`__computed`) pair is split across symbols here (§523), so its
+    /// setter cannot be shown absent and the answer stays "not shown".
+    fn getter_takes_no_contextual_return(&self, getter: NodeId) -> bool {
+        if self.accessor_annotation(getter).is_some() {
+            return false;
+        }
+        let Some(symbol) = self.binder.symbol_of(getter) else { return false };
+        let symbol = self.binder.symbols().get(symbol);
+        if symbol.name == "__computed" {
+            return false;
+        }
+        symbol.declarations.iter().all(|&declaration| {
+            self.nodes.kind(declaration) != SyntaxKind::SetAccessor
+                || self.accessor_annotation(declaration).is_none()
+        })
+    }
+
     fn declaration_takes_no_contextual_return(
         &self,
         declaration: NodeId,
@@ -4738,6 +4765,17 @@ impl<'a> Checker<'a, '_> {
                         .is_some_and(|parts| parts.return_annotation.is_some())
                     {
                         return false;
+                    }
+                    // `getReturnTypeFromAnnotation`'s get-accessor arm reads
+                    // the paired SETTER's parameter annotation
+                    // (`getAnnotatedAccessorTypeNode`); without one, a getter
+                    // is neither a function expression, an arrow nor an
+                    // object-literal method, so
+                    // `getContextualSignatureForFunctionLikeDeclaration` is
+                    // nil and so is the return context
+                    // (`docs/parity/notes/r4-anyaudit.md` §3).
+                    if self.nodes.kind(owner) == SyntaxKind::GetAccessor {
+                        return self.getter_takes_no_contextual_return(owner);
                     }
                     return self.declaration_takes_no_contextual_return(owner, false);
                 }

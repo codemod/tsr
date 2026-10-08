@@ -519,6 +519,7 @@ pub fn apply_test_directives(
         composite: tristate("composite", base.composite),
         isolated_declarations: tristate("isolateddeclarations", base.isolated_declarations),
         es_module_interop: tristate("esmoduleinterop", base.es_module_interop),
+        import_helpers: tristate("importhelpers", base.import_helpers),
         allow_synthetic_default_imports: tristate(
             "allowsyntheticdefaultimports",
             base.allow_synthetic_default_imports,

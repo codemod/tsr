@@ -2266,15 +2266,10 @@ impl<'a> Checker<'a, '_> {
         let has_default = entry.exports.contains_key("default");
         let value_declaration = entry.value_declaration;
         // `getSuggestedSymbolForNonexistentModule(name, targetSymbol)` spells
-        // against the export target's exports.
-        let candidates: Vec<&str> = self
-            .binder
-            .symbols()
-            .get(self.binder.merged_symbol(target))
-            .exports
-            .keys()
-            .copied()
-            .collect();
+        // against `getExportsOfModule(targetSymbol)`: the target's own exports
+        // **and** every member its `export *` declarations bring in.
+        let candidate_names = self.module_member_spelling_candidates(target);
+        let candidates: Vec<&str> = candidate_names.iter().map(String::as_str).collect();
         // `getSuggestedSymbolForNonexistentModule` is tried **first**, so a
         // near miss makes TS2305 a wrong code at a right position — the failure
         // §185's falsifier caught for TS2694 on four of seven wrong lines.
@@ -2611,6 +2606,100 @@ impl<'a> Checker<'a, '_> {
             Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),
             _ => String::new(),
         }
+    }
+
+    /// The candidate names `getSuggestedSymbolForNonexistentModule`
+    /// (`checker.go:15909`) spells against: the values of
+    /// `getExportsOfModule(module)` that `getSpellingSuggestionForName`
+    /// (`checker.go:1800`) keeps under `SymbolFlagsModuleMember`.
+    ///
+    /// The export table is `getExportsOfModuleWorker`'s `visit`
+    /// (`checker.go:16154`): the module's own exports, then each `export *`
+    /// target's table, recursively, merged by `extendExportSymbols`
+    /// (`checker.go:16235`) — `default` is never re-exported and an own or
+    /// earlier name wins. The worker's collision diagnostics (TS2308) and
+    /// type-only bookkeeping do not change which names exist and are not
+    /// reproduced; the `CommonJS` typedef arm for an `export =` module is not
+    /// ported. Internal names (`export=`, `__export`) are dropped as upstream
+    /// drops `\xFE`-prefixed and quoted names. Order is first-seen; upstream
+    /// breaks distance ties with `compareSymbols`, which
+    /// [`spelling_suggestion`] does not port.
+    ///
+    /// Uncached: it runs once per missing import or re-export specifier, on
+    /// the error path only.
+    fn module_member_spelling_candidates(&mut self, module: SymbolId) -> Vec<String> {
+        let module = self.binder.merged_symbol(module);
+        let mut visited = Vec::new();
+        let table = self.module_exports_with_stars(module, &mut visited);
+        let mut names = Vec::new();
+        for (name, symbol) in table {
+            if name.is_empty()
+                || name.starts_with('"')
+                || matches!(name.as_str(), "export=" | INTERNAL_EXPORT_STAR)
+            {
+                continue;
+            }
+            // `SymbolFlagsModuleMember` includes `Alias`, so upstream's
+            // `tryResolveAlias` fallback never decides for this meaning.
+            if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::MODULE_MEMBER) {
+                names.push(name);
+            }
+        }
+        names
+    }
+
+    /// `getExportsOfModuleWorker`'s `visit` (`checker.go:16154`) without the
+    /// type-only and collision bookkeeping: `module`'s exports followed by
+    /// those its `export *` declarations reach, first name wins, `default`
+    /// skipped for re-exports. A module already visited contributes nothing.
+    fn module_exports_with_stars(
+        &mut self,
+        module: SymbolId,
+        visited: &mut Vec<SymbolId>,
+    ) -> Vec<(String, SymbolId)> {
+        if visited.contains(&module) {
+            return Vec::new();
+        }
+        visited.push(module);
+        let (mut table, stars): (Vec<(String, SymbolId)>, Vec<NodeId>) = {
+            let entry = self.binder.symbols().get(module);
+            let table =
+                entry.exports.iter().map(|(name, &symbol)| ((*name).to_string(), symbol)).collect();
+            let stars = entry
+                .exports
+                .get(INTERNAL_EXPORT_STAR)
+                .map(|&star| self.binder.symbols().get(star).declarations.to_vec())
+                .unwrap_or_default();
+            (table, stars)
+        };
+        let mut seen: std::collections::HashSet<String> =
+            table.iter().map(|(name, _)| name.clone()).collect();
+        let mut nested: Vec<(String, SymbolId)> = Vec::new();
+        let mut nested_seen = std::collections::HashSet::new();
+        for declaration in stars {
+            let Some(Node::ExportDeclaration(node)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            let Some(specifier) = node.module_specifier.and_then(|e| Node::from(e).node_id())
+            else {
+                continue;
+            };
+            let Some(target) = self.resolve_external_module_name(declaration, specifier) else {
+                continue;
+            };
+            let target = self.binder.merged_symbol(target);
+            for (name, symbol) in self.module_exports_with_stars(target, visited) {
+                if name != "default" && nested_seen.insert(name.clone()) {
+                    nested.push((name, symbol));
+                }
+            }
+        }
+        for (name, symbol) in nested {
+            if seen.insert(name.clone()) {
+                table.push((name, symbol));
+            }
+        }
+        table
     }
 
     /// One export of a module, by name.
@@ -6532,6 +6621,11 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ParameterDeclaration(node)) = self.node_map.get(parameter) else {
             return None;
         };
+        // `reparseHosted`'s `KindParameter` arm: the parameter's own `@type`
+        // was reparsed first, so a later `@param` finds `param.Type` set.
+        if let Some(annotation) = self.jsdoc_parameter_hosted_type(parameter) {
+            return Some((annotation, false));
+        }
         let Some(tsr_ast::BindingName::Identifier(identifier)) = node.name else { return None };
         let name = identifier.text;
         let function = self.nodes.parent(parameter)?;

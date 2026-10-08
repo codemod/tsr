@@ -1,0 +1,37 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 7131b6c..115c52f 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -6604,8 +6604,30 @@ impl<'a> Checker<'a, '_> {
+         if !self.in_js_file(declaration) {
+             return None;
+         }
+-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+-            return None;
++        match self.nodes.kind(declaration) {
++            SyntaxKind::VariableDeclaration => {}
++            // `reparseHosted`'s `KindPropertyDeclaration` case
++            // (`parser/reparser.go:356`): an unannotated class property takes
++            // the first `@type` of its last comment as its type node — a
++            // `#private` or computed name included.
++            SyntaxKind::PropertyDeclaration => {
++                let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
++                else {
++                    return None;
++                };
++                if property.r#type.is_some() {
++                    return None;
++                }
++                let doc = self.jsdoc_entries.get(&declaration)?.last()?;
++                return doc.tags.iter().find_map(|tag| match tag {
++                    tsr_ast::JSDocTag::JSDocTypeTag(tag) => match tag.type_expression {
++                        Some(Node::JSDocTypeExpression(expression)) => expression.r#type,
++                        _ => None,
++                    },
++                    _ => None,
++                });
++            }
++            _ => return None,
+         }
+         let list_id = self.nodes.parent(declaration)?;
+         let current = self.nodes.parent(list_id)?;
