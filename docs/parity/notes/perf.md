@@ -638,3 +638,17 @@ these pairs. Median-CPU ratios on domain-model swung 0.93–1.05 between runs
 of the same binaries; interleaved `perf stat -e task-clock -r 40` rounds put
 §16.2 at or below base (388.5 / 376.9 / 373.8 ms and 337.4 / 342.3 /
 330.1 ms for base / §16.1 / §16.2). Dumps byte-identical.
+
+### §16.3 A fresh literal keeps its regular type
+
+Native op: `getRegularTypeOfLiteralType` reads the fresh literal's
+`regularType` link (pinned 5b1047d). `get_regular_type_of_literal_type`
+(`literals.rs`) cloned the literal's data (a `String` for string literals)
+and re-interned it on every query. The first interned answer is now kept in
+`Checker::regular_literal_types` (fresh `TypeId` → regular `TypeId`, private
+to the checker; interning is deterministic, so the stored answer is the one
+every later query would compute).
+
+mallocs 6,339,063 → **6,246,910** (−1.5%; −23.0% vs base). Verified ratio:
+domain-model-large 0.922, domain-model 0.884, generic-imports 0.917.
+Dumps byte-identical.

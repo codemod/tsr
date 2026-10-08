@@ -24,8 +24,16 @@ impl Checker<'_, '_> {
         if !ty.fresh {
             return id;
         }
+        // Native `getRegularTypeOfLiteralType` reads the fresh literal's
+        // `regularType` link. Interning is deterministic, so the first answer
+        // per fresh type is kept instead of re-cloning its data per query.
+        if let Some(&regular) = self.regular_literal_types.get(&id) {
+            return regular;
+        }
         let (flags, data) = (ty.flags, ty.data.clone());
-        self.store.intern_literal(flags, data, false)
+        let regular = self.store.intern_literal(flags, data, false);
+        self.regular_literal_types.insert(id, regular);
+        regular
     }
 
     /// The fresh form of a literal type.

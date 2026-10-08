@@ -158,6 +158,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) alias_targets: FxHashMap<SymbolId, crate::symbols::AliasTarget>,
     /// How many `resolve_alias` workers are active (`Resolving` entries).
     pub(crate) alias_resolving: u32,
+    /// Fresh literal type -> its regular form (native `LiteralType.regularType`),
+    /// owned by `Checker::get_regular_type_of_literal_type`.
+    pub(crate) regular_literal_types: FxHashMap<TypeId, TypeId>,
     /// Completed `extends` base symbols per (owner, refuse type arguments),
     /// owned by `Checker::base_symbols_of_ex`.
     pub(crate) base_symbols: FxHashMap<(SymbolId, bool), Vec<SymbolId>>,
@@ -1377,6 +1380,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_placeholders: FxHashMap::default(),
             alias_targets: FxHashMap::default(),
             alias_resolving: 0,
+            regular_literal_types: FxHashMap::default(),
             base_symbols: FxHashMap::default(),
             interface_signatures: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
