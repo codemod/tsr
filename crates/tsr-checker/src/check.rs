@@ -4912,12 +4912,20 @@ impl Checker<'_, '_> {
                 if with_arguments.expression.and_then(|e| e.node_id()) != Some(node) {
                     return;
                 }
+                // `checkClassLikeDeclaration` checks `implements` types; an
+                // interface's `implements` clause is only TS1176 and
+                // `checkInterfaceDeclaration` never resolves it.
                 let is_implements = self.nodes.parent(parent).is_some_and(|clause| {
                     matches!(
                         self.node_map.get(clause),
                         Some(Node::HeritageClause(heritage))
                             if heritage.token.kind == SyntaxKind::ImplementsKeyword
-                    )
+                    ) && self.nodes.parent(clause).is_some_and(|owner| {
+                        matches!(
+                            self.nodes.kind(owner),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
                 });
                 if !is_implements {
                     return;

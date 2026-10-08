@@ -88,3 +88,10 @@ without resolving; it now asks `resolve_name_with_export_alias` at
 `conformance/emitArrowFunctionWhenUsingArguments03` (alwaysstrict=true,
 target=es2015) and `..._ES6` (alwaysstrict=true) in the exact oracle; not in
 the legacy suite.
+
+## Interface `implements` is never resolved (tsr-2zk.6)
+
+`checkInterfaceDeclaration` visits only `extends` heritage types; an
+interface's `implements` clause is the parser's TS1176 and no type in it is
+resolved. `check_type_reference_name`'s `implements` arm now requires a
+class-like owner. Converts `conformance/parserInterfaceDeclaration2`.

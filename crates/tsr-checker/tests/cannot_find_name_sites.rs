@@ -42,3 +42,12 @@ fn a_declared_arguments_resolves_outside_functions() {
     );
     assert_eq!(messages("var a = () => arguments;"), ["Cannot find name 'arguments'."]);
 }
+
+/// `checkInterfaceDeclaration` checks only `extends`; an interface's
+/// `implements` clause is TS1176 and never resolved
+/// (`conformance/parserInterfaceDeclaration2`). A class's is.
+#[test]
+fn an_interface_implements_clause_is_not_resolved() {
+    assert!(messages("interface I implements A {}").iter().all(|m| !m.contains("'A'")));
+    assert_eq!(messages("class C implements A {}"), ["Cannot find name 'A'."]);
+}
