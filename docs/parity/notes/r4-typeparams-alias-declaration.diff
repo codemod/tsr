@@ -1,0 +1,329 @@
+diff --git a/crates/tsr-checker/src/constraints.rs b/crates/tsr-checker/src/constraints.rs
+index e0eb115..adb3d8f 100644
+--- a/crates/tsr-checker/src/constraints.rs
++++ b/crates/tsr-checker/src/constraints.rs
+@@ -420,8 +420,7 @@ impl Checker<'_, '_> {
+         {
+             return false;
+         }
+-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+-        else {
++        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
+             return false;
+         };
+         let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 868c530..75c3911 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -4205,7 +4205,7 @@ impl<'a> Checker<'a, '_> {
+     ) -> Option<&'a tsr_ast::MappedTypeNode<'a>> {
+         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+             && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++                self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type
+             && let [parameter_declaration] = *self.local_type_parameters_of(symbol)
+@@ -4237,7 +4237,7 @@ impl<'a> Checker<'a, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -4245,7 +4245,7 @@ impl<'a> Checker<'a, '_> {
+             return None;
+         };
+         let mapped = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+-        let declaration = self.binder.symbols().get(mapped).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(mapped)?;
+         let Some(Node::TypeAliasDeclaration(target)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -4699,8 +4699,7 @@ impl<'a> Checker<'a, '_> {
+         // answers the branch, `templateLiteralTypes3`); the written
+         // reference is a wrong line there. Deferred arguments keep it.
+         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_)))
+             && self.in_alias_declared_position(node.node_id)
+@@ -4725,8 +4724,7 @@ impl<'a> Checker<'a, '_> {
+         // `type Not<C> = If<C, false, true>`): the new alias symbol names a
+         // distributed result. A refusal keeps the named reference below.
+         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && matches!(alias.r#type, Some(TypeNode::TypeReferenceNode(_)))
+             && self.in_alias_declared_position(node.node_id)
+@@ -4771,8 +4769,7 @@ impl<'a> Checker<'a, '_> {
+         // signature-rendering sites. Registering there too is the whole
+         // difference between §947.1 and this.
+         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && let Some(
+                 body_node @ (TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_)),
+@@ -4811,7 +4808,7 @@ impl<'a> Checker<'a, '_> {
+         }
+         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+             && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++                self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             // Syntactic gate FIRST: only a tuple body carrying a rest element
+             // can be a print-only variadic, and resolving every alias body
+@@ -4946,7 +4943,7 @@ impl<'a> Checker<'a, '_> {
+         if let crate::types::TypeData::Union { types, .. } = &self.store.get(result).data
+             && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+             && self.local_type_parameters_of(alias).is_empty()
+-            && self.binder.symbols().get(symbol).declarations.first().copied()
++            && self.type_alias_declaration_of(symbol)
+                 .and_then(|id| self.node_map.get(id))
+                 .is_some_and(|node| matches!(node, Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::MappedTypeNode(_)))))
+         {
+@@ -5822,7 +5819,7 @@ impl<'a> Checker<'a, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -6041,8 +6038,7 @@ impl<'a> Checker<'a, '_> {
+         // A type alias instantiation has the flags and identity of its body.
+         // Keyword bodies do not depend on the mapper or carry an alias name.
+         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && let Some(body @ TypeNode::KeywordTypeNode(keyword)) = alias.r#type
+             && keyword.kind != SyntaxKind::IntrinsicKeyword
+@@ -6056,8 +6052,7 @@ impl<'a> Checker<'a, '_> {
+             return evaluated;
+         }
+         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && (matches!(alias.r#type, Some(TypeNode::IndexedAccessTypeNode(_)))
+                 || self.is_closed_literal_union_alias(symbol, &arguments))
+@@ -6747,8 +6742,7 @@ impl<'a> Checker<'a, '_> {
+             // `substituteReturnTypeSatisfiesConstraint`,
+             // `homomorphicMappedTypeNesting`). Everything else keeps the
+             // name-with-parameters mint below.
+-            if let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            if let Some(declaration) = self.type_alias_declaration_of(symbol)
+                 && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                 && let Some(body @ TypeNode::TypeReferenceNode(reference)) = alias.r#type
+                 && reference.type_arguments.is_empty()
+@@ -6775,8 +6769,7 @@ impl<'a> Checker<'a, '_> {
+             // §956 made these bodies resolve at all** — before it, `[string, ...T]`
+             // beside an optional element was `errorType`, so this arm had nothing
+             // to return.
+-            if let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            if let Some(declaration) = self.type_alias_declaration_of(symbol)
+                 && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                 && let Some(TypeNode::TupleTypeNode(body)) = alias.r#type
+                 && body.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+@@ -6945,7 +6938,7 @@ impl<'a> Checker<'a, '_> {
+     /// symbol: a template literal, `keyof X`, or `typeof x` (parentheses
+     /// transparent). The declared type of such an alias is the body itself.
+     fn alias_free_generic_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -6972,7 +6965,7 @@ impl<'a> Checker<'a, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -7191,8 +7184,7 @@ impl<'a> Checker<'a, '_> {
+         symbol: SymbolId,
+         arguments: &[TypeId],
+     ) {
+-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+-        else {
++        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
+             return;
+         };
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+@@ -7268,7 +7260,7 @@ impl<'a> Checker<'a, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -7476,7 +7468,7 @@ impl<'a> Checker<'a, '_> {
+             if !self.alias_declares_conditional(symbol) {
+                 return None;
+             }
+-            let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++            let declaration = self.type_alias_declaration_of(symbol)?;
+             let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+                 return None;
+             };
+@@ -8222,8 +8214,7 @@ impl<'a> Checker<'a, '_> {
+         let error = self.intrinsics.error;
+         let mut result = None;
+         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && let Some(body) = alias.r#type
+             && !matches!(body, TypeNode::ConditionalTypeNode(_))
+@@ -8779,6 +8770,26 @@ impl<'a> Checker<'a, '_> {
+         result
+     }
+ 
++    /// The type-alias declaration of `symbol`: `getDeclaredTypeOfTypeAlias`'s
++    /// `core.Find(symbol.Declarations, ast.IsEitherTypeAliasDeclaration)`
++    /// (`checker.go:23845`). Not the first declaration — a type alias merges
++    /// with value declarations, and the binder binds a function declaration
++    /// before the statements around it (`bindEachFunctionsFirst`), so
++    /// `type C<T> = ...; declare function C<T>(): C<T>;` lists the function
++    /// first (`docs/parity/notes/r4-typeparams.md` §1).
++    pub(crate) fn type_alias_declaration_of(&self, symbol: SymbolId) -> Option<NodeId> {
++        self.binder.symbols().get(symbol).declarations.iter().copied().find(|&declaration| {
++            matches!(
++                self.node_map.get(declaration),
++                Some(
++                    Node::TypeAliasDeclaration(_)
++                        | Node::JSDocTypedefTag(_)
++                        | Node::JSDocCallbackTag(_)
++                )
++            )
++        })
++    }
++
+     /// One declaration's own type-parameter list, as the reparsed native tree
+     /// holds it on `node.TypeParameters()`; empty for a declaration kind
+     /// `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias` skips.
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index 63b8fe4..2bb6aa2 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -389,8 +389,7 @@ impl<'a> Checker<'a, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return;
+         }
+-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+-        else {
++        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
+             return;
+         };
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+@@ -877,7 +876,7 @@ impl<'a> Checker<'a, '_> {
+     ) -> Option<TypeId> {
+         let info = self.mapped_types.get(&id)?.clone();
+         let parameter = info.homomorphic_symbol?;
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+@@ -1202,7 +1201,7 @@ impl<'a> Checker<'a, '_> {
+                 return None;
+             }
+             let (symbol, mut arguments) = self.type_reference_targets.get(&id)?.clone();
+-            let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++            let declaration = self.type_alias_declaration_of(symbol)?;
+             let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+                 return None;
+             };
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 0314ab5..eae59f7 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3289,7 +3289,7 @@ impl Checker<'_, '_> {
+         if *target != owner {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(owner).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(owner)?;
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+             return None;
+         };
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index ae57e93..2d5b5a8 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -5172,7 +5172,7 @@ impl<'a> Checker<'a, '_> {
+         if let TypeNode::TypeReferenceNode(reference) = annotation
+             && let Some(symbol) = reference.type_name
+                 .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
+-            && self.binder.symbols().get(symbol).declarations.first().copied()
++            && self.type_alias_declaration_of(symbol)
+                 .and_then(|id| self.node_map.get(id))
+                 .is_some_and(|node| matches!(node, Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::MappedTypeNode(mapped)) if mapped.name_type.is_none())))
+         {
+@@ -5190,7 +5190,7 @@ impl<'a> Checker<'a, '_> {
+         // signature annotation in serializeTypeForDeclaration.
+         if let TypeNode::TypeReferenceNode(reference)=annotation
+             && let Some(symbol)=reference.type_name.and_then(|name|self.resolve_entity_name(name,tsr_binder::SymbolFlags::TYPE))
+-            && self.binder.symbols().get(symbol).declarations.first().copied().and_then(|id|self.node_map.get(id))
++            && self.type_alias_declaration_of(symbol).and_then(|id|self.node_map.get(id))
+                 .is_some_and(|node|matches!(node,Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::TemplateLiteralTypeNode(_)))))
+         {
+             let resolved=self.get_type_from_type_node(annotation);
+@@ -5359,8 +5359,7 @@ impl<'a> Checker<'a, '_> {
+                 tsr_binder::SymbolFlags::TYPE,
+             )
+             && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+-            && let Some(declaration) =
+-                self.binder.symbols().get(symbol).declarations.first().copied()
++            && let Some(declaration) = self.type_alias_declaration_of(symbol)
+             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+             && matches!(alias.r#type, Some(TypeNode::TemplateLiteralTypeNode(_)))
+         {
+diff --git a/crates/tsr-checker/src/string_mapping.rs b/crates/tsr-checker/src/string_mapping.rs
+index a200f48..da5cc0b 100644
+--- a/crates/tsr-checker/src/string_mapping.rs
++++ b/crates/tsr-checker/src/string_mapping.rs
+@@ -12,8 +12,7 @@ impl Checker<'_, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+             return false;
+         }
+-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+-        else {
++        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
+             return false;
+         };
+         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+diff --git a/crates/tsr-checker/src/templates.rs b/crates/tsr-checker/src/templates.rs
+index c20c47b..57e092d 100644
+--- a/crates/tsr-checker/src/templates.rs
++++ b/crates/tsr-checker/src/templates.rs
+@@ -18,7 +18,7 @@ impl Checker<'_, '_> {
+         if !self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
+             return None;
+         }
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
++        let declaration = self.type_alias_declaration_of(symbol)?;
+         let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+         else {
+             return None;
