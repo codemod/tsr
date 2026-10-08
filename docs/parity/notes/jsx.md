@@ -294,6 +294,9 @@ an unresolved table is not evidence and declines.
 
 ### Round 1's TS2604 stays unlanded, and why
 
+*Superseded in round 4: the arm is landed with the root cause named and a
+scoped decline — `r4-jsx.md` §2.*
+
 Round 1's `resolveJsxOpeningLikeElement` no-signature arm (1da6e97, reverted
 as 6eb0a11) still reports a false TS2604 on
 `compiler/reactSFCAndFunctionResolvable` after the round-2 calls merge. The

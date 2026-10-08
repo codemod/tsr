@@ -191,3 +191,24 @@ a lane names a specific function.
   checker `isSymbolAccessible`, `isEntityNameVisible`.
 - **Owns.** `crates/tsr-dts/`, `symbol_access.rs`, and the
   `GetDeclarationDiagnostics` block of `diagnostics_suite.rs`.
+
+### r4-helpers — external emit helpers and type-only names in value position (`tsr-2zk.21`, `.41`, `.6.3`)
+
+Dispatched when `r4-declemit` finished (both chosen the same way as above;
+`emit_helpers.rs` and `meaning_mismatch.rs` had no commit on `main` since
+`b3cd078d`).
+
+- **Hypothesis.** `checkExternalEmitHelpers` is called only from import/export
+  declarations; the construct-level call sites (async, generators, `using`,
+  object rest, decorators, for-await, `yield*`, private fields, `__setFunctionName`)
+  are missing, so TS2354/TS2343/TS2807 are missing. r3-names measured a patch
+  for the first set: `docs/parity/notes/names-emit-helpers.diff` on
+  `claude/beautiful-shannon-ar5gh0-r3-names` (+8 cases, 0 losses at its base).
+  TS2693/TS2749 type-used-as-value arms of the value-position cascade are
+  partly unported.
+- **Mirror.** `checkExternalEmitHelpers`, `resolveHelpersModule` and every
+  call site in `checker.go`; `checkIdentifier`/`resolveEntityName`'s
+  `isTypeOnly`/`checkAndReportErrorForUsingTypeAsValue` arms.
+- **Owns.** `emit_helpers.rs`, `meaning_mismatch.rs`; new
+  `check_construct_emit_helpers`-style functions it adds to `check.rs`, called
+  from one line at the top of the walk.

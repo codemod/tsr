@@ -1,0 +1,16 @@
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index d629ccc..d15ca86 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -6252,6 +6252,11 @@ impl Checker<'_, '_> {
+                 .iter()
+                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
+         }
++        // `any` over no names is false; printing first would only allocate.
++        // The registered-identity walk passes no names, so it never prints.
++        if names.is_empty() {
++            return false;
++        }
+         let text = crate::printing::type_to_string(ty);
+         names.iter().any(|name| mentions_identifier(&text, name))
+     }

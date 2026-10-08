@@ -6315,6 +6315,16 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
+    /// The same graph walk with an arbitrary membership test and no printed
+    /// names, for a caller asking about a whole class of parameters at once.
+    pub(crate) fn mentions_type_parameter_where(
+        &self,
+        id: TypeId,
+        is_parameter: &impl Fn(TypeId) -> bool,
+    ) -> bool {
+        self.mentions_type_parameter_inner(id, is_parameter, &[], &mut Vec::new())
+    }
+
     /// The same graph walk with membership in this checker's current registry.
     /// Avoids materializing all registered identities for every conditional.
     pub(crate) fn mentions_registered_type_parameter(&self, id: TypeId) -> bool {
@@ -6454,6 +6464,11 @@ impl<'a> Checker<'a, '_> {
             return constituents
                 .iter()
                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
+        }
+        // `any` over no names is false; printing first would only allocate.
+        // The registered-identity walk passes no names, so it never prints.
+        if names.is_empty() {
+            return false;
         }
         let text = crate::printing::type_to_string(ty);
         names.iter().any(|name| mentions_identifier(&text, name))

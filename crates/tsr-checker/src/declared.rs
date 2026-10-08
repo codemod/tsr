@@ -8120,7 +8120,7 @@ impl<'a> Checker<'a, '_> {
             crate::relater::Ternary::Unknown => return None,
             crate::relater::Ternary::Related => {}
         }
-        if std::env::var("TSR_DBG").is_ok() {
+        if crate::debug_env::is_set("TSR_DBG") {
             let n = self.get_property_names_of_type(restrictive);
             let t = self.get_type_of_property_of_type(restrictive, "name");
             eprintln!(

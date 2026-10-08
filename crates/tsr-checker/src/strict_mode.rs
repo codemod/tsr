@@ -37,6 +37,7 @@
 //! `docs/architecture/checker-notes-diag2.md` §156.
 
 use tsr_ast::{Expression, Node, NodeId, SyntaxKind};
+use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -372,5 +373,74 @@ impl Checker<'_, '_> {
             _ => return false,
         };
         field == Some(node)
+    }
+}
+
+impl Checker<'_, '_> {
+    /// TS1101 and TS2410 — the two diagnostics every `with` statement draws.
+    ///
+    /// Two upstream producers, one per code, both reached once per
+    /// `WithStatement`:
+    ///
+    /// - **TS1101** is the binder's `checkStrictModeWithStatement`
+    ///   (`binder.go:1428`), dispatched from `bindWorker`'s unconditional
+    ///   switch (`binder.go:637`). Like every other rule in this module it has
+    ///   **no strict-mode gate**, no ambient gate and no parse-error gate: it
+    ///   is `errorOnFirstToken(node, …)` and nothing else. `withStatement.ts`
+    ///   has no prologue, no `export` and no class, and its baseline records
+    ///   the line all the same.
+    /// - **TS2410** is the tail of the checker's `checkWithStatement`
+    ///   (`checker.go:4156`): `grammarErrorAtPos` from `SkipTrivia(node.Pos())`
+    ///   to `node.Statement().Pos()` — the `with (expr)` head, up to the
+    ///   statement's *full* start — behind `!hasParseDiagnostics`.
+    ///
+    /// The rest of `checkWithStatement` is ported elsewhere: its
+    /// `checkGrammarStatementInAmbientContext` is the shared statement arm of
+    /// `check_node`, and its `checkExpression` is the walk's. Its TS1300 arm
+    /// (`with` in an async function block) reads `NodeFlagsAwaitContext`,
+    /// which this parser declares and never sets — the same owner as
+    /// `check_contextual_identifier`'s unported arm, `tsr_parser`'s
+    /// await-context tracking — so it is not ported here.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §1.
+    pub(crate) fn check_with_statement_grammar(&mut self, node: NodeId) {
+        let Some(Node::WithStatement(with)) = self.node_map.get(node) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes));
+        let start = self.nodes.span(node).start;
+        // `scanner.GetRangeOfTokenAtPosition(file, node.Pos())` — the `with`
+        // keyword. Without source text (unit hosts) the keyword's own length
+        // is the token: an escaped `with` is not the keyword and never
+        // parses as a `WithStatement`.
+        let keyword = text
+            .and_then(|text| text.get(start as usize..))
+            .map(|rest| tsr_scanner::Scanner::new(rest).scan().span)
+            .map_or(Span::new(start, start + 4), |token| {
+                Span::new(start + token.start, start + token.end)
+            });
+        self.report(
+            file,
+            Diagnostic::new(&messages::WITH_STATEMENTS_ARE_NOT_ALLOWED_IN_STRICT_MODE, keyword),
+        );
+        if self.file_has_parse_errors {
+            return;
+        }
+        // `node.Statement().Pos()` is the statement's full start, which is
+        // the end of the `)` closing the head: the parser consumed that token
+        // last. Scanned from the expression's end; a tree without parse
+        // errors always has both the expression and the `)`.
+        let Some(expression) = with.expression.and_then(|e| e.node_id()) else { return };
+        let after = self.nodes.span(expression).end;
+        let end = text
+            .and_then(|text| text.get(after as usize..))
+            .map(|rest| tsr_scanner::Scanner::new(rest).scan().span)
+            .map_or(after + 1, |token| after + token.end);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::THE_WITH_STATEMENT_IS_NOT_SUPPORTED_ALL_SYMBOLS_IN_A_WITH_BLOCK_WILL_HAVE_TYPE_ANY,
+                Span::new(keyword.start, end),
+            ),
+        );
     }
 }
