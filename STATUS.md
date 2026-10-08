@@ -54,6 +54,19 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected member-origin continuation after evidence delivery `276f3419`, native
+`5b1047d`: the existing origin field and spread/order/widening/inference/printing/
+relation/reporting/JSX/signature readers retain actual selected symbols. Native
+lazy symbol IDs live on the actual bound/private record; bound readers share one
+atomic publication across checkers, while private copies start fresh. Binder
+21 tests and the extracted owner/comparator reader's three tests pass; an actual
+compiling origin mutant fails. Two fresh pinned-native comparator/identity tests
+pass. These controls exclude full member execution. Final ordinary/work-trace
+both retain **84 E0308**; property lookup results and conditional binding keys
+remain raw boundaries. No canonical Rust, full corpus or speed qualification;
+all six tickets and complete-work <=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-member-origin-continuation.json).
+
 Selected alias-consumer continuation after evidence delivery `c236a387`, native
 `5b1047d`: the existing declared dispatcher, type-parameter owner back-edge,
 constraint/default/inference/recursion/rendering readers and generic-reference
@@ -3793,6 +3806,16 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Member-origin continuation after `276f3419`: migrate the existing property
+lookup result producer and its selected consumers, then conditional binding keys.
+The image's origin field and origin-only readers now retain actual handles;
+sorting IDs belong to the selected record. Binder21/extracted reader3/native2
+controls cover identity and comparator cases, not full member execution.
+**84 E0308** remain in both full compiler modes. Finish those ownership channels
+before native member/alias publication controls, full prior RIGHT/performed-work
+preservation, current cost attribution and equivalent whole-CLI confirmation.
+[Exact replay and bounded controls](docs/architecture/checker-member-origin-continuation.json).
 
 Alias-consumer continuation after `c236a387`: migrate the existing
 `AnonymousProperty.origin` field and its spread/order/inference/reporting/display
@@ -7548,6 +7571,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The member-origin draft after `276f3419` is refused for canonical runtime
+integration by **84 E0308** in both ordinary and work-trace checks. Its first
+origin-field migration exposed 95 errors; complete origin-only consumer repairs
+restore 84. A checker-local lazy identity slot was rejected because bound symbols
+must share publication across checkers; the actual-record atomic replacement
+passes 21 binder, three extracted reader and two native tests, and an origin
+mutant fails. These are bounded identity controls. Full property producers,
+conditional binding keys, native member/alias semantics, corpus and performed
+work, added storage cost and complete-work <=0.50 remain unqualified. All six
+tickets stay in progress.
+[Source-bound checkpoint](docs/architecture/checker-member-origin-continuation.json).
 
 The alias-consumer private draft after `c236a387` is refused for canonical
 runtime integration by **84 E0308** in both ordinary and work-trace checks.
@@ -15846,3 +15881,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `c92a8cb0` / native `5b1047d` | — | — | **Selected alias resolver private continuation.** Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Existing alias links retain selected owner/target and type-only metadata, completed-unknown publication and shared AliasTarget stack; separate resolving bit and bounded cycle/suggestion walks removed. Ten actual generic stack passes and two detected mutants exclude Checker-specific code. Widened alias result exposes100 E0308; final ordinary/work-trace each93 after selected suggestion/visibility/truthy migration. No compiling private checker, canonical Rust, alias runtime/native/corpus or performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-owner-continuation.json). |
 
 | 2026-10-08 | `c236a387` / native `5b1047d` | — | — | **Selected alias-consumer private continuation.** Existing declared dispatcher and alias link, type-parameter metadata/constraint/default/inference/recursion/render scopes, generic-reference worker, homomorphic variable and callable export/readonly/name reads retain actual selected identities. Exact 18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes and unrelated rustfmt child restored. Compiler 116→93→89→84; final ordinary/work-trace both84 E0308. AnonymousProperty.origin and conditional frame keys are real unresolved boundaries, with no source-ID projection or dropped targets. No compiling private checker, canonical Rust, native/runtime/corpus/performed-work or speed qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-consumer-continuation.json). |
+
+| 2026-10-08 | `276f3419` / native `5b1047d` | — | — | **Selected member-origin private continuation.** Exact 19-file replay verifies 1,053 inputs/1034 unchanged. Existing member origins and spread/order/widening/inference/display/relation/report/JSX/signature consumers retain selected identity. Native-style per-record lazy IDs share bound publication across Checkers and give private copies fresh IDs; incorrect intermediate Checker-local slots removed. Binder21 and extracted reader3 pass; one compiling origin mutant detected, restored reader3 pass; two fresh native tests pass. Final ordinary/work-trace both84 E0308. Property-result producer and conditional bindings remain raw boundaries; no canonical Rust, full member runtime/corpus/performed-work or speed qualification. All six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-member-origin-continuation.json). |

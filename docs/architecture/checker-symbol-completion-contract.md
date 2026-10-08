@@ -870,6 +870,41 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [member-origin continuation](checker-member-origin-continuation.json) after
+`276f3419` replaces the existing `AnonymousProperty.origin` field with an actual
+selected handle. Genuine syntax writers lift their Program IDs once; callable
+exports retain their actual private edge. Spread, ordering, widening, reverse
+inference, key extraction, relation metadata, excess-property reporting and
+display readers use that record's flags, declarations and value declaration.
+Existing property-type/display slots and publication/forcing policy remain in
+place; no second origin image, member cache or origin-ID projection is added.
+The property lookup result producer still returns raw IDs and is an explicit
+remaining compiler boundary, rather than a reason to drop a private origin.
+
+Pinned native `5b1047d` `compareSymbolsWorker` (`utilities.go:366`) compares the
+selected first declaration and name before `ast.GetSymbolId` (`ast/utilities.go:34`).
+The new identity slot belongs to each actual record: zero is uncomputed, a
+winning atomic publication is stable, bound records share it across checkers,
+and every private copy starts with a fresh slot. A global counter allocates IDs;
+there is no global symbol cache. This replaces an intermediate, incorrect
+checker-local sorting slot. IDs are never Program indexes, semantic cache keys
+or substitutes for validated `SymbolRef` ownership. Selected sorting allocates
+an ID only at a declaration/name tie. Other native identity consumers and the
+historical raw comparator remain outside this bounded qualification.
+
+Twenty-one actual binder tests pass, including concurrent publication and store
+relocation. Three extracted store/comparator tests pass; an actual compiling
+origin-substitution mutant fails the private-copy ordering test, then the
+restored reader passes again. Two fresh pinned-native tests exercise comparator
+identity/name/nil ordering and concurrent publication. The reader excludes full
+Checker construction, member execution and TypeStore semantics. Full ordinary
+and work-trace checks still fail with 84 type mismatches. Complete native member
+behavior, prior RIGHT retention, performed work, expensive-worker counts and
+whole-process wall/CPU/RSS remain unqualified in `tsr-1yb.4.2.1`,
+`tsr-1yb.33.1`, `tsr-1yb.11` and `tsr-1yb.16.3.10`. Conditional binding keys
+and alias consumers remain in `tsr-1yb.7.7.3`; `tsr-1yb.1` still owns the
+equivalent complete-work median TSR/tsgo <=0.50 requirement.
+
 The [alias-consumer private continuation](checker-alias-consumer-continuation.json)
 after `c236a387` extends the existing declared dispatcher to selected symbols.
 Native `5b1047d` `tryGetDeclaredTypeOfSymbol` (23678),
