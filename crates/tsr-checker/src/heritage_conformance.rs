@@ -250,7 +250,8 @@ impl Checker<'_, '_> {
             };
             match self.relate_ternary(property, base_property, Relation::Assignable) {
                 Ternary::Related => continue,
-                Ternary::NotRelated if self.pair_is_reportable(property, base_property) => {}
+                Ternary::NotRelated
+                    if self.assignability_pair_is_reportable(property, base_property) => {}
                 _ => {
                     undecided = true;
                     continue;
