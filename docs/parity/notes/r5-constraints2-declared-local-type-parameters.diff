@@ -1,0 +1,39 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ad40738b..7774b7d6 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8930,7 +8930,33 @@ impl<'a> Checker<'a, '_> {
+         &self,
+         symbol: SymbolId,
+     ) -> &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] {
+-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
++        // `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias` skips
++        // declarations that are not class, interface or alias: a symbol
++        // merged with a value (`declare var Proxy` before a user
++        // `interface Proxy<T>`) keeps its type's parameters. A namespace
++        // declared first still answers none, as before: upstream skips it
++        // too, but routing those references as generic prints namespace
++        // members unqualified (`Indexed<Z>` for `Collection.Indexed<Z>`,
++        // NB-SYMBOL-CHAIN; `docs/parity/notes/r5-constraints2.md` §1).
++        let declarations = &self.binder.symbols().get(symbol).declarations;
++        let Some(declaration) = declarations
++            .iter()
++            .copied()
++            .find(|&declaration| {
++                matches!(
++                    self.node_map.get(declaration),
++                    Some(
++                        Node::ModuleDeclaration(_)
++                            | Node::ClassDeclaration(_)
++                            | Node::ClassExpression(_)
++                            | Node::InterfaceDeclaration(_)
++                            | Node::TypeAliasDeclaration(_)
++                            | Node::JSDocTypedefTag(_)
++                            | Node::JSDocCallbackTag(_)
++                    )
++                )
++            })
++            .or_else(|| declarations.first().copied())
+         else {
+             return &[];
+         };
