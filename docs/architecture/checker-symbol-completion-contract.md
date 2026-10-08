@@ -870,6 +870,31 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [index/dispatcher private continuation](checker-index-owner-continuation.json)
+after `472c249f` carries selected owners in the existing index memo, visited
+path, declaration scan, sibling reads and late-name cache/active marker keys.
+Pinned native `5b1047d` `getIndexInfosOfSymbol` and `getIndexInfosOfIndexSymbol`
+read actual member identities; shared declaration/heritage syntax still supplies
+Program symbols, explicitly lifted at that boundary. Receiver substitution,
+memo frame admission, publication marks and unsupported/error refusals remain
+in their existing workers. This does not certify native `MembersResolved` or
+natural late-member reset/publication. No duplicate cache or producer was added.
+
+The existing `getTypeOfSymbol` flags dispatcher now takes a selected owner;
+the raw public entry lifts a genuine Program symbol. Enum-member value links
+and export-marker links retain selected identity, and exports re-enter that
+same dispatcher. The accessor, variable/property, function/class/enum/module
+and alias workers still need owner migration. Their four compiler mismatches
+replace the four resolved index mismatches: the final error count remains 26.
+Step12 also exposed one import and three assumed nonexistent getter errors;
+step13 repairs these; step14 copies only the selected handle rather than the
+full type payload and confirms the same 26 errors. All three actual compiler
+receipts are retained. Exact five-file
+replay verifies 1,053 inputs with 1,048 unchanged. Existing active-marker tests
+only have key plumbing changed; no private runtime or native/corpus/performance
+control executed. Bound query tracing stays at its public boundary; private
+worker/copy attribution remains `tsr-1yb.11`. All six tickets remain unfinished.
+
 The [member/enum private continuation](checker-member-enum-owner-continuation.json)
 after `26da4dd0` migrates the existing declaration/flag metadata readers and
 completeness paths to actual selected owners. Optionality, spreadability/privacy,
