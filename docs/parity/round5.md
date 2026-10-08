@@ -65,3 +65,22 @@ checker work, not harness work. Its checker causes are filed as
 `tsr-2zk.985`–`.993`. The new box `r5-modules` takes printed module specifiers
 (`.989`, 375 lines), `import.meta` (`.990`, 197 lines) and
 `checkImportAttributes` (`.986`, 59 rows).
+
+### r5-perf4 finished; r5-loader dispatched (`tsr-2zk.995`)
+
+r5-perf4 delivered:
+- **2c088ee**, a receiver signature-kind memo for getPropertyOfTypeEx's
+  fallback: −3.97% Ir on p100.
+- **Five measured diffs.** Four are landed by the integrator: shared relater
+  names, a TypeData borrow, the property-walk buffer, and the mapped early
+  return. With 2c088ee they total −12.7% p100 Ir, measured on the full stack.
+- **One diff held:** the `resolve_name` memo, which rewrites 132 call sites
+  across 20 files (`tsr-2zk.996`).
+
+Its wall attribution on generic-imports matters more than any of these. That
+project's check phase is 1 ms. Program construction is 98% of Ir, and TSR's
+parallel loader is slower than its own single-threaded mode (82.9 vs 73.4 ms;
+tsgo 71.6 ms). The new box `r5-loader` takes the loader. Lazy JSDoc (37% of
+Ir) stays with `tsr-2zk.17.1`, which is claimed on main. Main's perf lane
+(`tsr-2zk.17`) is active on checker memos, so no second checker-perf box is
+dispatched.
