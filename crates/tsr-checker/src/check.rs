@@ -296,6 +296,9 @@ impl Checker<'_, '_> {
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_object_type_for_duplicate_declarations(node);
+                // `checkClassOrInterfaceForDuplicateIndexSignatures`
+                // (`checker.go:4389`), from `checkClassLikeDeclaration`.
+                self.check_duplicate_index_signatures(node);
                 ambient
             }
             // `declare module "m" { … }` and `declare namespace N { … }` are
