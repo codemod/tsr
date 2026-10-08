@@ -7338,6 +7338,15 @@ impl<'a> Checker<'a, '_> {
             .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
             .and_then(|id| self.node_map.get(id))
             .and_then(|node| match node {
+                // `scanner.DeclarationNameToString` (`scanner/utilities.go:76`),
+                // which `getNameOfSymbolAsWritten` prints through: a
+                // zero-width name, the parser's missing identifier, is
+                // `(Missing)`. `enum void {}` and `function f1(enum)` record
+                // `> : (Missing)` (`parserEnumDeclaration4`, `reservedWords3`;
+                // r5-shapes §2.2).
+                tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
+                    Some("(Missing)".to_string())
+                }
                 tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
                 _ => None,
             });
