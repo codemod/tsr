@@ -136,6 +136,14 @@ generic-imports 1.006, and diagnostics match. callgrind Ir
   at the producer, which is not this lane's file. Even with the marker,
   29:15 (`name={42}`) also needs the relater's structural arm to relate
   against a members-less `Named` (`relater.rs`).
+  **Probed:** with a `binding_pattern_object_types` set (field in
+  `checker.rs`, inserted by `binding_pattern_object` when there is no rest
+  index, read by `declared_property_table_worker` like a fresh literal's
+  captured list), `relation_members_are_complete` answers `true` for
+  `{ name?: string | undefined; }`, but the case's diagnostics do not
+  change. The JSX attributes report still declines downstream
+  (`jsx_component.rs` / `assignreport.rs` / `relater.rs`), so the marker
+  alone converts nothing. It was reverted and is not shipped.
 - **Spread and binding-initializer object literals.**
   `object_literal_property_table` still declines a literal with a spread
   (its properties live only in the `getSpreadType` result) and the
