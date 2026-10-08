@@ -1969,11 +1969,25 @@ impl Relater<'_, '_, '_> {
             || match &self.checker.type_of(id).data {
                 TypeData::Named { members: Some(_), .. }
                 | TypeData::Anonymous { signature: true, .. } => true,
+                TypeData::Anonymous { symbol, .. } if self.is_namespace_object_symbol(*symbol) => {
+                    true
+                }
                 TypeData::Anonymous { .. } => {
                     self.checker.signatures_of_type(id).is_some_and(|list| !list.is_empty())
                 }
                 _ => false,
             }
+    }
+
+    /// A namespace's object type (`typeof N`, `getTypeOfSymbol` of a value
+    /// module, checker.go `createObjectType(ObjectFlagsAnonymous, symbol)`)
+    /// whose members are its exports. Native resolves its members like any
+    /// anonymous object type; a namespace merged with a function, class or
+    /// enum keeps its own arms.
+    fn is_namespace_object_symbol(&self, symbol: SymbolId) -> bool {
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        flags.intersects(SymbolFlags::VALUE_MODULE)
+            && !flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::ENUM)
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
@@ -2017,7 +2031,7 @@ impl Relater<'_, '_, '_> {
         if self.checker.any_function_type == Some(target) {
             return Some(RelationResult::NotRelated);
         }
-        if !self.declares_call_or_construct(target) {
+        if !self.call_or_construct_bearing(target) {
             return None;
         }
         let calls =
@@ -2476,6 +2490,51 @@ impl Relater<'_, '_, '_> {
                 )
             })
         })
+    }
+
+    /// [`Relater::declares_call_or_construct`] over the resolved members of
+    /// a class or interface: `resolveDeclaredMembers` adds every base type's
+    /// call and construct signatures (`resolveObjectTypeMembers`,
+    /// checker.go), so `interface F extends P {}` with a callable `P` is a
+    /// callable target. `signaturesRelatedTo` (relater.go:4441) reads those
+    /// resolved signatures; `signatures_of_type_kind` already resolves them.
+    fn call_or_construct_bearing(&mut self, id: TypeId) -> bool {
+        self.call_or_construct_bearing_at(id, 0)
+    }
+
+    fn call_or_construct_bearing_at(&mut self, id: TypeId, depth: usize) -> bool {
+        if self.declares_call_or_construct(id) {
+            return true;
+        }
+        // The depth bound stands in for native's resolution guard on a
+        // circular base chain (`getBaseTypes` reports and cuts it).
+        if depth > 64 {
+            return false;
+        }
+        let owner = match self.checker.type_reference_targets.get(&id) {
+            Some(&(symbol, _)) => symbol,
+            None => match self.checker.type_of(id).data {
+                TypeData::Named { members: Some(symbol), .. } => symbol,
+                _ => return false,
+            },
+        };
+        let owner = self.checker.binder.merged_symbol(owner);
+        if !self
+            .checker
+            .binder
+            .symbols()
+            .get(owner)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return false;
+        }
+        for base in self.checker.get_base_types(owner) {
+            if self.call_or_construct_bearing_at(base, depth + 1) {
+                return true;
+            }
+        }
+        false
     }
 
     /// indexSignaturesRelatedTo / typeRelatedToIndexInfo (relater.go:4578).
@@ -3606,7 +3665,7 @@ impl Relater<'_, '_, '_> {
                     source_intersection_result.into_iter().chain([properties]),
                 );
             }
-            let signatures = if self.declares_call_or_construct(target) {
+            let signatures = if self.call_or_construct_bearing(target) {
                 self.related_signatures(source, target).unwrap_or_else(|| {
                     reasons::note(reasons::Site::SignatureBearing);
                     RelationResult::Unknown
