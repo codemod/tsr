@@ -53,3 +53,26 @@ either dump. Perf (median child CPU, 21 samples, new/base): domain-model
 
 **Falsifier.** A corpus line where upstream prints `true`/`false` for `!x`
 and TSR prints `boolean` points at `get_type_facts`, not at this arm.
+
+## 2. The `+` / `+=` diagnostics arm ships (`tsr-2zk.906`)
+
+[operators.md](operators.md) §5 held `operators-plus.diff` (the port of the
+`+`/`+=` arm of `checkBinaryLikeExpressionWorker`, `checker.go:12414`) on one
+loss, `genericRestParameters1`, whose producer was the rest-tuple contextual
+typing of `f30(42, x => "" + x, …)`. Re-applied unchanged on `1e6d66b`, the
+patch measures **+10 diagnostics cases, zero losses in either dump**: that
+loss no longer occurs, so §5's reopening condition holds and the patch ships as written.
+The design (Ternary kind tests, `Unknown` stops the arm without a
+diagnostic) is §5's and is not repeated here.
+
+**Cases converted** (WRONG → RIGHT): `arithmeticOnInvalidTypes2`, `expr`,
+`noImplicitSymbolToString`, `noUncheckedIndexedAccessCompoundAssignments`,
+`numberVsBigIntOperations`, `additionOperatorWithInvalidOperands`,
+`additionOperatorWithTypeParameter`, `compoundAdditionAssignmentLHSCanBeAssigned`,
+`compoundAdditionAssignmentWithInvalidOperands`, `symbolType6`.
+
+**Measured:** coverage `diagnostics` 4232 → 4242, `checker_types` unchanged
+(8079). Perf (median child CPU, 21 samples, new/base): domain-model 0.982,
+generic-imports 1.018. The `check.rs` hunk is the walk's numeric dispatch
+(`is_numeric_binary_operator` gains `+=`; the arm combines the two operand
+checks), operator-specific code in a hub file.
