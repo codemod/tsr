@@ -6455,6 +6455,11 @@ impl<'a> Checker<'a, '_> {
                 .iter()
                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
         }
+        // `any` over no names is false; printing first would only allocate.
+        // The registered-identity walk passes no names, so it never prints.
+        if names.is_empty() {
+            return false;
+        }
         let text = crate::printing::type_to_string(ty);
         names.iter().any(|name| mentions_identifier(&text, name))
     }
