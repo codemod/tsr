@@ -18,7 +18,7 @@ involves TS2883, TS4xxx or TS9xxx, by producer upstream:
 |---|---|---|
 | node builder `ReportLikelyUnsafeImportRequiredError` (`nodebuilderimpl.go:709`) | 2883 | 12 — 6 plain, plus `nodeModulesExportsBlocksSpecifierResolution` and `nodeModulesExportsSourceTs` × 4 `module` variants |
 | node builder `TrackSymbol` → `IsSymbolAccessible` | 4023, 4025, 4032 | 6 — `declarationEmitComputedPropertyNameSymbol1/2`, `declarationEmitReadonlyComputedProperty`, `jsDeclarationsTypeReassignmentFromDeclaration2` (JS), `globalThisDeclarationEmit`, `declarationEmitExpandoPropertyPrivateName` |
-| node builder `ReportPrivateInBaseOfClassExpression` (`:2665`) | 4094 | 2 — `privateFieldsInClassExpressionDeclaration`, `declarationEmitMixinPrivateProtected` |
+| node builder `ReportPrivateInBaseOfClassExpression` (`:2665`) | 4094 | 2 — **converted, §3** |
 | node builder `ReportInaccessibleThisError` / `…UniqueSymbolError` (`:3356`, `:3322`) | 2527 | 2 — `declarationFiles`, `declarationEmitExpressionWithNonlocalPrivateUniqueSymbol` |
 | node builder `ReportNonSerializableProperty` (`:2510`) | 4118 | 1 — `declarationEmitMappedTypeTemplateTypeofSymbol` |
 | `transformImportDeclaration`'s augmentation arm (`transform.go:2562`) | 9026 | 1 — **converted, §2** |
@@ -54,6 +54,64 @@ stays. Visiting the statement once, in order, reproduces that.
 
 Measured: +1 case (`isolatedDeclarationErrorsAugmentation`), zero diagnostics
 verdict changes elsewhere.
+
+## 3. TS4094: a class expression written as a type literal
+
+Declaration emit builds types with `FlagsWriteClassExpressionAsTypeLiteral`
+(`transform.go:216`). With it, `createAnonymousTypeNode`
+(`nodebuilderimpl.go:2805`) expands the static side of any class whose value
+declaration is a class *expression* — unconditionally, through the
+`!IsClassDeclaration` disjunct — and `createTypeNodesFromResolvedType`
+(`:2660`) calls `ReportPrivateInBaseOfClassExpression` for each property that
+is private, protected (`getDeclarationModifierFlagsFromSymbol`) or
+`#private` (`IsPrivateIdentifierSymbol`, reported under `SymbolName`). The
+static side's construct signature returns the instance type, which
+`typeToTypeNode` (`:3047`) expands too, because a class expression's symbol is
+never value-accessible from outside its own body.
+
+**Where it lives.** The tracker half (message, `errorNameNode` / fallback
+stack location, `tracker.go:131`) is in `tsr_dts::accessibility`; the
+node-builder half is `DeclarationEmitResolver::inferred_type_reports`
+(`symbol_access.rs`), reached through a new `AccessibilityResolver` method.
+The walk asks it at the three places native calls the node builder for an
+*inferred* type in a TypeScript file:
+
+- `ensureType` on a variable declaration with no annotation
+  (`CreateTypeOfDeclaration`, `transform.go:1667`), located at the name;
+- `transformExportAssignment`'s `_default` arm (`:1250`), located at the
+  assignment (pushed as the fallback node; an export assignment has no name);
+- `transformClassDeclaration`'s `extends <non-entity expression>` arm
+  (`CreateTypeOfExpression`, `:2018`), located at the class name, or at the
+  class when it has none.
+
+**Why not a hook in the type printer.** r4-declemit §4 said the general
+`SymbolTracker` belongs in the serializer (`printing.rs`, `checker.rs`). That
+still holds for `TrackSymbol`, whose call sites are wherever a symbol is
+named. This arm is different: the `.types` printer never takes it (it prints
+`typeof C`; the flag is declaration-emit only), so no printer path exists to
+hook, and the decision reads only the class symbol and its two property
+lists. **What would change this:** a declaration-emit node builder in the
+serializer; this function should then become the body of its
+class-expression arm, not a second walk.
+
+**Declines** (each misses errors, never invents one):
+
+- Only the *top-level* inferred type is read. A class expression nested in a
+  union, a property type or a signature is reached by native's recursion, not
+  here.
+- A class *declaration* whose name is inaccessible takes the same expansion
+  natively (the `IsSymbolAccessible` disjunct); it needs
+  `getAccessibleSymbolChain` (§4).
+- `CreateReturnTypeOfSignatureDeclaration`, property declarations and
+  parameters are not asked.
+
+Measured: +2 cases (`privateFieldsInClassExpressionDeclaration`,
+`declarationEmitMixinPrivateProtected`); see the commit for the loss checks.
+
+One fact about this port found on the way: the binder leaves
+`value_declaration` unset on a class expression's symbol; the arm reads the
+symbol's first declaration in its place (a class expression's symbol has
+exactly one).
 
 ## 4. Remaining clusters, with what each needs
 

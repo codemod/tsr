@@ -6,8 +6,8 @@
 
 use tsr_ast::{Node, NodeId, NodeMap, NodeTable};
 use tsr_dts::accessibility::{
-    AccessibilityResolver, EntityNameVisibility, WalkOptions, declaration_walk_diagnostics,
-    written_name_diagnostics,
+    AccessibilityResolver, EntityNameVisibility, TrackerReport, WalkOptions,
+    declaration_walk_diagnostics, written_name_diagnostics,
 };
 
 struct Stub<'n, 'a> {
@@ -99,8 +99,9 @@ fn what_the_declaration_file_drops_is_not_walked() {
     assert!(diagnostics("export const x = null as unknown as hidden;").is_empty());
 }
 
-/// A resolver for the transform's own arms: every declaration visible except
-/// import bindings, and every import required by an augmentation.
+/// A resolver for the node-builder arms: every declaration visible except
+/// import bindings, every import required by an augmentation, and every
+/// inferred type reporting one private class-expression member.
 struct Tracking<'n, 'a> {
     map: &'n NodeMap<'a>,
 }
@@ -127,9 +128,13 @@ impl AccessibilityResolver for Tracking<'_, '_> {
     fn is_import_required_by_augmentation(&mut self, _import: NodeId) -> bool {
         true
     }
+
+    fn inferred_type_reports(&mut self, _node: NodeId) -> Vec<TrackerReport> {
+        vec![TrackerReport::PrivateInBaseOfClassExpression("#p".into())]
+    }
 }
 
-/// `(code, column)` of each diagnostic the transform's own arms produce.
+/// `(code, column)` of each diagnostic the node-builder arms produce.
 fn tracked(source: &str, isolated_declarations: bool) -> Vec<(u32, u32)> {
     let arena = tsr_core::Arena::new();
     let mut nodes = NodeTable::new();
@@ -145,6 +150,25 @@ fn tracked(source: &str, isolated_declarations: bool) -> Vec<(u32, u32)> {
             .collect();
     out.sort_unstable();
     out
+}
+
+#[test]
+fn an_inferred_type_reports_at_the_tracker_error_location() {
+    // `errorNameNode`: the variable's name.
+    assert_eq!(tracked("export const cls = f();", false), [(4094, 14)]);
+    // An annotated variable is not inferred.
+    assert!(tracked("export const cls: C = f();", false).is_empty());
+    // `export default <expr>`: no name, so the assignment (fallback node).
+    assert_eq!(tracked("export default f();", false), [(4094, 1)]);
+    // The identifier, class-expression and function-like arms build no type.
+    assert!(tracked("export default g;", false).is_empty());
+    assert!(tracked("export default (class {});", false).is_empty());
+    assert!(tracked("export default () => 1;", false).is_empty());
+    // `extends <expr>`: the class name, or the class when it has none.
+    assert_eq!(tracked("export class D extends f() {}", false), [(4094, 14)]);
+    assert_eq!(tracked("export default class extends f() {}", false), [(4094, 1)]);
+    assert!(tracked("export class E extends B {}", false).is_empty());
+    assert!(tracked("export class E extends A.B {}", false).is_empty());
 }
 
 #[test]
