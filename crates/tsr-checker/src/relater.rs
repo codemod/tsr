@@ -3977,7 +3977,7 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         optionals_only: bool,
     ) -> RelationResult {
-        let Some(names) = self.checker.get_property_names_of_type(target) else {
+        let Some(names) = self.checker.get_property_names_of_type_shared(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
             // is available in either direction.
@@ -4008,17 +4008,16 @@ impl Relater<'_, '_, '_> {
         let intersection_names = source_parts.as_ref().map(|parts| {
             parts
                 .iter()
-                .map(|&part| self.checker.get_property_names_of_type(part))
+                .map(|&part| self.checker.get_property_names_of_type_shared(part))
                 .collect::<Option<Vec<_>>>()
-                .map(|names| names.into_iter().flatten().collect::<Vec<_>>())
+                .map(|names| names.iter().flat_map(|names| names.iter().cloned()).collect())
         });
         // propertiesRelatedTo (relater.go:4240): an object-literal target
         // requires actual named properties, even when it has an index signature.
         // Regularization retains ObjectLiteral; widening removes it.
         if !optionals_only && self.checker.is_object_literal_type(target) {
-            let Some(source_names) = intersection_names
-                .clone()
-                .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
+            let Some(source_names) =
+                self.source_property_names(source, intersection_names.as_ref())
             else {
                 return RelationResult::Unknown;
             };
@@ -4027,8 +4026,8 @@ impl Relater<'_, '_, '_> {
             }
         }
         let mut parts = Vec::with_capacity(names.len());
-        for name in names {
-            let target_metadata = self.property_flags(target, &name);
+        for name in names.iter() {
+            let target_metadata = self.property_flags(target, name);
             if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
                 continue;
             }
@@ -4046,7 +4045,7 @@ impl Relater<'_, '_, '_> {
             // `None` still means *no such property* — a property that exists
             // and does not type answers `Some(errorType)` — so the existence
             // test below is unchanged.
-            let target_type = self.checker.get_type_of_property_of_type(target, &name);
+            let target_type = self.checker.get_type_of_property_of_type(target, name);
             // isPropertySymbolTypeRelated (relater.go:4334) relates an `any`
             // target property (outside the strict subtype relation also an
             // `unknown` one) before it reads the source property's type, so
@@ -4064,16 +4063,15 @@ impl Relater<'_, '_, '_> {
                     TypeFlags::ANY_OR_UNKNOWN
                 };
                 self.checker.store.get(target_type).flags.intersects(top)
-            }) && intersection_names
-                .clone()
-                .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
-                .is_some_and(|names| names.contains(&name));
+            }) && self
+                .source_property_names(source, intersection_names.as_ref())
+                .is_some_and(|names| names.contains(name));
             // An unread source member stands in as the target's type; the
             // type comparison below answers Related without relating it.
             let source_type = if type_related_unread {
                 target_type
             } else {
-                self.checker.get_type_of_property_of_type(source, &name)
+                self.checker.get_type_of_property_of_type(source, name)
             };
             let (Some(target_type), Some(source_type)) = (target_type, source_type) else {
                 // Row 2 of `checker-notes-assign.md` §2, half-answered by §15:
@@ -4087,7 +4085,7 @@ impl Relater<'_, '_, '_> {
                 // order; tsr-2zk.929). Captured mapped modifiers override declaration
                 // optionality; this binder does not write SymbolFlags::OPTIONAL.
                 // Everything else stays row 2's Unknown.
-                if self.checker.get_type_of_property_of_type(source, &name).is_none()
+                if self.checker.get_type_of_property_of_type(source, name).is_none()
                     && target_metadata.is_some_and(|flags| flags.0)
                     && (!matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
                         || self.checker.is_object_literal_type(source)
@@ -4105,13 +4103,10 @@ impl Relater<'_, '_, '_> {
                 // the candidate and the any-overload answers
                 // (`symbolProperty13`). An unfollowable source keeps the
                 // Unknown.
-                if self.checker.get_type_of_property_of_type(source, &name).is_none()
+                if self.checker.get_type_of_property_of_type(source, name).is_none()
                     && target_metadata.is_some()
-                    && (intersection_names
-                        .clone()
-                        .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
-                        .is_some()
-                        || self.tuple_source_lacks_property(source, &name))
+                    && (self.source_property_names(source, intersection_names.as_ref()).is_some()
+                        || self.tuple_source_lacks_property(source, name))
                 {
                     parts.push(RelationResult::NotRelated);
                     continue;
@@ -4140,11 +4135,11 @@ impl Relater<'_, '_, '_> {
             // unported, so that pair is `Unknown` and any reduction touching
             // it declines whole.
             let source_properties = if source_parts.is_some() {
-                self.checker.intersection_property_symbols(source, &name)
+                self.checker.intersection_property_symbols(source, name)
             } else {
-                self.checker.get_property_of_type(source, &name).into_iter().collect()
+                self.checker.get_property_of_type(source, name).into_iter().collect()
             };
-            if let Some(target_property) = self.checker.get_property_of_type(target, &name) {
+            if let Some(target_property) = self.checker.get_property_of_type(target, name) {
                 let mut privacy = Vec::new();
                 for &source_property in &source_properties {
                     let private = tsr_ast::SyntaxKind::PrivateKeyword;
@@ -4180,17 +4175,17 @@ impl Relater<'_, '_, '_> {
             let source_metadata = if let Some(source_parts) = &source_parts {
                 let mut metadata = Vec::new();
                 for &part in source_parts {
-                    if self.checker.get_type_of_property_of_type(part, &name).is_none() {
+                    if self.checker.get_type_of_property_of_type(part, name).is_none() {
                         continue;
                     }
-                    metadata.push(self.property_flags(part, &name));
+                    metadata.push(self.property_flags(part, name));
                 }
                 metadata.into_iter().collect::<Option<Vec<_>>>().and_then(|flags| {
                     (!flags.is_empty())
                         .then(|| (flags.iter().all(|flag| flag.0), flags.iter().all(|flag| flag.1)))
                 })
             } else {
-                self.property_flags(source, &name)
+                self.property_flags(source, name)
             };
             // A source-OPTIONAL property against a REQUIRED target member
             // rejects in every relation but comparability
@@ -4243,6 +4238,21 @@ impl Relater<'_, '_, '_> {
 
     /// Mapped/spread symbols keep their declaration origins while overriding
     /// Optional/Readonly flags (propertyRelatedTo, internal/checker/relater.go).
+    /// The source's property names for [`Self::properties_related_to_with_optionals`]:
+    /// the flattened constituent names of an intersection source, else the
+    /// source's own (shared, not copied: `r5-perf4.md` §3). Asked afresh at
+    /// each use, as before.
+    fn source_property_names(
+        &mut self,
+        source: TypeId,
+        intersection_names: Option<&Option<std::rc::Rc<[String]>>>,
+    ) -> Option<std::rc::Rc<[String]>> {
+        match intersection_names {
+            Some(names) => names.clone(),
+            None => self.checker.get_property_names_of_type_shared(source),
+        }
+    }
+
     fn property_flags(&mut self, receiver: TypeId, name: &str) -> Option<(bool, bool)> {
         // createUnionOrIntersectionProperty (checker.go): an intersection
         // property is optional (readonly) only when every contributing
