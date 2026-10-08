@@ -154,6 +154,25 @@ impl Intrinsics {
         let regular_true = literal(store, true, false);
         let true_type = literal(store, true, true);
         let boolean = crate::unions::create_boolean_type(store, regular_false, regular_true);
+        // `emptyStringType`, `zeroType`, `zeroBigIntType` (`checker.go:1049`):
+        // upstream creates the three zero literals at checker construction, so
+        // they precede every literal of the program in type-id order (and so
+        // in union order). Interned here, regular form, for that order only.
+        store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(String::new()),
+            false,
+        );
+        store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            crate::types::TypeData::NumberLiteral("0".to_owned()),
+            false,
+        );
+        store.intern_literal(
+            TypeFlags::BIG_INT_LITERAL,
+            crate::types::TypeData::BigIntLiteral("0".to_owned()),
+            false,
+        );
         let empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
         let unknown_empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
         let unknown_union = crate::unions::create_union(
