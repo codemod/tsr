@@ -3101,11 +3101,41 @@ impl Relater<'_, '_, '_> {
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
-            let source = self.checker.get_regular_type_of_object_literal(source);
+            let regular = self.checker.get_regular_type_of_object_literal(source);
             let parts = constituents
                 .iter()
-                .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
-            return RelationResult::any(parts);
+                .map(|&c| self.is_related_to_with_flags(regular, c, RecursionFlags::TARGET));
+            let result = RelationResult::any(parts);
+            // structuredTypeRelatedToWorker (relater.go:3889): an object or
+            // intersection source that failed every constituent may still
+            // cover a discriminated union, one constituent per combination
+            // of its discriminant types. A constituent answer of Unknown
+            // keeps the union walk's Unknown.
+            if result == RelationResult::NotRelated
+                && self
+                    .checker
+                    .type_of(source)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+            {
+                let object_only: Vec<TypeId> = constituents
+                    .iter()
+                    .copied()
+                    .filter(|&c| {
+                        self.checker.type_of(c).flags.intersects(
+                            TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::SUBSTITUTION,
+                        )
+                    })
+                    .collect();
+                if object_only.len() > 1 {
+                    let discriminated =
+                        self.type_related_to_discriminated_type(source, &object_only);
+                    if discriminated != RelationResult::NotRelated {
+                        return discriminated;
+                    }
+                }
+            }
+            return result;
         }
         let source_intersection_result = if let Some(constituents) =
             self.intersection_constituents(source)
@@ -4106,6 +4136,19 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         optionals_only: bool,
     ) -> RelationResult {
+        self.properties_related_to_excluding(source, target, optionals_only, &[])
+    }
+
+    /// propertiesRelatedTo (relater.go:4100) with its `excludedProperties`:
+    /// the named target members are skipped. Only
+    /// [`Self::type_related_to_discriminated_type`] excludes anything.
+    fn properties_related_to_excluding(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        optionals_only: bool,
+        excluded: &[String],
+    ) -> RelationResult {
         let Some(names) = self.checker.get_property_names_of_type_shared(target) else {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
@@ -4156,6 +4199,9 @@ impl Relater<'_, '_, '_> {
         }
         let mut parts = Vec::with_capacity(names.len());
         for name in names.iter() {
+            if excluded.contains(name) {
+                continue;
+            }
             let target_metadata = self.property_flags(target, name);
             if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
                 continue;
@@ -4268,37 +4314,11 @@ impl Relater<'_, '_, '_> {
                 self.checker.get_property_of_type(source, name).into_iter().collect()
             };
             if let Some(target_property) = self.checker.get_property_of_type(target, name) {
-                let mut privacy = Vec::new();
-                for &source_property in &source_properties {
-                    let private = tsr_ast::SyntaxKind::PrivateKeyword;
-                    let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
-                    let source_private =
-                        self.checker.property_has_modifier(source_property, private);
-                    let target_private =
-                        self.checker.property_has_modifier(target_property, private);
-                    if source_private || target_private {
-                        let source_declaration =
-                            self.checker.binder.symbols().get(source_property).value_declaration;
-                        let target_declaration =
-                            self.checker.binder.symbols().get(target_property).value_declaration;
-                        if source_declaration != target_declaration || source_declaration.is_none()
-                        {
-                            privacy.push(RelationResult::NotRelated);
-                        }
-                    } else if self.checker.property_has_modifier(target_property, protected) {
-                        privacy.push(if source_parts.is_some() {
-                            // isPropertyInClassDerivedFrom walks the
-                            // synthetic source property's constituents with
-                            // ANY; this loop combines with ALL.
-                            RelationResult::Unknown
-                        } else {
-                            self.is_valid_override_of(source_property, target_property)
-                        });
-                    } else if self.checker.property_has_modifier(source_property, protected) {
-                        privacy.push(RelationResult::NotRelated);
-                    }
-                }
-                let privacy = RelationResult::all(privacy);
+                let privacy = self.property_privacy_related(
+                    &source_properties,
+                    target_property,
+                    source_parts.is_some(),
+                );
                 if privacy != RelationResult::Related {
                     parts.push(privacy);
                     continue;
@@ -4369,6 +4389,364 @@ impl Relater<'_, '_, '_> {
             });
         }
         RelationResult::all(parts)
+    }
+
+    /// The privacy arms of propertyRelatedTo's first switch
+    /// (relater.go:4271, §16 of `checker-notes-assign.md`): PRIVATE on either
+    /// side relates only when both symbols share one value declaration, an
+    /// identity this port tests exactly; a protected SOURCE against a public
+    /// target rejects; a protected TARGET asks `isValidOverrideOf` (an
+    /// intersection source stays `Unknown`).
+    fn property_privacy_related(
+        &mut self,
+        source_properties: &[SymbolId],
+        target_property: SymbolId,
+        intersection_source: bool,
+    ) -> RelationResult {
+        let mut privacy = Vec::new();
+        for &source_property in source_properties {
+            let private = tsr_ast::SyntaxKind::PrivateKeyword;
+            let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
+            let source_private = self.checker.property_has_modifier(source_property, private);
+            let target_private = self.checker.property_has_modifier(target_property, private);
+            if source_private || target_private {
+                let source_declaration =
+                    self.checker.binder.symbols().get(source_property).value_declaration;
+                let target_declaration =
+                    self.checker.binder.symbols().get(target_property).value_declaration;
+                if source_declaration != target_declaration || source_declaration.is_none() {
+                    privacy.push(RelationResult::NotRelated);
+                }
+            } else if self.checker.property_has_modifier(target_property, protected) {
+                privacy.push(if intersection_source {
+                    // isPropertyInClassDerivedFrom walks the synthetic source
+                    // property's constituents with ANY; this loop combines
+                    // with ALL.
+                    RelationResult::Unknown
+                } else {
+                    self.is_valid_override_of(source_property, target_property)
+                });
+            } else if self.checker.property_has_modifier(source_property, protected) {
+                privacy.push(RelationResult::NotRelated);
+            }
+        }
+        RelationResult::all(privacy)
+    }
+
+    /// typeRelatedToDiscriminatedType (relater.go:3989), reached from the
+    /// end of structuredTypeRelatedToWorker (relater.go:3889) when an object
+    /// or intersection source failed every constituent of a union target.
+    /// `target` is already `extractTypesOfKind(target,
+    /// Object|Intersection|Substitution)` and still a union.
+    ///
+    /// Each combination of the source's discriminant property types must
+    /// match some target constituent (a single-type `propertyRelatedTo` per
+    /// discriminant, with `skipOptional` under strictNullChecks or
+    /// comparability), and every matched constituent must relate on its
+    /// remaining properties, signatures and (outside tuple pairs) indexes.
+    ///
+    /// Stated divergences (`docs/parity/notes/r5-relater4.md` §1):
+    /// - A source whose properties this port cannot enumerate answers
+    ///   `Unknown`.
+    /// - A matched constituent with a tuple on either side is related whole:
+    ///   native's tuple arm of propertiesRelatedTo excludes discriminant
+    ///   *positions*, which `tuples_related_to` does not take. The whole
+    ///   relation re-checks the discriminants at their full types, so its
+    ///   success is native's answer and its failure is `Unknown`.
+    /// - `isDiscriminantProperty` is computed from the constituents' member
+    ///   types (this port builds no synthetic union property with
+    ///   `CheckFlags`), as in `flow.rs`'s and `assignreport.rs`'s copies.
+    fn type_related_to_discriminated_type(
+        &mut self,
+        source: TypeId,
+        target_types: &[TypeId],
+    ) -> RelationResult {
+        let Some(source_names) = self.checker.get_property_names_of_type_shared(source) else {
+            return RelationResult::Unknown;
+        };
+        // findDiscriminantProperties (relater.go:1077), in source order.
+        let mut discriminants: Vec<(String, Vec<TypeId>)> = Vec::new();
+        for name in source_names.iter() {
+            match self.is_discriminant_property_of(target_types, name) {
+                Some(true) => {}
+                Some(false) => continue,
+                None => return RelationResult::Unknown,
+            }
+            let Some(source_type) = self.checker.get_type_of_property_of_type(source, name) else {
+                return RelationResult::Unknown;
+            };
+            if self.checker.is_error(source_type) {
+                return RelationResult::Unknown;
+            }
+            // getNonMissingTypeOfSymbol, then Distributed().
+            let source_type = if self.checker.exact_optional_property_types {
+                self.checker.remove_missing_type(source_type)
+            } else {
+                source_type
+            };
+            let types = match &self.checker.type_of(source_type).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ if self.checker.type_of(source_type).flags.contains(TypeFlags::NEVER) => {
+                    Vec::new()
+                }
+                _ => vec![source_type],
+            };
+            discriminants.push((name.clone(), types));
+        }
+        if discriminants.is_empty() {
+            return RelationResult::NotRelated;
+        }
+        // The fixed combination limit, checked before any allocation.
+        let mut combinations = 1usize;
+        for (_, types) in &discriminants {
+            combinations *= types.len();
+            if combinations > 25 || combinations == 0 {
+                return RelationResult::NotRelated;
+            }
+        }
+        let excluded: Vec<String> = discriminants.iter().map(|(name, _)| name.clone()).collect();
+        let skip_optional =
+            self.checker.strict_null_checks || self.relation == Relation::Comparable;
+        let source_properties: Vec<Option<SymbolId>> = discriminants
+            .iter()
+            .map(|(name, _)| self.checker.get_property_of_type(source, name))
+            .collect();
+        let source_member_types: Vec<Option<TypeId>> = discriminants
+            .iter()
+            .map(|(name, _)| self.checker.get_type_of_property_of_type(source, name))
+            .collect();
+        let mut matching: Vec<TypeId> = Vec::new();
+        let mut undecided = false;
+        for index in 0..combinations {
+            let mut combination = vec![self.checker.intrinsics.never; discriminants.len()];
+            let mut n = index;
+            for j in (0..discriminants.len()).rev() {
+                let types = &discriminants[j].1;
+                combination[j] = types[n % types.len()];
+                n /= types.len();
+            }
+            let mut has_match = false;
+            let mut combination_undecided = false;
+            'targets: for &t in target_types {
+                let mut constituent_undecided = false;
+                for (i, (name, _)) in discriminants.iter().enumerate() {
+                    // Existence is the member read, as in propertiesRelatedTo
+                    // here: an instantiated member may have no symbol.
+                    let Some(target_type) = self.checker.get_type_of_property_of_type(t, name)
+                    else {
+                        continue 'targets;
+                    };
+                    // `sourceProperty == targetProperty`: this port's symbols
+                    // are uninstantiated declarations, so one symbol on two
+                    // instantiations is the same property only when the
+                    // member types agree too.
+                    let target_property = self.checker.get_property_of_type(t, name);
+                    if target_property.is_some()
+                        && source_properties[i] == target_property
+                        && source_member_types[i] == Some(target_type)
+                    {
+                        continue;
+                    }
+                    let related = self.discriminant_property_related(
+                        source,
+                        t,
+                        source_properties[i],
+                        target_property,
+                        name,
+                        combination[i],
+                        skip_optional,
+                    );
+                    match related {
+                        RelationResult::NotRelated => continue 'targets,
+                        RelationResult::Unknown => constituent_undecided = true,
+                        _ => {}
+                    }
+                }
+                if constituent_undecided {
+                    combination_undecided = true;
+                    continue;
+                }
+                if !matching.contains(&t) {
+                    matching.push(t);
+                }
+                has_match = true;
+            }
+            if !has_match {
+                if combination_undecided {
+                    undecided = true;
+                    continue;
+                }
+                return RelationResult::NotRelated;
+            }
+        }
+        // Compare the remaining non-discriminant members of each match.
+        let mut parts = Vec::with_capacity(matching.len() + 1);
+        let source_tuple = self.tuple_relation_elements(source).is_some();
+        for t in matching {
+            if source_tuple || self.tuple_relation_elements(t).is_some() {
+                // The whole relation checks the discriminants too, with
+                // their full types: its success is native's, its failure is
+                // not a proof.
+                let whole = self.is_related_to(source, t);
+                if whole == RelationResult::NotRelated {
+                    parts.push(RelationResult::Unknown);
+                } else {
+                    parts.push(whole);
+                }
+                continue;
+            }
+            let properties = self.properties_related_to_excluding(source, t, false, &excluded);
+            if properties == RelationResult::NotRelated {
+                return properties;
+            }
+            let signatures = if self.call_or_construct_bearing(t) {
+                self.related_signatures(source, t).unwrap_or(RelationResult::Unknown)
+            } else {
+                RelationResult::Related
+            };
+            if signatures == RelationResult::NotRelated {
+                return signatures;
+            }
+            let indexes =
+                self.related_index_signatures(source, t).unwrap_or(RelationResult::Unknown);
+            if indexes == RelationResult::NotRelated {
+                return indexes;
+            }
+            parts.extend([properties, signatures, indexes]);
+        }
+        if undecided {
+            parts.push(RelationResult::Unknown);
+        }
+        RelationResult::all(parts)
+    }
+
+    /// isDiscriminantProperty (relater.go:1087) over the union `types`: the
+    /// synthetic property's member types (createUnionOrIntersectionProperty,
+    /// checker.go:21452, over apparent constituents) are non-uniform, one is
+    /// a literal or pattern literal, and their union is not generic. A
+    /// private or protected member in a union that does not share one
+    /// declaration yields no property (checker.go:21556). `None` when a
+    /// constituent's member cannot be typed.
+    fn is_discriminant_property_of(&mut self, types: &[TypeId], name: &str) -> Option<bool> {
+        let mut first = None;
+        let mut non_uniform = false;
+        let mut literal = false;
+        let mut members = Vec::new();
+        let mut declarations = Vec::new();
+        let mut non_public = false;
+        let mut partial = false;
+        for &part in types {
+            let part = self.checker.apparent_type(part);
+            if self.checker.is_error(part)
+                || self.checker.type_of(part).flags.contains(TypeFlags::NEVER)
+            {
+                continue;
+            }
+            let Some(member) = self.checker.get_type_of_property_of_type(part, name) else {
+                partial = true;
+                continue;
+            };
+            if self.checker.is_error(member) {
+                return None;
+            }
+            if let Some(symbol) = self.checker.get_property_of_type(part, name) {
+                non_public |=
+                    self.checker.property_has_modifier(symbol, tsr_ast::SyntaxKind::PrivateKeyword)
+                        || self
+                            .checker
+                            .property_has_modifier(symbol, tsr_ast::SyntaxKind::ProtectedKeyword);
+                declarations.push(self.checker.binder.symbols().get(symbol).value_declaration);
+            }
+            match first {
+                None => first = Some(member),
+                Some(seen) if seen != member => non_uniform = true,
+                Some(_) => {}
+            }
+            literal |=
+                self.checker.is_literal_type(member) || self.checker.is_pattern_template(member);
+            members.push(member);
+        }
+        if first.is_none() || !non_uniform || !literal {
+            return Some(false);
+        }
+        let shared_declaration = declarations
+            .first()
+            .is_some_and(|first| first.is_some() && declarations.iter().all(|d| d == first));
+        if non_public && (partial || declarations.len() > 1) && !shared_declaration {
+            return Some(false);
+        }
+        let union = self.checker.get_union_type(&members);
+        let (object, index) = self.checker.spread_generic_flags(union, &mut Vec::new());
+        Some(!object && !index)
+    }
+
+    /// propertyRelatedTo (relater.go:4270) for one discriminant, with
+    /// `getTypeOfSourceProperty` answering the combination's single type.
+    #[allow(clippy::too_many_arguments)]
+    fn discriminant_property_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        source_property: Option<SymbolId>,
+        target_property: Option<SymbolId>,
+        name: &str,
+        source_type: TypeId,
+        skip_optional: bool,
+    ) -> RelationResult {
+        if let Some(target_property) = target_property {
+            let intersection_source = self.intersection_constituents(source).is_some();
+            let source_properties = if intersection_source {
+                self.checker.intersection_property_symbols(source, name)
+            } else {
+                source_property.into_iter().collect()
+            };
+            let privacy = self.property_privacy_related(
+                &source_properties,
+                target_property,
+                intersection_source,
+            );
+            if privacy != RelationResult::Related {
+                return privacy;
+            }
+        }
+        let source_flags = self.property_flags(source, name);
+        let target_flags = self.property_flags(target, name);
+        if self.relation == Relation::StrictSubtype
+            && source_flags.is_some_and(|flags| flags.1)
+            && target_flags.is_some_and(|flags| !flags.1)
+        {
+            return RelationResult::NotRelated;
+        }
+        // isPropertySymbolTypeRelated (relater.go:4334).
+        let Some(target_type) = self.checker.get_type_of_property_of_type(target, name) else {
+            return RelationResult::Unknown;
+        };
+        let target_type = if self.checker.exact_optional_property_types {
+            self.checker.remove_missing_type(target_type)
+        } else {
+            target_type
+        };
+        let top = if self.relation == Relation::StrictSubtype {
+            TypeFlags::ANY
+        } else {
+            TypeFlags::ANY_OR_UNKNOWN
+        };
+        let related = if self.checker.type_of(target_type).flags.intersects(top) {
+            RelationResult::Related
+        } else {
+            self.is_related_to(source_type, target_type)
+        };
+        if related == RelationResult::NotRelated {
+            return related;
+        }
+        if !skip_optional && target_flags.is_some_and(|flags| !flags.0) {
+            match source_flags {
+                Some((true, _)) => return RelationResult::NotRelated,
+                None => return RelationResult::all([related, RelationResult::Unknown]),
+                _ => {}
+            }
+        }
+        related
     }
 
     /// Mapped/spread symbols keep their declaration origins while overriding
@@ -4655,6 +5033,65 @@ mod relation_cache_tests {
             assert_eq!(checker.cached_object_relation(a, c, Relation::Assignable), None);
             assert_eq!(checker.relate_ternary(c, c, Relation::Assignable), Ternary::Related);
             assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
+        });
+    }
+}
+
+#[cfg(test)]
+mod discriminated_target_tests {
+    use super::{Relation, Ternary};
+    use crate::checker::Checker;
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    fn with_annotations(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, &[crate::TypeId])) {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "discriminated.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut types = Vec::new();
+        for statement in parsed.source_file.statements {
+            let Statement::VariableStatement(statement) = statement else { continue };
+            let annotation = statement
+                .declaration_list
+                .and_then(|list| list.declarations.first().copied())
+                .and_then(|declaration| declaration.r#type)
+                .expect("type annotation");
+            types.push(checker.get_type_from_type_node(annotation));
+        }
+        test(&mut checker, &types);
+    }
+
+    /// typeRelatedToDiscriminatedType (relater.go:3989): every combination
+    /// of the source's discriminant types must match a constituent, and the
+    /// matches must accept the remaining members.
+    #[test]
+    fn a_union_discriminant_covers_a_discriminated_target() {
+        let source = "type Action = { type: 'a'; p: number } | { type: 'b'; p: number };
+            let target: Action;
+            let covers: { type: 'a' | 'b'; p: number };
+            let uncovered: { type: 'a' | 'c'; p: number };
+            let rest: { type: 'a' | 'b'; p: string };";
+        with_annotations(source, |checker, types| {
+            let (target, covers, uncovered, rest) = (types[0], types[1], types[2], types[3]);
+            assert_eq!(
+                checker.relate_ternary(covers, target, Relation::Assignable),
+                Ternary::Related
+            );
+            assert_eq!(
+                checker.relate_ternary(uncovered, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
+            assert_eq!(
+                checker.relate_ternary(rest, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
         });
     }
 }
