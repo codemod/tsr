@@ -879,14 +879,18 @@ impl Checker<'_, '_> {
         // substitution site completes the rule WITHOUT unifying the mints
         // (that unification is rock #3's prerequisite for the
         // representation work, and is deliberately not attempted here).
-        let this_minted: Vec<TypeId> =
-            self.this_types.values().chain(self.this_type_nodes.values()).copied().collect();
+        //
+        // One walk over all minted this-types decides whether any is mentioned;
+        // only then is the first mentioned one (table order) looked for.
         let property_type =
-            if property_type != this_argument && this_minted.contains(&property_type) {
+            if property_type != this_argument && self.is_minted_this_type(property_type) {
                 this_argument
             } else if property_type != this_argument
-                && let Some(minted) = this_minted
-                    .iter()
+                && self.mentions_this_type(property_type)
+                && let Some(minted) = self
+                    .this_types
+                    .values()
+                    .chain(self.this_type_nodes.values())
                     .copied()
                     .find(|&minted| self.mentions_type_parameter(property_type, &[minted], &[]))
             {
@@ -3037,13 +3041,7 @@ impl Checker<'_, '_> {
                         if self.is_error(member) || member == self.intrinsics.unresolved {
                             return None;
                         }
-                        let this_types: Vec<_> = self
-                            .this_types
-                            .values()
-                            .chain(self.this_type_nodes.values())
-                            .copied()
-                            .collect();
-                        if self.mentions_type_parameter(member, &this_types, &[]) {
+                        if self.mentions_this_type(member) {
                             // The supplier has not substituted inherited this.
                             return None;
                         }
@@ -3114,13 +3112,7 @@ impl Checker<'_, '_> {
                 if self.is_error(member) || member == self.intrinsics.unresolved {
                     return None;
                 }
-                let this_types: Vec<_> = self
-                    .this_types
-                    .values()
-                    .chain(self.this_type_nodes.values())
-                    .copied()
-                    .collect();
-                if self.mentions_type_parameter(member, &this_types, &[]) {
+                if self.mentions_this_type(member) {
                     return None;
                 }
                 names.push(name);

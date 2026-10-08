@@ -421,3 +421,20 @@ finishes last). Each step is output-preserving: same answers, less work.
 `get_type_of_property_with_this_argument` (`members.rs`) read the
 environment on every property access for a behaviour-free debugging probe
 (§829.2): `getenv` was 0.8% of checker 0. Removed with its `eprintln!`.
+
+### §15.2 C1: `mentions_type_parameter_inner` stops printing for nothing
+
+The walk's last resort renders the type and scans it for the caller's
+parameter `names`. Callers that pass no names (`mentions_registered_type_parameter`,
+the polymorphic-`this` checks) paid the render and could never match; the
+fallback now returns `false` before printing when `names` is empty.
+
+The `this` checks themselves (`get_type_of_property_with_this_argument`,
+`get_property_names_of_type`) copied every minted `this` type into a `Vec`
+per member read and, for `fn(): this` substitution, ran one full walk per
+minted `this` type. They now run one walk with `mentions_this_type`
+(membership: `TYPE_PARAMETER` flag, then the `this_types`/`this_type_nodes`
+values) and only search for the first mentioned type (same table order as
+before) when that walk says one is present. No cache or table is added; the
+answer per query is unchanged. `mentions_type_parameter_inner` fell from
+2.0% self (plus 2.7% under `access_member_lookup`) to 0.6%.

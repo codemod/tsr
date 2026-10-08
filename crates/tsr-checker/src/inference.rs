@@ -6326,6 +6326,25 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
+    /// The same graph walk with membership in this checker's minted
+    /// polymorphic `this` types (`this_types`, `this_type_nodes`). Every one is
+    /// minted with `TYPE_PARAMETER`, so the flag test answers most visits
+    /// without scanning the tables or materializing their values.
+    pub(crate) fn mentions_this_type(&self, id: TypeId) -> bool {
+        self.mentions_type_parameter_inner(
+            id,
+            &|candidate| self.is_minted_this_type(candidate),
+            &[],
+            &mut Vec::new(),
+        )
+    }
+
+    /// Whether `id` is one of this checker's minted polymorphic `this` types.
+    pub(crate) fn is_minted_this_type(&self, id: TypeId) -> bool {
+        self.store.get(id).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+            && self.this_types.values().chain(self.this_type_nodes.values()).any(|&this| this == id)
+    }
+
     /// Type-parameter identity through the type graph, including bound generic
     /// signatures. The printed fallback is retained only for shapes without
     /// structural metadata; a same-named bound parameter never matches it.
@@ -6454,6 +6473,10 @@ impl<'a> Checker<'a, '_> {
             return constituents
                 .iter()
                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
+        }
+        // With no names the printed fallback cannot match; skip the render.
+        if names.is_empty() {
+            return false;
         }
         let text = crate::printing::type_to_string(ty);
         names.iter().any(|name| mentions_identifier(&text, name))
