@@ -147,3 +147,39 @@ applied.
   `optional_tuple_check_types_preserve_named_enum_identity_and_reads` and
   `tuple_slice_optional_arguments_follow_null_and_exact_optional_options`,
   both failing identically at the baseline.
+
+## 6. The array-like road of `getIteratedTypeOrElementType` (`tsr-2zk.908`)
+
+**Forcing constraint.** `getIteratedTypeOrElementType` (`checker.go:6106`)
+consults the iteration protocol only when the program has a global
+`Iterable` (or the use allows async iterables); otherwise it takes the
+array-like road and reports `getIterationDiagnosticDetails`' message:
+TS2802 when the type is iterable after all or names an ES2015 collection,
+else TS2495 (strings allowed) or TS2461. `check_iterated_type_or_element_type`
+returned silently whenever `Iterable` was missing, so `for await (x of {})`
+under `@lib: es5` reported nothing where native reports TS2495
+(`types.forAwait.es2018.3`, 4 diagnostics).
+
+**What was ported.** `check_array_like_iteration` in `iteration.rs`: the
+async-protocol probe without an error node (return on a yield type), the
+string-constituent removal (`UnionReductionSubtype`, through
+`union_with_subtype_reduction`), `isArrayLikeType` as a three-valued
+relation to `readonly any[]`, and the message selection.
+
+**Accepted limits.** An undecided relation, protocol walk or subtype
+reduction reports nothing — the existing iteration road's policy. The
+`Did you forget to use 'await'?` related information is not attached
+(`report_type_not_iterable_error` makes the same call; the baseline
+comparison is per code and span).
+
+**Measured** (same baseline, relater diff of §1 applied): diagnostics
+4,234 → 4,235 (`types.forAwait.es2018.3` WRONG→RIGHT); no other diagnostic
+row changed in any column; type dump identical; both loss checks empty;
+perf new/old median child CPU `domain-model` 0.955, `generic-imports` 0.996
+(21 samples, `diagnostics_match: true`). The road runs only in programs
+without a global `Iterable`, which neither bench project is.
+
+**Falsifier.** A corpus case under an ES5 lib whose native baseline is
+silent on a `for…of`/spread/destructuring this road reports on would mean
+`isArrayLikeType` answers differently here (most likely a relation decided
+`NotRelated` where native relates).
