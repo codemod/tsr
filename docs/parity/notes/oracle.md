@@ -50,6 +50,13 @@ scripts/parity_gate.sh exact-candidate ~/oracle/native ~/oracle/main-<sha> ~/ora
 echo $?
 ```
 
+The overlay keys are the canonical paths of the native checkout (Go resolves
+package directories to real paths and silently ignores a key spelled through a
+symlink, so a symlinked `vendor/typescript-go` used to build a runner without
+the producer: "no tests to run"). Before building, `go list -overlay` must
+place both producer files in the packages Go compiles; otherwise `oracle-native`
+fails naming the package directory and the overlay target.
+
 Workers default to every core (`--workers N` overrides). The native directory
 is refused, not silently reused, once the pinned revisions or the Go producer
 sources change: re-run `oracle-native`. A filtered base (`--filter S`) only
