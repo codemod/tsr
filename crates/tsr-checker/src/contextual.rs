@@ -613,6 +613,48 @@ impl<'a> Checker<'a, '_> {
         ty
     }
 
+    /// `instantiateContextualType` (`checker.go:30817`) without
+    /// `ContextFlagsSignature`: during inference only the return mapper's
+    /// inferences are incorporated (`checkArrayLiteral`'s tuple-context read),
+    /// so a bare `T` stays `T` and its constraint answers through the apparent
+    /// type. `boolean`'s two literals are filtered from a union image
+    /// (#48363). The resolved-call fallback is the same recorded mapper the
+    /// signature form reads. No state.
+    pub(crate) fn instantiate_contextual_type_without_signature(
+        &mut self,
+        ty: TypeId,
+        node: NodeId,
+    ) -> TypeId {
+        if self.contextual_prefers_uninstantiated {
+            return ty;
+        }
+        if self.live_inference_context(node).is_some() {
+            if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                if !self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    if let TypeData::Union { types, .. } = &self.store.get(image).data
+                        && types.contains(&self.intrinsics.regular_true)
+                        && types.contains(&self.intrinsics.regular_false)
+                    {
+                        let (t, f) = (self.intrinsics.regular_true, self.intrinsics.regular_false);
+                        let kept: Vec<_> =
+                            types.iter().copied().filter(|&m| m != t && m != f).collect();
+                        return self.get_union_type_without_reduction(&kept);
+                    }
+                    return image;
+                }
+            }
+            return ty;
+        }
+        self.instantiate_contextual_inference_type(ty, node)
+    }
+
     /// getApparentTypeOfContextualType maps union operands while preserving
     /// mapped templates. An unconstrained instantiable type has unknown as its
     /// apparent type, hence no contextual call signature.

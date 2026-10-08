@@ -415,3 +415,29 @@ only fill an empty slot, so `getTypeOfSymbol`'s first-declaration answer is
 kept (`lastPropertyInLiteralWins`). Native control (tsgo `.types`):
 `id({ test: true })` -> `test : true`; `{ plain: true }` -> `plain : boolean`;
 `{ dup: 1, dup: "x" }` -> `dup : number` twice. No new state; no extra work.
+
+## 18. Array-literal tuple context reads the written argument parameter (tsr-2zk.16.93)
+
+`checkArrayLiteral`'s `inTupleContext` (`checker.go:8029`) asks
+`getApparentTypeOfContextualType(node, ContextFlagsNone)`. During the first
+inference pass the argument's contextual type is the written parameter type;
+`instantiateContextualType` (`checker.go:30817`) without
+`ContextFlagsSignature` maps it only through the return mapper, and the
+apparent type of a bare `T` is its constraint. So
+`one<T extends readonly unknown[] | []>([a, b])` is a tuple context through
+`[]` and records `[number[], string[]]`; `arr<T extends readonly unknown[]>`
+stays `(string[] | number[])[]` (tsgo diagnostics, both controls). This port's
+stateless argument road had already fixed `T` to `unknown`.
+`array_literal_has_a_tuple_contextual_type` now re-reads a direct call
+argument (no written type arguments) through `contextual_prefers_uninstantiated`
+and `instantiate_contextual_type_without_signature` (new; return mapper only,
+`boolean` literals filtered, resolved-call fallback unchanged). The previous
+mapped-type-only re-read is subsumed. No state.
+
+Blocked (reported): an OVERLOADED callee (`Promise.all`, most of 16.93's
+rows) reads `any` here because the call is resolving (§469); upstream checks
+the argument per candidate in `chooseOverload`. `isTupleLikeType`
+(`checker.go:23544`, 16.80) is ported in a held patch: the `RegExpMatchArray`
+context mints `[]`, and `removeSubtypes` then declines on the relater's
+unported tuple-source/interface-target pair (`[] -> RegExpMatchArray`,
+`NoMembersTable`), losing 19 bestChoiceType rows.
