@@ -1,0 +1,132 @@
+diff --git a/crates/tsr-checker/src/debug_env.rs b/crates/tsr-checker/src/debug_env.rs
+new file mode 100644
+index 0000000..9463f63
+--- /dev/null
++++ b/crates/tsr-checker/src/debug_env.rs
+@@ -0,0 +1,31 @@
++//! Developer trace switches, read from the environment once per process.
++//!
++//! The checker's diagnostic probes (`TSR_PROJ_TRACE`, `TSR_CTX_DEBUG`, …) sit
++//! on hot paths: `TSR_PROJ_TRACE` alone was tested on every property read,
++//! 95,917 `std::env::var` calls and 2.5% of all instructions on a 100-module
++//! project (`docs/parity/notes/perf.md` §8 C2). `std::env::var` takes the
++//! process environment lock and scans every variable, and it allocates the
++//! value. These switches are only ever set when the process starts, so one
++//! read is equivalent. No typescript-go counterpart: these are port-only
++//! probes and do not affect output.
++
++use std::sync::OnceLock;
++
++/// Every switch read through [`var`]. A name missing here is a programming
++/// error caught in debug builds.
++const NAMES: [&str; 5] =
++    ["TSR_PROJ_TRACE", "TSR_CTX_DEBUG", "TSR_TRACE_LOOP", "TSR_DBG", "TSR_DEBUG_832"];
++
++/// The value of the developer switch `name`, read once per process.
++pub(crate) fn var(name: &'static str) -> Option<&'static str> {
++    static VALUES: OnceLock<[Option<String>; NAMES.len()]> = OnceLock::new();
++    let values = VALUES.get_or_init(|| NAMES.map(|name| std::env::var(name).ok()));
++    let index = NAMES.iter().position(|&known| known == name);
++    debug_assert!(index.is_some(), "unregistered debug switch {name}");
++    values[index?].as_deref()
++}
++
++/// Whether the developer switch `name` is set.
++pub(crate) fn is_set(name: &'static str) -> bool {
++    var(name).is_some()
++}
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index f2fee78..f55cf7b 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8045,7 +8045,7 @@ impl<'a> Checker<'a, '_> {
+             crate::relater::Ternary::Unknown => return None,
+             crate::relater::Ternary::Related => {}
+         }
+-        if std::env::var("TSR_DBG").is_ok() {
++        if crate::debug_env::is_set("TSR_DBG") {
+             let n = self.get_property_names_of_type(restrictive);
+             let t = self.get_type_of_property_of_type(restrictive, "name");
+             eprintln!(
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index 5ce3389..68d17f9 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -3319,7 +3319,7 @@ impl Checker<'_, '_> {
+                 back
+             };
+             state.depth = depth_mark;
+-            if std::env::var("TSR_TRACE_LOOP").is_ok() {
++            if crate::debug_env::is_set("TSR_TRACE_LOOP") {
+                 eprintln!(
+                     "  LOOPANTE key={key:?} t={:?} incomplete={}",
+                     flow_type.t, flow_type.incomplete
+@@ -3385,7 +3385,7 @@ impl Checker<'_, '_> {
+         };
+         let result = self.recombine_unknown_type(result);
+         let incomplete = first.is_some_and(|f| f.incomplete);
+-        if std::env::var("TSR_TRACE_LOOP").is_ok() {
++        if crate::debug_env::is_set("TSR_TRACE_LOOP") {
+             eprintln!(
+                 "LOOP key={key:?} types={types:?} subtype_red={subtype_reduction} result={result:?} incomplete={incomplete}"
+             );
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index a909a62..69483b3 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -103,6 +103,7 @@ pub mod assertion_overlap;
+ pub mod assertions;
+ mod assignment_declarations;
+ pub mod assignreport;
++mod debug_env;
+ pub mod binary;
+ mod binding_patterns;
+ pub mod call_arity;
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 5009264..9023ad2 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1275,7 +1275,7 @@ impl Checker<'_, '_> {
+         // the projection has in hand for one property name, so the 193-line
+         // "the property TYPES; the projection fails" bucket can be told apart
+         // from the already-refused inference legs. Behaviour-free.
+-        if std::env::var("TSR_PROJ_TRACE").ok().as_deref() == Some(name) {
++        if crate::debug_env::var("TSR_PROJ_TRACE") == Some(name) {
+             let reference = self.type_reference_targets.get(&id).cloned();
+             let arguments = reference.as_ref().map(|(_, args)| {
+                 args.iter()
+diff --git a/crates/tsr-checker/src/optionality.rs b/crates/tsr-checker/src/optionality.rs
+index dbf13a1..4c69bdf 100644
+--- a/crates/tsr-checker/src/optionality.rs
++++ b/crates/tsr-checker/src/optionality.rs
+@@ -99,7 +99,7 @@ impl Checker<'_, '_> {
+         ty: TypeId,
+         declaration: NodeId,
+     ) -> TypeId {
+-        if std::env::var("TSR_DEBUG_832").is_ok() {
++        if crate::debug_env::is_set("TSR_DEBUG_832") {
+             eprintln!(
+                 "832: add_optionality_for_declaration kind={:?} optional={}",
+                 self.nodes.kind(declaration),
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 34c6865..f4bf3dc 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -4100,7 +4100,7 @@ impl<'a> Checker<'a, '_> {
+                 }
+             }
+         }
+-        if std::env::var("TSR_CTX_DEBUG").is_ok() {
++        if crate::debug_env::is_set("TSR_CTX_DEBUG") {
+             eprintln!(
+                 "DISCRIM: {} discriminators, eliminated_any={eliminated_any}, include={include:?}",
+                 discriminators.len()
+@@ -4358,7 +4358,7 @@ impl<'a> Checker<'a, '_> {
+                 // resolve). Reentrancy-guarded: typing the callee from
+                 // inside a member-symbol computation can recurse.
+                 SyntaxKind::CallExpression => {
+-                    let debug = std::env::var("TSR_CTX_DEBUG").is_ok();
++                    let debug = crate::debug_env::is_set("TSR_CTX_DEBUG");
+                     let Some(Node::CallExpression(call)) = self.node_map.get(holder) else {
+                         return None;
+                     };

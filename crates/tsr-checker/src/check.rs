@@ -364,7 +364,8 @@ impl Checker<'_, '_> {
                         self.check_enum_member_name(at);
                         self.check_computed_enum_member_initializer(at, ambient);
                         self.check_const_enum_member_value(at);
-                        self.check_enum_member_forward_references(at, ambient);
+                        self.check_enum_member_forward_references(at);
+                        self.check_enum_member_auto_value(at);
                     }
                 }
                 self.check_reserved_enum_name(declaration);
@@ -625,6 +626,7 @@ impl Checker<'_, '_> {
             }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {
                 self.check_assertion_overlap(node, ambient);
+                self.check_const_assertion_argument(node);
                 ambient
             }
             Node::MetaProperty(_) => {
@@ -937,6 +939,9 @@ impl Checker<'_, '_> {
         self.check_strict_mode_eval_or_arguments_sites(node, typed, ambient);
         if matches!(typed, Node::DeleteExpression(_)) {
             self.check_strict_mode_delete_expression(node);
+        }
+        if matches!(typed, Node::WithStatement(_)) {
+            self.check_with_statement_grammar(node);
         }
         self.check_contextual_identifier(node, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));

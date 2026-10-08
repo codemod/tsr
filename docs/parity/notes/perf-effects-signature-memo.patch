@@ -1,0 +1,158 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index cc9dbc0..121fd7d 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -1089,6 +1089,13 @@ pub struct Checker<'a, 'n> {
+     pub(crate) circularity_reported: rustc_hash::FxHashSet<NodeId>,
+     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
+     /// None marks an active or unsupported class constructor resolution.
++    /// `signatureLinks.effectsSignature` (`checker.go`, `getEffectsSignature`):
++    /// call-expression node -> its effects signature, `None` for a call that
++    /// has none. Private to this Checker; holds only answers computed outside
++    /// any active resolution, flow loop or mapper frame, from a non-generic
++    /// or decidably effect-free callee. Contract: `docs/parity/notes/perf.md`
++    /// §12 C6.
++    pub(crate) effects_signatures: FxHashMap<NodeId, Option<crate::signatures::Signature>>,
+     pub(crate) class_construct_signatures:
+         FxHashMap<SymbolId, Option<Vec<crate::signatures::Signature>>>,
+     /// `(baked signature type, substitution map) -> the instantiated type`,
+@@ -1526,6 +1533,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             pending_signature_returns: FxHashMap::default(),
+             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
+             circularity_reported: rustc_hash::FxHashSet::default(),
++            effects_signatures: FxHashMap::default(),
+             class_construct_signatures: FxHashMap::default(),
+             instantiated_signatures: FxHashMap::default(),
+             instantiated_signature_mappers: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index 5ce3389..13319b6 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -2719,7 +2719,10 @@ impl Checker<'_, '_> {
+     /// carries, or `None` when the call has none.
+     ///
+     /// Upstream caches this per node in `signatureLinks.effectsSignature`;
+-    /// this port recomputes — the walk memoises per flow node already.
++    /// so does this port, in [`Checker::effects_signatures`], for answers that
++    /// cannot be provisional (see [`Self::effects_signature_publishable`]).
++    /// Every flow walk crossing a call statement asks again: 107,654 requests,
++    /// 7.8% of all instructions on a 100-module project before the memo.
+     /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
+     /// `instanceof` flow-call nodes in this binder).
+     fn get_effects_signature(
+@@ -2727,8 +2730,41 @@ impl Checker<'_, '_> {
+         call_node: NodeId,
+         call: &tsr_ast::CallExpression<'_>,
+     ) -> Option<crate::signatures::Signature> {
+-        let callee = call.expression?;
+-        let callee_id = callee.node_id()?;
++        let quiescent = self.effects_signature_publishable();
++        if quiescent && let Some(cached) = self.effects_signatures.get(&call_node) {
++            return cached.clone();
++        }
++        let (signature, decided) = self.get_effects_signature_worker(call_node, call);
++        if quiescent && decided {
++            self.effects_signatures.insert(call_node, signature.clone());
++        }
++        signature
++    }
++
++    /// Whether an effects answer computed now is final. Native publishes
++    /// `effectsSignature` unconditionally; this port's callee typing can
++    /// return provisional answers inside an active resolution (a circular
++    /// read answers error), inside a flow loop (an incomplete loop type) or
++    /// under an alias/mapper/print frame, so those neither read nor publish.
++    fn effects_signature_publishable(&self) -> bool {
++        self.resolutions.depth() == 0
++            && self.flow_loop_stack.is_empty()
++            && self.alias_evaluation_bindings.is_empty()
++            && self.mapped_template_depth == 0
++            && !self.identity_unmapped_type_parameters
++    }
++
++    /// [`Self::get_effects_signature`]'s computation, and whether its answer is
++    /// decided: a non-generic signature, or a callee proven to carry no
++    /// effects. An error callee, an unbuilt signature set and a generic
++    /// instantiation are recomputed on every request, as before the memo.
++    fn get_effects_signature_worker(
++        &mut self,
++        call_node: NodeId,
++        call: &tsr_ast::CallExpression<'_>,
++    ) -> (Option<crate::signatures::Signature>, bool) {
++        let Some(callee) = call.expression else { return (None, false) };
++        let Some(callee_id) = callee.node_id() else { return (None, false) };
+         // Native signatures retain lazy returns when checking effects. This
+         // port still materializes vectors, so prove the negative before any
+         // callee typing; no provisional return can leak to a cold helper's
+@@ -2743,16 +2779,19 @@ impl Checker<'_, '_> {
+             )
+             && self.function_symbol_has_no_effects(symbol)
+         {
+-            return None;
++            return (None, true);
+         }
+         let parent_is_statement = self
+             .nodes
+             .parent(call_node)
+             .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ExpressionStatement);
+         let func_type = if parent_is_statement {
+-            self.get_type_of_dotted_name(callee_id)?
++            let Some(func_type) = self.get_type_of_dotted_name(callee_id) else {
++                return (None, false);
++            };
++            func_type
+         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
+-            return None;
++            return (None, true);
+         } else {
+             // `checkNonNullExpression(node.Expression())`. The optional-chain
+             // arm (`getOptionalExpressionType`) is not split out: this
+@@ -2761,23 +2800,29 @@ impl Checker<'_, '_> {
+             self.check_expression(callee)
+         };
+         if func_type == self.intrinsics.error {
+-            return None;
++            return (None, false);
+         }
+         let apparent = self.apparent_type(func_type);
+-        let signatures = self.call_signatures_of_type(apparent)?;
++        let Some(signatures) = self.call_signatures_of_type(apparent) else {
++            return (None, false);
++        };
+         let signature = if signatures.len() == 1 && signatures[0].type_parameters.is_empty() {
+-            signatures.into_iter().next()?
++            let Some(signature) = signatures.into_iter().next() else { return (None, false) };
++            signature
+         } else if signatures.iter().any(|s| self.has_type_predicate_or_never_return(s)) {
+-            self.resolve_call_signature_with_type_arguments(
++            let Some(signature) = self.resolve_call_signature_with_type_arguments(
+                 func_type,
+                 Some(call.arguments),
+                 !call.type_arguments.is_empty(),
+-            )?
++            ) else {
++                return (None, false);
++            };
++            signature
+         } else {
+-            return None;
++            return (None, true);
+         };
+         if !self.has_type_predicate_or_never_return(&signature) {
+-            return None;
++            return (None, true);
+         }
+         if !signature.type_parameters.is_empty() {
+             let mut instantiated = None;
+@@ -2787,9 +2832,9 @@ impl Checker<'_, '_> {
+                 call.arguments,
+                 Some(&mut instantiated),
+             );
+-            return instantiated;
++            return (instantiated, false);
+         }
+-        Some(signature)
++        (Some(signature), true)
+     }
+ 
+     /// `hasTypePredicateOrNeverReturnType` (`flow.go:2211`): a predicate, or

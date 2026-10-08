@@ -8,9 +8,11 @@ use tsr_ast::{
     Expression, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxTagNameExpression, Node,
     NodeId,
 };
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
+use crate::flags::TypeFlags;
 use crate::relater::{Relation, Ternary};
 use crate::signatures::SignatureKind;
 use crate::types::TypeId;
@@ -36,8 +38,9 @@ impl Checker<'_, '_> {
     ///
     /// - an intrinsic tag: its fake signature returns `JSX.Element`, which
     ///   the `Mixed` bound always accepts;
-    /// - a `JSX.ElementType` in scope: upstream takes the other branch
-    ///   (`elementTypeConstraint`, tag type against it), not ported here;
+    /// - a `JSX.ElementType` in scope: upstream takes the other branch,
+    ///   [`Checker::check_jsx_element_type_constraint`], for every tag
+    ///   (intrinsic included);
     /// - overloads, or a union tag: the resolved candidate is `resolveCall`'s
     ///   choice (calls lane);
     /// - an error return type or bound: `errorType` relates to everything.
@@ -48,16 +51,18 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(tag) = tag else { return };
-        if let JsxTagNameExpression::Identifier(name) = tag
-            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
-        {
-            return;
-        }
         if matches!(tag, JsxTagNameExpression::JsxNamespacedName(_)) {
             return;
         }
         let Some(tag_id) = tag.node_id() else { return };
-        if self.jsx_type_symbol(node, "ElementType").is_some() {
+        self.check_jsx_signatureless_tag(tag, tag_id);
+        if let Some(constraint) = self.jsx_element_type_type_at(node) {
+            self.check_jsx_element_type_constraint(tag, tag_id, constraint);
+            return;
+        }
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
+        {
             return;
         }
         let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
@@ -85,6 +90,194 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(&messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT, span, [text]),
         );
+    }
+
+    /// `resolveJsxOpeningLikeElement`'s no-signature arm (`jsx.go:566-581`)
+    /// for a value tag whose type is neither `string` nor a string literal
+    /// (those arms are `getUninstantiatedJsxSignaturesOfType`'s first two,
+    /// the literal one ported as [`Checker::check_jsx_string_literal_tag`]):
+    /// with an apparent type that is not `errorType`, an empty uninstantiated
+    /// signature list that is not an untyped call (`isUntypedFunctionCall`
+    /// with no construct count) reports TS2604 on the tag name.
+    ///
+    /// The list is [`Checker::jsx_uninstantiated_signatures_are_empty`]'s
+    /// answer; every list this port cannot complete declines, so a missing
+    /// signature producer costs a missing TS2604, never a false one.
+    fn check_jsx_signatureless_tag(&mut self, tag: JsxTagNameExpression<'_>, tag_id: NodeId) {
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
+        {
+            return;
+        }
+        let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+        let tag_type = self.check_expression(expression);
+        if self.store.get(tag_type).flags.intersects(TypeFlags::STRING | TypeFlags::STRING_LITERAL)
+        {
+            return;
+        }
+        let apparent = self.apparent_type(tag_type);
+        if self.is_error(apparent) || self.is_error(tag_type) {
+            return;
+        }
+        // `isUntypedFunctionCall`'s list-free arms (`checker.go:9935`).
+        let any = |checker: &Self, t: TypeId| checker.store.get(t).flags.intersects(TypeFlags::ANY);
+        if any(self, tag_type)
+            || any(self, apparent)
+                && self.store.get(tag_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+        {
+            return;
+        }
+        if self.jsx_uninstantiated_signatures_are_empty(tag_type) != Some(true) {
+            return;
+        }
+        // The signature-less arm: not a union, not reducing to `never`, and
+        // not assignable to the global `Function`.
+        if !self.store.get(apparent).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
+            && !self.intersection_has_never_discriminant(apparent)
+        {
+            let Some(function) = self.global_type_symbol_with_arity("Function", 0) else { return };
+            let function = self.get_declared_type_of_symbol(function);
+            if self.is_error(function)
+                || self.relate_ternary(tag_type, function, Relation::Assignable)
+                    != Ternary::NotRelated
+            {
+                return;
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
+        let span = self.error_span(tag_id);
+        let text = self.jsx_tag_text(tag_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::JSX_ELEMENT_TYPE_0_DOES_NOT_HAVE_ANY_CONSTRUCT_OR_CALL_SIGNATURES,
+                span,
+                [text],
+            ),
+        );
+    }
+
+    /// Whether `getUninstantiatedJsxSignaturesOfType` (`jsx.go:898`) answers
+    /// an empty list for a non-string tag type: the apparent type's construct
+    /// signatures, else its call signatures, else — for a union — the union
+    /// of each constituent's list, which `getUnionSignatures`
+    /// (`checker.go:21112`) makes empty as soon as one constituent's list is.
+    /// `None` when a list is unresolved, a constituent is a string or string
+    /// literal (the intrinsic-table arm), or every constituent has
+    /// signatures (whether they combine is `getUnionSignatures`' matching,
+    /// not answered here).
+    fn jsx_uninstantiated_signatures_are_empty(&mut self, tag_type: TypeId) -> Option<bool> {
+        if self.store.get(tag_type).flags.intersects(TypeFlags::STRING | TypeFlags::STRING_LITERAL)
+        {
+            return None;
+        }
+        // A qualified reference to a type alias is minted as a print-only
+        // named type whose member table is the ALIAS symbol
+        // (`declared.rs`, QUALIFIED-TYPEREF mint); the signature resolver
+        // reads no call or construct member from a type-alias declaration and
+        // answers a complete empty list that is not upstream's
+        // (`React.SFC` in `reactSFCAndFunctionResolvable`). Not evidence.
+        // Removable once that list answers `None` or the reference resolves
+        // through `getTypeReferenceType` (`docs/parity/notes/r4-jsx.md` §2).
+        let apparent = self.apparent_type(tag_type);
+        if let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(apparent).data
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        if !self.signatures_of_type_kind(tag_type, SignatureKind::Construct)?.is_empty()
+            || !self.call_signatures_of_type(tag_type)?.is_empty()
+        {
+            return Some(false);
+        }
+        let crate::types::TypeData::Union { types, .. } = self.store.get(apparent).data.clone()
+        else {
+            return Some(true);
+        };
+        let mut any_empty = false;
+        for part in types {
+            any_empty |= self.jsx_uninstantiated_signatures_are_empty(part)?;
+        }
+        any_empty.then_some(true)
+    }
+
+    /// The `elementTypeConstraint` branch of
+    /// `checkJsxOpeningLikeElementOrOpeningFragment` (`jsx.go:140-150`): with
+    /// `JSX.ElementType` in scope, the tag's type — the tag name as a string
+    /// literal for an intrinsic tag (`isJsxIntrinsicTagName`), else
+    /// `checkExpression(tagName)` — is related to it, and a failure reports
+    /// TS2786 on the tag name chained over `Its type '{0}' is not a valid JSX
+    /// element type.` (the relation's own elaboration under that head is not
+    /// modelled). Only a definite `NotRelated` reports; an undecided relation
+    /// declines.
+    fn check_jsx_element_type_constraint(
+        &mut self,
+        tag: JsxTagNameExpression<'_>,
+        tag_id: NodeId,
+        constraint: TypeId,
+    ) {
+        let tag_type = match tag {
+            JsxTagNameExpression::Identifier(name)
+                if crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text) =>
+            {
+                self.store.intern_literal(
+                    crate::flags::TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.text.to_owned()),
+                    false,
+                )
+            }
+            _ => {
+                let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+                self.check_expression(expression)
+            }
+        };
+        if self.is_error(tag_type)
+            || self.relate_ternary(tag_type, constraint, Relation::Assignable)
+                != Ternary::NotRelated
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
+        let span = self.error_span(tag_id);
+        let detail = Diagnostic::with_args(
+            &messages::ITS_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT_TYPE,
+            span,
+            [self.type_to_string(tag_type)],
+        );
+        let text = self.jsx_tag_text(tag_id);
+        self.report(
+            file,
+            Diagnostic::new_chain(
+                Some(detail),
+                &messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT,
+                [text],
+            ),
+        );
+    }
+
+    /// `getJsxElementTypeTypeAt` (`jsx.go:1279`): `JSX.ElementType`
+    /// (`getJsxElementTypeSymbol`, a type-meaning export of the JSX
+    /// namespace) through `instantiateAliasOrInterfaceWithDefaults`
+    /// (`jsx.go:1032`) with no written arguments — every type parameter
+    /// takes its default. `None` when absent or `errorType`, as upstream;
+    /// also `None` where this port cannot fill the defaults
+    /// ([`Checker::instantiated_heritage_base`] declines), which skips the
+    /// check rather than taking the other branch.
+    pub(crate) fn jsx_element_type_type_at(&mut self, location: NodeId) -> Option<TypeId> {
+        let symbol = self.jsx_type_symbol(location, "ElementType")?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            let target = self.resolve_alias_fully(symbol);
+            self.binder.merged_symbol(target)
+        } else {
+            symbol
+        };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return None;
+        }
+        let ty = self.instantiated_heritage_base(symbol, &[], Some(location))?;
+        (!self.is_error(ty)).then_some(ty)
     }
 
     /// `resolveJsxOpeningLikeElement`'s string-literal arm (`jsx.go:544-583`
@@ -258,6 +451,21 @@ impl Checker<'_, '_> {
     /// signatures on the apparent type make a component, call signatures a
     /// function. `None` when a signature list is unresolved.
     fn jsx_reference_kind(&mut self, tag_type: TypeId) -> Option<JsxReferenceKind> {
+        // A qualified reference to a type alias is minted as a print-only
+        // named type whose member table is the ALIAS symbol
+        // (`declared.rs`, QUALIFIED-TYPEREF mint); the signature resolver
+        // reads no call or construct member from a type-alias declaration and
+        // answers a complete empty list that is not upstream's
+        // (`React.SFC` in `reactSFCAndFunctionResolvable`). Not evidence.
+        // Removable once that list answers `None` or the reference resolves
+        // through `getTypeReferenceType` (`docs/parity/notes/r4-jsx.md` §2).
+        let apparent = self.apparent_type(tag_type);
+        if let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(apparent).data
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
         if !self.signatures_of_type_kind(tag_type, SignatureKind::Construct)?.is_empty() {
             return Some(JsxReferenceKind::Component);
         }
