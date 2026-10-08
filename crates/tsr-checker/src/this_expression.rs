@@ -177,7 +177,9 @@ impl Checker<'_, '_> {
         let Some(Node::BinaryExpression(assignment)) = self.node_map.get(parent) else {
             return false;
         };
-        if assignment.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
+        // `ast.IsAssignmentExpression(parent, false)`: compound assignments
+        // (`??=`, `+=`, …) count too.
+        if assignment.operator_token.is_none_or(|token| !token.kind.is_assignment_operator()) {
             return false;
         }
         let receiver = match assignment.left {

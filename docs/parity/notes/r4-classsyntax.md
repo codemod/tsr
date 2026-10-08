@@ -79,3 +79,15 @@ this arm then reports. The fix is the parser's (type predicates in
 `parseType`), not a decline here: native runs `checkParameter` on files with
 parse errors too, and `thisTypeInFunctionsNegative`'s own fixed lines sit in
 such a file.
+
+## §4 Contextual `this` for compound assignment (`??=`, `||=`, …)
+
+`getContextualThisParameterType` (`checker.go`) types `this` in
+`obj.xxx = function () {…}` as `obj` when
+`ast.IsAssignmentExpression(parent, false)`: *any* assignment operator,
+compound included. `this_expression.rs`'s shape test accepted only `=`, so
+`Element.prototype.remove ??= function () { this… }` reported TS2683 under
+`noImplicitThis`. It now asks `is_assignment_operator()`.
+
+Measured: `thisPrototypeMethodCompoundAssignment` and its `Js` twin lose
+two wrong TS2683 lines each.
