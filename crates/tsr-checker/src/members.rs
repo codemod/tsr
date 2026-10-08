@@ -2652,12 +2652,7 @@ impl Checker<'_, '_> {
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
             } && !self.module_value_clones.contains_key(&id);
-            let has_call = self
-                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
-                .is_some_and(|signatures| !signatures.is_empty());
-            let has_construct = self
-                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Construct)
-                .is_some_and(|signatures| !signatures.is_empty());
+            let (has_call, has_construct) = self.receiver_signature_kinds(id);
             if has_call || has_construct {
                 let all_construct = !has_call;
                 // §846: `CallableFunction`/`NewableFunction` are
