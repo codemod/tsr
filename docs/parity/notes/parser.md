@@ -520,3 +520,7 @@ per-file flag must become per-node.
   function type, the parse commits; a missing `=>` is reported by
   `parseReturnType` and the return type parsed anyway, instead of falling
   back to a parenthesized type (`x: ()` is `'=>' expected`).
+- `for await` (`parseForOrForInOrForOfStatement`): after `await` the `of` is
+  `parseExpected` (TS1005 `'of' expected`), then `in` may still make a
+  for-in, which carries no `await` token. `'{0}' expected` spells a keyword
+  as its text (`scanner.TokenToString`), not its kind name.
