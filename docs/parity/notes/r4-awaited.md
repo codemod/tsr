@@ -177,3 +177,31 @@ the case stays WRONG on an extra TS2349 at `result()` after
 
 **Falsifier.** A placeholder awaited as its declared type where native keeps
 the deferred reference, or a gap on a repeat native resolves.
+
+## 5. `checkReturnStatement`'s async arm — a measured patch for `assignreport.rs`
+
+**Forcing constraint.** `checkReturnStatement` (`:4086`) relates an async
+function's returned value against `unwrapReturnType` — the annotation's
+`getAwaitedTypeNoAlias` (`:20388`) — after `checkReturnExpression` replaces
+the operand's type by `checkAwaitedType(exprType, false, node, TS1058)`
+(`:4146`). `assignreport.rs`'s `return_type_from_annotation` declined every
+async container, because the awaited type of a generic alias was wrong (§1
+fixed it). `assignreport.rs` is not this lane's file, so the arm is delivered
+as [`r4-awaited-async-return.diff`](r4-awaited-async-return.diff) (against
+`37c6443`), not committed as code.
+
+**What the patch does.** `return_type_from_annotation` answers
+`(returnType, unwrappedReturnType, isAsync)`: an async function's target is
+`awaited_type_no_alias` of its annotation (a gap or native `nil` declines —
+`nil` would be an `errorType` target that relates to everything); the raw
+`returnType` keeps the non-strict "bare `return` against `never`" test
+reading the annotation, as native's `returnType.flags&TypeFlagsNever` does.
+`check_return_expression` gains `is_async` and relates
+`check_awaited_type(source, false, node, TS1058)`, declining on a gap. The
+concise-body arrow arm does the same for an async arrow.
+
+**Measured** (box baseline `554211e` + this lane through `37c6443`, patch
+applied, both dumps unfiltered): diagnostics +3 —
+`compiler/asyncFunctionReturnExpressionErrorSpans`,
+`compiler/promiseEmptyTupleNoException`, `conformance/asyncImportedPromise_es6`
+— types unchanged; both loss checks empty.
