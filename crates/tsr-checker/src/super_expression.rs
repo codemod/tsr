@@ -475,7 +475,7 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(message, span));
     }
 }
-#[allow(dead_code)]
+
 impl Checker<'_, '_> {
     /// `checkPropertyAccessibilityAtLocation`'s `isSuper` arm
     /// (`checker.go:11788`): a `super.x` access may not name an abstract
