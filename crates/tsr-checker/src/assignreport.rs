@@ -78,6 +78,15 @@ enum ExcessProperties {
     Incompatible,
 }
 
+/// [`Checker::union_array_literal_target_element`]'s memo of
+/// `getBestMatchingType`, asked at most once per array literal.
+#[derive(Clone, Copy)]
+enum BestMatch {
+    Unasked,
+    /// Upstream's answer: a constituent, or nil.
+    Chosen(Option<TypeId>),
+}
+
 /// [`Checker::union_object_literal_failure`]'s answer.
 enum UnionLiteralFailure {
     /// The check ends here; whether it reported.
@@ -2876,6 +2885,19 @@ impl<'a> Checker<'a, '_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
+        self.elaborate_element_with(prop, next, source, target, None)
+    }
+
+    /// [`Checker::elaborate_element`] with `elaborateElement`'s
+    /// `errorMessage`, the head of the report at `prop`.
+    fn elaborate_element_with(
+        &mut self,
+        prop: NodeId,
+        next: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> bool {
         // getBestMatchIndexedAccessTypeOrUndefined: no elaboration into an
         // index on a generic variable.
         if self.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
@@ -2890,7 +2912,24 @@ impl<'a> Checker<'a, '_> {
         if self.diagnostics.len() != before {
             return true;
         }
-        self.report_assignability_failure(prop, source_node, source, target)
+        let span = self.error_span(prop);
+        self.report_relation_failure(prop, span, Some(source_node), source, target, head)
+    }
+
+    /// Whether a computed property name's expression is a string or numeric
+    /// literal (the negation of `ast.IsComputedNonLiteralName`).
+    fn computed_name_is_literal(&self, name: NodeId) -> bool {
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return false;
+        };
+        matches!(
+            computed.expression,
+            Some(
+                tsr_ast::Expression::StringLiteral(_)
+                    | tsr_ast::Expression::NumericLiteral(_)
+                    | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+            )
+        )
     }
 
     /// `elaborateObjectLiteral` (`relater.go:498`): each named member is an
@@ -2909,8 +2948,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// [`Checker::elaborate_object_literal`], answering `None` where this port
-    /// cannot decide what upstream would elaborate: a spread member, or a
-    /// union member whose `getBestMatchIndexedAccessTypeOrUndefined` needs a
+    /// cannot decide what upstream would elaborate: a union member whose `getBestMatchIndexedAccessTypeOrUndefined` needs a
     /// `getBestMatchingType` choice this port cannot make. Every member's
     /// target type is settled before anything is reported, so a `None` never
     /// follows a partial report.
@@ -2929,13 +2967,9 @@ impl<'a> Checker<'a, '_> {
         if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return Some(false);
         }
-        // A spread contributes properties this port cannot enumerate — the same
-        // decline `check_excess_properties` makes, for the same reason.
-        if literal.properties.iter().any(|property| {
-            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
-        }) {
-            return None;
-        }
+        // A spread member is skipped (`ast.IsSpreadAssignment`); each written
+        // member's source type is read from the final literal type, so a key a
+        // later spread overrides compares the spread's property.
         let is_union = self.type_of(target).flags.contains(TypeFlags::UNION);
         let mut members = Vec::with_capacity(literal.properties.len());
         for property in literal.properties {
@@ -2962,9 +2996,25 @@ impl<'a> Checker<'a, '_> {
             };
             let Some(name_id) = name else { continue };
             // `getLiteralTypeFromProperty(…, StringOrNumberLiteralOrUnique)` —
-            // a computed non-literal name yields no usable name type and
-            // upstream `continue`s.
-            let Some(name) = self.identifier_text(name_id).map(str::to_string) else { continue };
+            // a computed name whose type is no literal or unique symbol
+            // yields no usable name type and upstream `continue`s.
+            let computed = self.nodes.kind(name_id) == SyntaxKind::ComputedPropertyName;
+            let Some((name, key)) = (match self.object_literal_member_name(name_id) {
+                Ok(name) => name,
+                Err(()) if computed => continue,
+                Err(()) => return None,
+            }) else {
+                continue;
+            };
+            // `ast.IsComputedNonLiteralName`: the property assignment's
+            // report reads TS2418.
+            let head = (computed && next.is_some() && !self.computed_name_is_literal(name_id))
+                .then_some(
+                &messages::TYPE_OF_COMPUTED_PROPERTY_S_VALUE_IS_0_WHICH_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+            );
+            if computed && is_union {
+                continue;
+            }
             // The indexed-access result uses the concrete target receiver.
             // Reading the declaration symbol alone loses its mapper, so a
             // member declared as T on C<number> would be compared against T.
@@ -2973,23 +3023,31 @@ impl<'a> Checker<'a, '_> {
             // TS2353's row.
             let target_property_type = if is_union {
                 self.union_member_target_type(source, target, name_id, &name).ok()?
+            } else if let Some(key) = key {
+                self.get_type_of_property_of_type(target, &name)
+                    .or_else(|| self.get_applicable_index_info(target, key).map(|info| info.value))
             } else {
                 self.get_type_of_property_of_type(target, &name)
                     .or_else(|| self.elaboration_index_value(target, name_id, &name))
             };
             let Some(target_property_type) = target_property_type else { continue };
-            members.push((name_id, next, name, target_property_type));
+            members.push((name_id, next, name, target_property_type, head));
         }
         let mut reported = false;
-        for (name_id, next, name, target_property_type) in members {
+        for (name_id, next, name, target_property_type, head) in members {
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
             let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
             else {
                 continue;
             };
-            reported |=
-                self.elaborate_element(name_id, next, source_property_type, target_property_type);
+            reported |= self.elaborate_element_with(
+                name_id,
+                next,
+                source_property_type,
+                target_property_type,
+                head,
+            );
         }
         Some(reported)
     }
@@ -3187,8 +3245,8 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         name: NodeId,
     ) -> Result<Option<(String, Option<TypeId>)>, ()> {
-        if let Some(text) = self.identifier_text(name) {
-            return Ok(Some((text.to_string(), None)));
+        if let Some(text) = self.written_member_name(name) {
+            return Ok(Some((text, None)));
         }
         let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
             return Err(());
@@ -3207,6 +3265,16 @@ impl<'a> Checker<'a, '_> {
         }
         let (spelled, _) = self.late_bound_symbol_member_name(computed).ok_or(())?;
         Ok(Some((spelled, Some(name_type))))
+    }
+
+    /// The property name a written (non-computed) member name binds: the
+    /// identifier or string text, and for a numeric literal its canonical
+    /// number text (`getPropertyNameForPropertyNameNode`: `2.0:` binds `"2"`).
+    fn written_member_name(&self, name: NodeId) -> Option<String> {
+        match self.node_map.get(name)? {
+            Node::NumericLiteral(literal) => Some(crate::printing::normalise_number(literal.text)),
+            _ => self.identifier_text(name).map(str::to_string),
+        }
     }
 
     /// `getPropertiesOfType(containingType)`'s names for
@@ -3892,94 +3960,66 @@ impl<'a> Checker<'a, '_> {
     /// of the tuple-like source, keyed by its index, reported at
     /// `getEffectiveCheckNode` of the element. A non-tuple source is re-read
     /// upstream as a contextually typed tuple; each element's checked type is
-    /// that tuple's member here. Spreads (whose index does not name one
-    /// element) and union targets (`getBestMatchingType`) are declined.
+    /// that tuple's member here; with spreads, the forced tuple is
+    /// [`Checker::forced_tuple_entries`]. A union target reads each element
+    /// through [`Checker::union_array_literal_target_element`].
     fn elaborate_array_literal(&mut self, node: NodeId, source: TypeId, target: TypeId) -> bool {
         let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else {
             return false;
         };
         let target_flags = self.type_of(target).flags;
-        if target_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER | TypeFlags::UNION)
-            || literal.elements.iter().any(|element| {
-                element.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SpreadElement)
-            })
-        {
+        if target_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return false;
         }
-        let tuple_target = self.tuple_element_lists.contains_key(&target);
-        // A variadic tuple's properties are its leading fixed elements
-        // (generateLimitedTupleElements skips an index the tuple-like target
-        // has no property for).
-        let variadic_prefix: Option<Vec<TypeId>> = match self.variadic_tuple_elements.get(&target) {
-            Some((elements, _)) => {
-                let fixed: Vec<_> = elements
-                    .iter()
-                    .take_while(|element| !element.spread)
-                    .map(|element| (element.r#type, element.optional))
-                    .collect();
-                Some(
-                    fixed
-                        .into_iter()
-                        .map(|(t, optional)| {
-                            if optional && self.strict_null_checks {
-                                self.get_union_type(&[t, self.intrinsics.undefined])
-                            } else {
-                                t
-                            }
-                        })
-                        .collect(),
-                )
-            }
-            None => None,
-        };
-        let array_element = if tuple_target || variadic_prefix.is_some() {
-            None
-        } else {
-            self.tuple_spread_array_element(target)
-        };
-        let source_tuple = self.tuple_element_lists.contains_key(&source);
         let elements: Vec<NodeId> =
             literal.elements.iter().filter_map(tsr_ast::Expression::node_id).collect();
+        let source_tuple = self.tuple_element_lists.contains_key(&source);
+        let forced = if source_tuple
+            || !elements.iter().any(|&id| self.nodes.kind(id) == SyntaxKind::SpreadElement)
+        {
+            None
+        } else {
+            let Some(entries) = self.forced_tuple_entries(&elements) else { return false };
+            // `getTupleTargetType`: a lone rest element is the array type
+            // itself, which `isTupleLikeType` rejects, so nothing elaborates.
+            if let [(_, true)] = entries.as_slice() {
+                return false;
+            }
+            Some(entries)
+        };
+        // Every element's target type is settled before anything is
+        // reported, so a decline never follows a partial report.
+        let mut targets = Vec::with_capacity(elements.len());
+        if target_flags.contains(TypeFlags::UNION) {
+            let mut best = BestMatch::Unasked;
+            for index in 0..elements.len() {
+                let Ok(member) = self.union_array_literal_target_element(
+                    node,
+                    target,
+                    index,
+                    elements.len(),
+                    &mut best,
+                ) else {
+                    return false;
+                };
+                targets.push(member);
+            }
+        } else {
+            for index in 0..elements.len() {
+                targets.push(self.array_literal_target_element(target, index));
+            }
+        }
         let mut reported = false;
-        for (index, element) in elements.into_iter().enumerate() {
+        for ((index, element), target_element) in elements.into_iter().enumerate().zip(targets) {
             if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
                 continue;
             }
-            let target_element = if let Some(prefix) = &variadic_prefix {
-                let Some(&member) = prefix.get(index) else { continue };
-                member
-            } else if tuple_target {
-                // isTupleLikeType(target) && no property `index`: skipped.
-                if self.tuple_element_lists.get(&target).is_none_or(|(list, _)| index >= list.len())
-                {
-                    continue;
-                }
-                let Some(member) = self.get_type_of_property_of_type(target, &index.to_string())
-                else {
-                    continue;
-                };
-                member
-            } else if let Some(element_type) = array_element {
-                element_type
-            } else {
-                // getIndexedAccessTypeOrUndefined(target, i) on a non-array
-                // object target: a property named `i`, else the applicable
-                // (numeric or string) index signature; neither skips it.
-                let name = index.to_string();
-                let index_type = self.store.intern_literal(
-                    TypeFlags::NUMBER_LITERAL,
-                    TypeData::NumberLiteral(name.clone()),
-                    false,
-                );
-                let Some(member) = self.get_type_of_property_of_type(target, &name).or_else(|| {
-                    self.get_applicable_index_info(target, index_type).map(|info| info.value)
-                }) else {
-                    continue;
-                };
-                member
-            };
+            let Some(target_element) = target_element else { continue };
             let check_node = self.effective_check_node(element);
-            let source_element = if source_tuple {
+            let source_element = if let Some(entries) = &forced {
+                let Some(member) = self.forced_tuple_element(entries, index) else { continue };
+                member
+            } else if source_tuple {
                 let Some(member) = self.get_type_of_property_of_type(source, &index.to_string())
                 else {
                     continue;
@@ -3996,6 +4036,291 @@ impl<'a> Checker<'a, '_> {
             );
         }
         reported
+    }
+
+    /// The element list of the tuple `checkArrayLiteral` builds under
+    /// `CheckModeForceTuple` for a literal with spreads: an ordinary element
+    /// is its checked type; a spread of a tuple contributes its elements in
+    /// place (`createTupleTypeEx` normalizes a variadic tuple element); a
+    /// spread of an array or iterable contributes one rest element of its
+    /// element type. `true` marks the rest element. `None` where TSR's
+    /// operand type is not the forced one: an array-literal operand of more
+    /// than one element (native reads it as a tuple, TSR as an array), an
+    /// optional or variadic tuple or any other tuple-like operand that is not
+    /// an `Array` reference, a second rest element (normalization merges
+    /// them), or an operand with no element type.
+    fn forced_tuple_entries(&mut self, elements: &[NodeId]) -> Option<Vec<(TypeId, bool)>> {
+        let mut entries = Vec::with_capacity(elements.len());
+        let mut rest = false;
+        for &element in elements {
+            let Some(Node::SpreadElement(spread)) = self.node_map.get(element) else {
+                if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
+                    entries.push((self.intrinsics.undefined, false));
+                } else {
+                    let check_node = self.effective_check_node(element);
+                    entries.push((self.check_expression_at_node(check_node), false));
+                }
+                continue;
+            };
+            let expression = spread.expression?.node_id()?;
+            let operand = self.check_expression_at_node(expression);
+            if let Some((list, _)) = self.tuple_element_lists.get(&operand).cloned() {
+                if self.variadic_tuple_elements.contains_key(&operand)
+                    || self
+                        .tuple_optional_masks
+                        .get(&operand)
+                        .is_some_and(|mask| mask.iter().any(|&optional| optional))
+                {
+                    return None;
+                }
+                entries.extend(list.into_iter().map(|t| (t, false)));
+                continue;
+            }
+            // A variadic or other tuple-like operand normalizes its fixed
+            // elements in place, which this list does not model.
+            if self.tuple_array_like(operand) && self.tuple_spread_array_element(operand).is_none()
+            {
+                return None;
+            }
+            let element_type = self.array_spread_element_type(operand)?;
+            if let Some(Node::ArrayLiteralExpression(inner)) = self.node_map.get(expression) {
+                let [only] = inner.elements else { return None };
+                if only.node_id().is_none_or(|id| {
+                    matches!(
+                        self.nodes.kind(id),
+                        SyntaxKind::SpreadElement | SyntaxKind::OmittedExpression
+                    )
+                }) {
+                    return None;
+                }
+                entries.push((element_type, false));
+                continue;
+            }
+            if std::mem::replace(&mut rest, true) {
+                return None;
+            }
+            entries.push((element_type, true));
+        }
+        Some(entries)
+    }
+
+    /// `getIndexedAccessTypeOrUndefined(forcedTuple, index)`: a fixed
+    /// position before the rest element reads its element; from the rest
+    /// element on, `getTupleElementTypeOutOfStartCount` is the union of the
+    /// element list from `index` (the rest and every trailing element).
+    /// `None` past the end, `sourcePropType == nil`.
+    fn forced_tuple_element(&mut self, entries: &[(TypeId, bool)], index: usize) -> Option<TypeId> {
+        let first_rest = entries.iter().position(|&(_, rest)| rest);
+        let tail = entries.get(index..).filter(|tail| !tail.is_empty())?;
+        if first_rest.is_none_or(|rest| index < rest) {
+            return Some(tail[0].0);
+        }
+        let types: Vec<TypeId> = tail.iter().map(|&(t, _)| t).collect();
+        Some(self.get_union_type(&types))
+    }
+
+    /// `getIndexedAccessTypeOrUndefined(target, index)` for one element of
+    /// an array literal against a non-union target, with
+    /// `elaborateArrayLiteral`'s skip of an index a tuple-like target has no
+    /// property for. `None` skips the element.
+    fn array_literal_target_element(&mut self, target: TypeId, index: usize) -> Option<TypeId> {
+        // A variadic tuple's properties are its leading fixed elements
+        // (generateLimitedTupleElements skips an index the tuple-like target
+        // has no property for).
+        if let Some((elements, _)) = self.variadic_tuple_elements.get(&target) {
+            let fixed: Vec<_> = elements
+                .iter()
+                .take_while(|element| !element.spread)
+                .map(|element| (element.r#type, element.optional))
+                .collect();
+            let &(t, optional) = fixed.get(index)?;
+            return Some(if optional && self.strict_null_checks {
+                self.get_union_type(&[t, self.intrinsics.undefined])
+            } else {
+                t
+            });
+        }
+        if let Some((list, _)) = self.tuple_element_lists.get(&target) {
+            // isTupleLikeType(target) && no property `index`: skipped.
+            if index >= list.len() {
+                return None;
+            }
+            return self.get_type_of_property_of_type(target, &index.to_string());
+        }
+        if let Some(element_type) = self.tuple_spread_array_element(target) {
+            return Some(element_type);
+        }
+        // getIndexedAccessTypeOrUndefined(target, i) on a non-array object
+        // target: a property named `i`, else the applicable (numeric or
+        // string) index signature; neither skips it.
+        let name = index.to_string();
+        let index_type = self.store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            TypeData::NumberLiteral(name.clone()),
+            false,
+        );
+        self.get_type_of_property_of_type(target, &name)
+            .or_else(|| self.get_applicable_index_info(target, index_type).map(|info| info.value))
+    }
+
+    /// `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`) for an
+    /// array-literal element against a union target. The union's own
+    /// indexed access answers when every constituent has the element
+    /// (`getPropertyOfType` on a union, index signatures included); an
+    /// index a tuple-like union (`isTupleLikeType`: the union has a property
+    /// `"0"`) lacks is skipped. Otherwise the element is read from
+    /// `getBestMatchingType`'s constituent,
+    /// [`Checker::best_matching_type_for_array_literal`], computed once into
+    /// `best`. `Ok(None)` skips the element; `Err` declines.
+    fn union_array_literal_target_element(
+        &mut self,
+        node: NodeId,
+        target: TypeId,
+        index: usize,
+        count: usize,
+        best: &mut BestMatch,
+    ) -> Result<Option<TypeId>, ()> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Err(());
+        };
+        let mut found = Vec::with_capacity(types.len());
+        for &part in &types {
+            if !self.type_of(part).flags.intersects(TypeFlags::OBJECT) {
+                break;
+            }
+            match self.array_literal_target_element(part, index) {
+                Some(member) => found.push(member),
+                None => break,
+            }
+        }
+        if found.len() == types.len() {
+            return Ok(Some(self.get_union_type(&found)));
+        }
+        let tuple_like = types.iter().any(|part| {
+            self.tuple_element_lists.get(part).is_some_and(|(list, _)| !list.is_empty())
+        }) && types.iter().all(|&part| {
+            self.type_of(part).flags.intersects(TypeFlags::OBJECT)
+                && self.array_literal_target_element(part, 0).is_some()
+        });
+        if tuple_like {
+            return Ok(None);
+        }
+        let best = if let BestMatch::Chosen(best) = *best {
+            best
+        } else {
+            let chosen = self.best_matching_type_for_array_literal(node, target, count)?;
+            *best = BestMatch::Chosen(chosen);
+            chosen
+        };
+        Ok(best.and_then(|best| self.array_literal_target_element(best, index)))
+    }
+
+    /// `getBestMatchingType` (`relater.go:879`) for an array literal, whose
+    /// source `elaborateArrayLiteral` reads as a forced tuple (a plain,
+    /// mutable, unlabeled tuple of the literal's arity). Ported for the
+    /// shapes where every arm is decidable here, `Err` otherwise:
+    ///
+    /// - constituents other than objects are `undefined`, `null` or `void`.
+    ///   Those are primitives, which `findMostOverlappyType` skips, and they
+    ///   have no members, so no union property — and so no discriminant for
+    ///   `findMatchingDiscriminantType` — spans them;
+    /// - `findMatchingTypeReferenceOrTypeAliasReference`: a tuple constituent
+    ///   with the forced tuple's target (same arity, every element required,
+    ///   not readonly, no labels);
+    /// - `findBestTypeForObjectLiteral` and `findBestTypeForInvokable` never
+    ///   match a tuple source;
+    /// - `findMostOverlappyType`: the one object constituent whose keys
+    ///   overlap the tuple's ([`Checker::overlaps_tuple_keys`]; an array or
+    ///   tuple always does), every other one sharing no key and so skipped;
+    ///   nil when none overlaps. Two overlapping constituents would need the
+    ///   overlap counts compared and decline, as do a literal in a const
+    ///   context (a readonly tuple) and any other shape.
+    fn best_matching_type_for_array_literal(
+        &mut self,
+        node: NodeId,
+        target: TypeId,
+        count: usize,
+    ) -> Result<Option<TypeId>, ()> {
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Ok(None);
+        };
+        if self.is_const_context(node) {
+            return Err(());
+        }
+        let mut objects = Vec::with_capacity(types.len());
+        for &part in &types {
+            let flags = self.type_of(part).flags;
+            if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
+                continue;
+            }
+            if !flags.contains(TypeFlags::OBJECT) {
+                return Err(());
+            }
+            objects.push(part);
+        }
+        let plain_tuple_of_arity = |checker: &Self, part: TypeId| {
+            checker.tuple_element_lists.get(&part).is_some_and(|(list, readonly)| {
+                list.len() == count
+                    && !readonly
+                    && !checker.variadic_tuple_elements.contains_key(&part)
+                    && checker
+                        .tuple_optional_masks
+                        .get(&part)
+                        .is_none_or(|mask| mask.iter().all(|optional| !optional))
+                    && checker
+                        .tuple_labels
+                        .get(&part)
+                        .is_none_or(|labels| labels.iter().all(Option::is_none))
+            })
+        };
+        if let Some(&matched) = objects.iter().find(|&&part| plain_tuple_of_arity(self, part)) {
+            return Ok(Some(matched));
+        }
+        let mut overlapping = None;
+        for &part in &objects {
+            let overlaps = if self.tuple_element_lists.contains_key(&part)
+                || self.variadic_tuple_elements.contains_key(&part)
+                || self.tuple_spread_array_element(part).is_some()
+            {
+                true
+            } else {
+                self.overlaps_tuple_keys(part).ok_or(())?
+            };
+            if overlaps && overlapping.replace(part).is_some() {
+                return Err(());
+            }
+        }
+        Ok(overlapping)
+    }
+
+    /// Whether `findMostOverlappyType` counts `t` against a tuple source:
+    /// `keyof t` meets the tuple's keys (its element names, `number`,
+    /// `length` and the global `Array` members) in at least one literal key.
+    /// `Some(true)` when a certified property name is numeric, `length` or
+    /// an `Array` member (the overlap is that unit or a union holding it);
+    /// `Some(false)` when no name is and there is no index signature (the
+    /// overlap is `never`, and the constituent is skipped). An index
+    /// signature alone gives a non-literal overlap, which this port does
+    /// not weigh, and an uncertified table answers `None`.
+    fn overlaps_tuple_keys(&mut self, t: TypeId) -> Option<bool> {
+        if self.type_of(t).flags.intersects(TypeFlags::INSTANTIABLE) {
+            return None;
+        }
+        let names = self.certified_property_names(t)?;
+        let array = self.global_type_symbol("Array")?;
+        let array = self.binder.merged_symbol(array);
+        for name in &names {
+            if name == "length"
+                || crate::index_signatures::is_numeric_literal_name(name)
+                || self.binder.symbols().get(array).members.contains_key(name.as_str())
+            {
+                return Some(true);
+            }
+        }
+        if !self.get_index_infos_of_type(t)?.is_empty() {
+            return None;
+        }
+        Some(false)
     }
 
     /// `elaborateArrowFunction` (`relater.go:641`): an expression-bodied arrow
