@@ -19,6 +19,7 @@ pub mod dts_shape_suite;
 pub mod dts_suite;
 pub mod dts_target_suite;
 pub mod errors_baseline;
+pub mod full_oracle;
 pub mod js_baseline;
 pub mod loader_suite;
 pub mod module_suite;

@@ -477,3 +477,113 @@ interface and type-literal members, so `{ get [k]() {}, set [k](v) {} }` lost
 its computed accessors. Object-literal properties now feed the same worker;
 its existing (owner `SymbolId`, static) cache and publication are unchanged
 and the existing accessor worker merges same-name getter/setter declarations.
+
+## 17. Union-key indexed writes intersect per-key write types (tsr-2zk.16.213)
+
+`getIndexedAccessTypeOrUndefined` (`checker.go:26993`) with a union index and
+`AccessFlagsWriting` reads each key's write type and returns their
+intersection (reads take the union). The definite-write dispatcher in
+`indexed.rs` resolved only a single literal key; a union key now walks its
+constituents through the existing `write_type_of_property_of_type` (or the
+ordinary indexed access) and intersects them; a failed constituent fails the
+access as natively. Query-local vector, no cache. Control: divergent setters
+`{set a(v: boolean|string)}`/`{set b(v: boolean|number)}` written through
+`'a'|'b'` require `boolean`; the read stays a union. Residual: a computed
+symbol getter/setter pair splits into two symbols, so `write_type_of_accessors`
+(`symbols.rs`, unowned) misses the setter.
+
+## 18. Setter types instantiate through the receiver reference (tsr-2zk.16.282)
+
+`getWriteTypeOfSymbol` on an instantiated property goes through
+`getWriteTypeOfInstantiatedSymbol`, mapping the setter type with the same
+reference mapper as the read. `write_type_of_property_of_type` returned the
+raw declared setter type, so `T | undefined` escaped through `Box<string>`.
+It now applies the existing `instantiate_for_reference` to the setter type;
+no write-only mapper or cache. Control: `Box<string>`/`Box<number>` setters
+keep `string | undefined` vs `number | undefined`.
+
+## 19. Writes through a namespace import answer `errorType` (tsr-2zk.4.4)
+
+`isAssignmentToReadonlyEntity` (`checker.go:27314`) treats an access whose
+parenthesis-stripped receiver resolves to an alias declared by a
+`NamespaceImport` as readonly, so `checkPropertyAccessExpressionOrQualifiedName`
+and the element-access twin return `errorType` (printed `any`) for a found
+member written through `import * as ns`. The existing
+`receiver_alias_is_namespace_import` (readonly_target.rs, now crate-visible)
+answers the alias question in both property and element assignment typing; the
+TS2540 reporter is unchanged. Local namespaces stay writable (control).
+
+## 20. An `object` receiver reads as the empty object (tsr-2zk.4)
+
+`getApparentType` maps `TypeFlagsNonPrimitive` to `emptyObjectType`, so
+`checkPropertyAccessExpressionOrQualifiedName` misses `a.nonExist` on
+`a: object` against `{}`'s table and reports TS2339 printing the receiver
+(`'object'`). `property_is_known_absent` answered `object` itself, which no
+completeness certificate covers, so the miss declined. It now takes the
+canonical empty object, the same road the destructuring twin already used.
+No cache. Control: `a.toString()` (the `Object` augment) stays silent.
+Converts `nonPrimitiveAccessProperty`.
+
+## 21. Heritage members relate with the class's `this`; merged interfaces conform (tsr-2zk.4)
+
+`checkClassLikeDeclaration` relates `typeWithThis` to
+`getTypeWithThisArgument(baseType, type.thisType)`, and
+`issueMemberSpecificError` reads both members off those, so a base member's
+`this` is the derived class's `this` type. `issue_member_specific_error` read
+each side with itself as the this argument: `sort(): this` in
+`MyArray<T> implements Array<T>` became `MyArray<T>` against `T[]` and
+reported a false TS2416. Both members are now read through
+`get_type_of_property_with_this_argument` with the class's polymorphic `this`
+(`class_instance_this_type`, the existing `this_types` identity keyed by
+class symbol, minted once; no new cache).
+
+With that fixed, the merged-declaration decline on implemented interfaces and
+interface bases goes: `resolveDeclaredMembers` gathers one table from every
+declaration, which this port's declared type already does. The class `extends`
+arm keeps its lib-merged base decline (`class B extends Uint8Array`): its
+whole-type relation still lacks `typeWithThis` (`subclassUint8Array`,
+`classExtendingBuiltinType`, `classFieldSuperAccessible` lose without it).
+Converts `classWithMultipleBaseClasses`, `elaboratedErrors`,
+`genericArrayExtenstions`, `implementArrayInterface`,
+`untypedFunctionCallsWithTypeParameters1`, `classImplementsMergedClassInterface`,
+`mergedInterfacesWithInheritedPrivates`, `mergedInterfacesWithInheritedPrivates2`.
+
+## 22. `super` accessibility head: TS2513 and TS2855 (tsr-2zk.4)
+
+`checkPropertyAccessibilityAtLocation` (`checker.go:11786`) starts its
+`isSuper` arm before any accessibility modifier: an abstract member is TS2513
+(`Abstract method '{0}' in class '{1}' cannot be accessed via super
+expression.`), then a non-static member with an `isClassInstanceProperty`
+declaration (`utilities.go:1017`: a class property without `accessor`, or a
+JS expando assignment rooted at `this`, not `C.prototype.x`/`C.x`) is TS2855.
+`property_accessibility_error` returned before reaching either for a public
+member. Same declaration choice (`modifier_declaration_of`), no cache.
+Controls: `super.g()` (method), `super.h` (`accessor`) and static `super.s`
+stay silent; `super.p` on a private field is TS2855, not TS2341, as natively.
+Converts `classFieldSuperNotAccessible`, `classFieldSuperNotAccessibleJs`,
+`classAbstractSuperCalls`.
+
+## 23. TS7053/TS7015 for a `string`/`number` index (tsr-2zk.4)
+
+`getPropertyTypeForIndexType`'s no-index-signature arm (`checker.go:27129`)
+also runs for an index with no property name: under `noImplicitAny`, an object
+with no applicable (nor `string`) index info reports TS7015 at the argument
+when it has a `number` index, else TS7053 at the access chained to `No index
+signature with a parameter of type '{0}' was found on type '{1}'.` Only the
+literal-key arm was ported. `check_computed_index_implicit_any` now asks it for
+an index typed exactly `string`/`number` (a for-in key over numeric property
+names reads `number`, `isForInVariableForNumericPropertyNames`), a certified
+receiver (`receiver_type_is_the_declared_one`) and a single object apparent
+type whose index infos are published (`index_infos_are_certified`: the
+completeness walk, a captured member image, or class/interface declarations
+plus bases whose computed names are all `Symbol.x` — any other computed name
+may late-bind an index signature this port does not publish). Declines:
+unions/intersections/generic receivers, class static sides, JS literals,
+const enums, `get`/`set` members (TS7052), and a for-in key over a generic
+object, whose upstream type is `Extract<keyof T, string>`
+(`getTypeForVariableLikeDeclaration`), not the `string` this port answers.
+An unwidened object literal answers the union of its members instead.
+
+The literal-key TS7053 now carries its chain (`Property '{0}' does not exist
+on type '{1}'.`), as `NewDiagnosticChainForNode` builds it. No cache.
+Converts `noImplicitAnyForIn`, `for-inStatementsArrayErrors`.

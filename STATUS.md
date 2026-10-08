@@ -22,6 +22,15 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Alias-target audit, frozen `59f6ce22` / native `5b1047d`: a natural 70-alias
+cycle produces zero TS2303 diagnostics in TSR versus native 70. A private stack
+candidate matches all six bounded default/single CLI outputs and passes 39
+focused tests, but its library gate fails two tests with 187 passes. Native
+controls distinguish immediate from flattened targets and require private
+module-clone symbols; `tsr-1yb.7.7.2.1` owns that prerequisite for `.7.7.3`.
+No checker implementation, full-corpus result or speed improvement is retained.
+[Current evidence and qualification](docs/architecture/checker-symbol-completion-contract.md#current-alias-target-qualification).
+
 Parallel work-trace correction, frozen `e744714c` plus qualified patch:
 55 feature CLI children across 11 modes preserve off/on/repeat complete outputs,
 loaded inventory and owner-work multisets; 22 ordinary children preserve outputs
@@ -3516,6 +3525,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+`tsr-1yb.7.7.2.1` is the concrete prerequisite for `.7.7.3`: carry native
+module-clone identity through the existing `SymbolRef` domain without a source
+merge redirect, retain namespace-meaning admission, and separate immediate
+alias consumers from flattened targets. At frozen `59f6ce22`, the private
+stack candidate still fails two library controls; no broader reuse is admitted.
 
 `tsr-1yb.16.3.10.2`: natural recursive object-method return forcing is now
 reproduced in the ordinary CLI (two false errors versus native zero). Attribute
@@ -7135,6 +7150,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `59f6ce22` / native `5b1047d`, the private AliasTarget stack candidate
+is refused for integration: 187 library tests pass and two fail, on module-copy
+namespace admission and immediate-target naming. Its 39 focused passes and six
+native-equal CLI outputs do not overrule that gate. Four natural native alias
+controls and four seeded stack controls qualify the required private-clone,
+immediate-target and publication contracts; they do not qualify Rust isolation,
+full ordered/related diagnostics, whole corpus or ordinary-release performance.
+[Bounded evidence and required migration](docs/architecture/checker-symbol-completion-contract.md#current-alias-target-qualification).
 
 The original site-demand follow-up harness fails with10 compile errors; a
 separate corrected source copy passes the full12-fixture characterization. That
@@ -13962,6 +13986,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `59f6ce22` / native `5b1047d` | — | — | **Alias-target qualification, tsr-1yb.7.7.3; integration refused.** Fresh baseline misses all 70 circular-alias diagnostics. Private stack candidate passes 39 focused tests and matches six bounded native CLI outputs; library gate remains 187 pass/two fail. Four natural native identity/worker controls and four seeded stack controls pass. Filed tsr-1yb.7.7.2.1 for private module-clone migration and made it a prerequisite. No canonical runtime, full-corpus or speed claim. [Evidence and limits](docs/architecture/checker-symbol-completion-contract.md#current-alias-target-qualification). |
 
 2026-10-07, tracer delivery `8091f493`, presentation base frozen `e744714c`:
 pool-preserving tracing is committed/pushed to main after clean rebase and67

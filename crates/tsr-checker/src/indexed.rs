@@ -119,6 +119,19 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
         }
+        if self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+            && let (Some(receiver), Some(index)) = (node.expression, node.argument_expression)
+            && self.receiver_alias_is_namespace_import(receiver) == Some(true)
+        {
+            let source = self.check_expression(receiver);
+            let key = self.check_expression(index);
+            if self
+                .property_name_from_index(key)
+                .is_some_and(|name| self.get_property_of_type(source, &name).is_some())
+            {
+                return self.intrinsics.any;
+            }
+        }
         // `isThisPropertyAccessInConstructor` (`checker.go:27042`), the
         // element-access twin of the property-access arm: `this["x"]` inside
         // the declaring constructor reads `autoType` through its flow.
@@ -165,9 +178,29 @@ impl Checker<'_, '_> {
             {
                 let object_type = self.check_expression(receiver);
                 let index_type = self.check_expression(index);
-                self.property_name_from_index(index_type)
-                    .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
-                    .unwrap_or(computed)
+                if let TypeData::Union { types, .. } = self.store.get(index_type).data.clone() {
+                    // getIndexedAccessTypeOrUndefined (5b1047d checker.go:26993):
+                    // writing intersects each key's write type. Declaration
+                    // setters and ordinary indexed members share the original
+                    // receiver; a failed constituent is not silently skipped.
+                    // Query-local traversal adds no cache/publication state.
+                    let mut writes = Vec::with_capacity(types.len());
+                    for key in types {
+                        let written = self
+                            .property_name_from_index(key)
+                            .and_then(|name| {
+                                self.write_type_of_property_of_type(object_type, &name)
+                            })
+                            .or_else(|| self.resolved_indexed_access_type(object_type, key, false));
+                        let Some(written) = written else { return self.intrinsics.error };
+                        writes.push(written);
+                    }
+                    self.get_intersection_type(&writes, None)
+                } else {
+                    self.property_name_from_index(index_type)
+                        .and_then(|name| self.write_type_of_property_of_type(object_type, &name))
+                        .unwrap_or(computed)
+                }
             } else {
                 computed
             };
@@ -906,7 +939,7 @@ impl Checker<'_, '_> {
     /// node.Statement` test, so the head's own expression never matches
     /// itself — whose iterated object's type has exactly one index info and
     /// it is numeric (`hasNumericPropertyNames`, `:8216`).
-    fn is_for_in_variable_for_numeric_property_names(
+    pub(crate) fn is_for_in_variable_for_numeric_property_names(
         &mut self,
         index: tsr_ast::Expression<'_>,
     ) -> bool {

@@ -6315,16 +6315,6 @@ impl<'a> Checker<'a, '_> {
         )
     }
 
-    /// The same graph walk with an arbitrary membership test and no printed
-    /// names, for a caller asking about a whole class of parameters at once.
-    pub(crate) fn mentions_type_parameter_where(
-        &self,
-        id: TypeId,
-        is_parameter: &impl Fn(TypeId) -> bool,
-    ) -> bool {
-        self.mentions_type_parameter_inner(id, is_parameter, &[], &mut Vec::new())
-    }
-
     /// The same graph walk with membership in this checker's current registry.
     /// Avoids materializing all registered identities for every conditional.
     pub(crate) fn mentions_registered_type_parameter(&self, id: TypeId) -> bool {
@@ -6334,6 +6324,25 @@ impl<'a> Checker<'a, '_> {
             &[],
             &mut Vec::new(),
         )
+    }
+
+    /// The same graph walk with membership in this checker's minted
+    /// polymorphic `this` types (`this_types`, `this_type_nodes`). Every one is
+    /// minted with `TYPE_PARAMETER`, so the flag test answers most visits
+    /// without scanning the tables or materializing their values.
+    pub(crate) fn mentions_this_type(&self, id: TypeId) -> bool {
+        self.mentions_type_parameter_inner(
+            id,
+            &|candidate| self.is_minted_this_type(candidate),
+            &[],
+            &mut Vec::new(),
+        )
+    }
+
+    /// Whether `id` is one of this checker's minted polymorphic `this` types.
+    pub(crate) fn is_minted_this_type(&self, id: TypeId) -> bool {
+        self.store.get(id).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+            && self.this_types.values().chain(self.this_type_nodes.values()).any(|&this| this == id)
     }
 
     /// Type-parameter identity through the type graph, including bound generic
@@ -6465,8 +6474,7 @@ impl<'a> Checker<'a, '_> {
                 .iter()
                 .any(|&t| self.mentions_type_parameter_inner(t, is_parameter, names, visited));
         }
-        // `any` over no names is false; printing first would only allocate.
-        // The registered-identity walk passes no names, so it never prints.
+        // With no names the printed fallback cannot match; skip the render.
         if names.is_empty() {
             return false;
         }

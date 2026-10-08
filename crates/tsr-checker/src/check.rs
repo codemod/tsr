@@ -12667,11 +12667,15 @@ impl Checker<'_, '_> {
         if self.is_function_like_or_static_block(parent)
             || matches!(self.nodes.kind(parent), SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
         {
-            if self.ambient_statement_reported.insert(node) {
-                self.report_grammar(
+            // Both arms report through `grammarErrorOnFirstToken`: the span is
+            // the statement's first token, not the whole statement.
+            if !self.ambient_statement_reported.contains(&node)
+                && self.grammar_error_on_first_token(
                     node,
                     &messages::AN_IMPLEMENTATION_CANNOT_BE_DECLARED_IN_AMBIENT_CONTEXTS,
-                );
+                )
+            {
+                self.ambient_statement_reported.insert(node);
                 return true;
             }
             return false;
@@ -12679,9 +12683,13 @@ impl Checker<'_, '_> {
         if matches!(
             self.nodes.kind(parent),
             SyntaxKind::Block | SyntaxKind::ModuleBlock | SyntaxKind::SourceFile
-        ) && self.ambient_statement_reported.insert(parent)
+        ) && !self.ambient_statement_reported.contains(&parent)
+            && self.grammar_error_on_first_token(
+                node,
+                &messages::STATEMENTS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS,
+            )
         {
-            self.report_grammar(node, &messages::STATEMENTS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS);
+            self.ambient_statement_reported.insert(parent);
             return true;
         }
         // "We must be parented by a statement. If so, there's no need to report

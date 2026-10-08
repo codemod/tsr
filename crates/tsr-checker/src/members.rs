@@ -340,6 +340,16 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
         }
+        // isAssignmentToReadonlyEntity's namespace-import branch (5b1047d
+        // checker.go:27279). Reuse alias/declaration identity, not module shape;
+        // the existing readonly diagnostic owner reports TS2540 separately.
+        if node.node_id.is_some_and(|id| {
+            self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+        }) && self.receiver_alias_is_namespace_import(receiver) == Some(true)
+            && self.get_property_of_type(stripped, name).is_some()
+        {
+            return self.intrinsics.any;
+        }
         // `isAssignmentToReadonlyEntity` (`checker.go:11377`): a readonly
         // property as an assignment target answers upstream's `errorType`,
         // printed `any` (`checker-notes-narrow.md` §27).
@@ -712,16 +722,6 @@ impl Checker<'_, '_> {
         self.access_member_lookup(stripped, right.text, node.node_id)
     }
 
-    /// Whether `ty` has the shape every minted polymorphic `this` type has: a
-    /// type parameter named `this`. A superset of the minted set (an object
-    /// literal's `literal_this_types` share the shape), used only as an exact
-    /// negative filter.
-    fn is_minted_this_type_shape(&self, ty: TypeId) -> bool {
-        let ty = self.store.get(ty);
-        ty.flags.contains(TypeFlags::TYPE_PARAMETER)
-            && matches!(&ty.data, TypeData::Named { text, .. } if text == "this")
-    }
-
     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`
     /// (`checker.go:11244`): apparent type, the `any` fast path, the member
     /// lookup, and flow narrowing keyed on the access node itself.
@@ -890,29 +890,17 @@ impl Checker<'_, '_> {
         // (that unification is rock #3's prerequisite for the
         // representation work, and is deliberately not attempted here).
         //
-        // Every minted this-type is a `TYPE_PARAMETER` named `this` (the five
-        // `this_types`/`this_type_nodes` insert sites all use `new_named`),
-        // so one walk for *any* such parameter is an exact negative for the
-        // per-mint walks below. Without it each access walked the member's
-        // type graph once per this-type minted so far in the whole program:
-        // 454,195 walks, 9.7% of all instructions on a 100-module project
-        // (`docs/parity/notes/perf.md` §12 C5). Native substitutes `this`
-        // once, through the receiver's mapper (`getTypeWithThisArgument`).
-        let may_mention_this = property_type != this_argument
-            && self.mentions_type_parameter_where(property_type, &|candidate| {
-                self.is_minted_this_type_shape(candidate)
-            });
-        let this_minted: Vec<TypeId> = if may_mention_this {
-            self.this_types.values().chain(self.this_type_nodes.values()).copied().collect()
-        } else {
-            Vec::new()
-        };
+        // One walk over all minted this-types decides whether any is mentioned;
+        // only then is the first mentioned one (table order) looked for.
         let property_type =
-            if property_type != this_argument && this_minted.contains(&property_type) {
+            if property_type != this_argument && self.is_minted_this_type(property_type) {
                 this_argument
             } else if property_type != this_argument
-                && let Some(minted) = this_minted
-                    .iter()
+                && self.mentions_this_type(property_type)
+                && let Some(minted) = self
+                    .this_types
+                    .values()
+                    .chain(self.this_type_nodes.values())
                     .copied()
                     .find(|&minted| self.mentions_type_parameter(property_type, &[minted], &[]))
             {
@@ -978,7 +966,56 @@ impl Checker<'_, '_> {
         {
             return property_type;
         }
+        if self.declared_method_access_skips_flow(receiver_type, name, property_type) {
+            return property_type;
+        }
         self.get_flow_type_of_reference(id, None, property_type)
+    }
+
+    /// `getFlowTypeOfAccessExpression` (pinned 5b1047d, `checker.go:11400`):
+    /// only a variable, property or accessor, or a method whose type is a
+    /// union (an optional method), is narrowed by the flow reaching the
+    /// access; any other property answers its type without the flow walk.
+    ///
+    /// Applied only where this port's property symbol is the one native
+    /// reads: a member of a declared class or interface (or a reference to
+    /// one), whose instantiation keeps the declaration's flags
+    /// (`instantiateSymbol`). Union/intersection properties (native
+    /// synthesizes them as `Property`), mapped and reverse-mapped members and
+    /// object-literal images keep the walk, as before.
+    fn declared_method_access_skips_flow(
+        &mut self,
+        receiver_type: TypeId,
+        name: &str,
+        property_type: TypeId,
+    ) -> bool {
+        if self.store.get(property_type).flags.intersects(TypeFlags::UNION)
+            || self.mapped_identity_optionality.contains_key(&receiver_type)
+            || self.mapped_types.contains_key(&receiver_type)
+            || self.anonymous_properties.contains_key(&receiver_type)
+        {
+            return false;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(receiver_type).data
+        else {
+            return false;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(owner)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return false;
+        }
+        self.get_property_of_type(receiver_type, name).is_some_and(|property| {
+            let flags = self.binder.symbols().get(property).flags;
+            flags.contains(SymbolFlags::METHOD)
+                && !flags.intersects(
+                    SymbolFlags::VARIABLE | SymbolFlags::PROPERTY | SymbolFlags::ACCESSOR,
+                )
+        })
     }
 
     /// The type whose members a property access should be looked up in.
@@ -1325,7 +1362,7 @@ impl Checker<'_, '_> {
 
     /// getTypeWithThisArgument retains the original receiver when member
     /// lookup proceeds through its apparent constraint.
-    fn get_type_of_property_with_this_argument(
+    pub(crate) fn get_type_of_property_with_this_argument(
         &mut self,
         id: TypeId,
         name: &str,
@@ -1364,35 +1401,6 @@ impl Checker<'_, '_> {
             });
         }
 
-        // §829.2, a PROBE and nothing else (`TSR_PROJ_TRACE=<name>`): print what
-        // the projection has in hand for one property name, so the 193-line
-        // "the property TYPES; the projection fails" bucket can be told apart
-        // from the already-refused inference legs. Behaviour-free.
-        if crate::debug_env::var("TSR_PROJ_TRACE") == Some(name) {
-            let reference = self.type_reference_targets.get(&id).cloned();
-            let arguments = reference.as_ref().map(|(_, args)| {
-                args.iter()
-                    .map(|&a| crate::printing::type_to_string(self.store.get(a)))
-                    .collect::<Vec<_>>()
-            });
-            let own = self
-                .get_property_of_type(id, name)
-                .map(|symbol| self.get_type_of_symbol(symbol))
-                .map(|t| {
-                    if t == self.intrinsics.error {
-                        "error".to_string()
-                    } else {
-                        crate::printing::type_to_string(self.store.get(t))
-                    }
-                });
-            eprintln!(
-                "PROJ `{name}` on `{}`: is_reference={} args={:?} property_own_type={:?}",
-                crate::printing::type_to_string(self.store.get(id)),
-                reference.is_some(),
-                arguments,
-                own
-            );
-        }
         // §952: a homomorphic IDENTITY mapped type reads the SOURCE's member
         // and then applies the mapping's optionality modifier — the one thing
         // the reused member owner cannot carry. `Partial<O>`'s `x` is
@@ -2442,7 +2450,11 @@ impl Checker<'_, '_> {
             });
         }
         let property = self.get_property_of_type(receiver, name)?;
-        self.write_type_of_accessors(property)
+        let written = self.write_type_of_accessors(property)?;
+        // getWriteTypeOfInstantiatedSymbol (5b1047d): setter values use the
+        // same ordered reference mapper as reads. Existing instantiation owns
+        // completion; no write-only mapper/cache is created.
+        Some(self.instantiate_for_reference(receiver, written))
     }
 
     /// `hasCommonDeclaration` (`checker.go:21679`): some declaration of the
@@ -3044,6 +3056,7 @@ impl Checker<'_, '_> {
             return members.clone();
         }
         self.late_bound_member_names.insert(cache_key, Vec::new());
+        self.late_bound_active += 1;
         let declarations: Vec<tsr_ast::NodeId> =
             self.binder.symbols().get(owner).declarations.iter().copied().collect();
         let mut out = Vec::new();
@@ -3119,6 +3132,7 @@ impl Checker<'_, '_> {
             }
         }
         self.late_bound_member_names.insert(cache_key, out.clone());
+        self.late_bound_active -= 1;
         out
     }
 
@@ -3253,13 +3267,7 @@ impl Checker<'_, '_> {
                         if self.is_error(member) || member == self.intrinsics.unresolved {
                             return None;
                         }
-                        let this_types: Vec<_> = self
-                            .this_types
-                            .values()
-                            .chain(self.this_type_nodes.values())
-                            .copied()
-                            .collect();
-                        if self.mentions_type_parameter(member, &this_types, &[]) {
+                        if self.mentions_this_type(member) {
                             // The supplier has not substituted inherited this.
                             return None;
                         }
@@ -3330,13 +3338,7 @@ impl Checker<'_, '_> {
                 if self.is_error(member) || member == self.intrinsics.unresolved {
                     return None;
                 }
-                let this_types: Vec<_> = self
-                    .this_types
-                    .values()
-                    .chain(self.this_type_nodes.values())
-                    .copied()
-                    .collect();
-                if self.mentions_type_parameter(member, &this_types, &[]) {
+                if self.mentions_this_type(member) {
                     return None;
                 }
                 names.push(name);
@@ -3530,7 +3532,7 @@ impl Checker<'_, '_> {
         own.extend(self.late_bound_static_members_of(owner));
         // getNamedMembers/compareSymbols (5b1047d): source declaration order
         // within the own table, retaining original symbols and value filtering.
-        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        own.sort_by_cached_key(|&(_, symbol)| self.compare_symbols_key(symbol));
         for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
@@ -3620,7 +3622,7 @@ impl Checker<'_, '_> {
         own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
             |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
         ));
-        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        own.sort_by_cached_key(|&(_, symbol)| self.compare_symbols_key(symbol));
         for (name, _) in own {
             if !walk.names.contains(&name) {
                 walk.names.push(name);
@@ -3822,7 +3824,34 @@ impl Checker<'_, '_> {
     /// which is `docs/conventions.md` corollary 11 one layer in: not a refusal
     /// whose stated reason is wrong, but a shared helper whose reason is right
     /// for its first caller and wider than the second caller requires. §202.
+    ///
+    /// # Publication (`getBaseTypes` / `resolvedBaseTypes`, pinned 5b1047d)
+    ///
+    /// Native resolves a class or interface's bases once and stores them on
+    /// the declared type. The answer here is a pure function of the binder and
+    /// completed alias targets, so a completed `Some` is kept per (owner,
+    /// `refuse_type_arguments`) in `base_symbols`, private to this checker.
+    /// `None` is not stored. Nor is an answer computed while a `resolve_alias`
+    /// worker is active (`alias_resolving`): its `Resolving` entry answers
+    /// `None` provisionally. The saved work is the heritage entity resolution
+    /// (`resolve_name`, alias chains) that every member lookup through a base
+    /// repeated.
     pub(crate) fn base_symbols_of_ex(
+        &mut self,
+        owner: SymbolId,
+        refuse_type_arguments: bool,
+    ) -> Option<Vec<SymbolId>> {
+        if let Some(bases) = self.base_symbols.get(&(owner, refuse_type_arguments)) {
+            return Some(bases.clone());
+        }
+        let bases = self.base_symbols_of_ex_worker(owner, refuse_type_arguments)?;
+        if self.alias_resolving == 0 {
+            self.base_symbols.insert((owner, refuse_type_arguments), bases.clone());
+        }
+        Some(bases)
+    }
+
+    fn base_symbols_of_ex_worker(
         &mut self,
         owner: SymbolId,
         refuse_type_arguments: bool,
@@ -4247,10 +4276,13 @@ mod property_name_tests {
             |checker, root| {
                 let owner = checker.binder.lookup_local(root, "Shape").unwrap();
                 let ty = checker.get_declared_type_of_symbol(owner);
-                // This is the marker late_bound_members_of publishes on re-entry.
+                // This is the marker late_bound_members_of publishes, with its
+                // active count, while its worker runs.
                 checker.late_bound_member_names.insert((owner, false), Vec::new());
+                checker.late_bound_active += 1;
                 assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["early"]);
                 checker.late_bound_member_names.remove(&(owner, false));
+                checker.late_bound_active -= 1;
                 let mut completed = checker.get_property_names_of_type(ty).unwrap();
                 completed.sort();
                 assert_eq!(completed, ["early", "late"]);

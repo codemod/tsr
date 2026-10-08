@@ -49,8 +49,8 @@ that checker's `TypeStore`; a `SymbolId` belongs to the immutable binder domain.
 | `qualified_generic_reference_types` | Written qualification, target symbol, ordered argument IDs → type | Preserves distinct argument identities; not a member cache |
 | `instantiated_objects` | Source type and ordered substitution pairs → object image | Retains an instantiated image; completion of additional side metadata must be audited separately |
 | `anonymous_properties` | Type ID → semantic property images and a boolean | The boolean controls semantic/synthetic overlay use; it is not `MembersResolved` |
-| `late_bound_member_names` | Owner symbol and static/instance side → computed names/declarations | An empty entry is also installed during resolution; empty does not distinguish active from completed |
-| `get_property_names_of_type` | Concrete type → freshly allocated names or unsupported result | No general resolved-table memo; mapped keys are argument-dependent, statics and instance members have separate paths |
+| `late_bound_member_names` | Owner symbol and static/instance side → computed names/declarations | An empty entry is also installed during resolution; empty does not distinguish active from completed, `late_bound_active` counts active workers |
+| `get_property_names_of_type` | Concrete type → names or unsupported result | Only the declared-owner walk is memoised (`structured_property_names`, owner symbol → names, completed walks with no active late-bound worker; perf notes §15.6); mapped keys are argument-dependent and resolved before it, statics and instance members have separate paths |
 | `declared_members_are_complete` | Conservative graph traversal for absent-property diagnostics | Not a publication state; computed names and cycles may decline despite successful enumeration |
 | `declared_property_table` | Fresh traversal of names and optionality | A different eligibility policy, including index signatures; not interchangeable with the preceding predicate |
 

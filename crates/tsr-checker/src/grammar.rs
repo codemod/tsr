@@ -7,7 +7,7 @@
 
 use tsr_ast::{
     Expression, ModifierLike, Node, NodeFlags, NodeId, ObjectLiteralElementLike, Statement,
-    SyntaxKind,
+    SyntaxKind, TypeNode,
 };
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -234,6 +234,76 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+        if let Node::CatchClause(clause) = typed
+            && let Some(declaration) = clause.variable_declaration.and_then(|d| d.node_id)
+        {
+            self.check_catch_clause_declaration(declaration);
+        }
+        // `Checker.checkTypeAliasDeclaration` (`checker.go:6888`): the parser
+        // makes `intrinsic` a keyword type only as a whole alias body, and
+        // only `BuiltinIteratorReturn` (no type parameters) and the one-
+        // parameter `intrinsicTypeKinds` names may use it (a `c.error`).
+        if let Node::TypeAliasDeclaration(alias) = typed
+            && let Some(TypeNode::KeywordTypeNode(keyword)) = alias.r#type
+            && keyword.kind == SyntaxKind::IntrinsicKeyword
+            && let Some(id) = keyword.node_id
+        {
+            let name = alias.name.map_or("", |name| name.text);
+            let allowed = match alias.type_parameters.len() {
+                0 => name == "BuiltinIteratorReturn",
+                1 => matches!(
+                    name,
+                    "Uppercase" | "Lowercase" | "Capitalize" | "Uncapitalize" | "NoInfer"
+                ),
+                _ => false,
+            };
+            if !allowed && let Some(file) = self.source_file_of_for_diagnostics(id) {
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::THE_INTRINSIC_KEYWORD_CAN_ONLY_BE_USED_TO_DECLARE_COMPILER_PROVIDED_INTRINSIC_TYPES,
+                        span,
+                    ),
+                );
+            }
+        }
+        // The first arm of `Checker.checkTypePredicate` (`checker.go:3055`):
+        // the parser builds a predicate in any type position, and one outside
+        // a signature's return type is TS1228 (a `c.error`). The remaining
+        // arms (parameter lookup, rest and binding-pattern references) are
+        // not ported here.
+        if let Node::TypePredicateNode(predicate) = typed
+            && let Some(id) = predicate.node_id
+            && self.type_predicate_parent(id).is_none()
+            && let Some(file) = self.source_file_of_for_diagnostics(id)
+        {
+            let span = self.error_span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_TYPE_PREDICATE_IS_ONLY_ALLOWED_IN_RETURN_TYPE_POSITION_FOR_FUNCTIONS_AND_METHODS,
+                    span,
+                ),
+            );
+        }
+    }
+
+    /// `Checker.getTypePredicateParent` (`checker.go:3099`): the signature
+    /// whose return type is exactly this predicate.
+    fn type_predicate_parent(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.nodes.parent(node)?;
+        let return_type = match self.node_map.get(parent)? {
+            Node::ArrowFunction(signature) => signature.r#type,
+            Node::CallSignatureDeclaration(signature) => signature.r#type,
+            Node::FunctionDeclaration(signature) => signature.r#type,
+            Node::FunctionExpression(signature) => signature.r#type,
+            Node::FunctionTypeNode(signature) => signature.r#type,
+            Node::MethodDeclaration(signature) => signature.r#type,
+            Node::MethodSignatureDeclaration(signature) => signature.r#type,
+            _ => None,
+        };
+        (return_type.and_then(|t| t.node_id()) == Some(node)).then_some(parent)
     }
 
     /// The first arms of `Checker.checkExternalImportOrExportDeclaration`
@@ -1046,6 +1116,66 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::with_args(message, span, [token.to_string(), printed]));
+    }
+
+    /// `Checker.grammarErrorOnFirstToken` (`grammarchecks.go:19`): silent in a
+    /// file with parse diagnostics; otherwise the range of the token at the
+    /// node's start (`scanner.GetRangeOfTokenAtPosition`). Scans one token on
+    /// this error path only; a host without source text cannot supply the
+    /// range and reports nothing. Returns whether it reported, as upstream's
+    /// callers record that result (`hasReportedStatementInAmbientContext`).
+    pub(crate) fn grammar_error_on_first_token(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
+        let start = self.nodes.span(node).start;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))
+        else {
+            return false;
+        };
+        let token = tsr_scanner::Scanner::new(rest).scan().span;
+        let span = tsr_core::Span::new(start + token.start, start + token.end);
+        self.report(file, Diagnostic::new(message, span));
+        true
+    }
+
+    /// The grammar arms of `Checker.checkCatchClause` (`checker.go:4247`): a
+    /// type annotation whose type is not `any`/`unknown` is TS1196, else an
+    /// initializer is TS1197, both on the offending node's first token.
+    ///
+    /// Not ported: the third arm, TS2492 for a block-scoped redeclaration of
+    /// the caught name, which reads the binder's catch-clause and block
+    /// locals.
+    fn check_catch_clause_declaration(&mut self, declaration: NodeId) {
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if let Some(type_node) = variable.r#type {
+            let ty = self.get_type_from_type_node(type_node);
+            // `is_error` is upstream's `errorType`, which carries `TypeFlagsAny`.
+            if !self.is_error(ty)
+                && !self.type_of(ty).flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
+                && let Some(id) = type_node.node_id()
+            {
+                self.grammar_error_on_first_token(
+                    id,
+                    &messages::CATCH_CLAUSE_VARIABLE_TYPE_ANNOTATION_MUST_BE_ANY_OR_UNKNOWN_IF_SPECIFIED,
+                );
+            }
+        } else if let Some(id) = variable.initializer.and_then(|i| i.node_id()) {
+            self.grammar_error_on_first_token(
+                id,
+                &messages::CATCH_CLAUSE_VARIABLE_CANNOT_HAVE_AN_INITIALIZER,
+            );
+        }
     }
 }
 

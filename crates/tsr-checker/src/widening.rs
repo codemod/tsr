@@ -109,7 +109,7 @@ impl Checker<'_, '_> {
         if let Some(index) = context {
             contexts[index].widened.insert(id, id);
         } else {
-            self.widened_object_types.insert(id, id);
+            self.record_object_type_transfer(false, id, id);
         }
         // `checker.go:18368`: a `createWideningType` nullable widens to `any`.
         let result = if self.intrinsics.is_widening_nullable(id) {
@@ -156,9 +156,36 @@ impl Checker<'_, '_> {
         if let Some(index) = context {
             contexts[index].widened.insert(id, result);
         } else {
-            self.widened_object_types.insert(id, result);
+            self.record_object_type_transfer(false, id, result);
         }
         result
+    }
+
+    /// Write `original -> target` into `regular_object_literal_types`
+    /// (`regular`) or `widened_object_types`, keeping the reverse index
+    /// `object_type_transfer_origins` (entries with `original < target`)
+    /// in step, including when an entry is overwritten.
+    pub(crate) fn record_object_type_transfer(
+        &mut self,
+        regular: bool,
+        original: TypeId,
+        target: TypeId,
+    ) {
+        let map = if regular {
+            &mut self.regular_object_literal_types
+        } else {
+            &mut self.widened_object_types
+        };
+        if let Some(previous) = map.insert(original, target)
+            && original.index() < previous.index()
+            && let Some(origins) = self.object_type_transfer_origins.get_mut(&previous)
+            && let Some(position) = origins.iter().position(|&entry| entry == (original, regular))
+        {
+            origins.remove(position);
+        }
+        if original.index() < target.index() {
+            self.object_type_transfer_origins.entry(target).or_default().push((original, regular));
+        }
     }
 
     fn widen_array_members(&mut self, id: TypeId, contexts: &mut Vec<WideningContext>) -> TypeId {

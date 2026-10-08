@@ -3906,14 +3906,18 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .zip(labels)
             .map(|(&(element, optional), label)| {
-                let text = self.type_to_string(element);
                 match label {
                     // §80: the label owns the `?` — `[first?: string]`,
-                    // never `[first: string?]`.
-                    Some(label) if optional => format!("{label}?: {text}"),
-                    Some(label) => format!("{label}: {text}"),
+                    // never `[first: string?]`. typeToTypeNodeHelper removes
+                    // missing from every optional element, labeled or not
+                    // (nodebuilderimpl.go tuple arm).
+                    Some(label) if optional => {
+                        let element = self.remove_missing_type(element);
+                        format!("{label}?: {}", self.type_to_string(element))
+                    }
+                    Some(label) => format!("{label}: {}", self.type_to_string(element)),
                     None if optional => format!("{}?", self.optional_tuple_element_text(element)),
-                    None => text,
+                    None => self.type_to_string(element),
                 }
             })
             .collect::<Vec<_>>()

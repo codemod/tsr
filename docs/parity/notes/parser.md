@@ -442,3 +442,45 @@ JSDoc reparsing (`reparser.go`) is enabled. Whether the reparser exists is
 How we would know the shape is wrong: if a consumer needs the fact for a node
 whose file cannot be reached cheaply (a synthesized node with no parent), the
 per-file flag must become per-node.
+
+## Carried parser recovery ports (box/lane-parser)
+
+- `void` in type position (`parseNonArrayType`): `void` has its own arm with
+  no keyword-dot lookahead, so `void.x` is the keyword type followed by a
+  TS1005 at `.`; `string.x`/`any.x` stay dotted type references.
+- Private names in binding positions (`parseIdentifierOrPatternWithDiagnostic`
+  → `createIdentifierWithDiagnostic`): variable declarations pass TS18029,
+  parameters TS18009, binding elements keep the default TS18016. The message
+  is a parameter of `parse_binding_name_with_diagnostic`, not a per-caller
+  pre-check, so the identifier is consumed by the one shared path.
+- Catch clause (`parseCatchClause` → `parseVariableDeclaration`): the whole
+  declaration is parsed, initializer and private-name policy included; the
+  printer emits it through the shared `emitVariableDeclaration` port. The
+  grammar arms of `checkCatchClause` (TS1196, TS1197) live in `grammar.rs`
+  behind `grammarErrorOnFirstToken`; TS2492 (block-local redeclaration of
+  the caught name) needs binder locals and is not ported.
+- Enum members (`parseEnumMember`): the member is the JSDoc host
+  (`withJSDoc`), so `{@link A}` on a member marks `A` referenced, and the
+  initializer parses with `DisallowInContext` cleared.
+- Type predicates (`parseTypeOrTypePredicate`, `parseNonArrayType`): only the
+  `identifier is` prefix is return-position-specific; `this is T` and
+  `asserts x [is T]` are type arms reachable anywhere (asserts guarded by
+  `nextTokenIsIdentifierOrKeywordOnSameLine`), and the prefix is tried
+  first, so `asserts is T` names a parameter `asserts`. The first arm of
+  `checkTypePredicate` (TS1228 via `getTypePredicateParent`) is in
+  `grammar.rs`; JSDoc-hosted predicates still lack the reparser parent.
+- `intrinsic` (`parseTypeAliasDeclaration`, `parseNonArrayType`): a keyword
+  type only as a whole alias body not followed by `.`; elsewhere a type
+  reference (TS2304). `checkTypeAliasDeclaration`'s TS2795 for a
+  non-compiler alias body is in `grammar.rs` (syntactic, no type queries).
+- Function declaration names (`parseFunctionDeclaration`): the name is
+  optional only under a `default` modifier (unless a binding identifier
+  follows); otherwise `parseBindingIdentifier` reports TS1003.
+- Modifier nodes (`parseModifier` → `finishNode`): a modifier ends where its
+  keyword ends, so TS1029/TS1042/TS1044-family spans on a modifier no longer
+  include the trailing trivia up to the next token.
+- Ambient statements (`checkGrammarStatementInAmbientContext`): TS1036 and
+  TS1183 go through `grammarErrorOnFirstToken` (the one helper in
+  `grammar.rs`, which now returns whether it reported), so the span is the
+  statement's first token; the once-per-block flag records the report
+  result, as `hasReportedStatementInAmbientContext` does.

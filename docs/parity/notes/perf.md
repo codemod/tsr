@@ -409,3 +409,184 @@ with `PURGE_DELAY=0` 759 ms / 122 MB. No configuration is faster than glibc
 within +10% RSS on this Linux box. macOS (no THP, slower system malloc) is
 unmeasured; setting options in code needs unsafe FFI, which the workspace
 denies.
+
+## §15 Checker 0 hot-path round (base `5d8d97f3`, this box)
+
+14-vCPU Linux box, `perf` with frame pointers on a `profiling` build of
+`domain-model-large`; shares are of checker 0's samples (it owns `main.ts` and
+finishes last). Each step is output-preserving: same answers, less work.
+
+### §15.1 C2: the `TSR_PROJ_TRACE` probe is gone
+
+`get_type_of_property_with_this_argument` (`members.rs`) read the
+environment on every property access for a behaviour-free debugging probe
+(§829.2): `getenv` was 0.8% of checker 0. Removed with its `eprintln!`.
+
+### §15.2 C1: `mentions_type_parameter_inner` stops printing for nothing
+
+The walk's last resort renders the type and scans it for the caller's
+parameter `names`. Callers that pass no names (`mentions_registered_type_parameter`,
+the polymorphic-`this` checks) paid the render and could never match; the
+fallback now returns `false` before printing when `names` is empty.
+
+The `this` checks themselves (`get_type_of_property_with_this_argument`,
+`get_property_names_of_type`) copied every minted `this` type into a `Vec`
+per member read and, for `fn(): this` substitution, ran one full walk per
+minted `this` type. They now run one walk with `mentions_this_type`
+(membership: `TYPE_PARAMETER` flag, then the `this_types`/`this_type_nodes`
+values) and only search for the first mentioned type (same table order as
+before) when that walk says one is present. No cache or table is added; the
+answer per query is unchanged. `mentions_type_parameter_inner` fell from
+2.0% self (plus 2.7% under `access_member_lookup`) to 0.6%.
+
+### §15.3 `compareSymbols` sorts compute each key once
+
+`compare_symbols` (`compareSymbolsWorker`, `utilities.go:366`) walks both
+first declarations up to their `SourceFile` on every comparison. The three
+whole-table sorts (`collect_structured_property_names`,
+`collect_static_property_names`, the anonymous-property printer) now use
+`sort_by_cached_key` over `compare_symbols_key`, the same ordering as a
+tuple (has declarations, (file, position), name, id), so each symbol's walk
+runs once per sort instead of O(log n) times. The comparator itself uses the
+key; minimum searches keep calling it. Sorting fell from 1.8% to ~0.3% of
+checker 0.
+
+### §15.4 `best_name` copies a scope table only when it reaches it
+
+`best_name` (the `getAccessibleSymbolChain` scope walk) copied every scope's
+locals, every enclosing module's exports and the whole globals table into
+vectors before looking at the first one, although the innermost hit returns.
+It now records which tables exist (locals, exports, class-expression name,
+globals) in the same order and copies each when the loop reaches it, so a
+name found in its file's locals never copies globals. Iteration order within
+a table is the table's own, as before.
+
+### §15.5 Interface call/construct signatures publish once per checker
+
+Native op: `resolveClassOrInterfaceMembers` → `resolveObjectTypeMembers`
+(pinned 5b1047d) stores an interface's declared `CallSignatures` /
+`ConstructSignatures` on its structured type; every later
+`getSignaturesOfType` reads them. TSR's
+`signature_candidates_of_interface_symbol` (`signatures.rs`) re-walked the
+heritage clauses on every query — resolving each base entity,
+instantiating it (`instantiated_heritage_base`) and instantiating the base's
+signatures — and `get_property_of_type_ex` asks for both kinds on every
+property miss of an object type (the `Function`/`Object` augment test).
+
+- **Key and owner:** (merged interface or type-literal symbol, kind) →
+  `Vec<Signature>` in `Checker::interface_signatures`, private to the
+  checker for its lifetime, like native per-checker type links.
+- **Publication:** only a completed `Some` is stored. `None` (a cycle on the
+  `visiting` stack, an unresolvable or invalid base, an unbuilt
+  declaration) is not stored and recomputes, exactly as before.
+- **Receiver context:** the stored set is the declared type's, before the
+  receiver mapper; `signature_candidates_of_named_type` still instantiates
+  it for each receiver per query.
+- **Work boundary:** domain-model-large, all four checkers: 372k queries →
+  7.3k worker runs; 99.9% of hits are empty sets.
+
+Dumps byte-identical to the base. Checker-0 CPU −6% against the previous
+step (15 pairs).
+
+### §15.6 Declared property names publish once per owner
+
+Native op: `getPropertiesOfType` over `resolveClassOrInterfaceMembers`
+(pinned 5b1047d): a declared type's own members then `addInheritedMembers`,
+resolved once on the structured type. TSR's `get_property_names_of_type`
+(`members.rs`, `Named` arm) re-ran `collect_structured_property_names` — the
+own table sorted by `compareSymbols`, late-bound names, then every base —
+per query; relation (`is_pure_signature_type`, excess-property checks) asks
+it repeatedly for the same targets.
+
+- **Key and owner:** the `Named` type's member owner symbol → names, in
+  `Checker::structured_property_names`, private to the checker. Type
+  arguments do not rename members, so `Foo<A>` and `Foo<B>` share the entry.
+- **Publication:** only a completed walk (`true`) is stored, and only when
+  no `late_bound_members_of` worker is active (`late_bound_active`, new): an
+  active worker leaves an empty placeholder in `late_bound_member_names`
+  that a walk could have read. A failed walk (unfollowable base) recomputes.
+- **Work boundary:** domain-model-large: 42k queries over 2.4k owners
+  (all checkers); `get_property_names_of_type` 3.9% → 1.3% of checker 0.
+  Total CPU −3.6% (21 pairs); checker 0's own time is flat (most repeat
+  queries were on checkers 1–3).
+
+Dumps byte-identical to the base.
+
+### §15.7 `extends` base symbols publish once per owner
+
+Native op: `getBaseTypes` (`resolveBaseTypesOfClass` /
+`resolveBaseTypesOfInterface`, pinned 5b1047d) stores `resolvedBaseTypes`
+on the declared type. TSR's `base_symbols_of_ex` (`members.rs`) re-resolved
+every heritage entity (`heritage_entity_symbol` → `resolve_name`, alias
+chains) on each call, and member lookup calls it for every base on every
+property read through inheritance.
+
+- **Key and owner:** (owner symbol, `refuse_type_arguments`) → base
+  symbols in `Checker::base_symbols`, private to the checker.
+- **Publication:** completed `Some` only, and only while no `resolve_alias`
+  worker is active (`alias_resolving`, a new counter in `resolve_alias`):
+  a `Resolving` alias answers `None` provisionally, and the answer is
+  otherwise a function of the immutable binder and completed alias targets.
+  `None` recomputes.
+- **Work boundary:** total CPU −2.9%, wall −2.9% (21 pairs against §15.6).
+
+Dumps byte-identical to the base.
+
+### §15.8 The object-literal printer finds its fresh source by index
+
+`certified_object_literal_text_at` (`printing.rs`) walks a regular or
+widened object image back to its fresh literal by scanning all of
+`regular_object_literal_types` and `widened_object_types` for an entry whose
+target is the current type — O(table) per step, per member print. Writers
+now go through `record_object_type_transfer` (`widening.rs`), which keeps
+`object_type_transfer_origins` (target → (original, which map), only entries
+with original < target, the scan's own condition) in step, including the
+widening cache's overwrite of its `id → id` recursion marker. A sole
+original is the scan's answer; several distinct originals still run the scan,
+so its table-order choice is unchanged. Single-threaded check time −3%
+(1.105 → 1.074 s); four-checker CPU −0.4%. No native counterpart: native
+prints from the symbol table and never walks images back.
+
+### §15.9 A declared method access skips the flow walk, as natively
+
+Native op: `getFlowTypeOfAccessExpression` (pinned 5b1047d,
+`checker.go:11400`) returns the property type without
+`getFlowTypeOfReference` unless the property symbol is a variable, property
+or accessor, or a method whose type is a union (an optional method).
+TSR's `access_member_lookup` (`members.rs`) walked the flow graph for every
+property access; in domain-model-large's `run()` (200 sequential blocks)
+each `out.push`, `serviceN.create` and `serviceN.move` walked back to the
+function start. `declared_method_access_skips_flow` applies native's gate
+where this port's property symbol is the native one: a member of a declared
+class/interface receiver (instantiation keeps flags). Union/intersection,
+mapped, reverse-mapped and object-literal receivers keep the walk.
+
+Wall −6.5%, CPU −2.5% (21 pairs against §15.8). Dumps byte-identical.
+Native control (optional method narrowed on interface, class and union
+receivers; plain methods; function-typed property narrowed; `Array.push`;
+`String.toUpperCase`): base, new and tsgo print the same eight lines.
+
+### §15.10 Round result and what remains outside this lane's files
+
+Verified ratio against pinned tsgo (`work-trace` builds, 21 pairs, all
+`actual_checked_work_verified`): domain-model-large **1.184 → 0.972**,
+domain-model 0.971 → 0.895, generic-imports 0.905 → 0.910 (noise; median
+CPU vs base 1.011 at 41 pairs). Median CPU vs base: domain-model-large
+0.820, domain-model 0.882. All dumps byte-identical to base `5d8d97f3`.
+
+Checker 0 (domain-model-large) after §15.9, inclusive: flow walk 18.5%
+(`get_type_at_flow_node` 9% self), `get_effects_signature` 4.2%,
+`get_type_of_dotted_name` 3.4%, eager object-literal printing 6.2%. The
+remaining native-faithful cuts are in files this lane does not own:
+
+- `flow.rs` `get_effects_signature`: native memoises
+  `signatureLinks.effectsSignature` per call node (including the unknown
+  answer); TSR stores only completed negatives.
+- `flow.rs` `get_type_of_dotted_name`, `references_match`,
+  `contains_matching_reference`: call `binder.resolve_name` per visit
+  where native reads `getResolvedSymbol` (`links.resolvedSymbol`, one
+  resolution per identifier node); `resolve_name` is 9.7% of checker 0.
+- `flow.rs` `intersection_has_never_discriminant`: clones `TypeData`
+  before matching the intersection arm (allocates for every non-intersection
+  constituent).
+- §13 C5 (objects/printing representation) unchanged.

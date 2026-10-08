@@ -178,6 +178,19 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         parameter: NodeId,
     ) -> Option<TypeId> {
+        self.contextually_typed_parameter_type(parameter, true)
+    }
+
+    /// `widen_from_initializer` is false for the initializer's own contextual
+    /// type (`getContextualTypeForVariableLikeDeclaration`'s Parameter arm),
+    /// which reads `getContextuallyTypedParameterType` alone; the widening is
+    /// `assignContextualParameterTypes`' and would check the very initializer
+    /// being contextually typed.
+    fn contextually_typed_parameter_type(
+        &mut self,
+        parameter: NodeId,
+        widen_from_initializer: bool,
+    ) -> Option<TypeId> {
         let function = self.nodes.parent(parameter)?;
         // §175 (`checker-notes-narrow.md`): an unannotated SETTER value
         // parameter takes the ACCESSOR's type, which upstream resolves in a
@@ -358,7 +371,10 @@ impl<'a> Checker<'a, '_> {
         // assignContextualParameterTypes (internal/checker/checker.go) allows
         // an initializer to widen a contextual parameter, but only when the
         // contextual type is assignable to the widened initializer type.
-        if !asking_for_rest && let Some(initializer) = parameters[index].initializer {
+        if widen_from_initializer
+            && !asking_for_rest
+            && let Some(initializer) = parameters[index].initializer
+        {
             use crate::relater::{Relation, Ternary};
             // getTypeOfParameter includes undefined for optional/defaulted
             // positions; stored signature types omit it for printing.
@@ -597,11 +613,71 @@ impl<'a> Checker<'a, '_> {
         ty
     }
 
+    /// `instantiateContextualType` (`checker.go:30817`) without
+    /// `ContextFlagsSignature`: during inference only the return mapper's
+    /// inferences are incorporated (`checkArrayLiteral`'s tuple-context read),
+    /// so a bare `T` stays `T` and its constraint answers through the apparent
+    /// type. `boolean`'s two literals are filtered from a union image
+    /// (#48363). The resolved-call fallback is the same recorded mapper the
+    /// signature form reads. No state.
+    pub(crate) fn instantiate_contextual_type_without_signature(
+        &mut self,
+        ty: TypeId,
+        node: NodeId,
+    ) -> TypeId {
+        if self.contextual_prefers_uninstantiated {
+            return ty;
+        }
+        // `maybeTypeOfKind(contextualType, TypeFlagsInstantiable)` gates the
+        // whole instantiation: a concrete `boolean` is never filtered.
+        if !self.maybe_type_of_kind(ty, crate::flags::TypeFlags::INSTANTIABLE) {
+            return ty;
+        }
+        if self.live_inference_context(node).is_some() {
+            if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                if !self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    if let TypeData::Union { types, .. } = &self.store.get(image).data
+                        && types.contains(&self.intrinsics.regular_true)
+                        && types.contains(&self.intrinsics.regular_false)
+                    {
+                        let (t, f) = (self.intrinsics.regular_true, self.intrinsics.regular_false);
+                        let kept: Vec<_> =
+                            types.iter().copied().filter(|&m| m != t && m != f).collect();
+                        return self.get_union_type_without_reduction(&kept);
+                    }
+                    return image;
+                }
+            }
+            return ty;
+        }
+        self.instantiate_contextual_inference_type(ty, node)
+    }
+
     /// getApparentTypeOfContextualType maps union operands while preserving
     /// mapped templates. An unconstrained instantiable type has unknown as its
     /// apparent type, hence no contextual call signature.
+    ///
+    /// Under `contextual_prefers_uninstantiated` (the written-parameter read)
+    /// only a bare type parameter maps to its constraint, as upstream's first
+    /// pass does: `ft<T extends { c: U }, U extends string>({ c: 'x' })` reads
+    /// `U` for `c` and keeps `"x"`. Other instantiable written types stay
+    /// as written there, because this port's base constraint of a generic
+    /// indexed access over a mapped type (`{ [P in K]: … }[K]`) is not the
+    /// distributed union upstream discriminates.
     pub(crate) fn apparent_contextual_type(&mut self, ty: TypeId) -> TypeId {
-        if self.contextual_prefers_uninstantiated || self.mapped_types.contains_key(&ty) {
+        if self.mapped_types.contains_key(&ty)
+            || (self.contextual_prefers_uninstantiated
+                && !self.store.get(ty).flags.intersects(
+                    crate::flags::TypeFlags::TYPE_PARAMETER | crate::flags::TypeFlags::UNION,
+                ))
+        {
             return ty;
         }
         if let TypeData::Union { types, .. } = &self.store.get(ty).data {
@@ -1169,8 +1245,15 @@ impl<'a> Checker<'a, '_> {
                 }
                 // A written annotation precedes contextual-signature/default
                 // inference in getContextualTypeForVariableLikeDeclaration.
-                let annotation = declaration.r#type?;
-                Some(self.get_type_from_type_node(annotation))
+                // getContextualTypeForVariableLikeDeclaration: the type node
+                // (in JS the reparsed `@param`), else the Parameter arm's
+                // getContextuallyTypedParameterType (`checker.go:29458`).
+                match declaration.r#type.or_else(|| {
+                    self.jsdoc_parameter_annotation(parent).map(|(annotation, _)| annotation)
+                }) {
+                    Some(annotation) => Some(self.get_type_from_type_node(annotation)),
+                    None => self.contextually_typed_parameter_type(parent, false),
+                }
             }
             Node::BindingElement(element) => {
                 if element.initializer.and_then(|initializer| initializer.node_id()) != Some(node) {
@@ -1514,8 +1597,17 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionExpression(f)) => (f.r#type, f.asterisk_token.is_some()),
             Some(Node::ArrowFunction(f)) => (f.r#type, false),
             Some(Node::MethodDeclaration(f)) => (f.r#type, f.asterisk_token.is_some()),
+            Some(Node::GetAccessorDeclaration(getter)) => (getter.r#type, false),
             _ => (None, false),
         };
+        // getReturnTypeFromAnnotation (`checker.go:20058`): the declaration's
+        // type node, which in a JS file is the reparsed `@returns` tag
+        // (`reparseHosted`); for a get accessor without one, the paired set
+        // accessor's value-parameter annotation
+        // (getEffectiveSetAccessorTypeAnnotationNode, `this` skipped).
+        let annotation = annotation
+            .or_else(|| self.jsdoc_return_annotation(function))
+            .or_else(|| self.paired_setter_value_annotation(function));
         if let Some(annotation) = annotation {
             return Ok(Some(self.get_type_from_type_node(annotation)));
         }
@@ -1787,6 +1879,18 @@ impl<'a> Checker<'a, '_> {
         function: NodeId,
         contextual: TypeId,
     ) -> Option<TypeId> {
+        // getReturnTypeFromBody (`checker.go:20213`) reads
+        // `instantiateContextualType(getReturnTypeOfSignature(sig), fn,
+        // ContextFlagsNone)`: during inference the contextual signature's
+        // return keeps the callee's type parameters, and only the return
+        // mapper's inferences apply — `(): Promise<D> => then(() => 'E')`
+        // keeps `"E"` against `R | PromiseLike<R>` with `R` = `D`. Outside a
+        // live inference context the signature is already instantiated.
+        let contextual = if self.live_inference_context(function).is_some() {
+            self.instantiate_contextual_type_without_signature(contextual, function)
+        } else {
+            contextual
+        };
         if !self.contextual_function_is_async(function) {
             return Some(contextual);
         }
@@ -2145,25 +2249,17 @@ impl<'a> Checker<'a, '_> {
         if let TypeData::Union { types, .. } = &self.store.get(contextual).data {
             let types = types.clone();
             let mut mapped = Vec::new();
+            // mapTypeEx drops a constituent with no element type: `[0]`
+            // against `[0] | Promise<[0]>` reads the tuple alone.
             for part in types {
-                match self.contextual_type_for_element_expression(
+                if let Some(element) = self.contextual_type_for_element_expression(
                     part,
                     index,
                     length,
                     first_spread,
                     last_spread,
                 ) {
-                    Some(element) => mapped.push(element),
-                    // A missing object lookup may be an unresolved mapped/index
-                    // signature. Dropping it would fabricate a contextual
-                    // signature from the other union constituents.
-                    None if self.store.get(part).flags.intersects(
-                        crate::flags::TypeFlags::OBJECT | crate::flags::TypeFlags::TYPE_PARAMETER,
-                    ) =>
-                    {
-                        return None;
-                    }
-                    None => {}
+                    mapped.push(element);
                 }
             }
             return (!mapped.is_empty()).then(|| self.get_union_type_without_reduction(&mapped));
@@ -2595,10 +2691,98 @@ impl<'a> Checker<'a, '_> {
             }
             _ => self.store.get(member).flags.intersects(crate::flags::TypeFlags::UNIT),
         };
-        if constituents.len() > 1 && unit_leaf {
+        // getTypeOfPropertyOfContextualType maps over the union and a nullable
+        // constituent contributes no property, so `X | undefined` (an optional
+        // tuple slot or member) is a one-constituent walk with nothing to
+        // discriminate.
+        let candidates = constituents
+            .iter()
+            .filter(|&&t| !self.store.get(t).flags.intersects(crate::flags::TypeFlags::NULLABLE))
+            .count();
+        if candidates > 1
+            && unit_leaf
+            && self.object_literal_may_discriminate(literal, &constituents)
+        {
             return None;
         }
         Some(member)
+    }
+
+    /// `getAnnotatedAccessorType(getDeclarationOfKind(symbol, SetAccessor))`
+    /// for a get accessor: the setter's value parameter (after an explicit
+    /// `this`) written or reparsed JSDoc `@param` type node.
+    fn paired_setter_value_annotation(&self, getter: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
+        if self.nodes.kind(getter) != tsr_ast::SyntaxKind::GetAccessor {
+            return None;
+        }
+        let symbol = self.binder.symbol_of(getter)?;
+        self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+            let Node::SetAccessorDeclaration(setter) = self.node_map.get(id)? else {
+                return None;
+            };
+            let has_this = setter.parameters.len() == 2 && is_this_parameter(setter.parameters[0]);
+            let parameter = setter.parameters.get(usize::from(has_this))?;
+            parameter.r#type.or_else(|| {
+                self.jsdoc_parameter_annotation(parameter.node_id?)
+                    .map(|(annotation, _)| annotation)
+            })
+        })
+    }
+
+    /// Whether `discriminateContextualTypeByObjectMembers`
+    /// (`checker.go:30755`) could narrow `constituents` for this literal at
+    /// all. It has discriminators only from a `PropertyAssignment` whose
+    /// initializer `isPossiblyDiscriminantValue`, a shorthand member, or an
+    /// optional contextual member the literal does not write (the key-property
+    /// road also needs a possibly-discriminant initializer). With none,
+    /// `discriminateTypeByDiscriminableItems` returns the union unchanged and
+    /// the union walk is upstream's answer, so §927's unit-leaf decline does
+    /// not apply. Conservative: spreads, computed names and any constituent
+    /// member the literal does not name count as possible discriminators.
+    /// Syntax plus one property-name read per constituent; no state.
+    fn object_literal_may_discriminate(
+        &mut self,
+        literal: NodeId,
+        constituents: &[TypeId],
+    ) -> bool {
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return true;
+        };
+        let mut written = Vec::with_capacity(object.properties.len());
+        for property in object.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    if assignment.initializer.is_none_or(is_possibly_discriminant_value) {
+                        return true;
+                    }
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    accessor.name
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
+                | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return true,
+            };
+            match name {
+                PropertyName::Identifier(name) => written.push(name.text),
+                PropertyName::StringLiteral(name) => written.push(name.text),
+                _ => return true,
+            }
+        }
+        for &constituent in constituents {
+            if self.store.get(constituent).flags.intersects(crate::flags::TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            let Some(names) = self.get_property_names_of_type(constituent) else { return true };
+            if names.iter().any(|name| !written.contains(&name.as_str())) {
+                return true;
+            }
+        }
+        false
     }
 
     /// The type an expression is expected to have when it sits directly in the
@@ -3003,6 +3187,33 @@ impl<'a> Checker<'a, '_> {
 /// a binding pattern.
 fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
     matches!(parameter.name, Some(BindingName::Identifier(name)) if name.text == "this")
+}
+
+/// `isPossiblyDiscriminantValue` (`checker.go`): the initializer forms
+/// `discriminateContextualTypeByObjectMembers` may read context-free.
+fn is_possibly_discriminant_value(node: Expression<'_>) -> bool {
+    match node {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::NoSubstitutionTemplateLiteral(_)
+        | Expression::TemplateExpression(_)
+        | Expression::Identifier(_) => true,
+        Expression::KeywordExpression(keyword) => matches!(
+            keyword.kind,
+            tsr_ast::SyntaxKind::TrueKeyword
+                | tsr_ast::SyntaxKind::FalseKeyword
+                | tsr_ast::SyntaxKind::NullKeyword
+        ),
+        Expression::PropertyAccessExpression(access) => {
+            access.expression.is_some_and(is_possibly_discriminant_value)
+        }
+        Expression::ParenthesizedExpression(inner) => {
+            inner.expression.is_some_and(is_possibly_discriminant_value)
+        }
+        Expression::JsxExpression(jsx) => jsx.expression.is_none_or(is_possibly_discriminant_value),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -3515,17 +3726,6 @@ mod tests {
             panic!("no subtype reduction");
         };
         assert!(types.contains(&slot));
-    }
-
-    #[test]
-    fn contextual_tuple_reader_preserves_incomplete_union_refusal() {
-        let source = "type Target = ['prefix'] | { named: 'other' }; \
-                      type Linked = Target; declare const v: Linked;";
-        for mode in [(false, false), (true, false), (true, true)] {
-            for warm in [false, true] {
-                assert_eq!(tuple_context(source, mode, warm, 0, None, (None, None)), None);
-            }
-        }
     }
 
     #[test]

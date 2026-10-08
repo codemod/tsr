@@ -27,32 +27,15 @@ impl<'a> Parser<'a> {
         Some(self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate))
     }
 
-    /// A type, or a type predicate if one is in position.
+    /// typescript-go's `Parser.parseTypeOrTypePredicate` (`parser.go`): an
+    /// identifier followed by `is` on the same line is the predicate prefix
+    /// (`parseTypePredicatePrefix`); `this is T` and `asserts x` are
+    /// `parseNonArrayType` arms, reached through [`Parser::parse_type`].
     pub(crate) fn parse_type_or_type_predicate(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-
-        // `asserts x` and `asserts x is T`. `asserts` is contextual: `asserts` on
-        // its own is an ordinary type reference.
-        if self.at(SyntaxKind::AssertsKeyword) && self.next_starts_predicate_subject() {
-            let asserts = self.take_token();
-            let parameter = self.parse_type_predicate_parameter();
-            let type_node =
-                if self.eat(SyntaxKind::IsKeyword) { Some(self.parse_type()) } else { None };
-            return TypeNode::TypePredicateNode(self.finish_node(
-                TypePredicateNode::new(Some(asserts), Some(parameter), type_node),
-                SyntaxKind::TypePredicate,
-                start,
-            ));
-        }
-
-        // `x is T`.
-        if (self.at(SyntaxKind::Identifier)
-            || self.at(SyntaxKind::ThisKeyword)
-            || crate::statement::is_contextual_keyword(self.token.kind))
-            && self.next_is_is_keyword()
-        {
-            let parameter = self.parse_type_predicate_parameter();
-            self.expect(SyntaxKind::IsKeyword);
+        if self.is_identifier() && self.next_is_is_keyword() {
+            let parameter = TypePredicateParameterName::Identifier(self.parse_identifier());
+            self.next_token();
             let type_node = self.parse_type();
             return TypeNode::TypePredicateNode(self.finish_node(
                 TypePredicateNode::new(None, Some(parameter), Some(type_node)),
@@ -78,17 +61,26 @@ impl<'a> Parser<'a> {
         TypePredicateParameterName::Identifier(self.parse_identifier())
     }
 
+    /// typescript-go's `Parser.parseKeywordTypeNode` (`parser.go`).
+    fn parse_keyword_type_node(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        let kind = self.token.kind;
+        self.next_token();
+        TypeNode::KeywordTypeNode(self.finish_node(KeywordTypeNode::new(kind), kind, start))
+    }
+
+    /// The body of `parseTypeAliasDeclaration` (`parser.go:2102`): a lone
+    /// `intrinsic` not followed by `.` is the intrinsic keyword type.
+    pub(crate) fn parse_type_alias_body(&mut self) -> TypeNode<'a> {
+        if self.at(SyntaxKind::IntrinsicKeyword) && !self.next_is_dot() {
+            return self.parse_keyword_type_node();
+        }
+        self.parse_type()
+    }
+
     /// Whether a `.` follows, making a keyword a namespace qualifier.
     fn next_is_dot(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::DotToken)
-    }
-
-    fn next_starts_predicate_subject(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            kind == SyntaxKind::Identifier
-                || kind == SyntaxKind::ThisKeyword
-                || crate::statement::is_contextual_keyword(kind)
-        })
     }
 
     fn next_is_is_keyword(&mut self) -> bool {
@@ -277,12 +269,16 @@ impl<'a> Parser<'a> {
             // Keyword types: `string`, `number`, `any`, `void`, … unless a `.`
             // follows, in which case the keyword names a namespace:
             // `var x: string.X` refers to a namespace called `string`.
+            // typescript-go's `parseNonArrayType` gives `void` its own arm with
+            // no dot lookahead: `void.x` is the keyword type, then `.` errors.
+            // `intrinsic` has no arm at all: it is a type reference here, and
+            // a keyword only as a whole type alias body
+            // ([`Parser::parse_type_alias_body`]).
             kind if kind.is_keyword_type()
+                && kind != SyntaxKind::IntrinsicKeyword
                 && (kind == SyntaxKind::VoidKeyword || !self.next_is_dot()) =>
             {
-                self.next_token();
-                let node = self.finish_node(KeywordTypeNode::new(kind), kind, start);
-                TypeNode::KeywordTypeNode(node)
+                self.parse_keyword_type_node()
             }
             // `(` opens either a parenthesised type or a function type's parameter
             // list, and the two diverge only at the `=>`. Speculate, then fall back.
@@ -378,10 +374,41 @@ impl<'a> Parser<'a> {
                 );
                 TypeNode::ImportTypeNode(node)
             }
+            // `parseNonArrayType`'s `this` arm: `this is T` is a predicate in
+            // any type position (`parseThisTypePredicate`); the checker
+            // rejects it where a predicate is not allowed (TS1228).
             SyntaxKind::ThisKeyword => {
                 self.next_token();
                 let node = self.finish_node(ThisTypeNode::new(), SyntaxKind::ThisType, start);
+                if self.at(SyntaxKind::IsKeyword) && !self.token.has_preceding_line_break() {
+                    self.next_token();
+                    let type_node = self.parse_type();
+                    return TypeNode::TypePredicateNode(self.finish_node(
+                        TypePredicateNode::new(
+                            None,
+                            Some(TypePredicateParameterName::ThisTypeNode(node)),
+                            Some(type_node),
+                        ),
+                        SyntaxKind::TypePredicate,
+                        start,
+                    ));
+                }
                 TypeNode::ThisTypeNode(node)
+            }
+            // `parseNonArrayType`'s `asserts` arm, `parseAssertsTypePredicate`;
+            // otherwise `asserts` is an ordinary type reference.
+            SyntaxKind::AssertsKeyword
+                if self.look_ahead(Self::next_token_is_identifier_or_keyword_on_same_line) =>
+            {
+                let asserts = self.take_token();
+                let parameter = self.parse_type_predicate_parameter();
+                let type_node =
+                    if self.eat(SyntaxKind::IsKeyword) { Some(self.parse_type()) } else { None };
+                TypeNode::TypePredicateNode(self.finish_node(
+                    TypePredicateNode::new(Some(asserts), Some(parameter), type_node),
+                    SyntaxKind::TypePredicate,
+                    start,
+                ))
             }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();

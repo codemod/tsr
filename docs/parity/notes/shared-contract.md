@@ -24,3 +24,15 @@ print (`array_literals`, `tuple_element_inference`, `tuples`) now expect the
 native print; `relater` exact-optional test fixes options before resolution,
 as native options are fixed per checker. domain-model CPU samples are bimodal
 (~0.39/0.43 s); 41-sample reruns 1.0104/0.9967, identical-binary control 0.9936.
+
+### Fix-forward: missing in prints (tsr-2zk.16.527)
+
+Two print sites still exposed `missingType` beside `undefined`. Native
+`getUnionTypeWorker` builds the origin of an unaliased union from the reduced
+`typeSet`, where `undefined` already displaced `missing`; the TSR origin entries
+came from the unreduced operands, so `optional[1]` printed
+`First | undefined | undefined`. The origin now drops `missing` when the reduced
+set no longer holds it. Labeled optional tuple elements now print through
+`removeMissingType` like unlabeled ones (`typeToTypeNodeHelper` tuple arm), so
+exact mode prints `[b?: string]`; an explicit `b?: string | undefined` keeps
+`undefined` (native control). No new cache or key.

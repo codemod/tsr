@@ -528,7 +528,7 @@ impl Checker<'_, '_> {
             return id;
         };
         let regular = self.store.new_named(self.store.get(id).flags, text, members);
-        self.regular_object_literal_types.insert(id, regular);
+        self.record_object_type_transfer(true, id, regular);
         if let Some(&spread) = self.object_literal_spread_flags.get(&id) {
             self.object_literal_spread_flags.insert(regular, spread);
         }
@@ -870,12 +870,14 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 let function = self.nodes.parent(parent)?;
-                if self.immediately_invoked_call(function).is_some()
-                    || !matches!(
-                        self.nodes.kind(function),
-                        tsr_ast::SyntaxKind::FunctionDeclaration
-                            | tsr_ast::SyntaxKind::MethodDeclaration
-                    ) && !self.has_no_contextual_type(function)
+                if self.iife_supplies_parameter_context(function, parent, declaration)
+                    || self.immediately_invoked_call(function).is_none()
+                        && !matches!(
+                            self.nodes.kind(function),
+                            tsr_ast::SyntaxKind::FunctionDeclaration
+                                | tsr_ast::SyntaxKind::MethodDeclaration
+                        )
+                        && !self.has_no_contextual_type(function)
                 {
                     return None;
                 }
@@ -946,8 +948,38 @@ impl<'a> Checker<'a, '_> {
                 (self.nodes.kind(inner.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
                     .then_some(inner)
             }
+            // getContextualType's ParenthesizedExpression arm passes the
+            // parent's contextual type through (`const { B = … } = ({ B:
+            // undefined })`).
+            tsr_ast::Node::ParenthesizedExpression(_) => self.contextual_binding_pattern(parent),
             _ => None,
         }
+    }
+
+    /// getContextuallyTypedParameterType's IIFE arm (`checker.go:29466`): a
+    /// rest parameter or a position with an argument takes the argument's
+    /// type; a defaulted position past the arguments answers nil, so the
+    /// initializer falls through to the implied binding-pattern type
+    /// (`(({ u = 22 } = { u: 23 }) => u)()`).
+    fn iife_supplies_parameter_context(
+        &self,
+        function: tsr_ast::NodeId,
+        parameter: tsr_ast::NodeId,
+        declaration: &tsr_ast::ParameterDeclaration<'_>,
+    ) -> bool {
+        let Some(call) = self.immediately_invoked_call(function) else { return false };
+        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
+            return true;
+        };
+        let parameters = match self.node_map.get(function) {
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.parameters,
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.parameters,
+            _ => return true,
+        };
+        let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter)) else {
+            return true;
+        };
+        declaration.dot_dot_dot_token.is_some() || index < call.arguments.len()
     }
 
     /// §897: the ASSIGNMENT pattern whose type is this literal's contextual
@@ -2005,8 +2037,22 @@ impl Checker<'_, '_> {
             // Landed on its own first: caching a value the recompute would have
             // produced anyway must be a no-op, and measuring it separately is
             // what tells us whether the two roads already disagree.
-            if let Some(symbol) = property_node_id.and_then(|id| self.binder.symbol_of(id)) {
-                self.symbol_types.entry(symbol).or_insert(member_type);
+            //
+            // The entry follows the LAST check of the symbol's value
+            // declaration: upstream's `getTypeOfSymbol` runs
+            // `checkPropertyAssignment` lazily, in the literal's final
+            // contextual state (after inference has resolved the call), not
+            // in the first, context-free inference pass. A duplicate name
+            // (`{ a: 1, a: "x" }`) shares the symbol; only its value
+            // declaration may replace the entry.
+            if let Some(id) = property_node_id
+                && let Some(symbol) = self.binder.symbol_of(id)
+            {
+                if self.binder.symbols().get(symbol).value_declaration == Some(id) {
+                    self.symbol_types.insert(symbol, member_type);
+                } else {
+                    self.symbol_types.entry(symbol).or_insert(member_type);
+                }
             }
             // Upsert prevents duplicate members while collecting the literal.
             // Final ordering uses surviving declaration provenance below:
@@ -2643,47 +2689,12 @@ impl Checker<'_, '_> {
         {
             return self.get_regular_type_of_literal_type(id);
         }
-        // §890's call-argument exclusion, kept. §892 predicted the cache would
-        // retire it and **measured that it does not**: the recompute was never
-        // the only entry. The probe for member `x` runs *while* `x`'s type is
-        // being computed, so a cache written *after* that computation cannot be
-        // read by it — circular by construction. Removing the exclusion on top
-        // of §892 measures 122 W→R / 28 R→W, with the same 22
-        // `thislessFunctionsNotContextSensitive2` rows §890 declined.
-        // §910: the exclusion narrowed from "anywhere under a call" to "under a
-        // NESTED object literal in a call argument". Every row §890 lost was a
-        // member of `context: { tag: "A", value: 1 }` — a literal INSIDE the
-        // argument literal — and the re-entry needs that second level: checking
-        // the inner literal asks for its contextual type, which asks for the
-        // outer literal's, which is the argument whose signature is being
-        // resolved. A member of the argument literal ITSELF is one hop short of
-        // the cycle.
-        let in_call_argument = node_id.is_some_and(|n| {
-            let mut seen_literal = false;
-            for ancestor in self.nodes.ancestors(n) {
-                match self.nodes.kind(ancestor) {
-                    tsr_ast::SyntaxKind::ObjectLiteralExpression => {
-                        if seen_literal {
-                            // A second enclosing literal: this member is nested.
-                            return self.nodes.ancestors(ancestor).any(|a| {
-                                matches!(
-                                    self.nodes.kind(a),
-                                    tsr_ast::SyntaxKind::CallExpression
-                                        | tsr_ast::SyntaxKind::NewExpression
-                                )
-                            });
-                        }
-                        seen_literal = true;
-                    }
-                    tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression => {
-                        return false;
-                    }
-                    _ => {}
-                }
-            }
-            false
-        });
-        let keeps_literal = if !in_call_argument && self.maybe_type_of_kind(id, literalish) {
+        // §890's nested-call-argument exclusion is gone: upstream's
+        // `checkExpressionForMutableLocation` (`checker.go:13878`) always asks
+        // the contextual type, and the re-entry it guarded against no longer
+        // reaches an in-flight `any` (removing it measured +69 type rows, 0
+        // lost; tsr-2zk.16.150).
+        let keeps_literal = if self.maybe_type_of_kind(id, literalish) {
             let first = node_id
                 .and_then(|node| self.get_contextual_type(node))
                 .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual));
@@ -2715,7 +2726,7 @@ impl Checker<'_, '_> {
         // §898: upstream's pair — `getWidenedUniqueESSymbolType(getWidenedLiteralType(t))`
         // (`checker.go:25517`). A `unique symbol` widens to plain `symbol` at a
         // mutable location, which is the only place upstream calls it.
-        let widened = self.get_widened_literal_type(id);
+        let widened = self.get_widened_literal_type_with_unions(id);
         let widened = self.get_widened_unique_es_symbol_type(widened);
         self.get_regular_type_of_literal_type(widened)
     }

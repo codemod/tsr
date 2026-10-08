@@ -714,7 +714,13 @@ impl Checker<'_, '_> {
             return self.intrinsics.never;
         }
 
-        if let Some(entries) = origin_entries {
+        if let Some(mut entries) = origin_entries {
+            // getUnionTypeWorker draws the origin's unnamed members from the
+            // reduced typeSet, where undefined has already displaced missing.
+            let missing = self.intrinsics.missing;
+            if !set.contains(&missing) {
+                entries.retain(|&entry| entry != missing);
+            }
             return self.build_origin_union(set, extra_flags, entries);
         }
         // Pinned getUnionTypeWorker (checker.go:25705) retains nonoverlapping

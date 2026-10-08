@@ -227,15 +227,11 @@ impl Printer<'_> {
                 }
                 if let Some(clause) = node.catch_clause {
                     self.write(" catch");
+                    // `Printer.emitCatchClause`: the whole declaration,
+                    // initializer included (TS1197 is the checker's).
                     if let Some(declaration) = clause.variable_declaration {
                         self.write(" (");
-                        if let Some(name) = &declaration.name {
-                            self.emit_binding_name(name);
-                        }
-                        if let Some(r#type) = &declaration.r#type {
-                            self.write(": ");
-                            self.emit_type_node(r#type);
-                        }
+                        self.emit_variable_declaration(declaration);
                         self.write(")");
                     }
                     self.write(" ");
@@ -639,20 +635,25 @@ impl Printer<'_> {
             if index > 0 {
                 self.write(", ");
             }
-            if let Some(name) = &declaration.name {
-                self.emit_binding_name(name);
-            }
-            if declaration.exclamation_token.is_some() {
-                self.write("!");
-            }
-            if let Some(r#type) = &declaration.r#type {
-                self.write(": ");
-                self.emit_type_node(r#type);
-            }
-            if let Some(initializer) = &declaration.initializer {
-                self.write(" = ");
-                self.emit_expression(initializer);
-            }
+            self.emit_variable_declaration(declaration);
+        }
+    }
+
+    /// Ported from `Printer.emitVariableDeclaration` (`internal/printer/printer.go`).
+    fn emit_variable_declaration(&mut self, declaration: &tsr_ast::VariableDeclaration<'_>) {
+        if let Some(name) = &declaration.name {
+            self.emit_binding_name(name);
+        }
+        if declaration.exclamation_token.is_some() {
+            self.write("!");
+        }
+        if let Some(r#type) = &declaration.r#type {
+            self.write(": ");
+            self.emit_type_node(r#type);
+        }
+        if let Some(initializer) = &declaration.initializer {
+            self.write(" = ");
+            self.emit_expression(initializer);
         }
     }
 

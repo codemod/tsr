@@ -82,8 +82,8 @@ fn object_and_function_facts_select_only_the_null_mode() {
 fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
     for (prefix, body, strict, loose) in [
         ("", "{}", 16_318_463, 16_777_215),
-        ("", r#""left""#, 7_929_345, 7_929_345),
-        ("", r#"string & {p: "left"}"#, 16_317_953, 16_317_953),
+        ("", r#""left""#, 7_929_345, 16_776_705),
+        ("", r#"string & {p: "left"}"#, 16_317_953, 16_776_705),
         ("", r#"{p: "left"} | {q: 17}"#, 7_888_800, 16_736_160),
         ("", r#"{p: "left"} & {q: 17}"#, 7_888_800, 16_736_160),
         (r#"type F = (p: "left") => 17;"#, r#"F & {q: "right"}"#, 7_880_640, 16_728_000),
@@ -113,7 +113,7 @@ fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
 }
 
 #[test]
-fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
+fn ordinary_and_runtime_this_false_branches_and_negation_read_native_facts() {
     let source = r#"function f(this: {p: "left"; q: 17}, x: {p: "right"; q: 23}) {
         if (!x) {type X = typeof x;}
         if (!this) {type Held = typeof this; this;}
@@ -135,9 +135,7 @@ fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
             let kind = checker.nodes.kind(id);
             if kind == SyntaxKind::PrefixUnaryExpression {
                 let ty = checker.check_expression_at_node(id);
-                // The `!` arm reads these facts (`getTypeFacts(t,
-                // Truthy|Falsy)`): loose ObjectFacts carry Falsy, so native
-                // loose mode returns boolean; strict ObjectStrictFacts do not.
+                // Loose ObjectFacts include Falsy, so `!object` is boolean.
                 assert_eq!(checker.type_to_string(ty), if null { "false" } else { "boolean" });
             } else if kind == SyntaxKind::ThisKeyword
                 && checker

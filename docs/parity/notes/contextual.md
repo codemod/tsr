@@ -312,3 +312,196 @@ The three, with what the contextual type was when `Absent` was answered:
 Not a `crate::contextual` defect in any of the three rows, so nothing is
 changed here. When those land, admitting `Absent` in `implicit_any.rs`
 should be +4 cases with no losses — the falsifier for this table.
+
+## 9. Rest-bearing array binding patterns imply a tuple (tsr-2zk.16.63)
+
+`getTypeFromArrayBindingPattern` (`checker.go:17957`) answers the
+iterable/array of `any` only for an empty pattern or a lone rest element;
+every other array pattern, rest-bearing included, is a tuple, so the
+initializer is checked in tuple context (`var [x, ...a] = [1, "a"]` records
+`[number, string]`). `array_binding_pattern_implies_tuple` is that predicate
+for the binding arms of `destructuring_array_pattern_slot`; no new state.
+Not ported: assignment targets with a spread (`[...a, x] = [1, 2, 3]`),
+whose tuple-ness depends on the checked left side (`restElementMustBeLast`).
+
+## 10. Nullable constituents do not count toward §927's unit guard (tsr-2zk.16.130)
+
+`getTypeOfPropertyOfContextualType` (`checker.go:30555`) maps over a union and
+a nullable constituent has no property, so `X | undefined` (an optional tuple
+slot, an optional member) has one candidate and nothing to discriminate.
+`union_contextual_property_type` now counts only non-nullable constituents
+before declining a unit-leaf answer; multi-object unions keep the guard.
+`const a: [number, { t: 1 | 2 }?] = [0, { t: 1 }]` no longer reports TS2322
+(tsgo: none). No new state.
+
+## 12. getWidenedLiteralType's union arm at mutable locations (tsr-2zk.16.131)
+
+`checkExpressionForMutableLocation` -> `getWidenedLiteralLikeTypeForContextualType`
+calls `getWidenedLiteralType` (`checker.go:25499`), whose union arm maps
+member-wise: `{ w: b ? f() : 0 }` is `{ w: void | number }`.
+`get_widened_literal_type_with_unions` (literals.rs) is that function;
+`check_expression_for_mutable_location` uses it. The scalar
+`get_widened_literal_type` keeps its other callers (signatures.rs,
+symbols.rs, destructure.rs, flow.rs, inference.rs, contextual.rs): switching
+them lost 139 RIGHT lines because upstream gates those sites with
+`isUnitType`/`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded`
+before widening, which those ports do not; reported, not changed.
+
+Prerequisite, same commit: §927's unit-leaf decline now applies only when
+`discriminateContextualTypeByObjectMembers` (`checker.go:30755`) could
+discriminate at all (`object_literal_may_discriminate`: a
+possibly-discriminant initializer, a shorthand, a spread/computed name, or a
+constituent member the literal does not write). Without discriminators
+upstream walks the whole union, so `{ type: b ? 'x' : 'y' }` against
+`{ type: 'x' } | { type: 'y' }` keeps `"x" | "y"`
+(`assignmentCompatWithDiscriminatedUnion`).
+
+## 13. getContextualReturnType reads getReturnTypeFromAnnotation (tsr-2zk.16.200)
+
+`getReturnTypeFromAnnotation` (`checker.go:20058`) answers the declaration's
+type node — in JS the reparsed `@returns` (`reparseHosted`) — and, for a get
+accessor without one, the paired setter's value-parameter annotation
+(`getEffectiveSetAccessorTypeAnnotationNode`, explicit `this` skipped,
+reparsed `@param` included). `get_contextual_return_type` now reads both via
+`jsdoc_return_annotation` and `paired_setter_value_annotation`; no state.
+Native control (tsgo `.types`): getter with typed setter returns
+`{ tag: "a"; }`, a lone getter `{ tag: string; }`; JS `@return {[string,
+number]}` function returns the tuple, an undocumented one
+`(string | number)[]`. Still open in `contextualTypeFromJSDoc`: the getter
+symbol's own type from the setter's JSDoc `@param` (accessor type
+resolution, not this lane).
+
+## 14. Parameter initializer context: getContextuallyTypedParameterType (tsr-2zk.16.230)
+
+`getContextualTypeForVariableLikeDeclaration`'s Parameter arm
+(`checker.go:29438`/`:29458`) answers the type node (JS: reparsed `@param`),
+else `getContextuallyTypedParameterType`. The existing
+`get_contextually_typed_parameter_type` also folds in
+`assignContextualParameterTypes`' initializer widening, which checks the
+initializer; the initializer's own context uses the split
+`contextually_typed_parameter_type(_, false)` that skips it. No state.
+`var f5: (a: (s: string) => any) => void = function (a = s => <number>s) {}`
+types `s : string` (tsgo `.types` identical).
+
+## 15. Parenthesized initializers keep the implied binding-pattern context (tsr-2zk.16.63)
+
+`getContextualType`'s ParenthesizedExpression arm passes its parent's
+contextual type through, so `const { B = class {} } = ({ B: undefined })`
+types the literal against the implied pattern (`{ B?: undefined; }`).
+`contextual_binding_pattern` (§489) now recurses through a parenthesis; the
+parameter/binding-element arms still require the literal itself. No state.
+
+## 16. IIFE parameter defaults past the arguments use the implied pattern (tsr-2zk.16.63)
+
+`getContextuallyTypedParameterType`'s IIFE arm (`checker.go:29466`) answers
+the argument type for a rest parameter or a position with an argument, and
+nil for a defaulted position past the arguments, so
+`getContextualTypeForInitializerExpression` falls through to the implied
+binding-pattern type: `(({ u = 22 } = { u: 23 }) => u)()` records
+`{ u?: number; }`, while `({ r = 17 } = { r: 18 }) => r)({ r: 19 })` keeps
+`{ r: number; }` (tsgo `.types` identical). `iife_supplies_parameter_context`
+is that test for `contextual_binding_pattern`; no state.
+
+## 17. Property-assignment symbol type follows the final literal check (tsr-2zk.16.84)
+
+Upstream's `getTypeOfSymbol` for a `PropertyAssignment` runs
+`checkPropertyAssignment` -> `checkExpressionForMutableLocation`
+(`checker.go:13673`) lazily, so it sees the literal's final contextual type
+(after the call resolved), not the context-free first inference pass.
+`check_object_literal`'s §892 record into `symbol_types` (key: the member's
+binder symbol, owner: this checker) now lets the value declaration's latest
+check replace the entry; other declarations of a merged duplicate name still
+only fill an empty slot, so `getTypeOfSymbol`'s first-declaration answer is
+kept (`lastPropertyInLiteralWins`). Native control (tsgo `.types`):
+`id({ test: true })` -> `test : true`; `{ plain: true }` -> `plain : boolean`;
+`{ dup: 1, dup: "x" }` -> `dup : number` twice. No new state; no extra work.
+
+## 18. Array-literal tuple context reads the written argument parameter (tsr-2zk.16.93)
+
+`checkArrayLiteral`'s `inTupleContext` (`checker.go:8029`) asks
+`getApparentTypeOfContextualType(node, ContextFlagsNone)`. During the first
+inference pass the argument's contextual type is the written parameter type;
+`instantiateContextualType` (`checker.go:30817`) without
+`ContextFlagsSignature` maps it only through the return mapper, and the
+apparent type of a bare `T` is its constraint. So
+`one<T extends readonly unknown[] | []>([a, b])` is a tuple context through
+`[]` and records `[number[], string[]]`; `arr<T extends readonly unknown[]>`
+stays `(string[] | number[])[]` (tsgo diagnostics, both controls). This port's
+stateless argument road had already fixed `T` to `unknown`.
+`array_literal_has_a_tuple_contextual_type` now re-reads a direct call
+argument (no written type arguments) through `contextual_prefers_uninstantiated`
+and `instantiate_contextual_type_without_signature` (new; return mapper only,
+`boolean` literals filtered, resolved-call fallback unchanged). The previous
+mapped-type-only re-read is subsumed. No state.
+
+Blocked (reported): an OVERLOADED callee (`Promise.all`, most of 16.93's
+rows) reads `any` here because the call is resolving (§469); upstream checks
+the argument per candidate in `chooseOverload`. `isTupleLikeType`
+(`checker.go:23544`, 16.80) is ported in a held patch: the `RegExpMatchArray`
+context mints `[]`, and `removeSubtypes` then declines on the relater's
+unported tuple-source/interface-target pair (`[] -> RegExpMatchArray`,
+`NoMembersTable`), losing 19 bestChoiceType rows.
+
+## 19. The written-parameter read maps a bare type parameter to its constraint (tsr-2zk.16.94)
+
+`getApparentTypeOfContextualType` (`checker.go:30686`) always applies
+`getApparentType` to the (return-mapper-instantiated) contextual type, so in
+upstream's first inference pass an object literal argument under a bare `T`
+reads its members from `T`'s constraint, and `isLiteralOfContextualType`
+(`checker.go:25522`) sees a constrained type variable:
+`ft<T extends { c: U }, U extends string>({ c: 'x' })` is `{ c: "x"; }` while
+`fw<T extends { c: string }>` and an unconstrained `U` give `{ c: string; }`
+(tsgo diagnostics). `apparent_contextual_type` returned the type untouched
+under `contextual_prefers_uninstantiated`; it now maps a type parameter (and
+union constituents) there. Other instantiable written types still stay as
+written: this port's base constraint of `{ [P in K]: … }[K]` is not the
+distributed union upstream discriminates (correlatedUnions would lose 3 rows).
+No state.
+
+## 20. Return widening reads the contextual return through the return mapper (tsr-2zk.16.132)
+
+`getReturnTypeFromBody` (`checker.go:20213`) widens a unit return against
+`instantiateContextualType(getReturnTypeOfSignature(sig), fn,
+ContextFlagsNone)`. During inference the contextual signature's return keeps
+the callee's type parameters (object types are not instantiated by
+`instantiateInstantiableTypes`), so only the return mapper applies:
+`(): Promise<'S' | 'E'> => then(() => 'E')` keeps `() => "E"`, while a
+`Promise<string>` context gives `() => string` (tsgo diagnostics, both).
+`contextual_return_widening_type` now applies
+`instantiate_contextual_type_without_signature` inside a live inference
+context; that function also gained upstream's
+`maybeTypeOfKind(contextualType, Instantiable)` gate, without which a concrete
+`boolean` lost its literals to the #48363 filter
+(subtypeReductionWithAnyFunctionType). No state. Not reached on
+benches/projects/domain-model (counted: 0 calls).
+
+Blocked (reported): with an alias union argument (`type DooDad = 'S' | 'E'`)
+`instantiate_signature` fails because `get_union_type([DooDad,
+PromiseLike<DooDad>])` returns error at unions.rs's §53 origin slice gate (an
+alias-union entry beside an object entry); `g<D>()` for
+`g<R>(): R | PromiseLike<R>` prints `error` today.
+
+## 21. checkExpressionForMutableLocation always asks the contextual type (tsr-2zk.16.150)
+
+`checkExpressionForMutableLocation` (`checker.go:13878`) widens through
+`getWidenedLiteralLikeTypeForContextualType(t, instantiateContextualType(
+getContextualType(node)))` for every member. §890/§910 excluded members of a
+literal nested inside a call-argument literal because the contextual read
+re-entered an in-flight resolution and answered `any`; that re-entry no
+longer reaches `any`, and the exclusion was the defect:
+`f<T extends { a: { k: 'x' | 'y' } }>({ a: { k: 'x' } })` printed
+`{ a: { k: 'x' | 'y'; }; }`; it is now `{ a: { k: "x"; }; }`, and a
+`k: string` constraint still gives `{ a: { k: string; }; }` (tsgo
+diagnostics). Removed; no state, no new work boundary beyond upstream's.
+
+## 22. getContextualTypeForElementExpression drops answerless union constituents (tsr-2zk.16.176)
+
+`getContextualTypeForElementExpression` (`checker.go:29972`) is a `mapTypeEx`
+over the contextual union, which drops a constituent with no element type
+(no tuple slot, `"0"` property, number index or iterated type).
+`contextual_type_for_element_expression` declined the whole union instead when
+an object or type-parameter constituent answered nothing. Removed:
+`const v: ['prefix'] | { named: 'other' } = ['x']` reports `'"x"' is not
+assignable to '"prefix"'` (tsgo), i.e. the tuple slot is the element's context;
+`[1]` under `[0] | Promise<[0]>` is `[1]`, under `Promise<[0]>` `number[]`.
+The unit test that pinned the refusal is deleted. No state.

@@ -156,6 +156,15 @@ pub struct Checker<'a, 'n> {
     pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
     /// `aliasSymbolLinks.aliasTarget`, owned by [`Checker::resolve_alias`].
     pub(crate) alias_targets: FxHashMap<SymbolId, crate::symbols::AliasTarget>,
+    /// How many `resolve_alias` workers are active (`Resolving` entries).
+    pub(crate) alias_resolving: u32,
+    /// Completed `extends` base symbols per (owner, refuse type arguments),
+    /// owned by `Checker::base_symbols_of_ex`.
+    pub(crate) base_symbols: FxHashMap<(SymbolId, bool), Vec<SymbolId>>,
+    /// Completed declared call/construct signatures of an interface or type
+    /// literal symbol, owned by `Checker::signature_candidates_of_interface_symbol`.
+    pub(crate) interface_signatures:
+        FxHashMap<(SymbolId, crate::signatures::SignatureKind), Vec<crate::signatures::Signature>>,
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
@@ -438,6 +447,9 @@ pub struct Checker<'a, 'n> {
     /// with an empty entry installed while resolving to break recursive keys.
     pub(crate) late_bound_member_names:
         rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
+    /// How many `late_bound_members_of` workers are active, i.e. how many
+    /// `late_bound_member_names` entries are still the empty placeholder.
+    pub(crate) late_bound_active: u32,
     /// §469's other half of the signature-links table: DECLARATIONS whose
     /// inferred return type is currently consulting the contextual road.
     /// Upstream's `signatureLinks` is keyed per NODE and serves both the
@@ -736,6 +748,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) array_literal_bases: FxHashMap<TypeId, TypeId>,
     /// getWidenedType's root cache and getUndefinedProperty's name cache.
     pub(crate) widened_object_types: FxHashMap<TypeId, TypeId>,
+    /// Reverse of `regular_object_literal_types` and `widened_object_types`
+    /// for entries whose original precedes its target: target -> originals.
+    /// Maintained by `Checker::record_object_type_transfer`; read only by the
+    /// printer's walk back to a fresh literal (`printing.rs`).
+    pub(crate) object_type_transfer_origins: FxHashMap<TypeId, Vec<(TypeId, bool)>>,
     pub(crate) widening_undefined_properties: FxHashMap<String, crate::widening::WideningProperty>,
     /// The index signature an **object literal** minted, keyed by the type id.
     ///
@@ -1365,6 +1382,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
             alias_targets: FxHashMap::default(),
+            alias_resolving: 0,
+            base_symbols: FxHashMap::default(),
+            interface_signatures: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
             file_commonjs_machinery: FxHashMap::default(),
             global_this_type: None,
@@ -1409,6 +1429,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
+            late_bound_active: 0,
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),
             contextual_return_depth: 0,
@@ -1479,6 +1500,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             array_literal_images: FxHashMap::default(),
             array_literal_bases: FxHashMap::default(),
             widened_object_types: FxHashMap::default(),
+            object_type_transfer_origins: FxHashMap::default(),
             widening_undefined_properties: FxHashMap::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
             anonymous_properties: rustc_hash::FxHashMap::from_iter([
@@ -3778,35 +3800,34 @@ impl<'a, 'n> Checker<'a, 'n> {
         if a == b {
             return std::cmp::Ordering::Equal;
         }
-        let key = |symbol: SymbolId| {
-            self.binder.symbols().get(symbol).declarations.first().map(|&declaration| {
-                let mut file = declaration;
-                let mut current = Some(declaration);
-                while let Some(node) = current {
-                    if self.nodes.kind(node) == SyntaxKind::SourceFile {
-                        file = node;
-                        break;
-                    }
-                    current = self.nodes.parent(node);
+        self.compare_symbols_key(a).cmp(&self.compare_symbols_key(b))
+    }
+
+    /// [`Checker::compare_symbols`] as a sort key: equal keys are the same
+    /// symbol, and key order is that comparison's order. A sort over many
+    /// symbols computes it once per element (`sort_by_cached_key`) instead of
+    /// re-walking two declarations' parent chains per comparison.
+    pub(crate) fn compare_symbols_key(
+        &self,
+        symbol: SymbolId,
+    ) -> (bool, Option<(NodeId, u32)>, &'a str, SymbolId) {
+        let entry = self.binder.symbols().get(symbol);
+        let position = entry.declarations.first().map(|&declaration| {
+            let mut file = declaration;
+            let mut current = Some(declaration);
+            while let Some(node) = current {
+                if self.nodes.kind(node) == SyntaxKind::SourceFile {
+                    file = node;
+                    break;
                 }
-                (file, self.nodes.span(declaration).start)
-            })
-        };
+                current = self.nodes.parent(node);
+            }
+            (file, self.nodes.span(declaration).start)
+        });
         // `len(s1.Declarations) != 0` before the comparison (`:376-383`): a
-        // symbol WITH declarations sorts before one without, which is what
-        // `Option`'s own ordering gives once `None` is mapped to the greater
-        // side.
-        match (key(a), key(b)) {
-            (Some(a_key), Some(b_key)) if a_key != b_key => return a_key.cmp(&b_key),
-            (Some(_), None) => return std::cmp::Ordering::Less,
-            (None, Some(_)) => return std::cmp::Ordering::Greater,
-            _ => {}
-        }
-        let names = self.binder.symbols().get(a).name.cmp(self.binder.symbols().get(b).name);
-        if names != std::cmp::Ordering::Equal {
-            return names;
-        }
-        a.cmp(&b)
+        // symbol WITH declarations sorts before one without; then the first
+        // declaration's position, the name, and the id.
+        (position.is_none(), position, entry.name, symbol)
     }
 
     /// Completed TYPE chain for a declaration-namespace member, ported from
@@ -4102,13 +4123,21 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// aliases, not an immediate answer, and the earlier declaration wins
     /// (`docs/parity/notes/type-refs.md` §3.3).
     pub(crate) fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<String> {
+        /// One scope table, copied only when the walk reaches it: a name found
+        /// in an inner scope never copies the outer ones (notably globals).
+        enum Table<'a> {
+            Locals(NodeId),
+            Exports(SymbolId),
+            ClassName(&'a str, SymbolId),
+            Globals,
+        }
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
-        let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
+        let mut tables: Vec<Table<'a>> = Vec::new();
         let mut current = Some(reference);
         while let Some(node) = current {
-            if let Some(locals) = self.binder.locals(node) {
-                tables.push(locals.iter().map(|(&name, &id)| (name, id)).collect());
+            if self.binder.locals(node).is_some() {
+                tables.push(Table::Locals(node));
             }
             // `someSymbolTableInScope` visits a namespace declaration's
             // exports immediately after its locals
@@ -4120,9 +4149,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile
             ) && let Some(module) = self.binder.symbol_of(node)
             {
-                let module = self.binder.merged_symbol(module);
-                let exports = &self.binder.symbols().get(module).exports;
-                tables.push(exports.iter().map(|(&name, &id)| (name, id)).collect());
+                tables.push(Table::Exports(self.binder.merged_symbol(module)));
             }
             // someSymbolTableInScope / getClassExpressionNameTable (native
             // symbolaccessibility.go:794): the private self-name is an AST
@@ -4133,12 +4160,30 @@ impl<'a, 'n> Checker<'a, 'n> {
                 && let Some(name) = class.name
                 && let Some(symbol) = self.binder.symbol_of(node)
             {
-                tables.push(vec![(name.text, symbol)]);
+                tables.push(Table::ClassName(name.text, symbol));
             }
             current = self.nodes.parent(node);
         }
-        tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
+        tables.push(Table::Globals);
+        let binder = self.binder;
         for table in tables {
+            let table: Vec<(&'a str, SymbolId)> = match table {
+                Table::Locals(node) => binder
+                    .locals(node)
+                    .into_iter()
+                    .flat_map(|locals| locals.iter())
+                    .map(|(&name, &id)| (name, id))
+                    .collect(),
+                Table::Exports(module) => binder
+                    .symbols()
+                    .get(module)
+                    .exports
+                    .iter()
+                    .map(|(&name, &id)| (name, id))
+                    .collect(),
+                Table::ClassName(name, symbol) => vec![(name, symbol)],
+                Table::Globals => binder.globals().iter().map(|(&name, &id)| (name, id)).collect(),
+            };
             let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
             if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
                 return Some(own.to_string());

@@ -430,3 +430,127 @@ nullish bits; loose bigint facts likewise. Native control: `b && "x"` on
 `0n | 1n | 0x0n` prints `"x" | 0n` in both; truthy branch `1n`, falsy `0n`.
 Gate vs `6539256c`: +7 type lines (`uniqueSymbols*`, `numberVsBigIntOperations`),
 0 losses. CPU 1.013 / 1.000.
+
+## 17. Template and loose scalar facts (`getTypeFactsWorker`)
+
+Native checks `String|StringMapping` before `StringLiteral|TemplateLiteral`;
+only an empty string literal is falsy, every template literal uses
+`NonEmptyStringFacts`. Every loose `Base*Facts` aggregate adds `Falsy` and the
+three nullish `EQ` bits. `flow_object_facts_tests` held the old loose values
+for `"left"` and `string & {..}`; they now read native `NonEmptyStringFacts` /
+`StringFacts` (16 776 705). Native control (strict): `u: \`a${string}\` | 0`
+falsy branch is `0` in both (was `0 | \`a${string}\``); loose keeps both.
+Gate vs `5f8a7638`: +7 type lines, cases `stringLiteralTypesInUnionTypes04`,
+`templateLiteralTypesPatterns`; 0 losses. CPU (21) 1.017 / 0.990.
+
+## 18. Unknown-property `in` intersects global `Record` (`narrowTypeByInKeyword`)
+
+Pinned `flow.go:1001`: an unknown property on the true branch returns
+`t & Record<nameType, unknown>` (getTypeAliasInstantiation of the global
+`Record`); TSR returned `t`. Instantiated through the existing
+`create_type_reference` alias door with the checked key type; no new cache.
+Native control: `"foo" in x` on narrowed `unknown` prints
+`object & Record<"foo", unknown>` in both; known-property `"a" in o` filtering
+unchanged. Gate vs §17: +9 type lines (`controlFlowInOperator` case,
+`inKeywordAndUnknown`, `conditionalTypeDoesntSpinForever`); 0 losses.
+CPU (41) 0.964 / 0.995 (21-sample first read 1.064 on domain-model; no `in`
+expression in that project).
+
+## 19. Binding-element initial types (`getInitialTypeOfBindingElement`)
+
+Pinned `flow.go:2273`: a binding element's initial type projects the parent
+holder's initial type (`getTypeOfDestructuredProperty`, `…ArrayElement`,
+`…SpreadExpression`, `includeUndefinedInIndexSignature`) then applies
+`getTypeWithDefault`. TSR had no binding arm, so `let [x]: [string|number] =
+[1]; x` stayed declared. Recursion follows the holder chain; no cache. A
+property name that is not usable, or a projection TSR cannot compute, answers
+`None` (the existing "no initial type" gap) where native answers `errorType`.
+Native control: `x` → `number`, `{ b } = { b: "s" }` → `string`; a defaulted
+optional `{ a = 1 }: { a?: string|number } = {}` stays `string | number` in
+both. Gate vs §18: +15 type lines, cases `controlFlowDestructuringDeclaration`,
+`for-of43`, `stringLiteralTypesAndTuples01`; 0 losses. CPU (41) 1.009 /
+(21) 0.983 (a first 21-sample domain-model read was 1.070).
+
+## 20. Equality always replaces primitives (`replacePrimitivesWithLiterals`)
+
+Pinned `flow.go:595-598` calls `replacePrimitivesWithLiterals` after
+`filterType` even when the filter kept every constituent; TSR returned the
+unchanged `t`, so `x === "a"` on `string` stayed `string`. The worker now
+follows `flow.go:1907` through the existing origin-aware `map_narrowing_type`
+and `filter_type` (= `mapType` / `extractTypesOfKind`): `String` extracts the
+string-like domain, a pattern template/mapping extracts string literals only
+when the comparand has no string/template/mapping, number and bigint keep
+their primitive+literal domains. No cache; only a changed map builds a union.
+Native control: `"a"`, `"prefix-one"` narrow in both; `!==` keeps `string`;
+`n == 1` on `number | boolean` → `1`. Gate vs §19: +31 type lines, cases
+`literalTypes3`, `stringLiteralTypesInUnionTypes02`, `typeofThis`,
+`sourceMapValidationStatements`; 0 losses. CPU (21) 1.024 / 0.994.
+
+## 21. `!x` reads `getTypeFacts(Truthy|Falsy)` (`checkPrefixUnaryExpression`)
+
+Pinned `checker.go:10887`: after `operandType == silentNeverType` returns
+early, `!` answers `false` for Truthy-only facts, `true` for Falsy-only, and
+`boolean` otherwise — including `never`, `any`/error and empty facts. TSR had
+a partial per-shape table (`negated_truthiness_type`) that answered `false`
+for every object in loose mode and `error` for unions/`never`/type params; it
+now consults the existing facts worker. `flow_object_facts_tests` held the old
+loose `!object` = `false` limitation; it now asserts native `boolean`.
+Native control (both modes): `!{a}` strict `false` / loose `boolean`,
+`!unknown` and `!never` `boolean`, `!0n` `true`. Gate vs §20: +24 type lines,
+cases `logicalNotOperatorWithAnyOtherType`, `definiteAssignmentOfDestructuredVariable`,
+`manyCompilerErrorsInTheTwoFiles`, `typePredicateStructuralMatch`,
+`parserRealSource12`; 0 losses. CPU domain-model (41) 0.943 (21: 1.047) /
+generic-imports (21) 0.999.
+
+## 22. `instanceof Function` keeps the empty instance type (`narrowTypeByInstanceof`)
+
+Pinned `flow.go:837-843`: `getInstanceType` of a constructor-less type such as
+`Function` is the empty object type, which narrows the true branch through
+`getNarrowedType`; the false branch returns `t` when the instance type is not
+a non-empty object. TSR returned `t` early on both branches. Native control:
+`x instanceof ctor` (`ctor: Function`) narrows `(() => void) | null` to
+`() => void`, false branch unchanged. Gate vs §21: +2 type lines
+(`controlFlowInstanceof`); 0 losses. CPU domain-model (41) 0.989 /
+generic-imports (21) 0.996.
+
+## 23. `x!` conditions narrow the inner reference (`narrowType`)
+
+Pinned `flow.go:403`: `narrowType` unwraps `ParenthesizedExpression`,
+`NonNullExpression` and `SatisfiesExpression` alike. TSR only unwrapped
+parentheses, so `if (x!)` on `string | null` kept `string | null`. The binder
+(`isNarrowingExpression`) already admits `x!`; it does not admit `satisfies`,
+so `if ((x !== null) satisfies boolean)` stays un-narrowed in both. Native
+control: `x!` and `(x!)` → `string`; the satisfies condition stays
+`string | null`. No cache or traversal added. Gate vs §22: +4 type lines
+(`narrowingWithNonNullExpression`, `inferTypePredicates`), +1 diagnostic case
+(`narrowingWithNonNullExpression`); 0 losses. CPU (21) 0.936 / 1.007.
+
+## 24. Logical assignment results (`checkBinaryLikeExpression`)
+
+Pinned `checker.go:12496-12529`: `&&=`, `||=` and `??=` share the `&&`, `||`
+and `??` result arms; the assignment forms only add `checkAssignmentOperator`,
+which reports and does not change the result. TSR's `check_binary_expression`
+fell to `_ => error` for the three tokens. They now reach the existing
+`check_logical_and` / `check_logical_or_coalescing` workers (`??=` does not run
+`checkNullishCoalesceOperands`, as native). No cache or traversal added.
+Native control: `x.a ??= true` on `boolean | undefined` → `boolean`,
+`x.a &&= false` → `false | undefined`; `x.a ||= 1` on `number | undefined`
+→ `number`. Gate vs §23: +7 type lines (`logicalAssignment9`,
+`thisPrototypeMethodCompoundAssignment[Js]`, `narrowingPastLastAssignment`,
+`nullishCoalescingAssignmentVsPrivateFieldsJsEmit1`); 0 losses. CPU (21)
+0.935 / 0.996.
+
+## 25. Pattern-literal discriminants (`isDiscriminantProperty`)
+
+Pinned `createUnionOrIntersectionProperty` (`checker.go:21618`) sets
+`HasLiteralType` for `isLiteralType(t) || isPatternLiteralType(t)`, and
+`isDiscriminantProperty` (`relater.go:1087`) requires non-uniform plus literal.
+TSR's `is_discriminant_property` only counted unit literals, so
+`{ type: \`${string}_REQUEST\` } | { type: \`${string}_SUCCESS\`; … }` was not
+discriminated by `action.type === "FOO_SUCCESS"`. It now also counts
+`is_pattern_template` (= `isPatternLiteralType`). No cache added. Native
+control: the pattern union narrows to the `_SUCCESS` member in both; a
+`{ type: string } | { type: number }` union stays whole in both.
+`assignreport.rs::is_discriminant_property_of_union` keeps the old literal
+test (relate-report lane). Gate vs §24: +4 type lines (`templateLiteralTypes3`);
+0 losses. CPU (21) 0.983 / 1.003.

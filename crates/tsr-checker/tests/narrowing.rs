@@ -631,6 +631,34 @@ fn an_equality_against_a_non_nullable_operand_narrows_nothing() {
     );
 }
 
+#[test]
+fn equality_replaces_primitives_even_when_comparable_filter_is_unchanged() {
+    // Pinned flow.go:595-598 always runs replacePrimitivesWithLiterals.
+    for (source, expected) in [
+        ("declare let x: string; if (x === 'a') { x; }", "\"a\""),
+        ("declare let x: number; if (x === 1 || x === 2) { x; }", "1 | 2"),
+        ("declare let x: bigint; if (x === 1n) { x; }", "1n"),
+        ("declare let x: string; if (x !== 'a') { x; }", "string"),
+        ("declare let x: string; declare let y: string | 1; if (x == y) { x; }", "string"),
+    ] {
+        assert_eq!(type_of_last_expression(source), expected, "{source}");
+    }
+}
+
+#[test]
+fn equality_replaces_pattern_placeholders_but_preserves_generic_templates() {
+    for (source, expected) in [
+        ("declare let x: `prefix-${string}`; if (x === 'prefix-one') { x; }", "\"prefix-one\""),
+        ("declare let x: `prefix-${number}`; if (x === 'prefix-1') { x; }", "\"prefix-1\""),
+        (
+            "function f<T extends string>(x: `prefix-${T}`, y: `prefix-${T}`) { if (x === y) { x; } }",
+            "`prefix-${T}`",
+        ),
+    ] {
+        assert_eq!(type_of_last_expression(source), expected, "{source}");
+    }
+}
+
 /// `unknownControlFlow.types`' #50706 repro distinguishes the empty-object
 /// operand from the nullable and direct-unknown roads. After `!== undefined`,
 /// an `unknown` is represented as `{} | null`; strict equality to a primitive
@@ -1145,6 +1173,26 @@ fn a_discriminant_equality_narrows_through_a_property_or_element_access() {
     // The reference may sit on either side of the operator (upstream's
     // `leftAccess` then `rightAccess`).
     assert_eq!(type_of_last_expression(&format!("{union}if (\"b\" === u.kind) {{ u; }}")), "B");
+}
+
+/// Pattern-literal property types are discriminants (`HasLiteralType`,
+/// checker.go:21618); non-literal domains are not.
+#[test]
+fn pattern_literal_properties_discriminate_but_plain_primitives_do_not() {
+    let pattern = "type R = { type: `${string}_REQUEST` };\n\
+                   type S = { type: `${string}_SUCCESS`; response: string };\n\
+                   declare let u: R | S;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{pattern}if (u.type === \"FOO_SUCCESS\") {{ u; }}")),
+        "S"
+    );
+    let plain = "type R = { type: string };\n\
+                 type S = { type: number; response: string };\n\
+                 declare let u: R | S;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{plain}if (u.type === \"FOO_SUCCESS\") {{ u; }}")),
+        "R | S"
+    );
 }
 
 /// §753: the DISCRIMINANT half of `narrowTypeByTypeof` (`flow.go:624`-`:629`),

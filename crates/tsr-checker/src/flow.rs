@@ -2541,6 +2541,74 @@ impl Checker<'_, '_> {
     /// (This said `for..in`, `for..of` and `delete` were `None` too; they are
     /// ported since — a correction of the record.)
     fn get_initial_or_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
+        if let Some(Node::BindingElement(element)) = self.node_map.get(node) {
+            // Native getInitialTypeOfBindingElement projects the parent's
+            // initial type recursively, then applies getTypeWithDefault.
+            let pattern_id = self.nodes.parent(node)?;
+            let holder = self.nodes.parent(pattern_id)?;
+            let parent = self.get_initial_or_assigned_type(holder)?;
+            let projected = if self.nodes.kind(pattern_id) == SyntaxKind::ObjectBindingPattern {
+                let key = match element.property_name {
+                    Some(tsr_ast::PropertyName::ComputedPropertyName(name)) => {
+                        let key = self.check_expression(name.expression?);
+                        self.property_name_from_index(key)?
+                    }
+                    Some(name) => crate::objects::written_property_name(&name)?,
+                    None => match element.name? {
+                        tsr_ast::BindingName::Identifier(name) => name.text.to_string(),
+                        tsr_ast::BindingName::BindingPattern(_) => return None,
+                    },
+                };
+                if let Some(property) = self.get_type_of_property_of_type(parent, &key) {
+                    property
+                } else {
+                    let key_type = self.store.intern_literal(
+                        TypeFlags::STRING_LITERAL,
+                        TypeData::StringLiteral(key),
+                        false,
+                    );
+                    let info = self.get_applicable_index_info(parent, key_type)?;
+                    if self.no_unchecked_indexed_access {
+                        self.get_union_type(&[info.value, self.intrinsics.missing])
+                    } else {
+                        info.value
+                    }
+                }
+            } else {
+                let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
+                    return None;
+                };
+                let index = pattern.elements.iter().position(|item| item.node_id == Some(node))?;
+                let key = self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral(index.to_string()),
+                    false,
+                );
+                if element.dot_dot_dot_token.is_none()
+                    && let Some(element_type) =
+                        self.tuple_index_type(parent, key, self.no_unchecked_indexed_access)
+                {
+                    element_type
+                } else {
+                    let iterated = self.for_of_element_type(parent)?;
+                    if element.dot_dot_dot_token.is_some() {
+                        let array = self.global_type_symbol_with_arity("Array", 1)?;
+                        self.create_type_reference(array, vec![iterated])
+                    } else if self.no_unchecked_indexed_access {
+                        self.get_union_type(&[iterated, self.intrinsics.missing])
+                    } else {
+                        iterated
+                    }
+                }
+            };
+            return Some(if let Some(default) = element.initializer {
+                let non_undefined = self.get_type_with_facts(projected, TypeFacts::NE_UNDEFINED);
+                let default_type = self.check_expression(default);
+                self.get_union_type(&[non_undefined, default_type])
+            } else {
+                projected
+            });
+        }
         if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) {
             // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`).
             if let Some(initializer) = declaration.initializer {
@@ -5256,43 +5324,53 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `replacePrimitivesWithLiterals` (`flow.go:1907`), the string/number
-    /// halves: a kept primitive constituent takes the discriminant's
-    /// literals of that base kind, so `case "a"` narrows a `string` to
-    /// `"a"`.
+    /// Ported from typescript-go's `replacePrimitivesWithLiterals`
+    /// (`internal/checker/flow.go:1907`, pinned `5b1047d`). Both equality
+    /// narrowing and switch narrowing consume the existing origin-aware
+    /// `mapType` and `filterType` workers. No new cache or member image:
+    /// Checker-local `TypeId`s and union origins retain alias identity until
+    /// a changed map publishes a completed union. Scalar maps allocate
+    /// nothing; union projection is the existing expensive work boundary.
     fn replace_primitives_with_literals(&mut self, t: TypeId, literals: TypeId) -> TypeId {
-        let literal_constituents: Vec<TypeId> = match &self.store.get(literals).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![literals],
-        };
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => vec![t],
-        };
-        let mut replaced = Vec::with_capacity(constituents.len());
-        for constituent in constituents {
-            let flags = self.store.get(constituent).flags;
-            if flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
-                && !flags.intersects(TypeFlags::UNIT)
-            {
-                let base = self.get_base_type_of_literal_type(constituent);
-                let mut matched = false;
-                for &literal in &literal_constituents {
-                    if self.store.get(literal).flags.intersects(TypeFlags::UNIT)
-                        && self.get_base_type_of_literal_type(literal) == base
-                    {
-                        replaced.push(self.get_regular_type_of_literal_type(literal));
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    replaced.push(constituent);
-                }
-            } else {
-                replaced.push(constituent);
-            }
+        if !self.maybe_type_of_kind(
+            t,
+            TypeFlags::STRING
+                | TypeFlags::TEMPLATE_LITERAL
+                | TypeFlags::NUMBER
+                | TypeFlags::BIG_INT,
+        ) || !self.maybe_type_of_kind(
+            literals,
+            TypeFlags::STRING_LITERAL
+                | TypeFlags::TEMPLATE_LITERAL
+                | TypeFlags::STRING_MAPPING
+                | TypeFlags::NUMBER_LITERAL
+                | TypeFlags::BIG_INT_LITERAL,
+        ) {
+            return t;
         }
-        self.get_union_type(&replaced)
+        self.map_narrowing_type(t, &mut |checker, constituent| {
+            let flags = checker.store.get(constituent).flags;
+            let kind = if flags.intersects(TypeFlags::STRING) {
+                TypeFlags::STRING_LIKE
+            } else if checker.is_pattern_template(constituent)
+                && !checker.maybe_type_of_kind(
+                    literals,
+                    TypeFlags::STRING | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING,
+                )
+            {
+                TypeFlags::STRING_LITERAL
+            } else if flags.intersects(TypeFlags::NUMBER) {
+                TypeFlags::NUMBER | TypeFlags::NUMBER_LITERAL
+            } else if flags.intersects(TypeFlags::BIG_INT) {
+                TypeFlags::BIG_INT | TypeFlags::BIG_INT_LITERAL
+            } else {
+                return Some(constituent);
+            };
+            Some(checker.filter_type(literals, |checker, literal| {
+                checker.store.get(literal).flags.intersects(kind)
+            }))
+        })
+        .expect("primitive replacement maps every constituent")
     }
 
     /// §100's door into the narrowing ladder: narrow `initial` (declared as
@@ -5487,6 +5565,18 @@ impl Checker<'_, '_> {
                     .and_then(|e| e.node_id())
                     .map_or(t, |id| self.narrow_type(state, t, id, assume_true))
             }
+            // Pinned narrowType (flow.go:403) unwraps ParenthesizedExpression,
+            // NonNullExpression and SatisfiesExpression alike. The binder's
+            // isNarrowingExpression admits `x!` but not `satisfies`, so the
+            // satisfies arm is reached only where native also reaches it.
+            Node::NonNullExpression(inner) => inner
+                .expression
+                .and_then(|expression| expression.node_id())
+                .map_or(t, |id| self.narrow_type(state, t, id, assume_true)),
+            Node::SatisfiesExpression(inner) => inner
+                .expression
+                .and_then(|expression| expression.node_id())
+                .map_or(t, |id| self.narrow_type(state, t, id, assume_true)),
             // `if (!x)`, which upstream reaches by flipping the assumption
             // rather than by a separate rule.
             Node::PrefixUnaryExpression(unary)
@@ -5572,7 +5662,7 @@ impl Checker<'_, '_> {
                     if self.is_matching_reference(state, right_node) {
                         let key = self.check_expression(left);
                         if let Some(name) = self.property_name_from_index(key) {
-                            return self.narrow_type_by_in_keyword(t, &name, assume_true);
+                            return self.narrow_type_by_in_keyword(t, key, &name, assume_true);
                         }
                     }
                     return t;
@@ -5698,9 +5788,10 @@ impl Checker<'_, '_> {
                                     returns.push(erased);
                                 }
                                 if returns.is_empty() {
-                                    return t;
+                                    self.intrinsics.empty_object
+                                } else {
+                                    self.get_union_type(&returns)
                                 }
-                                self.get_union_type(&returns)
                             }
                         };
                         if instance == self.intrinsics.error || instance == self.intrinsics.any {
@@ -5719,7 +5810,8 @@ impl Checker<'_, '_> {
                             return t;
                         }
                         if !assume_true
-                            && !self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                            && (!self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                                || self.is_empty_anonymous_object_type(instance))
                         {
                             return t;
                         }
@@ -6846,7 +6938,9 @@ impl Checker<'_, '_> {
                 Some(f) if f != prop_type => non_uniform = true,
                 Some(_) => {}
             }
-            if self.is_literal_type(prop_type) {
+            // createUnionOrIntersectionProperty (checker.go:21618) sets
+            // HasLiteralType for literal and pattern-literal property types.
+            if self.is_literal_type(prop_type) || self.is_pattern_template(prop_type) {
                 has_literal = true;
             }
             if self.store.get(prop_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
@@ -7809,18 +7903,16 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            if kept.is_empty() || kept.len() == total {
-                if kept.is_empty() {
-                    // SS155: an emptied filter is `never` on BOTH branches
-                    // (upstream's filterType) — the false branch of
-                    // `x == 1` on `const x = 1` was returning t, and the
-                    // capturedLetConstInLoop family's `never` wants sat
-                    // exactly there.
-                    return self.intrinsics.never;
-                }
-                return t;
-            }
-            let filtered = self.rebuild_union_subset(t, &kept);
+            // Native filterType: an emptied filter is `never` (SS155) and a
+            // complete one keeps identity; narrowTypeByEquality still applies
+            // replacePrimitivesWithLiterals to an unchanged filter.
+            let filtered = if kept.is_empty() {
+                self.intrinsics.never
+            } else if kept.len() == total {
+                t
+            } else {
+                self.rebuild_union_subset(t, &kept)
+            };
             if assume_true {
                 let replaced = self.replace_primitives_with_literals(filtered, value_type);
                 // SS151: the chain strip, after the filter.
@@ -7857,14 +7949,17 @@ impl Checker<'_, '_> {
         self.get_adjusted_type_with_facts(t, facts)
     }
 
-    /// `narrowTypeByInKeyword` (`flow.go:1001`), the known-property half:
-    /// when some constituent declares the property, filter by
-    /// `isTypePresencePossible`. The unknown-property half intersects with
-    /// `Record<X, unknown>` through the global `Record` alias; alias
-    /// instantiation is unported, and upstream itself answers `t` unchanged
-    /// when that symbol is missing, so the same fallback is taken here by
-    /// construction rather than by approximation.
-    fn narrow_type_by_in_keyword(&mut self, t: TypeId, name: &str, assume_true: bool) -> TypeId {
+    /// Ported from typescript-go's narrowTypeByInKeyword (internal/checker/flow.go).
+    /// Known properties filter by presence; unknown properties on the true
+    /// branch intersect with the global Record alias instantiated with the
+    /// original key type. Missing global Record leaves the type unchanged.
+    fn narrow_type_by_in_keyword(
+        &mut self,
+        t: TypeId,
+        name_type: TypeId,
+        name: &str,
+        assume_true: bool,
+    ) -> TypeId {
         let constituents: Vec<TypeId> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![t],
@@ -7877,6 +7972,11 @@ impl Checker<'_, '_> {
             }
         }
         if !known {
+            if assume_true && let Some(record) = self.global_type_symbol_with_arity("Record", 2) {
+                let record_type =
+                    self.create_type_reference(record, vec![name_type, self.intrinsics.unknown]);
+                return self.get_intersection_type(&[t, record_type], None);
+            }
             return t;
         }
         // `filterType`, unrolled: this port's `filter_type` takes a pure
@@ -8575,6 +8675,13 @@ impl Checker<'_, '_> {
         // half. The one type that must not reach here is `any`, which is
         // undecidable on both axes and falls to the default.
         let truthiness = match &ty.data {
+            // getTypeFactsWorker checks STRING/STRING_MAPPING before
+            // STRING_LITERAL/TEMPLATE_LITERAL. Only a string literal can be
+            // empty; every template literal uses NonEmptyStringFacts.
+            _ if flags.intersects(TypeFlags::STRING | TypeFlags::STRING_MAPPING) => {
+                TypeFacts::TRUTHY | TypeFacts::FALSY
+            }
+            _ if flags.intersects(TypeFlags::TEMPLATE_LITERAL) => TypeFacts::TRUTHY,
             TypeData::StringLiteral(value)
             | TypeData::EnumLiteral {
                 value: crate::types::EnumLiteralValue::String(value), ..
@@ -8628,15 +8735,10 @@ impl Checker<'_, '_> {
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
         };
-        // Native bigint and enum facts admit falsy nullish values in loose
-        // mode. Other ordinary primitive domains retain their existing limit.
-        let truthiness = if !self.strict_null_checks
-            && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::BIG_INT_LIKE)
-        {
-            truthiness | TypeFacts::FALSY
-        } else {
-            truthiness
-        };
+        // Every native Base*Facts aggregate adds falsy nullish possibilities
+        // in loose mode, including nonempty strings/templates and true.
+        let truthiness =
+            if self.strict_null_checks { truthiness } else { truthiness | TypeFacts::FALSY };
         // The `typeof` half of the `Base*StrictFacts` aggregate the arm above
         // belongs to, decided by the same flags that decided the arm.
         let typeof_family = if flags.intersects(TypeFlags::STRING_LIKE) {
@@ -8653,10 +8755,10 @@ impl Checker<'_, '_> {
             both
         };
         let facts = truthiness | nullable_never | typeof_family;
-        if !self.strict_null_checks && flags.intersects(TypeFlags::BIG_INT_LIKE) {
-            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
-        } else {
+        if self.strict_null_checks {
             facts
+        } else {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
         }
     }
 

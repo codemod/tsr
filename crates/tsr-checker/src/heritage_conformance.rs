@@ -146,9 +146,11 @@ impl Checker<'_, '_> {
                 continue;
             };
             let flags = self.binder.symbols().get(implemented).flags;
-            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                || !self.has_single_type_declaration(implemented)
-            {
+            // A merged implemented interface is one declared type whose
+            // members `resolveDeclaredMembers` gathers from every declaration
+            // (`classWithMultipleBaseClasses`); only the class-extends arm
+            // keeps the lib-merged base decline.
+            if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
                 continue;
             }
             let Some(target) =
@@ -203,6 +205,8 @@ impl Checker<'_, '_> {
             }
             _ => return,
         };
+        let Some(class_symbol) = self.binder.symbol_of(node) else { return };
+        let this_type = self.class_instance_this_type(class_symbol);
         let mut issued = false;
         let mut undecided = false;
         for member in members {
@@ -227,9 +231,11 @@ impl Checker<'_, '_> {
             if self.binder.symbol_of(member).is_none() {
                 continue;
             }
+            // `typeWithThis`/`baseWithThis`: both members read with the
+            // class's own `this` as the this argument.
             let (Some(property), Some(base_property)) = (
-                self.get_type_of_property_of_type(source, &name),
-                self.get_type_of_property_of_type(target, &name),
+                self.get_type_of_property_with_this_argument(source, &name, this_type, false),
+                self.get_type_of_property_with_this_argument(target, &name, this_type, false),
             ) else {
                 continue;
             };
@@ -552,10 +558,8 @@ impl Checker<'_, '_> {
         // declarations, and upstream's merge is not this port's for private
         // and inherited members (`mergedInterfacesWithInheritedPrivates3`).
         if self.binder.symbols().get(symbol).declarations.len() == 1 {
-            for (base, target) in bases.into_iter().flatten() {
-                if !self.has_single_type_declaration(base)
-                    || !self.pair_is_reportable(source, target)
-                {
+            for (_, target) in bases.into_iter().flatten() {
+                if !self.pair_is_reportable(source, target) {
                     continue;
                 }
                 if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated

@@ -92,9 +92,11 @@ fn the_refused_shapes_stay_gaps() {
     let spread = "declare var rest: number[];\nvar [a, b] = [1, ...rest];";
     assert_eq!(type_of_binding(spread, "a"), "error");
 
-    // A rest in the pattern, likewise.
+    // A rest in the pattern still implies a tuple
+    // (`getTypeFromArrayBindingPattern`); the rest binding slices it.
     let rest_pattern = r#"var [a, ...rest] = [1, "x"];"#;
-    assert_eq!(type_of_binding(rest_pattern, "a"), "error");
+    assert_eq!(type_of_binding(rest_pattern, "a"), "number");
+    assert_eq!(type_of_binding(rest_pattern, "rest"), "[string]");
 
     // A literal element that itself gaps gaps the whole tuple. The gapping
     // element is a **template expression**, which `examples/tmplgap.rs`

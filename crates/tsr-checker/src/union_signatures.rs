@@ -571,8 +571,14 @@ impl Checker<'_, '_> {
         result: &mut Signature,
         signatures: &[Signature],
     ) {
-        result.r#type =
-            self.get_union_type(&signatures.iter().map(|s| s.r#type).collect::<Vec<_>>());
+        // getReturnTypeOfSignature (checker.go:20013): a composite
+        // signature's return is the union of its members' returns under
+        // UnionReductionSubtype. A reduction the relater cannot decide keeps
+        // the literal-reduced union.
+        let returns: Vec<_> = signatures.iter().map(|s| s.r#type).collect();
+        result.r#type = self
+            .union_with_subtype_reduction(&returns)
+            .unwrap_or_else(|| self.get_union_type(&returns));
         result.written_return = None;
         result.target = None;
         result.union_contains_abstract = signatures.iter().any(|signature| {

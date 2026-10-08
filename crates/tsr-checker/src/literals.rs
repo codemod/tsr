@@ -115,6 +115,28 @@ impl Checker<'_, '_> {
         self.get_union_type(&widened)
     }
 
+    /// `getWidenedLiteralType` (`checker.go:25499`) including its union arm,
+    /// `mapType(t, getWidenedLiteralType)`: `b ? f() : 0` widens member-wise
+    /// to `void | number`. `mapType` hands back its input when no member
+    /// changed, which keeps an alias-named union intact.
+    ///
+    /// [`Checker::get_widened_literal_type`] is the scalar arms only; its
+    /// return-type and declaration callers rely on a union passing through
+    /// where upstream gates them by `isUnitType` first (see
+    /// `docs/parity/notes/contextual.md` §12). No cache: each member read goes
+    /// through the scalar function's existing `regular_types` memo.
+    pub(crate) fn get_widened_literal_type_with_unions(&mut self, id: TypeId) -> TypeId {
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data else {
+            return self.get_widened_literal_type(id);
+        };
+        let constituents = types.clone();
+        let widened: Vec<TypeId> = constituents
+            .iter()
+            .map(|&constituent| self.get_widened_literal_type(constituent))
+            .collect();
+        if widened == constituents { id } else { self.get_union_type(&widened) }
+    }
+
     /// The widened form of a literal type.
     ///
     /// Ported from `Checker.getWidenedLiteralType` (`checker.go:25487`).

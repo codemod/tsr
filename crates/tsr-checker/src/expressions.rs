@@ -1283,9 +1283,7 @@ impl Checker<'_, '_> {
     /// Missing this case would be a plausible wrong line on every negative
     /// constant in the corpus.
     ///
-    /// Not ported, each a gap: an operand this port cannot type (see
-    /// [`Self::unary_result_type`] for why that is a gap rather than `number`),
-    /// and `!` on an operand whose truthiness is not decidable here.
+    /// Logical negation delegates to the native type-facts worker below.
     fn check_prefix_unary_expression(
         &mut self,
         node: &tsr_ast::PrefixUnaryExpression<'_>,
@@ -1293,6 +1291,9 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let Some(operand) = node.operand else { return error };
         let operand_type = self.check_expression(operand);
+        if Some(operand_type) == self.silent_never_type {
+            return operand_type;
+        }
         let operator = node.operator.kind;
 
         // The literal special cases, which run before the operator's general
@@ -1405,27 +1406,14 @@ impl Checker<'_, '_> {
         self.intrinsics.number
     }
 
-    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`):
-    ///
-    /// ```go
-    /// facts := c.getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)
-    /// switch {
-    /// case facts == TypeFactsTruthy: return c.falseType
-    /// case facts == TypeFactsFalsy:  return c.trueType
-    /// default:                       return c.booleanType
-    /// }
-    /// ```
-    ///
-    /// The truthiness comes from [`Checker::get_type_facts`] (`flow.rs`,
-    /// `getTypeFacts`), which resolves an instantiable operand through its base
-    /// constraint and folds unions and intersections — the hand-built
-    /// unit/union table this replaced answered `error` for those
-    /// (`docs/parity/notes/r4-operators.md` §1). An `error`/`any`/`never` operand
-    /// is `boolean`, as upstream: `errorType` carries `AnyFacts` (both bits)
-    /// and `never`'s empty facts match neither single-bit case.
+    /// Ported from `Checker.checkPrefixUnaryExpression`
+    /// (`internal/checker/checker.go:10887-10896`, pinned `5b1047d`).
+    /// Use the existing native type-facts worker; empty or mixed facts select
+    /// boolean, including ordinary never and error operands. No duplicate
+    /// constituent traversal or type-data copy belongs at this consumer.
     fn negated_truthiness_type(&mut self, operand: TypeId) -> TypeId {
-        let mask = crate::flow::TypeFacts::TRUTHY | crate::flow::TypeFacts::FALSY;
-        let facts = self.get_type_facts(operand) & mask;
+        let facts = self.get_type_facts(operand)
+            & (crate::flow::TypeFacts::TRUTHY | crate::flow::TypeFacts::FALSY);
         if facts == crate::flow::TypeFacts::TRUTHY {
             self.intrinsics.false_type
         } else if facts == crate::flow::TypeFacts::FALSY {

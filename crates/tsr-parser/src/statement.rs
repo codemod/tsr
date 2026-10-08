@@ -469,10 +469,9 @@ impl<'a> Parser<'a> {
                 break;
             }
             seen_static |= kind == SyntaxKind::StaticKeyword;
-            let start = self.pos();
-            self.next_token();
-            let token = self.alloc_token(kind, tsr_core::Span::new(start, self.pos()));
-            modifiers.push(ModifierLike::Token(token));
+            // `parseModifier`'s `finishNode(factory.NewModifier(kind), pos)`:
+            // the node ends where the keyword ends, not at the next token.
+            modifiers.push(ModifierLike::Token(self.take_token()));
         }
         modifiers
     }
@@ -1093,23 +1092,13 @@ impl<'a> Parser<'a> {
         let catch = if self.at(SyntaxKind::CatchKeyword) {
             let catch_start = self.pos();
             self.next_token();
-            // `catch {}` without a binding is legal since ES2019.
-            //
-            // Upstream parses a full variable declaration here, initializer
-            // included, and the checker rejects the initializer (TS1197). This
-            // port stops at the type annotation until the printer emits a
-            // catch variable's initializer: a parsed one would not survive
-            // the round trip.
+            // `catch {}` without a binding is legal since ES2019. Otherwise
+            // `parseCatchClause` parses a full `parseVariableDeclaration()`,
+            // initializer included; the checker rejects it (TS1197).
             let variable = if self.eat(SyntaxKind::OpenParenToken) {
-                let decl_start = self.pos();
-                let name = self.parse_binding_name();
-                let type_node = self.parse_type_annotation();
+                let variable = self.parse_variable_declaration(false);
                 self.expect(SyntaxKind::CloseParenToken);
-                Some(self.finish_node(
-                    VariableDeclaration::new(Some(name), None, type_node, None),
-                    SyntaxKind::VariableDeclaration,
-                    decl_start,
-                ))
+                Some(variable)
             } else {
                 None
             };
@@ -1181,10 +1170,15 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
-        let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
-            None
-        } else {
+        // `parseFunctionDeclaration` (`parser.go:1717`): only a `default`
+        // function may omit its name; any other reports TS1003 and gets a
+        // missing identifier.
+        let name = if !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DefaultKeyword)
+            || self.is_binding_identifier()
+        {
             Some(self.parse_identifier())
+        } else {
+            None
         };
         let type_parameters = self.parse_type_parameters();
         // Parameters and body are inside this function's own await context, not

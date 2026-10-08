@@ -139,7 +139,10 @@ impl Checker<'_, '_> {
             // lookup, so it joins the arm rather than getting one of its own.
             | SyntaxKind::InstanceOfKeyword => self.intrinsics.boolean,
 
-            SyntaxKind::AmpersandAmpersandToken => {
+            // checkBinaryLikeExpression (checker.go:12496-12529) shares each
+            // logical arm with its assignment form; `&&=`, `||=` and `??=`
+            // additionally run checkAssignmentOperator, which only reports.
+            SyntaxKind::AmpersandAmpersandToken | SyntaxKind::AmpersandAmpersandEqualsToken => {
                 self.check_logical_and(left_type, right_type)
             }
 
@@ -148,15 +151,10 @@ impl Checker<'_, '_> {
             // ground — the reduction question is a property of the constituent
             // PAIR — and the reduction-free slice ships. The remaining pairs
             // keep declining inside [`Checker::check_logical_or_coalescing`].
-            //
-            // The compound forms `&&=`, `||=` and `??=` additionally reach
-            // `checkAssignmentOperator`, and are left with the family they
-            // belong to rather than split off for the sake of three lines
-            // corpus-wide.
-            SyntaxKind::BarBarToken => {
+            SyntaxKind::BarBarToken | SyntaxKind::BarBarEqualsToken => {
                 self.check_logical_or_coalescing(left_type, right_type, false)
             }
-            SyntaxKind::QuestionQuestionToken => {
+            SyntaxKind::QuestionQuestionToken | SyntaxKind::QuestionQuestionEqualsToken => {
                 self.check_logical_or_coalescing(left_type, right_type, true)
             }
             _ => error,
