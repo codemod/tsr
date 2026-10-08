@@ -1260,8 +1260,12 @@ impl Relater<'_, '_, '_> {
                     .get_index_infos_of_type(target)
                     .is_some_and(|infos| !infos.is_empty())
                 {
+                    // propertiesRelatedTo needs only the target's names: an
+                    // enum object (`typeof E`, which carries a reverse-mapping
+                    // index) has no member table here but enumerates them.
                     return if self.has_members(apparent)
-                        && self.has_members(target)
+                        && (self.has_members(target)
+                            || self.checker.get_property_names_of_type(target).is_some())
                         && self.properties_related_to(apparent, target)
                             == RelationResult::NotRelated
                     {
