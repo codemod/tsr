@@ -144,6 +144,7 @@ pub mod index_constraint;
 pub mod index_signatures;
 pub mod indexed;
 pub mod inference;
+mod instantiation_expressions;
 pub mod intersections;
 pub mod intrinsics;
 mod iteration;

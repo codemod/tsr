@@ -819,6 +819,9 @@ pub struct Checker<'a, 'n> {
     /// symbols. Native cloneTypeAsModuleType's originating import/target links.
     pub(crate) module_value_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
+    pub(crate) instantiation_expressions:
+        crate::instantiation_expressions::InstantiationExpressionLinks,
     pub(crate) any_function_type: Option<TypeId>,
     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
     pub(crate) non_inferrable_types: rustc_hash::FxHashSet<TypeId>,
@@ -1527,6 +1530,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             ]),
             module_value_clones: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
+            instantiation_expressions:
+                crate::instantiation_expressions::InstantiationExpressionLinks::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),
             index_components: Vec::new(),

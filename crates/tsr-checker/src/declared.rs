@@ -1464,13 +1464,9 @@ impl<'a> Checker<'a, '_> {
     /// type position is the *expression* type of the entity name, then
     /// `getRegularTypeOfLiteralType(getWidenedType(t))`.
     ///
-    /// The remaining refusal is whole-construct rather than approximated
-    /// (`docs/architecture/checker-notes-tquery.md` §4):
-    /// - **Instantiation expressions** `typeof f<string>` (10 lines): with type
-    ///   arguments present, `getInstantiationExpressionType`
-    ///   (`checker.go:10660`) filters signatures by arity and instantiates
-    ///   each; without them it returns the expression type unchanged, which is
-    ///   the only half ported here.
+    /// Instantiation expressions `typeof f<string>` run the expression type
+    /// through `getInstantiationExpressionType` (`checker.go:10660`,
+    /// `crate::instantiation_expressions`; `docs/parity/notes/r5-instexpr.md`).
     ///
     /// Divergence, stated: this port has no general `getWidenedType`
     /// (`checker.go:18355`). Entity-name expression types come from
@@ -1480,7 +1476,7 @@ impl<'a> Checker<'a, '_> {
     /// object-literal widening *at the query* is owned by the notes page §2.
     fn get_type_from_type_query_node(&mut self, node: &tsr_ast::TypeQueryNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        if !node.type_arguments.is_empty() {
+        if self.type_query_closes_eager_cycle(node) {
             return error;
         }
         let Some(name) = node.expr_name else { return error };
@@ -1516,6 +1512,7 @@ impl<'a> Checker<'a, '_> {
             }
             tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
         };
+        let id = node.node_id.map_or(id, |query| self.get_instantiation_expression_type(id, query));
         // getTypeFromTypeQueryNode widens before regularizing. Native seeds
         // the global undefined symbol with undefinedWideningType; this port
         // shares its ordinary undefined identity, so retain that provenance
