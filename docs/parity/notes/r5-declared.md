@@ -312,3 +312,22 @@ is numeric, so it mismatches a known string. Native's per-pair memo
 (`c.enumRelation`) is not ported. The walk runs only for same-named enum
 pairs, and it would need a `Checker` field (`checker.rs`). `relater.rs` belongs
 to r5-relater5, so this ships as a diff.
+
+Measured on top of this lane's final code, filtered on the 248 cases whose
+names contain `enum`/`Enum` plus `dynamicNames` and
+`namespaceDisambiguationInUnion`, against the item-4 binaries:
+
+- `enumAssignmentCompat6` goes WRONG→RIGHT.
+- `enumAssignmentCompat3` goes from 18 reported TS2322 to 11. Native reports 12; the one still missing is line 70.
+- No verdict loss on either dump.
+
+The diff has not had an unfiltered run. The integrator's batch gate should
+give it one.
+
+## 4. Not run, and why
+
+- **The full `coverage` run** (box protocol §5.3) was not run. Both dumps were
+  run unfiltered for every commit, alone on the box. The integrator
+  regenerates snapshots after merging.
+- **(e) of `.1034`** and **getConditionalFlowTypeOfType** (§1.4) are open.
+  The substitution type is ADR-sized.
