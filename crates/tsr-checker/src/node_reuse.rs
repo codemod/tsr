@@ -509,6 +509,44 @@ impl<'a> Checker<'a, '_> {
         Some(self.emit_from_annotation_scope(written, equivalent)?.0)
     }
 
+    /// `typeToTypeNodeHelperWithPossibleReusableTypeNode(constraint,
+    /// getConstraintDeclaration(parameter))` (`nodebuilderimpl.go:1597`,
+    /// called by `typeParameterToDeclaration`, `:1615`): a type parameter's
+    /// constraint reuses the first written `extends` node of the parameter's
+    /// declarations (`getConstraintDeclaration`, `checker.go:29132`) when
+    /// `getTypeFromTypeNode` of that node is the constraint being printed.
+    /// An instantiated parameter's constraint is a different type, so it is
+    /// serialized fresh. Printed at `reference` when the printer has a site,
+    /// else from the annotation's own scope. `None` when the node is not the
+    /// constraint's or the visitor refuses it.
+    pub(crate) fn reused_constraint_text(
+        &mut self,
+        parameter: TypeId,
+        constraint: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let symbol = *self.type_parameter_symbols.get(&parameter)?;
+        let node =
+            self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                match self.node_map.get(id)? {
+                    Node::TypeParameterDeclaration(declaration) => declaration.constraint,
+                    _ => None,
+                }
+            })?;
+        if self.get_type_from_type_node(node) != constraint {
+            return None;
+        }
+        let written = WrittenAnnotation {
+            node: Node::from(node).node_id()?,
+            r#type: constraint,
+            renamed: false,
+        };
+        match reference {
+            Some(reference) => self.written_annotation_text_at(written, constraint, reference),
+            None => self.site_free_annotation_text(written, constraint),
+        }
+    }
+
     /// The reused annotation as printed at `reference`
     /// (`ctx.enclosingDeclaration`), so `trackExistingEntityName` answers for
     /// this site. `None` when the slot no longer holds the annotation's type,

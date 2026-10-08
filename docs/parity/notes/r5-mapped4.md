@@ -58,3 +58,88 @@ Full parity run (`coverage`) after: checker_types 8,236 of 9,538
 generic-imports 1.033 at 21 samples, 0.989 at 41; `diagnostics_match: true`.
 Callgrind Ir (`--singleThreaded --pretty false`): domain-model 1,201,918,429
 → 1,201,832,316, generic-imports 343,420,545 → 343,407,345 (both −0.01%).
+
+## 2. Type-parameter constraints reuse their written node (committed)
+
+`typeParameterToDeclaration` (`nodebuilderimpl.go:1611`) prints a constraint
+through `typeToTypeNodeHelperWithPossibleReusableTypeNode(constraint,
+getConstraintDeclaration(parameter))` (`:1597`): when `getTypeFromTypeNode`
+of the first written `extends` node (`getConstraintDeclaration`,
+`checker.go:29132`) *is* the constraint, the node is re-emitted through
+`tryReuseExistingNodeHelper`; otherwise the constraint is serialized. The
+port's signature printers only had `TypeParameter::written_constraint`, a
+set of syntactic admissions in `signatures.rs`, and otherwise rendered the
+type. `node_reuse::reused_constraint_text` is the native rule, asked after
+the existing admissions and before the fresh render, at both `signatures.rs`
+print sites (with a site, `written_annotation_text_at`; without,
+`site_free_annotation_text`).
+
+The identity gate exposed a second gap: **a mapped node minted a new type on
+every evaluation**, so `getTypeFromTypeNode(node) == constraint` never held
+for `{ [P in string]: TakeString }`. Native's getTypeFromMappedTypeNode
+(`checker.go:24170`) caches on `typeNodeLinks.resolvedType`.
+`create_semantic_mapped_type` now publishes its answer in
+`type_literal_types`, the table type-literal and function-type nodes use for
+the same links.
+
+**Measured** against the frozen base, both dumps unfiltered, with §1:
+types +38 RIGHT (+35 from this change), diagnostics unchanged, zero losses
+on both. Converted (this change): `genericFunctionsAndConditionalInference`
+×9, `noUncheckedIndexedAccess` ×6, `correlatedUnions` ×5, `typeAliases` ×3,
+`bindingPatternCannotBeOnlyInferenceSource` ×2,
+`divideAndConquerIntersections` ×2, `mappedTypeIndexedAccessConstraint` ×2,
+`cannotIndexGenericWritingError`, `declFileRestParametersOfFunctionAndFunctionType`,
+`inKeywordTypeguard(strict=false)`, `inlinedAliasAssignableToConstraintSameAsAlias`,
+`spreadObjectOrFalsy`, `typeParameterConstraints1`. On top of r5-mapped3's
+declared-route diff it clears that diff's remaining 6 losses
+(`mappedTypeContextualTypesApplied` ×4,
+`contextualTypeBasedOnIntersectionWithAnyInTheMix3` ×2).
+
+**Not taken: reuse before the admissions.** Native has no admission list;
+the faithful order is reuse first. `written_constraint` is filled in
+`signatures.rs` (not this lane's), and for every node it admits, reuse
+answers the same text or a written spelling it chose deliberately (a
+qualified name kept, §926). Replacing it is `signatures.rs`' call.
+
+**Two more printers are not changed.** `objects::signature_member_text` and
+`Checker::signature_member_text_at` (`checker.rs`) print a member
+signature's type parameters with the same `written_constraint`-then-render
+rule. They need the same one-line arm; both files are outside this lane
+(reported to the integrator).
+
+### Ownership and work boundaries (checker port convention)
+
+- **Native operations:** `typeToTypeNodeHelperWithPossibleReusableTypeNode`
+  from `typeParameterToDeclaration`; `getConstraintDeclaration`;
+  getTypeFromMappedTypeNode's `typeNodeLinks.resolvedType`.
+- **Key identity and owner:** the mapped node's type is keyed by
+  `TypeLiteralKey` (the node, the active alias-evaluation bindings, whether a
+  mapped template encloses it), owned by `type_literal_types` on the
+  `Checker`. The bindings and template flag stand for the mapper context in
+  which this port re-resolves a node where native instantiates one type.
+- **Publication states:** published once a build succeeds (generic: the
+  deferred mapped type with its `mapped_types` info; non-generic: the
+  resolved object). A declined build publishes nothing, as before, so the
+  written-text fallback still runs and a later evaluation retries. No
+  reservation: a node whose build re-enters itself recomputes, as before.
+- **Receiver/alias context:** the reuse is decided against the type
+  parameter's own declaration; an instantiated or renamed parameter's
+  constraint is a different type and is serialized.
+- **Expensive work boundary:** the cache removes repeated member resolution
+  of the same non-generic mapped node (each evaluation previously rebuilt
+  it). The reuse walk runs only for a printed constraint the admissions did
+  not take, once per print, as `written_annotation_text_at` does for
+  parameters.
+
+**Falsifier.** A mapped node whose built type depends on checker state not
+in `TypeLiteralKey` (anything but the alias bindings and the template
+depth) would now print or relate its first context's image. The
+`mapped_type_info` inputs are the node, `get_declared_type_of_symbol` of its
+parameter and `get_type_from_type_node` of its parts, which are keyed the
+same way.
+
+Full parity run after §2: checker_types 8,236 → 8,242 of 9,538 (configured
+1,643); diagnostics 4,531 (configured 837). Perf, median child CPU new/old
+(21 samples, vs the frozen base binary): domain-model 0.987, generic-imports
+1.028; `diagnostics_match: true`. Callgrind Ir: domain-model 1,201,902,760 →
+1,200,935,103 (−0.08%), generic-imports 343,419,388 → 343,421,473 (+0.001%).

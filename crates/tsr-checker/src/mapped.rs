@@ -42,17 +42,40 @@ impl<'a> Checker<'a, '_> {
     /// getTypeFromMappedTypeNode and createMappedTypeNodeFromType (checker.go,
     /// nodebuilderimpl.go). Build a deferred mapped type from semantic parts
     /// when its template is outside the bounded written-node renderer.
+    ///
+    /// getTypeFromMappedTypeNode (checker.go:24170) answers one type per node
+    /// (`typeNodeLinks.resolvedType`). The answer is published in
+    /// `type_literal_types`, the table type-literal and function-type nodes
+    /// already use for the same links, under the same context key
+    /// ([`Checker::type_literal_key`]: the node, the alias-evaluation
+    /// bindings and whether a mapped template encloses it), so a re-resolved
+    /// alias body or an enclosing template keeps its own image. Without it
+    /// every evaluation minted a fresh type, and identity tests such as
+    /// `typeToTypeNodeHelperWithPossibleReusableTypeNode`'s
+    /// `getTypeFromTypeNode(node) == t` never held (r5-mapped4.md §2). A
+    /// declined build is not published, so a later evaluation retries it.
     pub(crate) fn create_semantic_mapped_type(
         &mut self,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<TypeId> {
-        let info = self.mapped_type_info(node)?;
-        if !self.is_generic_mapped_info(&info) {
-            return self.resolved_mapped_object(info);
+        let key = node.node_id.map(|id| self.type_literal_key(id));
+        if let Some(key) = &key
+            && let Some(&ty) = self.type_literal_types.get(key)
+        {
+            return Some(ty);
         }
-        let text = self.mapped_type_text(&info)?;
-        let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
-        self.mapped_types.insert(ty, info);
+        let info = self.mapped_type_info(node)?;
+        let ty = if self.is_generic_mapped_info(&info) {
+            let text = self.mapped_type_text(&info)?;
+            let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+            self.mapped_types.insert(ty, info);
+            ty
+        } else {
+            self.resolved_mapped_object(info)?
+        };
+        if let Some(key) = key {
+            self.type_literal_types.insert(key, ty);
+        }
         Some(ty)
     }
 
