@@ -26,6 +26,27 @@ enum ThisTypeAnswer {
 }
 
 impl Checker<'_, '_> {
+    /// `getDeclaredTypeOfClassOrInterface(symbol).thisType`
+    /// (`checker.go`): the class's polymorphic `this`, the one
+    /// `Checker::this_types` identity (keyed by class symbol, minted once on
+    /// first use) that `check_this_expression` and `getExplicitThisType`'s
+    /// port share. No other cache; minting is one store push.
+    pub(crate) fn class_instance_this_type(
+        &mut self,
+        class: tsr_binder::SymbolId,
+    ) -> crate::types::TypeId {
+        if let Some(&this_type) = self.this_types.get(&class) {
+            return this_type;
+        }
+        let this_type = self.store.new_named(
+            crate::flags::TypeFlags::TYPE_PARAMETER,
+            "this".to_string(),
+            Some(class),
+        );
+        self.this_types.insert(class, this_type);
+        this_type
+    }
+
     /// `checkThisExpression` (`checker.go:12077`) — the diagnostic arms only;
     /// the type it returns is `expressions.rs`'s `check_this_expression`.
     pub(crate) fn check_this_expression_diagnostics(&mut self, node: NodeId) {

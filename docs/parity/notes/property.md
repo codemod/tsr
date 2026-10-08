@@ -523,3 +523,27 @@ completeness certificate covers, so the miss declined. It now takes the
 canonical empty object, the same road the destructuring twin already used.
 No cache. Control: `a.toString()` (the `Object` augment) stays silent.
 Converts `nonPrimitiveAccessProperty`.
+
+## 21. Heritage members relate with the class's `this`; merged interfaces conform (tsr-2zk.4)
+
+`checkClassLikeDeclaration` relates `typeWithThis` to
+`getTypeWithThisArgument(baseType, type.thisType)`, and
+`issueMemberSpecificError` reads both members off those, so a base member's
+`this` is the derived class's `this` type. `issue_member_specific_error` read
+each side with itself as the this argument: `sort(): this` in
+`MyArray<T> implements Array<T>` became `MyArray<T>` against `T[]` and
+reported a false TS2416. Both members are now read through
+`get_type_of_property_with_this_argument` with the class's polymorphic `this`
+(`class_instance_this_type`, the existing `this_types` identity keyed by
+class symbol, minted once; no new cache).
+
+With that fixed, the merged-declaration decline on implemented interfaces and
+interface bases goes: `resolveDeclaredMembers` gathers one table from every
+declaration, which this port's declared type already does. The class `extends`
+arm keeps its lib-merged base decline (`class B extends Uint8Array`): its
+whole-type relation still lacks `typeWithThis` (`subclassUint8Array`,
+`classExtendingBuiltinType`, `classFieldSuperAccessible` lose without it).
+Converts `classWithMultipleBaseClasses`, `elaboratedErrors`,
+`genericArrayExtenstions`, `implementArrayInterface`,
+`untypedFunctionCallsWithTypeParameters1`, `classImplementsMergedClassInterface`,
+`mergedInterfacesWithInheritedPrivates`, `mergedInterfacesWithInheritedPrivates2`.
