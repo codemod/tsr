@@ -96,3 +96,97 @@ relation table, else `getPropertiesOfType`'s names) answers it.
 - `objectLiteralNormalization` 17: native reports TS2322 on the normalized
   union, TSR reports TS2353 at the member (literal normalization,
   `getNormalizedType` of object literals, not ported).
+
+## 2. Literal elaboration (tsr-2zk.975)
+
+`elaborateError` (`relater.go:440`) runs before the whole-expression report;
+when it reports, the outer TS2322/TS2345 is never issued. TSR's
+`elaborate_array_literal` and `elaborate_object_literal_members` declined
+four shapes, so the outer head was printed instead of the member lines.
+
+### 2a. Array literal against a union target
+
+`elaborateElement` reads each element's target through
+`getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`): the union's own
+indexed access, else the element of `getBestMatchingType`'s constituent. The
+common case is an optional parameter, `[string, number, boolean] | undefined`:
+the union has no property `"0"` (`undefined` makes it `ReadPartial`), so the
+best match decides.
+
+Ported:
+- `union_array_literal_target_element`: the union's access when every
+  constituent is an object with the element (property or index signature);
+  an index a tuple-like union (`isTupleLikeType`: the union has a property
+  `"0"`, which needs one tuple constituent) lacks is skipped, as native skips
+  it; otherwise the best match's element.
+- `best_matching_type_for_array_literal`, `getBestMatchingType` for the
+  forced-tuple source (`elaborateArrayLiteral` re-checks the literal with
+  `CheckModeForceTuple`: a plain, mutable, unlabeled tuple of the literal's
+  arity):
+  - `findMatchingDiscriminantType` cannot match: the only non-object
+    constituents admitted are `undefined`, `null` and `void`, which carry no
+    members, so no union property, and so no discriminant, spans them. Any
+    other primitive constituent declines (a `string` constituent shares
+    `length` with a tuple and can make it a discriminant);
+  - `findMatchingTypeReferenceOrTypeAliasReference`: a tuple constituent with
+    the forced tuple's target (same arity, all required, not readonly, no
+    labels);
+  - `findBestTypeForObjectLiteral` and `findBestTypeForInvokable` never match
+    a tuple source;
+  - `findMostOverlappyType`: the one constituent whose keys overlap the
+    tuple's. `overlaps_tuple_keys` answers from certified property names: a
+    numeric name, `length` or an `Array` member overlaps; no such name and no
+    index signature gives a `never` overlap, and the constituent is skipped.
+    Two overlapping constituents would need the unit-key counts compared, so
+    they decline, as does an index signature alone (a non-literal overlap
+    native does not count).
+- A literal in a const context (a readonly forced tuple) declines.
+
+`Style = StyleBase | StyleArray` (`interface StyleArray extends Array<Style>`)
+is why overlap is asked of names rather than of "is an array reference".
+
+### 2b. Spreads
+
+- **Array spreads.** `forced_tuple_entries` builds the forced tuple's element
+  list: a tuple operand's elements in place (`createTupleTypeEx` normalizes a
+  variadic tuple element), an array or iterable operand as one rest element
+  of `array_spread_element_type`. `forced_tuple_element` then reads node
+  index `i` as native's `getIndexedAccessTypeOrUndefined(tuple, i)` does:
+  before the rest element, element `i`; from it on,
+  `getTupleElementTypeOutOfStartCount`, the union of the elements from `i`.
+  Node indices are *not* realigned after an inlined tuple; native does not
+  realign them either. A list that is one rest element and nothing else is
+  the array type itself (`getTupleTargetType`), which `isTupleLikeType`
+  rejects, so `[...xs]` never elaborates; the first measurement elaborated it
+  and turned `destructuringArrayBindingPatternAndAssignment2` 23:5 into a
+  member line. Declines: an array-literal operand of more than one element
+  (native types it as a tuple, TSR as an array), optional tuples, and any
+  tuple-like operand that is not a plain tuple or an `Array` reference (a
+  variadic `[string, boolean, ...boolean[]]` normalizes its fixed prefix in
+  place; reading it as a rest element was `spliceTuples`' one loss in the
+  first measurement), a second rest element.
+- **Object spreads.** `elaborateObjectLiteral` skips a spread member and reads
+  every written member's source type from the final literal type. The
+  decline ("a spread contributes properties this port cannot enumerate") was
+  the excess check's concern, not elaboration's, and is removed.
+
+### 2c. Numeric and computed member names
+
+- `2.0:` binds the property `"2"` (`getPropertyNameForPropertyNameNode`);
+  `written_member_name` canonicalizes a numeric literal name with
+  `printing::normalise_number`. It also fixed the excess check, which read
+  `1.0` as excess against `{ [x: number]: A }`.
+- A computed member whose name type is a literal or unique symbol is
+  elaborated (`object_literal_member_name`), with the target looked up by the
+  name's own type, and its report carries TS2418 ("Type of computed
+  property's value…") when the name is not a string or numeric literal
+  (`ast.IsComputedNonLiteralName`). A computed member against a union target
+  is still skipped, as before.
+
+### Remaining in .975
+
+- `didYouMeanElaborationsForExpressionsWhichCouldBeCalled` 10:8: TS2741 vs
+  TS2560 for `typeof Bar` against `Bar` — the weak-type/common-property
+  report order, not elaboration.
+- `intersectionPropertyCheck` 7:3: the source `T & { a: boolean }` relation is
+  `Unknown` (relater).
