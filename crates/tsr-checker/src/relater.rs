@@ -1260,8 +1260,12 @@ impl Relater<'_, '_, '_> {
                     .get_index_infos_of_type(target)
                     .is_some_and(|infos| !infos.is_empty())
                 {
+                    // propertiesRelatedTo needs only the target's names: an
+                    // enum object (`typeof E`, which carries a reverse-mapping
+                    // index) has no member table here but enumerates them.
                     return if self.has_members(apparent)
-                        && self.has_members(target)
+                        && (self.has_members(target)
+                            || self.checker.get_property_names_of_type(target).is_some())
                         && self.properties_related_to(apparent, target)
                             == RelationResult::NotRelated
                     {
@@ -1272,6 +1276,25 @@ impl Relater<'_, '_, '_> {
                 }
                 return self.is_related_to(apparent, target);
             }
+        }
+        // isSimpleTypeRelatedTo relates an `any` source to anything only
+        // under the assignable and comparable relations (relater.go:261); the
+        // `any`/`unknown` targets fired above. Under the subtype relations
+        // structuredTypeRelatedToWorker has no arm relating `any` to a type
+        // parameter (relater.go:3423) or to an object target: its apparent
+        // type is `any`, which is not an object, so the structural arm
+        // (relater.go:3864) does not run. A generic mapped target keeps its
+        // keyof-based arm (relater.go:3593), and a qualified alias mint's
+        // flags are not evidence.
+        if s.contains(TypeFlags::ANY)
+            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && (t.contains(TypeFlags::TYPE_PARAMETER)
+                || (t.contains(TypeFlags::OBJECT)
+                    && !self.checker.mapped_types.contains_key(&target)
+                    && !self.is_generic_mapped_target(target)
+                    && !self.is_qualified_alias_mint(target)))
+        {
+            return RelationResult::NotRelated;
         }
         // structuredTypeRelatedTo compares the non-primitive `object` through
         // its apparent type, the empty object type (getApparentType,
@@ -1304,6 +1327,11 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
+            || (self.is_structural_tuple_source(source)
+                && t.contains(TypeFlags::OBJECT)
+                && self.has_members(target))
+            || ((self.has_members(source) || self.is_structural_tuple_source(source))
+                && self.is_memberless_object_intrinsic(target))
             || s.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
             || self.checker.deferred_keyof_operands.contains_key(&source)
             || self.checker.deferred_keyof_operands.contains_key(&target)
@@ -1373,7 +1401,13 @@ impl Relater<'_, '_, '_> {
         // non-structured target. `Baz -> undefined` reads NotRelated, which
         // is what lets a class-instance union carry its nullable constituent
         // through subtype reduction (`generatorTypeCheck22`).
-        if s.intersects(TypeFlags::OBJECT) && self.flag_decidable(target) {
+        // isRelatedToEx (relater.go:2605) answers an object source against a
+        // primitive target by isSimpleTypeRelatedTo alone, whose only object
+        // arms are the any/unknown/never/nonprimitive targets above; none
+        // relates an object to a `unique symbol`.
+        if s.intersects(TypeFlags::OBJECT)
+            && (self.flag_decidable(target) || t == TypeFlags::UNIQUE_ES_SYMBOL)
+        {
             return RelationResult::NotRelated;
         }
         // In strict mode unknown includes null and undefined, so it cannot
@@ -3366,7 +3400,46 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
-        if (self.has_members(source) || source_intersection_result.is_some())
+        // structuredTypeRelatedToWorker's structural arm (relater.go:3864)
+        // against an intrinsic object with no members: propertiesRelatedTo
+        // and indexSignaturesRelatedTo have nothing to require, and
+        // signaturesRelatedTo (relater.go:4449) rejects every source of the
+        // anyFunctionType wildcard but the wildcard itself (identity above).
+        if self.is_memberless_object_intrinsic(target)
+            && (self.has_members(source)
+                || source_intersection_result.is_some()
+                || self.is_structural_tuple_source(source))
+        {
+            let structural = if self.checker.any_function_type == Some(target) {
+                RelationResult::NotRelated
+            } else {
+                RelationResult::Related
+            };
+            return RelationResult::any(source_intersection_result.into_iter().chain([structural]));
+        }
+        // structuredTypeRelatedToWorker (relater.go:3853): under the subtype
+        // relations a fresh empty object literal `{}` admits only empty
+        // sources. Emptiness is certified here only for sources whose members
+        // are known to be non-empty: a tuple (it has `length`) or a type with
+        // enumerated properties.
+        if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && self.checker.fresh_object_literal_types.contains(&target)
+            && self.checker.is_empty_anonymous_object_type(target)
+            && (self.is_structural_tuple_source(source)
+                || self
+                    .checker
+                    .get_property_names_of_type(source)
+                    .is_some_and(|names| !names.is_empty()))
+        {
+            return RelationResult::NotRelated;
+        }
+        // The structural arm runs only against an object target
+        // (relater.go:3864); a conditional this port gives a member image is
+        // not one.
+        if (self.has_members(source)
+            || source_intersection_result.is_some()
+            || (self.is_structural_tuple_source(source)
+                && self.checker.type_of(target).flags.contains(TypeFlags::OBJECT)))
             && self.has_members(target)
         {
             // structuredTypeRelatedToWorker (relater.go:3864): properties,
@@ -3392,8 +3465,15 @@ impl Relater<'_, '_, '_> {
                     source_intersection_result.into_iter().chain([signatures]),
                 );
             }
-            let indexes =
-                self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
+            let indexes = if !self.has_members(source)
+                && source_intersection_result.is_none()
+                && self.is_structural_tuple_source(source)
+            {
+                self.tuple_index_signatures_related(source, target)
+            } else {
+                self.related_index_signatures(source, target)
+            }
+            .unwrap_or(RelationResult::Unknown);
             let result = RelationResult::all([properties, signatures, indexes]);
             // Only a completed comparison widens the generic source boundary.
             // Unsupported members (e.g. protected-target checks) must not turn
@@ -3646,6 +3726,48 @@ impl Relater<'_, '_, '_> {
         missing.then_some(RelationResult::NotRelated)
     }
 
+    /// The intrinsic object types with no properties, signatures or index
+    /// infos: `emptyObjectType`, `unknownEmptyObjectType` and the
+    /// `anyFunctionType` wildcard (`checker.go:1029`). This port mints them
+    /// as `Named` images without a member table.
+    fn is_memberless_object_intrinsic(&self, id: TypeId) -> bool {
+        id == self.checker.intrinsics.empty_object
+            || id == self.checker.intrinsics.unknown_empty_object
+            || self.checker.any_function_type == Some(id)
+    }
+
+    /// A tuple reference whose members `propertiesRelatedTo` can read
+    /// (`relater.go:4100`): every element is fixed or spreads a concrete
+    /// array. A tuple has no member table of its own here; its element
+    /// properties, `length` and the inherited `Array`/`ReadonlyArray`
+    /// members are read through `get_type_of_property_of_type`, as native
+    /// reads them from the tuple target's resolved members. Generic tuples
+    /// relate through their base constraint first (`relater.go:3849`) and
+    /// are left out.
+    fn is_structural_tuple_source(&mut self, id: TypeId) -> bool {
+        let Some((elements, _)) = self.tuple_relation_elements(id) else { return false };
+        elements.iter().all(|element| {
+            !element.spread || self.checker.tuple_spread_array_element(element.r#type).is_some()
+        })
+    }
+
+    /// `getUnmatchedProperty` (`checker.go`) over a tuple source: the
+    /// tuple's properties are complete — its fixed elements, `length` and
+    /// the global array members [`Checker::tuple_target_properties`] lists —
+    /// so a string-named target property absent from them is unmatched.
+    /// Symbol-named members are not in that list and stay undecided.
+    fn tuple_source_lacks_property(&mut self, source: TypeId, name: &str) -> bool {
+        if name.starts_with("__@")
+            || name.starts_with('[')
+            || !self.is_structural_tuple_source(source)
+        {
+            return false;
+        }
+        self.checker
+            .tuple_target_properties(source)
+            .is_some_and(|properties| !properties.iter().any(|(property, _)| property == name))
+    }
+
     fn tuple_relation_elements(
         &self,
         id: TypeId,
@@ -3673,8 +3795,9 @@ impl Relater<'_, '_, '_> {
     /// structuredTypeRelatedTo's tuple-to-array index comparison
     /// (internal/checker/relater.go).
     fn tuple_array_related_to(&mut self, source: TypeId, target: TypeId) -> Option<RelationResult> {
-        let fixed = self.checker.tuple_element_lists.get(&source).cloned();
-        if fixed.is_none() && !self.checker.variadic_tuple_elements.contains_key(&source) {
+        if !self.checker.tuple_element_lists.contains_key(&source)
+            && !self.checker.variadic_tuple_elements.contains_key(&source)
+        {
             return None;
         }
         let target_element = self.checker.tuple_spread_array_element(target)?;
@@ -3691,7 +3814,17 @@ impl Relater<'_, '_, '_> {
         if self.checker.tuple_is_readonly(source) && readonly_array != Some(target_symbol) {
             return Some(RelationResult::NotRelated);
         }
-        let source_element = if let Some((mut elements, _)) = fixed {
+        let Some(source_element) = self.tuple_element_union(source) else {
+            return Some(RelationResult::Unknown);
+        };
+        Some(self.is_related_to(source_element, target_element))
+    }
+
+    /// `getIndexTypeOfType(tuple, number)`: the union of a tuple's element
+    /// types, with `undefined` for an optional element under strict null
+    /// checks. `None` when a variadic tuple's union is not computed.
+    fn tuple_element_union(&mut self, source: TypeId) -> Option<TypeId> {
+        if let Some((mut elements, _)) = self.checker.tuple_element_lists.get(&source).cloned() {
             if self.checker.strict_null_checks
                 && self
                     .checker
@@ -3701,14 +3834,40 @@ impl Relater<'_, '_, '_> {
             {
                 elements.push(self.checker.intrinsics.undefined);
             }
-            self.checker.get_union_type(&elements)
-        } else {
-            let Some(element) = self.checker.variadic_tuple_index_union(source) else {
-                return Some(RelationResult::Unknown);
-            };
-            element
-        };
-        Some(self.is_related_to(source_element, target_element))
+            return Some(self.checker.get_union_type(&elements));
+        }
+        self.checker.variadic_tuple_index_union(source)
+    }
+
+    /// `indexSignaturesRelatedTo` (`relater.go:4578`) for a tuple source.
+    /// A tuple's only index info is the numeric one its `Array` or
+    /// `ReadonlyArray` base declares, valued at the element union. A target
+    /// info no numeric key applies to has no source counterpart, and a tuple
+    /// reference is not an object type with an inferable index
+    /// (`typeRelatedToIndexInfo`, `:4603`), so it fails.
+    fn tuple_index_signatures_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let target_infos = self.checker.get_index_infos_of_type(target)?;
+        let target_has_string =
+            target_infos.iter().any(|info| info.key == self.checker.intrinsics.string);
+        let mut parts = Vec::with_capacity(target_infos.len());
+        for info in &target_infos {
+            if self.relation != Relation::StrictSubtype
+                && target_has_string
+                && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
+            {
+                continue;
+            }
+            if !self.checker.is_applicable_index_type(info.key, self.checker.intrinsics.number) {
+                return Some(RelationResult::NotRelated);
+            }
+            let element = self.tuple_element_union(source)?;
+            parts.push(self.is_related_to(element, info.value));
+        }
+        Some(RelationResult::all(parts))
     }
 
     /// Every property of `target` has a corresponding property of `source`, and
@@ -3846,7 +4005,8 @@ impl Relater<'_, '_, '_> {
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
                     && target_metadata.is_some_and(|flags| flags.0)
                     && (self.relation == Relation::Assignable
-                        || self.checker.is_object_literal_type(source))
+                        || self.checker.is_object_literal_type(source)
+                        || self.is_structural_tuple_source(source))
                 {
                     parts.push(RelationResult::Related);
                     continue;
@@ -3862,10 +4022,11 @@ impl Relater<'_, '_, '_> {
                 // Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
                     && target_metadata.is_some()
-                    && intersection_names
+                    && (intersection_names
                         .clone()
                         .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
                         .is_some()
+                        || self.tuple_source_lacks_property(source, &name))
                 {
                     parts.push(RelationResult::NotRelated);
                     continue;
