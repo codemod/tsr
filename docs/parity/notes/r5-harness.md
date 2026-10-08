@@ -200,14 +200,84 @@ built, and run:
 
 ## 2. `tsr-2zk.46`: intermittent SIGABRT in corpus runners
 
-What §1 needed from this item: `[profile.release]` in the workspace
-`Cargo.toml` sets `panic = "abort"`. Every corpus runner is built with it, so
-a panic in any case aborts the process with SIGABRT (exit 134) before any row
-is printed. The same goes for a stack overflow, which Rust reports from its
-SIGSEGV handler and then aborts, and for an allocation failure
-(`handle_alloc_error`). This is the reported symptom: an empty TSV and exit 134.
-It is also why per-case `catch_unwind` alone cannot make a panicking case
-visible in the dumps. The panic hook does.
+### What exit 134 can mean here
+
+`[profile.release]` in the workspace `Cargo.toml` sets `panic = "abort"`. Every
+corpus runner is built with it, so three different failures all end the same
+way, as SIGABRT (exit 134) with an empty TSV, because both dumps print only at
+the end:
+
+1. **a panic** in any case;
+2. **a stack overflow.** Rust's SIGSEGV handler prints `thread '<unknown>' has
+   overflowed its stack` and aborts;
+3. **an allocation failure** (`handle_alloc_error`, `memory allocation of N
+   bytes failed`).
+
+The reports in `tsr-2zk.46` captured neither stderr nor the case, so they
+cannot say which of the three it was. That is why per-case `catch_unwind`
+alone could not make a panicking case visible in the dumps, and why the
+harness now names the case in every one of these deaths (§1): a panic writes
+its `PANIC` row, and a `TSR_CASE_TRACE=1` run leaves a death no hook sees as
+the `START` with no `END`.
+
+### Reproduction attempts
+
+| Tree | Runner | Runs | Aborts |
+|---|---|---:|---:|
+| `1252ab9`, base and guarded binaries | `diagverdictdump`, full corpus, 4 workers | 12 | 0 |
+| `1252ab9`, base and guarded binaries | `verdictdump`, full corpus (4 workers, plus one single-worker run at 512 KiB) | 7 | 0 |
+| `e3ec2563` (where `scorepair --accept` aborted), as committed, `RUST_BACKTRACE=1`, stderr kept | `verdictdump` (the same `verdict_rows` walk as `scorepair`) | 4 | 0 |
+| same | `diagverdictdump` | 4 | 0 |
+
+Every run's output was identical to its tree's other runs. The intermittent
+abort does not reproduce at the base or at the reported main commit. The
+cycles-branch commits no longer exist as a branch to test.
+
+### Stack: measured margins, and one runner defect
+
+A stack overflow could be intermittent because rayon runs a stolen job on top
+of the stack of a worker that is blocked in `join`. The depth at which a case
+*starts* therefore depends on scheduling. Only recursion that
+`tsr_core::stack::ensure_sufficient` does not guard could hit that, so the
+question is how much unguarded stack the deepest case needs. Measured on one
+worker (`RAYON_NUM_THREADS=1`), with `TSR_CASE_TRACE=1` naming the case that
+died:
+
+| Path | Worker stack | Result |
+|---|---|---|
+| types (`verdictdump`), full corpus | 256 KiB | overflow in `compiler/mappedTypeRecursiveInference2` (that case alone passes at 384 KiB) |
+| types, full corpus | 512 KiB | passes |
+| diagnostics (`diagverdictdump`, temporary stack override), full corpus | 512 KiB | overflow in `compiler/binderBinaryExpressionStress` (the 4,958-operand chain) |
+| diagnostics, `binderBinaryExpressionStress` alone | 1 MiB / 2 MiB | overflow / passes |
+
+So the diagnostics path needs 1–2 MiB for its deepest case and runs on 8 MiB.
+The types path needs under 512 KiB and ran on **2 MiB**. `verdictdump` and
+`scorepair` never sized their pool, so they got rayon's default, which is
+std's 2 MiB. `diagverdictdump`, `coverage` (`src/main.rs`, `WORKER_STACK`)
+and the shipped `tsr` checker pool (`crates/tsr-execute/src/checker_pool.rs`,
+`WORKER_STACK`) all use 8 MiB. A case on the types path between 2 and 8 MiB
+deep would have aborted `scorepair` and `verdictdump` only, while the shipped
+binary checked it fine. The types path does not need that today (4× margin),
+so this is a latent defect, not a demonstrated cause. It is fixed anyway,
+because it is a runner disagreeing with the product it measures:
+`case_guard::size_worker_pool` gives all three dumps the shipped 8 MiB. That
+is not a raise past the budget, which the `coverage` comment warns against. It
+*is* the budget.
+
+### Conclusion
+
+Root cause **not established**: the abort does not reproduce at `1252ab9` or
+`e3ec2563` in the runs above. Within the harness:
+
+- the mechanism that turned three distinct failures into one anonymous
+  exit 134 is now attributed (§1: `PANIC` row, `TSR_CASE_TRACE`);
+- the one harness defect found, 2 MiB worker stacks in `verdictdump` and
+  `scorepair`, is fixed;
+- the stack margin on the shipped 8 MiB is measured: 4× on diagnostics, over
+  16× on types.
+
+If it recurs, run the failing dump with `TSR_CASE_TRACE=1` and keep stderr.
+The last stderr lines then say which of the three it is and name the case.
 
 ## 3. `tsr-2zk.37`: `source_variable_initializer::javascript_keeps_its_existing_decline`
 

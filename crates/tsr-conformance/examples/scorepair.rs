@@ -40,6 +40,7 @@ fn case_of(key: &str) -> &str {
 }
 
 fn main() {
+    tsr_conformance::case_guard::size_worker_pool();
     let accept = std::env::args().any(|a| a == "--accept");
     let filter: Vec<String> = std::env::var("TSR_FILTER")
         .unwrap_or_default()

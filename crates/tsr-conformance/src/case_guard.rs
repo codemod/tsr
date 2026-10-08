@@ -66,6 +66,23 @@ use std::sync::atomic::{AtomicI64, Ordering::Relaxed};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// Stack for a corpus-runner worker thread: 8 MiB, the shipped checker
+/// pool's (`crates/tsr-execute/src/checker_pool.rs`, `WORKER_STACK`) and
+/// `coverage`'s (`src/main.rs`). `verdictdump` and `scorepair` used to leave
+/// rayon's default, std's 2 MiB, so a case the shipped binary checks could
+/// abort only in them (`tsr-2zk.46`, `docs/parity/notes/r5-harness.md` §2).
+pub const WORKER_STACK: usize = 8 * 1024 * 1024;
+
+/// Build rayon's global pool with [`WORKER_STACK`] workers. Call first in
+/// `main`: rayon builds a default pool on first use, and the global pool
+/// can be built only once.
+pub fn size_worker_pool() {
+    rayon::ThreadPoolBuilder::new()
+        .stack_size(WORKER_STACK)
+        .build_global()
+        .expect("sizing the corpus thread pool");
+}
+
 /// Per-case memory budget when `TSR_CASE_MEM_MIB` is unset, in MiB.
 ///
 /// The largest cases on the full corpus at `1252ab9` peak at 3,456 MiB (the

@@ -35,6 +35,7 @@ use tsr_conformance::case_guard::{self, RowShape};
 mod counting_alloc;
 
 fn main() {
+    case_guard::size_worker_pool();
     case_guard::install(RowShape::Types);
     let filter: Vec<String> = std::env::var("TSR_FILTER")
         .unwrap_or_default()

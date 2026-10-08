@@ -27,10 +27,7 @@ use tsr_conformance::{Corpus, diagnostics_suite, errors_baseline, repo_root};
 mod counting_alloc;
 
 fn main() {
-    rayon::ThreadPoolBuilder::new()
-        .stack_size(8 * 1024 * 1024)
-        .build_global()
-        .expect("sizing the corpus thread pool");
+    case_guard::size_worker_pool();
     case_guard::install(RowShape::Diagnostics);
     let mut cases = Corpus::from_repo_root(&repo_root()).discover().expect("corpus");
     let configured = Corpus::configured(&cases);
