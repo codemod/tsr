@@ -255,5 +255,24 @@ in scope in the base class expression") is unported in
 so `T` resolves as a type and the cascade reads it as a mismatch. The patch
 is `docs/parity/notes/r4-helpers-binder-base-class-type-parameters.diff`;
 with it the 4 extras are gone **and** the 4 missing TS2304 lines in those
-cases appear (filtered run). Perf (21 samples): `domain-model` 0.985,
+cases appear. Measured unfiltered on top of §7: 0 diagnostics verdicts
+move, types unchanged, 8 wrong lines fixed (4 extra TS2693, 4 missing
+TS2304). Perf (21 samples): `domain-model` 0.985,
 `generic-imports` 0.999.
+
+## §7. A primitive name that resolves is not a type used as a value (`tsr-2zk.6.3`)
+
+`check_value_identifier`'s primitive block (`string`, `number`, … `void`)
+ran **before** name resolution, so `declare function string(): T` followed
+by `{ a: string }` in a class's `extends` call reported TS2693 at a value
+that exists. Upstream reaches `checkAndReportErrorForUsingTypeAsValue` only
+from `onFailedToResolveSymbol`, i.e. after `getResolvedSymbol` failed. The
+block now runs only when the name does not resolve at
+`Value | ExportValue` (`resolve_name_with_export_alias`, the same lookup the
+rule makes just below); a name that resolves falls through to that lookup
+and returns. One extra lookup, only for these ten spellings.
+
+Measured (on top of §6): diagnostics **+1**
+(`classReferencedInContextualParameterWithinItsOwnBaseExpression`,
+EMPTY_WRONG → EMPTY_RIGHT), 0 lost; types unchanged. Perf (21 samples):
+`domain-model` 1.003, `generic-imports` 0.987.

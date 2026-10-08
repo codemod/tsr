@@ -4295,6 +4295,11 @@ impl Checker<'_, '_> {
         // `primitiveTypeAssignment`. These names resolve to no symbol here
         // because they are keywords rather than globals, so the existing
         // "resolves as a TYPE" decline never sees them.
+        // …**unless they resolve.** Upstream reaches the cascade only when
+        // `getResolvedSymbol` fails, and `declare function string()` is a
+        // value named `string`
+        // (`classReferencedInContextualParameterWithinItsOwnBaseExpression`).
+        // r4-helpers notes §7.
         if matches!(
             text,
             "string"
@@ -4307,7 +4312,14 @@ impl Checker<'_, '_> {
                 | "never"
                 | "unknown"
                 | "void"
-        ) {
+        ) && self
+            .resolve_name_with_export_alias(
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
+            .is_none()
+        {
             // **A heritage position has its own three messages**, and they are
             // what makes those nine lines right rather than wrong: upstream's
             // `checkAndReportErrorForUsingTypeAsValue` reports TS2863 / TS2864 /
