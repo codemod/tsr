@@ -1,0 +1,1570 @@
+case	failing_lines	causes	sole_cause	dominant_cause
+compiler/abstractClassInLocalScopeIsAbstract	1	any:call-error	any:call-error	any:call-error
+compiler/acceptSymbolAsWeakType	12	any:property-lookup-error;any:variable-initialiser-error;gap:call;gap:identifier;gap:new;gap:property-access;literal-widened		literal-widened
+compiler/accessorDeclarationEmitJs	1	js:any:uncontextual-parameter	js:any:uncontextual-parameter	js:any:uncontextual-parameter
+compiler/accessorWithInitializer(target=es2015)	2	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/accessorWithRestParam(target=es2015)	2	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/aliasBug	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/aliasDoesNotDuplicateSignatures	2	any:alias-target	any:alias-target	any:alias-target
+compiler/aliasErrors	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/aliasInaccessibleModule2	1	any:alias-target	any:alias-target	any:alias-target
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1	4	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2	2	different-name	different-name	different-name
+compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased	7	alias-port-kept;partial-any		partial-any
+compiler/aliasOnMergedModuleInterface	3	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/allowImportClausesToMergeWithTypes	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/allowJscheckJsTypeParameterNoCrash	3	js:alias-port-kept;js:type-argument-differs		js:alias-port-kept
+compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration	4	alias-port-kept;signature-differs		signature-differs
+compiler/ambientRequireFunction(module=commonjs)	1	js:any:configured:call	js:any:configured:call	js:any:configured:call
+compiler/ambientRequireFunction(module=preserve)	1	js:any:configured:call	js:any:configured:call	js:any:configured:call
+compiler/amdLikeInputDeclarationEmit	12	js:any:binary-operand;js:any:call-error;js:any:contextual-parameter;js:any:property-lookup-error;js:any:variable-initialiser-error;js:literal-widened;js:signature-differs		js:literal-widened
+compiler/anonClassDeclarationEmitIsAnon	6	any:call-error;gap:class-expression;signature-differs		signature-differs
+compiler/arguments	3	any:function-declaration-error;any:type-reference-error		any:type-reference-error
+compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)	1	different-name	different-name	different-name
+compiler/argumentsSpreadRestIterables(target=esnext)	11	any:configured:identifier;partial-any		partial-any
+compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock	2	any:function-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/arrayBindingPatternOmittedExpressions	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+compiler/arrayDestructuringInSwitch2	1	any:binding-element	any:binding-element	any:binding-element
+compiler/arrayFakeFlatNoCrashInferenceDeclarations	5	any:type-reference-error;conditional-type-resolved-where-native-deferred;signature-differs		conditional-type-resolved-where-native-deferred
+compiler/arrayFlatMap	6	gap:call;optional-param-undefined-not-printed		optional-param-undefined-not-printed
+compiler/arrayFlatNoCrashInference	4	optional-param-undefined-not-printed;signature-differs;type-argument-differs		optional-param-undefined-not-printed
+compiler/arrayFlatNoCrashInferenceDeclarations	4	optional-param-undefined-not-printed;signature-differs;type-argument-differs		optional-param-undefined-not-printed
+compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=es2015)	1	any:configured:array-literal	any:configured:array-literal	any:configured:array-literal
+compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=esnext)	1	any:configured:array-literal	any:configured:array-literal	any:configured:array-literal
+compiler/arrayconcat	2	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/arrowExpressionBodyJSDoc	2	js:union-extra-members	js:union-extra-members	js:union-extra-members
+compiler/arrowExpressionJs	1	js:union-extra-members	js:union-extra-members	js:union-extra-members
+compiler/arrowFunctionsMissingTokens	2	any:other;unaligned-lines		any:other
+compiler/assignmentToInstantiationExpression	3	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/asyncImportNestedYield	1	gap:identifier	gap:identifier	gap:identifier
+compiler/augmentExportEquals3	3	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/augmentExportEquals4	3	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/augmentExportEquals5	7	alias-port-kept;any:other;any:property-lookup-error;any:variable-initialiser-error		alias-port-kept
+compiler/augmentExportEquals6	3	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/augmentExportEquals7	1	module-object-default-shape	module-object-default-shape	module-object-default-shape
+compiler/awaitedType	21	alias-port-kept;any:call-error;any:function-expression-error;any:literal-expression-error;any:other;any:type-reference-error;any:variable-initialiser-error;partial-any;tuple-vs-array;type-argument-differs;type-param-constraint		tuple-vs-array
+compiler/awaitedTypeNoLib	1	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/awaitedTypeStrictNull	9	alias-port-kept;tuple-vs-array;type-argument-differs;type-param-rename		tuple-vs-array
+compiler/badInferenceLowerPriorityThanGoodInference	11	any:property-lookup-error;gap:property-access;unknown-where-native-typed		unknown-where-native-typed
+compiler/baseClassImprovedMismatchErrors	2	union-order	union-order	union-order
+compiler/baseConstraintOfDecorator	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/baseExpressionTypeParameters	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/bigintArbirtraryIdentifier	3	any:alias-target	any:alias-target	any:alias-target
+compiler/bigintIndex	5	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/bigintPropertyName	11	any:literal-expression-error;any:other;any:variable-initialiser-error;unaligned-lines		any:literal-expression-error
+compiler/bigintWithoutLib(target=es2015)	27	any:configured:call;any:configured:identifier;any:configured:property-access		any:configured:call
+compiler/bindingPatternCannotBeOnlyInferenceSource	2	signature-differs	signature-differs	signature-differs
+compiler/booleanFilterAnyArray	4	any:property-lookup-error;gap:call;gap:property-access		gap:call
+compiler/builtinIterator	7	typed-where-native-unknown	typed-where-native-unknown	typed-where-native-unknown
+compiler/callOfConditionalTypeWithConcreteBranches	3	alias-port-kept;signature-differs		alias-port-kept
+compiler/callbacksDontShareTypes	10	any:call-error;any:contextual-parameter;any:function-expression-error;any:variable-initialiser-error		any:contextual-parameter
+compiler/callsOnComplexSignatures	7	alias-name-port-reassigned;import-qualifier-extra;literal-widened		alias-name-port-reassigned
+compiler/cannotIndexGenericWritingError	1	union-order	union-order	union-order
+compiler/capturedParametersInInitializers1	3	object-members-differ;signature-differs		object-members-differ
+compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations	3	alias-name-native-reassigned;signature-differs		alias-name-native-reassigned
+compiler/castOfYield	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2	16	type-param-rename	type-param-rename	type-param-rename
+compiler/chainedImportAlias	7	any:alias-target;any:property-lookup-error;gap:call;gap:property-access		any:property-lookup-error
+compiler/checkJsdocTypeTagOnExportAssignment1	2	js:any:alias-target	js:any:alias-target	js:any:alias-target
+compiler/checkJsdocTypeTagOnExportAssignment2	2	js:any:alias-target	js:any:alias-target	js:any:alias-target
+compiler/checkJsdocTypeTagOnExportAssignment5	2	js:any:alias-target;js:gap:identifier		js:any:alias-target
+compiler/checkJsdocTypeTagOnExportAssignment6	2	js:any:alias-target	js:any:alias-target	js:any:alias-target
+compiler/checkJsdocTypeTagOnExportAssignment8	2	js:literal-widened	js:literal-widened	js:literal-widened
+compiler/checkMergedGlobalUMDSymbol	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/checkerInitializationCrash	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/checkingObjectWithThisInNamePositionNoCrash	1	this-type	this-type	this-type
+compiler/circularAccessorAnnotations	4	any:type-reference-error;object-members-differ		any:type-reference-error
+compiler/circularContextualReturnType	4	union-order	union-order	union-order
+compiler/circularInlineMappedGenericTupleTypeNoCrash	1	any:other	any:other	any:other
+compiler/circularInstantiationExpression	4	gap:call;gap:identifier		gap:identifier
+compiler/circularObjectLiteralAccessors(target=es2015)	3	object-members-differ	object-members-differ	object-members-differ
+compiler/circularReferenceInReturnType	3	any:variable-initialiser-error;partial-any		any:variable-initialiser-error
+compiler/circularReferenceInReturnType2	4	any:call-error;any:literal-expression-error;any:other		any:literal-expression-error
+compiler/circularTypeArgumentsLocalAndOuterNoCrash1	1	conditional-type-unresolved	conditional-type-unresolved	conditional-type-unresolved
+compiler/circularlyReferentialInterfaceAccessNoCrash	3	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/circularlySimplifyingConditionalTypesNoCrash	2	signature-differs;unknown-where-native-typed		signature-differs
+compiler/classAccessorInitializationInferenceWithElementAccess1	8	any:other;any:unannotated-declaration		any:unannotated-declaration
+compiler/classFieldSuperAccessible	6	any:call-error;any:property-lookup-error;gap:property-access		gap:property-access
+compiler/classFieldSuperAccessibleJs1	6	js:any:call-error;js:any:property-lookup-error		js:any:property-lookup-error
+compiler/classMemberInitializerScoping2(target=es2017,usedefineforclassfields=true)	2	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/classPropInitializationInferenceWithElementAccess	8	any:other;any:unannotated-declaration		any:unannotated-declaration
+compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression	1	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/coAndContraVariantInferences3	10	alias-port-kept;gap:function-expression;gap:identifier;gap:object-literal;mapped-type-resolved-where-native-deferred;signature-differs		gap:identifier
+compiler/coAndContraVariantInferences6	2	literal-widened	literal-widened	literal-widened
+compiler/collisionArgumentsInType(alwaysstrict=true)	2	signature-differs	signature-differs	signature-differs
+compiler/collisionRestParameterInType	1	signature-differs	signature-differs	signature-differs
+compiler/commentsOnObjectLiteral2	3	any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/commentsOnObjectLiteral3(target=es2015)	11	any:configured:identifier;any:configured:other-expression;any:configured:property-access;partial-any		any:configured:identifier
+compiler/commonJsImportClassExpression	1	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/complexRecursiveCollections	11	any:function-declaration-error;qualified-name-choice;union-members-differ;union-order		any:function-declaration-error
+compiler/complicatedGenericRecursiveBaseClassReference	2	any:call-error;any:other		any:other
+compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound	7	any:property-lookup-error;conditional-type-unresolved;type-argument-differs		type-argument-differs
+compiler/complicatedIndexesOfIntersectionsAreInferencable	8	any:contextual-parameter;gap:function-expression;gap:identifier;gap:object-literal;union-order		any:contextual-parameter
+compiler/computedPropertiesInDestructuring1	15	any:function-declaration-error;any:literal-expression-error		any:literal-expression-error
+compiler/computedPropertiesInDestructuring1_ES6	15	any:function-declaration-error;any:literal-expression-error		any:literal-expression-error
+compiler/computedPropertiesWithSetterAssignment	1	different-name	different-name	different-name
+compiler/computedPropertyBindingElementDeclarationNoCrash1	7	any:binding-element;any:call-error;any:literal-expression-error		any:binding-element
+compiler/computedPropertyNameWithImportedKey	1	gap:identifier	gap:identifier	gap:identifier
+compiler/computedTypesKeyofNoIndexSignatureType	4	alias-port-kept;mapped-type-resolved-where-native-deferred;never-where-native-typed;type-argument-differs		mapped-type-resolved-where-native-deferred
+compiler/computerPropertiesInES5ShouldBeTransformed(target=es2015)	2	gap:function-expression;gap:identifier		gap:identifier
+compiler/concatTuples	3	other;tuple-vs-array		tuple-vs-array
+compiler/conditionalEqualityTestingNullability	1	gap:identifier	gap:identifier	gap:identifier
+compiler/conditionalTypeAssignabilityWhenDeferred	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/conditionalTypeBasedContextualTypeReturnTypeWidening	28	gap:call;gap:identifier;literal-widened		gap:identifier
+compiler/conditionalTypeContextualTypeSimplificationsSuceeds	8	any:contextual-parameter;gap:function-expression;gap:identifier;gap:object-literal		gap:object-literal
+compiler/conditionalTypeGenericInSignatureTypeParameterConstraint	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/conflictMarkerTrivia3	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/conflictingDeclarationsImportFromNamespace1	8	any:alias-target;import-qualifier-missing;qualified-name-choice		any:alias-target
+compiler/conflictingDeclarationsImportFromNamespace2	8	any:alias-target;import-qualifier-missing;qualified-name-choice		any:alias-target
+compiler/constEnumNoEmitReexport	11	import-qualifier-extra;import-qualifier-missing		import-qualifier-extra
+compiler/constEnumNoPreserveDeclarationReexport	2	import-specifier-differs	import-specifier-differs	import-specifier-differs
+compiler/constEnumPreserveEmitReexport	2	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/constEnums	3	alias-port-kept;different-name		different-name
+compiler/constraintWithIndexedAccess	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/contextualOuterTypeParameters	14	gap:identifier;other;signature-differs;signature-type-params-dropped		gap:identifier
+compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny	5	any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/contextualParamTypeVsNestedReturnTypeInference2	12	any:contextual-parameter;gap:call;gap:function-expression;gap:identifier;gap:object-literal;partial-any		gap:call
+compiler/contextualParamTypeVsNestedReturnTypeInference3	12	any:contextual-parameter;gap:call;gap:function-expression;gap:identifier;gap:object-literal;partial-any		gap:call
+compiler/contextualParamTypeVsNestedReturnTypeInference4	12	any:contextual-parameter;gap:call;gap:function-expression;gap:identifier;gap:object-literal;partial-any		gap:call
+compiler/contextualPropertyOfGenericFilteringMappedType	3	any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/contextualSignatureConditionalTypeInstantiationUsingDefault	5	any:contextual-parameter;gap:function-expression		any:contextual-parameter
+compiler/contextualSignatureInObjectFreeze	2	union-order	union-order	union-order
+compiler/contextualSignatureInstantiation2	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3	2	literal-widened	literal-widened	literal-widened
+compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix5	2	different-name;partial-any		different-name
+compiler/contextualTypeCaching	6	any:contextual-parameter;gap:array-literal;gap:function-expression;gap:identifier;gap:object-literal;partial-any		partial-any
+compiler/contextualTypeFunctionObjectPropertyIntersection	43	alias-port-kept;any:contextual-parameter;any:function-expression-error;any:literal-expression-error;literal-widened;partial-any;signature-differs;undefined-optionality;union-members-differ		any:literal-expression-error
+compiler/contextualTypeIterableUnions	3	literal-widened	literal-widened	literal-widened
+compiler/contextualTypeSelfReferencing	5	literal-widened;tuple-vs-array		tuple-vs-array
+compiler/contextualTypeShouldBeLiteral	2	literal-mixed;literal-widened		literal-mixed
+compiler/contextualTypingOfTooShortOverloads	2	gap:call;gap:function-expression		gap:call
+compiler/contextualTypingWithGenericAndNonGenericSignature	4	any:binary-operand;any:function-expression-error		any:binary-operand
+compiler/contextualTypingWithGenericSignature	2	gap:function-expression;gap:other-expression		gap:other-expression
+compiler/contextuallyTypeGeneratorReturnTypeFromUnion	2	gap:function-expression	gap:function-expression	gap:function-expression
+compiler/contextuallyTypedByDiscriminableUnion	5	any:contextual-parameter;literal-widened;partial-any		partial-any
+compiler/contextuallyTypedByDiscriminableUnion2	6	alias-port-kept;any:contextual-parameter;partial-any		partial-any
+compiler/contextuallyTypedGenericAssignment	1	signature-type-params-dropped	signature-type-params-dropped	signature-type-params-dropped
+compiler/contextuallyTypedJsxAttribute2	11	any:contextual-parameter;gap:function-expression;gap:identifier;import-qualifier-extra;literal-widened		gap:identifier
+compiler/contextuallyTypedJsxChildren	10	gap:function-expression;gap:identifier;import-qualifier-extra		gap:identifier
+compiler/contextuallyTypedJsxChildren2	17	any:contextual-parameter;gap:property-access;noinfer-not-substituted;partial-any		partial-any
+compiler/contextuallyTypedOptionalProperty(exactoptionalpropertytypes=true)	6	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/contextuallyTypedParametersWithInitializers1	27	any:binding-element;any:call-error;any:function-declaration-error;any:function-expression-error;any:variable-initialiser-error;type-param-constraint		any:call-error
+compiler/contextuallyTypedSymbolNamedProperties	20	any:contextual-parameter;gap:array-literal;gap:function-expression;gap:object-literal		any:contextual-parameter
+compiler/contravariantOnlyInferenceFromAnnotatedFunction	2	gap:call;gap:identifier		gap:identifier
+compiler/contravariantOnlyInferenceFromAnnotatedFunctionJs	4	js:gap:call;js:gap:identifier;js:typed-where-native-unknown		js:typed-where-native-unknown
+compiler/contravariantOnlyInferenceWithAnnotatedOptionalParameter	4	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/controlFlowArrayErrors	2	any:any-initialiser-propagated;any:unannotated-declaration		any:any-initialiser-propagated
+compiler/controlFlowForFunctionLike1	8	signature-differs;union-members-differ		union-members-differ
+compiler/controlFlowFunctionLikeCircular1	16	any:call-error;any:type-reference-error;signature-differs;typed-where-native-unknown;union-members-differ		typed-where-native-unknown
+compiler/controlFlowInstanceof	1	js:any:variable-initialiser-error	js:any:variable-initialiser-error	js:any:variable-initialiser-error
+compiler/controlFlowInstanceofWithSymbolHasInstance	1	gap:array-literal	gap:array-literal	gap:array-literal
+compiler/controlFlowNoImplicitAny	4	any:variable-initialiser-error	any:variable-initialiser-error	any:variable-initialiser-error
+compiler/controlFlowPrivateClassField	9	any:other;any:unannotated-declaration		any:other
+compiler/controlFlowWithIncompleteTypes	7	alias-native-kept;any:property-lookup-error;gap:call;gap:property-access;union-extra-members		union-extra-members
+compiler/correctOrderOfPromiseMethod	5	different-name;tuple-vs-array;type-argument-differs		different-name
+compiler/correlatedUnions	28	alias-port-kept;gap:array-literal;gap:call;gap:function-expression;gap:identifier;gap:property-access;literal-widened;other;signature-differs;type-param-constraint;union-members-differ		type-param-constraint
+compiler/couldNotSelectGenericOverload	2	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/crashDeclareGlobalTypeofExport	3	module-object-default-shape	module-object-default-shape	module-object-default-shape
+compiler/crashInYieldStarInAsyncFunction	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+compiler/cyclicGenericTypeInstantiation	27	object-members-differ;signature-differs		object-members-differ
+compiler/cyclicGenericTypeInstantiationInference	27	object-members-differ;signature-differs		object-members-differ
+compiler/cyclicTypeInstantiation	19	object-members-differ;signature-differs		object-members-differ
+compiler/declFileForExportedImport	5	any:alias-target;any:other;any:property-lookup-error;gap:identifier;gap:property-access		any:property-lookup-error
+compiler/declFileRestParametersOfFunctionAndFunctionType	2	type-param-constraint	type-param-constraint	type-param-constraint
+compiler/declFileTypeAnnotationTupleType(target=es2015)	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/declInput	1	signature-differs	signature-differs	signature-differs
+compiler/declInput3	1	signature-differs	signature-differs	signature-differs
+compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1	2	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/declarationEmitAliasFromIndirectFile	3	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/declarationEmitAliasInlineing	3	signature-differs	signature-differs	signature-differs
+compiler/declarationEmitBindingPatternWithReservedWord	3	binding-pattern-print;never-where-native-typed		binding-pattern-print
+compiler/declarationEmitBindingPatternsUnused	3	object-members-differ;signature-differs		object-members-differ
+compiler/declarationEmitClassMixinLocalClassDeclaration	2	alias-name-native-reassigned;gap:call		gap:call
+compiler/declarationEmitClassSetAccessorParamNameInJs3	1	js:gap:identifier	js:gap:identifier	js:gap:identifier
+compiler/declarationEmitCommonJsModuleReferencedType	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitComputedNameCausesImportToBePainted	4	gap:function-expression;gap:identifier		gap:identifier
+compiler/declarationEmitComputedPropertyName1	2	object-members-differ	object-members-differ	object-members-differ
+compiler/declarationEmitComputedPropertyNameEnum1	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/declarationEmitComputedPropertyNameEnum2	2	object-members-differ	object-members-differ	object-members-differ
+compiler/declarationEmitComputedPropertyNameEnum3	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/declarationEmitComputedPropertyNameSymbol1	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/declarationEmitComputedPropertyNameSymbol2	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/declarationEmitDestructuring2	4	object-members-differ;signature-differs;tuple-vs-array		tuple-vs-array
+compiler/declarationEmitDestructuring5	5	gap:identifier	gap:identifier	gap:identifier
+compiler/declarationEmitDestructuringArrayPattern2	4	literal-widened	literal-widened	literal-widened
+compiler/declarationEmitEnumReferenceViaImportEquals	7	any:alias-target;any:property-lookup-error;gap:identifier;gap:property-access;qualified-name-choice		any:alias-target
+compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=false)	4	alias-name-native-reassigned;other;signature-differs		signature-differs
+compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=true)	4	alias-name-native-reassigned;other;signature-differs		signature-differs
+compiler/declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference	6	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitExpressionInExtends	2	any:property-lookup-error	any:property-lookup-error	any:property-lookup-error
+compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol	3	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/declarationEmitForGlobalishSpecifierSymlink	5	gap:identifier;import-specifier-differs		import-specifier-differs
+compiler/declarationEmitForGlobalishSpecifierSymlink2	5	gap:identifier;import-qualifier-missing		import-qualifier-missing
+compiler/declarationEmitForTypesWhichNeedImportTypes	2	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitGenericTypeParamerSerialization2	12	alias-port-kept;mapped-type-resolved-where-native-deferred;signature-differs		alias-port-kept
+compiler/declarationEmitGenericTypeParamerSerialization3	4	any:call-error;gap:class-expression;signature-differs		signature-differs
+compiler/declarationEmitHigherOrderRetainedGenerics	1	type-param-rename	type-param-rename	type-param-rename
+compiler/declarationEmitInferredTypeAlias4	5	alias-port-kept;union-members-differ		alias-port-kept
+compiler/declarationEmitInlinedDistributiveConditional	12	conditional-type-resolved-where-native-deferred;import-qualifier-missing;signature-differs		signature-differs
+compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile	14	any:property-lookup-error;any:type-reference-error;any:variable-initialiser-error;import-qualifier-missing;type-argument-differs		import-qualifier-missing
+compiler/declarationEmitLateBoundAssignments	18	gap:property-access;object-members-differ		object-members-differ
+compiler/declarationEmitLateBoundAssignments2	35	gap:property-access;other;string-escape-printing		other
+compiler/declarationEmitLateBoundJSAssignments	18	js:gap:property-access;js:object-members-differ		js:object-members-differ
+compiler/declarationEmitLocalClassDeclarationMixin	9	alias-port-kept;signature-differs		alias-port-kept
+compiler/declarationEmitMappedTypeDistributivityPreservesConstraints	4	mapped-type-resolved-where-native-deferred;unknown-where-native-typed		mapped-type-resolved-where-native-deferred
+compiler/declarationEmitMappedTypePreservesTypeParameterConstraint	7	gap:call;mapped-type-resolved-where-native-deferred		mapped-type-resolved-where-native-deferred
+compiler/declarationEmitMappedTypePropertyFromNumericStringKey	4	union-order	union-order	union-order
+compiler/declarationEmitMappedTypeTemplateTypeofSymbol	6	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/declarationEmitNestedAnonymousMappedType	4	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred
+compiler/declarationEmitNestedGenerics	5	gap:identifier;partial-any;type-param-rename		gap:identifier
+compiler/declarationEmitNoInvalidCommentReuse1	5	any:alias-target;gap:identifier		gap:identifier
+compiler/declarationEmitNoInvalidCommentReuse2	5	any:alias-target;gap:identifier		gap:identifier
+compiler/declarationEmitNoInvalidCommentReuse3	4	object-members-differ	object-members-differ	object-members-differ
+compiler/declarationEmitObjectAssignedDefaultExport	7	import-qualifier-extra;import-qualifier-missing		import-qualifier-extra
+compiler/declarationEmitObjectLiteralAccessorsJs1	2	js:object-members-differ	js:object-members-differ	js:object-members-differ
+compiler/declarationEmitOptionalMappedTypePropertyNoStrictNullChecks1	7	mapped-type-resolved-where-native-deferred;signature-differs		signature-differs
+compiler/declarationEmitOptionalMappedTypePropertyNoStrictNullChecks2	7	mapped-type-resolved-where-native-deferred;signature-differs		signature-differs
+compiler/declarationEmitOptionalMappedTypePropertyNoStrictNullChecks3	7	mapped-type-resolved-where-native-deferred;signature-differs		signature-differs
+compiler/declarationEmitOverloadedPrivateInference	4	gap:call;gap:identifier;gap:object-literal		gap:identifier
+compiler/declarationEmitPartialNodeReuseTypeOf	9	object-members-differ;signature-differs		signature-differs
+compiler/declarationEmitPartialNodeReuseTypeReferences	6	signature-differs	signature-differs	signature-differs
+compiler/declarationEmitPartialReuseComputedProperty	2	signature-differs	signature-differs	signature-differs
+compiler/declarationEmitQualifiedAliasTypeArgument	6	alias-name-native-reassigned;import-qualifier-extra		import-qualifier-extra
+compiler/declarationEmitReadonlyComputedProperty	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitReexportedSymlinkReference	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitReexportedSymlinkReference2	5	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitReexportedSymlinkReference3	5	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitReusesLambdaParameterNodes	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/declarationEmitScopeConsistency	3	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitScopeConsistency3	4	signature-differs	signature-differs	signature-differs
+compiler/declarationEmitShadowing	3	type-param-rename	type-param-rename	type-param-rename
+compiler/declarationEmitShadowingInferNotRenamed	2	gap:identifier;signature-differs		gap:identifier
+compiler/declarationEmitStringEnumUsedInNonlocalSpread	3	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitSymlinkPaths(target=es2015)	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/declarationEmitTopLevelNodeFromCrossFile2	5	any:alias-target;gap:identifier		gap:identifier
+compiler/declarationEmitTransitiveImportOfHtmlDeclarationItem	4	import-specifier-differs	import-specifier-differs	import-specifier-differs
+compiler/declarationEmitTypeParameterNameInOuterScope	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/declarationEmitTypeParameterNameShadowedInternally	5	type-param-rename	type-param-rename	type-param-rename
+compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)	3	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/declarationEmitUsingTypeAlias1	10	any:property-lookup-error;import-specifier-differs;partial-any		import-specifier-differs
+compiler/declarationEmitWithDefaultAsComputedName(target=es2015)	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/declarationEmitWithInvalidPackageJsonTypings	5	any:call-error;any:variable-initialiser-error;partial-any		any:variable-initialiser-error
+compiler/declarationImportTypeAliasInferredAndEmittable	8	any:property-lookup-error;any:variable-initialiser-error;gap:identifier;gap:other-expression;gap:property-access		gap:identifier
+compiler/declarationQuotedMembers	3	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/declarationsForFileShadowingGlobalNoError	3	gap:class-expression;partial-any		partial-any
+compiler/declarationsForIndirectTypeAliasReference	8	any:alias-target;gap:identifier		gap:identifier
+compiler/declarationsIndirectGeneratedAliasReference	4	gap:call;gap:identifier;import-qualifier-missing		import-qualifier-missing
+compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams	56	any:any-initialiser-propagated;any:any-receiver-propagated;any:call-error;signature-differs		signature-differs
+compiler/decoratorMetadataTypeOnlyExport	1	gap:identifier	gap:identifier	gap:identifier
+compiler/decoratorMetadataTypeOnlyImport	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/decoratorMetadataWithImportDeclarationNameCollision2(target=es2015)	11	any:configured:identifier;any:configured:property-access;gap:call;gap:identifier;gap:other-expression;gap:property-access		any:configured:identifier
+compiler/decoratorMetadataWithImportDeclarationNameCollision6(target=es2015)	11	any:configured:identifier;any:configured:property-access;gap:call;gap:identifier;gap:other-expression;gap:property-access		any:configured:identifier
+compiler/decoratorReferences	3	any:uncontextual-parameter;different-name		any:uncontextual-parameter
+compiler/deeplyNestedConstraints	4	alias-name-native-reassigned;any:property-lookup-error;gap:property-access;union-extra-members		alias-name-native-reassigned
+compiler/deeplyNestedMappedTypes	18	alias-name-native-reassigned;different-name;mapped-type-resolved-where-native-deferred;mapped-type-unresolved;unknown-where-native-typed		unknown-where-native-typed
+compiler/defaultArgsInFunctionExpressions	2	any:function-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/defaultDeclarationEmitDefaultImport	4	different-name;signature-differs		signature-differs
+compiler/defaultDeclarationEmitNamedCorrectly	3	any:call-error;any:function-declaration-error;any:variable-initialiser-error		any:function-declaration-error
+compiler/defaultParameterAddsUndefinedWithStrictNullChecks	7	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/deferredConditionalTypes	4	alias-port-kept;literal-mixed		alias-port-kept
+compiler/deferredConditionalTypes2	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/deferredLookupTypeResolution	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/deferredLookupTypeResolution2	3	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/destructuredLateBoundNameHasCorrectTypes	2	any:binding-element	any:binding-element	any:binding-element
+compiler/destructuringAssignmentWithDefault	14	any:property-lookup-error;gap:identifier;gap:object-literal;gap:other-expression		gap:identifier
+compiler/destructuringAssignmentWithDefault2	3	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/destructuringTypeGuardFlow	8	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/destructuringWithConstraint	2	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/discriminantPropertyCheck	4	alias-name-native-reassigned;alias-port-kept		alias-name-native-reassigned
+compiler/discriminantPropertyInference	16	any:call-error;any:contextual-parameter;partial-any		any:contextual-parameter
+compiler/discriminantUsingEvaluatableTemplateExpression	5	any:contextual-parameter;partial-any		partial-any
+compiler/discriminateWithDivergentAccessors1	2	object-members-differ;union-members-differ		object-members-differ
+compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=false)	11	any:configured:identifier;object-members-differ;optional-param-undefined-not-printed;signature-differs;undefined-optionality		undefined-optionality
+compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=true)	11	any:configured:identifier;object-members-differ;optional-param-undefined-not-printed;signature-differs;undefined-optionality		undefined-optionality
+compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=false)	5	alias-port-kept;array-sugar;undefined-optionality		undefined-optionality
+compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=true)	5	alias-port-kept;array-sugar;undefined-optionality		undefined-optionality
+compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)	3	undefined-optionality;union-missing-members		undefined-optionality
+compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=true)	8	object-members-differ;union-members-differ		union-members-differ
+compiler/discriminatedUnionJsxElement	4	gap:identifier;gap:other-expression		gap:identifier
+compiler/dissallowSymbolAsWeakType	12	any:call-error;any:property-lookup-error;any:variable-initialiser-error;literal-widened		any:property-lookup-error
+compiler/distributiveConditionalTypeConstraints	3	alias-port-kept;parenthesization		parenthesization
+compiler/divergentAccessors1	4	object-members-differ	object-members-differ	object-members-differ
+compiler/divergentAccessorsTypes3(target=es2015)	20	alias-port-kept;union-missing-members		alias-port-kept
+compiler/divergentAccessorsTypes8	10	alias-port-kept;union-missing-members		alias-port-kept
+compiler/divideAndConquerIntersections	5	type-argument-differs;type-param-constraint		type-argument-differs
+compiler/doYouNeedToChangeYourTargetLibraryES2015	10	gap:call;gap:identifier;never-where-native-typed		never-where-native-typed
+compiler/doYouNeedToChangeYourTargetLibraryES2016Plus	1	any:call-error	any:call-error	any:call-error
+compiler/doYouNeedToChangeYourTargetLibraryES2023(target=esnext)	2	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/downlevelLetConst16(target=es2015)	4	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)	3	any:configured:function-expression;any:configured:identifier		any:configured:identifier
+compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)	3	any:configured:function-expression;any:configured:identifier		any:configured:identifier
+compiler/duplicateObjectLiteralProperty(target=es2015)	2	readonly-modifier	readonly-modifier	readonly-modifier
+compiler/duplicateOverloadInTypeAugmentation1	2	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/duplicatePackage	7	alias-port-kept;signature-differs		alias-port-kept
+compiler/duplicateTypeParameters1	1	duplicate-type-parameters	duplicate-type-parameters	duplicate-type-parameters
+compiler/dynamicImportsDeclaration	10	gap:call;gap:function-expression;gap:identifier;import-specifier-differs;unaligned-lines		import-specifier-differs
+compiler/dynamicNames	10	object-members-differ;qualified-name-choice		object-members-differ
+compiler/dynamicNamesErrors	1	different-name	different-name	different-name
+compiler/emitClassMergedWithConstNamespaceNotElided	5	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/emitDecoratorMetadata_isolatedModules(module=commonjs)	3	gap:identifier;qualified-name-choice		gap:identifier
+compiler/emitDecoratorMetadata_isolatedModules(module=esnext)	3	any:configured:identifier;qualified-name-choice		any:configured:identifier
+compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject1	9	any:call-error;any:contextual-parameter;any:function-expression-error;any:variable-initialiser-error;partial-any		any:contextual-parameter
+compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject2	16	any:call-error;any:contextual-parameter;any:function-expression-error;any:variable-initialiser-error;partial-any		any:contextual-parameter
+compiler/emptyTypeArgumentList	2	different-name;unaligned-lines		different-name
+compiler/emptyTypeArgumentListWithNew	2	typed-where-native-unknown;unaligned-lines		typed-where-native-unknown
+compiler/ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge	26	js:any:other;js:gap:property-access;js:object-members-differ		js:object-members-differ
+compiler/enumAssignmentCompat4	2	signature-differs	signature-differs	signature-differs
+compiler/enumLiteralAssignableToEnumInsideUnion	1	union-members-differ	union-members-differ	union-members-differ
+compiler/enumWithUnicodeEscape1	1	string-escape-printing	string-escape-printing	string-escape-printing
+compiler/errorElaboration	2	any:function-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/errorForConflictingExportEqualsValue	1	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/errorForUsingPropertyOfTypeAsType03	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/errorsForCallAndAssignmentAreSimilar	6	literal-widened;signature-differs		literal-widened
+compiler/es5-yieldFunctionObjectLiterals(target=es2015)	6	gap:identifier	gap:identifier	gap:identifier
+compiler/es5ExportDefaultClassDeclaration3(target=es2015)	6	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/es5ExportDefaultClassDeclaration4(target=es2015)	2	gap:identifier	gap:identifier	gap:identifier
+compiler/es5ModuleInternalNamedImports(target=es2015)	2	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/es6ExportClauseWithoutModuleSpecifier	5	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)	5	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/es6ExportEqualsInterop	10	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/es6ImportNamedImportInIndirectExportAssignment	2	any:alias-target	any:alias-target	any:alias-target
+compiler/es6ImportNamedImportParsingError	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/es6ModuleInternalNamedImports	2	any:alias-target;any:other		any:other
+compiler/es6ModuleInternalNamedImports2	2	any:alias-target;any:other		any:other
+compiler/esModuleInteropImportCall	8	any:contextual-parameter;gap:property-access;module-object-default-shape;signature-differs;type-argument-differs		signature-differs
+compiler/esModuleInteropImportTSLibHasImport	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/escapedIdentifiers	18	string-escape-printing	string-escape-printing	string-escape-printing
+compiler/eventEmitterPatternWithRecordOfFunction	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/excessPropertyCheckIntersectionWithRecursiveType	4	alias-port-kept;mapped-type-unresolved;type-argument-differs		mapped-type-unresolved
+compiler/excessPropertyCheckWithMultipleDiscriminants	2	literal-mixed;literal-widened		literal-mixed
+compiler/excessPropertyChecksWithNestedIntersections	6	literal-mixed;literal-widened		literal-widened
+compiler/excessiveStackDepthFlatArray	2	different-name	different-name	different-name
+compiler/expandoFunctionContextualTypesJs	15	js:any:other;js:literal-widened		js:literal-widened
+compiler/expandoFunctionContextualTypesNoValue	3	any:alias-target;any:property-lookup-error		any:property-lookup-error
+compiler/expandoFunctionExpressionsWithDynamicNames	8	gap:property-access;other		other
+compiler/expandoFunctionExpressionsWithDynamicNames2	2	other	other	other
+compiler/expandoFunctionSymbolProperty	4	gap:property-access;other		other
+compiler/expandoFunctionSymbolPropertyJs	4	js:gap:property-access;js:other		js:other
+compiler/exportAsNamespace_augment	11	any:binary-operand;any:property-lookup-error;typeof-name-choice		any:binary-operand
+compiler/exportAssignedNamespaceIsVisibleInDeclarationEmit	4	any:alias-target;gap:call;gap:identifier		gap:identifier
+compiler/exportAssignmentImportMergeNoCrash	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/exportDefaultClassAndValue	1	different-name	different-name	different-name
+compiler/exportDefaultInterfaceClassAndValue	1	different-name	different-name	different-name
+compiler/exportDefaultProperty2	4	any:alias-target;gap:identifier;gap:object-literal		gap:identifier
+compiler/exportDefaultQualifiedNameNoError	2	any:alias-target;gap:identifier		any:alias-target
+compiler/exportDefaultTypeClassAndValue	1	different-name	different-name	different-name
+compiler/exportDefaultWithJSDoc1	3	any:alias-target;gap:identifier;gap:property-access		any:alias-target
+compiler/exportDefaultWithJSDoc2	3	any:alias-target;gap:identifier;gap:property-access		any:alias-target
+compiler/exportEqualErrorType	4	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/exportEqualMemberMissing	4	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/exportEqualsOfModule	1	any:alias-target	any:alias-target	any:alias-target
+compiler/exportEqualsProperty2	5	any:alias-target;gap:identifier;gap:object-literal		gap:identifier
+compiler/exportImportNonInstantiatedModule	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/expressionWithJSDocTypeArguments	3	any:other;unaligned-lines		any:other
+compiler/expressionsForbiddenInParameterInitializers	2	any:binding-element;any:function-declaration-error		any:function-declaration-error
+compiler/externalModuleExportingGenericClass	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/externalModuleReferenceDoubleUnderscore1	1	any:alias-target	any:alias-target	any:alias-target
+compiler/extractInferenceImprovement	5	any:binary-operand;any:call-error;any:property-lookup-error		any:binary-operand
+compiler/fallbackToBindingPatternForTypeInference	6	any:binding-element;unknown-where-native-typed		unknown-where-native-typed
+compiler/fatarrowfunctionsOptionalArgs	7	any:function-expression-error;signature-differs		any:function-expression-error
+compiler/fatarrowfunctionsOptionalArgsErrors4	3	any:function-expression-error;signature-differs		any:function-expression-error
+compiler/fileWithNextLine1	1	string-escape-printing	string-escape-printing	string-escape-printing
+compiler/fixCrashAliasLookupForDefauledImport	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/flatArrayNoExcessiveStackDepth	3	any:binding-element;optional-param-undefined-not-printed		optional-param-undefined-not-printed
+compiler/forOfTransformsExpression	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/formatToPartsFractionalSecond	4	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/functionAndInterfaceWithSeparateErrors	2	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+compiler/functionLikeInParameterInitializer(target=es2015)	15	object-members-differ;signature-differs;typed-where-native-any		signature-differs
+compiler/functionTypesLackingReturnTypes	2	any:type-reference-error;signature-differs		signature-differs
+compiler/functionVariableInReturnTypeAnnotation	2	signature-differs;typed-where-native-any		signature-differs
+compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)	4	signature-differs	signature-differs	signature-differs
+compiler/functionsMissingReturnStatementsAndExpressionsStrictNullChecks	6	signature-differs	signature-differs	signature-differs
+compiler/genericArgumentCallSigAssignmentCompat	2	literal-widened	literal-widened	literal-widened
+compiler/genericArrayWithoutTypeAnnotation	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/genericCallAtYieldExpressionInGenericCall1	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+compiler/genericCallInferenceInConditionalTypes1	10	different-name;gap:identifier;signature-differs		signature-differs
+compiler/genericCallOnMemberReturningClosedOverObject	7	any:call-error;any:property-lookup-error;gap:call		gap:call
+compiler/genericCallWithinOwnBodyCastTypeParameterIdentity	2	signature-differs;signature-type-params-dropped		signature-differs
+compiler/genericCallWithoutArgs	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/genericClassesRedeclaration	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/genericCloduleInModule2	5	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/genericCombinators2	11	any:call-error;any:contextual-parameter;any:function-expression-error;any:variable-initialiser-error		any:contextual-parameter
+compiler/genericConstructorFunction1	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/genericDefaults	22	any:any-initialiser-propagated;any:call-error;any:other;never-where-native-typed;qualified-name-choice		any:call-error
+compiler/genericFunctionHasFreshTypeArgs	2	gap:function-expression	gap:function-expression	gap:function-expression
+compiler/genericFunctionInference1	31	any:contextual-parameter;object-members-differ;partial-any;signature-differs;signature-type-params-dropped;union-members-differ;unknown-where-native-typed		signature-differs
+compiler/genericFunctionInference2	15	any:contextual-parameter;any:property-lookup-error;any:variable-initialiser-error;gap:call;gap:function-expression;gap:identifier;gap:object-literal;gap:property-access;signature-differs		gap:identifier
+compiler/genericFunctionsAndConditionalInference	9	partial-any	partial-any	partial-any
+compiler/genericFunctionsNotContextSensitive	5	any:contextual-parameter;gap:function-expression;partial-any		partial-any
+compiler/genericIndexedAccessMethodIntersectionCanBeAccessed	3	gap:identifier	gap:identifier	gap:identifier
+compiler/genericIndexedAccessVarianceComparisonResultCorrect	9	alias-name-native-reassigned;literal-mixed		alias-name-native-reassigned
+compiler/genericInterfacesWithoutTypeArguments	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/genericIsNeverEmptyObject	4	any:call-error;gap:object-literal;partial-any		partial-any
+compiler/genericMemberFunction	1	type-param-rename	type-param-rename	type-param-rename
+compiler/genericObjectSpreadResultInSwitch	1	different-name	different-name	different-name
+compiler/genericRestTypes	4	alias-name-native-reassigned;any:function-expression-error		any:function-expression-error
+compiler/genericTypeArgumentInference1	2	literal-widened	literal-widened	literal-widened
+compiler/genericTypeAssertions3	2	gap:function-expression	gap:function-expression	gap:function-expression
+compiler/genericTypeReferencesRequireTypeArgs	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/genericUnboundedTypeParamAssignability	3	any:call-error;any:other		any:other
+compiler/genericsWithDuplicateTypeParameters1	14	duplicate-type-parameters	duplicate-type-parameters	duplicate-type-parameters
+compiler/genericsWithoutTypeParameters1	4	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/globalThisDeclarationEmit3	7	any:alias-target;gap:identifier		any:alias-target
+compiler/homomorphicMappedTypeWithNonHomomorphicInstantiationSpreadable1	7	literal-widened	literal-widened	literal-widened
+compiler/hugeDeclarationOutputGetsTruncatedWithError	4	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/identityRelationNeverTypes	2	gap:identifier	gap:identifier	gap:identifier
+compiler/implicitAnyGenericTypeInference	4	gap:function-expression;gap:identifier;gap:object-literal;gap:other-expression		gap:other-expression
+compiler/implicitIndexSignatures	2	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/importAliasAnExternalModuleInsideAnInternalModule	8	any:alias-target;any:other;any:property-lookup-error;gap:call;gap:property-access;typeof-name-choice		any:property-lookup-error
+compiler/importDeclFromTypeNodeInJsSource	11	js:any:alias-target;js:any:property-lookup-error;js:gap:identifier;js:gap:property-access;other		js:any:alias-target
+compiler/importDeclWithClassModifiers	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/importDeclWithDeclareModifier	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/importExportInternalComments	1	array-sugar	array-sugar	array-sugar
+compiler/importHelpers(target=es2015)	4	gap:identifier;gap:other-expression		gap:identifier
+compiler/importHelpersES6	1	signature-differs	signature-differs	signature-differs
+compiler/importShouldNotBeElidedInDeclarationEmit	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/importTypeGenericArrowTypeParenthesized	1	signature-type-params-dropped	signature-type-params-dropped	signature-type-params-dropped
+compiler/importTypeResolutionJSDocEOF	1	js:import-qualifier-missing	js:import-qualifier-missing	js:import-qualifier-missing
+compiler/importTypeTypeofClassStaticLookup	1	gap:identifier	gap:identifier	gap:identifier
+compiler/importUsedInGenericImportResolves	1	gap:identifier	gap:identifier	gap:identifier
+compiler/importedAliasedConditionalTypeInstantiation	2	gap:identifier	gap:identifier	gap:identifier
+compiler/importedEnumMemberMergedWithExportedAliasIsError	1	any:alias-target	any:alias-target	any:alias-target
+compiler/inKeywordAndIntersection	4	alias-native-kept;any:property-lookup-error;gap:call;gap:property-access		gap:call
+compiler/inKeywordAndUnknown	6	typed-where-native-unknown	typed-where-native-unknown	typed-where-native-unknown
+compiler/inKeywordNarrowingWithNoUncheckedIndexedAccess	11	alias-port-kept;different-name;gap:call;undefined-optionality		undefined-optionality
+compiler/inKeywordTypeguard(strict=false)	26	any:configured:property-access;other;signature-differs;type-param-constraint;undefined-optionality;unknown-where-native-typed		other
+compiler/inKeywordTypeguard(strict=true)	18	any:configured:property-access;other;union-members-differ;unknown-where-native-typed		other
+compiler/incorrectRecursiveMappedTypeConstraint	1	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/indexSignatureOfTypeUnknownStillRequiresIndexSignature	1	any:call-error	any:call-error	any:call-error
+compiler/indexedAccessAndNullableNarrowing	3	alias-port-kept;partial-any		partial-any
+compiler/indexedAccessKeyofNestedSimplifiedSubstituteUnwrapped	1	different-name	different-name	different-name
+compiler/indexedAccessRetainsIndexSignature	2	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/indexingTypesWithNever	12	alias-name-native-reassigned;alias-port-kept		alias-name-native-reassigned
+compiler/inferConditionalConstraintMappedMember	1	gap:identifier	gap:identifier	gap:identifier
+compiler/inferFromGenericFunctionReturnTypes1	3	any:function-expression-error	any:function-expression-error	any:function-expression-error
+compiler/inferFromGenericFunctionReturnTypes2	16	any:function-expression-error;any:property-lookup-error;partial-any;unknown-where-native-typed		unknown-where-native-typed
+compiler/inferFromGenericFunctionReturnTypes3	12	literal-widened;other;signature-differs;tuple-vs-array;type-argument-differs		signature-differs
+compiler/inferTupleFromBindingPattern	1	literal-widened	literal-widened	literal-widened
+compiler/inferTypePredicates	6	alias-native-kept;signature-differs		signature-differs
+compiler/inferenceAndSelfReferentialConstraint	6	literal-widened	literal-widened	literal-widened
+compiler/inferenceContextualReturnTypeUnion2	6	alias-port-kept;signature-differs		signature-differs
+compiler/inferenceContextualReturnTypeUnion3	2	type-param-rename	type-param-rename	type-param-rename
+compiler/inferenceDoesNotAddUndefinedOrNull	4	alias-native-kept;signature-differs		alias-native-kept
+compiler/inferenceOuterResultNotIncorrectlyInstantiatedWithInnerResult	1	any:call-error	any:call-error	any:call-error
+compiler/inferenceShouldFailOnEvolvingArrays	7	any:binary-operand;any:call-error		any:call-error
+compiler/inferenceUnionOfObjectsMappedContextualType	11	any:call-error;any:contextual-parameter;gap:identifier;literal-widened;partial-any;signature-differs		any:contextual-parameter
+compiler/inferentialTypingWithFunctionTypeNested	3	signature-differs;unknown-where-native-typed		unknown-where-native-typed
+compiler/inferredRestTypeFixedOnce	2	gap:identifier;unknown-where-native-typed		unknown-where-native-typed
+compiler/inferredReturnTypeIncorrectReuse1	4	type-param-rename	type-param-rename	type-param-rename
+compiler/inferrenceInfiniteLoopWithSubtyping	4	different-name;import-specifier-differs		different-name
+compiler/initializedDestructuringAssignmentTypes	2	any:binding-element	any:binding-element	any:binding-element
+compiler/inlineMappedTypeModifierDeclarationEmit	14	alias-port-kept;mapped-type-resolved-where-native-deferred		mapped-type-resolved-where-native-deferred
+compiler/inlinedAliasAssignableToConstraintSameAsAlias	1	type-param-constraint	type-param-constraint	type-param-constraint
+compiler/innerTypeArgumentInference	2	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/instanceofNarrowReadonlyArray	3	alias-native-kept;partial-any		alias-native-kept
+compiler/instanceofOnInstantiationExpression	12	any:other;any:type-reference-error		any:other
+compiler/instanceofWithStructurallyIdenticalTypes	2	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/instantiateContextualTypes	14	any:contextual-parameter;conditional-type-resolved-where-native-deferred;gap:call;gap:identifier;partial-any;rest-tuple-params-not-expanded;typed-where-native-unknown		typed-where-native-unknown
+compiler/instantiationExpressionErrorNoCrash	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/intTypeCheck	2	any:call-error;unaligned-lines		any:call-error
+compiler/interfaceAssignmentCompat	4	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/interfaceClassMerging	1	any:call-error	any:call-error	any:call-error
+compiler/intersectionConstraintReduction	3	alias-port-kept;unaligned-lines		alias-port-kept
+compiler/intersectionSatisfiesConstraint	1	signature-differs	signature-differs	signature-differs
+compiler/intersectionsAndOptionalProperties	1	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)	6	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)	6	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/intersectionsOfLargeUnions	1	type-param-rename	type-param-rename	type-param-rename
+compiler/intersectionsOfLargeUnions2	1	type-param-rename	type-param-rename	type-param-rename
+compiler/intraBindingPatternReferences	8	any:binary-operand;any:contextual-parameter;partial-any;signature-differs		partial-any
+compiler/invariantGenericErrorElaboration	2	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/ipromise2	7	any:call-error;any:property-lookup-error;any:variable-initialiser-error;optional-param-undefined-not-printed		any:variable-initialiser-error
+compiler/ipromise3	2	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/ipromise4	12	any:call-error;any:contextual-parameter;any:property-lookup-error;optional-param-undefined-not-printed;partial-any		optional-param-undefined-not-printed
+compiler/isolatedDeclarationErrorTypes1	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/isolatedDeclarationErrorsEnums	2	enum-member-vs-enum	enum-member-vs-enum	enum-member-vs-enum
+compiler/isolatedDeclarationErrorsExpressions	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+compiler/isolatedDeclarationsAddUndefined	6	any:function-declaration-error;any:function-expression-error;any:variable-initialiser-error		any:function-declaration-error
+compiler/isolatedModulesReExportType	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/isolatedModules_resolveJsonModule	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/isolatedModules_resolveJsonModule_strict_outDir_commonJs	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/iterableWithNeverAsUnionMember(target=esnext)	15	any:configured:call;any:configured:identifier;any:configured:property-access;partial-any		any:configured:identifier
+compiler/javascriptThisAssignmentInStaticBlock	15	js:any:call-error;js:any:property-lookup-error;js:gap:call;js:gap:identifier;js:gap:property-access;js:signature-differs		js:signature-differs
+compiler/jsDeclarationEmitDoesNotRenameImport	6	js:any:uncontextual-parameter;js:gap:call;js:gap:new;js:gap:property-access		js:gap:property-access
+compiler/jsDeclarationsInheritedTypes	3	js:any:unannotated-declaration	js:any:unannotated-declaration	js:any:unannotated-declaration
+compiler/jsDeclarationsWithDefaultAsNamespaceLikeMerge	10	js:import-specifier-differs;js:literal-widened;js:object-members-differ		js:import-specifier-differs
+compiler/jsFileImportPreservedWhenUsed	5	js:gap:call;js:gap:function-expression;js:signature-differs		js:gap:call
+compiler/jsFileMethodOverloads	7	js:any:call-error;js:any:uncontextual-parameter;js:partial-any;js:signature-differs;js:this-type		js:any:uncontextual-parameter
+compiler/jsFileMethodOverloads3	9	js:any:uncontextual-parameter;js:typed-where-native-any;js:union-members-differ		js:typed-where-native-any
+compiler/jsdocBracelessTypeTag1	2	js:literal-widened	js:literal-widened	js:literal-widened
+compiler/jsdocFunctionTypeFalsePositive	2	js:any:uncontextual-parameter;js:signature-differs		js:signature-differs
+compiler/jsdocResolveNameFailureInTypedef	1	js:different-name	js:different-name	js:different-name
+compiler/jsdocTypeGenericInstantiationAttempt	1	js:array-sugar	js:array-sugar	js:array-sugar
+compiler/jsonFileImportChecksCallCorrectlyTwice	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/jsxCallbackWithDestructuring	3	gap:function-expression;gap:identifier		gap:identifier
+compiler/jsxChildrenGenericContextualTypes	10	alias-port-kept;literal-mixed;literal-widened;signature-differs		literal-widened
+compiler/jsxChildrenSingleChildConfusableWithMultipleChildrenNoError	3	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/jsxComplexSignatureHasApplicabilityError	28	any:contextual-parameter;any:jsx;gap:identifier;literal-widened;partial-any;signature-differs		any:contextual-parameter
+compiler/jsxElementType	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/jsxEmitWithAttributes	2	gap:array-literal;signature-differs		signature-differs
+compiler/jsxExcessPropsAndAssignability	7	literal-widened;type-argument-differs;type-param-constraint		type-argument-differs
+compiler/jsxFactoryAndReactNamespace	2	any:literal-expression-error;signature-differs		signature-differs
+compiler/jsxFactoryIdentifier	2	gap:array-literal;signature-differs		gap:array-literal
+compiler/jsxFactoryNotIdentifierOrQualifiedName	2	any:literal-expression-error;signature-differs		signature-differs
+compiler/jsxFactoryNotIdentifierOrQualifiedName2	2	any:literal-expression-error;signature-differs		signature-differs
+compiler/jsxFactoryQualifiedName	2	gap:array-literal;signature-differs		signature-differs
+compiler/jsxFragmentAndFactoryUsedOnFragmentUse	2	gap:identifier;gap:jsx-or-assertion		gap:identifier
+compiler/jsxFragmentFactoryNoUnusedLocals	2	any:alias-target	any:alias-target	any:alias-target
+compiler/jsxFragmentWrongType	4	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/jsxInExtendsClause	1	any:call-error	any:call-error	any:call-error
+compiler/jsxLibraryManagedAttributesUnusedGeneric	1	any:other	any:other	any:other
+compiler/jsxNamespaceGlobalReexport	6	gap:jsx-or-assertion;other;partial-any		other
+compiler/jsxNamespaceGlobalReexportMissingAliasTarget	3	other	other	other
+compiler/jsxNamespaceImplicitImportJSXNamespace	6	gap:jsx-or-assertion;other;partial-any		other
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromPragmaPickedOverGlobalOne	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+compiler/jsxNamespacedNameNotComparedToNonMatchingIndexSignature	1	other	other	other
+compiler/jsxPartialSpread	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/jsxSpreadTag(target=es2015)	1	any:configured:object-literal	any:configured:object-literal	any:configured:object-literal
+compiler/jsxSpreadTag(target=esnext)	1	any:configured:object-literal	any:configured:object-literal	any:configured:object-literal
+compiler/keyRemappingKeyofResult	27	alias-native-kept;any:type-reference-error;conditional-type-resolved-where-native-deferred;mapped-type-resolved-where-native-deferred		any:type-reference-error
+compiler/keyofIsLiteralContexualType	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/keyofObjectWithGlobalSymbolIncluded	1	never-where-native-typed	never-where-native-typed	never-where-native-typed
+compiler/lateBoundAssignmentCandidateJS1	8	js:alias-port-kept	js:alias-port-kept	js:alias-port-kept
+compiler/lateBoundDestructuringImplicitAnyError	4	any:binding-element	any:binding-element	any:binding-element
+compiler/limitDeepInstantiations	2	typed-where-native-any;typed-where-native-unknown		typed-where-native-any
+compiler/literalFreshnessPropagationOnNarrowing	9	union-members-differ	union-members-differ	union-members-differ
+compiler/literalWideningWithCompoundLikeAssignments	11	alias-native-kept;literal-not-widened		literal-not-widened
+compiler/localTypeParameterInferencePriority	1	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+compiler/manyCompilerErrorsInTheTwoFiles	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/mapGroupBy	5	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+compiler/mappedArrayTupleIntersections	1	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/mappedToToIndexSignatureInference	1	never-where-native-typed	never-where-native-typed	never-where-native-typed
+compiler/mappedTypeAndIndexSignatureRelation	2	different-name;mapped-type-resolved-where-native-deferred		mapped-type-resolved-where-native-deferred
+compiler/mappedTypeContextualTypesApplied	4	any:contextual-parameter;gap:function-expression;gap:identifier;gap:object-literal		gap:object-literal
+compiler/mappedTypeGenericIndexedAccess	12	alias-port-kept;mapped-type-unresolved		mapped-type-unresolved
+compiler/mappedTypeGenericInstantiationPreservesHomomorphism	5	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred
+compiler/mappedTypeGenericWithKnownKeys	2	any:property-lookup-error	any:property-lookup-error	any:property-lookup-error
+compiler/mappedTypeIndexedAccess	1	union-order	union-order	union-order
+compiler/mappedTypeIndexedAccessConstraint	50	alias-name-native-reassigned;any:binary-operand;any:binding-element;any:function-expression-error;any:literal-expression-error;any:property-lookup-error;mapped-type-unresolved;optional-param-undefined-not-printed;other;signature-differs;type-param-constraint;undefined-optionality;union-members-differ		any:binding-element
+compiler/mappedTypeMultiInference	1	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/mappedTypeNotMistakenlyHomomorphic	1	union-missing-members	union-missing-members	union-missing-members
+compiler/mappedTypeRecursiveInference	14	alias-port-kept;any:property-lookup-error;object-members-differ		object-members-differ
+compiler/mappedTypeRecursiveInference2	27	any:contextual-parameter;gap:array-literal;gap:call;gap:function-expression;gap:identifier;gap:object-literal		any:contextual-parameter
+compiler/mappedTypeTupleConstraintAssignability	2	object-members-differ	object-members-differ	object-members-differ
+compiler/mappedTypeWithAsClauseAndLateBoundProperty	3	signature-differs	signature-differs	signature-differs
+compiler/mappedTypeWithAsClauseAndLateBoundProperty2	4	signature-differs	signature-differs	signature-differs
+compiler/maxConstraints	1	partial-any	partial-any	partial-any
+compiler/mergeSymbolReexportInterface	2	any:type-reference-error;import-specifier-differs		any:type-reference-error
+compiler/mergeSymbolReexportedTypeAliasInstantiation	3	any:type-reference-error;import-specifier-differs		any:type-reference-error
+compiler/mergedClassWithNamespacePrototype	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/mergedModuleDeclarationCodeGen5	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/mismatchedExplicitTypeParameterAndArgumentType	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+compiler/missingCommaInTemplateStringsArray	2	any:literal-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/missingTypeArguments1	6	any:type-reference-error;object-members-differ		any:type-reference-error
+compiler/missingTypeArguments2	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/misspelledNewMetaProperty	2	any:other	any:other	any:other
+compiler/modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+compiler/moduleAndInterfaceSharingName2	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/moduleAugmentationDoesInterfaceMergeOfReexport	12	any:property-lookup-error;gap:property-access		any:property-lookup-error
+compiler/moduleAugmentationDoesNamespaceEnumMergeOfReexport	2	any:property-lookup-error;gap:property-access		gap:property-access
+compiler/moduleAugmentationDoesNamespaceMergeOfReexport	12	any:property-lookup-error;gap:property-access		any:property-lookup-error
+compiler/moduleAugmentationDuringSyntheticDefaultCheck	6	gap:other-expression;other;qualified-name-choice		qualified-name-choice
+compiler/moduleAugmentationImportsAndExports4	6	different-name;signature-differs		signature-differs
+compiler/moduleAugmentationImportsAndExports5	6	different-name;signature-differs		signature-differs
+compiler/moduleAugmentationImportsAndExports6	6	alias-port-kept;import-qualifier-missing		import-qualifier-missing
+compiler/moduleAugmentationInAmbientModule1	6	any:property-lookup-error;import-qualifier-extra;import-qualifier-missing		import-qualifier-missing
+compiler/moduleAugmentationInAmbientModule5	7	any:property-lookup-error;gap:call;gap:identifier;import-qualifier-extra;import-qualifier-missing		import-qualifier-missing
+compiler/moduleAugmentationOfAlias	2	any:property-lookup-error	any:property-lookup-error	any:property-lookup-error
+compiler/moduleDeclarationExportStarShadowingGlobalIsNameable	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/moduleExportNonStructured	6	any:alias-target;module-object-default-shape		module-object-default-shape
+compiler/modulePreserve4	7	any:any-receiver-propagated;any:call-error;module-object-default-shape;type-argument-differs		module-object-default-shape
+compiler/moduleResolutionWithRequireAndImport	1	gap:identifier	gap:identifier	gap:identifier
+compiler/moduleResolutionWithSymlinks	4	any:binary-operand;any:type-reference-error		any:type-reference-error
+compiler/moduleResolutionWithSymlinks_withOutDir	4	any:binary-operand;any:type-reference-error		any:type-reference-error
+compiler/moduleSameValueDuplicateExportedBindings2	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/moduleSharesNameWithImportDeclarationInsideIt5	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/module_augmentUninstantiatedModule2	3	import-qualifier-missing;qualified-name-choice		import-qualifier-missing
+compiler/multiExtendsSplitInterfaces1	2	signature-differs	signature-differs	signature-differs
+compiler/multiImportExport	7	alias-port-kept;object-members-differ		alias-port-kept
+compiler/multiSignatureTypeInference	1	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+compiler/namedImportNonExistentName	4	any:alias-target	any:alias-target	any:alias-target
+compiler/narrowByInstanceof	5	alias-native-kept;parenthesization;union-extra-members		parenthesization
+compiler/narrowCommaOperatorNestedWithinLHS	4	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/narrowUnknownByTypePredicate	1	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+compiler/narrowingDestructuring	17	alias-native-kept;alias-port-kept;gap:identifier;union-extra-members		alias-port-kept
+compiler/narrowingMutualSubtypes	4	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/narrowingNoInfer1	19	alias-port-kept;any:property-lookup-error;gap:identifier;gap:object-literal;gap:property-access;partial-any;type-argument-differs;union-members-differ		any:property-lookup-error
+compiler/narrowingPastLastAssignmentInModule	2	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/narrowingTypeofDiscriminant	2	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/narrowingTypeofUndefined2	4	any:unannotated-declaration;gap:array-literal;gap:identifier;gap:property-access		any:unannotated-declaration
+compiler/narrowingUnionWithBang	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/nestedBlockScopedBindings7	2	signature-differs;typed-where-native-any		signature-differs
+compiler/nestedBlockScopedBindings8	2	signature-differs;typed-where-native-any		signature-differs
+compiler/nestedCallbackErrorNotFlattened	6	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/nestedGenericConditionalTypeWithGenericImportType	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/nestedGenericSpreadInference	1	typed-where-native-unknown	typed-where-native-unknown	typed-where-native-unknown
+compiler/nestedRecursiveLambda	17	gap:array-literal;gap:function-expression;gap:other-expression;signature-differs		gap:other-expression
+compiler/neverAsDiscriminantType(strict=false)	8	any:configured:identifier;gap:identifier;gap:property-access		any:configured:identifier
+compiler/neverAsDiscriminantType(strict=true)	8	any:configured:identifier;gap:identifier;gap:property-access		any:configured:identifier
+compiler/newExpressionWithCast	3	any:any-initialiser-propagated;any:call-error;unaligned-lines		any:any-initialiser-propagated
+compiler/newLexicalEnvironmentForConvertedLoop(target=es2015)	1	gap:property-access	gap:property-access	gap:property-access
+compiler/noCrashOnImportShadowing	6	any:type-reference-error;typeof-name-choice		typeof-name-choice
+compiler/noCrashOnNoLib	9	any:binary-operand;any:literal-expression-error;any:other;any:type-reference-error		any:type-reference-error
+compiler/noCrashUMDMergedWithGlobalValue	1	gap:identifier	gap:identifier	gap:identifier
+compiler/noImplicitAnyDestructuringInPrivateMethod	2	binding-pattern-print	binding-pattern-print	binding-pattern-print
+compiler/noImplicitAnyIndexing	1	enum-member-vs-enum	enum-member-vs-enum	enum-member-vs-enum
+compiler/noInferUnionExcessPropertyCheck1	1	union-order	union-order	union-order
+compiler/noMappedGetSet	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/noSymbolForMergeCrash	1	alias-port-kept	alias-port-kept	alias-port-kept
+compiler/noUsedBeforeDefinedErrorInTypeContext	5	partial-any	partial-any	partial-any
+compiler/nodeColonModuleResolution	2	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/nonInferrableTypePropagation2	7	gap:call;gap:identifier;unknown-where-native-typed		unknown-where-native-typed
+compiler/nonNullFullInference	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/nonNullableAndObjectIntersections(strict=false)	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/nonNullableAndObjectIntersections(strict=true)	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/nonNullableReduction	6	alias-port-kept;conditional-type-unresolved;gap:call;parenthesization		parenthesization
+compiler/nonNullableReductionNonStrict	6	alias-port-kept;conditional-type-unresolved;gap:call;parenthesization		parenthesization
+compiler/nonNullableTypes1	4	gap:call;gap:identifier;gap:other-expression;partial-any		gap:call
+compiler/normalizedIntersectionTooComplex	3	any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/numberAssignableToEnumInsideUnion	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/numberVsBigIntOperations	16	alias-port-kept;any:binary-operand;any:other;typed-where-native-any		any:binary-operand
+compiler/numericEnumMappedType	4	gap:property-access	gap:property-access	gap:property-access
+compiler/objectAssignLikeNonUnionResult	5	alias-port-kept;other;union-members-differ		other
+compiler/objectBindingPatternContextuallyTypesArgument	9	any:contextual-parameter;gap:call;gap:function-expression;gap:identifier;gap:object-literal		any:contextual-parameter
+compiler/objectFreeze	23	literal-mixed;literal-widened;union-order		literal-widened
+compiler/objectFreezeLiteralsDontWiden	16	literal-widened;union-order		literal-widened
+compiler/objectFromEntries	15	any:any-initialiser-propagated;any:call-error;other;tuple-vs-array;union-order		tuple-vs-array
+compiler/objectGroupBy	5	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+compiler/objectLitArrayDeclNoNew	1	any:literal-expression-error	any:literal-expression-error	any:literal-expression-error
+compiler/objectLitIndexerContextualType	4	any:binary-operand;any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/objectLiteralMemberWithoutBlock1	3	object-members-differ;signature-differs		object-members-differ
+compiler/octalLiteralAndEscapeSequence	14	literal-mixed;string-escape-printing		literal-mixed
+compiler/omitTypeHelperModifiers01	11	alias-name-native-reassigned;typed-where-native-any		alias-name-native-reassigned
+compiler/omitTypeTestErrors01	6	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/omitTypeTests01	6	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/operationsAvailableOnPromisedType(target=es2015)	1	any:configured:array-literal	any:configured:array-literal	any:configured:array-literal
+compiler/optionalChainWithInstantiationExpression1(target=es2019)	3	any:configured:identifier;any:configured:other-expression		any:configured:other-expression
+compiler/optionalChainWithInstantiationExpression1(target=es2020)	3	any:configured:identifier;any:configured:other-expression		any:configured:other-expression
+compiler/optionalChainWithInstantiationExpression2(target=es2019)	2	gap:call;gap:other-expression		gap:call
+compiler/optionalChainWithInstantiationExpression2(target=es2020)	2	gap:call;gap:other-expression		gap:call
+compiler/optionalParamReferencingOtherParams2(target=es2015)	4	signature-differs;typed-where-native-any		typed-where-native-any
+compiler/overloadConsecutiveness	4	other	other	other
+compiler/overloadsWithComputedNames	2	other	other	other
+compiler/paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized	7	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/parseAssertEntriesError	1	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/parseBigInt	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/parseErrorIncorrectReturnToken	8	any:function-expression-error;different-name;object-members-differ;signature-differs;unaligned-lines		signature-differs
+compiler/parseImportAttributesError	1	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/parseJsxElementInUnaryExpressionNoCrash1	2	js:different-name;unaligned-lines		js:different-name
+compiler/parseJsxElementInUnaryExpressionNoCrash2	2	js:different-name;unaligned-lines		js:different-name
+compiler/parseJsxElementInUnaryExpressionNoCrash3	2	js:typed-where-native-any;unaligned-lines		js:typed-where-native-any
+compiler/parseUnaryExpressionNoTypeAssertionInJsx1	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/parseUnaryExpressionNoTypeAssertionInJsx2	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/parseUnaryExpressionNoTypeAssertionInJsx3	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/parseUnmatchedTypeAssertion	1	any:other	any:other	any:other
+compiler/parserPrivateIdentifierInArrayAssignment	1	any:literal-expression-error	any:literal-expression-error	any:literal-expression-error
+compiler/partialTypeNarrowedToByTypeGuard	2	signature-differs	signature-differs	signature-differs
+compiler/privacyCheckExternalModuleExportAssignmentOfGenericClass	1	gap:identifier	gap:identifier	gap:identifier
+compiler/privacyGloImport	4	gap:identifier	gap:identifier	gap:identifier
+compiler/privacyGloImportParseErrors	4	any:other;any:type-reference-error		any:type-reference-error
+compiler/promiseChaining	2	type-param-rename	type-param-rename	type-param-rename
+compiler/promiseChaining1	2	type-param-rename	type-param-rename	type-param-rename
+compiler/promiseChaining2	2	type-param-rename	type-param-rename	type-param-rename
+compiler/promisePermutations	4	signature-type-params-dropped;type-argument-differs		signature-type-params-dropped
+compiler/promisePermutations2	2	signature-type-params-dropped	signature-type-params-dropped	signature-type-params-dropped
+compiler/promisePermutations3	4	signature-type-params-dropped;type-argument-differs		signature-type-params-dropped
+compiler/promiseTest	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/promiseTry	2	any:contextual-parameter;gap:function-expression		gap:function-expression
+compiler/propTypeValidatorInference	30	alias-port-kept;conditional-type-unresolved;gap:identifier;object-members-differ;type-argument-differs		type-argument-differs
+compiler/propagationOfPromiseInitialization	4	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/propertyAssignment	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/quickinfoTypeAtReturnPositionsInaccurate	9	alias-native-kept;alias-port-kept;different-name;type-param-rename;union-members-differ		different-name
+compiler/ramdaToolsNoInfinite	10	alias-port-kept;different-name;gap:identifier;type-argument-differs		type-argument-differs
+compiler/ramdaToolsNoInfinite2	23	alias-port-kept;different-name;gap:identifier;gap:other-expression;mapped-type-resolved-where-native-deferred;object-members-differ;type-argument-differs		gap:other-expression
+compiler/reactDefaultPropsInferenceSuccess	29	any:contextual-parameter;any:function-expression-error;any:jsx;import-qualifier-extra;qualified-name-choice		any:contextual-parameter
+compiler/reactHOCSpreadprops	5	gap:identifier;qualified-name-choice		gap:identifier
+compiler/reactImportDropped	6	js:alias-port-kept;js:import-qualifier-missing		js:import-qualifier-missing
+compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsxdev)	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/reactReadonlyHOCAssignabilityReal	5	literal-widened;qualified-name-choice;type-argument-differs		type-argument-differs
+compiler/reactReduxLikeDeferredInferenceAllowsAssignment	10	any:any-initialiser-propagated;any:call-error;any:function-expression-error;mapped-type-unresolved;partial-any		partial-any
+compiler/reactSFCAndFunctionResolvable	10	alias-name-port-reassigned;alias-port-kept;union-members-differ		alias-name-port-reassigned
+compiler/reactTransitiveImportHasValidDeclaration	7	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/recursiveBaseConstructorCreation3	3	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/recursiveConditionalCrash1	2	conditional-type-resolved-where-native-deferred	conditional-type-resolved-where-native-deferred	conditional-type-resolved-where-native-deferred
+compiler/recursiveConditionalCrash2	1	conditional-type-resolved-where-native-deferred	conditional-type-resolved-where-native-deferred	conditional-type-resolved-where-native-deferred
+compiler/recursiveConditionalTypes	22	alias-name-native-reassigned;alias-native-kept;any:call-error;any:other;any:type-reference-error;conditional-type-unresolved;different-name;object-members-differ;typed-where-native-any		object-members-differ
+compiler/recursiveExportAssignmentAndFindAliasedType7	1	gap:identifier	gap:identifier	gap:identifier
+compiler/recursiveGenericMethodCall	2	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/recursiveGenericUnionType1	2	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/recursiveGenericUnionType2	2	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/recursiveGetterAccess	2	gap:identifier;gap:property-access		gap:identifier
+compiler/recursiveLetConst	4	any:variable-initialiser-error;object-members-differ;signature-differs		any:variable-initialiser-error
+compiler/recursiveProperties(target=es2015)	2	gap:identifier;gap:property-access		gap:identifier
+compiler/recursiveReverseMappedType	1	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/recursiveTupleTypeInference	6	alias-port-kept;any:call-error;mapped-type-unresolved;object-members-differ		mapped-type-unresolved
+compiler/recursiveTypeAliasWithSpreadConditionalReturnNotCircular	2	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/recursiveTypeRelations	7	any:other;any:property-lookup-error;different-name;partial-any;union-members-differ		partial-any
+compiler/recursivelyExpandingUnionNoStackoverflow	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/reducibleIndexedAccessTypes	6	any:contextual-parameter;gap:array-literal;gap:function-expression;gap:object-literal;union-members-differ		any:contextual-parameter
+compiler/reexportDefaultIsCallable	2	any:alias-target;different-name		any:alias-target
+compiler/reexportWrittenCorrectlyInDeclaration	2	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/reexportedMissingAlias	2	any:alias-target	any:alias-target	any:alias-target
+compiler/referenceTypesPreferedToPathIfPossible	6	any:alias-target;gap:call;gap:identifier;partial-any;unaligned-lines		partial-any
+compiler/renamingDestructuredPropertyInFunctionType	15	any:function-declaration-error;any:function-expression-error;any:type-reference-error;any:variable-initialiser-error;signature-differs		any:type-reference-error
+compiler/renamingDestructuredPropertyInFunctionType2	1	signature-differs	signature-differs	signature-differs
+compiler/renamingDestructuredPropertyInFunctionType3	6	any:function-declaration-error;any:function-expression-error;any:type-reference-error;any:variable-initialiser-error;unknown-where-native-typed		any:type-reference-error
+compiler/requireOfJsonFile	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileInJsFile	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileNonRelative	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileTypes	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithAlwaysStrictWithoutErrors	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithComputedPropertyName	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithDeclaration	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithEmptyObject	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithEmptyObjectWithErrors	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithErrors	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithModuleEmitUndefined	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithModuleNodeResolutionEmitEs2015	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithModuleNodeResolutionEmitEsNext	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithModuleNodeResolutionEmitUndefined	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithSourceMap	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithTraillingComma	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutAllowJs	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutEsModuleInterop	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutExtension	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutExtensionResolvesToTs	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutOutDir	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/requireOfJsonFileWithoutResolveJsonModule	1	unaligned-lines	unaligned-lines	unaligned-lines
+compiler/reservedWords2	4	any:uncontextual-parameter;partial-any;signature-differs;unaligned-lines		signature-differs
+compiler/reservedWords3	1	signature-differs	signature-differs	signature-differs
+compiler/restElementWithNumberPropertyName(target=es2015)	2	mapped-type-unresolved;tuple-vs-array		mapped-type-unresolved
+compiler/restInvalidArgumentType	7	any:binding-element;mapped-type-resolved-where-native-deferred;mapped-type-unresolved;union-members-differ		mapped-type-unresolved
+compiler/restParameterWithBindingPattern1	3	gap:identifier;signature-differs		gap:identifier
+compiler/restParameterWithBindingPattern2	1	binding-pattern-parameter-type	binding-pattern-parameter-type	binding-pattern-parameter-type
+compiler/restParameterWithBindingPattern3	4	any:binding-element;any:function-declaration-error		any:function-declaration-error
+compiler/returnInfiniteIntersection	12	any:call-error;any:other;any:variable-initialiser-error;signature-differs		signature-differs
+compiler/returnTypeParameterWithModules	1	gap:function-expression	gap:function-expression	gap:function-expression
+compiler/returnTypeTypeArguments	12	any:type-reference-error;object-members-differ		any:type-reference-error
+compiler/reverseInferenceInContextualInstantiation	2	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+compiler/reverseMappedIntersectionInference1	4	literal-widened	literal-widened	literal-widened
+compiler/reverseMappedIntersectionInference2	5	gap:array-literal;gap:function-expression;gap:identifier;gap:object-literal;literal-widened		gap:array-literal
+compiler/reverseMappedPartiallyInferableTypes	46	any:call-error;any:contextual-parameter;any:function-expression-error;any:literal-expression-error;any:property-lookup-error;any:variable-initialiser-error;different-name;partial-any		any:property-lookup-error
+compiler/reverseMappedTupleContext	4	other;signature-differs;tuple-vs-array		other
+compiler/reverseMappedTypeAssignableToIndex	1	object-members-differ	object-members-differ	object-members-differ
+compiler/reverseMappedTypeContextualTypeNotCircular	2	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/reverseMappedTypeContextualTypesPerElementOfTupleConstraint	11	any:contextual-parameter;gap:array-literal;gap:function-expression;gap:identifier;gap:object-literal;literal-widened		gap:object-literal
+compiler/reverseMappedTypeInferenceWidening1	12	literal-widened	literal-widened	literal-widened
+compiler/reverseMappedTypeInferenceWidening2	4	literal-widened	literal-widened	literal-widened
+compiler/reverseMappedTypeIntersectionConstraint	13	any:call-error;any:variable-initialiser-error;object-members-differ		object-members-differ
+compiler/reverseMappedTypeLimitedConstraint	1	object-members-differ	object-members-differ	object-members-differ
+compiler/satisfiesEmit	2	any:other;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/selfReference	2	literal-widened	literal-widened	literal-widened
+compiler/selfReferentialDefaultNoStackOverflow	3	js:any:literal-expression-error	js:any:literal-expression-error	js:any:literal-expression-error
+compiler/selfReferentialFunctionType	5	gap:identifier	gap:identifier	gap:identifier
+compiler/setMethods	2	typed-where-native-unknown	typed-where-native-unknown	typed-where-native-unknown
+compiler/shadowedReservedCompilerDeclarationsWithNoEmit(target=es2015)	3	any:configured:identifier;any:configured:property-access		any:configured:identifier
+compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)	2	any:configured:identifier;any:configured:object-literal		any:configured:identifier
+compiler/shorthandPropertyAssignmentsInDestructuring_ES6	2	any:literal-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/signatureCombiningRestParameters1	7	any:binding-element;any:call-error;any:type-reference-error		any:binding-element
+compiler/signatureCombiningRestParameters2	4	gap:function-expression;gap:other-expression;tuple-vs-array		tuple-vs-array
+compiler/silentNeverPropagation	9	literal-widened	literal-widened	literal-widened
+compiler/simplifyingConditionalWithInteriorConditionalIsRelated	2	other	other	other
+compiler/singletonLabeledTuple	1	conditional-type-unresolved	conditional-type-unresolved	conditional-type-unresolved
+compiler/sliceResultCast	2	union-members-differ	union-members-differ	union-members-differ
+compiler/sourceMap-LineBreaks(target=es2015)	1	string-escape-printing	string-escape-printing	string-escape-printing
+compiler/sourceMapValidationDestructuringForArrayBindingPattern2(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/sourceMapValidationDestructuringForArrayBindingPatternDefaultValues2(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/sourceMapValidationDestructuringForOfArrayBindingPattern2(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/sourceMapValidationDestructuringForOfArrayBindingPatternDefaultValues2(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues(target=es2015)	6	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/sourceMapValidationDestructuringParametertArrayBindingPattern(target=es2015)	6	gap:call;gap:identifier;tuple-vs-array		gap:identifier
+compiler/sourceMapValidationDestructuringParametertArrayBindingPattern2(target=es2015)	7	gap:call;gap:identifier;tuple-vs-array		gap:identifier
+compiler/sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues(target=es2015)	6	gap:call;gap:identifier;tuple-vs-array		gap:identifier
+compiler/sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2(target=es2015)	8	gap:call;gap:identifier;tuple-vs-array		gap:identifier
+compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPattern3(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPatternDefaultValues3(target=es2015)	6	tuple-vs-array	tuple-vs-array	tuple-vs-array
+compiler/specedNoStackBlown	1	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred	mapped-type-resolved-where-native-deferred
+compiler/specialIntersectionsInMappedTypes	4	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/spreadExpressionContextualTypeWithNamespace	16	signature-differs	signature-differs	signature-differs
+compiler/spreadIdenticalTypesRemoved	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/spreadInvalidArgumentType	4	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+compiler/spreadObjectNoCircular1	2	union-order	union-order	union-order
+compiler/spreadObjectPermutations(exactoptionalpropertytypes=false)	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/spreadObjectPermutations(exactoptionalpropertytypes=true)	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/spreadOfObjectLiteralAssignableToIndexSignature	12	any:property-lookup-error;gap:property-access		gap:property-access
+compiler/spreadParameterTupleType	8	type-param-rename	type-param-rename	type-param-rename
+compiler/spreadUnionPropOverride	2	optional-property-undefined-printed	optional-property-undefined-printed	optional-property-undefined-printed
+compiler/spuriousCircularityOnTypeImport	2	partial-any	partial-any	partial-any
+compiler/spyComparisonChecking	2	any:property-lookup-error	any:property-lookup-error	any:property-lookup-error
+compiler/stableTypeOrdering(stabletypeordering=true)	3	gap:identifier;partial-any		gap:identifier
+compiler/stackDepthLimitCastingType	1	type-argument-differs	type-argument-differs	type-argument-differs
+compiler/staticAnonymousTypeNotReferencingTypeParameter	6	different-name;optional-param-undefined-not-printed		optional-param-undefined-not-printed
+compiler/staticPrototypeProperty	1	any:unannotated-declaration	any:unannotated-declaration	any:unannotated-declaration
+compiler/strictFunctionTypesErrors	11	alias-port-kept;signature-differs		signature-differs
+compiler/strictNullEmptyDestructuring(target=es2015)	10	other;typed-where-native-any;undefined-optionality;union-members-differ		typed-where-native-any
+compiler/strictNullNotNullIndexTypeNoLib	2	alias-native-kept;undefined-optionality		alias-native-kept
+compiler/strictNullNotNullIndexTypeShouldWork	2	alias-native-kept;undefined-optionality		alias-native-kept
+compiler/strictOptionalProperties1	12	never-where-native-typed;undefined-optionality		undefined-optionality
+compiler/stringLiteralsErrors	11	literal-mixed;spacing		literal-mixed
+compiler/styledComponentsInstantiaionLimitNotReached	3	object-members-differ;undefined-optionality		object-members-differ
+compiler/subclassWithPolymorphicThisIsAssignable	2	type-param-rename	type-param-rename	type-param-rename
+compiler/subtypeReductionUnionConstraints	6	any:property-lookup-error;any:type-reference-error;gap:identifier;gap:property-access		gap:identifier
+compiler/superNewCall1	2	any:call-error;any:function-expression-error		any:call-error
+compiler/symbolLinkDeclarationEmitModuleNames	5	import-qualifier-missing;partial-any		partial-any
+compiler/symbolLinkDeclarationEmitModuleNamesRootDir	5	import-qualifier-missing;partial-any		partial-any
+compiler/symbolObserverMismatchingPolyfillsWorkTogether	4	literal-widened	literal-widened	literal-widened
+compiler/symlinkedWorkspaceDependenciesNoDirectLinkGeneratesDeepNonrelativeName	6	import-qualifier-missing;signature-differs		import-qualifier-missing
+compiler/symlinkedWorkspaceDependenciesNoDirectLinkGeneratesNonrelativeName	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/symlinkedWorkspaceDependenciesNoDirectLinkOptionalGeneratesNonrelativeName	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/symlinkedWorkspaceDependenciesNoDirectLinkPeerGeneratesNonrelativeName	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/taggedTemplateStringsWithCurriedFunction(target=es2015)	19	any:configured:call;gap:function-expression;signature-differs		any:configured:call
+compiler/taggedTemplateWithoutDeclaredHelper(target=es2015)	2	gap:identifier;gap:other-expression		gap:identifier
+compiler/taggedTemplatesInModuleAndGlobal(target=es2015)	12	any:configured:call;gap:other-expression;partial-any		partial-any
+compiler/tailRecursiveConditionalTypes	3	conditional-type-unresolved;gap:identifier		gap:identifier
+compiler/targetTypeBaseCalls	3	any:contextual-parameter;any:function-expression-error		any:contextual-parameter
+compiler/templateExpressionAsPossiblyDiscriminantValue	5	any:contextual-parameter;gap:function-expression;gap:identifier;gap:object-literal		any:contextual-parameter
+compiler/temporal	33	literal-mixed;literal-widened;optional-param-undefined-not-printed		optional-param-undefined-not-printed
+compiler/thisConditionalOnMethodReturnOfGenericInstance	4	conditional-type-unresolved	conditional-type-unresolved	conditional-type-unresolved
+compiler/thisInConstructorParameter2	6	gap:function-expression;gap:identifier;gap:other-expression;undefined-optionality		gap:function-expression
+compiler/thisPredicateInObjectLiteral	3	any:function-declaration-error;any:literal-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+compiler/this_inside-object-literal-getters-and-setters	1	this-type	this-type	this-type
+compiler/thislessFunctionsNotContextSensitive1	11	literal-mixed;literal-widened;other		literal-widened
+compiler/thislessFunctionsNotContextSensitive3	8	any:type-reference-error;mapped-type-resolved-where-native-deferred;optional-property-undefined-printed;undefined-optionality		undefined-optionality
+compiler/trackedSymbolsNoCrash	5	any:property-lookup-error;gap:other-expression;never-where-native-typed		never-where-native-typed
+compiler/trailingCommasES5(target=es2015)	1	different-name	different-name	different-name
+compiler/transformNestedGeneratorsWithTry(target=es2015)	4	any:configured:call;mapped-type-resolved-where-native-deferred		mapped-type-resolved-where-native-deferred
+compiler/truthinessCallExpressionCoercion2	15	any:binary-operand;any:other;any:property-lookup-error		any:property-lookup-error
+compiler/tsxInferenceShouldNotYieldAnyOnUnions	3	any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+compiler/tsxNotUsingApparentTypeOfSFC	2	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/tsxReactPropsInferenceSucceedsOnIntersections	5	any:contextual-parameter;gap:function-expression;import-qualifier-extra		import-qualifier-extra
+compiler/tsxSpreadDoesNotReportExcessProps	4	import-qualifier-extra;qualified-name-choice		import-qualifier-extra
+compiler/tsxUnionMemberChecksFilterDataProps	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+compiler/tupleTypeInference	3	gap:call;gap:identifier;tuple-vs-array		gap:identifier
+compiler/tupleTypeInference2	2	gap:call	gap:call	gap:call
+compiler/tupleTypes	3	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/twiceNestedKeyofIndexInference	3	gap:call;tuple-vs-array;type-param-rename		type-param-rename
+compiler/typeGuardConstructorNarrowPrimitivesInUnion	1	never-where-native-typed	never-where-native-typed	never-where-native-typed
+compiler/typeGuardConstructorPrimitiveTypes	1	never-where-native-typed	never-where-native-typed	never-where-native-typed
+compiler/typeGuardNarrowByMutableUntypedField	3	any:property-lookup-error;gap:property-access;type-argument-differs		type-argument-differs
+compiler/typeGuardNarrowByUntypedField	3	any:property-lookup-error;gap:property-access;type-argument-differs		type-argument-differs
+compiler/typeGuardNarrowsIndexedAccessOfKnownProperty11	8	any:property-lookup-error;gap:call;gap:property-access;mapped-type-unresolved		mapped-type-unresolved
+compiler/typeGuardNarrowsIndexedAccessOfKnownProperty12	8	any:property-lookup-error;gap:call;gap:property-access;mapped-type-unresolved		mapped-type-unresolved
+compiler/typeInferenceLiteralUnion	5	gap:identifier;union-members-differ;union-order		gap:identifier
+compiler/typeName1	1	signature-differs	signature-differs	signature-differs
+compiler/typeNamedUndefined1	1	literal-not-widened	literal-not-widened	literal-not-widened
+compiler/typeNamedUndefined2	1	literal-not-widened	literal-not-widened	literal-not-widened
+compiler/typeOfYieldWithUnionInContextualReturnType	5	gap:function-expression;gap:other-expression		gap:other-expression
+compiler/typeParameterConstraints1	2	parenthesization;type-param-constraint		type-param-constraint
+compiler/typeParameterExplicitlyExtendsAny	7	any:other;any:property-lookup-error;partial-any;type-param-constraint		any:other
+compiler/typeParameterExtendingUnion1	2	union-members-differ	union-members-differ	union-members-differ
+compiler/typeParameterExtendingUnion2	4	union-members-differ	union-members-differ	union-members-differ
+compiler/typeParameterHasSelfAsConstraint	1	type-param-constraint	type-param-constraint	type-param-constraint
+compiler/typeParametersAndParametersInComputedNames	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+compiler/typePredicateFreshLiteralWidening	28	alias-port-kept;literal-widened;signature-differs;union-members-differ		alias-port-kept
+compiler/typePredicateTopLevelTypeParameter	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/typePredicatesOptionalChaining3	2	union-order	union-order	union-order
+compiler/typeVariableConstraintIntersections	19	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+compiler/typeofImportInstantiationExpression	4	gap:identifier;gap:other-expression		gap:other-expression
+compiler/typeofObjectInference	10	object-members-differ;signature-differs;type-param-constraint		type-param-constraint
+compiler/umdGlobalAugmentationNoCrash	2	alias-port-kept;any:type-reference-error		any:type-reference-error
+compiler/umdNamespaceMergedWithGlobalAugmentationIsNotCircular	3	alias-port-kept;any:type-reference-error		alias-port-kept
+compiler/uncalledFunctionChecksInConditional2	5	signature-differs;union-members-differ		signature-differs
+compiler/undefinedTypeAssignment4	2	different-name	different-name	different-name
+compiler/underscoreTest1	13	any:call-error;any:function-expression-error;any:literal-expression-error;any:variable-initialiser-error;literal-widened;signature-differs		literal-widened
+compiler/unicodeEscapesInJSDoc	8	js:any:binary-operand;js:any:uncontextual-parameter;js:partial-any		js:any:uncontextual-parameter
+compiler/unionExcessPropsWithPartialMember	2	undefined-optionality	undefined-optionality	undefined-optionality
+compiler/unionOfClassCalls	5	type-argument-differs;union-members-differ		union-members-differ
+compiler/unionSubtypeReductionErrors	2	alias-native-kept	alias-native-kept	alias-native-kept
+compiler/unionTypeWithIndexedLiteralType	2	literal-widened	literal-widened	literal-widened
+compiler/unionTypeWithRecursiveSubtypeReduction3	6	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/unionWithIndexSignature	2	typedarray-buffer-arg	typedarray-buffer-arg	typedarray-buffer-arg
+compiler/unknownLikeUnionObjectFlagsNotPropagated	3	tuple-vs-array;type-argument-differs		tuple-vs-array
+compiler/unreachableJavascriptChecked	1	js:any:function-declaration-error	js:any:function-declaration-error	js:any:function-declaration-error
+compiler/unreachableJavascriptUnchecked	1	js:gap:identifier	js:gap:identifier	js:gap:identifier
+compiler/unresolvableSelfReferencingAwaitedUnion	4	alias-name-port-reassigned;alias-port-kept;any:call-error		alias-name-port-reassigned
+compiler/unusedImports11	2	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/unusedImports12	1	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/unusedImports15	1	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/unusedImports16	1	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/unusedImports_entireImportDeclaration	3	typeof-name-choice	typeof-name-choice	typeof-name-choice
+compiler/unusedInvalidTypeArguments	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+compiler/unusedParametersWithUnderscore	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+compiler/unusedTypeParametersCheckedByNoUnusedParameters	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/unusedTypeParametersNotCheckedByNoUnusedLocals	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+compiler/varianceProblingAndZeroOrderIndexSignatureRelationsAlign	4	partial-any	partial-any	partial-any
+compiler/varianceProblingAndZeroOrderIndexSignatureRelationsAlign2	3	partial-any	partial-any	partial-any
+compiler/varianceReferences	29	alias-name-native-reassigned;alias-port-kept		alias-port-kept
+compiler/verbatim-declarations-parameters	8	mapped-type-unresolved;undefined-optionality		mapped-type-unresolved
+compiler/visibilityOfCrossModuleTypeUsage	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+compiler/voidReturnIndexUnionInference	6	gap:call;union-members-differ		union-members-differ
+compiler/widenedTypes	1	object-members-differ	object-members-differ	object-members-differ
+compiler/wideningWithTopLevelTypeParameter	1	union-order	union-order	union-order
+conformance/ArrowFunction3	2	typed-where-native-any;unaligned-lines		typed-where-native-any
+conformance/FunctionDeclaration10_es6	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/FunctionPropertyAssignments4_es6	3	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/ModuleWithExportedAndNonExportedImportAlias	4	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/TypeGuardWithEnumUnion	16	different-name;gap:identifier		gap:identifier
+conformance/YieldExpression18_es6	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/YieldExpression8_es6	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/YieldStarExpression1_es6	2	any:other;unaligned-lines		any:other
+conformance/YieldStarExpression2_es6	2	any:other;unaligned-lines		any:other
+conformance/accessorsOverrideProperty8	3	partial-any	partial-any	partial-any
+conformance/allowUnescapedParagraphAndLineSeparatorsInStringLiteral	11	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/allowsImportingTsExtension	2	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+conformance/ambientModuleDeclarationWithReservedIdentifierInDottedPath	6	any:property-lookup-error;any:variable-initialiser-error;unaligned-lines		any:property-lookup-error
+conformance/ambientModuleDeclarationWithReservedIdentifierInDottedPath2	6	any:property-lookup-error;any:variable-initialiser-error;unaligned-lines		any:property-lookup-error
+conformance/ambientShorthand_reExport	2	gap:call;gap:identifier		gap:call
+conformance/arbitraryModuleNamespaceIdentifiers_exportEmpty	2	any:alias-target	any:alias-target	any:alias-target
+conformance/arbitraryModuleNamespaceIdentifiers_importEmpty	2	any:literal-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)	19	alias-native-kept;alias-port-kept;any:configured:identifier;any:configured:other-expression;any:configured:property-access		any:configured:identifier
+conformance/arrayLiteralInference	5	other;signature-differs;type-argument-differs		other
+conformance/arrayTypeOfTypeOf	2	gap:identifier	gap:identifier	gap:identifier
+conformance/arrowFunctionContexts(alwaysstrict=true)	4	signature-differs	signature-differs	signature-differs
+conformance/arrowFunctionExpressions	4	gap:function-expression;gap:identifier		gap:identifier
+conformance/asOperatorASI	2	alias-native-kept;unaligned-lines		alias-native-kept
+conformance/assertionTypePredicates1	6	alias-port-kept;any:other;different-name;literal-widened		any:other
+conformance/assertionTypePredicates2	2	js:any:any-receiver-propagated	js:any:any-receiver-propagated	js:any:any-receiver-propagated
+conformance/assertionsAndNonReturningFunctions	12	js:any:function-declaration-error;js:any:uncontextual-parameter;js:signature-differs		js:any:uncontextual-parameter
+conformance/assignEveryTypeToAny	2	any:binary-operand;any:variable-initialiser-error		any:binary-operand
+conformance/assignmentCompatWithObjectMembers	19	object-members-differ	object-members-differ	object-members-differ
+conformance/assignmentGenericLookupTypeNarrowing	6	mapped-type-unresolved	mapped-type-unresolved	mapped-type-unresolved
+conformance/assignmentTypeNarrowing	15	alias-native-kept;alias-port-kept;any:call-error;any:property-lookup-error;literal-widened;union-members-differ		literal-widened
+conformance/asyncArrowFunctionCapturesArguments_es6	3	any:function-expression-error;partial-any		partial-any
+conformance/asyncArrowFunctionCapturesThis_es2017	2	gap:function-expression;gap:identifier		gap:identifier
+conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)	2	gap:function-expression;gap:identifier		gap:identifier
+conformance/asyncArrowFunctionCapturesThis_es6	2	gap:function-expression;gap:identifier		gap:identifier
+conformance/asyncArrowFunction_allowJs	1	js:any:function-expression-error	js:any:function-expression-error	js:any:function-expression-error
+conformance/asyncAwaitIsolatedModules_es2017	5	any:type-reference-error;partial-any		any:type-reference-error
+conformance/asyncAwaitIsolatedModules_es5(target=es2015)	5	any:configured:identifier;partial-any		any:configured:identifier
+conformance/asyncAwaitIsolatedModules_es6	5	any:type-reference-error;partial-any		any:type-reference-error
+conformance/asyncFunctionDeclaration15_es5(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/asyncFunctionDeclaration15_es6	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/asyncGetter_es5(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/asyncGetter_es6	1	any:other	any:other	any:other
+conformance/autoAccessor10	1	gap:other-expression	gap:other-expression	gap:other-expression
+conformance/awaitUsingDeclarationsWithAsyncIteratorObject	6	type-argument-differs	type-argument-differs	type-argument-differs
+conformance/awaitUsingDeclarationsWithIteratorObject	8	type-argument-differs;typed-where-native-unknown		type-argument-differs
+conformance/await_unaryExpression_es2017_3	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/await_unaryExpression_es6_3	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/bivariantInferences	2	union-members-differ	union-members-differ	union-members-differ
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=false)	2	partial-any	partial-any	partial-any
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=true)	2	partial-any	partial-any	partial-any
+conformance/bundlerSyntaxRestrictions(module=esnext)	1	js:any:configured:call	js:any:configured:call	js:any:configured:call
+conformance/bundlerSyntaxRestrictions(module=preserve)	1	js:any:configured:call	js:any:configured:call	js:any:configured:call
+conformance/callChain.2	2	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/callChain.3	3	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/callbackOnConstructor	5	js:any:contextual-parameter;js:partial-any		js:any:contextual-parameter
+conformance/callbackTag2	10	js:any:binary-operand;js:any:contextual-parameter;js:partial-any;js:signature-differs		js:any:contextual-parameter
+conformance/callbackTagNamespace	3	js:any:uncontextual-parameter;js:partial-any		js:any:uncontextual-parameter
+conformance/catchClauseWithTypeAnnotation	4	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/chained	3	alias-port-kept;any:type-reference-error		alias-port-kept
+conformance/chained2	4	different-name;typed-where-native-any		typed-where-native-any
+conformance/checkJsdocParamOnVariableDeclaredFunctionExpression	3	js:optional-param-undefined-not-printed	js:optional-param-undefined-not-printed	js:optional-param-undefined-not-printed
+conformance/checkJsdocSatisfiesTag15	10	js:alias-port-kept;js:any:contextual-parameter;js:partial-any;js:tuple-vs-array		js:partial-any
+conformance/checkJsdocSatisfiesTag2	11	js:any:contextual-parameter;js:partial-any		js:partial-any
+conformance/checkJsdocSatisfiesTag8	4	js:literal-widened	js:literal-widened	js:literal-widened
+conformance/checkJsdocTypeTag7	1	js:signature-differs	js:signature-differs	js:signature-differs
+conformance/checkJsxChildrenCanBeTupleType	2	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+conformance/checkJsxChildrenProperty12	4	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/checkJsxChildrenProperty13	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/checkJsxChildrenProperty3	7	any:property-lookup-error;gap:call;gap:property-access;partial-any;qualified-name-choice;union-members-differ		qualified-name-choice
+conformance/checkJsxChildrenProperty4	7	any:call-error;any:property-lookup-error;partial-any;qualified-name-choice		partial-any
+conformance/checkJsxIntersectionElementPropsType	2	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/checkJsxSubtleSkipContextSensitiveBug	4	any:contextual-parameter;gap:function-expression;gap:identifier		any:contextual-parameter
+conformance/checkJsxUnionSFXContextualTypeInferredCorrectly	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+conformance/circularImportAlias	3	any:other;any:property-lookup-error		any:property-lookup-error
+conformance/circularIndexedAccessErrors	1	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/classExpression3	4	any:property-lookup-error;gap:property-access		gap:property-access
+conformance/classExpressionES63	4	any:property-lookup-error;gap:property-access		gap:property-access
+conformance/classExtendingClassLikeType	12	any:property-lookup-error	any:property-lookup-error	any:property-lookup-error
+conformance/classStaticBlock22(target=es2022)	2	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/classStaticBlock22(target=esnext)	2	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/classStaticBlock5(target=es2015)	6	any:configured:identifier;gap:property-access		any:configured:identifier
+conformance/classStaticBlock5(target=es2022)	6	any:configured:identifier;gap:property-access		any:configured:identifier
+conformance/classStaticBlock5(target=esnext)	6	any:configured:identifier;gap:property-access		any:configured:identifier
+conformance/commonJSImportClassTypeReference	3	js:any:call-error;js:any:uncontextual-parameter		js:any:uncontextual-parameter
+conformance/commonJSImportExportedClassExpression	3	js:any:call-error;js:any:uncontextual-parameter		js:any:uncontextual-parameter
+conformance/commonJSImportNotAsPrimaryExpression	1	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/computedPropertyNames33_ES5(target=es2015)	1	type-param-rename	type-param-rename	type-param-rename
+conformance/computedPropertyNames33_ES6	1	type-param-rename	type-param-rename	type-param-rename
+conformance/computedPropertyNamesDeclarationEmit4_ES5(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/computedPropertyNamesDeclarationEmit4_ES6	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/conditionalTypes1	45	alias-name-native-reassigned;alias-native-kept;any:binary-operand;any:property-lookup-error;any:type-reference-error;any:variable-initialiser-error;conditional-type-resolved-where-native-deferred;mapped-type-resolved-where-native-deferred;never-where-native-typed		any:property-lookup-error
+conformance/conditionalTypes2	14	any:type-reference-error;mapped-type-unresolved;type-param-rename		any:type-reference-error
+conformance/constAssertions	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/constEnum3	2	union-extra-members	union-extra-members	union-extra-members
+conformance/contextualThisType	4	this-type	this-type	this-type
+conformance/contextualTypeTupleEnd	10	any:contextual-parameter;any:function-expression-error		any:contextual-parameter
+conformance/contextualTypeWithTuple	2	never-where-native-typed;tuple-vs-array		tuple-vs-array
+conformance/contextuallyTypeAsyncFunctionReturnType	5	other;signature-differs;tuple-vs-array;type-argument-differs		type-argument-differs
+conformance/contextuallyTypedBindingInitializer	2	gap:identifier	gap:identifier	gap:identifier
+conformance/contextuallyTypedBindingInitializerNegative	2	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/contextuallyTypedIife	13	any:contextual-parameter;gap:function-expression;gap:identifier;gap:object-literal;signature-differs		any:contextual-parameter
+conformance/contextuallyTypedIifeStrict	13	any:contextual-parameter;any:function-expression-error;any:literal-expression-error;signature-differs		any:contextual-parameter
+conformance/contextuallyTypedStringLiteralsInJsxAttributes02	12	any:contextual-parameter;any:function-expression-error;any:jsx;any:literal-expression-error;literal-widened		any:contextual-parameter
+conformance/controlFlowAliasing	17	alias-native-kept;any:property-lookup-error;union-extra-members		alias-native-kept
+conformance/controlFlowAssignmentPatternOrder	12	union-extra-members	union-extra-members	union-extra-members
+conformance/controlFlowBindingPatternOrder	2	union-extra-members	union-extra-members	union-extra-members
+conformance/controlFlowElementAccessNoCrash1	1	binding-pattern-print	binding-pattern-print	binding-pattern-print
+conformance/controlFlowGenericTypes	16	alias-name-native-reassigned;alias-name-port-reassigned;alias-native-kept;any:call-error;any:property-lookup-error;different-name;parenthesization;unknown-where-native-typed		parenthesization
+conformance/controlFlowOptionalChain	15	alias-native-kept;any:call-error;different-name;parenthesization		alias-native-kept
+conformance/controlFlowOptionalChain3	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
+conformance/controlFlowParameter	1	gap:identifier	gap:identifier	gap:identifier
+conformance/controlFlowSuperPropertyAccess	4	gap:call;undefined-optionality		undefined-optionality
+conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)	11	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/declarationsAndAssignments	13	any:binding-element;any:other;literal-widened;tuple-vs-array		any:binding-element
+conformance/decoratorOnArrowFunction	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/decoratorOnClass3.es6	1	gap:identifier	gap:identifier	gap:identifier
+conformance/decoratorOnClass7.es6	2	any:function-declaration-error;gap:identifier		gap:identifier
+conformance/decoratorOnClassMethod11(target=es2015)	4	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/decoratorOnClassMethod12(target=es2015)	4	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/decoratorOnFunctionExpression	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/defaultExportsCannotMerge01(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/defaultExportsCannotMerge02(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/defaultExportsCannotMerge03(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/dependentDestructuredVariables	9	any:function-expression-error;different-name;type-argument-differs;undefined-optionality;union-members-differ		undefined-optionality
+conformance/dependentDestructuredVariablesFromNestedPatterns	27	any:contextual-parameter;mapped-type-resolved-where-native-deferred;partial-any;readonly-modifier;tuple-vs-array;typed-where-native-unknown;union-order		any:contextual-parameter
+conformance/derivedClassSuperCallsInNonConstructorMembers	2	any:type-reference-error;unaligned-lines		any:type-reference-error
+conformance/destructuringControlFlow	7	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/destructuringInFunctionType	1	binding-pattern-parameter-type	binding-pattern-parameter-type	binding-pattern-parameter-type
+conformance/destructuringParameterDeclaration10(strict=false)	2	union-order	union-order	union-order
+conformance/destructuringParameterDeclaration10(strict=true)	2	union-order	union-order	union-order
+conformance/destructuringParameterDeclaration1ES5	4	any:function-declaration-error;binding-pattern-parameter-type;signature-differs		binding-pattern-parameter-type
+conformance/destructuringParameterDeclaration1ES5iterable	4	any:function-declaration-error;binding-pattern-parameter-type;signature-differs		binding-pattern-parameter-type
+conformance/destructuringParameterDeclaration1ES6	4	any:function-declaration-error;binding-pattern-parameter-type;signature-differs		binding-pattern-parameter-type
+conformance/destructuringParameterDeclaration2	3	binding-pattern-parameter-type;signature-differs		binding-pattern-parameter-type
+conformance/destructuringParameterProperties3	2	literal-widened	literal-widened	literal-widened
+conformance/destructuringVariableDeclaration1ES5	16	alias-native-kept;any:binding-element;literal-widened;object-members-differ;tuple-vs-array;union-extra-members		alias-native-kept
+conformance/destructuringVariableDeclaration1ES5iterable(target=es2015)	16	alias-native-kept;any:configured:identifier;literal-widened;object-members-differ;tuple-vs-array;union-extra-members		alias-native-kept
+conformance/destructuringVariableDeclaration1ES6	16	alias-native-kept;any:binding-element;literal-widened;object-members-differ;tuple-vs-array;union-extra-members		alias-native-kept
+conformance/destructuringVariableDeclaration2	4	literal-widened	literal-widened	literal-widened
+conformance/discriminatedUnionTypes2	12	alias-native-kept;any:property-lookup-error;union-members-differ		alias-native-kept
+conformance/discriminatedUnionTypes3	3	any:property-lookup-error;different-name;gap:property-access		gap:property-access
+conformance/discriminatedUnionTypes4	7	literal-mixed	literal-mixed	literal-mixed
+conformance/duplicateExportAssignments	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/dynamicImportDefer(module=commonjs)	3	any:configured:call	any:configured:call	any:configured:call
+conformance/dynamicImportDefer(module=es2015)	3	any:configured:call	any:configured:call	any:configured:call
+conformance/dynamicImportDefer(module=es2020)	3	any:configured:call	any:configured:call	any:configured:call
+conformance/dynamicImportDefer(module=esnext)	3	any:configured:call;gap:call		gap:call
+conformance/dynamicImportDefer(module=nodenext)	3	any:configured:call	any:configured:call	any:configured:call
+conformance/dynamicImportDefer(module=preserve)	3	any:configured:call;gap:call		gap:call
+conformance/elementAccessChain.2	3	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/emitArrowFunctionES6	4	gap:function-expression;gap:identifier		gap:identifier
+conformance/emitArrowFunctionWhenUsingArguments08(alwaysstrict=true,target=es2015)	3	any:configured:function-expression;signature-differs		signature-differs
+conformance/emitArrowFunctionWhenUsingArguments08_ES6(alwaysstrict=true)	3	any:configured:function-expression;signature-differs		signature-differs
+conformance/emitCompoundExponentiationAssignmentWithIndexingOnLHS3(target=es2015)	20	any:configured:identifier;gap:identifier;gap:object-literal;gap:property-access		gap:property-access
+conformance/emitRestParametersFunctionProperty(target=es2015)	1	signature-differs	signature-differs	signature-differs
+conformance/emitRestParametersFunctionPropertyES6	1	signature-differs	signature-differs	signature-differs
+conformance/emptyVariableDeclarationBindingPatterns01_ES5(target=es2015)	2	gap:function-expression;signature-differs		signature-differs
+conformance/emptyVariableDeclarationBindingPatterns01_ES5iterable(target=es2015)	2	any:configured:function-expression;signature-differs		signature-differs
+conformance/emptyVariableDeclarationBindingPatterns01_ES6	2	gap:function-expression;signature-differs		signature-differs
+conformance/enumAssignabilityInInheritance	1	any:call-error	any:call-error	any:call-error
+conformance/enums	5	any:alias-target;any:type-reference-error		any:type-reference-error
+conformance/errorSuperPropertyAccess(target=es2015)	2	any:configured:identifier;any:configured:object-literal		any:configured:identifier
+conformance/es2018IntlAPIs	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/es6modulekindWithES5Target11(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/esDecorators-classDeclaration-outerThisReference(target=es2015)	6	this-type	this-type	this-type
+conformance/esDecorators-classDeclaration-outerThisReference(target=es2021)	6	this-type	this-type	this-type
+conformance/esDecorators-classDeclaration-outerThisReference(target=es2022)	6	this-type	this-type	this-type
+conformance/esDecorators-classDeclaration-outerThisReference(target=esnext)	6	this-type	this-type	this-type
+conformance/esDecorators-contextualTypes.2	4	any:contextual-parameter;gap:function-expression;partial-any		partial-any
+conformance/esDecorators-preservesThis	12	any:call-error;any:property-lookup-error;gap:identifier;gap:other-expression;gap:property-access		gap:other-expression
+conformance/esDecorators-privateFieldAccess	5	any:other;partial-any;signature-differs;this-type;typed-where-native-any		this-type
+conformance/esmModuleExports1	3	any:alias-target;any:function-declaration-error;js:other		js:other
+conformance/esmModuleExports2(esmoduleinterop=true)	1	js:other	js:other	js:other
+conformance/esmModuleExports3	3	any:alias-target;any:function-declaration-error;js:other		js:other
+conformance/esnextmodulekindWithES5Target11(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/exhaustiveSwitchStatements1	2	union-members-differ	union-members-differ	union-members-differ
+conformance/exportAsNamespace1(module=commonjs)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace1(module=es2015)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace1(module=esnext)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace2(module=commonjs)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace2(module=es2015)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace2(module=esnext)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace3(module=commonjs)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace3(module=es2015)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace3(module=esnext)	4	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/exportAsNamespace5	1	gap:identifier	gap:identifier	gap:identifier
+conformance/exportDeclaration(isolatedmodules=false)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/exportDeclaration(isolatedmodules=true)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/exportDeclaration_moduleSpecifier	5	any:type-reference-error;import-qualifier-extra;import-qualifier-missing		import-qualifier-extra
+conformance/exportDeclaration_moduleSpecifier-isolatedModules	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportNamespace1	4	import-qualifier-extra;import-qualifier-missing		import-qualifier-extra
+conformance/exportNamespace11	3	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/exportNamespace12	2	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/exportNamespace3	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportNamespace5	6	any:type-reference-error;import-qualifier-extra;import-qualifier-missing		import-qualifier-extra
+conformance/exportNamespace9	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/exportNestedNamespaces2	4	js:any:binary-operand;js:any:function-expression-error		js:any:function-expression-error
+conformance/exportTypeMergedWithExportStarAsNamespace	6	alias-port-kept;gap:identifier;import-qualifier-missing		import-qualifier-missing
+conformance/exportsAndImports1	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportsAndImports1-es6	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportsAndImports3	8	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportsAndImports3-es6	8	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/exportsAndImports4(target=es2015)	6	typeof-name-choice	typeof-name-choice	typeof-name-choice
+conformance/exportsAndImports4-es6	6	typeof-name-choice	typeof-name-choice	typeof-name-choice
+conformance/extendsTag5	4	js:type-argument-differs	js:type-argument-differs	js:type-argument-differs
+conformance/for-of37	2	literal-widened	literal-widened	literal-widened
+conformance/for-of38	2	literal-widened	literal-widened	literal-widened
+conformance/for-of40	2	literal-widened	literal-widened	literal-widened
+conformance/for-of45	3	literal-not-widened;literal-widened		literal-widened
+conformance/for-of46	2	literal-widened	literal-widened	literal-widened
+conformance/for-of49	2	literal-widened	literal-widened	literal-widened
+conformance/for-of50	2	literal-widened	literal-widened	literal-widened
+conformance/for-of58	3	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/functionConstraintSatisfaction	6	gap:call;gap:function-expression;gap:identifier		gap:identifier
+conformance/functionExpressionContextualTyping3	1	literal-widened	literal-widened	literal-widened
+conformance/functionImplementationErrors(target=es2015)	3	signature-differs;typed-where-native-any		typed-where-native-any
+conformance/generatedContextualTyping	1	array-sugar	array-sugar	array-sugar
+conformance/generatorAssignability	2	any:other	any:other	any:other
+conformance/generatorImplicitAny	3	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/generatorReturnContextualType	6	literal-widened	literal-widened	literal-widened
+conformance/generatorReturnTypeIndirectReferenceToGlobalType	2	gap:identifier;gap:other-expression		gap:identifier
+conformance/generatorReturnTypeInference	3	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/generatorReturnTypeInferenceNonStrict	3	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/generatorTypeCheck31	3	any:call-error;any:function-expression-error		any:function-expression-error
+conformance/generatorTypeCheck39	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/generatorTypeCheck61	1	gap:identifier	gap:identifier	gap:identifier
+conformance/generatorTypeCheck62	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+conformance/generatorTypeCheck63	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+conformance/generatorYieldContextualType	11	alias-port-kept;gap:function-expression;gap:identifier;gap:other-expression;union-order		union-order
+conformance/generic	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/genericCallToOverloadedMethodWithOverloadedArguments	8	optional-param-undefined-not-printed	optional-param-undefined-not-printed	optional-param-undefined-not-printed
+conformance/genericCallWithConstructorTypedArguments5	2	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/genericCallWithFunctionTypedArguments5	4	any:call-error;any:variable-initialiser-error;typed-where-native-unknown		typed-where-native-unknown
+conformance/genericCallWithGenericSignatureArguments3	8	literal-widened	literal-widened	literal-widened
+conformance/genericCallWithOverloadedConstructorTypedArguments	10	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/genericCallWithOverloadedConstructorTypedArguments2	4	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/genericCallWithOverloadedFunctionTypedArguments	9	gap:call;gap:function-expression;gap:identifier;object-members-differ		gap:function-expression
+conformance/genericContextualTypes1	2	gap:function-expression	gap:function-expression	gap:function-expression
+conformance/genericFunctionParameters	12	different-name;signature-type-params-dropped;typed-where-native-unknown		typed-where-native-unknown
+conformance/genericObjectRest	2	gap:identifier	gap:identifier	gap:identifier
+conformance/genericRestParameters1	31	alias-name-native-reassigned;alias-port-kept;any:binary-operand;any:call-error;any:contextual-parameter;any:function-expression-error;any:other;any:property-lookup-error;signature-differs;unknown-where-native-typed		any:property-lookup-error
+conformance/genericRestParameters2	9	alias-port-kept;gap:property-access		gap:property-access
+conformance/genericRestParameters3	1	union-order	union-order	union-order
+conformance/genericTypeAliases	23	alias-port-kept;any:property-lookup-error;union-members-differ		alias-port-kept
+conformance/genericTypeReferenceWithoutTypeArgument	3	any:type-reference-error;typed-where-native-any		typed-where-native-any
+conformance/genericTypeReferenceWithoutTypeArgument.d	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/genericTypeReferenceWithoutTypeArgument2	3	any:type-reference-error;typed-where-native-any		typed-where-native-any
+conformance/genericTypeReferenceWithoutTypeArgument3	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/globalThisAmbientModules	2	alias-port-kept;any:type-reference-error		alias-port-kept
+conformance/globalThisBlockscopedProperties	3	any:property-lookup-error;any:type-reference-error		any:type-reference-error
+conformance/globalThisGlobalExportAsGlobal	1	any:alias-target	any:alias-target	any:alias-target
+conformance/globalThisTypeIndexAccess	1	gap:identifier	gap:identifier	gap:identifier
+conformance/heterogeneousArrayLiterals	18	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/importAssertion3(module=es2015)	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/importAssertion3(module=esnext)	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/importAttributes10	5	any:type-reference-error;unaligned-lines		any:type-reference-error
+conformance/importAttributes11	2	any:alias-target;unaligned-lines		any:alias-target
+conformance/importAttributes3(module=es2015)	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/importAttributes3(module=esnext)	1	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/importAttributes7	1	any:alias-target	any:alias-target	any:alias-target
+conformance/importAttributes8	1	any:alias-target	any:alias-target	any:alias-target
+conformance/importAttributes9	6	alias-port-kept;literal-widened;type-argument-differs		literal-widened
+conformance/importCallExpression3ES2020	3	any:property-lookup-error;gap:call;gap:property-access		gap:call
+conformance/importCallExpressionInCJS4	3	any:property-lookup-error;gap:call;gap:property-access		gap:call
+conformance/importCallExpressionInExportEqualsCJS	3	module-object-default-shape;type-argument-differs		module-object-default-shape
+conformance/importCallExpressionIncorrect2	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/importCallExpressionReturnPromiseOfAny	1	gap:identifier	gap:identifier	gap:identifier
+conformance/importCallExpressionWithTypeArgument	3	alias-name-port-reassigned;unaligned-lines		alias-name-port-reassigned
+conformance/importDefaultNamedType2	1	different-name	different-name	different-name
+conformance/importMetaNarrowing(module=es2020)	3	gap:call;undefined-optionality		undefined-optionality
+conformance/importMetaNarrowing(module=esnext)	3	gap:call;undefined-optionality		undefined-optionality
+conformance/importTag24	4	js:signature-differs;js:type-argument-differs		js:type-argument-differs
+conformance/importTypeAmbient	2	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/importTypeGeneric	2	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/importTypeGenericTypes	3	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/importTypeLocal	3	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/indexSignatureTypeInference	1	any:call-error	any:call-error	any:call-error
+conformance/indexSignatures1	30	alias-name-native-reassigned;any:binary-operand;any:property-lookup-error;any:type-reference-error;literal-widened		any:type-reference-error
+conformance/indexerWithTuple	3	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/inferThis	6	js:different-name	js:different-name	js:different-name
+conformance/inferTypes2	6	gap:call;gap:identifier;partial-any		gap:identifier
+conformance/inferTypesWithExtends1	4	alias-port-kept;conditional-type-resolved-where-native-deferred;gap:identifier		gap:identifier
+conformance/inferingFromAny	17	js:gap:call	js:gap:call	js:gap:call
+conformance/inlineJsxAndJsxFragPragmaOverridesCompilerOptions	4	gap:jsx-or-assertion	gap:jsx-or-assertion	gap:jsx-or-assertion
+conformance/inlineJsxFactoryDeclarationsLocalTypes	10	import-qualifier-missing;import-specifier-differs		import-specifier-differs
+conformance/inlineJsxFactoryLocalTypeGlobalFallback	4	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/instanceMemberInitialization	3	type-param-rename	type-param-rename	type-param-rename
+conformance/instancePropertiesInheritedIntoClassType	7	different-name;signature-differs		different-name
+conformance/instanceofOperatorWithRHSHasSymbolHasInstance	1	gap:array-literal	gap:array-literal	gap:array-literal
+conformance/instantiateTemplateTagTypeParameterOnVariableStatement	1	js:gap:function-expression	js:gap:function-expression	js:gap:function-expression
+conformance/instantiationExpressionErrors	66	any:binary-operand;any:call-error;any:other;any:property-lookup-error;any:type-reference-error;any:variable-initialiser-error		any:type-reference-error
+conformance/interfaceExtendsObjectIntersectionErrors	2	alias-port-kept;different-name		different-name
+conformance/intersectionIncludingPropFromGlobalAugmentation	1	object-members-differ	object-members-differ	object-members-differ
+conformance/intersectionNarrowing	1	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/intersectionReduction	6	alias-name-native-reassigned;any:type-reference-error;union-members-differ		alias-name-native-reassigned
+conformance/intersectionReductionStrict	6	alias-name-native-reassigned;any:type-reference-error;union-members-differ		alias-name-native-reassigned
+conformance/intersectionThisTypes	14	any:call-error;any:property-lookup-error;gap:call;gap:property-access		gap:call
+conformance/intersectionTypeInference2	4	gap:call;never-where-native-typed		never-where-native-typed
+conformance/intersectionTypeInference3	13	alias-name-native-reassigned;object-members-differ;other;type-argument-differs		alias-name-native-reassigned
+conformance/intersectionWithIndexSignatures	12	alias-name-native-reassigned;any:call-error;any:property-lookup-error		any:property-lookup-error
+conformance/intersectionWithUnionConstraint	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/intersectionsAndEmptyObjects	6	alias-port-kept;other;type-argument-differs		alias-port-kept
+conformance/intlNumberFormatES2020	3	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/intlNumberFormatES2023	6	qualified-name-choice;union-members-differ		qualified-name-choice
+conformance/intraExpressionInferences	27	any:call-error;any:literal-expression-error;any:property-lookup-error;literal-widened;object-members-differ;partial-any;signature-differs;unknown-where-native-typed		literal-widened
+conformance/intraExpressionInferencesJsx	13	any:call-error;any:contextual-parameter;binding-pattern-print;gap:function-expression;gap:identifier;gap:object-literal		binding-pattern-print
+conformance/intrinsicKeyword	2	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+conformance/intrinsicTypes	5	alias-name-native-reassigned;alias-port-kept		alias-port-kept
+conformance/invalidNewTarget.es5(target=es2015)	2	any:configured:identifier;any:configured:object-literal		any:configured:identifier
+conformance/invalidNewTarget.es6	2	any:literal-expression-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/isomorphicMappedTypeInference	19	any:property-lookup-error;gap:call;gap:property-access;undefined-optionality;unknown-where-native-typed		gap:property-access
+conformance/iterableArrayPattern14	2	binding-pattern-parameter-type	binding-pattern-parameter-type	binding-pattern-parameter-type
+conformance/iterableArrayPattern25	2	binding-pattern-parameter-type	binding-pattern-parameter-type	binding-pattern-parameter-type
+conformance/iterableArrayPattern29	3	literal-widened	literal-widened	literal-widened
+conformance/iterableArrayPattern30	3	literal-widened	literal-widened	literal-widened
+conformance/iteratorSpreadInCall10	1	any:call-error	any:call-error	any:call-error
+conformance/jsDeclarationsClasses(target=es2015)	7	js:any:configured:identifier;js:partial-any		js:any:configured:identifier
+conformance/jsDeclarationsComputedNames(target=es2015)	10	js:any:configured:identifier;js:gap:array-literal;js:gap:function-expression;js:gap:identifier;js:gap:object-literal;js:gap:other-expression;js:gap:property-access;js:signature-differs		js:gap:object-literal
+conformance/jsDeclarationsDefault(target=es2015)	11	js:any:configured:identifier;js:different-name;js:signature-differs		js:signature-differs
+conformance/jsDeclarationsExportAssignedClassExpressionAnonymous(target=es2015)	5	js:import-specifier-differs	js:import-specifier-differs	js:import-specifier-differs
+conformance/jsDeclarationsExportSpecifierNonlocal(target=es2015)	3	js:import-qualifier-missing	js:import-qualifier-missing	js:import-qualifier-missing
+conformance/jsDeclarationsFunctionJSDoc(target=es2015)	3	js:any:configured:identifier;js:any:configured:other-expression		js:any:configured:identifier
+conformance/jsDeclarationsImportNamespacedType	1	js:any:unannotated-declaration	js:any:unannotated-declaration	js:any:unannotated-declaration
+conformance/jsDeclarationsNonIdentifierInferredNames	2	js:gap:function-expression;js:gap:identifier		js:gap:identifier
+conformance/jsDeclarationsParameterTagReusesInputNodeInEmit2	4	js:any:contextual-parameter;js:partial-any		js:partial-any
+conformance/jsDeclarationsReexportAliases(target=es2015)	2	js:different-name	js:different-name	js:different-name
+conformance/jsDeclarationsTypeReassignmentFromDeclaration	6	js:partial-any	js:partial-any	js:partial-any
+conformance/jsDeclarationsTypedefFunction	2	js:tuple-vs-array	js:tuple-vs-array	js:tuple-vs-array
+conformance/jsDeclarationsUniqueSymbolUsage	3	js:any:uncontextual-parameter;js:partial-any		js:any:uncontextual-parameter
+conformance/jsdocCatchClauseWithTypeAnnotation	10	js:any:unannotated-declaration	js:any:unannotated-declaration	js:any:unannotated-declaration
+conformance/jsdocImportType	8	js:any:any-receiver-propagated;js:any:call-error;js:any:unannotated-declaration;js:different-name		js:any:any-receiver-propagated
+conformance/jsdocParseBackquotedParamName	1	js:signature-differs	js:signature-differs	js:signature-differs
+conformance/jsdocPostfixEqualsAddsOptionality	5	js:signature-differs	js:signature-differs	js:signature-differs
+conformance/jsdocPrivateName1	1	js:different-name	js:different-name	js:different-name
+conformance/jsdocSignatureOnReturnedFunction	28	js:any:binary-operand;js:any:contextual-parameter;js:partial-any		js:any:contextual-parameter
+conformance/jsdocTemplateTag3	15	js:any:binary-operand;js:any:uncontextual-parameter;js:literal-widened;js:type-param-constraint		js:any:uncontextual-parameter
+conformance/jsdocTemplateTag6	10	js:type-param-constraint;js:union-missing-members		js:union-missing-members
+conformance/jsdocTemplateTag7	1	js:any:function-declaration-error	js:any:function-declaration-error	js:any:function-declaration-error
+conformance/jsdocTemplateTag8	1	js:any:function-declaration-error	js:any:function-declaration-error	js:any:function-declaration-error
+conformance/jsdocTemplateTagDefault	5	js:signature-differs;js:tuple-vs-array		js:tuple-vs-array
+conformance/jsdocTemplateTagNameResolution	1	js:alias-name-native-reassigned	js:alias-name-native-reassigned	js:alias-name-native-reassigned
+conformance/jsdocTypeDefAtStartOfFile	1	js:different-name	js:different-name	js:different-name
+conformance/jsxCheckJsxNoTypeArgumentsAllowed	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/keyofAndForIn	2	gap:identifier;gap:property-access		gap:identifier
+conformance/keyofAndIndexedAccessErrors	9	any:binary-operand;any:property-lookup-error;any:type-reference-error		any:type-reference-error
+conformance/keyofInferenceLowerPriorityThanReturn	1	literal-widened	literal-widened	literal-widened
+conformance/keyofIntersection	5	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/leaveOptionalParameterAsWritten	3	gap:identifier;import-qualifier-missing;qualified-name-choice		qualified-name-choice
+conformance/legacyNodeModulesExportsSpecifierGenerationConditions	3	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/literalTypeWidening	5	gap:function-expression;gap:object-literal;literal-widened;signature-differs		signature-differs
+conformance/literalTypes2	11	alias-native-kept;alias-port-kept;gap:identifier;literal-widened		literal-widened
+conformance/literalTypesAndTypeAssertions	3	alias-port-kept;literal-widened		literal-widened
+conformance/logicalAssignment5(target=es2015)	2	any:configured:call	any:configured:call	any:configured:call
+conformance/logicalAssignment5(target=es2020)	2	any:configured:call	any:configured:call	any:configured:call
+conformance/logicalAssignment5(target=es2021)	2	any:configured:call	any:configured:call	any:configured:call
+conformance/logicalAssignment5(target=esnext)	2	any:configured:call	any:configured:call	any:configured:call
+conformance/logicalOrOperatorWithEveryType	4	union-order	union-order	union-order
+conformance/logicalOrOperatorWithTypeParameters	8	any:binary-operand;any:variable-initialiser-error		any:binary-operand
+conformance/looseThisTypeInFunctions	1	this-type	this-type	this-type
+conformance/mappedTypeAsClauseRecursiveNoCrash1	2	union-missing-members	union-missing-members	union-missing-members
+conformance/mappedTypeAsClauses	18	alias-name-native-reassigned;any:type-reference-error;conditional-type-unresolved;literal-mixed;mapped-type-resolved-where-native-deferred;other;parenthesization		alias-name-native-reassigned
+conformance/mappedTypeConstraints	16	any:property-lookup-error;gap:property-access		gap:property-access
+conformance/mappedTypeConstraints2	12	alias-port-kept;any:binding-element;any:call-error;any:property-lookup-error		any:binding-element
+conformance/mappedTypeIndexSignatureModifiers	9	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+conformance/mappedTypeInferenceErrors	4	object-members-differ;typed-where-native-unknown		typed-where-native-unknown
+conformance/mappedTypeModifiers	4	mapped-type-unresolved;undefined-optionality		mapped-type-unresolved
+conformance/mappedTypeOverlappingStringEnumKeys	5	enum-member-vs-enum;object-members-differ;signature-differs		object-members-differ
+conformance/mappedTypeProperties	2	any:other;unaligned-lines		any:other
+conformance/mappedTypeRelationships	2	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+conformance/mappedTypeWithAny	8	any:type-reference-error;different-name;mapped-type-unresolved		different-name
+conformance/mappedTypes1	2	object-members-differ	object-members-differ	object-members-differ
+conformance/mappedTypes4	9	alias-name-native-reassigned;alias-name-port-reassigned;gap:identifier;gap:object-literal;gap:property-access		alias-name-port-reassigned
+conformance/mappedTypesAndObjects	1	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/mappedTypesArraysTuples	12	gap:call;gap:identifier;type-argument-differs		type-argument-differs
+conformance/mappedTypesGenericTuples2	10	any:any-initialiser-propagated;any:other;partial-any;signature-differs		partial-any
+conformance/methodSignaturesWithOverloads	1	object-members-differ	object-members-differ	object-members-differ
+conformance/mixinAccessModifiers	22	any:property-lookup-error;signature-differs		any:property-lookup-error
+conformance/mixinClassesMembers	12	any:property-lookup-error;gap:property-access		gap:property-access
+conformance/multipleDefaultExports01(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/multipleDefaultExports03(target=es2015)	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/multipleDefaultExports05(target=es2015)	2	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/multipleExportDefault3	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/multipleExportDefault5	1	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/nameCollision	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/namedTupleMembers	1	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+conformance/namedTupleMembersErrors	6	alias-port-kept;any:type-reference-error;typed-where-native-any		alias-port-kept
+conformance/namespaceImportTypeQuery	3	any:other;any:type-reference-error		any:type-reference-error
+conformance/neverReturningFunctions1	3	literal-widened;other		other
+conformance/neverType	2	gap:call;partial-any		partial-any
+conformance/noInfer	18	alias-port-kept;any:type-reference-error;different-name;literal-widened;noinfer-not-substituted		noinfer-not-substituted
+conformance/noUncheckedIndexedAccess	8	type-param-constraint;undefined-optionality		type-param-constraint
+conformance/noUncheckedIndexedAccessDestructuring	1	tuple-vs-array	tuple-vs-array	tuple-vs-array
+conformance/nodeModulesAllowJsDynamicImport(module=node16)	6	js:gap:identifier;js:type-argument-differs;js:typed-where-native-any		js:gap:identifier
+conformance/nodeModulesAllowJsDynamicImport(module=node18)	6	js:gap:identifier;js:type-argument-differs;js:typed-where-native-any		js:gap:identifier
+conformance/nodeModulesAllowJsDynamicImport(module=node20)	6	js:gap:identifier;js:type-argument-differs;js:typed-where-native-any		js:gap:identifier
+conformance/nodeModulesAllowJsDynamicImport(module=nodenext)	6	js:gap:identifier;js:type-argument-differs;js:typed-where-native-any		js:gap:identifier
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node16)	4	js:alias-port-kept;js:type-argument-differs		js:alias-port-kept
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node18)	4	js:alias-port-kept;js:type-argument-differs		js:alias-port-kept
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node20)	4	js:alias-port-kept;js:type-argument-differs		js:alias-port-kept
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=nodenext)	4	js:alias-port-kept;js:type-argument-differs		js:alias-port-kept
+conformance/nodeModulesDeclarationEmitDynamicImportWithPackageExports(module=node18)	30	module-object-default-shape;other;type-argument-differs		type-argument-differs
+conformance/nodeModulesDeclarationEmitDynamicImportWithPackageExports(module=node20)	30	module-object-default-shape;other;type-argument-differs		type-argument-differs
+conformance/nodeModulesDeclarationEmitDynamicImportWithPackageExports(module=nodenext)	30	module-object-default-shape;other;type-argument-differs		type-argument-differs
+conformance/nodeModulesDynamicImport(module=node16)	6	gap:identifier;type-argument-differs;typed-where-native-any		gap:identifier
+conformance/nodeModulesDynamicImport(module=node18)	6	gap:identifier;type-argument-differs;typed-where-native-any		gap:identifier
+conformance/nodeModulesDynamicImport(module=node20)	6	gap:identifier;type-argument-differs;typed-where-native-any		gap:identifier
+conformance/nodeModulesDynamicImport(module=nodenext)	6	gap:identifier;type-argument-differs;typed-where-native-any		gap:identifier
+conformance/nodeModulesImportAssertions(module=node16)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAssertions(module=node18)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAssertions(module=node20)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAssertions(module=nodenext)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAttributes(module=node16)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAttributes(module=node18)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAttributes(module=node20)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAttributes(module=nodenext)	4	any:configured:identifier;type-argument-differs		any:configured:identifier
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node16)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node18)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node20)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=nodenext)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node16)	6	import-specifier-differs;type-argument-differs		import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node18)	6	import-specifier-differs;type-argument-differs		import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node20)	6	import-specifier-differs;type-argument-differs		import-specifier-differs
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=nodenext)	6	import-specifier-differs;type-argument-differs		import-specifier-differs
+conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node16)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node18)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node20)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesImportTypeModeDeclarationEmit1(module=nodenext)	3	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/nodeModulesJson(module=node16)	12	alias-native-kept;any:configured:identifier;any:configured:property-access;module-object-default-shape;typed-where-native-any		any:configured:identifier
+conformance/nodeModulesJson(module=node18)	12	alias-native-kept;any:configured:identifier;any:configured:property-access;module-object-default-shape;typed-where-native-any		any:configured:identifier
+conformance/nodeModulesJson(module=node20)	12	alias-native-kept;any:configured:identifier;any:configured:property-access;module-object-default-shape;typed-where-native-any		any:configured:identifier
+conformance/nodeModulesJson(module=nodenext)	12	alias-native-kept;any:configured:identifier;any:configured:property-access;module-object-default-shape;typed-where-native-any		any:configured:identifier
+conformance/nodeModulesResolveJsonModule(module=node16)	37	alias-port-kept;any:configured:identifier;any:configured:property-access;module-object-default-shape;object-members-differ		any:configured:identifier
+conformance/nodeModulesResolveJsonModule(module=node18)	37	alias-port-kept;any:configured:identifier;any:configured:property-access;gap:identifier;gap:property-access;module-object-default-shape;object-members-differ		any:configured:identifier
+conformance/nodeModulesResolveJsonModule(module=node20)	37	alias-port-kept;any:configured:identifier;any:configured:property-access;gap:identifier;gap:property-access;module-object-default-shape;object-members-differ		any:configured:identifier
+conformance/nodeModulesResolveJsonModule(module=nodenext)	37	alias-port-kept;any:configured:identifier;any:configured:property-access;gap:identifier;gap:property-access;module-object-default-shape;object-members-differ		any:configured:identifier
+conformance/nodeModulesSynchronousCallErrors(module=node16)	4	alias-port-kept;type-argument-differs		alias-port-kept
+conformance/nodeModulesSynchronousCallErrors(module=node18)	4	alias-port-kept;type-argument-differs		alias-port-kept
+conformance/nodeModulesSynchronousCallErrors(module=node20)	4	alias-port-kept;type-argument-differs		alias-port-kept
+conformance/nodeModulesSynchronousCallErrors(module=nodenext)	4	alias-port-kept;type-argument-differs		alias-port-kept
+conformance/nonPrimitiveAccessProperty	1	any:binding-element	any:binding-element	any:binding-element
+conformance/nonPrimitiveAndEmptyObject	4	any:property-lookup-error;gap:property-access;other		other
+conformance/nullishCoalescingOperator5	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/nullishCoalescingOperator_not_strict	2	gap:identifier;gap:other-expression		gap:identifier
+conformance/numericStringLiteralTypes	2	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/numericStringNamedPropertyEquivalence	3	object-members-differ	object-members-differ	object-members-differ
+conformance/objectLiteralContextualTyping	3	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/objectLiteralErrors(target=es2015)	30	any:configured:identifier;any:configured:object-literal;different-name;object-members-differ		any:configured:identifier
+conformance/objectLiteralGettersAndSetters	14	array-sugar;gap:identifier;gap:object-literal		gap:identifier
+conformance/objectLiteralShorthandPropertiesErrorFromNotUsingIdentifier	2	object-members-differ	object-members-differ	object-members-differ
+conformance/objectLiteralShorthandPropertiesErrorWithModule	2	object-members-differ	object-members-differ	object-members-differ
+conformance/objectRest	3	any:binding-element;any:literal-expression-error		any:binding-element
+conformance/objectTypesWithOptionalProperties2	3	object-members-differ;signature-differs		object-members-differ
+conformance/optionalBindingParameters3	1	js:signature-differs	js:signature-differs	js:signature-differs
+conformance/optionalBindingParameters4	3	js:gap:identifier;js:partial-any		js:gap:identifier
+conformance/overloadResolution	4	any:call-error;different-name		any:call-error
+conformance/overloadResolutionConstructors	1	different-name	different-name	different-name
+conformance/overloadTag1	18	js:any:uncontextual-parameter;js:different-name;js:other		js:other
+conformance/overloadTag2	3	js:any:binary-operand;js:any:uncontextual-parameter		js:any:uncontextual-parameter
+conformance/overloadTag3	2	js:partial-any	js:partial-any	js:partial-any
+conformance/overrideInterfaceProperty	1	parenthesization	parenthesization	parenthesization
+conformance/paramTagTypeResolution	2	js:different-name;js:signature-differs		js:signature-differs
+conformance/parameterInitializersForwardReferencing1(target=es2015)	14	any:configured:call;any:configured:function-expression;any:configured:identifier;different-name;signature-differs		different-name
+conformance/parameterInitializersForwardReferencing1_es6	14	any:call-error;any:function-declaration-error;any:function-expression-error;any:variable-initialiser-error;different-name;signature-differs		different-name
+conformance/parenthesizedContexualTyping2	12	signature-differs;typed-where-native-any		typed-where-native-any
+conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true)	6	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/parserCatchClauseWithTypeAnnotation1	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/parserClassDeclaration23	1	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/parserComputedPropertyName14	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/parserComputedPropertyName18	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/parserComputedPropertyName19	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/parserEnumDeclaration4	1	signature-differs	signature-differs	signature-differs
+conformance/parserErrorRecovery_ParameterList6	2	any:type-reference-error;partial-any		partial-any
+conformance/parserMemberAccessorDeclaration16(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/parserMemberAccessorDeclaration18(target=es2015)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/parserMissingLambdaOpenBrace1	2	type-argument-differs	type-argument-differs	type-argument-differs
+conformance/parserMissingToken2	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/parserParameterList11	2	optional-param-undefined-not-printed;undefined-optionality		optional-param-undefined-not-printed
+conformance/parserRealSource7	35	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/parserRegularExpressionDivideAmbiguity4	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/parserStatementIsNotAMemberVariableDeclaration1(alwaysstrict=true)	3	any:configured:function-expression;any:configured:object-literal;any:configured:other-expression		any:configured:object-literal
+conformance/parserTypeAssertionInObjectCreationExpression1	2	any:call-error;unaligned-lines		any:call-error
+conformance/parserUnfinishedTypeNameBeforeKeyword1	1	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/parserX_ArrowFunction3	2	typed-where-native-any;unaligned-lines		typed-where-native-any
+conformance/partiallyAnnotatedFunctionInferenceError	3	any:function-expression-error	any:function-expression-error	any:function-expression-error
+conformance/partiallyAnnotatedFunctionInferenceWithTypeParameter	3	any:call-error;never-where-native-typed;signature-differs		any:call-error
+conformance/partiallyNamedTuples	9	alias-port-kept;other		other
+conformance/privateIdentifierExpando	1	js:gap:other-expression	js:gap:other-expression	js:gap:other-expression
+conformance/privateNameAndPropertySignature	4	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/privateNameComputedPropertyName3(target=es2015)	1	any:configured:new	any:configured:new	any:configured:new
+conformance/privateNameComputedPropertyName3(target=es2022)	1	any:configured:new	any:configured:new	any:configured:new
+conformance/privateNameComputedPropertyName3(target=esnext)	1	any:configured:new	any:configured:new	any:configured:new
+conformance/privateNameHashCharName	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/privateNameInInExpression(target=es2022)	14	alias-native-kept;alias-port-kept;any:configured:identifier;different-name;union-extra-members		alias-native-kept
+conformance/privateNameInInExpression(target=esnext)	14	alias-native-kept;alias-port-kept;any:configured:identifier;different-name;union-extra-members		alias-native-kept
+conformance/privateNameInInExpressionTransform(target=es2020)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/privateNameInInExpressionTransform(target=es2022)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/privateNameInInExpressionTransform(target=esnext)	1	any:configured:identifier	any:configured:identifier	any:configured:identifier
+conformance/privateNameInObjectLiteral-3(target=es2015)	2	partial-any	partial-any	partial-any
+conformance/privateNamesAndIndexedAccess	2	any:type-reference-error;typed-where-native-any		typed-where-native-any
+conformance/privateNamesAssertion(target=es2022)	2	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/privateNamesAssertion(target=esnext)	2	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/privateNamesConstructorChain-1	1	any:other	any:other	any:other
+conformance/privateNamesConstructorChain-2	1	any:other	any:other	any:other
+conformance/privateNamesIncompatibleModifiersJs	3	js:any:uncontextual-parameter	js:any:uncontextual-parameter	js:any:uncontextual-parameter
+conformance/propertyAccessChain.2	2	undefined-optionality	undefined-optionality	undefined-optionality
+conformance/propertyAccessOnTypeParameterWithoutConstraints	30	any:any-initialiser-propagated;any:call-error;any:property-lookup-error;gap:call;gap:identifier;gap:property-access;partial-any		partial-any
+conformance/propertyAccessWidening	5	any:property-lookup-error;any:variable-initialiser-error		any:property-lookup-error
+conformance/propertyAndAccessorWithSameName	6	any:other;any:uncontextual-parameter		any:other
+conformance/readonlyArraysAndTuples	4	alias-name-native-reassigned;any:other		any:other
+conformance/recursiveMappedTypes	12	alias-name-native-reassigned;mapped-type-unresolved;other;parenthesization;typed-where-native-any		typed-where-native-any
+conformance/recursiveTypeReferences1	7	alias-native-kept;literal-widened;other;tuple-vs-array		literal-widened
+conformance/recursiveTypesWithTypeof	34	any:call-error;any:property-lookup-error;any:type-reference-error;object-members-differ		object-members-differ
+conformance/reexportClassDefinition	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/renamed	3	alias-port-kept;any:type-reference-error		alias-port-kept
+conformance/resolutionModeCache	2	any:alias-target	any:alias-target	any:alias-target
+conformance/resolutionModeImportType1(moduleresolution=bundler)	5	gap:identifier	gap:identifier	gap:identifier
+conformance/restElementMustBeLast	3	tuple-vs-array	tuple-vs-array	tuple-vs-array
+conformance/restPropertyWithBindingPattern(target=es2015)	2	any:configured:object-literal	any:configured:object-literal	any:configured:object-literal
+conformance/restTupleElements1	5	any:call-error;any:type-reference-error;different-name;literal-widened		any:call-error
+conformance/restTuplesFromContextualTypes	17	any:function-expression-error;rest-tuple-params-not-expanded;signature-differs		signature-differs
+conformance/returnTagTypeGuard	12	js:alias-native-kept;js:any:uncontextual-parameter;js:gap:identifier;js:gap:property-access;js:partial-any;js:union-members-differ;js:union-order		js:alias-native-kept
+conformance/scannerStringLiterals	2	literal-mixed	literal-mixed	literal-mixed
+conformance/sourceFileMergeWithFunction	1	partial-any	partial-any	partial-any
+conformance/spreadObjectOrFalsy	1	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/staticIndexSignature5	4	alias-name-native-reassigned	alias-name-native-reassigned	alias-name-native-reassigned
+conformance/staticIndexSignature6	3	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=false)	6	different-name	different-name	different-name
+conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=true)	6	different-name	different-name	different-name
+conformance/staticPropertyNameConflictsInAmbientContext	2	any:type-reference-error;different-name		different-name
+conformance/strictBindCallApply1	3	alias-port-kept;any:call-error		any:call-error
+conformance/stringMappingDeferralInConditionalTypes	3	different-name;literal-mixed		literal-mixed
+conformance/stringMappingReduction	4	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/subtypesOfTypeParameter	6	type-param-rename	type-param-rename	type-param-rename
+conformance/subtypesOfTypeParameterWithConstraints2	6	type-param-rename	type-param-rename	type-param-rename
+conformance/subtypesOfUnion	2	type-param-rename	type-param-rename	type-param-rename
+conformance/subtypingWithCallSignatures2	21	array-sugar	array-sugar	array-sugar
+conformance/subtypingWithCallSignatures3	9	array-sugar	array-sugar	array-sugar
+conformance/superCallParameterContextualTyping1	6	any:call-error;any:contextual-parameter;gap:function-expression		any:contextual-parameter
+conformance/superCallParameterContextualTyping2	3	any:contextual-parameter;any:function-expression-error		any:contextual-parameter
+conformance/superCallParameterContextualTyping3	6	any:contextual-parameter;partial-any		any:contextual-parameter
+conformance/superPropertyAccessNoError(target=es2015)	10	any:configured:call;any:configured:identifier;different-name;signature-differs;this-type		this-type
+conformance/symbolDeclarationEmit3	3	object-members-differ	object-members-differ	object-members-differ
+conformance/symbolProperty39	4	partial-any	partial-any	partial-any
+conformance/symbolProperty40	5	partial-any	partial-any	partial-any
+conformance/symbolProperty41	5	partial-any	partial-any	partial-any
+conformance/symbolProperty61	12	gap:call;literal-widened		literal-widened
+conformance/taggedTemplateChain	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/taggedTemplateContextualTyping2	1	different-name	different-name	different-name
+conformance/taggedTemplateStringsTypeArgumentInference	2	any:call-error	any:call-error	any:call-error
+conformance/taggedTemplateStringsTypeArgumentInferenceES6	2	any:call-error	any:call-error	any:call-error
+conformance/taggedTemplateStringsWithOverloadResolution1	4	different-name	different-name	different-name
+conformance/taggedTemplateStringsWithOverloadResolution1_ES6	4	different-name	different-name	different-name
+conformance/taggedTemplateStringsWithOverloadResolution2	2	different-name	different-name	different-name
+conformance/taggedTemplateStringsWithOverloadResolution2_ES6	2	different-name	different-name	different-name
+conformance/taggedTemplateStringsWithOverloadResolution3	12	any:call-error;any:contextual-parameter;any:function-expression-error;different-name		any:contextual-parameter
+conformance/taggedTemplateStringsWithOverloadResolution3_ES6	12	any:call-error;any:contextual-parameter;any:function-expression-error;different-name		any:contextual-parameter
+conformance/templateLiteralTypes2	11	alias-port-kept;any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/templateLiteralTypes3	2	any:call-error;any:variable-initialiser-error		any:variable-initialiser-error
+conformance/templateLiteralTypes6	1	literal-mixed	literal-mixed	literal-mixed
+conformance/templateStringMultiline3	1	literal-mixed	literal-mixed	literal-mixed
+conformance/thisInInvalidContexts	1	any:call-error	any:call-error	any:call-error
+conformance/thisInInvalidContextsExternalModule(target=es2015)	1	any:configured:call	any:configured:call	any:configured:call
+conformance/thisInObjectLiterals	1	this-type	this-type	this-type
+conformance/thisTypeErrors	3	any:type-reference-error;this-type		this-type
+conformance/thisTypeErrors2	1	any:type-reference-error	any:type-reference-error	any:type-reference-error
+conformance/thisTypeInAccessors(target=es2015)	12	alias-native-kept;any:configured:identifier;any:configured:property-access;different-name;object-members-differ;this-type		different-name
+conformance/thisTypeInAccessorsNegative(target=es2015)	5	different-name;object-members-differ		different-name
+conformance/thisTypeInFunctions	6	any:binary-operand;any:contextual-parameter;partial-any		any:contextual-parameter
+conformance/thisTypeInFunctionsNegative	9	alias-native-kept;signature-differs;typed-where-native-any;unaligned-lines		typed-where-native-any
+conformance/thisTypeInObjectLiterals	4	this-type	this-type	this-type
+conformance/thisTypeInObjectLiterals2(target=es2015)	14	any:configured:identifier;any:configured:other-expression;any:configured:property-access;partial-any;this-type;unknown-where-native-typed		any:configured:identifier
+conformance/thisTypeInTaggedTemplateCall	2	gap:other-expression	gap:other-expression	gap:other-expression
+conformance/topLevelAwait.1(module=es2022,target=es2015)	5	alias-port-kept;any:configured:call;any:configured:identifier;any:configured:other-expression		any:configured:other-expression
+conformance/topLevelAwait.1(module=es2022,target=es2017)	5	alias-port-kept;gap:call;gap:identifier;gap:other-expression		gap:other-expression
+conformance/topLevelAwait.1(module=esnext,target=es2015)	5	alias-port-kept;any:configured:call;any:configured:identifier;any:configured:other-expression		any:configured:other-expression
+conformance/topLevelAwait.1(module=esnext,target=es2017)	5	alias-port-kept;gap:call;gap:identifier;gap:other-expression		gap:other-expression
+conformance/trailingCommasInFunctionParametersAndArguments(target=es2015)	1	any:configured:property-access	any:configured:property-access	any:configured:property-access
+conformance/tsxAttributeInvalidNames	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/tsxAttributeResolution15	5	any:binary-operand;any:contextual-parameter;any:function-expression-error;any:jsx		any:contextual-parameter
+conformance/tsxAttributeResolution2	2	any:function-expression-error;any:jsx		any:jsx
+conformance/tsxGenericAttributesType1	9	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/tsxGenericAttributesType2	3	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/tsxGenericAttributesType3	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/tsxGenericAttributesType4	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/tsxGenericAttributesType9	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/tsxInArrowFunction	1	any:function-expression-error	any:function-expression-error	any:function-expression-error
+conformance/tsxSpreadAttributesResolution4	6	any:binary-operand;any:contextual-parameter;any:function-expression-error;any:literal-expression-error		any:literal-expression-error
+conformance/tsxSpreadChildrenInvalidType(jsx=react-jsx,target=es2015)	12	signature-differs;typed-where-native-any		signature-differs
+conformance/tsxStatelessFunctionComponentOverload5	7	any:contextual-parameter;any:function-expression-error;any:jsx;any:literal-expression-error		any:function-expression-error
+conformance/tsxStatelessFunctionComponentOverload6	6	any:contextual-parameter;any:function-expression-error;any:jsx		any:jsx
+conformance/tsxStatelessFunctionComponents1	2	any:function-expression-error;any:jsx		any:jsx
+conformance/tsxStatelessFunctionComponents2	29	any:call-error;any:contextual-parameter;any:function-expression-error;any:jsx		any:contextual-parameter
+conformance/tsxUnionTypeComponent1	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/typeAliases	3	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/typeAliasesDoNotMerge	2	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/typeAliasesForObjectTypes	1	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/typeAndNamespaceExportMerge	2	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/typeArgumentInferenceTransitiveConstraints	3	alias-native-kept;signature-differs		signature-differs
+conformance/typeArgumentInferenceWithClassExpression3	3	any:property-lookup-error;unknown-where-native-typed		any:property-lookup-error
+conformance/typeArgumentInferenceWithConstraints	8	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/typeArgumentInferenceWithObjectLiteral	4	enum-member-vs-enum;signature-differs		signature-differs
+conformance/typeFromJSInitializer3	2	js:any:variable-initialiser-error	js:any:variable-initialiser-error	js:any:variable-initialiser-error
+conformance/typeFromPrivatePropertyAssignmentJs	9	js:any:any-initialiser-propagated;js:any:binary-operand;js:any:other;js:any:unannotated-declaration		js:any:other
+conformance/typeGuardNarrowsPrimitiveIntersection	4	never-where-native-typed;parenthesization		parenthesization
+conformance/typeGuardNarrowsToLiteralTypeUnion	2	union-members-differ	union-members-differ	union-members-differ
+conformance/typeGuardsAsAssertions	8	alias-name-native-reassigned;different-name;union-extra-members		union-extra-members
+conformance/typeGuardsTypeParameters	4	gap:identifier;gap:property-access;mapped-type-resolved-where-native-deferred		gap:identifier
+conformance/typeGuardsWithInstanceOfByConstructorSignature	8	alias-native-kept;any:property-lookup-error;any:type-reference-error		any:type-reference-error
+conformance/typeParameterAsTypeParameterConstraintTransitively	3	gap:call;gap:function-expression		gap:function-expression
+conformance/typeParameterAsTypeParameterConstraintTransitively2	2	gap:call;gap:function-expression		gap:call
+conformance/typeParameterConstModifiers	13	literal-mixed;mapped-type-unresolved;readonly-modifier;union-missing-members		union-missing-members
+conformance/typeParameterConstModifiersReturnsAndYields	48	gap:call;gap:identifier;literal-widened		gap:identifier
+conformance/typeParameterDirectlyConstrainedToItself	7	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/typeParameterIndirectlyConstrainedToItself	7	type-param-constraint	type-param-constraint	type-param-constraint
+conformance/typeParametersAvailableInNestedScope3	6	type-param-rename	type-param-rename	type-param-rename
+conformance/typeRelationships	1	this-type	this-type	this-type
+conformance/typeTagNoErasure	5	js:any:call-error;js:any:contextual-parameter;js:signature-type-params-dropped		js:any:contextual-parameter
+conformance/typeTagOnFunctionReferencesGeneric	9	js:any:call-error;js:any:contextual-parameter;js:any:uncontextual-parameter;js:signature-type-params-dropped		js:signature-type-params-dropped
+conformance/typeTagOnPropertyAssignment	11	js:literal-widened	js:literal-widened	js:literal-widened
+conformance/typeTagWithGenericSignature	6	js:any:any-initialiser-propagated;js:any:call-error;js:any:uncontextual-parameter;js:signature-type-params-dropped		js:signature-type-params-dropped
+conformance/typedefScope1	1	js:different-name	js:different-name	js:different-name
+conformance/typeofANonExportedType	2	enum-member-vs-enum	enum-member-vs-enum	enum-member-vs-enum
+conformance/typeofAnExportedType	8	any:function-declaration-error;any:other;any:type-reference-error;enum-member-vs-enum		any:other
+conformance/typeofImportDefer	1	unaligned-lines	unaligned-lines	unaligned-lines
+conformance/typeofImportTypeOnlyExport	4	import-qualifier-missing	import-qualifier-missing	import-qualifier-missing
+conformance/types.asyncGenerators.es2018.1	21	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/types.asyncGenerators.es2018.2	21	unknown-where-native-typed	unknown-where-native-typed	unknown-where-native-typed
+conformance/typesVersionsDeclarationEmit.multiFileBackReferenceToUnmapped	9	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/typesWithDuplicateTypeParameters	2	duplicate-type-parameters;signature-differs		duplicate-type-parameters
+conformance/umd-augmentation-1	2	qualified-name-choice	qualified-name-choice	qualified-name-choice
+conformance/umd-augmentation-3	3	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/umd-augmentation-4	3	alias-port-kept	alias-port-kept	alias-port-kept
+conformance/umd-errors	2	typed-where-native-any	typed-where-native-any	typed-where-native-any
+conformance/umd8	7	any:call-error;any:property-lookup-error;any:type-reference-error;import-specifier-differs;qualified-name-choice		any:type-reference-error
+conformance/umd9	2	import-specifier-differs	import-specifier-differs	import-specifier-differs
+conformance/unicodeExtendedEscapesInStrings10(target=es6)	1	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/unicodeExtendedEscapesInStrings11(target=es6)	1	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/unicodeExtendedEscapesInTemplates10(target=es6)	1	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/unicodeExtendedEscapesInTemplates11(target=es6)	1	string-escape-printing	string-escape-printing	string-escape-printing
+conformance/unionAndIntersectionInference1	11	alias-name-native-reassigned;any:call-error;any:property-lookup-error;literal-widened;type-param-rename		literal-widened
+conformance/unionAndIntersectionInference2	2	alias-native-kept	alias-native-kept	alias-native-kept
+conformance/unionAndIntersectionInference3	2	other	other	other
+conformance/unionTypeInference	8	any:any-initialiser-propagated;any:call-error;any:other;any:unannotated-declaration;literal-widened		any:any-initialiser-propagated
+conformance/uniqueSymbols	15	any:property-lookup-error;literal-not-widened		literal-not-widened
+conformance/uniqueSymbolsDeclarations	15	any:property-lookup-error;literal-not-widened		literal-not-widened
+conformance/uniqueSymbolsErrors	34	alias-native-kept;literal-not-widened		literal-not-widened
+conformance/unknownControlFlow	1	union-order	union-order	union-order
+conformance/unknownType1	4	alias-name-native-reassigned;any:type-reference-error;typed-where-native-unknown		any:type-reference-error
+conformance/useObjectValuesAndEntries1(target=es2015)	20	gap:call;gap:identifier;literal-widened		gap:identifier
+conformance/usingDeclarationsWithIteratorObject	8	type-argument-differs;typed-where-native-unknown		type-argument-differs
+conformance/varRequireFromJavascript	2	js:any:uncontextual-parameter	js:any:uncontextual-parameter	js:any:uncontextual-parameter
+conformance/varRequireFromTypescript	4	js:any:uncontextual-parameter	js:any:uncontextual-parameter	js:any:uncontextual-parameter
+conformance/variadicTuples1	21	alias-port-kept;any:call-error;any:contextual-parameter;any:function-expression-error;different-name;literal-widened;partial-any;rest-tuple-params-not-expanded;tuple-vs-array		literal-widened
+conformance/variadicTuples2	31	alias-port-kept;any:any-initialiser-propagated;any:call-error;any:function-expression-error;any:other;any:property-lookup-error;literal-widened;partial-any		alias-port-kept
+conformance/varianceAnnotations	3	any:function-declaration-error	any:function-declaration-error	any:function-declaration-error
+conformance/verbatimModuleSyntaxNoElisionESM	1	import-qualifier-extra	import-qualifier-extra	import-qualifier-extra
