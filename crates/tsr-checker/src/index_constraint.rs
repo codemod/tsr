@@ -353,7 +353,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The source text of a member's computed name, brackets included.
-    fn computed_member_name_text(&self, member: NodeId) -> Option<String> {
+    pub(crate) fn computed_member_name_text(&self, member: NodeId) -> Option<String> {
         let name = self.declaration_name_of(member)?;
         let span = self.error_span(name);
         let text = self

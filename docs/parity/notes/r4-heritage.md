@@ -56,3 +56,34 @@ per symbol from the chosen declaration.
 **Measured** against the frozen baseline: diagnostics RIGHT 4312 -> 4314
 (`objectTypeHidingMembersOfExtendedObject`, `interfaceExtendingClass2`);
 `checker_types` unchanged; both loss checks empty.
+
+## 2. `issueMemberSpecificError` reads late-bound member names
+
+**Forcing constraint.** `issueMemberSpecificError` (`checker.go:4494`) skips a
+member only when `declaredProp.Name == ast.InternalSymbolNameComputed`. A
+computed name `lateBindMember` can bind — a well-known symbol
+(`[Symbol.toPrimitive]`) or a literal (`["a"]`) — has a real symbol name, so
+the member is related and reported as TS2416 at the member. The port skipped
+every `ComputedPropertyName`, so the walk found no member error and fell back
+to the broad TS2420 at the class name (`symbolProperty24`: pinned `tsgo`
+reports TS2416 at `[Symbol.toPrimitive]`, the port reported TS2420 at `C`).
+The port now reads the name `late_bound_members_of` (the existing
+`lateBindMember` image) assigned to the member, and keeps skipping a computed
+name it did not bind. The diagnostic prints the name as written
+(`symbolToString` of a late-bound symbol), through
+`computed_member_name_text` (raised to `pub(crate)` in `index_constraint.rs`).
+
+Port convention record: no new table; `late_bound_members_of` is the
+existing per-(owner, static) memo, read only on the failure path (after the
+class-level relation has already said `NotRelated`).
+
+**Measured** against the post-merge baseline (`0ca5b7e`, diagnostics RIGHT
+4341): RIGHT 4341 -> 4342 (`symbolProperty24`); both loss checks empty.
+
+## 3. tsr-2zk.3.2 was already closed by the static-side check
+
+The issue's witnesses, `overridingPrivateStaticMembers` and
+`derivedClassOverridesPrivates`, are RIGHT in the frozen baseline (`5ad60b1`):
+the instance relation no longer fails on static-only differences, and
+`check_static_side_assignability` (`check.rs`) reports the TS2417. No change
+was needed in this lane.
