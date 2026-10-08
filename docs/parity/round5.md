@@ -551,3 +551,21 @@ getNamedMembers' sort at those sites is filed as `tsr-2zk.1057`.
 The freed slot went to r5-checkperf. Domain-model's wall is about half checker,
 and this round's three perf lanes were all front end. It takes `.967`, `.998`,
 `.997`, `.996` and `.935`, with byte-identical outputs.
+
+### r5-modexports finished; r5-typetriage dispatched (`tsr-2zk.1058`)
+
+r5-modexports shipped both items as measured diffs, because symbols.rs is
+main's file. Both land in batch W:
+- string-literal export names in getExternalModuleMember: +175 type lines,
+  +1 case;
+- getTypeWithSyntheticDefaultOnly, createDefaultPropertyWrapperForModule and the
+  synthetic-default import type: +305 type lines.
+
+Neither loses anything, and Ir stays within ±0.03% noise. The remainder is
+filed as `.1059` (declared.rs alias road) and `.1060` (JSON file flags, and the
+export= import() decline). The spread method-form print goes to r5-typetriage.
+
+The freed slot went to r5-typetriage. The integrator's clusters are keyed on
+diagnostic codes, which fits type-print failures badly. With ~7,400 type lines
+still WRONG, the next lanes need a root-cause table ranked by the number of
+cases each cause alone blocks.
