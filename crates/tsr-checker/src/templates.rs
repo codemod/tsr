@@ -199,13 +199,7 @@ impl Checker<'_, '_> {
                         if !self.add_template_spans(&nested.texts, &nested.types, text, out) {
                             return false;
                         }
-                    } else if self.store.get(ty).flags.intersects(
-                        TypeFlags::TYPE_PARAMETER
-                            | TypeFlags::INDEX
-                            | TypeFlags::INDEXED_ACCESS
-                            | TypeFlags::SUBSTITUTION
-                            | TypeFlags::STRING_MAPPING,
-                    ) || self.deferred_keyof_operands.contains_key(&ty)
+                    } else if self.is_generic_index_type(ty)
                         || self.is_pattern_template_placeholder(ty)
                     {
                         out.types.push(ty);
@@ -218,6 +212,28 @@ impl Checker<'_, '_> {
             text.push_str(&texts[i + 1]);
         }
         true
+    }
+    /// `isGenericIndexType` (`checker.go:24876`): the `IsGenericIndexType`
+    /// bit of `getGenericObjectFlags` (`:24880`) — a union or intersection
+    /// has it when any constituent does; otherwise an instantiable
+    /// non-primitive, an index type (a deferred `keyof` here is
+    /// `deferred_keyof_operands`), or a generic string-like type (a template
+    /// literal or string mapping that is not a pattern literal).
+    ///
+    /// Port record: upstream memoises the union/intersection answer on the
+    /// type (`ObjectFlagsIsGenericTypeComputed`); this walks the
+    /// constituents per call. Its only caller is `addSpans`, which sees a
+    /// span after unions were distributed, so the walk is over one
+    /// intersection's members. `docs/parity/notes/r4-templates.md` §7.
+    pub(crate) fn is_generic_index_type(&self, id: TypeId) -> bool {
+        let ty = self.store.get(id);
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
+            return types.iter().any(|&member| self.is_generic_index_type(member));
+        }
+        ty.flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
+            || self.deferred_keyof_operands.contains_key(&id)
+            || (ty.flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+                && !self.is_pattern_template(id))
     }
     pub(crate) fn is_pattern_template(&self, id: TypeId) -> bool {
         if let Some((_, target)) = self.string_mapping_types.get(&id) {

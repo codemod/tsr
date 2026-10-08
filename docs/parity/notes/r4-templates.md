@@ -229,3 +229,27 @@ function on a *written* template's cooked text, where upstream reprints the
 node's raw source text. For an escape sequence written in source the two
 now agree (both `\t`); a literal tab or CR typed raw into a template type
 would now print escaped where upstream keeps it raw. No corpus line moved.
+
+## §7 `addSpans` keeps a generic index type as a span
+
+**Forcing constraint.** `getTemplateLiteralType`'s `addSpans`
+(`checker.go:29165`) keeps a span type `t` when
+`isGenericIndexType(t) || isPatternLiteralPlaceholderType(t)`, and fails
+(the whole template is `string`) otherwise. The port tested `t`'s *own*
+flags against a fixed list (type parameter, index, indexed access,
+substitution, string mapping), so `` `${T & { foo: string }}` `` — an
+intersection whose type-parameter member makes it a generic index type —
+became `string` (`templateLiteralIntersection`, 1 line).
+
+**What changed.** `is_generic_index_type` ports the `IsGenericIndexType`
+half of `getGenericObjectFlags` (`:24880`): any constituent of a union or
+intersection; otherwise `InstantiableNonPrimitive | Index` (adding the
+conditional type the list lacked), a deferred `keyof`, or a template
+literal / string mapping that is not a pattern literal
+(`isGenericStringLikeType`). Substitution types take upstream's
+`baseType | constraint` road there; this port does not build them, and the
+flag test answers for one.
+
+**Port record.** No cache: upstream memoises the union/intersection bit on
+the type; here the members are walked per call. The only caller sees a span
+after union distribution, so the walk is one intersection's members.
