@@ -415,3 +415,16 @@ Dispatched:
   far excludes them. Per-variant scoring will change the denominators; plain
   and varied counts are reported separately.
 - `r4-operators2` (`tsr-2zk.941`), `r4-constraints` (`tsr-2zk.942`).
+
+### r4-errorsplit — single owner of the errorType/gap split (`tsr-2zk.944`)
+
+Dispatched when `r4-anyaudit` finished (3a168d4: no contextual return for an
+unannotated getter, +26 type lines; audit table and blocked producers in its
+notes). Its contract finding: TSR's `error` is both native `errorType` and the
+port's gap, so every producer that native answers `errorType` for is blocked,
+and ADR-0038's ceiling (~26,000 lines, reachable ~94.6%) makes 99.9% impossible
+under the current contract. ADR-0038's own falsifier — telling `errorType` from
+a gap — is what this lane builds: a distinct gap intrinsic that keeps printing
+`error`, and a true `errorType` that prints `any`, introduced class by class
+where native's `errorType` is provable, with a superseding ADR. This box is the
+only one that changes the intrinsic contract.
