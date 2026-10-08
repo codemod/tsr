@@ -455,3 +455,18 @@ unchanged. Gate vs §17: +9 type lines (`controlFlowInOperator` case,
 `inKeywordAndUnknown`, `conditionalTypeDoesntSpinForever`); 0 losses.
 CPU (41) 0.964 / 0.995 (21-sample first read 1.064 on domain-model; no `in`
 expression in that project).
+
+## 19. Binding-element initial types (`getInitialTypeOfBindingElement`)
+
+Pinned `flow.go:2273`: a binding element's initial type projects the parent
+holder's initial type (`getTypeOfDestructuredProperty`, `…ArrayElement`,
+`…SpreadExpression`, `includeUndefinedInIndexSignature`) then applies
+`getTypeWithDefault`. TSR had no binding arm, so `let [x]: [string|number] =
+[1]; x` stayed declared. Recursion follows the holder chain; no cache. A
+property name that is not usable, or a projection TSR cannot compute, answers
+`None` (the existing "no initial type" gap) where native answers `errorType`.
+Native control: `x` → `number`, `{ b } = { b: "s" }` → `string`; a defaulted
+optional `{ a = 1 }: { a?: string|number } = {}` stays `string | number` in
+both. Gate vs §18: +15 type lines, cases `controlFlowDestructuringDeclaration`,
+`for-of43`, `stringLiteralTypesAndTuples01`; 0 losses. CPU (41) 1.009 /
+(21) 0.983 (a first 21-sample domain-model read was 1.070).
