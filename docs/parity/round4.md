@@ -337,3 +337,14 @@ target arm (main's relate-7, f2c97d13) and not diagnostic-chain code (main's
 Note: `main` landed aee0d31b and d67ff023 (~03:05 UTC), which duplicate the
 r3-perf C1/C5/C2 patches integrated here at ~02:30; the next `main` merge keeps
 `main`'s versions.
+
+### r4-rwfix — real-world causes 2, 12, 15 (`tsr-2zk.923`, `.930`, `.933`)
+
+Dispatched when `r4-helpers` finished (7 commits: construct-level emit-helper
+call sites and TS2693/TS2690 value-position arms, +14 diagnostics cases; its
+harness `@importHelpers` patch, +7 cases, and binder base-class scope patch
+are queued). Owns `flow.rs` `get_initial_or_assigned_type`, `expressions.rs`
+`is_in_compound_like_assignment`, `check.rs` `module_specifier_unfindable`,
+`symbols.rs` `report_missing_module_export` (none touched by `main` since
+`b3cd078d`), and the repro tests for those causes in
+`crates/tsr-conformance/tests/realworld_repros.rs`.
