@@ -726,3 +726,22 @@ Together: +110 type lines and +9 diagnostics cases, with no losses. Ir is
 +0.10% on domain-model and flat on generic-imports. One placement was refused
 on its number: in_js_file crossing the comment cost +0.22% Ir, so the loader
 stamps JSDoc roots instead. r5-jsdoc4 takes the remainder.
+
+### r5-funcdecl: first report
+
+`4c9d6b66` (`.1062`) ports the signature-construction producers in
+signatures.rs: cloneBindingName, getTupleElementLabelFromBindingElement /
+getUniqAssociatedNamesFromTupleType, the contextual yield NEXT slot, and the
+§929 type-query gate. +113 type lines (67 WRONG→RIGHT, 46 GAP→RIGHT), no
+losses.
+
+`7bb98dd8` (`.1067`) uses isTypeMatchedByTemplateLiteralType in union
+reduction. templateLiteralTypes1 drops from about 35 s to 2 s, the dumps are
+identical, and Ir is lower. Its members.rs fixture diff lands with it, so the
+tests stay green.
+
+The contextual.rs remainder is filed as `.1076` and the binding-element key as
+`.1077`. `214c9830` then fixed `.16.70`: the GROUNDED gate now exempts
+type parameters declared by an enclosing declaration, for +18 type lines and
++1 case. The freed slot went to r5-modules2 (printed import specifiers, 16
+cases solely blocked; `.989`, `.999`, `.1060`).
