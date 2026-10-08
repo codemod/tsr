@@ -3156,6 +3156,22 @@ impl Checker<'_, '_> {
         {
             return Some(id);
         }
+        // Native's `getTypeAliasInstantiation` result *is* the instantiated
+        // body carrying an alias, so `PromiseOrValue<U>` reaches the union arm
+        // below as `Promise<U> | U`. This port holds generic alias references
+        // as named references; await their body, and keep the reference when
+        // the body comes back unchanged (native returns `t`, alias intact).
+        if let Some((symbol, _)) = self.type_reference_targets.get(&id)
+            && self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            let body = self.binding_type_alias_body(id);
+            if body != id {
+                stack.push(id);
+                let awaited = self.awaited_type_no_alias_worker(body, stack);
+                stack.pop();
+                return awaited.map(|awaited| if awaited == body { id } else { awaited });
+            }
+        }
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
             stack.push(id);
