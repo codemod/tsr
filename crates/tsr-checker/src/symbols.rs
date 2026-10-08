@@ -1052,7 +1052,9 @@ impl<'a> Checker<'a, '_> {
             None => {}
         }
         self.alias_targets.insert(symbol, AliasTarget::Resolving { circular: false });
+        self.alias_resolving += 1;
         let target = self.get_target_of_alias_symbol(symbol);
+        self.alias_resolving -= 1;
         let target = match self.alias_targets.get(&symbol) {
             Some(AliasTarget::Resolving { circular: true }) => None,
             _ => target,

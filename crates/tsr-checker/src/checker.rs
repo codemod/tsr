@@ -156,6 +156,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
     /// `aliasSymbolLinks.aliasTarget`, owned by [`Checker::resolve_alias`].
     pub(crate) alias_targets: FxHashMap<SymbolId, crate::symbols::AliasTarget>,
+    /// How many `resolve_alias` workers are active (`Resolving` entries).
+    pub(crate) alias_resolving: u32,
+    /// Completed `extends` base symbols per (owner, refuse type arguments),
+    /// owned by `Checker::base_symbols_of_ex`.
+    pub(crate) base_symbols: FxHashMap<(SymbolId, bool), Vec<SymbolId>>,
     /// Completed declared call/construct signatures of an interface or type
     /// literal symbol, owned by `Checker::signature_candidates_of_interface_symbol`.
     pub(crate) interface_signatures:
@@ -1366,6 +1371,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
             alias_targets: FxHashMap::default(),
+            alias_resolving: 0,
+            base_symbols: FxHashMap::default(),
             interface_signatures: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
             file_commonjs_machinery: FxHashMap::default(),

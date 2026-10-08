@@ -3512,7 +3512,34 @@ impl Checker<'_, '_> {
     /// which is `docs/conventions.md` corollary 11 one layer in: not a refusal
     /// whose stated reason is wrong, but a shared helper whose reason is right
     /// for its first caller and wider than the second caller requires. §202.
+    ///
+    /// # Publication (`getBaseTypes` / `resolvedBaseTypes`, pinned 5b1047d)
+    ///
+    /// Native resolves a class or interface's bases once and stores them on
+    /// the declared type. The answer here is a pure function of the binder and
+    /// completed alias targets, so a completed `Some` is kept per (owner,
+    /// `refuse_type_arguments`) in `base_symbols`, private to this checker.
+    /// `None` is not stored. Nor is an answer computed while a `resolve_alias`
+    /// worker is active (`alias_resolving`): its `Resolving` entry answers
+    /// `None` provisionally. The saved work is the heritage entity resolution
+    /// (`resolve_name`, alias chains) that every member lookup through a base
+    /// repeated.
     pub(crate) fn base_symbols_of_ex(
+        &mut self,
+        owner: SymbolId,
+        refuse_type_arguments: bool,
+    ) -> Option<Vec<SymbolId>> {
+        if let Some(bases) = self.base_symbols.get(&(owner, refuse_type_arguments)) {
+            return Some(bases.clone());
+        }
+        let bases = self.base_symbols_of_ex_worker(owner, refuse_type_arguments)?;
+        if self.alias_resolving == 0 {
+            self.base_symbols.insert((owner, refuse_type_arguments), bases.clone());
+        }
+        Some(bases)
+    }
+
+    fn base_symbols_of_ex_worker(
         &mut self,
         owner: SymbolId,
         refuse_type_arguments: bool,

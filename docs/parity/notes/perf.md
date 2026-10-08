@@ -511,3 +511,23 @@ it repeatedly for the same targets.
   queries were on checkers 1–3).
 
 Dumps byte-identical to the base.
+
+### §15.7 `extends` base symbols publish once per owner
+
+Native op: `getBaseTypes` (`resolveBaseTypesOfClass` /
+`resolveBaseTypesOfInterface`, pinned 5b1047d) stores `resolvedBaseTypes`
+on the declared type. TSR's `base_symbols_of_ex` (`members.rs`) re-resolved
+every heritage entity (`heritage_entity_symbol` → `resolve_name`, alias
+chains) on each call, and member lookup calls it for every base on every
+property read through inheritance.
+
+- **Key and owner:** (owner symbol, `refuse_type_arguments`) → base
+  symbols in `Checker::base_symbols`, private to the checker.
+- **Publication:** completed `Some` only, and only while no `resolve_alias`
+  worker is active (`alias_resolving`, a new counter in `resolve_alias`):
+  a `Resolving` alias answers `None` provisionally, and the answer is
+  otherwise a function of the immutable binder and completed alias targets.
+  `None` recomputes.
+- **Work boundary:** total CPU −2.9%, wall −2.9% (21 pairs against §15.6).
+
+Dumps byte-identical to the base.
