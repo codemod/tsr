@@ -21,7 +21,16 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors || !self.is_value_reference(node) {
             return;
         }
-        let Some(parameter) = self.enclosing_parameter_initializer(node) else { return };
+        // The resolver's associated declaration and `getIsDeferredContext`
+        // walk (`class_fields.rs`); a binding element's association is not
+        // this check's (`docs/parity/notes/r5-classfields.md` §7).
+        let Some(parameter) = self
+            .parameter_initializer_scope(node)
+            .map(|(associated, _)| associated)
+            .filter(|&associated| self.nodes.kind(associated) == SyntaxKind::Parameter)
+        else {
+            return;
+        };
         let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
             return;
         };
@@ -82,37 +91,5 @@ impl Checker<'_, '_> {
             }
         }
         false
-    }
-
-    /// The parameter whose **initializer** contains `node`, if no function-like
-    /// lies between — `a = () => a` defers the read and is legal. §980.
-    fn enclosing_parameter_initializer(&self, node: NodeId) -> Option<NodeId> {
-        let mut child = node;
-        for ancestor in self.nodes.ancestors(node) {
-            // **Deferred contexts.** A function-like defers the read, and so do
-            // two others the fixture insists on: a **class expression's** member
-            // initializer (`y = class { c = x }` is legal) and a **type query**
-            // (`y = { x: <typeof z>a }` is a type position, not a value one).
-            // Both cost a wrong line at §1007's first measurement. §1008.
-            if self.is_function_like_or_static_block(ancestor)
-                && self.nodes.kind(ancestor) != SyntaxKind::Parameter
-            {
-                return None;
-            }
-            if matches!(
-                self.nodes.kind(ancestor),
-                SyntaxKind::ClassExpression | SyntaxKind::ClassDeclaration | SyntaxKind::TypeQuery
-            ) {
-                return None;
-            }
-            if let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(ancestor) {
-                // Reached **through the initializer**, not through the type
-                // annotation — `(x: typeof x)` is falsifier 3.
-                return (parameter.initializer.and_then(|e| e.node_id()) == Some(child))
-                    .then_some(ancestor);
-            }
-            child = ancestor;
-        }
-        None
     }
 }
