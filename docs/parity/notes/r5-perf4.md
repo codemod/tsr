@@ -276,3 +276,61 @@ Findings:
 JSDoc (§7.2), and a loader that does not pay for parallelism it cannot use
 (start serial, fan out only when several large files are pending, or size
 the worker count by bytes queued). Neither is in this lane's files.
+
+## §8 The stack, and what is left
+
+**All five diffs together** on top of §2's commit (applied in the order
+relater, flow, walk-scratch, resolve-name, mapped; each also applies alone;
+`cargo fmt` clean; clippy reports nothing new in the touched files): p100
+Ir **2,480,277,775 (−12.72% vs base)**, dm **1,207,545,034 (−10.25%)**, CLI
+output `cmp`-identical; `cargo test --workspace --release` passes; both corpus dumps of the stack `cmp`-identical to
+the base (12,238 and 552,533 rows).
+
+Whole-project (21 samples; domain-model-large 11), stack against base
+binary: domain-model CPU 0.960, generic-imports 0.947. Against native tsgo,
+default mode:
+
+| | base wall | base CPU | stack wall | stack CPU |
+|---|---:|---:|---:|---:|
+| domain-model | 0.866 | 0.576 | 0.860 | 0.573 |
+| generic-imports | 1.117 | 0.625 | 1.115 | 0.621 |
+| domain-model-large | 0.876 | 0.637 | **0.838** | **0.571** |
+
+domain-model-large TSR CPU 1,468 → 1,340 ms (−8.7%), wall 628 → 600 ms.
+Single-run wall ratios drift ±0.05 between identical binaries on this
+4-vCPU box (box-protocol §5); CPU is the reliable column.
+
+**Distance to 0.50.** r4-perf2 §6 estimated that domain-model-large needs
+about 30% less checker CPU (plus better balance) to reach a 0.50 wall ratio.
+The stack cuts TSR's whole-process CPU there by 8.7% (checker-only share
+not separated), so it is a step, not the distance. The small projects are
+dominated by program construction (§7), where checker work cannot reach the
+target.
+
+**Refused or deferred in this lane, with the number:**
+- `memo_frames` admission (brief item 3): 30.9 M self (1.25% at the stack)
+  over ~211,000 calls, ~146 Ir each. A span-containment enclosure test
+  would replace the parent walk, but reparsed JSDoc nodes sit under hosts
+  whose spans do not contain them, so a span test can miss an enclosing
+  owner (a false *admit*, which changes answers); a generation counter on
+  `alias_evaluation_bindings` needs its 75 writers in 17 files. Not tried.
+- `is_pure_signature_type` (brief item 4): 69.8 M inclusive (2.7% at the
+  stack). The signatures-first order stays refused (r4-perf3 §6). Moving
+  mapped-member resolution to its readers is in `members.rs`/`relater.rs`;
+  not attempted this round.
+- `resolve_name` for `check_used_before_its_declaration`: +5.7 M, reverted
+  (§6).
+
+**Next candidates by measured size** (stack profile, p100):
+1. Signature cloning: `Signature::clone` → `Vec<Parameter>::clone` 35.8 M
+   (101,262 clones) and `drop_glue<Signature>` 29.2 M (302,467 drops);
+   `signatures_of_type_kind` clones a `signature_types` list to filter it
+   (22,766). A shared (`Rc`) parameter list, or kind-filtered views, is a
+   cross-file representation change.
+2. `TypeData::clone` 161,023 calls (17.7 M in `String` clones alone):
+   `get_index_infos_of_type` 39,797, `generic_type_with_union_constraint`
+   22,820, `narrowable_type_for_reference` 15,010,
+   `get_regular_type_of_literal_type` 15,107 — each the §5.1 pattern
+   (clone to match).
+3. Program construction for small projects (§7): lazy TS JSDoc
+   (`tsr-2zk.17.1`) and loader fan-out.
