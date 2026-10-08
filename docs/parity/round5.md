@@ -272,3 +272,15 @@ Async-generator `next` (`.1015`) is blocked on members inherited through
 type-argument bases (`.1013`, `members.rs`). That file is inside main's
 property lane (`tsr-2zk.4`), so it is filed but not dispatched. The new box
 `r5-heritage2` takes the heritage conformance checks.
+
+### r5-report2 finished (+18 diagnostics cases); r5-bind dispatched (`tsr-2zk.1028`)
+
+r5-report2 landed:
+- excess properties over computed names;
+- elaborateArrayLiteral/ObjectLiteral for union targets, spreads and numeric names;
+- removal of the whole-file parse-error gate from assignreport's 9 report sites.
+
+The calls.rs half of the gate removal is +18 cases but loses 5 until two arity
+rules are ported (`tsr-2zk.1027`, main's calls lane). Performance is the other
+unmet target, so the new box `r5-bind` takes the front-end wall: a pipelined
+bind or cheaper AST publication, and first-touch page faults.
