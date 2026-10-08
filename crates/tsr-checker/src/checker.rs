@@ -2388,14 +2388,13 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// - **Ambient** (§143 slice 1, `checker-notes-narrow.md`): `declare module
     ///   "name"` prints `"name"` verbatim — escaped via the shared `quote`
     ///   (SS196). Read from the first string-named module declaration.
-    /// - **File** (§521): the relative specifier from the reference's file,
-    ///   `moduleSpecifiers`' relative preference with `index` stripped, for
-    ///   the plain extensions only — `node_modules` package names and the
-    ///   extension-keeping `.mts`/`.cts` forms decline (`None`, a gap). With
-    ///   no host path, the module symbol's name (the path with its extension
-    ///   stripped, `bind_source_file_as_external_module`) is spelled `./name`
-    ///   when it sits at the root, the one directory layout most of the corpus
-    ///   mounts.
+    /// - **File**: `GetModuleSpecifiers` over the module's file —
+    ///   the existing import, the `node_modules` package name, else the
+    ///   relative path through `processEnding`
+    ///   ([`Checker::module_specifier_for_file`], r5-modules2 §2). With no
+    ///   host path, the module symbol's name (the path with its extension
+    ///   stripped, `bind_source_file_as_external_module`) is spelled
+    ///   `./name` when it sits at the root.
     fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
         self.module_specifier_for_symbol_in_mode(module, reference, tsr_core::ModuleKind::None)
     }
@@ -2432,87 +2431,22 @@ impl<'a, 'n> Checker<'a, 'n> {
             .iter()
             .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
         {
-            // `computeModuleSpecifiers`' existing-import arm comes before
-            // any computed path (r5-modules §4).
+            // The file arm: `GetModuleSpecifiers` over the module's file
+            // (`crate::module_specifiers`, r5-modules2 §2).
             if let Some(from) = self.source_file_of(reference)
-                && let Some(existing) = self.existing_import_specifier(from, file, override_mode)
+                && self.module_host.is_some_and(|host| host.file_path(from).is_some())
             {
-                return Some(crate::printing::quote(&existing));
+                return self
+                    .module_specifier_for_file(file, from, override_mode)
+                    .map(|specifier| crate::printing::quote(&specifier));
             }
-            let paths =
-                self.module_host.zip(self.source_file_of(reference)).and_then(|(host, from)| {
-                    Some((host.file_path(from)?, host.file_path(file)?, from, host))
-                });
-            let Some((from, to, from_file, host)) = paths else {
-                let relative = symbol.name.strip_prefix('/')?;
-                return (!relative.contains('/') && !relative.is_empty())
-                    .then(|| format!("\"./{relative}\""));
-            };
-            // `computeModuleSpecifiers`' node_modules arm
-            // (`tryGetModuleNameAsNodeModule`, `crate::module_specifiers`);
-            // when it names nothing, the relative specifier below is
-            // upstream's fallback too (r5-modules §5).
-            if to.contains("/node_modules/")
-                && let Some(name) = self.node_module_specifier(
-                    from_file,
-                    tsr_path::get_directory_path(&from),
-                    &to,
-                    override_mode,
-                )
-            {
-                return Some(crate::printing::quote(&name));
-            }
-            // `processEnding` (`modulespecifiers/specifiers.go:636`) under the
-            // node builder's ending choice (r5-modules §4).
-            let js_ending = self.module_specifier_uses_js_ending(
-                from_file,
-                if override_mode == tsr_core::ModuleKind::None {
-                    host.default_resolution_mode_for_file(from_file)
-                } else {
-                    override_mode
-                },
-            )?;
-            let (input, output) = self.js_extension_for_file(&to)?;
-            let base = &to[..to.len() - input.len()];
-            let keeps_extension =
-                matches!(input, ".mjs" | ".cjs" | ".mts" | ".cts" | ".d.mts" | ".d.cts");
-            let spelled;
-            let stem = if js_ending || keeps_extension {
-                spelled = format!("{base}{output}");
-                spelled.as_str()
-            } else {
-                base
-            };
-            // `moduleSpecifiers`' `index` stripping (the minimal ending only):
-            // `./dir/index` is spelled `./dir`, and the importing directory's
-            // own index `.`.
-            let stripped =
-                (!js_ending && !keeps_extension).then(|| stem.strip_suffix("/index")).flatten();
-            let (stem, index) = match stripped {
-                Some("") => ("/", true),
-                Some(directory) => (directory, true),
-                None => (stem, false),
-            };
-            let options = tsr_path::ComparePathsOptions {
-                use_case_sensitive_file_names: true,
-                current_directory: String::new(),
-            };
-            let from_directory = tsr_path::get_directory_path(&from);
-            if (tsr_path::get_root_length(from_directory) > 0)
-                != (tsr_path::get_root_length(stem) > 0)
-            {
-                return None;
-            }
-            let relative =
-                tsr_path::get_relative_path_from_directory(from_directory, stem, &options);
-            let relative = if relative.is_empty() && index {
-                ".".to_string()
-            } else if relative.starts_with('.') {
-                relative
-            } else {
-                format!("./{relative}")
-            };
-            return Some(format!("\"{relative}\""));
+            // With no host path, the module symbol's name (the path with its
+            // extension stripped, `bind_source_file_as_external_module`) is
+            // spelled `./name` when it sits at the root, the one directory
+            // layout most of the corpus mounts.
+            let relative = symbol.name.strip_prefix('/')?;
+            return (!relative.contains('/') && !relative.is_empty())
+                .then(|| format!("\"./{relative}\""));
         }
         None
     }

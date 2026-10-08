@@ -804,60 +804,6 @@ impl Checker<'_, '_> {
         Some(text.to_string())
     }
 
-    /// The node builder's ending choice for a computed relative specifier:
-    /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1301`) asks for the
-    /// `.js` ending when the resolution mode is ESM and for none otherwise;
-    /// `getModuleSpecifierEndingPreference` (`modulespecifiers/preferences.go`)
-    /// then answers `JsExtension` for an explicit `.js` request, and with no
-    /// preference `usesExtensionsOnImports(file) ? JsExtension : Minimal`.
-    /// `Some(true)` is the `.js` ending, `Some(false)` minimal; `None` where
-    /// `allowImportingTsExtensions` makes `inferPreference` (with its `.ts`
-    /// ending) the answer, which this port does not spell.
-    pub(crate) fn module_specifier_uses_js_ending(
-        &self,
-        importing: tsr_ast::NodeId,
-        mode: tsr_core::ModuleKind,
-    ) -> Option<bool> {
-        use tsr_ast::{Expression, ModuleReference, Statement};
-        if self.allow_importing_ts_extensions {
-            return None;
-        }
-        if mode == tsr_core::ModuleKind::ESNext {
-            return Some(true);
-        }
-        // `usesExtensionsOnImports`: the FIRST relative import whose extension
-        // is optional decides.
-        let Some(tsr_ast::Node::SourceFile(source)) = self.node_map.get(importing) else {
-            return Some(false);
-        };
-        let decided = source.statements.iter().find_map(|statement| {
-            let specifier = match statement {
-                Statement::ImportDeclaration(node) => node.module_specifier,
-                Statement::ExportDeclaration(node) => node.module_specifier,
-                Statement::ImportEqualsDeclaration(node) => match node.module_reference {
-                    Some(ModuleReference::ExternalModuleReference(external)) => external.expression,
-                    _ => None,
-                },
-                _ => None,
-            };
-            let Some(Expression::StringLiteral(literal)) = specifier else { return None };
-            let text = literal.text;
-            if !tsr_path::path_is_relative(text)
-                || [".mjs", ".cjs", ".mts", ".cts", ".d.mts", ".d.cts"]
-                    .iter()
-                    .any(|extension| text.ends_with(extension))
-            {
-                return None;
-            }
-            Some(
-                [".ts", ".tsx", ".d.ts", ".js", ".jsx"]
-                    .iter()
-                    .any(|extension| text.ends_with(extension)),
-            )
-        });
-        Some(decided.unwrap_or(false))
-    }
-
     /// `module.TryGetJSExtensionForFile` (`module/util.go:178`): the
     /// extension a `.js`-ending specifier gives a file.
     pub(crate) fn js_extension_for_file(&self, path: &str) -> Option<(&'static str, &'static str)> {
