@@ -98,3 +98,16 @@ are filed:
 
 The new box `r5-modfmt` takes the module-format grammar (`.985`, 94 configured
 rows) and the readers for newly applied options (`.993`).
+
+### r5-report finished (+19 diagnostics cases); r5-report2 dispatched
+
+r5-report landed three fixes:
+- `170b30f`, the chainArgsMatch head gate (removes 5 extra TS2741);
+- `2ccf35d`, the JSX-attributes arm with no outer head (`.918`, 6 tsx cases);
+- `6ce0ff4`, hasExcessProperties before the structural relation for fresh
+  literals (9 cases).
+
+Its generic-reference property-table diff (`member_completeness.rs`/`declared`
+tables) is landed by the integrator and re-measured in the batch gate.
+`r5-report2` keeps the same `assignreport.rs` ownership for the census buckets
+`.974`, `.975` and `.981`.
