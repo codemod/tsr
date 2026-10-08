@@ -1,0 +1,18 @@
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index 1963fdb..0fe157a 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -28,11 +28,8 @@ use crate::{
+ impl Checker<'_, '_> {
+     /// The heritage conformance checks for one class or interface declaration.
+     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
+-        // `checkInterfaceDeclaration` has no parse-error gate; the class arm
+-        // keeps this port's.
+-        if self.file_has_parse_errors && self.nodes.kind(node) != SyntaxKind::InterfaceDeclaration {
+-            return;
+-        }
++        // Neither `checkClassLikeDeclaration` nor `checkInterfaceDeclaration`
++        // has a parse-error gate: both run on parse-recovered trees.
+         if self.in_js_file(node) {
+             // The JS arm is the implemented-type loop over the `@implements`
+             // tags `reparseHosted` moves into the class's implements clause;

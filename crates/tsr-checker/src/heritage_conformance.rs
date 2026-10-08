@@ -207,6 +207,9 @@ impl Checker<'_, '_> {
         };
         let Some(class_symbol) = self.binder.symbol_of(node) else { return };
         let this_type = self.class_instance_this_type(class_symbol);
+        // The late-bound names of the class's own instance members.
+        let late_bound =
+            self.late_bound_members_of(self.binder.merged_symbol(class_symbol), false);
         let mut issued = false;
         let mut undecided = false;
         for member in members {
@@ -219,13 +222,23 @@ impl Checker<'_, '_> {
                 continue;
             }
             // `declaredProp.Name != ast.InternalSymbolNameComputed`: a member
-            // without a name, or with a computed one, is skipped.
+            // without a name is skipped, and so is a computed one unless
+            // `lateBindMember` gave it a name (`[Symbol.toPrimitive]`,
+            // `["literal"]`; `symbolProperty24`).
             let Some(name_node) = self.declaration_name_of(member) else { continue };
-            let name = match self.node_map.get(name_node) {
-                Some(Node::Identifier(name)) => name.text.to_string(),
-                Some(Node::StringLiteral(name)) => name.text.to_string(),
-                Some(Node::NumericLiteral(name)) => name.text.to_string(),
-                Some(Node::PrivateIdentifier(name)) => name.text.to_string(),
+            let (name, printed) = match self.node_map.get(name_node) {
+                Some(Node::Identifier(name)) => (name.text.to_string(), None),
+                Some(Node::StringLiteral(name)) => (name.text.to_string(), None),
+                Some(Node::NumericLiteral(name)) => (name.text.to_string(), None),
+                Some(Node::PrivateIdentifier(name)) => (name.text.to_string(), None),
+                Some(Node::ComputedPropertyName(_)) => {
+                    let Some(name) = late_bound.iter().find_map(|(name, declaration)| {
+                        (*declaration == member).then(|| name.clone())
+                    }) else {
+                        continue;
+                    };
+                    (name, self.computed_member_name_text(member))
+                }
                 _ => continue,
             };
             if self.binder.symbol_of(member).is_none() {
@@ -257,7 +270,7 @@ impl Checker<'_, '_> {
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_IN_TYPE_1_IS_NOT_ASSIGNABLE_TO_THE_SAME_PROPERTY_IN_BASE_TYPE_2,
                     span,
-                    [name, source_text, target_text],
+                    [printed.unwrap_or(name), source_text, target_text],
                 ),
             );
         }

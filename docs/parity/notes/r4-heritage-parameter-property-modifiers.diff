@@ -1,0 +1,15 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 3fcb481..a57b424 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3882,6 +3882,10 @@ impl Checker<'_, '_> {
+                 Some(Node::MethodDeclaration(m)) => m.modifiers,
+                 Some(Node::GetAccessorDeclaration(accessor)) => accessor.modifiers,
+                 Some(Node::SetAccessorDeclaration(accessor)) => accessor.modifiers,
++                // A parameter property's modifiers sit on the parameter
++                // (`getDeclarationModifierFlagsFromSymbol` reads the value
++                // declaration, which is the parameter).
++                Some(Node::ParameterDeclaration(parameter)) => parameter.modifiers,
+                 _ => return false,
+             };
+             modifiers.iter().any(|modifier| {
