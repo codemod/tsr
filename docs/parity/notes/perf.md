@@ -678,3 +678,13 @@ outside this lane's grant:
 | `Signature` clones in `signatures_of_type_kind` | ~2% | `flow.rs` |
 | `get_type_at_flow_branch_label` antecedent vectors | 3.1% | `flow.rs` |
 | `create_type_reference_with_display`, `instantiated_heritage_base`, `type_literal_key` | ~6% | `declared.rs` |
+
+### §16.5 Signature-instantiation lookups need no owned key
+
+`instantiate_signature_type` (`inference.rs`) built its cache key
+`(source, mapper.to_vec())` before every lookup, hits included.
+`Checker::instantiated_signatures` is now keyed by source, then mapper, so a
+lookup borrows the mapper slice and only an insert copies it. Same entries,
+same publication (inserted after the image is minted). mallocs 6,005,882 →
+**5,976,234** (−26.3% vs base). Verified ratio: domain-model-large 0.935,
+domain-model 0.879, generic-imports 0.922. Dumps byte-identical.

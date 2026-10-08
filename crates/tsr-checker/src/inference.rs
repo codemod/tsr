@@ -5786,8 +5786,8 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> TypeId {
         let error = self.intrinsics.error;
-        let key = (id, map.to_vec());
-        if let Some(&cached) = self.instantiated_signatures.get(&key) {
+        // Keyed by source then mapper so a hit needs no owned key.
+        if let Some(&cached) = self.instantiated_signatures.get(&id).and_then(|by| by.get(map)) {
             return cached;
         }
         let signatures = self.signature_types.get(&id).cloned().unwrap_or_default();
@@ -5887,7 +5887,7 @@ impl<'a> Checker<'a, '_> {
             map.to_vec()
         };
         self.instantiated_signature_mappers.insert(minted, mapper);
-        self.instantiated_signatures.insert(key, minted);
+        self.instantiated_signatures.entry(id).or_default().insert(map.to_vec(), minted);
         self.minted_signature_types.insert(minted);
         minted
     }

@@ -1169,7 +1169,7 @@ pub struct Checker<'a, 'n> {
     /// survive for union parenthesisation), so resolving a call through that
     /// symbol would answer the uninstantiated return type — a wrong line. The
     /// resolver tests [`Checker::is_instantiated_signature_type`] and gaps.
-    pub(crate) instantiated_signatures: FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    pub(crate) instantiated_signatures: FxHashMap<TypeId, FxHashMap<Vec<(TypeId, TypeId)>, TypeId>>,
     /// Instantiated anonymous types retain their mapper for native array-member
     /// union fallback (getArrayMemberCallSignatures, checker.go).
     pub(crate) instantiated_signature_mappers: FxHashMap<TypeId, Vec<(TypeId, TypeId)>>,
