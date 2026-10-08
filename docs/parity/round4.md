@@ -358,3 +358,13 @@ refused: ceiling ~1.9% Ir and no exact cached negative until types carry an
 `signature_candidates_of_named_type`, `get_property_names_of_type` /
 `collect_structured_property_names` memo wrappers and `perf_links.rs`; plus a
 measurement-only attribution of the wall-vs-CPU gap (checker pool balance).
+
+### r4-config — tsconfig resolution and program diagnostics (`tsr-2zk.936`)
+
+Dispatched when `r4-realworld` finished (docs/parity/notes/r4-realworld.md:
+16 root causes covering 748/818 TSR-only and 107/107 native-only diagnostics
+on TypeScript's src/jsTyping; filed as `tsr-2zk.923`-`.935`, cause 1 noted on
+`.16.46`). This lane takes causes 13 and 14: inherited `include` resolved
+against the extending config's directory (`tsr-2zk.932`, config-breaking)
+and the composite TS6307 check (`tsr-2zk.931`). Owns `crates/tsr-tsoptions`
+config resolution and a new program-diagnostics function in `tsr-compiler`.
