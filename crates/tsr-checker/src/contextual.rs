@@ -1330,6 +1330,9 @@ impl<'a> Checker<'a, '_> {
             Node::JsxExpression(_)
             | Node::ParenthesizedExpression(_)
             | Node::NonNullExpression(_) => self.get_contextual_type(parent),
+            // getContextualType's SpreadAssignment arm (`checker.go:29378`):
+            // `{ ...expr }`'s operand takes the containing literal's context.
+            Node::SpreadAssignment(_) => self.get_contextual_type(self.nodes.parent(parent)?),
             Node::JsxAttribute(_) | Node::JsxSpreadAttribute(_) => {
                 self.jsx_attribute_context(parent)
             }
