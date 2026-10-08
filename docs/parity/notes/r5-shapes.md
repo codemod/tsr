@@ -161,4 +161,56 @@ Results are recorded in §4 as they land.
 
 ## 4. Results
 
-(Filled in as commits land.)
+The three owned fixes below were gated together on one unfiltered run
+against the frozen base (`22a5e1a`). They touch disjoint code paths, and each
+case named below flips on its own commit's change alone (probed per witness).
+Both loss checks printed nothing on the combined run:
+
+- types: RIGHT 544,668 → 544,693 (+25 lines, 0 lost);
+- diagnostics: RIGHT 5,374 → 5,375 (`initializedDestructuringAssignmentTypes`:
+  its TS2551 now names `string`), 0 lost;
+- median child CPU, new/old, 21 samples: domain-model 0.974,
+  generic-imports 1.000; diagnostics identical to the base binary.
+
+### 4.1 Binding elements (`destructure.rs`, `indexed.rs`)
+
+Five ports, all from `getBindingElementTypeFromParentType` and the
+`getPropertyTypeForIndexType` it reaches:
+
+- **String-index fallback for a computed key.** The applicable-signature
+  choice with upstream's string fallback was already written inside
+  `resolved_indexed_access_type`; it is now `index_info_for_property_key`
+  (`indexed.rs`) and the destructuring arm calls it, rather than
+  `get_applicable_index_info` alone.
+- **Late-bound member for a symbol key.** `late_bound_entity_name`
+  (`indexed.rs`) is §381's entity-text key, lifted out of the element-access
+  arm so the destructuring arm spells it identically. Rejected: resolving
+  the unique symbol to upstream's `__@iterator@N` name. This port does not
+  name late-bound members that way anywhere, so the lookup would miss.
+- **Union parent, array pattern.** `isArrayLikeType` is
+  `isTypeAssignableTo(t, anyReadonlyArrayType)`. The relater answers
+  Unknown for `RegExpMatchArray | []`. A union source is related exactly
+  when each constituent is, so `union_parent_is_array_like` decides per
+  constituent, and **only when the whole-type relation is undecided**. A
+  relation that does decide is never second-guessed. A nullable
+  constituent asks the relation, because `isArrayLikeType`'s `Nullable`
+  gate is on the whole type and strictness belongs to the relation.
+- **`never` object.** `getPropertyTypeForIndexType`'s index arm answers an
+  `any` or `never` object read with a property-key type as itself. `any`
+  already returned early; `never` now returns at upstream's position, after
+  the property lookups.
+- **Rest of `object`.** `getPropertiesOfType` reads the apparent type, which
+  for `object` is `{}`.
+
+Cases converted: `arrayDestructuringInSwitch2`,
+`destructuredLateBoundNameHasCorrectTypes`,
+`initializedDestructuringAssignmentTypes`,
+`lateBoundDestructuringImplicitAnyError`, `nonPrimitiveAccessProperty`. Also
++2 lines each in `declarationEmitComputedNameCausesImportToBePainted` and
+`indexingTypesWithNever`, and +6 in `checkJsdocSatisfiesTag15`.
+
+**How this would be wrong.** The per-constituent array-like answer would be
+wrong if the relater someday decided a union differently from its
+constituents. That cannot happen for a union *source* under
+`eachTypeRelatedToType`. The `never` arm would be wrong if a caller relied
+on `None` for a `never` object to mean "decline"; none lost a line.
