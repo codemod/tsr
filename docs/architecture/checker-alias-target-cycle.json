@@ -1,0 +1,228 @@
+{
+  "source_head": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+  "native_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "inputs_sha256": {
+    "main.ts": "0ec624405c332c0e033fea00c4f4ef3b97186135af1896e606e8e4fb8e640ad2",
+    "b.ts": "e1e9a68f06bd45fea8bc6e4c358d103bb8a2d4dc38121949ae0af940e8319875",
+    "a.ts": "2c2475253c6e2a9556527c68744f52751b5cc982e658502766de1cbd640fd928",
+    "tsconfig.json": "4c55f1ec1a76428c1200d34151ef3951458d1a8cff909bd3a161a6802677ecd5"
+  },
+  "rows": [
+    {
+      "tool": "native",
+      "mode": "default",
+      "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+      "child": {
+        "pid": 56327,
+        "started_at_unix_ns": 1791366227801565000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false"
+        ],
+        "wall_seconds": 0.024272375001601176,
+        "user_seconds": 0.034413,
+        "system_seconds": 0.011229999999999999,
+        "peak_rss_bytes": 46612480,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "native",
+      "mode": "single",
+      "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+      "child": {
+        "pid": 56328,
+        "started_at_unix_ns": 1791366227841896000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false",
+          "--singleThreaded"
+        ],
+        "wall_seconds": 0.024439875000098255,
+        "user_seconds": 0.024020999999999997,
+        "system_seconds": 0.006026999999999999,
+        "peak_rss_bytes": 42631168,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "ordinary",
+      "mode": "default",
+      "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+      "child": {
+        "pid": 56329,
+        "started_at_unix_ns": 1791366227882658000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false"
+        ],
+        "wall_seconds": 0.03157950000058918,
+        "user_seconds": 0.027545,
+        "system_seconds": 0.006005,
+        "peak_rss_bytes": 49250304,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS1203: Export assignment cannot be used when targeting ECMAScript modules. Consider using 'export default' or another module format instead.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS1203: Export assignment cannot be used when targeting ECMAScript modules. Consider using 'export default' or another module format instead.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\nmain.ts(1,42): error TS2708: Cannot use namespace 'a' as a value.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "ordinary",
+      "mode": "single",
+      "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+      "child": {
+        "pid": 56332,
+        "started_at_unix_ns": 1791366227918848000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false",
+          "--singleThreaded"
+        ],
+        "wall_seconds": 0.02883670800110849,
+        "user_seconds": 0.024265,
+        "system_seconds": 0.003178,
+        "peak_rss_bytes": 33406976,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS1203: Export assignment cannot be used when targeting ECMAScript modules. Consider using 'export default' or another module format instead.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS1203: Export assignment cannot be used when targeting ECMAScript modules. Consider using 'export default' or another module format instead.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\nmain.ts(1,42): error TS2708: Cannot use namespace 'a' as a value.\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "rejected_setup": "node10 removed by pinnednativeTS5108; initial controls retained separately; corrected same sources toNodeNext",
+  "target_verified": false,
+  "issue": "tsr-1yb.7.7.3",
+  "fixtures": {
+    "main.ts": "import a = require(\"./a\"); const value = a;\n",
+    "b.ts": "import a = require(\"./a\"); export = a;\n",
+    "a.ts": "import b = require(\"./b\"); export = b;\n",
+    "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"es2020\",\n    \"module\": \"nodenext\",\n    \"moduleResolution\": \"nodenext\",\n    \"strict\": true,\n    \"skipLibCheck\": true,\n    \"noEmit\": true\n  },\n  \"files\": [\n    \"main.ts\"\n  ]\n}"
+  },
+  "rejected_setup_controls": [
+    {
+      "tool": "native",
+      "mode": "default",
+      "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+      "child": {
+        "pid": 56267,
+        "started_at_unix_ns": 1791366209617797000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false"
+        ],
+        "wall_seconds": 0.0750237920001382,
+        "user_seconds": 0.040297,
+        "system_seconds": 0.027999999999999997,
+        "peak_rss_bytes": 46841856,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "tsconfig.json(5,25): error TS5108: Option 'moduleResolution=node10' has been removed. Please remove it from your configuration.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "native",
+      "mode": "single",
+      "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+      "child": {
+        "pid": 56268,
+        "started_at_unix_ns": 1791366209710488000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false",
+          "--singleThreaded"
+        ],
+        "wall_seconds": 0.02732537500014587,
+        "user_seconds": 0.024731,
+        "system_seconds": 0.009182,
+        "peak_rss_bytes": 42319872,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "tsconfig.json(5,25): error TS5108: Option 'moduleResolution=node10' has been removed. Please remove it from your configuration.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "ordinary",
+      "mode": "default",
+      "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+      "child": {
+        "pid": 56269,
+        "started_at_unix_ns": 1791366209754970000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false"
+        ],
+        "wall_seconds": 0.05466620900006092,
+        "user_seconds": 0.027103,
+        "system_seconds": 0.013359,
+        "peak_rss_bytes": 47333376,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\nmain.ts(1,42): error TS2708: Cannot use namespace 'a' as a value.\n",
+        "stderr": ""
+      }
+    },
+    {
+      "tool": "ordinary",
+      "mode": "single",
+      "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+      "child": {
+        "pid": 56270,
+        "started_at_unix_ns": 1791366209815132000,
+        "command": [
+          "/Users/mohebifar/dev/tsr/target/release/tsr",
+          "--project",
+          "tsconfig.json",
+          "--pretty",
+          "false",
+          "--singleThreaded"
+        ],
+        "wall_seconds": 0.0302948339995055,
+        "user_seconds": 0.024873,
+        "system_seconds": 0.0035919999999999997,
+        "peak_rss_bytes": 32964608,
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout": "a.ts(1,1): error TS2303: Circular definition of import alias 'b'.\na.ts(1,28): error TS2303: Circular definition of import alias 'b'.\nb.ts(1,1): error TS2303: Circular definition of import alias 'a'.\nb.ts(1,28): error TS2303: Circular definition of import alias 'a'.\nmain.ts(1,42): error TS2708: Cannot use namespace 'a' as a value.\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "canonical_runtime_changed": false,
+  "alias_publication_verified": false,
+  "full_corpus_verified": false,
+  "source_files_sha256": {
+    "crates/tsr-checker/src/symbols.rs": "a34ee72fe81cb38dea07fedbff1a4b969ee81db84a6bf0ec1d7f579b7a3e5fb1",
+    "crates/tsr-checker/src/resolution.rs": "b9eaa11c2983819c71bfeb91886c6dbf77cbe932f21fe140b74f5f109f788319",
+    "crates/tsr-checker/src/checker.rs": "01b1efed260efe56534f9a55939e2c43425f6c77cdd972feff04334d9ab54af9"
+  },
+  "unresolved_file_format_issue": "tsr-2zk.6.19"
+}

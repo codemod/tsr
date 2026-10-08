@@ -400,6 +400,7 @@ version = "0.1.0"
 dependencies = [
  "rustc-hash",
  "serde_json",
+ "tsr-ast",
  "tsr-checker",
  "tsr-compiler",
  "tsr-core",

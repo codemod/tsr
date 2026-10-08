@@ -1,0 +1,113 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index a336b261..6a3a8d60 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -51,6 +51,7 @@ pub(crate) type OptionalTupleKey = (Vec<(TypeId, bool)>, Vec<Option<String>>, bo
+               independent compiler options."
+ )]
+ pub struct Checker<'a, 'n> {
++    pub(crate) effects_probe: crate::effects_probe::EffectsProbe,
+     pub(crate) symbols: crate::symbol_access::CheckerSymbols<'a>,
+     pub(crate) store: TypeStore,
+     pub(crate) intrinsics: Intrinsics,
+@@ -1391,6 +1392,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             call_inference_signatures: rustc_hash::FxHashMap::default(),
+             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+             completed_no_effects_calls: rustc_hash::FxHashSet::default(),
++            effects_probe: crate::effects_probe::EffectsProbe::default(),
+             overload_argument_failures: rustc_hash::FxHashMap::default(),
+             higher_order_context_calls: rustc_hash::FxHashSet::default(),
+             resolving_signature_calls: rustc_hash::FxHashSet::default(),
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index adbcc300..c45ffc46 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -2725,9 +2725,21 @@ impl Checker<'_, '_> {
+         call_node: NodeId,
+         call: &tsr_ast::CallExpression<'_>,
+     ) -> Option<crate::signatures::Signature> {
+-        if self.effects_completion_context_is_original()
++        self.effects_probe.record(call_node, 0);
++        let result = self.effects_probe_worker(call_node, call);
++        self.effects_probe.record(call_node, if result.is_none() { 5 } else { 6 });
++        result
++    }
++
++    fn effects_probe_worker(
++        &mut self,
++        call_node: NodeId,
++        call: &tsr_ast::CallExpression<'_>,
++    ) -> Option<crate::signatures::Signature> {
++        if crate::effects_probe::reuse_enabled() && self.effects_completion_context_is_original()
+             && self.completed_no_effects_calls.contains(&call_node)
+         {
++            self.effects_probe.record(call_node, 3);
+             return None;
+         }
+         let callee = call.expression?;
+@@ -2748,6 +2760,7 @@ impl Checker<'_, '_> {
+         {
+             return None;
+         }
++        self.effects_probe.record(call_node, 1);
+         let parent_is_statement = self
+             .nodes
+             .parent(call_node)
+@@ -2767,6 +2780,7 @@ impl Checker<'_, '_> {
+             return None;
+         }
+         let apparent = self.apparent_type(func_type);
++        self.effects_probe.record(call_node, 2);
+         let signatures = self.call_signatures_of_type(apparent)?;
+         let signature = if signatures.len() == 1 && signatures[0].type_parameters.is_empty() {
+             signatures.into_iter().next()?
+@@ -2830,7 +2844,7 @@ impl Checker<'_, '_> {
+         {
+             return;
+         }
+-        self.completed_no_effects_calls.insert(call);
++        if self.completed_no_effects_calls.insert(call) { self.effects_probe.record(call, 4); }
+     }
+ 
+     fn effects_return_annotation(&self, declaration: NodeId) -> Option<tsr_ast::TypeNode<'_>> {
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index c39ea07c..e5268427 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -206,3 +206,5 @@ pub use flags::TypeFlags;
+ pub use intrinsics::Intrinsics;
+ pub use resolution::{PropertyName, Resolutions};
+ pub use types::{Type, TypeData, TypeId, TypeStore};
++
++mod effects_probe;
+diff --git a/crates/tsr-checker/src/effects_probe.rs b/crates/tsr-checker/src/effects_probe.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/src/effects_probe.rs
+@@ -0,0 +1,26 @@
++//! Task-only executed-work observer. Never included in ordinary timing builds.
++use std::{collections::BTreeMap, io::Write, sync::{LazyLock, atomic::{AtomicU64, Ordering}}};
++static DIRECTORY: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| std::env::var_os("TSR_EFFECTS_PROBE_DIR").map(Into::into));
++static DISABLE_REUSE: LazyLock<bool> = LazyLock::new(|| std::env::var_os("TSR_EFFECTS_PROBE_DISABLE_REUSE").is_some());
++static OWNER: AtomicU64 = AtomicU64::new(0);
++pub(crate) fn reuse_enabled() -> bool { !*DISABLE_REUSE }
++#[derive(Default)]
++pub(crate) struct EffectsProbe { rows: BTreeMap<tsr_ast::NodeId, [u64; 7]> }
++impl EffectsProbe {
++    pub(crate) fn record(&mut self, call: tsr_ast::NodeId, stage: usize) { self.rows.entry(call).or_default()[stage] += 1; }
++}
++impl Drop for EffectsProbe {
++    fn drop(&mut self) {
++        let Some(directory) = &*DIRECTORY else { return; };
++        if self.rows.is_empty() { return; }
++        std::fs::create_dir_all(directory).unwrap();
++        let owner = OWNER.fetch_add(1, Ordering::Relaxed);
++        let mut file = std::fs::File::create(directory.join(format!("checker-{owner}.tsv"))).unwrap();
++        writeln!(file, "call\trequest\tcallee_worker\tsignature_worker\tcompleted_hit\tpublication\tnegative\tpositive").unwrap();
++        for (call, stages) in &self.rows {
++            write!(file, "{call:?}").unwrap();
++            for count in stages { write!(file, "\t{count}").unwrap(); }
++            writeln!(file).unwrap();
++        }
++    }
++}

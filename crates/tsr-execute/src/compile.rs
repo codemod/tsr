@@ -22,12 +22,9 @@ pub enum ExitStatus {
     Success = 0,
     /// Errors were reported and nothing was written.
     DiagnosticsPresentOutputsSkipped = 1,
-    /// Errors were reported and output was written anyway.
-    ///
-    /// **Unreachable in this port**, and deliberately not deleted. Nothing here
-    /// emits, so every diagnostic-bearing run skips its outputs by definition;
-    /// the day `tsr-transformers` exists this becomes reachable, and a status
-    /// enum missing a value upstream has is worse than one with an unused arm.
+    /// Diagnostics with an unskipped native emit result. An empty eligible
+    /// source set has EmitSkipped=false even when no files were written.
+    /// Nonempty emission remains unsupported by this checker-only driver.
     DiagnosticsPresentOutputsGenerated = 2,
     /// The project itself could not be understood.
     InvalidProjectOutputsSkipped = 3,
@@ -128,7 +125,8 @@ pub fn run_compilation(
     // line layered over the top. Upstream does this inside
     // `GetParsedCommandLineOfConfigFile`; here the two parsers meet at this one
     // point, which is also the only place the layering rule is written down.
-    let (mut options, root_files, config_errors, raw) = if config_file_name.is_empty() {
+    let (mut options, root_files, config_errors, error_files, raw) = if config_file_name.is_empty()
+    {
         (
             command_line.compiler_options.clone(),
             command_line
@@ -136,6 +134,7 @@ pub fn run_compilation(
                 .iter()
                 .map(|name| get_normalized_absolute_path(name, &current_directory))
                 .collect::<Vec<_>>(),
+            Vec::new(),
             Vec::new(),
             tsr_core::OrderedMap::default(),
         )
@@ -152,66 +151,19 @@ pub fn run_compilation(
         let base_path = tsr_path::get_directory_path(config_file_name).to_string();
         let parsed =
             tsr_tsoptions::parse_config_file(config_file_name, &text, &base_path, sys.fs());
-        (parsed.compiler_options, parsed.file_names, parsed.errors, parsed.raw)
+        (parsed.compiler_options, parsed.file_names, parsed.errors, parsed.error_files, parsed.raw)
     };
 
     apply_command_line_over_config(&mut options, command_line);
 
-    // The no-inputs error belongs with the config's own errors and comes
-    // **first**, which is the order upstream's parse produces and its baselines
-    // record (`non-object-config-root.js`: TS18003 then TS5092). Raised here
-    // rather than in `tsr_tsoptions::parse_config_file` because that parser is
-    // shared with the conformance harness, and widening its no-inputs condition
-    // would move a suite this session is not meant to touch.
-    let mut config_errors = config_errors;
-    if root_files.is_empty() && !config_file_name.is_empty() {
-        config_errors.insert(
-            0,
-            Diagnostic::with_args(
-                &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
-                tsr_core::Span::new(0, 0),
-                [
-                    config_file_name.to_string(),
-                    "[\"**/*\"]".to_string(),
-                    "[]".to_string(),
-                ],
-            ),
-        );
-        config_errors.dedup_by(|a, b| a.message.code() == b.message.code() && a.args == b.args);
-    }
-
-    if !config_errors.is_empty() {
-        // A config diagnostic is positioned **in the config file**, so it prints
-        // with `tsconfig.json:1:1` and a source frame. Everything with a
-        // meaningful span gets the file; the no-inputs error above is about the
-        // config as a whole rather than a place in it, and upstream prints it
-        // location-less — which is why it is the one exception.
-        let config_file = sys
-            .fs()
-            .read_file(config_file_name)
-            .map(|text| DiagnosticFile::new(config_file_name, text));
-        let located: Vec<(String, Diagnostic)> = config_errors
-            .iter()
-            .map(|error| {
-                let name = if error.message.code() == messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2.code() {
-                    String::new()
-                } else {
-                    config_file_name.to_string()
-                };
-                (name, error.clone())
-            })
-            .collect();
-        let files: Vec<DiagnosticFile> = config_file.into_iter().collect();
-        // **The summary IS printed**, and an earlier version of this suppressed
-        // it. `tsc.go:225` builds `reportErrorSummary` after this branch, which
-        // reads as "config errors get no summary" and is wrong: the reporter
-        // built there is the *watch* one, and `non-object-config-root.js`
-        // expects `Found 2 errors in the same file, starting at: tsconfig.json:1`
-        // after its two diagnostics. Reading the baseline settled it where
-        // reading the call order did not.
-        report_located(sys, &files, &located, &options);
-        return ExitStatus::DiagnosticsPresentOutputsGenerated;
-    }
+    // Native GetDiagnosticsOfAnyProgram (program.go:1782, pinned 5b1047d)
+    // retains recoverable config errors while still checking syntax and,
+    // absent syntax errors, semantics. Each extended file owns its errors.
+    let config_diagnostics: Vec<(String, Diagnostic)> = config_errors
+        .into_iter()
+        .zip(error_files)
+        .map(|(error, file)| (file.unwrap_or_default(), error))
+        .collect();
 
     if options.show_config.is_true() {
         let text = crate::show_config::show_config(
@@ -230,9 +182,8 @@ pub fn run_compilation(
         return ExitStatus::NotImplemented;
     }
 
-    if root_files.is_empty() {
-        // Reached only with no config file at all — files named on the command
-        // line that all failed to resolve. The config case is handled above.
+    if root_files.is_empty() && config_file_name.is_empty() {
+        // No config exists to carry the missing-input diagnostic.
         let error = Diagnostic::with_args(
             &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
             tsr_core::Span::new(0, 0),
@@ -299,60 +250,79 @@ pub fn run_compilation(
         return ExitStatus::DiagnosticsPresentOutputsSkipped;
     }
 
-    if options.list_files.is_true() || options.list_files_only.is_true() {
-        let mut listing = String::new();
-        for file in program.source_files() {
-            listing.push_str(file.file_name());
-            listing.push('\n');
-        }
-        sys.write(&listing);
-        if options.list_files_only.is_true() {
-            return ExitStatus::Success;
-        }
-    }
-
     // `checkerpool.go`: file `i` belongs to checker `i % count`, and each
-    // checker runs on its own worker. The opt-in work trace observes one
-    // private checker, so a traced run keeps a pool of one.
-    #[cfg(feature = "work-trace")]
-    let pool_size = if work_trace.is_some() {
-        1
-    } else {
-        crate::checker_pool::checker_count(&options, program.source_files().len())
-    };
-    #[cfg(not(feature = "work-trace"))]
+    // checker runs on its own worker. Observation preserves that same pool.
     let pool_size = crate::checker_pool::checker_count(&options, program.source_files().len());
-    #[cfg(feature = "work-trace")]
-    if let Some(trace) = &work_trace {
-        trace.checker_construction_started();
-    }
-    #[cfg(feature = "work-trace")]
-    let configure = |checker: &mut tsr_checker::Checker<'_, '_>| {
-        if let Some(trace) = &work_trace {
-            trace.checker_created(&options);
-            checker.set_work_observer(std::sync::Arc::clone(trace) as _);
+    let list_only_needs_checker = options.list_files_only.is_true()
+        && program.source_files().iter().any(|file| {
+            file.source_file().node_id.is_some_and(|id| {
+                program.nodes().flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+            })
+        });
+    // GetDiagnosticsOfAnyProgram still reports config and syntax in list-only
+    // mode; only global/semantic/declaration work is skipped (5b1047d:1813).
+    let pool = if options.list_files_only.is_true() && !list_only_needs_checker {
+        crate::checker_pool::PoolOutcome {
+            diagnostics: Vec::new(),
+            js_syntax: Vec::new(),
+            checked_files: 0,
+            construction: std::time::Duration::ZERO,
         }
+    } else if options.list_files_only.is_true() {
+        #[cfg(feature = "work-trace")]
+        if let Some(trace) = &work_trace {
+            trace.pool_selected(&options, 1, program.source_files().len());
+            trace.checker_construction_started(0);
+        }
+        let mut checker = tsr_checker::Checker::with_module_host(
+            program.binder(),
+            program.nodes(),
+            program.node_map(),
+            Some(&program),
+        );
+        checker.apply_compiler_options(&options);
+        #[cfg(feature = "work-trace")]
+        if let Some(trace) = &work_trace {
+            trace.checker_created(0);
+            checker.set_work_observer(trace.observer(0));
+        }
+        let mut js_syntax = Vec::new();
+        for (index, file) in program.source_files().iter().enumerate() {
+            if let Some(id) = file.source_file().node_id {
+                js_syntax
+                    .extend(checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (index, d)));
+            }
+        }
+        crate::checker_pool::PoolOutcome {
+            diagnostics: Vec::new(),
+            js_syntax,
+            checked_files: 0,
+            construction: sys.since_start().saturating_sub(program_finished),
+        }
+    } else {
+        crate::checker_pool::check_program_files(
+            &program,
+            &options,
+            pool_size,
+            #[cfg(feature = "work-trace")]
+            work_trace.as_ref(),
+        )
     };
-    #[cfg(not(feature = "work-trace"))]
-    let configure = |_: &mut tsr_checker::Checker<'_, '_>| {};
-    let pool = crate::checker_pool::check_program_files(&program, &options, pool_size, &configure);
     let checker_initialized = program_finished + pool.construction;
     let checked_file_count = pool.checked_files;
     let checking_finished = sys.since_start();
     // `GetDiagnosticsOfAnyProgram`: syntactic first, the semantic set only
     // when there is none (`tsr_compiler::program_diagnostics`, shared with the
     // conformance harness).
-    let mut diagnostics: Vec<(String, Diagnostic)> =
-        tsr_compiler::program_diagnostics::diagnostics_of_any_program(
-            &program,
-            pool.js_syntax,
-            pool.diagnostics,
-        )
-        .into_iter()
-        .map(|(index, diagnostic)| {
-            (program.source_files()[index].file_name().to_string(), diagnostic)
-        })
-        .collect();
+    let mut diagnostics = config_diagnostics;
+    let program_diagnostics = tsr_compiler::program_diagnostics::diagnostics_of_any_program(
+        &program,
+        pool.js_syntax,
+        pool.diagnostics,
+    );
+    diagnostics.extend(program_diagnostics.into_iter().map(|(index, diagnostic)| {
+        (program.source_files()[index].file_name().to_string(), diagnostic)
+    }));
 
     // Line maps are built only for files that have diagnostics, as native
     // `SourceFile.ECMALineMap` is computed on first use: indexing every
@@ -366,23 +336,10 @@ pub fn run_compilation(
         }
     };
 
-    // `SortAndDeduplicateDiagnostics` / `ast.CompareDiagnostics`: worker and
-    // Program order do not determine diagnostic order. This port's diagnostic
-    // representation has no message chains or related-information fields.
-    diagnostics.sort_by(|(left_file, left), (right_file, right)| {
-        left_file
-            .cmp(right_file)
-            .then_with(|| left.span.start.cmp(&right.span.start))
-            .then_with(|| left.span.end.cmp(&right.span.end))
-            .then_with(|| left.message.code().cmp(&right.message.code()))
-            .then_with(|| left.args.cmp(&right.args))
-    });
-    diagnostics.dedup_by(|(left_file, left), (right_file, right)| {
-        left_file == right_file
-            && left.span == right.span
-            && left.message.code() == right.message.code()
-            && left.args == right.args
-    });
+    // Native SortAndDeduplicateDiagnostics (program.go:1454, pinned 5b1047d):
+    // compare complete chains and merge related information. Primary paths
+    // remain owned tuple keys without allocating file detail for plain heads.
+    diagnostics = tsr_diagnostics::sort_and_deduplicate_located_diagnostics(diagnostics);
 
     let mut printed: Vec<usize> = diagnostics
         .iter()
@@ -395,8 +352,16 @@ pub fn run_compilation(
     for &index in &printed {
         index_file(&mut indexed_files[index], index);
     }
-    let files: Vec<DiagnosticFile> = indexed_files.into_iter().flatten().collect();
-    report_located(sys, &files, &diagnostics, &options);
+    let mut files: Vec<DiagnosticFile> = indexed_files.into_iter().flatten().collect();
+    for (name, _) in &diagnostics {
+        if !name.is_empty()
+            && !files.iter().any(|file| file.file_name() == name)
+            && let Some(text) = sys.fs().read_file(name)
+        {
+            files.push(DiagnosticFile::new(name.clone(), text));
+        }
+    }
+    report_located(sys, &files, &diagnostics, &options, &program);
     let reporting_finished = sys.since_start();
 
     if options.extended_diagnostics.is_true() {
@@ -445,11 +410,21 @@ pub fn run_compilation(
         ));
     }
 
-    let errors = diagnostics
-        .iter()
-        .filter(|(_, diagnostic)| diagnostic.message.category() == tsr_diagnostics::Category::Error)
-        .count();
-    if errors > 0 { ExitStatus::DiagnosticsPresentOutputsSkipped } else { ExitStatus::Success }
+    if diagnostics.is_empty() {
+        return ExitStatus::Success;
+    }
+    // EmitFilesAndReportErrors / CombineEmitResults (5b1047d): an empty
+    // emitter list is an unskipped result. List-only and noEmitOnError instead
+    // return a skipped result before source eligibility is considered.
+    let empty_emit = !options.list_files_only.is_true()
+        && !options.no_emit_on_error.is_true()
+        && !(0..program.source_files().len())
+            .any(|index| program.source_file_may_be_emitted(index));
+    if empty_emit {
+        ExitStatus::DiagnosticsPresentOutputsGenerated
+    } else {
+        ExitStatus::DiagnosticsPresentOutputsSkipped
+    }
 }
 
 /// Layer command-line options over a config file's.
@@ -599,12 +574,13 @@ fn report(sys: &mut dyn System, diagnostics: &[Diagnostic], options: &CompilerOp
     sys.write(&text);
 }
 
-/// Render diagnostics that belong to files, then the summary.
+/// Render diagnostics, file listing, then summary (native emit.go:120-128).
 fn report_located(
     sys: &mut dyn System,
     files: &[DiagnosticFile],
     diagnostics: &[(String, Diagnostic)],
     options: &CompilerOptions,
+    program: &tsr_compiler::Program<'_>,
 ) {
     let located: Vec<LocatedDiagnostic<'_>> = diagnostics
         .iter()
@@ -615,7 +591,20 @@ fn report_located(
             }
         })
         .collect();
-    let text = render(sys, &located, options, true);
+    let mut text = render(sys, &located, options, false);
+    if options.list_files.is_true() || options.list_files_only.is_true() {
+        for file in program.source_files() {
+            text.push_str(file.file_name());
+            text.push_str(&formatting_options(sys).newline);
+        }
+    }
+    if should_use_pretty(sys, options) && !options.quiet.is_true() {
+        tsr_diagnostics::format::write_error_summary_text(
+            &mut text,
+            &located,
+            &formatting_options(sys),
+        );
+    }
     sys.write(&text);
 }
 

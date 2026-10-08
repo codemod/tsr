@@ -62,7 +62,7 @@ fn os_trace_uses_actual_pid_and_refuses_to_overwrite_existing_sidecars() {
     let text = String::from_utf8(bytes.clone()).unwrap();
     let header = text.lines().next().unwrap();
     assert!(header.contains(&format!("\"pid\":{pid}")));
-    assert!(header.contains("\"schema_version\":1"));
+    assert!(header.contains("\"schema_version\":2"));
     assert!(text.lines().last().unwrap().contains("\"state\":\"complete\""));
     assert!(text.lines().last().unwrap().contains("\"actual_work_equivalence_verified\":false"));
 

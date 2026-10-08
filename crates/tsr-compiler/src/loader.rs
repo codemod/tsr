@@ -326,6 +326,9 @@ pub(crate) struct SourceFileMetaData {
     package_json_type: String,
     /// The format the file is treated as.
     implied_node_format: ResolutionMode,
+    /// Native sourceFilesFoundSearchingNodeModules: the completed canonical
+    /// task's lowest depth, not a pathname substring or its first arrival.
+    pub(crate) found_searching_node_modules: bool,
 }
 
 /// How far into `node_modules` reaching a file went, and whether that matters.
@@ -358,10 +361,16 @@ struct ParseTask<'a> {
     /// prefix arithmetic.
     lib_file: Option<&'static str>,
     depth: Depth,
+    /// Native parseTaskData.lowestDepth, owned by the claimed path's task.
+    /// None is uncomputed; publish the lower depth before recursive re-entry.
+    lowest_depth: Option<i32>,
     /// Whether [`FileLoader::load_task`] ran for this task. A task for a path
     /// some earlier task already claimed stays unloaded and is skipped by the
     /// replay walk, along with its subtree.
     loaded: bool,
+    /// Native parseTask.startedSubTasks, published before following children.
+    /// Lower-depth arrivals update ownership but do not restart a started tree.
+    started_sub_tasks: bool,
     /// The parsed file (`parseTask.file`). `None` when the host could not read
     /// it, which is upstream's `missingFiles`.
     file: Option<ProgramFile<'a>>,
@@ -381,7 +390,9 @@ impl ParseTask<'_> {
             is_for_automatic_type_directive: false,
             lib_file: None,
             depth: Depth::default(),
+            lowest_depth: None,
             loaded: false,
+            started_sub_tasks: false,
             file: None,
             sub_tasks: Vec::new(),
             metadata: SourceFileMetaData::default(),
@@ -570,8 +581,15 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 }
             }
         }
-        result.meta_datas =
-            order.iter().map(|&index| loader.tasks[index].metadata.clone()).collect();
+        result.meta_datas = order
+            .iter()
+            .map(|&index| {
+                let mut metadata = loader.tasks[index].metadata.clone();
+                metadata.found_searching_node_modules =
+                    loader.tasks[index].lowest_depth.is_some_and(|depth| depth > 0);
+                metadata
+            })
+            .collect();
         result.files = order
             .into_iter()
             .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))
@@ -683,6 +701,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         crate::front_end::ordered(
             &inputs,
             workers,
+            crate::front_end::Lookahead::One,
             |_, (_, text, options)| {
                 tsr_parser::ParsedFile::parse_with_options((*text).clone(), *options)
             },
@@ -794,33 +813,37 @@ impl<'host, 'a> FileLoader<'host, 'a> {
 
     // ---- The walk ----------------------------------------------------------
 
-    /// Claim a path, load it, and recurse (`filesParser.start`).
-    ///
-    /// Upstream keys its task data by path *and* by file-name casing, so one
-    /// path reached under two spellings loads twice, and re-reaches a task at a
-    /// lower depth to reprocess subtasks it had elided. Neither is reproduced:
-    /// this claims a path once, at the depth it is first reached in depth-first
-    /// order.
-    ///
-    /// Both simplifications are visible in the oracle if they are wrong — a
-    /// second casing would produce a second set of resolutions, and a
-    /// too-shallow claim would drop them entirely — which is why they are worth
-    /// taking rather than porting `parseTaskData`'s mutex and depth bookkeeping
-    /// before anything needs them.
+    /// filesParser.start (5b1047d:245-301): canonical paths retain the first
+    /// load owner; lower arrivals resume elided work, not already-started trees.
+    /// Publish depth before recursion; cycles cannot lower the same depth twice.
+    /// This extends the existing claimed table, not a parallel identity cache.
+    /// File-casing tasks remain outside this port's existing single-owner model.
     fn process_task(&mut self, index: usize, depth: i32) {
         let path = self.tasks[index].path.clone();
-        if self.claimed.contains_key(&path) {
+        let current_depth = depth + i32::from(self.tasks[index].depth.increase);
+        let owner = *self.claimed.entry(path).or_insert(index);
+        let start_sub_tasks =
+            self.tasks[owner].lowest_depth.is_none_or(|lowest| current_depth < lowest);
+        if start_sub_tasks {
+            self.tasks[owner].lowest_depth = Some(current_depth);
+        }
+
+        if self.tasks[index].depth.elide && current_depth > self.max_node_module_js_depth {
             return;
         }
-        self.claimed.insert(path, index);
-
-        let current_depth = depth + i32::from(self.tasks[index].depth.increase);
-        if self.tasks[index].depth.elide && current_depth > self.max_node_module_js_depth {
+        let index = owner;
+        if self.tasks[index].loaded && self.tasks[index].started_sub_tasks {
             return;
         }
 
         let task_started = self.options.extended_diagnostics.is_true().then(Instant::now);
-        self.load_task(index);
+        if !self.tasks[index].loaded {
+            self.load_task(index);
+        }
+        if self.tasks[index].started_sub_tasks || !start_sub_tasks {
+            return;
+        }
+        self.tasks[index].started_sub_tasks = true;
         let sub_tasks = self.tasks[index].sub_tasks.clone();
         self.prepare_dependencies(&sub_tasks, current_depth);
         if let Some(started) = task_started {
@@ -971,6 +994,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             SourceFileMetaData {
                 package_json_type: String::new(),
                 implied_node_format: ResolutionMode::CommonJS,
+                found_searching_node_modules: false,
             }
         } else {
             self.load_source_file_meta_data(&file_name)
@@ -1508,6 +1532,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         SourceFileMetaData {
             implied_node_format: implied_node_format_for_file(file_name, &package_json_type),
             package_json_type,
+            found_searching_node_modules: false,
         }
     }
 
@@ -1700,6 +1725,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         rest: &mut Vec<usize>,
         packages: &mut FxHashMap<PackageId, Path>,
     ) {
+        let index = self.claimed.get(&self.tasks[index].path).copied().unwrap_or(index);
         let task = &self.tasks[index];
         if !task.loaded || !seen.insert(task.path.clone()) {
             return;

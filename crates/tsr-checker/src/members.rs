@@ -269,7 +269,7 @@ impl Checker<'_, '_> {
             receiver.node_id(),
             node.question_dot_token.is_some(),
         );
-        let stripped = self.check_non_null_type(non_optional);
+        let mut stripped = self.check_non_null_type(non_optional);
         if stripped == error {
             // §121 (`checker-notes-narrow.md`): the receiver COMPUTED (the
             // gap test above passed) and the non-null strip itself refused.
@@ -290,6 +290,29 @@ impl Checker<'_, '_> {
                 return self.intrinsics.any;
             }
             return error;
+        }
+        let widen_receiver = node.node_id.is_some_and(|access| {
+            if self.assignment_target_kind(access) != crate::expressions::AssignmentTargetKind::None
+            {
+                return true;
+            }
+            let mut current = access;
+            while let Some(parent) = self.nodes.parent(current) {
+                match self.node_map.get(parent) {
+                    Some(Node::ParenthesizedExpression(_)) => current = parent,
+                    Some(Node::CallExpression(call)) => {
+                        return call.expression.and_then(|expr| expr.node_id()) == Some(current);
+                    }
+                    Some(Node::NewExpression(call)) => {
+                        return call.expression.and_then(|expr| expr.node_id()) == Some(current);
+                    }
+                    _ => return false,
+                }
+            }
+            false
+        });
+        if widen_receiver {
+            stripped = self.widen_object_literal_freshness(stripped);
         }
         // §471 the shadow half of upstream's mangled-name lookup: the
         // property the receiver's type serves under this spelling must be
@@ -1413,6 +1436,11 @@ impl Checker<'_, '_> {
             let constituents = types.clone();
             let mut projected = Vec::with_capacity(constituents.len());
             let mut has_property = false;
+            // createUnionOrIntersectionProperty (5b1047d checker.go:21554)
+            // retains declaration identity independently of value projection.
+            // Distinct private/protected origins without a common declaration
+            // are not a union property. Query-local roots publish no image.
+            let mut non_public = false;
             for constituent in constituents {
                 // §117 slice 3: each constituent reads through its APPARENT
                 // type — upstream's per-constituent getReducedApparentType;
@@ -1424,6 +1452,11 @@ impl Checker<'_, '_> {
                     || self.intersection_has_never_discriminant(apparent)
                 {
                     continue;
+                }
+                if let Some(property) =
+                    self.get_property_of_type_ex(apparent, name, skip_object_function_augment)
+                {
+                    non_public |= self.property_is_non_public(property);
                 }
                 let member = if let Some(member) = self.get_type_of_property_with_this_argument(
                     apparent,
@@ -1453,6 +1486,13 @@ impl Checker<'_, '_> {
                     self.get_applicable_index_info(apparent, key)?.value
                 };
                 projected.push(member);
+            }
+            if non_public {
+                self.get_property_of_union_or_intersection_type(
+                    id,
+                    name,
+                    skip_object_function_augment,
+                )?;
             }
             return has_property.then(|| self.get_union_type(&projected));
         }
@@ -1756,8 +1796,21 @@ impl Checker<'_, '_> {
                     if visiting.contains(&base) {
                         continue;
                     }
+                    // reparseHosted copies JS @augments arguments onto the
+                    // native heritage reference. Reuse the existing supplier
+                    // when the written entry has none (5b1047d getBaseTypes).
+                    let arguments = if entry.type_arguments.is_empty()
+                        && entry.node_id.is_some_and(|node| self.in_js_file(node))
+                    {
+                        entry
+                            .node_id
+                            .and_then(|node| self.jsdoc_augments_type_arguments(node))
+                            .unwrap_or(entry.type_arguments)
+                    } else {
+                        entry.type_arguments
+                    };
                     let Some(base_type) =
-                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)
+                        self.instantiated_heritage_base(base, arguments, entry.node_id)
                     else {
                         continue;
                     };
@@ -2825,6 +2878,11 @@ impl Checker<'_, '_> {
                     .iter()
                     .filter_map(|m| tsr_ast::Node::from(*m).node_id())
                     .collect(),
+                Some(Node::ObjectLiteralExpression(literal)) => literal
+                    .properties
+                    .iter()
+                    .filter_map(|member| tsr_ast::Node::from(*member).node_id())
+                    .collect(),
                 _ => continue,
             };
             for member in member_ids {
@@ -3243,12 +3301,20 @@ impl Checker<'_, '_> {
         owner: tsr_binder::SymbolId,
         names: &mut Vec<String>,
     ) -> bool {
-        for (&name, &symbol) in &self.binder.symbols().get(owner).exports {
-            if self.symbol_is_value(symbol) && !names.iter().any(|existing| existing == name) {
-                names.push(name.to_owned());
-            }
-        }
-        for (name, _) in self.late_bound_static_members_of(owner) {
+        let mut own: Vec<_> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .exports
+            .iter()
+            .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
+            .map(|(&name, &symbol)| (name.to_owned(), symbol))
+            .collect();
+        own.extend(self.late_bound_static_members_of(owner));
+        // getNamedMembers/compareSymbols (5b1047d): source declaration order
+        // within the own table, retaining original symbols and value filtering.
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -3297,23 +3363,22 @@ impl Checker<'_, '_> {
         // A members table also holds type parameters, so the value gate is the
         // same one `getPropertyOfType` applies; without it `interface I<T>`
         // would demand a property named `T`.
-        let own: Vec<String> = self
+        let mut own: Vec<_> = self
             .binder
             .symbols()
             .get(owner)
             .members
             .iter()
             .filter(|&(_, &symbol)| self.symbol_is_value(symbol))
-            .map(|(&name, _)| name.to_owned())
+            .map(|(&name, &symbol)| (name.to_owned(), symbol))
             .collect();
-        for name in own {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        // getResolvedMembersOrExportsOfSymbol keeps instance members and exports
-        // separate, including computed declarations.
-        for (name, _) in self.late_bound_members_of(owner, false) {
+        // Late-bound own declarations belong to this same ordered partition,
+        // not an appended table. Instance and static identities stay separate.
+        own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
+            |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
+        ));
+        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -3727,6 +3792,26 @@ mod property_name_tests {
         let root = parsed.source_file.node_id().unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         test(&mut checker, root)
+    }
+
+    #[test]
+    fn own_member_order_retains_source_order_and_static_instance_boundaries() {
+        with_checker(
+            "interface Callable<T> { readonly tag: string; method(value: T): T } class Shape { static tag: string; static method(): void {} instance: number }",
+            |checker, root| {
+                let owner = checker.binder.lookup_local(root, "Callable").unwrap();
+                let ty = checker.get_declared_type_of_symbol(owner);
+                assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["tag", "method"]);
+                let class = checker.binder.lookup_local(root, "Shape").unwrap();
+                let statics = checker.get_type_of_symbol(class);
+                assert_eq!(
+                    checker.get_property_names_of_type(statics).unwrap(),
+                    ["prototype", "tag", "method"]
+                );
+                let instance = checker.get_declared_type_of_symbol(class);
+                assert_eq!(checker.get_property_names_of_type(instance).unwrap(), ["instance"]);
+            },
+        );
     }
 
     #[test]

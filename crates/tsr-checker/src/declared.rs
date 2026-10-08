@@ -3565,7 +3565,7 @@ impl<'a> Checker<'a, '_> {
                         };
                         flat.push((resolved, optional, label));
                     } else if let Some((inner_elements, _)) =
-                        self.tuple_element_lists.get(&resolved).cloned()
+                        self.tuple_element_lists.get(&resolved)
                     {
                         // createNormalizedTupleType (checker.go) rejects a
                         // concrete spread before expanding to 10,000 elements.
@@ -3576,13 +3576,15 @@ impl<'a> Checker<'a, '_> {
                         }
                         let mask = self.tuple_optional_masks.get(&resolved);
                         let labels = self.tuple_labels.get(&resolved);
-                        flat.extend(inner_elements.into_iter().enumerate().map(|(index, t)| {
-                            (
-                                t,
-                                mask.and_then(|m| m.get(index)).copied().unwrap_or(false),
-                                labels.and_then(|l| l.get(index)).cloned().flatten(),
-                            )
-                        }));
+                        flat.extend(inner_elements.iter().copied().enumerate().map(
+                            |(index, t)| {
+                                (
+                                    t,
+                                    mask.and_then(|m| m.get(index)).copied().unwrap_or(false),
+                                    labels.and_then(|l| l.get(index)).cloned().flatten(),
+                                )
+                            },
+                        ));
                     } else {
                         spliced = None;
                     }
@@ -3599,11 +3601,55 @@ impl<'a> Checker<'a, '_> {
                 };
                 pieces.push(format!("{prefix}{printed}{suffix}"));
             }
+            // Native resolves every element before normalization maps a
+            // variadic never to never; later operand work must not be skipped.
+            if resolved_elements.iter().any(|element| {
+                element.spread && self.store.get(element.r#type).flags.contains(TypeFlags::NEVER)
+            }) {
+                return self.intrinsics.never;
+            }
+            if resolved_elements.iter().any(|element| {
+                element.spread
+                    && (self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
+                        || self.variadic_tuple_elements.contains_key(&element.r#type)
+                        || element.r#type == self.intrinsics.any)
+            }) {
+                // Native createNormalizedTupleTypeEx distributes variadic union
+                // operands before positional normalization. Reuse the existing
+                // semantic normalizer's cross-product bound and branch order.
+                let readonly = node
+                    .node_id
+                    .and_then(|id| self.nodes.parent(id))
+                    .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                return self.normalize_variadic_tuple(resolved_elements, readonly);
+            }
             if let Some(flat) = spliced {
                 let readonly = node
                     .node_id
                     .and_then(|id| self.nodes.parent(id))
                     .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                let mut seen_optional = false;
+                if flat.iter().any(|(_, optional, _)| {
+                    if *optional {
+                        seen_optional = true;
+                        false
+                    } else {
+                        seen_optional
+                    }
+                }) {
+                    // Native tuple normalization makes an optional slot before
+                    // a required tail required, retaining undefined in its type.
+                    let elements = flat
+                        .into_iter()
+                        .map(|(r#type, optional, label)| crate::tuples::TupleElement {
+                            r#type,
+                            spread: false,
+                            optional,
+                            label,
+                        })
+                        .collect();
+                    return self.normalize_variadic_tuple(elements, readonly);
+                }
                 if flat.iter().any(|(_, optional, label)| *optional || label.is_some()) {
                     let elements: Vec<_> =
                         flat.iter().map(|(t, optional, _)| (*t, *optional)).collect();
@@ -3635,10 +3681,11 @@ impl<'a> Checker<'a, '_> {
             if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
                 let mut element_types = Vec::with_capacity(node.elements.len());
                 let mut every_operand_is_an_array = true;
-                for element in node.elements {
-                    let TypeNode::RestTypeNode(rest) = element else { continue };
-                    let Some(operand) = rest.r#type else { return error };
-                    let resolved = self.get_type_from_type_node(operand);
+                // Operand resolution already completed above in the same
+                // receiver/alias frame. Reuse those ordered semantic identities
+                // instead of repeating AST resolution before normalization.
+                for element in &resolved_elements {
+                    let resolved = element.r#type;
                     if self.store.get(resolved).flags.contains(TypeFlags::ANY) {
                         element_types.push(resolved);
                         continue;
@@ -3748,6 +3795,11 @@ impl<'a> Checker<'a, '_> {
             if resolved == error {
                 return error;
             }
+            let resolved = if optional && self.strict_null_checks {
+                self.get_optional_type(resolved, true)
+            } else {
+                resolved
+            };
             elements.push((resolved, optional));
             labels.push(label);
         }

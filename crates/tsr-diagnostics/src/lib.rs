@@ -15,8 +15,15 @@
 //! assert_eq!(messages::_0_EXPECTED.format(&[";"]), "';' expected.");
 //! ```
 
+mod compare;
 pub mod format;
 mod generated;
+
+pub use compare::{
+    compact_and_merge_related_infos, compare_diagnostics, equal_diagnostics,
+    equal_diagnostics_no_related_info, sort_and_deduplicate_diagnostics,
+    sort_and_deduplicate_located_diagnostics,
+};
 
 pub use format::{
     DiagnosticFile, FormattingOptions, LocatedDiagnostic, format_diagnostics,
@@ -208,7 +215,10 @@ pub fn by_key(key: &str) -> Option<&'static Message> {
     messages::ALL.iter().copied().find(|m| m.key() == key)
 }
 
-/// A diagnostic: a message, its location, and its arguments.
+/// A diagnostic with ordered explanations and related locations.
+///
+/// Ported from typescript-go's `Diagnostic` (`internal/ast/diagnostic.go`).
+/// Rare tree/location state is boxed so head-only diagnostics allocate no extra storage.
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     /// The message template.
@@ -217,13 +227,25 @@ pub struct Diagnostic {
     pub span: Span,
     /// Arguments substituted into the template.
     pub args: Vec<String>,
+    category: Category,
+    reports_unnecessary: bool,
+    reports_deprecated: bool,
+    details: Option<Box<DiagnosticDetails>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DiagnosticDetails {
+    file: Option<std::sync::Arc<DiagnosticFile>>,
+    chain: Vec<Diagnostic>,
+    related: std::sync::Arc<Vec<Diagnostic>>,
+    skipped_on_no_emit: bool,
 }
 
 impl Diagnostic {
     /// Create a diagnostic with no arguments.
     #[must_use]
     pub fn new(message: &'static Message, span: Span) -> Self {
-        Self { message, span, args: Vec::new() }
+        Self::with_args(message, span, std::iter::empty())
     }
 
     /// Create a diagnostic with substitution arguments.
@@ -233,10 +255,144 @@ impl Diagnostic {
         span: Span,
         args: impl IntoIterator<Item = String>,
     ) -> Self {
-        Self { message, span, args: args.into_iter().collect() }
+        Self {
+            message,
+            span,
+            args: args.into_iter().collect(),
+            category: message.category(),
+            reports_unnecessary: message.flags().contains(MessageFlags::REPORTS_UNNECESSARY),
+            reports_deprecated: message.flags().contains(MessageFlags::REPORTS_DEPRECATED),
+            details: None,
+        }
     }
 
-    /// The rendered message text.
+    /// Ported from typescript-go's `NewDiagnosticChain` (`internal/ast/diagnostic.go`).
+    /// The parent inherits the child's location and shares its related information.
+    #[must_use]
+    pub fn new_chain(
+        child: Option<Self>,
+        message: &'static Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Self {
+        let mut parent =
+            Self::with_args(message, child.as_ref().map_or(Span::new(0, 0), |d| d.span), args);
+        if let Some(child) = child {
+            let details = parent.details.get_or_insert_with(Default::default);
+            if let Some(child_details) = &child.details {
+                details.file.clone_from(&child_details.file);
+                details.related.clone_from(&child_details.related);
+            }
+            details.chain.push(child);
+        }
+        parent
+    }
+
+    /// Ordered child explanations (`Diagnostic.MessageChain`).
+    #[must_use]
+    pub fn message_chain(&self) -> &[Self] {
+        self.details.as_ref().map_or(&[], |details| &details.chain)
+    }
+
+    /// Append one explanation (`Diagnostic.AddMessageChain`); absent children do nothing.
+    pub fn add_message_chain(&mut self, child: Option<Self>) -> &mut Self {
+        if let Some(child) = child {
+            self.details.get_or_insert_with(Default::default).chain.push(child);
+        }
+        self
+    }
+
+    /// Replace explanations (`Diagnostic.SetMessageChain`).
+    pub fn set_message_chain(&mut self, children: Vec<Self>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).chain = children;
+        self
+    }
+
+    /// Ordered related diagnostics (`Diagnostic.RelatedInformation`).
+    #[must_use]
+    pub fn related_information(&self) -> &[Self] {
+        self.details.as_ref().map_or(&[], |details| &details.related)
+    }
+
+    /// Replace related information (`Diagnostic.SetRelatedInfo`).
+    pub fn set_related_information(&mut self, related: std::sync::Arc<Vec<Self>>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).related = related;
+        self
+    }
+
+    /// Append related information (`Diagnostic.AddRelatedInfo`).
+    pub fn add_related_information(&mut self, related: Option<Self>) -> &mut Self {
+        if let Some(related) = related {
+            let details = self.details.get_or_insert_with(Default::default);
+            std::sync::Arc::make_mut(&mut details.related).push(related);
+        }
+        self
+    }
+
+    /// Runtime category (`Diagnostic.Category`), initialized by `NewDiagnostic`.
+    #[must_use]
+    pub const fn category(&self) -> Category {
+        self.category
+    }
+
+    /// Update runtime severity (`Diagnostic.SetCategory`).
+    pub fn set_category(&mut self, category: Category) -> &mut Self {
+        self.category = category;
+        self
+    }
+
+    /// Runtime unused-code payload (`Diagnostic.ReportsUnnecessary`).
+    #[must_use]
+    pub const fn reports_unnecessary(&self) -> bool {
+        self.reports_unnecessary
+    }
+
+    /// Set the explicit payload supplied by native diagnostic deserialization.
+    pub fn set_reports_unnecessary(&mut self, reports_unnecessary: bool) -> &mut Self {
+        self.reports_unnecessary = reports_unnecessary;
+        self
+    }
+
+    /// Runtime deprecation payload (`Diagnostic.ReportsDeprecated`).
+    #[must_use]
+    pub const fn reports_deprecated(&self) -> bool {
+        self.reports_deprecated
+    }
+
+    /// Set the explicit payload supplied by native diagnostic deserialization.
+    pub fn set_reports_deprecated(&mut self, reports_deprecated: bool) -> &mut Self {
+        self.reports_deprecated = reports_deprecated;
+        self
+    }
+
+    /// Per-diagnostic emit policy (`Diagnostic.SkippedOnNoEmit`).
+    /// This state is independent of the generated message's flags.
+    #[must_use]
+    pub fn skipped_on_no_emit(&self) -> bool {
+        self.details.as_ref().is_some_and(|details| details.skipped_on_no_emit)
+    }
+
+    /// Mark this diagnostic as omitted from semantic diagnostics under noEmit.
+    /// Ported from typescript-go's `Diagnostic.SetSkippedOnNoEmit`
+    /// (`internal/ast/diagnostic.go`). Clone retains this flag; new chain parents
+    /// do not inherit it from their child.
+    pub fn set_skipped_on_no_emit(&mut self) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).skipped_on_no_emit = true;
+        self
+    }
+
+    /// The source file for independently located related information.
+    #[must_use]
+    pub fn file(&self) -> Option<&DiagnosticFile> {
+        self.details.as_ref().and_then(|details| details.file.as_deref())
+    }
+
+    /// Attach a Program-owned source image (`Diagnostic.SetFile`).
+    pub fn set_file(&mut self, file: std::sync::Arc<DiagnosticFile>) -> &mut Self {
+        self.details.get_or_insert_with(Default::default).file = Some(file);
+        self
+    }
+
+    /// The localized head text, not the flattened tree (`Diagnostic.Localize`).
     #[must_use]
     pub fn text(&self) -> String {
         let refs: Vec<&str> = self.args.iter().map(String::as_str).collect();

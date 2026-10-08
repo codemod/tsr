@@ -2714,8 +2714,10 @@ impl Checker<'_, '_> {
     /// (an `asserts` predicate or a `never` return) a CALL flow node
     /// carries, or `None` when the call has none.
     ///
-    /// Upstream caches this per node in `signatureLinks.effectsSignature`;
-    /// this port recomputes — the walk memoises per flow node already.
+    /// Native caches completion per call in `signatureLinks.effectsSignature`.
+    /// This port retains completed negatives for written signatures. Inferred
+    /// predicates and unsupported/deferred signature work remain uncomputed;
+    /// their lazy publication is tracked in tsr-1yb.11.3.2.
     /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
     /// `instanceof` flow-call nodes in this binder).
     fn get_effects_signature(
@@ -2723,6 +2725,11 @@ impl Checker<'_, '_> {
         call_node: NodeId,
         call: &tsr_ast::CallExpression<'_>,
     ) -> Option<crate::signatures::Signature> {
+        if self.effects_completion_context_is_original()
+            && self.completed_no_effects_calls.contains(&call_node)
+        {
+            return None;
+        }
         let callee = call.expression?;
         let callee_id = callee.node_id()?;
         // Native signatures retain lazy returns when checking effects. This
@@ -2770,9 +2777,11 @@ impl Checker<'_, '_> {
                 !call.type_arguments.is_empty(),
             )?
         } else {
+            self.complete_written_no_effects_call(call_node, &signatures);
             return None;
         };
         if !self.has_type_predicate_or_never_return(&signature) {
+            self.complete_written_no_effects_call(call_node, std::slice::from_ref(&signature));
             return None;
         }
         if !signature.type_parameters.is_empty() {
@@ -2788,6 +2797,55 @@ impl Checker<'_, '_> {
         Some(signature)
     }
 
+    /// Native keys effects by the call node. TSR can also evaluate that AST
+    /// under captured alias or mapped-template contexts, so this bounded port
+    /// only retains and reads completion in the original evaluation context.
+    fn effects_completion_context_is_original(&self) -> bool {
+        self.alias_evaluation_bindings.is_empty() && self.mapped_template_depth == 0
+    }
+
+    /// Publish the native completed-unknown boundary only when every signature
+    /// has a written non-predicate annotation and completed return. Such a
+    /// signature cannot later acquire an inferred predicate. Empty, erroneous,
+    /// deferred or context-sensitive views do not certify this completion.
+    fn complete_written_no_effects_call(
+        &mut self,
+        call: NodeId,
+        signatures: &[crate::signatures::Signature],
+    ) {
+        if !self.effects_completion_context_is_original()
+            || signatures.is_empty()
+            || !signatures.iter().all(|signature| {
+                if signature.predicate.is_some()
+                    || signature.r#type == self.intrinsics.error
+                    || self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER)
+                    || self.is_context_sensitive_function_like(signature.declaration)
+                {
+                    return false;
+                }
+                self.effects_return_annotation(signature.declaration).is_some_and(|annotation| {
+                    !matches!(annotation, tsr_ast::TypeNode::TypePredicateNode(_))
+                })
+            })
+        {
+            return;
+        }
+        self.completed_no_effects_calls.insert(call);
+    }
+
+    fn effects_return_annotation(&self, declaration: NodeId) -> Option<tsr_ast::TypeNode<'_>> {
+        match self.node_map.get(declaration) {
+            Some(Node::FunctionDeclaration(node)) => node.r#type,
+            Some(Node::MethodDeclaration(node)) => node.r#type,
+            Some(Node::FunctionExpression(node)) => node.r#type,
+            Some(Node::ArrowFunction(node)) => node.r#type,
+            Some(Node::FunctionTypeNode(node)) => node.r#type,
+            Some(Node::MethodSignatureDeclaration(node)) => node.r#type,
+            Some(Node::CallSignatureDeclaration(node)) => node.r#type,
+            _ => None,
+        }
+    }
+
     /// `hasTypePredicateOrNeverReturnType` (`flow.go:2211`): a predicate, or
     /// an ANNOTATED return that is `never`. Upstream reads the annotation
     /// (`getReturnTypeFromAnnotation`), never the inferred return — a
@@ -2800,17 +2858,7 @@ impl Checker<'_, '_> {
         if signature.predicate.is_some() {
             return true;
         }
-        let annotated = match self.node_map.get(signature.declaration) {
-            Some(Node::FunctionDeclaration(f)) => f.r#type.is_some(),
-            Some(Node::MethodDeclaration(m)) => m.r#type.is_some(),
-            Some(Node::FunctionExpression(f)) => f.r#type.is_some(),
-            Some(Node::ArrowFunction(f)) => f.r#type.is_some(),
-            Some(Node::FunctionTypeNode(f)) => f.r#type.is_some(),
-            Some(Node::MethodSignatureDeclaration(m)) => m.r#type.is_some(),
-            Some(Node::CallSignatureDeclaration(c)) => c.r#type.is_some(),
-            _ => false,
-        };
-        if annotated {
+        if self.effects_return_annotation(signature.declaration).is_some() {
             return self.store.get(signature.r#type).flags.contains(TypeFlags::NEVER);
         }
         // A JSDoc return node is not copied into this AST's type field. Native
@@ -8294,12 +8342,24 @@ impl Checker<'_, '_> {
                 | TypeFacts::TYPEOF_EQ_OBJECT
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT);
         }
-        // A symbol is `typeof … === "symbol"` (`TypeFactsSymbolStrictFacts`).
-        if flags.intersects(TypeFlags::ES_SYMBOL) {
-            return TypeFacts::TRUTHY
+        // Ported from typescript-go's getTypeFactsWorker
+        // (internal/checker/checker.go), pinned at 5b1047d10d32e7d5b446be4de56b126ff42f82bb:
+        // ESSymbolLike includes unique symbols; loose SymbolFacts also admits
+        // falsy nullish values without changing the typeof domain.
+        if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            let strict_facts = TypeFacts::TRUTHY
                 | nullable_never
                 | TypeFacts::TYPEOF_EQ_SYMBOL
                 | (typeof_ne_all - TypeFacts::TYPEOF_NE_SYMBOL);
+            return if self.strict_null_checks {
+                strict_facts
+            } else {
+                strict_facts
+                    | TypeFacts::EQ_UNDEFINED
+                    | TypeFacts::EQ_NULL
+                    | TypeFacts::EQ_UNDEFINED_OR_NULL
+                    | TypeFacts::FALSY
+            };
         }
         // An object or a non-primitive is always truthy and never nullable in
         // strict mode; loose native facts also admit falsy/nullable values.
@@ -8402,11 +8462,11 @@ impl Checker<'_, '_> {
                 }
             }
             TypeData::BigIntLiteral(value) => {
-                if matches!(value.as_str(), "0n" | "-0n") {
-                    TypeFacts::FALSY
-                } else {
-                    TypeFacts::TRUTHY
-                }
+                // Ported from typescript-go's isZeroBigInt
+                // (internal/checker/checker.go). normalise_bigint stores
+                // canonical decimal digits, not the printed `n` suffix;
+                // jsnum.PseudoBigInt's zero state has no negative sign.
+                if value == "0" { TypeFacts::FALSY } else { TypeFacts::TRUTHY }
             }
             TypeData::BooleanLiteral(value) => {
                 if *value {
@@ -8432,10 +8492,11 @@ impl Checker<'_, '_> {
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
         };
-        // Native BaseStringFacts/BaseNumberFacts admit falsy nullish values in
-        // non-strict mode. Apply this to the new enum-literal payload domain;
-        // the older ordinary-literal fact path retains its documented limit.
-        let truthiness = if !self.strict_null_checks && flags.intersects(TypeFlags::ENUM_LITERAL) {
+        // Native bigint and enum facts admit falsy nullish values in loose
+        // mode. Other ordinary primitive domains retain their existing limit.
+        let truthiness = if !self.strict_null_checks
+            && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::BIG_INT_LIKE)
+        {
             truthiness | TypeFacts::FALSY
         } else {
             truthiness
@@ -8455,7 +8516,12 @@ impl Checker<'_, '_> {
             // else; kept total rather than panicking, and kept SAFE.
             both
         };
-        truthiness | nullable_never | typeof_family
+        let facts = truthiness | nullable_never | typeof_family;
+        if !self.strict_null_checks && flags.intersects(TypeFlags::BIG_INT_LIKE) {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
+        } else {
+            facts
+        }
     }
 
     /// Whether a symbol is one upstream would narrow a reference to.
@@ -8762,3 +8828,7 @@ mod query_this_tests;
 #[cfg(test)]
 #[path = "flow_object_facts_tests.rs"]
 mod object_facts_tests;
+
+#[cfg(test)]
+#[path = "flow_effects_completion_tests.rs"]
+mod effects_completion_tests;

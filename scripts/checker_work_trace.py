@@ -125,7 +125,7 @@ def validate_receipt(receipt: dict, warning: str) -> dict:
 def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -> dict:
     """Stream records, retaining only file identities and currently active spans.
 
-    Supports the shipped serial TSR producer. Native traces need their own
+    Supports serial schema 1 and pool-preserving schema 2. Native traces need their own
     source-qualified envelope; an unknown producer/schema is never guessed.
     Missing policy facts in an older schema-1 artifact are explicitly rejected.
     """
@@ -136,6 +136,9 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
         require(not inventory_only or "--listFilesOnly" in command, "inventory-only mode lacks command evidence")
         files, nodes, active, checked = [], set(), {}, set()
         phase, options, library_count = "new", {}, 0
+        schema, selected, created, constructors = 0, None, set(), {}
+        owner_stacks = {}
+        previous_timestamp = 0
         next_span, full_active, peak = 0, 0, 0
         digest = hashlib.sha256()
         with regular_file(path) as stream:
@@ -143,11 +146,23 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                 digest.update(raw)
                 row = decode(raw)
                 event = row.get("event")
+                before_timestamp = previous_timestamp
+                if schema == 2 or (event == "invocation_start" and row.get("schema_version") == 2):
+                    timestamp = row["recorded_at_ns"]
+                    require(integer(timestamp) and timestamp >= previous_timestamp,
+                            "non-monotonic parallel activity timestamp")
+                    previous_timestamp = timestamp
                 require(phase != "ended", "records follow invocation completion")
                 if event == "invocation_start":
                     require(phase == "new", "duplicate or reordered invocation start")
-                    require(type(row["schema_version"]) is int and row["schema_version"] == 1
+                    require(type(row["schema_version"]) is int and row["schema_version"] in (1, 2)
                             and row["producer"] == "tsr-work-trace", "unsupported trace producer/schema")
+                    schema = row["schema_version"]
+                    if schema == 2:
+                        require(type(row["worker_activity_schema_version"]) is int
+                                and row["worker_activity_schema_version"] == 2
+                                and row["activity_clock"] == "monotonic_elapsed_ns",
+                                "unsupported parallel activity schema")
                     require(type(row["pid"]) is int and row["pid"] == child["pid"], "replayed child PID")
                     require(isinstance(receipt["invocation_id"], str) and receipt["invocation_id"]
                             and row["invocation_id"] == receipt["invocation_id"], "replayed invocation")
@@ -203,12 +218,64 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                     require(row["full_check_exclusion"] == reason and row["full_check_eligible"] is (reason is None),
                             "file eligibility/exclusion contradicts qualified policy facts")
                     files.append(row)
+                elif event == "pool_selected":
+                    require(schema == 2 and phase == "files" and not inventory_only,
+                            "duplicate or reordered pool selection")
+                    require([file["path"] for file in files] == receipt["loaded_files"]
+                            and library_count <= len(files), "incomplete Program inventory")
+                    requested, single = row["requested_checkers"], row["requested_single_threaded"]
+                    require((requested is None or type(requested) is int) and optional_bool(single)
+                            and requested == receipt["requested_checkers"]
+                            and single is receipt["requested_single_threaded"], "worker settings changed")
+                    effective = receipt["show_config"].get("compilerOptions", {})
+                    # Native-style showConfig omits these worker options. The
+                    # trusted supervisor captures requests separately; when a
+                    # serializer exposes them, contradictory values are invalid.
+                    require(("checkers" not in effective or requested == effective["checkers"])
+                            and ("singleThreaded" not in effective or single is effective["singleThreaded"]),
+                            "worker request contradicts effective options")
+                    expected = max(min(1 if single is True else 4 if requested is None else requested,
+                                       len(files), 256), 1)
+                    selected = row["selected_count"]
+                    require(integer(selected) and selected == expected
+                            and integer(row["program_file_count"]) and row["program_file_count"] == len(files)
+                            and row["worker_options_applied_by_driver"] is True
+                            and row["memory_admission_budget"] is None
+                            and row["affinity"] == "program_file_index_modulo_selected_count",
+                            "incorrect pool selection/affinity")
+                    phase = "work"
+                elif event == "checker_construction_begin":
+                    owner = row["checker_id"]
+                    require(schema == 2 and phase == "work" and integer(owner)
+                            and owner < selected and owner not in constructors and owner not in created,
+                            "duplicate or unknown constructor")
+                    start = row["construction_started_at_ns"]
+                    require(integer(start) and before_timestamp <= start <= row["recorded_at_ns"],
+                            "invalid constructor start")
+                    constructors[owner] = start
                 elif event == "checker_created":
-                    require(phase == "files", "duplicate or reordered checker construction")
+                    require(phase == ("files" if schema == 1 else "work"),
+                            "duplicate or reordered checker construction")
                     require([file["path"] for file in files] == receipt["loaded_files"],
                             "Program inventory differs from captured loaded identities")
                     require(library_count <= len(files), "default-library population exceeds Program")
-                    require(type(row["checker_id"]) is int and row["checker_id"] == 0
+                    owner = row["checker_id"]
+                    if schema == 2:
+                        require(not {"effective_serial_checker_limit", "worker_options_applied_by_driver",
+                                     "requested_checkers", "requested_single_threaded",
+                                     "requested_checkers_matches_actual_instances", "memory_admission_budget"}
+                                .intersection(row), "serial policy facts in parallel constructor")
+                        require(integer(owner) and owner in constructors and owner not in created,
+                                "unknown/duplicate checker return")
+                        start, finish = row["construction_started_at_ns"], row["construction_finished_at_ns"]
+                        require(start == constructors.pop(owner) and integer(start) and integer(finish)
+                                and start <= finish and before_timestamp <= finish <= row["recorded_at_ns"],
+                                "invalid constructor interval")
+                        require(row["initialization_forcing_observed"] is False, "unsupported initialization claim")
+                        created.add(owner)
+                        result["checker_instances_created"] = len(created)
+                        continue
+                    require(type(owner) is int and owner == 0
                             and type(row["effective_serial_checker_limit"]) is int
                             and row["effective_serial_checker_limit"] == 1, "unsupported worker lifetime/budget")
                     requested = row["requested_checkers"]
@@ -223,6 +290,7 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                             and row["memory_admission_budget"] is None
                             and row["initialization_forcing_observed"] is False, "unsupported worker policy claim")
                     result["checker_instances_created"] = 1
+                    selected, created = 1, {0}
                     phase = "work"
                 elif event == "work_begin":
                     require(phase == "work", "work outside checker lifetime")
@@ -230,7 +298,8 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                     require(integer(token) and token == next_span, "reused or missing span identity")
                     next_span += 1
                     require(operation in OPERATIONS, "unknown work operation")
-                    require(type(row["checker_id"]) is int and row["checker_id"] == 0, "unknown checker identity")
+                    owner = row["checker_id"]
+                    require(integer(owner) and owner in created, "unknown checker identity")
                     ids, unmapped = row["file_ids"], row["unmapped_source_node_ids"]
                     require(isinstance(ids, list) and all(integer(i) and i < len(files) for i in ids)
                             and len(set(ids)) == len(ids), "invalid work file references")
@@ -240,26 +309,37 @@ def validate_trace(path: Path, receipt: dict, *, inventory_only: bool = False) -
                     if operation == "source_file_check":
                         require(len(ids) == 1 and not unmapped and files[ids[0]]["full_check_eligible"]
                                 and ids[0] not in checked, "duplicate or ineligible full worker")
+                        require(schema == 1 or ids[0] % selected == owner, "wrong full-file owner")
                         checked.add(ids[0])
                         result["checked_file_ids"].append(ids[0])
                         full_active += 1
                         peak = max(peak, full_active)
                     result["unmapped_queries_observed"] |= bool(unmapped)
-                    active[token] = operation
+                    active[token] = (owner, operation)
+                    if schema == 2:
+                        owner_stacks.setdefault(owner, []).append(token)
                 elif event == "work_end":
                     require(phase == "work" and integer(row["span_id"]) and row["span_id"] in active,
                             "orphan or duplicate completion")
                     require(row["outcome"] == "returned", "work panicked or did not return")
-                    if active.pop(row["span_id"]) == "source_file_check":
+                    owner, operation = active.pop(row["span_id"])
+                    require(schema == 1 or (integer(row["checker_id"]) and row["checker_id"] == owner),
+                            "foreign checker completion")
+                    require(schema == 1 or owner_stacks[owner].pop() == row["span_id"],
+                            "out-of-order private checker completion")
+                    if operation == "source_file_check":
                         full_active -= 1
                 elif event == "invocation_end":
                     require((phase == "files" if inventory_only else phase == "work")
-                            and not active and full_active == 0, "incomplete invocation/spans")
+                            and not active and full_active == 0 and not constructors,
+                            "incomplete invocation/spans")
+                    require(created == (set() if inventory_only else set(range(selected))),
+                            "incomplete selected pool")
                     require([file["path"] for file in files] == receipt["loaded_files"]
                             and library_count <= len(files), "incomplete final Program inventory")
                     require(row["state"] == "complete" and row["semantic_program_observed"] is True,
                             "no completed semantic Program")
-                    for key, expected in (("exit_code", child["exit_code"]), ("checker_instances_created", 0 if inventory_only else 1),
+                    for key, expected in (("exit_code", child["exit_code"]), ("checker_instances_created", len(created)),
                                           ("peak_full_checks", peak), ("unfinished_spans", 0)):
                         require(type(row[key]) is int and row[key] == expected, "incorrect cumulative " + key)
                     require(checked == (set() if inventory_only else
@@ -342,7 +422,8 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
         header = next(records, None)
         require(header is not None and header["event"] == "invocation_start", "missing worker invocation start")
         end = None
-        require(type(header["schema_version"]) is int and header["schema_version"] == 1,
+        schema = header["schema_version"]
+        require(type(schema) is int and schema in ((1, 2) if producer == "tsr" else (1,)),
                 "unsupported worker schema")
         require(type(header["pid"]) is int and header["pid"] == child["pid"], "replayed worker PID")
         require(header["args"] == child["command"][1:], "worker arguments changed")
@@ -353,7 +434,7 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
         if producer == "tsr":
             require(header["producer"] == "tsr-work-trace"
                     and type(header["worker_activity_schema_version"]) is int
-                    and header["worker_activity_schema_version"] == 1
+                    and header["worker_activity_schema_version"] == schema
                     and header["activity_clock"] == "monotonic_elapsed_ns", "missing TSR activity schema")
             nonce = re.fullmatch(str(child["pid"]) + r"-([0-9]+)", header["invocation_id"])
             require(header["invocation_id"] == receipt["invocation_id"] and nonce is not None
@@ -362,7 +443,7 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
             base = validate_trace(path, receipt, inventory_only=list_only)
             require(base["artifact_integrity_valid"], "TSR work artifact invalid: " + str(base["reasons"]))
             result.update(base)
-            active, created, semantic = {}, set(), set()
+            active, created, semantic, constructing = {}, set(), set(), {}
             for row in records:
                 require(end is None, "records follow worker invocation completion")
                 event, timestamp = row["event"], row["recorded_at_ns"]
@@ -370,14 +451,27 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
                     require(event in ("program", "program_file", "invocation_end"), "work in list-only mode")
                 if event == "invocation_end":
                     end = row
-                if event == "checker_created":
-                    start, finish = row["construction_started_at_ns"], row["construction_finished_at_ns"]
-                    require(integer(start) and integer(finish) and activity.time <= start <= finish <= timestamp,
-                            "invalid TSR constructor interval")
-                    owner = row["checker_id"]
-                    require(type(owner) is int and owner == 0 and owner not in created, "duplicate TSR owner")
+                if schema == 2 and event == "checker_construction_begin":
+                    owner, start = row["checker_id"], row["construction_started_at_ns"]
+                    require(owner not in constructing and owner not in created
+                            and integer(start) and activity.time <= start <= timestamp,
+                            "invalid parallel constructor start")
                     activity.advance(start)
                     activity.change(owner, "constructor", 1)
+                    constructing[owner] = start
+                if event == "checker_created":
+                    start, finish = row["construction_started_at_ns"], row["construction_finished_at_ns"]
+                    require(integer(start) and integer(finish) and start <= finish <= timestamp,
+                            "invalid TSR constructor interval")
+                    owner = row["checker_id"]
+                    require(integer(owner) and owner not in created, "duplicate TSR owner")
+                    if schema == 1:
+                        require(owner == 0 and activity.time <= start, "invalid serial constructor")
+                        activity.advance(start)
+                        activity.change(owner, "constructor", 1)
+                    else:
+                        require(constructing.pop(owner) == start and activity.time <= finish,
+                                "unmatched parallel constructor")
                     activity.advance(finish)
                     activity.change(owner, "constructor", -1)
                     created.add(owner)
@@ -393,7 +487,7 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
                 elif event == "work_end":
                     owner, operation = active.pop(row["span_id"])
                     activity.change(owner, operation, -1)
-            require(end is not None and not active, "missing TSR worker completion")
+            require(end is not None and not active and not constructing, "missing TSR worker completion")
             require(end["state"] == "complete" and type(end["exit_code"]) is int
                     and end["exit_code"] == child["exit_code"], "incomplete TSR child")
             if list_only:
@@ -409,7 +503,7 @@ def validate_worker_activity(path: Path, receipt: dict, producer: str) -> dict:
                 require(type(end[key]) is int and end[key] == activity.summary[name]["peak"],
                         "incorrect TSR activity peak: " + key)
             require(type(end["unfinished_constructions"]) is int and end["unfinished_constructions"] == 0
-                    and end["construction_started_at_ns"] is None, "unfinished TSR construction")
+                    and (schema == 2 or end["construction_started_at_ns"] is None), "unfinished TSR construction")
             require(type(end["checker_instances_created"]) is int and end["checker_instances_created"] == len(created),
                     "incorrect TSR instance count")
             activity.summary["leased"] = None  # TSR does not observe exclusive leases.

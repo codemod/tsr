@@ -39,25 +39,40 @@ pub(crate) fn workers(options: &CompilerOptions, jobs: usize) -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(jobs)
 }
 
-/// Each worker can retain at most two completed results (one in its channel,
-/// one waiting to send). The consumer runs on the caller and publishes in input
-/// order, even when files finish in a different order. No shared allocator or
-/// mutable result table crosses the worker boundary.
+/// Each worker can retain at most `lookahead + 1` completed results
+/// (`lookahead` in its channel, one waiting to send). The consumer runs on the
+/// caller and publishes in input order, even when files finish in a different
+/// order. No shared allocator or mutable result table crosses the worker
+/// boundary.
 pub(crate) fn ordered<T: Sync, R: Send>(
     items: &[T],
     workers: usize,
+    lookahead: Lookahead,
     produce: impl Fn(usize, &T) -> R + Sync,
     consume: impl FnMut(usize, R),
 ) -> usize {
     let lease = WorkerLease::acquire(workers.max(1).min(items.len().max(1)));
     let workers = lease.0.max(1);
-    run_ordered(items, workers, produce, consume);
+    run_ordered(items, workers, lookahead, produce, consume);
     workers
+}
+
+/// How far a worker of [`ordered`] may run ahead of in-order publication.
+#[derive(Clone, Copy)]
+pub(crate) enum Lookahead {
+    /// One result in the channel: bounds retained private parses, whose
+    /// published copies coexist with them.
+    One,
+    /// Every result: one long item (`lib.dom.d.ts`) does not stall the other
+    /// workers behind publication. For results small beside what they
+    /// describe, as native retains every file's binding.
+    All,
 }
 
 fn run_ordered<T: Sync, R: Send>(
     items: &[T],
     workers: usize,
+    lookahead: Lookahead,
     produce: impl Fn(usize, &T) -> R + Sync,
     mut consume: impl FnMut(usize, R),
 ) {
@@ -67,10 +82,14 @@ fn run_ordered<T: Sync, R: Send>(
         }
         return;
     }
+    let capacity = match lookahead {
+        Lookahead::One => 1,
+        Lookahead::All => items.len().div_ceil(workers),
+    };
     std::thread::scope(|scope| {
         let mut receivers = Vec::with_capacity(workers);
         for worker in 0..workers {
-            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            let (sender, receiver) = std::sync::mpsc::sync_channel(capacity);
             receivers.push(receiver);
             let produce = &produce;
             scope.spawn(move || {
@@ -182,7 +201,7 @@ impl<T, R> Drop for DynamicPool<T, R> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DynamicPool, run_ordered};
+    use super::{DynamicPool, Lookahead, run_ordered};
     use std::sync::{Mutex, mpsc};
 
     #[test]
@@ -194,6 +213,7 @@ mod tests {
         run_ordered(
             &[0, 1, 2, 3, 4, 5, 6, 7],
             2,
+            Lookahead::One,
             |index, &value| {
                 if index == 0 {
                     wait.lock().unwrap().recv().unwrap();
@@ -215,7 +235,15 @@ mod tests {
     #[test]
     fn consumer_panic_unblocks_workers_waiting_to_send() {
         let result = std::panic::catch_unwind(|| {
-            run_ordered(&[0; 20], 2, |index, _| index, |_, _| panic!("consumer failed"));
+            for lookahead in [Lookahead::One, Lookahead::All] {
+                run_ordered(
+                    &[0; 20],
+                    2,
+                    lookahead,
+                    |index, _| index,
+                    |_, _| panic!("consumer failed"),
+                );
+            }
         });
         assert!(result.is_err());
     }

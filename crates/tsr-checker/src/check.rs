@@ -1464,27 +1464,57 @@ impl Checker<'_, '_> {
         // which is where an `export = self` cycle reports. Not grammar, so
         // ahead of the parse-error bail below.
         self.check_circular_import_alias(node);
-        if self.file_has_parse_errors {
+        let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
+        // `checkExportAssignment` (checker.go:5588-5605, pinned 5b1047d):
+        // resolve the expression before rejecting its context. Reuse the
+        // existing Checker-owned node-type completion, never a second cache.
+        if let Some(expression) = assignment.expression {
+            self.check_expression(expression);
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if !matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+        ) {
+            // `checkGrammarModuleElementContext` (grammarchecks.go:206) always
+            // rejects this context, even when parse diagnostics suppress the
+            // first-token grammar diagnostic.
+            if !self.file_has_parse_errors
+                && let Some(file) = self.source_file_of_for_diagnostics(node)
+                && let Some(text) =
+                    self.module_host.and_then(|host| host.source_text(file, self.nodes))
+                && let Some(rest) = text.get(self.nodes.span(node).start as usize..)
+            {
+                // `grammarErrorOnFirstToken` (grammarchecks.go:19) /
+                // `GetRangeOfTokenAtPosition` (scanner.go:2521). Source bytes
+                // belong to this Program's node table; scan only the first
+                // token on this error path. Legacy hosts cannot supply a range.
+                let token = tsr_scanner::Scanner::new(rest).scan().span;
+                let start = self.nodes.span(node).start;
+                let span = tsr_core::Span::new(start + token.start, start + token.end);
+                let message = if assignment.is_export_equals {
+                    &messages::AN_EXPORT_ASSIGNMENT_MUST_BE_AT_THE_TOP_LEVEL_OF_A_FILE_OR_MODULE_DECLARATION
+                } else {
+                    &messages::A_DEFAULT_EXPORT_MUST_BE_AT_THE_TOP_LEVEL_OF_A_FILE_OR_MODULE_DECLARATION
+                };
+                self.report(file, Diagnostic::new(message, span));
+            }
             return;
         }
-        let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
-        // TS1063 — `An export assignment cannot be used in a namespace.`
-        // `checkExportAssignment` (`checker.go:5599`), on the node. Emitted from
-        // the checker and **not** from `grammarchecks.go` — upstream's own
-        // comment there is `// TODO(danielr): should these be grammar errors?` —
-        // so a sweep of the grammar file alone would have missed it. §825.
-        if assignment.is_export_equals
-            && self.is_contained_by_namespace(node)
-            && let Some(file) = self.source_file_of_for_diagnostics(node)
-        {
-            let span = self.error_span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_NAMESPACE,
-                    span,
-                ),
-            );
+        if self.is_contained_by_namespace(node) {
+            if let Some(file) = self.source_file_of_for_diagnostics(node) {
+                let message = if assignment.is_export_equals {
+                    &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_NAMESPACE
+                } else {
+                    &messages::A_DEFAULT_EXPORT_CAN_ONLY_BE_USED_IN_AN_ECMASCRIPT_STYLE_MODULE
+                };
+                let span = self.error_span(node);
+                self.report(file, Diagnostic::new(message, span));
+            }
+            return;
+        }
+        if self.file_has_parse_errors {
+            return;
         }
         // TS1120 — `An export assignment cannot have modifiers.`
         // `checkExportAssignment` (`checker.go:5607`), on the **first token**:

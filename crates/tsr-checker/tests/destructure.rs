@@ -436,3 +436,57 @@ var { p: read } = rest;";
     assert_eq!(type_of_binding(source, "rest"), "{ p: string; d: string; }");
     assert_eq!(type_of_binding(source, "read"), "string");
 }
+
+/// Native `getTypeForBindingElementParent` / `getTypeForVariableLikeDeclaration`
+/// (checker.go:17695 / 16788, pinned 5b1047d): type signatures have no
+/// contextual expression signature; their implied pattern supplies each leaf.
+#[test]
+fn signature_binding_patterns_keep_bound_rename_types_in_cold_and_warm_orders() {
+    for (source, expected) in [
+        ("type F = ({ key: alias }) => typeof alias;", "any"),
+        ("type F = ({ key: string }) => typeof string;", "any"),
+        ("type F = new ({ key: alias }) => typeof alias;", "any"),
+        ("type F = { ({ key: alias }): typeof alias };", "any"),
+        ("type F = { new ({ key: alias }): typeof alias };", "any"),
+        ("type F = { method({ key: alias }): typeof alias };", "any"),
+        ("type F = ({ outer: { key: alias } }) => typeof alias;", "any"),
+        ("type F = ({ key: alias }: { key: number }) => typeof alias;", "number"),
+    ] {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "{source}");
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let binding = bound
+            .symbols()
+            .iter()
+            .find_map(|(symbol, entry)| {
+                entry.declarations.iter().any(|&id| {
+                matches!(parsed.node_map.get(id), Some(tsr_ast::Node::BindingElement(element))
+                    if matches!(element.name, Some(BindingName::Identifier(name))
+                        if name.text == "alias" || name.text == "string"))
+            }).then_some(symbol)
+            })
+            .expect("renamed leaf");
+        let owner = bound.symbol_of(parsed.source_file.statements[0].node_id().unwrap()).unwrap();
+        for alias_first in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            if alias_first {
+                checker.get_declared_type_of_symbol(owner);
+            }
+            for _ in 0..2 {
+                let ty = checker.get_type_of_symbol(binding);
+                assert_eq!(
+                    checker.type_to_string(ty),
+                    expected,
+                    "{source}, alias_first={alias_first}"
+                );
+                checker.get_declared_type_of_symbol(owner);
+            }
+        }
+    }
+}

@@ -423,3 +423,57 @@ uncertified (`object_image_road_is_uncertified`); a literal's value is never
 **Measured.** 6 baseline lines (`binaryIntegerLiteralES6` 2,
 `noImplicitAnyStringIndexerOnObject` 3, `noImplicitAnyIndexing` 1), 0 false,
 0 losses; no case flips yet.
+
+## 12. Union property reads honour nonpublic origins (tsr-2zk.16.279)
+
+`createUnionOrIntersectionProperty` (`checker.go:21554`) rejects a union
+property whose constituents supply distinct private/protected declarations
+without a common one. The union value loop in `members.rs` projected values
+without that guard; it now records whether any constituent origin is
+nonpublic and, only then, asks the existing canonical
+`get_property_of_union_or_intersection_type` supplier, which owns the
+privacy/common-declaration decision. No new cache; the per-constituent origin
+lookup is query-local and publishes no image. Control: distinct protected
+`A`/`B` rejects; a shared inherited `Root` declaration keeps `number`.
+
+## 13. JS `@augments` arguments on inherited member reads (tsr-2zk.16.342)
+
+Native `reparseHosted` copies JSDoc `@augments Base<T>` arguments onto the
+heritage reference before `getBaseTypes`/`resolveObjectTypeMembers`, so an
+inherited read sees `Base<number>`. `generic_heritage_member` used only the
+written arguments; for a JS entry with none it now asks the existing
+`jsdoc_augments_type_arguments` supplier (the base-type worker already does).
+No new cache or image; the extra lookup runs only for argument-less JS
+heritage entries. Converts `jsdocAugments_withTypeParameter` (3 type rows).
+
+## 14. Own member tables in native declaration order (tsr-2zk.4.5)
+
+`getNamedMembers` returns a symbol table's members sorted by `compareSymbols`
+(`checker.go:22049`). `collect_structured_property_names` and
+`collect_static_property_names` iterated the binder map and appended late-bound
+members; they now gather each own partition (instance members or exports, each
+with its late-bound declarations) and sort it with the existing
+`compare_symbols`. Value filtering, static/instance separation and inherited
+traversal order are unchanged; no member values are forced and no cache is
+added (the name vector is query-local).
+
+## 15. Receiver widening for method calls and assignment targets (tsr-2zk.16.208)
+
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11262`) widens the
+receiver with `getWidenedType` when the access is an assignment target or
+`isMethodAccessForCall` (callee of a call/new through parentheses). TSR's
+property access never widened, so `[].values()` kept `undefined[]`. The access
+now applies the existing `widen_object_literal_freshness` (getWidenedType) in
+exactly those two contexts; detached reads keep the unwidened receiver. Control:
+`[].values()` → `ArrayIterator<any>`, detached `[].values` →
+`() => ArrayIterator<undefined>`, matching tsgo. No cache added.
+
+## 16. Object-literal late-bound accessors (tsr-2zk.16.351)
+
+Native `SymbolFlagsLateBindingContainer` includes object literals
+(`getResolvedMembersOrExportsOfSymbol` / `lateBindMember`,
+`checker.go:15930/16005`). `late_bound_members_of` walked only class,
+interface and type-literal members, so `{ get [k]() {}, set [k](v) {} }` lost
+its computed accessors. Object-literal properties now feed the same worker;
+its existing (owner `SymbolId`, static) cache and publication are unchanged
+and the existing accessor worker merges same-name getter/setter declarations.

@@ -1,0 +1,3078 @@
+{
+  "issue": "tsr-1yb.16.3.10",
+  "source_revision": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+  "native_revision": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "build": {
+    "binary_sha256": "3636ebb0b2bdbe59d0b557bffd6255a786d24fa923eea42d162605038856b773",
+    "source_files_sha256": {
+      "Cargo.lock": "204de0d99f8ae77e39a6cd91284d5999a69bb8572fb2b280a2784d90640690a6",
+      "crates/tsr-checker/Cargo.toml": "3bac7559618afa5cdc1f0f3072bb3c531204756313fb0fc44bc58431778bb725",
+      "crates/tsr-checker/src/lib.rs": "cd11527879bb65609d4fe1c3d06aab57ee1f15472b8fe6a1ec8cfe2109f632e7",
+      "crates/tsr-checker/src/objects.rs": "cf79deb956a5e9f55fc15f6c28bf83e1446a0424119b4ef117ce703182e22725",
+      "crates/tsr-checker/src/checker.rs": "7190865255c106cda973bd8d1f353d5abf3a18edd1b8c02b734300d69ebd7a0a",
+      "crates/tsr/Cargo.toml": "fd302e653e491230a6b5b5080f14a84071216af55b43855cb05d648d4f815173",
+      "crates/tsr/src/main.rs": "aefdaf88cbb031e79e7a4ff120f947769870884fe360b6efe656263a0e8514ce",
+      "crates/tsr-checker/src/origin_meter.rs": "6aae2e3852004463e1072575fd6f4ad444062fc4947c8887850b309352219116"
+    },
+    "source_head": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+    "canonical_runtime_changed": false,
+    "binary_frozen": true,
+    "prior_generated400_rejected": "The v1 driver correctly rejected changed binary during single/on after the v2 build replaced its path. No complete v1 generated400 qualification claimed.",
+    "copy_setup_correction": "shutil.copyfile did not preserve executable mode; copymode fixed only the probe artifact. Initial PermissionError is preserved in missing-executable-mode.log."
+  },
+  "batches": {
+    "bounded": {
+      "controls_sha256": "d0ccad256f3ff7acfc4c8380192bd067f8dd6ed28572b9cc58ee45e914aa4081",
+      "modes": [
+        {
+          "mode": "default",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "9",
+                "17",
+                "0",
+                "916"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "4",
+                "18",
+                "0",
+                "641"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "6",
+                "6",
+                "19",
+                "468"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "6",
+                "28",
+                "0",
+                "1009"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "9",
+                "9",
+                "0",
+                "62"
+              ],
+              [
+                "7",
+                "object_other",
+                "6",
+                "952",
+                "13",
+                "67255"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "9",
+                "62"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "4",
+                "81"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "6",
+                "179"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "6",
+                "129"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "9",
+                "62"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "11"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "2"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 48572,
+              "wall_seconds": 30.763126874999216,
+              "user_seconds": 0.002643,
+              "system_seconds": 0.004404,
+              "peak_rss_bytes": 2473984,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "95fca9555ec44c7cc89f4f2e6a10d0c8ac01b2b1f32108cdb8a7cb84762c5669",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 48678,
+              "wall_seconds": 0.0035492080005496973,
+              "user_seconds": 0.001041,
+              "system_seconds": 0.0015249999999999999,
+              "peak_rss_bytes": 3014656,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "fdf6fe19616cc930b2f0a61a94de116dd35d96e61b4b74aa4b00eb8e0e5e858b",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 48680,
+              "wall_seconds": 0.008186291999663808,
+              "user_seconds": 0.003952,
+              "system_seconds": 0.003839,
+              "peak_rss_bytes": 10223616,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 48682,
+              "wall_seconds": 0.004696542000601767,
+              "user_seconds": 0.001364,
+              "system_seconds": 0.0035269999999999998,
+              "peak_rss_bytes": 5750784,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 48683,
+              "wall_seconds": 0.004886790999080404,
+              "user_seconds": 0.00172,
+              "system_seconds": 0.002332,
+              "peak_rss_bytes": 5816320,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e713d23dc7a574e4890702c0258086c6df040db052cffd78a1a105614de789ec"
+            },
+            {
+              "role": "repeat",
+              "pid": 48684,
+              "wall_seconds": 0.004636666999431327,
+              "user_seconds": 0.001844,
+              "system_seconds": 0.002299,
+              "peak_rss_bytes": 5816320,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e10eeb892c94a6387ccd63c8c5735c799462cb77b6e493c7180ff24a4c56258d"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ],
+          "storage_and_unclassified_rows": [
+            [
+              "ORIGIN",
+              "1",
+              "unclassified",
+              "0",
+              "3078",
+              "177",
+              "374729",
+              "67904",
+              "137823",
+              "68096"
+            ],
+            [
+              "ORIGIN",
+              "2",
+              "object_property_render",
+              "9",
+              "17",
+              "0",
+              "916",
+              "0",
+              "724",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "3",
+              "object_property_plan",
+              "4",
+              "18",
+              "0",
+              "641",
+              "0",
+              "278",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "4",
+              "object_whole_render",
+              "6",
+              "6",
+              "19",
+              "468",
+              "0",
+              "224",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "5",
+              "object_plan_clone",
+              "6",
+              "28",
+              "0",
+              "1009",
+              "0",
+              "918",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "6",
+              "object_slot_clone",
+              "9",
+              "9",
+              "0",
+              "62",
+              "0",
+              "56",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "7",
+              "object_other",
+              "6",
+              "952",
+              "13",
+              "67255",
+              "0",
+              "11555",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "8",
+              "unnamed_discarded_payload",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "ORIGIN_TOTAL",
+              "67904",
+              "150311",
+              "68096"
+            ]
+          ]
+        },
+        {
+          "mode": "single",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "9",
+                "17",
+                "0",
+                "916"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "4",
+                "18",
+                "0",
+                "641"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "6",
+                "6",
+                "19",
+                "468"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "6",
+                "28",
+                "0",
+                "1009"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "9",
+                "9",
+                "0",
+                "62"
+              ],
+              [
+                "7",
+                "object_other",
+                "6",
+                "819",
+                "10",
+                "65075"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "9",
+                "62"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "4",
+                "81"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "6",
+                "179"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "6",
+                "129"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "9",
+                "62"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "11"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "9"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "2"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 48685,
+              "wall_seconds": 0.003326375001051929,
+              "user_seconds": 0.001027,
+              "system_seconds": 0.001152,
+              "peak_rss_bytes": 2441216,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "95fca9555ec44c7cc89f4f2e6a10d0c8ac01b2b1f32108cdb8a7cb84762c5669",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 48686,
+              "wall_seconds": 0.0031076670002221363,
+              "user_seconds": 0.000979,
+              "system_seconds": 0.001121,
+              "peak_rss_bytes": 2998272,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "fdf6fe19616cc930b2f0a61a94de116dd35d96e61b4b74aa4b00eb8e0e5e858b",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 48687,
+              "wall_seconds": 0.0056677920001675375,
+              "user_seconds": 0.002624,
+              "system_seconds": 0.0019089999999999999,
+              "peak_rss_bytes": 10059776,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 48688,
+              "wall_seconds": 0.0037891249994572718,
+              "user_seconds": 0.001321,
+              "system_seconds": 0.001591,
+              "peak_rss_bytes": 5570560,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 48689,
+              "wall_seconds": 0.004865542001425638,
+              "user_seconds": 0.001637,
+              "system_seconds": 0.002217,
+              "peak_rss_bytes": 5685248,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "76900daf8dc490142051f944d1e313123807128f595d0ef2ccf2615f4f75ecc0"
+            },
+            {
+              "role": "repeat",
+              "pid": 48694,
+              "wall_seconds": 0.0056695839994063135,
+              "user_seconds": 0.001756,
+              "system_seconds": 0.002461,
+              "peak_rss_bytes": 5898240,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "9b463eff416ccedd6731c2c04a0673975f551f92241b26471eb96119ade72cb8",
+              "stderr_sha256": "d2957650750304038dafae7b1b6484f18c3cae3fb4ba2c8c4f3e2ced34b7b71a"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ],
+          "storage_and_unclassified_rows": [
+            [
+              "ORIGIN",
+              "1",
+              "unclassified",
+              "0",
+              "3020",
+              "170",
+              "355074",
+              "67736",
+              "141155",
+              "67928"
+            ],
+            [
+              "ORIGIN",
+              "2",
+              "object_property_render",
+              "9",
+              "17",
+              "0",
+              "916",
+              "0",
+              "724",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "3",
+              "object_property_plan",
+              "4",
+              "18",
+              "0",
+              "641",
+              "0",
+              "278",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "4",
+              "object_whole_render",
+              "6",
+              "6",
+              "19",
+              "468",
+              "0",
+              "256",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "5",
+              "object_plan_clone",
+              "6",
+              "28",
+              "0",
+              "1009",
+              "0",
+              "1009",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "6",
+              "object_slot_clone",
+              "9",
+              "9",
+              "0",
+              "62",
+              "0",
+              "62",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "7",
+              "object_other",
+              "6",
+              "819",
+              "10",
+              "65075",
+              "208",
+              "8670",
+              "216"
+            ],
+            [
+              "ORIGIN",
+              "8",
+              "unnamed_discarded_payload",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "ORIGIN_TOTAL",
+              "67944",
+              "150723",
+              "68144"
+            ]
+          ]
+        }
+      ],
+      "fixtures": {
+        "aliases.ts": "export interface Item { value:number; } export type Box<T> = { item:T; next?:Box<T> }; export const item:Item={value:1};\n",
+        "tsconfig.json": "{\"compilerOptions\": {\"target\": \"es2022\", \"module\": \"esnext\", \"moduleResolution\": \"bundler\", \"noEmit\": true, \"noLib\": true, \"strict\": true, \"skipLibCheck\": true}, \"files\": [\"index.ts\"]}",
+        "index.ts": "import {item, type Box, type Item} from './aliases';\nconst plain={a:1,b:\"s\",nested:{value:2}};\nconst spread={...plain,a:true};\nconst written:Box<Item>={item,next:undefined};\nconst quoted={a:'v' as const};\nlet dynamic:string=\"dyn\";\nconst computed={[dynamic]:item,value:3};\nconst pending={read(){return this.value},value:4};\nconst accessors={get value(){return 3},set value(next:number){const checked:number=next;}};\nfunction generic<T>(value:T){return {value,read(){return value}};}\nconst inst=generic(item);\nconst incorrect:string=plain.a;\nexport {plain,spread,written,quoted,computed,pending,accessors,inst};\n"
+      }
+    },
+    "generated400": {
+      "controls_sha256": "8dbf552edbb947c23e25ea5df514151ca91f4c224fa427f8adc7e954a955f3a7",
+      "modes": [
+        {
+          "mode": "default",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "9197",
+                "47178",
+                "8000",
+                "158807373"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "2805",
+                "21196",
+                "0",
+                "866807"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "2805",
+                "2805",
+                "11999",
+                "545482"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "2805",
+                "21196",
+                "0",
+                "866807"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "9197",
+                "9197",
+                "0",
+                "89082"
+              ],
+              [
+                "7",
+                "object_other",
+                "2805",
+                "2259603",
+                "15799",
+                "122561565"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "9197",
+                "89082"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "2805",
+                "131047"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "2805",
+                "176247"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "2805",
+                "131047"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "9197",
+                "89082"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "9197"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "9197"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "11990"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "11990"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "0"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 48773,
+              "wall_seconds": 0.007163666999986162,
+              "user_seconds": 0.0032159999999999997,
+              "system_seconds": 0.001366,
+              "peak_rss_bytes": 2736128,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "a85268f3a99fb20eaff3af50b76f84b394c2cd0c895f21b5341464a7a8e47313",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 48774,
+              "wall_seconds": 0.07969124999908672,
+              "user_seconds": 0.104698,
+              "system_seconds": 0.035345999999999995,
+              "peak_rss_bytes": 182435840,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "9565f32d2d33eaa8f84141d7a2eeea2703b503586d2b389e923da71dc4ee0b88",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 48775,
+              "wall_seconds": 9.262533832999907,
+              "user_seconds": 16.747908,
+              "system_seconds": 0.170322,
+              "peak_rss_bytes": 279281664,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 48849,
+              "wall_seconds": 1.3252227920002042,
+              "user_seconds": 2.710971,
+              "system_seconds": 0.31166499999999997,
+              "peak_rss_bytes": 272662528,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 48850,
+              "wall_seconds": 8.854702790999,
+              "user_seconds": 15.79846,
+              "system_seconds": 6.759575,
+              "peak_rss_bytes": 280346624,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "ee4d6900d686dad0df9f545442487be911c2d26a2752d7a105229666133eeaaf"
+            },
+            {
+              "role": "repeat",
+              "pid": 48964,
+              "wall_seconds": 9.812213541999881,
+              "user_seconds": 17.311375,
+              "system_seconds": 7.547114,
+              "peak_rss_bytes": 275480576,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "16aa79abebef9fd90931fc9598a96f508b0f2781dff3dce716d0f2f5c126c148"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ],
+          "storage_and_unclassified_rows": [
+            [
+              "ORIGIN",
+              "1",
+              "unclassified",
+              "0",
+              "49400550",
+              "1297792",
+              "3004975111",
+              "86809",
+              "199954934",
+              "86992"
+            ],
+            [
+              "ORIGIN",
+              "2",
+              "object_property_render",
+              "9197",
+              "47178",
+              "8000",
+              "158807373",
+              "0",
+              "137839",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "3",
+              "object_property_plan",
+              "2805",
+              "21196",
+              "0",
+              "866807",
+              "0",
+              "962",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "4",
+              "object_whole_render",
+              "2805",
+              "2805",
+              "11999",
+              "545482",
+              "0",
+              "255942",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "5",
+              "object_plan_clone",
+              "2805",
+              "21196",
+              "0",
+              "866807",
+              "0",
+              "795816",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "6",
+              "object_slot_clone",
+              "9197",
+              "9197",
+              "0",
+              "89082",
+              "0",
+              "82532",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "7",
+              "object_other",
+              "2805",
+              "2259603",
+              "15799",
+              "122561565",
+              "0",
+              "3200415",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "8",
+              "unnamed_discarded_payload",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "ORIGIN_TOTAL",
+              "86809",
+              "204379145",
+              "86992"
+            ]
+          ]
+        },
+        {
+          "mode": "single",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "9197",
+                "47175",
+                "8000",
+                "158807289"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "2805",
+                "21196",
+                "0",
+                "866807"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "2805",
+                "2805",
+                "11999",
+                "545482"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "2805",
+                "21196",
+                "0",
+                "866807"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "9197",
+                "9197",
+                "0",
+                "89082"
+              ],
+              [
+                "7",
+                "object_other",
+                "2805",
+                "2645078",
+                "15661",
+                "128185086"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "9197",
+                "89082"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "2805",
+                "131047"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "2805",
+                "176247"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "2805",
+                "131047"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "9197",
+                "89082"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "9197"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "9197"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "11990"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "11990"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "0"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 49118,
+              "wall_seconds": 0.018484874999558087,
+              "user_seconds": 0.003114,
+              "system_seconds": 0.001663,
+              "peak_rss_bytes": 2752512,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "a85268f3a99fb20eaff3af50b76f84b394c2cd0c895f21b5341464a7a8e47313",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 49119,
+              "wall_seconds": 0.08633187499981432,
+              "user_seconds": 0.071907,
+              "system_seconds": 0.023923999999999997,
+              "peak_rss_bytes": 94748672,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "9565f32d2d33eaa8f84141d7a2eeea2703b503586d2b389e923da71dc4ee0b88",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 49120,
+              "wall_seconds": 20.54135320900059,
+              "user_seconds": 20.413061,
+              "system_seconds": 0.12509499999999998,
+              "peak_rss_bytes": 238403584,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 49175,
+              "wall_seconds": 3.020112624999456,
+              "user_seconds": 2.915765,
+              "system_seconds": 0.16575499999999999,
+              "peak_rss_bytes": 232079360,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 49190,
+              "wall_seconds": 5.180326290999801,
+              "user_seconds": 5.016475,
+              "system_seconds": 0.10410499999999999,
+              "peak_rss_bytes": 236322816,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "ee0b17dc738df82707189448b1c0657bb6cd929c03c8587b506d441c14124025"
+            },
+            {
+              "role": "repeat",
+              "pid": 49360,
+              "wall_seconds": 5.253179792000083,
+              "user_seconds": 5.119666,
+              "system_seconds": 0.29874,
+              "peak_rss_bytes": 238321664,
+              "exit_code": 1,
+              "timed_out": false,
+              "stdout_sha256": "f9e5a2e29feb9d86efc392a43df7fa58e42672328d1d4294fe972875d57662a4",
+              "stderr_sha256": "f3351f8278b3d06063b0f66e5404d531b033b53acee635026625334f58fd7a37"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ],
+          "storage_and_unclassified_rows": [
+            [
+              "ORIGIN",
+              "1",
+              "unclassified",
+              "0",
+              "54815183",
+              "1475142",
+              "2916185491",
+              "85089",
+              "188479048",
+              "85272"
+            ],
+            [
+              "ORIGIN",
+              "2",
+              "object_property_render",
+              "9197",
+              "47175",
+              "8000",
+              "158807289",
+              "0",
+              "102029",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "3",
+              "object_property_plan",
+              "2805",
+              "21196",
+              "0",
+              "866807",
+              "0",
+              "697",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "4",
+              "object_whole_render",
+              "2805",
+              "2805",
+              "11999",
+              "545482",
+              "0",
+              "282150",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "5",
+              "object_plan_clone",
+              "2805",
+              "21196",
+              "0",
+              "866807",
+              "0",
+              "866807",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "6",
+              "object_slot_clone",
+              "9197",
+              "9197",
+              "0",
+              "89082",
+              "0",
+              "89082",
+              "0"
+            ],
+            [
+              "ORIGIN",
+              "7",
+              "object_other",
+              "2805",
+              "2645078",
+              "15661",
+              "128185086",
+              "208",
+              "3745748",
+              "216"
+            ],
+            [
+              "ORIGIN",
+              "8",
+              "unnamed_discarded_payload",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0",
+              "0"
+            ],
+            [
+              "ORIGIN_TOTAL",
+              "85297",
+              "192200120",
+              "85488"
+            ]
+          ]
+        }
+      ],
+      "generator": {
+        "path": "scripts/generate_perf_project.py",
+        "sha256": "81fc8565bf5e55bbaa9e0cb9abcc57657aab2daf562dbf0d90cdb708e77d3e88",
+        "arguments": [
+          "--modules",
+          "400",
+          "--out",
+          "<project>"
+        ],
+        "project_files_sha256": {
+          "tsconfig.json": "17e4763f027443707e62545430fbd9d14f58ad25a05ed776542c4c1c7e29cb73",
+          "src/model155.ts": "3b6f02013648101bccceb016916553e1bfe40b75b9d8daede34323f24b5d98fc",
+          "src/model384.ts": "3943b1dc183cf162fee751a57831ad4cb5248a3b983499906424a113e7c19ba2",
+          "src/model015.ts": "b6971cc61043b308253a9372caad07a698b7a38fba9162fa1262e7ab09a62d0c",
+          "src/model295.ts": "6e341d23ff418cca1668d917d39b6e4eee943f235cafe9fc7716cb5a75a488f2",
+          "src/model104.ts": "088bb930b5837ebea71481d4b4e31a5fdb4391fcfbae56e6efef1e769ba7c9e3",
+          "src/model044.ts": "c0d711e22d8480be3c61268216a063b3dd123179c50aab8f96f400b2c2ab8ed1",
+          "src/model266.ts": "9c2c594e492928a26a6edf2425a19158d948433a2384f23ad3e6bcf3af70bf78",
+          "src/model326.ts": "0bb287bfd60960782d0d8b0e633c4c6fd79b3e10fa230d6a82059c0245a432c6",
+          "src/model237.ts": "96c42168554a57337ba0c96912be4da8903717a22f27702974429751ad7a0daa",
+          "src/model377.ts": "cc6a367ce6589273886ea8fc8c8acd0d6e8fad3cdd73da72ddd9f61b66aadff3",
+          "src/model070.ts": "ed5a4ca2cc09b9cd5c32c6fbfdd73cdee240facfdbf33089688adbf8990649ff",
+          "src/model130.ts": "e7df92560af804ebf9ae21a4a6297da61806f823c4af345999251bffe76113f8",
+          "src/model021.ts": "754deb26beea391330318471adb9b1a29f7a9162dbe77773e1bc7f2da472cc06",
+          "src/model161.ts": "35f1fa032fe77b78aaeddae08552ab62c848bdd33c293e3c999fbf8801c5d64e",
+          "src/model343.ts": "221de6c77881190fa2e8b9bc1b1f17e6688542d40e63c06eb7393177eb6fcee7",
+          "src/model203.ts": "ba0a07de5adde19cc681f24fd5cececc177f405b448c9aae0c841d3a4b7fc487",
+          "src/model192.ts": "79fa26532c71b0469aa24d52dff8d9d1d8e3c533d7d6128d54880b87bbaa5053",
+          "src/model312.ts": "4442c3d419f2d7b96724571ea260108c49390c96f26ec1fb458cb15cc0f7fc78",
+          "src/model083.ts": "c79fe6c62f912a335e8cb20762ecd3b70311bf02cc2f8e191389ffdd9a0ab304",
+          "src/model252.ts": "a46bf7bcf94c113f9d5f2ab28c52877b9a48b51b351edbcacb71180edd97a4f5",
+          "src/model242.ts": "09ca03ac05a8649558dbcbff23e26796a3556fcafa2f3f3c0709172ebfc9d786",
+          "src/model093.ts": "3a14e00faa8755054a5a3ec0fa35782fc3ad2018cdd52b821999b5cd097f1ecd",
+          "src/model302.ts": "35864c724221868dda7079ed61a6d1d94bb1f7d79ccd43f30aacf3bc2f348ce2",
+          "src/model182.ts": "cad582f1969ce8d8c6a7abd178f8870d08871a5990e955b13674aa15439632ae",
+          "src/model213.ts": "e94aabe4a4b2dbce4a0d774380f023167765886299ae7279d5a0300f841fdf1b",
+          "src/model353.ts": "645c131953f0f2a65f2a1fe1e7ac3a1134c4b610851ce7cd77c43f5fb64bb3e2",
+          "src/model171.ts": "59472e0aa5f0ffac9c4d3ca5ad70e9ae7dc6687d8edb4cf14476f310f0854ad8",
+          "src/model031.ts": "8101172e32ee51d2132c1818c9ef8c5275c08fe445341c8574f2786337c8a030",
+          "src/model120.ts": "2cf2a54f5cf10b846f3b762e6b26234dc171515be6c43adf68227d8bc20152a1",
+          "src/model060.ts": "333b08321a93ec31f2407740369647809ec96e4aef15b2a7d0a278c9fd48d8c7",
+          "src/model367.ts": "937db429de9c3733286ae85c0d99ecdd8df242260df99404fda0bdb5abe8fdb6",
+          "src/model227.ts": "c46a60c6d459de32a9c1cace9fd183c356b2db2b4f7bc512640dd3097f088271",
+          "src/model336.ts": "c3596e244cbc3d2f918ad9013c1f25b87bed6a33090fc88c0f08937cfe95e41a",
+          "src/model276.ts": "6fd9270f02f5e60a8fc402696b8e56f4e42394ed3a4bfa36f078887ee907630f",
+          "src/model054.ts": "b6dc94f9af7ce000ac6381f604d6b24814ad8a687cb5a5888b6926bcbd41742e",
+          "src/model114.ts": "bbd24d48ef31db0911cd9700adff3c421d4d7801b399f7b95933106f88f4d083",
+          "src/model285.ts": "41058c7c5cdb0d5705eb3a78e2d74186535db22bac6b44c9fe2a845128357f0f",
+          "src/model005.ts": "f1464186dd96e9e4437025aeac43d545d8edaeb8d839e1271bc761f1998644b3",
+          "src/model394.ts": "541aaa371e5e8b39d497689471231e80857d7bb8f411fd5a597aef8fbecf3897",
+          "src/model145.ts": "14215288a178847822cf468f6e4b9aa6a138fc14ecd366301c2614bf63e5ba48",
+          "src/model025.ts": "6e103977e91c37097c245c03a417cd72881e0067f57c5bfadfb095b249c5ac89",
+          "src/model165.ts": "b4a3fa1ac26d615bb941b4d22d285d0ff2775fe144e4f2b0055706c482ce9c2a",
+          "src/model074.ts": "3ef6e4d10074187169fd9adc61870b714e1d6095c517d5537a8223dfc448d337",
+          "src/model134.ts": "e217a784de23bad96357c3172b617721e2ac1051469ea06f9a6d831d51e17005",
+          "src/model087.ts": "58adf94b3f9f3d960d35d1a8b04d34672038293ce8ea047b55a5a1ae0b42adf5",
+          "src/model316.ts": "7fa2ab5bc68be4a61093b5519be0de03f29504ba25d8b54266de40d235c61185",
+          "src/model256.ts": "e9e39b1d3e2aaab3573263cdd029c168935fee99f8e256798e370426035a44be",
+          "src/model347.ts": "8f00a22b4983665607df4b8de603d9e97c6d5db67f3af525e2a87e9413c2d11f",
+          "src/model196.ts": "9874876107876972025530c15e5753c9e5d6b1d804ee2b74023d72475c96344f",
+          "src/model207.ts": "e31b18e5f2efe596a173548e6a31fc2279236bfc9bf4375159c278321507509d",
+          "src/model100.ts": "3bf1507744ec2f0f708d41464d4b0c7c28e3e88737cea7d75143694ec8c793b2",
+          "src/model291.ts": "ea7ebdde397bb6881b4a34076ece94fea45c3bbecfde8564694e06cde18c6b7d",
+          "src/model040.ts": "589b660d4e890debe0990596f434c2558c9ddc81467006e159fd7deea9e309be",
+          "src/model151.ts": "28907d55d0568225904db4e4d66496077ad01e77c1e46987f91f46f9a5d1e2f9",
+          "src/model011.ts": "a63e61b0b0e932d1562c45fb22f716bfece64e7b63979e14cb536da9517bec1d",
+          "src/model380.ts": "7a181e105db0f3605aac112b064a30fd936b6b585feb1ed94b3f85f43b16abe7",
+          "src/model233.ts": "6a28ac7ef6d66bc61c900c8e7e9187034a5509096681fceb880c787b7761dda4",
+          "src/model373.ts": "c33fc64cb6864c168c4c22c35a4da875cb07d1a2b4a5f0d78946b3d5e7e64cbd",
+          "src/model262.ts": "c0f3e45201f83b0a9da06ae1db31c9cbf040438324ba11961250c7b7543f0146",
+          "src/model322.ts": "5e814f7a5689b25f7820c261813fd8ce7fcb8d6d3fba923e10d34fa44953f51e",
+          "src/model332.ts": "7604327f072708fc2cb0543788607360e332312c8ba174d8d48156ac752baf16",
+          "src/model272.ts": "cb2ee76ec75273128d1e73a8c167e542fda25837ab9b64b7ad66d123a43b6311",
+          "src/model363.ts": "cff15bde6c773534c9d6d77a0f8426f5abd7615ff77dcaac2c6ba9a0d3e75f52",
+          "src/model223.ts": "8bc172cce2a8b164a60b250002806a7dd30a4f9b37205e1e017accd69187fbd9",
+          "src/model390.ts": "90e5484a9f0baf7bb99582ff90bacc9e27795dee4277f56da8be70b14ae51f4e",
+          "src/model001.ts": "f00c6733fa33f3d5cb757a5a6a5076a23f6938ce70d20e5f7bb0b240869bae09",
+          "src/model141.ts": "4a13164f9ab3c375d510269c3ccdd141333b81c46e1afbfa3099b1f1e93aeae1",
+          "src/model050.ts": "fd5c9a27d09068ddb5826d62ab8390780b420e1dcc2f4ba801bde55179febafd",
+          "src/model281.ts": "fd489f130d87df3c52430044200bdfc7c33b663dd06b8c37a8c4a117a4b08cc2",
+          "src/model110.ts": "ffab115b3f9bc2873d78eefbb2798b38673cbb56469d4ccc9bb090d8f2f4438a",
+          "src/model217.ts": "495e0c1fc09d0ca23d56f5f93fe6045765a697e73675707337b0815ca1f75423",
+          "src/model186.ts": "9d2525fe67b6a2ee942bc27a3eb1a76d9c363cbbfaf50a54fc106c3973b028a5",
+          "src/model357.ts": "2dd4558f6490bec6d3400a02bcdc53a103c75bb36368b01b2b6d4e3378e89cf2",
+          "src/model246.ts": "371af3efd66a4fe2a1e5a0c4035a8526914fb56d9be1dce358de0a57e6b4c51d",
+          "src/model306.ts": "62148d572b9a712a5bf73f56b6ee75d0473eafdc2ded5474308f0c397b6bfd43",
+          "src/model097.ts": "44a34c9aa9ae32524583018b9d031b71d130a37d200048ee5b4501ef93ecf62a",
+          "src/model124.ts": "3d09f6e5d0a147244ce0f96d77fb58570eaa0c2ab783d5faba451efd18542be8",
+          "src/model064.ts": "495159a83df02f91573b290712ce6f6fa0db8ce18713b167b0aa91b518261419",
+          "src/model175.ts": "e52a8981aa7d8b1744074d561c663a403a056943a093990a09aff53f33f8ecb2",
+          "src/model035.ts": "75c190f95167aae2cf7b1ca3598ca9b87cd0fefb889b7d3885d70643aa5b1394",
+          "src/model024.ts": "07cfcd358ab2e5de7106db3e3922a7b3efcf283c78a337c736ec24ac26b2e250",
+          "src/model164.ts": "9f4a325f028b96e2619d76c80212bade42d53b71f3b356d89b496f69c649365d",
+          "src/model075.ts": "7e5930e60b90506473f3940b6b4151d37a398b58926e43c20d589e652d5d7bde",
+          "src/model135.ts": "007959378e1345ef6408e379fdccc323eb6da0f5e9423432e4510e26b8817ef8",
+          "src/model317.ts": "5cf88ac71ac698b0279e0861f00f39908cdc806c6d9c220f5589989e9def8aa8",
+          "src/model086.ts": "4cdafac87d2a290b2e0247fd3a74fa36180216bd9268070b6b26747451ea4c5f",
+          "src/model257.ts": "3fb2cfffdbcafd3782ffa5638464a0d5fccd87d8e1763b5f66aa3c1d45804c69",
+          "src/model346.ts": "ab660d6f2e2942f8a402b4f1fa899eb065156a363d361de945febdc128882331",
+          "src/model206.ts": "6cedcd64eeb9318c97c3f767139ad3421d5e1fbd5bfca33a9a5417001bbf4c00",
+          "src/model197.ts": "22c5310d891426f0226f04badc9ab9ce9db6d9f41495ec34e0afe965f1ca7d70",
+          "src/model290.ts": "2c8649c7e0a6c286615b0d17cb93100f02a4864493b509c3b030470472fc4bc4",
+          "src/model101.ts": "e250ba6d8f3462814857bb0bd2b0e160079a313ec79a04d445d097c7fb6d242f",
+          "src/model041.ts": "ae89f280fbb8ab0fecc68903caa7970bfa15892ee9ab3cd46f98ec43632fa464",
+          "src/model150.ts": "b2552cd810e162a1eaf369373fe8016ae67d882813891cdb40bb3c733e1a5f62",
+          "src/model381.ts": "9dfc5d4088f64d54bb738609fc0234ac068d1ce2737117aec2cb2edab12e6e5f",
+          "src/model010.ts": "38640a3f883dab9434dd74289429ff6ccfb987f57549788b7ed72749d08e47f1",
+          "src/model232.ts": "c4769b24dcad4dbc35af54ee9c391180123b1f480207559ba06148171d288a3e",
+          "src/model372.ts": "754e0dadbc190835b0c9fbc3966d31662d03b5fccdf8d2685b82e64774096ea8",
+          "src/model263.ts": "cff5603ed68091a33dfdd0ba821ac3f6239cf472ccce7d57e159847695870a91",
+          "src/model323.ts": "554ddeb8d317e450d893763dc37f187130ac001c872cccc35362e43debf6284e",
+          "src/model333.ts": "7b940cbb53415b20b2e7ee0e0f4421fb945454bbb852914b65210105ebb44e1b",
+          "src/model273.ts": "08202a6b4ffaf9375532e9b455e22ffb55028317d76b6bbdf86c33d1d482a05f",
+          "src/model362.ts": "3496ec13bef0312ab781da9682a194efe6d9dcbaf1a009d1305d7b7ad8cad924",
+          "src/model222.ts": "8ae18b0f644b2f1f2260eb1fade97cf20d065b843377b6befa334ca1b8bf95e9",
+          "src/model000.ts": "4296a030f0584261c311cef438b6ad654c5d22d6e74ddb1078f669dc0530dc9d",
+          "src/model391.ts": "54d26145a33b168b367a2028c32c56f954368131f26a763caa143e02895bccfd",
+          "src/model140.ts": "1b081857df3b884c214f1b249cd02afe5019fa2453bba31e33326616208b6003",
+          "src/model051.ts": "84de3c3f2726cfa9b6f7065e43f8ea2d14e1b2c8efe0a45a03f7971b4ec043ce",
+          "src/model111.ts": "a6671546667e69a72e30072cbb4d8542d9be62a5fab4aa08bba6fc93e062dbd1",
+          "src/model280.ts": "f9759dab36ba65777e2fe404d9bee7ca85d32df63bbfe79544adabc026e3011f",
+          "src/model187.ts": "9936f83bd9cc1af3fd44cc0212e286fbac5f08246a0f789a8f8b8a4621514f73",
+          "src/model216.ts": "3a06233782cf79451dd30c2e555f6fbf1c6762c7848b0e2383d5926b6dd44706",
+          "src/model356.ts": "5a8ac88ed99819a3334b63536c42ffb4250db2150464021a3fd8dc271b7836c0",
+          "src/model247.ts": "295310bb7681149000d6fb16017e0cc8a1d372c4e37861c51ab9fa88835023a4",
+          "src/model096.ts": "c504d88c4d7a3f310e1905460bd9e289b2d176b4a0aca5ec6ad22ce62a8ba14e",
+          "src/model307.ts": "3a2447209fe198a279b62e81491c4cd7c939d8bccf28e599f3388990ca6a059f",
+          "src/model125.ts": "30a81fed927fe2f9a146d20cafbfba9a7bb18c805193c0e6b72b187ea9172c81",
+          "src/model065.ts": "798b2a215b46dd0203bb996d1e2f1377ab0c4b67474f880096142fab6fefc452",
+          "src/model174.ts": "bfd1e68d83a73bdb2fe704f2b75b49b445635520fbf2366f3c799481ec4c38ca",
+          "src/model034.ts": "58675a5fd75a2e80dc543d22b03026af97341ae4c21da0f9b59314f5a67a32b4",
+          "src/main.ts": "f04c51d6caed2da711d157bffbad88493c543ee49181cab3c304865558082906",
+          "src/model154.ts": "41788a62954cf6939c7be3ab3426249f37ebcbafc54bb8e840bd1aa5e59193b0",
+          "src/model014.ts": "d766f541e5fdbaba6abc0b2a6094e8dc5cfa6dba16b03b2d8d8150421ce49990",
+          "src/model385.ts": "64451799d37b9d3a8c4f9e32b03d914cdc89a317789c9e9f920bca6329f5f7b9",
+          "src/model105.ts": "7283d5a048384c98c1f6143e2bd290a2676f966e06644d005fbc8c2e105d7bf0",
+          "src/model294.ts": "0b065de8627fdc7df7deb4ffdd10074e1a2ac7601b02a1aabdb4cb09a6167d81",
+          "src/model045.ts": "34a5a606fbc166558d7a1446514ba7b54d95de97fa77467035be60dc2f27d1f5",
+          "src/model267.ts": "bbd25d42949f14098c4eb75a8a4a4eef808761e26df3aa42dd72dcc4319f4683",
+          "src/model327.ts": "2c1780c7b0b33e1c02d22df3b6eea57cd92dfe61f8a5dd145c43f85181d99957",
+          "src/model236.ts": "86c90d4d13d3064b8f149d52890e05f8afeee761027e17d24e99845b934d951a",
+          "src/model376.ts": "17bdafc009b4843ba20c92f0f7962a1adc8bb156c2409515de776de6944cffb2",
+          "src/model071.ts": "07dd39815aaee7af683342dad6dc69e08381d8442d5ac6da12f3ef6f0ee159b4",
+          "src/model131.ts": "95a4d1c2611ee14bb5b1b6f24a44f70c0221761c8ee7e73b30aded804a539eac",
+          "src/model020.ts": "433cc52e6bafe0394450cd0c674b25d55869356db1e7abc5ddb162d1ebadcad9",
+          "src/model160.ts": "17bffcd8e43ce6672bcde6dd9baa7eae07f5d59010114f9e25cac85dfa92fa33",
+          "src/model342.ts": "7963302439c2dc99a95e4484812294e7ad1bab1f9192d63a62a3d7741b1fea6a",
+          "src/model193.ts": "80b89564a19df636fb93076d0ab3bb59b0bfce46c42f4b1fb29700bcee10c6d0",
+          "src/model202.ts": "d58733d3ab3b706250d2832749cb9aef756d96079189cd3ab0cdc9291a59060f",
+          "src/model082.ts": "2afe480ab8b94696476efe1908de6b400e898127449060747c5d611ab41c83cf",
+          "src/model313.ts": "154d80d8f4147d292d1398a17cb737650b69c445bab58466d5291d6315c96364",
+          "src/model253.ts": "75d0ddf197528bc2c79cf9fed6f6292c94859fe6e8bdeede132d9b28d11d7d4a",
+          "src/model243.ts": "f536bb00aaaf0c062cc50344d3394ffe149f8587479ef941e8333740de452e52",
+          "src/model303.ts": "89acaaa2f47891bb78d7b99b095aa51ad11d9353c97cf5e3b1a9e3c0a25bd917",
+          "src/model092.ts": "efd789084a0943445c46f79ced899784d553c67d51da13ec2a7de31f68f90baf",
+          "src/model212.ts": "ad773abcc1159551ebabdf022446628a2cad1b60e931316b6613c07de1fc2cd5",
+          "src/model183.ts": "8a41da6dc6b40a7d06925bcb803894d0268041e12f60ae5b80c7bc778a936e1f",
+          "src/model352.ts": "9618cce0c68f59ae3f3656287cdbadf2db2f6fee37dd57c7b976467519e11cb3",
+          "src/model170.ts": "29e4d4391160d8088989d3df9dbbfcadc165198d2d320d01e053022186a8dbbb",
+          "src/model030.ts": "fc1e2b0c0fb27a199ff23eeb035f325b997f4ff7f3f4ab2420843e6ec5eb0925",
+          "src/model121.ts": "255743f28e356b2827c5e028da02d3166c7d053dc864b593c28943cdbc52a489",
+          "src/model061.ts": "ff02e20d6e79707612f69753d06a2cdb9ff4ea2e0fd6f99cbfa7a526e8b304b9",
+          "src/model366.ts": "a7afbcec05cbb67510456034705bf20311c8f3f688a4c6b70e88a80ac4fe1039",
+          "src/model226.ts": "480e5753203625fd3f89e1b09207b3a1722fbecb463809bd06ad5adf818d9c82",
+          "src/model337.ts": "db94ca653dbdfba9d991904ad4c84e58be37debb563591ca15a5d329470e95b1",
+          "src/model277.ts": "80db8f6ef6942421ae3d42bc1704f099306e2248ba6e679a66fb4ce8267b51ec",
+          "src/model055.ts": "0165b8afc41dcd540008cb86fc09586dd5be3ac88daec8fb09f6e1bf8727c5ad",
+          "src/model284.ts": "934e3ebf6ed68603b7e5517d797f72a486fa5e8b6883016a9a2b5db1d4c303ad",
+          "src/model115.ts": "6ba92822c57e751e61708d8ca151c4242d400f90b7d75e412618899a612ce937",
+          "src/model395.ts": "d8f44b109fc867c382d32c3a5558f5312affc5c2e66ae5b70f383e147b098760",
+          "src/model004.ts": "7e4ea32802a7e7d5ffe1288147daacaf26a02eb3ee85b49d6c70e873d477e131",
+          "src/model144.ts": "39197505e5e76f56ad8525264f828008f64dc6a78363b68bcc2f12f17932b63b",
+          "src/model349.ts": "f9f209bbe34dd71dbbccf2d41457e59e46341011d736ba40bbdc4e5422ba2295",
+          "src/model198.ts": "ad1b55e0d54dea0f54b6626c23d8dcc35b11e35f831eed584045aa05a3f433b9",
+          "src/model209.ts": "a32bd7361cfd1271b1986b0841a663f2f21ae7be85ea80bb80bdb4bb6432dd79",
+          "src/model089.ts": "cf9fa1f12ebf902cfac0d32bc41f2c08cc1bb2b992d6a713a9ec1894edf705d6",
+          "src/model318.ts": "6f67f129fc21dfaa680b6f8feb758464ea230e9b56cbc132175afc4bb897270c",
+          "src/model258.ts": "3c2d87d9abe7d5dba67b989abe6ec1b6bdeb62d5c3628e05355c47077b8a0547",
+          "src/model248.ts": "a5d73a2c52b7186d033684fb909289743afda8b6ffe8709c0ee4936dd8e25a86",
+          "src/model308.ts": "ed849780d27a2dd65c6dc9d8aaf800e4fdd5982b2203b87b3f442092b8b28741",
+          "src/model099.ts": "0fdedacfb13d1c1a4849f5e3bf5a3b70a3c23e822e550849a300e807cc391023",
+          "src/model219.ts": "03a7910f902e0be0d076483a6256bd277a88d9fb1ef58960b3df69137941e3b3",
+          "src/model188.ts": "d76a9603aab4f765097f7c9d337697eaa85b03c29574418f2319506840d78bce",
+          "src/model359.ts": "b11e706c0734b7af249e4ebca9d4e37ec853e742edde9547dfd9a89610ca9a5a",
+          "src/model239.ts": "7d548967f0cc98a379077549b245ce103f86efa9352203ec486acfd40e5014a0",
+          "src/model379.ts": "9dab1b4875b46d84e85f7a9d4e4320112d9dfd75a8bbaf8c113c61aeb6ad893d",
+          "src/model268.ts": "df0def8d366ad651f6cf1e6071d5d757d032ba14c1cd9d4264180f565f4684ca",
+          "src/model328.ts": "f54edeab4679f68c8f12832604b37381ad395bca5644c68bfa1ad946bfec98f9",
+          "src/model338.ts": "5e4e404e0c504ab0759c832b2292564d70da1d80d7a2cdb1a2fb93a54accb7f4",
+          "src/model278.ts": "53845a806150c02807b8ce8054c1c06481b587f51be9940bfd70b1f6bcbafeed",
+          "src/model369.ts": "48ed27977cb1af19487e87f8598da012e441cbc28357a8172eddbc3ed7dcd844",
+          "src/model229.ts": "fdde976d1df6b597956ee1fce886c5a30fba6e9813915130c4ee28c02c224180",
+          "src/model238.ts": "01d9911db879d9362ea92e329ad589e5baab1a5f43b5caad1f0290cf1a5d43d5",
+          "src/model378.ts": "3d64fb806d9b49a31be985c8b4dc1925e09c9fa5bf818c39a1694476c0757ba7",
+          "src/model269.ts": "db7c8f1377045f8fef96069a587927c3c180870e3bada15b01c1dc4571482158",
+          "src/model329.ts": "3cf5c4b2cef8eb1e6330fe9cbc30fc7f0f63343d305cb8a9ea26fffea076328a",
+          "src/model339.ts": "ba456d7d2afbe560849382cc9de3a9b79cb074d5c0862ab10629330e8c03f3b7",
+          "src/model279.ts": "62f491fa695585aa4c035c965e2305228b54da091230856c568099637b0f73bb",
+          "src/model368.ts": "670db182350288bb291c647795249bb6da4e34d762b33a96e7cfba3293f826f4",
+          "src/model228.ts": "ead6190e8c35116f643b3add8fb5fdb54218c4b356b3c8973242531c0ca79b5b",
+          "src/model348.ts": "2a6dbb789959ece41bead9480fa5aa17d4723022cd13c80c03609a7b40ba1824",
+          "src/model208.ts": "f5c0363cc2ed86d9a44c9ffb1bf1e7fac0b3678477a4d9991e621914df94e425",
+          "src/model199.ts": "16c4f9b9dcbcf8745921438b0193605283ddbd2299aec3e1186b1d26c70c2367",
+          "src/model319.ts": "622f995a27eedc9cee8a323f16d5c620c69d8852f6d18b307909501dce7672c3",
+          "src/model088.ts": "c1fcf2a251f18380fd5c92c44d30b991ec5a641e013e9fc847834d3f5da70ae2",
+          "src/model259.ts": "ac5e1d18ceb62d727926eb1465a7132dc05af78fa9f84d09c32cb3363f5ad1e5",
+          "src/model249.ts": "0ff9568bcc08b8ed90cc605f8c57245eed7168f4b13f17a27e3ff359fbf8c75c",
+          "src/model098.ts": "923332b207cd51e429418d78b7e941333239a610ee2a1871143e4d571f6e73a8",
+          "src/model309.ts": "1ec25aa864409ec57e844ffd97c1be0185f30f1b5216ec6a6687a4fc3edc1b4b",
+          "src/model189.ts": "b89ecf15eaab13d78167bb74ae1f05b08530beb7454c957d1bf191f7b5eb71cd",
+          "src/model218.ts": "30b3983003f217ad4a493ca5044665af5e5df2f8b1051c2802711b4ed93cc98a",
+          "src/model358.ts": "f62d496b4d666d31d69f783c43cd1893425abd4da941740253c090812426d254",
+          "src/model159.ts": "09efd868b6119145e00a59a80690bdc6b356926c770ac987fef89e06b50bf607",
+          "src/model388.ts": "5af68b0df82ec78b47d40ed722cfcf02c4c5b1b8f82af327d9289ad2aebe052d",
+          "src/model019.ts": "62bd698e1bfca484bfa1d1c2373ef9bc4dc6e02c38bd4edf6e7c80344294885f",
+          "src/model299.ts": "4a42206df452235a0dba5ae9c40fd74e692da40dde5f67f144d79502837aaf80",
+          "src/model108.ts": "eb64dd1ac018e4e1c03f43775a9dd7925a0e2c1f81763cb5d46f9b8937e6f258",
+          "src/model048.ts": "f70c2dfa2ab0eb5fdd2d9f47c93cb458b0819f28738afed0658342029f4ea2f4",
+          "src/model058.ts": "dab4d4c5f4d4cf4e7cfa0b5b4228208c29a3e6bc605afd73053000f59daea1c7",
+          "src/model118.ts": "77cb40aaf221934c02a917e802c46f43994619213b9058c4dfec088f7e5687c1",
+          "src/model289.ts": "221ee69ca1250697f3615d1fa6ab1a62d7f8515ea51e2a488b8799920ac2da0f",
+          "src/model009.ts": "ce96ad0c6548178047e895f5fbfdab67339ebef16021b59a95051e875be53c31",
+          "src/model398.ts": "a358864412fee5ce6835f0ba43a0536b7eb420909a80bc2d24db8c6df7d86aa6",
+          "src/model149.ts": "ab58e205e1edbdffc02e9136c799373cf7e3f551d09b95602e538b9d57c689ee",
+          "src/model029.ts": "727529c5d488de9a5d1c11c41fb3e3e516bce0f066fc5d6e6a7433f14fe87c2c",
+          "src/model169.ts": "036a8b8aa2910fa4788415653a772eba6a0730271968ac438a9cc0db2f780c3b",
+          "src/model078.ts": "3f3941cc8d9e50009f2736c90b8ff61738bef4cc8da0d748a9fd09a9dbba7d37",
+          "src/model138.ts": "5120c5d563d9e1d70cca99a877e1948873da0174001d8d4095ce11b716e9c0d8",
+          "src/core.ts": "928255203bc94b828de4dcb52bb19ef3af1118a212173dd143cc5812dffe5fed",
+          "src/model128.ts": "b6e1f15afa6180e3123e634de128f1e7b853d8dd6353c37c3b08915cdc87cf29",
+          "src/model068.ts": "f1931da1ddc8daed46c09a60b02b5208f346e4b71486a5a637c779c32fe6ca5a",
+          "src/model179.ts": "c12d630e93620a4d181a610ef2455b32cbfea65766bbea76691a9f527f8b016f",
+          "src/model039.ts": "9e41fdb7a5402cf27a3bac0efc5df177fca5543dcbefa5bb7ddd590efcf1e362",
+          "src/model028.ts": "96057a15267d038e9176fee6c6af4f60a72a46a46fb7b6bafb0db9cfe34e1aef",
+          "src/model168.ts": "ced8cbef8b9a0eb6034763d2106c6fc2ae16cfb12e720e62bb860459ede423be",
+          "src/model079.ts": "e066a9a67c22f00aef2247a1f2f4aaaddebc21fb598a122ca5586d7b1a23ac04",
+          "src/model139.ts": "cecb8bd40c2482bcbd406c803f52082e179fd2ffe8e43f77122f95e01b9530dc",
+          "src/model129.ts": "20928c8d83d51934bfc295bad9bae0aa7a034a6fe042b1959fd3dd4a09af45c3",
+          "src/model069.ts": "3805ce5c56545359f57fc55b8d2e2318972c4d371542034f0af61297c0cf7707",
+          "src/model178.ts": "d59f54e08fc18854b9860734decbf3a9773989449938a3ed1ec96285ed376e62",
+          "src/model038.ts": "b9d3cbc84758953d13deac8b5ca558d828e06921955ae59ede609e1ab21e5232",
+          "src/model158.ts": "a0bd7f43c4669cec377beb59356f8ae176763ed06e13bdd5cd2562843a3c718f",
+          "src/model018.ts": "b0236bd6728a4240c0be881486ebd556d39bc2c23ff2c7be6120446e004134a0",
+          "src/model389.ts": "e727286ff3a9da80039f06c8477d08560fa659b1fcf8649d40b98777c6fda965",
+          "src/model109.ts": "9bb2e0de1cc590588cdbc67f31b8e23d93bb8a288eba746da5db34e12a87e1d8",
+          "src/model298.ts": "5d3ae536dcde0e7ba7b4285c9f8ee6ba184cebea41ece47a25c10c939af228e6",
+          "src/model049.ts": "06c9574f6710225a2eed80d75c6d6e119dad2e6bdc212b833fe76b8c013a4432",
+          "src/model059.ts": "c8020d9430059d8c92cde020246feaf5416e330f26656c210930ab13cdacf6ed",
+          "src/model288.ts": "31ea6b2a33dcf139a9286a1c71fa2bb5181f67ba593995098458f0ffd4282e57",
+          "src/model119.ts": "a019e96f9d8591a238e6b1d5c34e4385ea4dec26cf08362b843275bf5e0c156d",
+          "src/model399.ts": "63292c4bacad9a48848b875dcbaaaa10a04f34e5113582810800914c214703aa",
+          "src/model008.ts": "b5753c4daebabb708334059f0127fe64f6217b595e1cf9730477ca44b3efaed8",
+          "src/model148.ts": "1754a1c67e433563fc9304db0436b4d375933f8407b010e7f64df92642ef8f98",
+          "src/model345.ts": "87952d645730d7dac83926dc7707d8968c415837371ebc100d626a0b5c500f31",
+          "src/model194.ts": "10a3bcdad39f26a13286a98a3399d347ebc403bfd4f7d590d7e43007fd3c7e46",
+          "src/model205.ts": "d2a076081d28b60769892522d51cbb7d9adb6981d95dbc382f591c4a09692b4c",
+          "src/model085.ts": "f27bc0d6d3a174d5b5c65ba7b5ca3fed6dfe2eb9d36e7bac7c46934cb27e7e52",
+          "src/model314.ts": "754c22f1b98e5b8a5799d055539dd28e73bb84d84455d6943bce82979a7e71c7",
+          "src/model254.ts": "a5e3b5504983c4b1f7518f61ab6bd1cb13929b3ac4b542d54b1ae5619606f708",
+          "src/model076.ts": "106769408bc35fb7967588d62e82b2169aec865cf53dc7e9d9a296ff3ef5a8d6",
+          "src/model136.ts": "2a396e59617a0f2e60275b402cca3700f31cac22828b55b53a74322a5c866e6c",
+          "src/model027.ts": "7b7ada57b1022a2a284f6d665a5bdb17d4e521efde567f79d97c195398890ffa",
+          "src/model167.ts": "90f0158f6d887ae89dd10126065ad0441f262a13f68abacfbde9bd7bd9589779",
+          "src/model260.ts": "700e3d52979039b74a6132b13607ce57eca793941c3b29e0aac7b17f4f6ac78a",
+          "src/model320.ts": "a52af3d42846a32f4c8032acc881e2fff523a4a7a8347b4e6d0abcb18bc483de",
+          "src/model231.ts": "badccc172271a036d0a8d490fe56fb0243933bfa97a7c1d2d931377916a1620f",
+          "src/model371.ts": "f38b11ccabdbc174f7c534322f3c5c5706c0abceddc557e4531d9b6dce711308",
+          "src/model153.ts": "9cc24b7f72549cd9ec53028a589d9fcf2062f01aad776cf89a75032acf25106a",
+          "src/model013.ts": "3597b592a51d2ac00b268cb2e0a43b5a23e13a7d103981560aaab83c5ba9aabc",
+          "src/model382.ts": "2c048f81c087e7365debefaf7f7ae6751e51ffc583f0b34a9301ff3ead5d99ec",
+          "src/model102.ts": "567245c094bf5cd36896cb50e86d749575ed0d8859d287ea0eb9ad98049bf801",
+          "src/model293.ts": "0dfe8ad48742d2dff656d849630d6f21f8a252d766d0223f7027f83197fe7df2",
+          "src/model042.ts": "dcb356292f8209efcdd46778bacf382d4e759f922e0083c4c1cb1cbc78522aba",
+          "src/model052.ts": "78f3bf322e64cdcb31ed952a1280481dc54b101f360eed4473d26e64aaa57ce9",
+          "src/model283.ts": "e1c22cd3e18f13c354a24d05edb2ff2af73d78591fbfe1711c4c1977034da39f",
+          "src/model112.ts": "71611befd1138f6393b7c468a742816b0ad71ace7c0d1e5b29285424514badf6",
+          "src/model392.ts": "81bbf57e49352fea0eacd243b8e347434d369c1fd31a6d1a183778d694534aa1",
+          "src/model003.ts": "36ffbb4001196e177674e47064ff3c7d773015300c0149179f38f376f7d784c3",
+          "src/model143.ts": "178de86471dfaa668b87f77ca507e3e94dcd2a652702caa2099d2d2cf4270a9e",
+          "src/model361.ts": "a8f6f6226adb9d3455f78603f9acaf0250ef34cac4f37ba55913fa2db3e0bc63",
+          "src/model221.ts": "614b31341a28eb291c187a48c17f046404f512a9ca709543cb7b2e6b35c49fc2",
+          "src/model330.ts": "f3227103abd1199b17de5ef28d095c87a5dd9e98d41ad1da8665f552e2496e0f",
+          "src/model270.ts": "2e2482efa8d0f03c01425b09c67da3efff044efbe5f0fccb3ac26ae2a1dc4967",
+          "src/model177.ts": "68775fb47c5d4c7c8a16f58634b7add72143b4fab54af015efe9e31d73e393a3",
+          "src/model037.ts": "2e2f8bd76c739999a529c6dfb7ad42c52a053b44b1a555cd26695fd810a5d798",
+          "src/model126.ts": "e60bc80e5b1d512ba9019da74c1fd556d4b53a3735e1a81adbfd0b9e77d55f14",
+          "src/model066.ts": "863c81dea738b2012ca5da7c242fa980da91b2bccfde2467553c2e67b293e3fe",
+          "src/model244.ts": "2bbfc93ff7aa2d2e4f4ff66c05a192d9886ee8ba4b57a275fee67bdc553ec631",
+          "src/model304.ts": "4425eddaef72b70f94528bd3c11cff1b5a351414b93e6020f22f939d832c4558",
+          "src/model095.ts": "5cda73bd132d4f6ef16a8b061ed0f620829cb580d62a20b75848e151593dd8e0",
+          "src/model215.ts": "57e548c46e09cd24bf2ade513df8425cb473ff6c2d35e4a9378f72f4f5700080",
+          "src/model184.ts": "f1784324ef28376203b9db9cfc6ec84f2beb5f7e9282052f5ab39f9d179949a3",
+          "src/model355.ts": "ec0bd418e14a23003f9443fdc015d3267c9cc974748d10995b9df84e725aa9cf",
+          "src/model235.ts": "ad38d9513a8be7106a444a355eea4f83b82d24e65f78ed4135bbd61d0b37056d",
+          "src/model375.ts": "8713e9ca53e17a37602e0c1625ef3747a027a43ad8bcb37881daa527daf33c8e",
+          "src/model264.ts": "7b6b9cd27316f5a5d2f5e7741cbeb85bfa450f2eafbaa3d88adee92374cdd3b5",
+          "src/model324.ts": "f09073e556dff93e213e45db3347d60c5bf09cacda43cb56c7608cb24706c956",
+          "src/model297.ts": "fe66b81cbb3ee470593605604412125d73bab8a607b651b93d9de23066c58128",
+          "src/model106.ts": "4e4ba7f76aaa4460dfff2cf21934ae150cefd1282af4cf680a800a1d561f217a",
+          "src/model046.ts": "a3d838e2c03e742a73bc3862c83eb219e7219b39800bf6928c1d18062f69d55a",
+          "src/model157.ts": "da3dcfd55466da8a51a7df40b785f505264b7ffb793445f4175c19d3394bd016",
+          "src/model386.ts": "e23328ff593ef993e92782c35087dc58b52ec0dc7433e29285a84ce46c386ea8",
+          "src/model017.ts": "3d0176a1f84df7d5c65bdf1d2ea161cbdf0a36bcdfc7a97f0697bb6b063c7af5",
+          "src/model310.ts": "ee929e879ef688ce39552fd700a752eb223feb3c838c785d46220898c860eed3",
+          "src/model081.ts": "29c632ede192445025e2ede0a69782ad6d896b88b93b317190ad88d9d05fed91",
+          "src/model250.ts": "083636865d5f4f4e333e87f1b30d0cd2e84ad5568e357947d129bcedd89d8f05",
+          "src/model341.ts": "c7e31c5c51cbd28a148a9b3c17a25e87ee007c60c26c499f5ee5f2e31de83c14",
+          "src/model201.ts": "66af2a7011438ac1fdcbc8c70d2c0dad645242bc432ede2a75b38558e433a3dc",
+          "src/model190.ts": "4b9b6b143f2e800529f62a01c9e704af0a68856e554cbbd4342f33331b788c47",
+          "src/model023.ts": "da7c3f64981c5bc2b1c65aa7c01cfeae406722e2c7ecd75a9ea9de554d8266d2",
+          "src/model163.ts": "1374eb8340f7ac9d1db296a83383a3b96c4e8d33076b29d59a223965405b7dee",
+          "src/model072.ts": "61f16e0202dfde29f6638a5a35ee3728fcba1ef4379bf3926fbc918ef9aa792b",
+          "src/model132.ts": "3edab2d6421c4e33258f36b70713c0086968f22a8dcbad929b95f49dbc2c60ee",
+          "src/model122.ts": "eda6580b16449a7b94b30e5493f4b40d13fcb18557caa006b60b04dba4fb3d36",
+          "src/model062.ts": "3ba830f04da536cc1cf0df5c8bd0047650763078f55e97fa7d5f849c62dc3c87",
+          "src/model173.ts": "ef8d3e2e655f3be1788698865353cc5cad91d656f7b1b8afdb646815bc7f106c",
+          "src/model033.ts": "fcaaadf1220afaeab4a8bd76b3799cabbb1351b6dfc9f2de56dbdd130af19052",
+          "src/model180.ts": "123137a295ae025cc6294c5c2ae42bf06874589393fd4ae9c8cd094df673bada",
+          "src/model211.ts": "2bd4f21d53d2fe4b36b6365c136f47dd736336fed0e7b26b81352417ce9bef77",
+          "src/model351.ts": "420fc734530442e44185c3092e5fa337fafba3acb8cb95a9a716a064672fdf7f",
+          "src/model240.ts": "0ddaf93e23739bd1a0b3320cc6ead4aeab492fe1b25dedbf22972ea20c1bd5c4",
+          "src/model091.ts": "2c920181fa5bb7a3665a96ffae84a6a5ea8f982d5647d0b738858256360be491",
+          "src/model300.ts": "a4e66a08d7963e6b98951554244b2a1b22ea96c4080a196a53037716e0630abb",
+          "src/model007.ts": "5e20bc3ef6c266f4b3c86c96e02ebd735311e32f24b7ec5392543ff037624647",
+          "src/model396.ts": "f4d9b353767d250bbe4ba8431a51271de9ff6e55128acbc4c47e149632eedf50",
+          "src/model147.ts": "bac432188c9e226596e66f9e2459d9394f96b305dd1864c25536d4807ffe08d3",
+          "src/model056.ts": "3e518f79310425a0fdb235690fa2f94a4be6dd43042543dcc6fa4c7fb86bc5f1",
+          "src/model116.ts": "027b5f1b6c198be9feae0b2d502b1596286e8853147d53c8cfd73b18a7b96c50",
+          "src/model287.ts": "aecf0c3e75353a05c27ec4715742573976c412e35959ff2e877ff817a1cdbf9d",
+          "src/model334.ts": "9f694a76679c1c90bb7c2fe322e633ecb334f438cbfdf5dfb2c438deb6733604",
+          "src/model274.ts": "a8332e0a82413eefb02c1046b3046aa0414caa99a7087860a5ab185c9e6566fc",
+          "src/model365.ts": "c7c99306108e2474b4c97425b465169e3371907b0ed34ffa432e971332d53fb0",
+          "src/model225.ts": "dd4f19ab40890ee7b26376272c9f72506cb0ada5f5a05a7081925bea36140f6c",
+          "src/model234.ts": "2f3bedb313251415721cceeb0b3aeb0ac1d06e58803615bdfa941a4777494f50",
+          "src/model374.ts": "f0236929d73a4f742971734abb42e016b1abb03f4fb1cf15a2d628b552737965",
+          "src/model265.ts": "0fbc5f46867b779a8f4636dbd49b2124ed86b745e42ea808f7a727958f1f16e1",
+          "src/model325.ts": "7501a61c2d053d434beb0b3d8fec4300e54eb7cb8668d9eee3656516e16b20c1",
+          "src/model107.ts": "83ccf3a89090ca06d5392897a727f0134e86dbb9d40bd344e519ce9d6615e8d4",
+          "src/model296.ts": "6c56ad6c865d9979b13cad241a836b90396640b7a4ee89bcf485be2bf90888f3",
+          "src/model047.ts": "76391634faff644af19535a8c3d5505a9bed61d54a47041100ae6b01373219b9",
+          "src/model156.ts": "148616f3c0c2c63234e5f37efa2136bff3a0b7f5dfd2583e6b1fcdadd1e2b690",
+          "src/model016.ts": "9834a8ab2610d56eb92ce7c458324681b2184ad4c22965cc609c3428d1ede0d7",
+          "src/model387.ts": "59dc8f57f66cc61b8e6595e0b8ed13e55795fbebb45ba0e7606cdd5c81cdde7c",
+          "src/model080.ts": "5ff09b81aef0e906bbac522b9986491b07973cbd23964d4b3b47d96d3267d100",
+          "src/model311.ts": "21a7c65d935de3e74a22c00e51888f319f682145c26da496735e188dbf828b43",
+          "src/model251.ts": "a19462a2f7df1c8a52aa6e91ba1375daa3969df481c4a8ea68556a0224074710",
+          "src/model340.ts": "3669ff3325414e0d6c59a77e1e4cd1cb686e53495f443ab1b0c2068a441e3785",
+          "src/model191.ts": "1d884eed8915bf33fc79a3231071d05ec455d826814b8b4f894cf5385a32851f",
+          "src/model200.ts": "bb53a71b17c858c635ee8e6bf578e4d7819e48062be4a009ba25cdeda2a6b53f",
+          "src/model022.ts": "76db5aa117fe9f0764247cacd449fb8e303cf18508d8b4787ff23f931b11bfc3",
+          "src/model162.ts": "21bfee86bc366b6432065840ece1bcd3aacaf9b7297675ea04753b243de550a3",
+          "src/model073.ts": "b0a8bdc2c518dd3057a8c7397ea7735149ab5966c9324b727a9a872311a46d7e",
+          "src/model133.ts": "74f14abc5429fe68c9c7fe7dafba10ec73b68b471508e4eae261d1a1038ff261",
+          "src/model123.ts": "23fa2070b748926597a92a7b131e7587d30c15d4b0ac45aa8212d443c8c62c78",
+          "src/model063.ts": "f525541e7ded3e27f29c81d9fc19c1c7804b0460a934de1a8637d1ab656665d6",
+          "src/model172.ts": "b4c0dc2195399c022f59b726ad7e83bcab062927a3fd8c9e4e7efd770a72231f",
+          "src/model032.ts": "4999e07c2dea8a5c3410ddff8864b57ab602160cbf95aeba0c16a72b65e26d80",
+          "src/model210.ts": "5b9791629ede28840630780b45dda32e3d77ac5c2219326abfb77f12ae3fcb9b",
+          "src/model181.ts": "290c9b4efc71b1d143b57af0388e63686570ede7b8cd87c12d1f11943e19c9b3",
+          "src/model350.ts": "caa4b2dd546652bd6ceacd7030823048cfb180f8999090ba7f97dfef741f24ad",
+          "src/model241.ts": "6a560efdb0a6a95485d636a5643f4670f255c787a27071ea0dbe91264852b896",
+          "src/model301.ts": "9866c2faade1bb22eb867b79d1d4b570c44dce2b54025ddaa33278f71f82bc17",
+          "src/model090.ts": "07333e1c16aeb8084b7e0c7a5694ac5d3b6424a63ef0470d002a74f01fe07e66",
+          "src/model397.ts": "5f91060d3581b4c7568be655203a641b66ff0209267f7844b42bcdec228979fb",
+          "src/model006.ts": "b7f079c64172e34412385b44391e48ae7147bb3538165a712b4c7d8ec48d0029",
+          "src/model146.ts": "91af8e34904f5aeb04fc7d5d690dd9ffce30ef34ae2cc59b4f1ee74062168777",
+          "src/model057.ts": "0aaba2824e7106d2ead21083f8bce8fccc5d60019c679e5e07b01a7aa2273574",
+          "src/model286.ts": "dc22f90dbb832313c7121bfb73f6aa0190cedba433335488257b26fbdd7b6423",
+          "src/model117.ts": "a792778f75de96d58b3c880b0530d5b1e4a1ce77fa6a0aac1cfa613c0e770350",
+          "src/model335.ts": "cb2471e2cb6f86c1ced76aa5aa1a82b6c0a3a692d52d3a459b0f4b39b237bd76",
+          "src/model275.ts": "4a2f638c548500fc2eccd06f17721ccb6e542722f6763c43c17942598968dd84",
+          "src/model364.ts": "98f61feecb4c6f5761d0eb034b13eae91796f95160e79f7e8e183d4ea1ee5ba3",
+          "src/model224.ts": "64bcaf11bfa2867a4b9ddaaf04b34ac8f09b717bedfbf51001a5cf74f78bb231",
+          "src/model344.ts": "6498043ef5610b62c7eb4b08755d5a4ca739e879920ecf97eb549fdd77d2cf13",
+          "src/model204.ts": "47bc50e43037a888ee3289c7fefded8cbf674c20aa4014b2e52e8d40c6f20d28",
+          "src/model195.ts": "711c47289b58a9d73c6c75bd7251cbccf813805c10fae3e668d31d5e27900874",
+          "src/model315.ts": "2b4c93e6893935b080292ce9a9734073e2db3733f9c0a151d34c26465c024c04",
+          "src/model084.ts": "c4c35640f234632957fd1f7a2e59378756080b171af9caa0fdafab585c58e1ac",
+          "src/model255.ts": "9c96ca49bb4a2978de3ae84247a3d27734a6fd432be8164a65a808268d730ca2",
+          "src/model077.ts": "8a0e6faf76ef86c7bee72d34b1f8cfc5b0658be48ffb08ef1a73285f427a05ef",
+          "src/model137.ts": "62b1cc992c518696027c83823e3de54ab4430fc5a9bf32314d03e89d3120257f",
+          "src/model026.ts": "d5eb3141d8ff0437018114927ca2dd868833b9c549eb371374a910c8c42a8dfd",
+          "src/model166.ts": "959720d22fd34f858dc950cb0e7197d41d5193c0aa5e67c117636434052c98f5",
+          "src/model261.ts": "42f662de12c72c281fc61b5cbb4c90537d211861c4e13a1b8fdc5f0d764c375f",
+          "src/model321.ts": "7bb11bf6e1ccd70d6e6729fad4860e0369dd7dc749cc99c6ca4a898abfb566cc",
+          "src/model230.ts": "1c37031cced9b6139cd6c40d0679e321b2cd33b72ed049f3e46983a038270e32",
+          "src/model370.ts": "064e108815f89cea136d70d2efe6a65c991fa66ebe5c01ab7287b2367b7c3701",
+          "src/model152.ts": "3c8570d038d0189908eac609590136cba4ea1b5a47c2e6cde73e6c947f41e023",
+          "src/model383.ts": "0170b13774f166617378a978ca63f46df82c4cabd064cdf8a09732e69bc2b48d",
+          "src/model012.ts": "d2c50d3510b429cc5d08aa7bbf04339aa7f7c94b7fc2453eb3df7d81ced68d9a",
+          "src/model292.ts": "00c81361ee8ef10333409e1fd5680d7a96808d442e06fe14b29e572067a2f680",
+          "src/model103.ts": "609306e20e94e58d9fabafc98ad8ef4cd2eff8124366ed407637b05a3ecbe6f4",
+          "src/model043.ts": "be8d26795b03e8e3fa5c5f63e064a1cf49545a73c3374e4eb86772c9b8b16289",
+          "src/model053.ts": "dfa129e5610c015922e9f0e5e7c950e0fcfbefd43e1d80a104dc56280d4a447d",
+          "src/model113.ts": "65ec710c67e21dfb56b5cf91a483ef7164e5879ea4f1a064ddfeeb5f47f800cd",
+          "src/model282.ts": "f4e7b75d9c71925d5893569d109cb802b877c478c260414667db510dec325a3e",
+          "src/model002.ts": "c9a7e043dabcd8a844b479722c01e9d1274257b27b76ad697d3e9deb5d95b9eb",
+          "src/model393.ts": "9e7b1c6168576e115c52fbe1ca1d6cb7215fb2ace5139490a0f09b7a5a24663f",
+          "src/model142.ts": "a62dce03611dd7b08fdd50be69771ad896d4c6b63e6bee9423db320895019a04",
+          "src/model360.ts": "c6e79b0473f039c6148395887dc632cb15a7fdc691e9dac82b42abbf1e1fd92f",
+          "src/model220.ts": "ba17165ef27a15076255e763c5ca40bf695e0136f4417241698f015dec615e3e",
+          "src/model331.ts": "dcdfc9c71bfeff43c00814637355056a411f577b39cf38449a5adbc5deede67f",
+          "src/model271.ts": "b0a5716aae1cb02cd143c350ed899458328a3891c82e441ae2acbb09d4163655",
+          "src/model176.ts": "fde22eaa0b730772c8e4c83339ef015a9ec471f7674ef209be8684a0eae3a1f5",
+          "src/model036.ts": "ec011b7446453d4d9fe2087a5527e2b50bbfc3827fd16001339369dd54b2697d",
+          "src/model127.ts": "e5b91aae744d126486322a23286250e044be0be9c71048eaf7372f4f1f887a82",
+          "src/model067.ts": "de0306451cc56c03ec6eab3f63b760347113bf7a5b56338e611be2c353a96bba",
+          "src/model245.ts": "15d8eac31eb9ebbf69b6cb4bfce6b99350d6de41bf47397702170d12174e8bc0",
+          "src/model094.ts": "a0d6dd87465b3e27f278e1822fe2d7a9e41171a82bf336aa7893bf427c2d3d6c",
+          "src/model305.ts": "f28934ebcdc9e079a57c48b793a873e63a22635e41cc6c0021a1bcd48537e6a0",
+          "src/model185.ts": "295ea63b9f30604a8f1a63d05260afd7242dc2972d69fd086abb7414d8f051d3",
+          "src/model214.ts": "ff1054ea1d40f134078ec0ebfb268e6179f22fe51f953bad69d9c0b3d7685c3b",
+          "src/model354.ts": "f44664be6605704f0d8b460d8c3336e4566c3801feefba1dc8e4b25fd9e70e73"
+        }
+      }
+    },
+    "pending_and_written": {
+      "controls_sha256": "31f5a4c2a2bb4363063eb6183736c03e8544081fa7326ad40b5fae64dc78337a",
+      "fixtures": {
+        "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"skipLibCheck\": true,\n    \"noEmit\": true\n  },\n  \"files\": [\n    \"index.ts\"\n  ]\n}",
+        "index.ts": "function factory() { let x = { value:17, recur:()=>x }; return x; }\nconst result = factory(); const returned = result.recur();\nfunction nested() { let x = { outer:{ value:17, recur:()=>x } }; return x; }\nconst nestedResult=nested(); const nestedReturn=nestedResult.outer.recur();\nfunction generic<T>() { let x={ foo:<U>(u:U)=>x, bar:(t:T)=>x }; return x; }\nconst stringResult=generic<string>(); const numberResult=generic<number>();\nconst quoted={ label:'kept' } as const;\nlet unnamedKey:string='key'; const unnamed={ [unnamedKey]:1 };\n"
+      },
+      "native_controls": {
+        "rows": [
+          {
+            "tool": "native",
+            "child": {
+              "pid": 57416,
+              "started_at_unix_ns": 1791366522670372000,
+              "command": [
+                "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+                "--project",
+                "tsconfig.json",
+                "--pretty",
+                "false"
+              ],
+              "wall_seconds": 0.07613170799959335,
+              "user_seconds": 0.0384,
+              "system_seconds": 0.027358999999999998,
+              "peak_rss_bytes": 47316992,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout": "",
+              "stderr": ""
+            }
+          },
+          {
+            "tool": "ordinary",
+            "child": {
+              "pid": 57417,
+              "started_at_unix_ns": 1791366522746985000,
+              "command": [
+                "/Users/mohebifar/dev/tsr/target/release/tsr",
+                "--project",
+                "tsconfig.json",
+                "--pretty",
+                "false"
+              ],
+              "wall_seconds": 0.05307104200073809,
+              "user_seconds": 0.027430999999999997,
+              "system_seconds": 0.010529,
+              "peak_rss_bytes": 43286528,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout": "",
+              "stderr": ""
+            }
+          }
+        ],
+        "target_verified": false
+      },
+      "modes": [
+        {
+          "mode": "default",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "7",
+                "7",
+                "0",
+                "105"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "5",
+                "21",
+                "0",
+                "787"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "5",
+                "5",
+                "18",
+                "575"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "5",
+                "21",
+                "0",
+                "787"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "8",
+                "8",
+                "0",
+                "111"
+              ],
+              [
+                "7",
+                "object_other",
+                "5",
+                "293",
+                "7",
+                "23954"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "7",
+                "105"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "5",
+                "147"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "5",
+                "203"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "5",
+                "147"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "8",
+                "111"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "1"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "7"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "4"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "0"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 57392,
+              "wall_seconds": 0.014622667000367073,
+              "user_seconds": 0.000926,
+              "system_seconds": 0.001695,
+              "peak_rss_bytes": 2441216,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "9f70c0ca6b8d690f9375a4b792ca43145d58a53a9ec92b551dc3393c80f121ea",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 57393,
+              "wall_seconds": 0.03214124999976775,
+              "user_seconds": 0.027363,
+              "system_seconds": 0.006957,
+              "peak_rss_bytes": 47104000,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "39ffa558268b78994a84b385cab9c02609fa352ef3df55e92a69056d2e0e794d",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 57394,
+              "wall_seconds": 0.14347866699972656,
+              "user_seconds": 0.136593,
+              "system_seconds": 0.013738,
+              "peak_rss_bytes": 51331072,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 57395,
+              "wall_seconds": 0.03248954100126866,
+              "user_seconds": 0.027776,
+              "system_seconds": 0.007194,
+              "peak_rss_bytes": 43859968,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 57396,
+              "wall_seconds": 0.034194874999229796,
+              "user_seconds": 0.030005999999999998,
+              "system_seconds": 0.006941999999999999,
+              "peak_rss_bytes": 49070080,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "82154cd1cb247c1706a843a4f01c00d619a2d27590a7e48773f2056b83af8449"
+            },
+            {
+              "role": "repeat",
+              "pid": 57397,
+              "wall_seconds": 0.03372516599847586,
+              "user_seconds": 0.030937,
+              "system_seconds": 0.006469,
+              "peak_rss_bytes": 44351488,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "9fadc8b335b554cdeefdef0331db129d9510030f4ff2af49f14db2f7bf9e0b8e"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ]
+        },
+        {
+          "mode": "single",
+          "selected": {
+            "origins": [
+              [
+                "2",
+                "object_property_render",
+                "7",
+                "7",
+                "0",
+                "105"
+              ],
+              [
+                "3",
+                "object_property_plan",
+                "5",
+                "21",
+                "0",
+                "787"
+              ],
+              [
+                "4",
+                "object_whole_render",
+                "5",
+                "5",
+                "18",
+                "575"
+              ],
+              [
+                "5",
+                "object_plan_clone",
+                "5",
+                "21",
+                "0",
+                "787"
+              ],
+              [
+                "6",
+                "object_slot_clone",
+                "8",
+                "8",
+                "0",
+                "111"
+              ],
+              [
+                "7",
+                "object_other",
+                "5",
+                "293",
+                "7",
+                "23954"
+              ],
+              [
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0",
+                "0",
+                "0"
+              ]
+            ],
+            "payload": [
+              [
+                "OBJECT_PAYLOAD",
+                "1",
+                "unclassified",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "2",
+                "object_property_render",
+                "7",
+                "105"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "3",
+                "object_property_plan",
+                "5",
+                "147"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "4",
+                "object_whole_render",
+                "5",
+                "203"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "5",
+                "object_plan_clone",
+                "5",
+                "147"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "6",
+                "object_slot_clone",
+                "8",
+                "111"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "7",
+                "object_other",
+                "0",
+                "0"
+              ],
+              [
+                "OBJECT_PAYLOAD",
+                "8",
+                "unnamed_discarded_payload",
+                "0",
+                "0"
+              ]
+            ],
+            "events": [
+              [
+                "OBJECT_EVENT",
+                "0",
+                "plain_written_reuse",
+                "1"
+              ],
+              [
+                "OBJECT_EVENT",
+                "1",
+                "member_request",
+                "7"
+              ],
+              [
+                "OBJECT_EVENT",
+                "2",
+                "member_pending_return_refusal",
+                "4"
+              ],
+              [
+                "OBJECT_EVENT",
+                "3",
+                "member_no_site_fallback",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "4",
+                "member_site_success",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "5",
+                "member_site_decline",
+                "0"
+              ],
+              [
+                "OBJECT_EVENT",
+                "6",
+                "site_renderer_entry_all",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "7",
+                "site_renderer_entry_plain_origin",
+                "3"
+              ],
+              [
+                "OBJECT_EVENT",
+                "8",
+                "site_renderer_entry_other_object_origin",
+                "0"
+              ]
+            ]
+          },
+          "children": [
+            {
+              "role": "config",
+              "pid": 57398,
+              "wall_seconds": 0.0030688749993714737,
+              "user_seconds": 0.000932,
+              "system_seconds": 0.001039,
+              "peak_rss_bytes": 2441216,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "9f70c0ca6b8d690f9375a4b792ca43145d58a53a9ec92b551dc3393c80f121ea",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "listing",
+              "pid": 57399,
+              "wall_seconds": 0.02790820800146321,
+              "user_seconds": 0.024123,
+              "system_seconds": 0.00277,
+              "peak_rss_bytes": 30392320,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "39ffa558268b78994a84b385cab9c02609fa352ef3df55e92a69056d2e0e794d",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "ordinary",
+              "pid": 57400,
+              "wall_seconds": 0.12241154199909943,
+              "user_seconds": 0.11724799999999999,
+              "system_seconds": 0.003587,
+              "peak_rss_bytes": 38371328,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "off",
+              "pid": 57401,
+              "wall_seconds": 0.02964908299873059,
+              "user_seconds": 0.025483,
+              "system_seconds": 0.0028239999999999997,
+              "peak_rss_bytes": 33161216,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "role": "on",
+              "pid": 57402,
+              "wall_seconds": 0.03160149999894202,
+              "user_seconds": 0.025959,
+              "system_seconds": 0.004042,
+              "peak_rss_bytes": 33259520,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "abf2e16c2b0e3d6316450a9bb874ae96dbc97f4836bd708ba9043cc83e3036a0"
+            },
+            {
+              "role": "repeat",
+              "pid": 57403,
+              "wall_seconds": 0.031894666999505716,
+              "user_seconds": 0.026135,
+              "system_seconds": 0.003948,
+              "peak_rss_bytes": 33259520,
+              "exit_code": 0,
+              "timed_out": false,
+              "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "stderr_sha256": "7e352a098939448942fd114fdc22fe4391b373cb0ea56f984ed447d0b11b6dad"
+            }
+          ],
+          "complete_outputs_match": true,
+          "owner_work_multisets_repeat": true,
+          "reader_integrity_valid": [
+            true,
+            true
+          ],
+          "worker_activity_valid": [
+            true,
+            true
+          ]
+        }
+      ]
+    }
+  },
+  "allocator_controls": {
+    "passed": 5,
+    "source_sha256": "6aae2e3852004463e1072575fd6f4ad444062fc4947c8887850b309352219116",
+    "binary_sha256": "84073645efa0551056ac0030f20f37af21e1aa4ac2eb476fa30f0499cfaab080",
+    "log_sha256": "637f35239fa15bacf2bd527a8e5f97567695d5af9cb9c9d517beb3af263ec8b9"
+  },
+  "native_build": {
+    "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+    "command_result": {
+      "pid": 47271,
+      "started_at_unix_ns": 1791364762713493000,
+      "command": [
+        "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+        "--version"
+      ],
+      "wall_seconds": 60.008284583000204,
+      "user_seconds": 3.6e-05,
+      "system_seconds": 0.000552,
+      "peak_rss_bytes": 32768,
+      "exit_code": -9,
+      "timed_out": true,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native_revision": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+    "native_status": "",
+    "go_sum_sha256": "f56e1eb56cc1f61c3801f862a4afa26f4b43295436eb405228bedb0f7e707468",
+    "target_verified": false
+  },
+  "native_version_repeat": {
+    "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+    "command_result": {
+      "pid": 48321,
+      "started_at_unix_ns": 1791364936174654000,
+      "command": [
+        "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+        "--version"
+      ],
+      "wall_seconds": 0.04316891700000269,
+      "user_seconds": 0.00328,
+      "system_seconds": 0.009947,
+      "peak_rss_bytes": 13664256,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "Version 7.1.0-dev\n",
+      "stderr": ""
+    },
+    "initial_cold_failure": "native-build-qualification.json",
+    "source_or_binary_changed": false
+  },
+  "native_boundary": {
+    "rows": [
+      {
+        "tool": "native",
+        "demand": "noEmit",
+        "child": {
+          "pid": 49228,
+          "started_at_unix_ns": 1791365184976753000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.030885041998772067,
+          "user_seconds": 0.036802,
+          "system_seconds": 0.017712,
+          "peak_rss_bytes": 47874048,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "index.ts(14,14): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+          "stderr": ""
+        },
+        "emitted": []
+      },
+      {
+        "tool": "native",
+        "demand": "declaration",
+        "child": {
+          "pid": 49229,
+          "started_at_unix_ns": 1791365185008333000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false",
+            "--noEmit",
+            "false",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--outDir",
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-boundary/native-emitted"
+          ],
+          "wall_seconds": 0.02586841700031073,
+          "user_seconds": 0.036363,
+          "system_seconds": 0.015397,
+          "peak_rss_bytes": 48709632,
+          "exit_code": 2,
+          "timed_out": false,
+          "stdout": "index.ts(14,14): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+          "stderr": ""
+        },
+        "emitted": [
+          {
+            "path": "native-emitted/aliases.d.ts",
+            "text": "export interface Box<T> {\n    value: T;\n}\nexport interface Item {\n    value: number;\n}\nexport declare namespace N {\n    interface Value {\n        n: number;\n    }\n}\n",
+            "sha256": "9a4dcf4833af443d67b1e19c493911495da81db44e838e9ec80b37d5b3bb223e"
+          },
+          {
+            "path": "native-emitted/index.d.ts",
+            "text": "import type { Box as ImportedBox, Item, N } from './aliases';\nexport declare const plain: {\n    a: number;\n    nested: {\n        n: number;\n    };\n};\nexport declare const ordered: {\n    nested: {\n        n: number;\n    };\n    a: string;\n};\nexport declare const written: {\n    annotated: ImportedBox<Item>;\n    qualified: N.Value;\n};\nexport declare const quoted: {\n    readonly text: 'keep';\n};\ndeclare const dynamic: string;\nexport declare const computed: {\n    [dynamic]: number;\n};\nexport declare const accessor: {\n    item: number;\n};\nexport declare const receiver: {\n    x: number;\n    m(): number;\n};\nexport declare const captured: {\n    x: number;\n    f: () => number;\n};\nexport declare const generic: <T>(value: T) => {\n    value: T;\n};\nexport declare const recursive: {\n    f(): {\n        f(): /*elided*/ any;\n        g(): /*elided*/ any;\n    };\n    g(): {\n        f(): any;\n        g(): any;\n    };\n};\nexport declare const mismatch: string;\nexport {};\n",
+            "sha256": "010525b269f52093f01b86952c4cf5ca70afd68eb1886f215d523565867c8899"
+          }
+        ]
+      },
+      {
+        "tool": "probe",
+        "demand": "noEmit",
+        "child": {
+          "pid": 49230,
+          "started_at_unix_ns": 1791365185035230000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/probe-v2-tsr",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false"
+          ],
+          "wall_seconds": 0.030892041999322828,
+          "user_seconds": 0.027821,
+          "system_seconds": 0.0056689999999999996,
+          "peak_rss_bytes": 46809088,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "index.ts(14,14): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+          "stderr": ""
+        },
+        "emitted": []
+      },
+      {
+        "tool": "probe",
+        "demand": "declaration",
+        "child": {
+          "pid": 49231,
+          "started_at_unix_ns": 1791365185067468000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/probe-v2-tsr",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false",
+            "--noEmit",
+            "false",
+            "--declaration",
+            "--emitDeclarationOnly",
+            "--outDir",
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-boundary/probe-emitted"
+          ],
+          "wall_seconds": 0.03127012500044657,
+          "user_seconds": 0.027742,
+          "system_seconds": 0.005882999999999999,
+          "peak_rss_bytes": 48611328,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "index.ts(14,14): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+          "stderr": ""
+        },
+        "emitted": []
+      }
+    ],
+    "target_verified": false,
+    "native_diagnostic_parity_verified": false,
+    "display_parity_verified": false,
+    "fixtures": {
+      "aliases.ts": "export interface Box<T> { value:T }\nexport interface Item { value:number }\nexport namespace N { export interface Value { n:number } }\n",
+      "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"skipLibCheck\": true,\n    \"noEmit\": true\n  },\n  \"files\": [\n    \"index.ts\"\n  ]\n}",
+      "index.ts": "import type { Box as ImportedBox, Item, N } from './aliases';\nexport const plain = { a:1, nested:{ n:2 } };\nexport const ordered = { ...plain, a:'later' };\nconst annotated:ImportedBox<Item> = { value:{ value:1 } };\nexport const written = { annotated, qualified: {} as N.Value };\nexport const quoted = { text:'keep' } as const;\ndeclare const dynamic:string;\nexport const computed = { [dynamic]:1 };\nexport const accessor = { get item(){ return 1 }, set item(v:number){} };\nexport const receiver = { x:1, m(){ return this.x } };\nexport const captured = { x:1, f:()=>captured.x };\nexport const generic = <T>(value:T)=>({ value });\nexport const recursive = { f(){ return recursive }, g(){ return this } };\nexport const mismatch:string = plain.a;\n"
+    }
+  },
+  "native_generated400": {
+    "children": [
+      {
+        "mode": "default",
+        "child": {
+          "pid": 48643,
+          "started_at_unix_ns": 1791365030151377000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false",
+            "--incremental",
+            "false",
+            "--composite",
+            "false"
+          ],
+          "wall_seconds": 0.32999520799967286,
+          "user_seconds": 1.088612,
+          "system_seconds": 0.087197,
+          "peak_rss_bytes": 403685376,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "src/main.ts(3608,14): error TS2322: Type 'string' is not assignable to type 'number'.\n",
+          "stderr": ""
+        }
+      },
+      {
+        "mode": "single",
+        "child": {
+          "pid": 48644,
+          "started_at_unix_ns": 1791365030482384000,
+          "command": [
+            "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/native-tsgo",
+            "--project",
+            "tsconfig.json",
+            "--pretty",
+            "false",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--singleThreaded"
+          ],
+          "wall_seconds": 0.5232320420000178,
+          "user_seconds": 0.6117969999999999,
+          "system_seconds": 0.031177,
+          "peak_rss_bytes": 274317312,
+          "exit_code": 1,
+          "timed_out": false,
+          "stdout": "src/main.ts(3608,14): error TS2322: Type 'string' is not assignable to type 'number'.\n",
+          "stderr": ""
+        }
+      }
+    ],
+    "target_verified": false,
+    "full_work_equivalence_verified": false
+  },
+  "setup_refusals": {
+    "probe_cold_launch": {
+      "pid": 42157,
+      "started_at_unix_ns": 1791364143033233000,
+      "command": [
+        "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/source/target/release/tsr",
+        "--project",
+        "tsconfig.json",
+        "--pretty",
+        "false",
+        "--showConfig"
+      ],
+      "wall_seconds": 300.0133491249999,
+      "user_seconds": 4.6e-05,
+      "system_seconds": 0.00043999999999999996,
+      "peak_rss_bytes": 32768,
+      "exit_code": -9,
+      "timed_out": true,
+      "stdout": "",
+      "stderr": ""
+    },
+    "generated400_binary_mutation": {
+      "status": "rejected_binary_mutation",
+      "cause": "Host rebuilt same probe path during ongoing batch",
+      "retained_evidence": "controls.log and raw children/receipts",
+      "accept_as_complete": false,
+      "corrected_boundary": "v2 uses frozen separate executable; build never overwrites running driver target"
+    },
+    "first_build": "Missing108 bundled library inputs; corrected build passes",
+    "v2_executable_mode": "copyfile did not preserve executable mode; copymode fixed artifact before controls"
+  },
+  "limits": [
+    "Global origin aggregates are not per-private-checker retained object images.",
+    "Exclusive allocator request traffic includes nested semantic work inside renderer; not string bytes/RSS.",
+    "Logical result/copy payload String lengths are not allocator request bytes.",
+    "The natural pending/written fixture qualifies four pending declines and one written reuse per mode; no-site/renderer-decline/unnamed discard remain zero and unqualified.",
+    "Actual renderer worker entries are counted separately from member helper requests.",
+    "Compiler trace observes covered owner/file work, not every semantic force.",
+    "No full corpus or native complete-work certificate; ordinary debug versus release probe resource rows cannot measure overhead.",
+    "No production runtime change or deferred-string retention."
+  ],
+  "canonical_runtime_changed": false,
+  "handoff_complete": false,
+  "full_corpus_verified": false,
+  "target_verified": false,
+  "ordinary_observations": [
+    {
+      "mode": "default",
+      "report_sha256": "75be205d6094a2366509cac3671862adc1bd3f4a1c045a40cd52e9dc0dfb4fe2",
+      "source_sha": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+      "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "flags": [
+        "--project",
+        "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/generated400/project/tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false"
+      ],
+      "cache_state": "fresh compiler processes, warmed filesystem; incremental/composite disabled",
+      "pairs": [
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 3.6286798405029215
+        },
+        {
+          "order": [
+            "tsr",
+            "tsgo"
+          ],
+          "wall_ratio": 3.70020955479884
+        },
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 3.607977397685466
+        },
+        {
+          "order": [
+            "tsr",
+            "tsgo"
+          ],
+          "wall_ratio": 3.5752761769461814
+        },
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 3.766157905391865
+        }
+      ],
+      "observed_wall_ratio": 3.6185875675220114,
+      "verified_wall_ratio": null,
+      "work_comparable": false,
+      "target_verified": false,
+      "scope_match": true,
+      "options_match": true,
+      "diagnostics_match": true,
+      "diagnostics_stable": true,
+      "inputs_unchanged": true,
+      "comparability_reasons": [
+        "Complete cross-tool query-input coverage is unverified.",
+        "Actual performed checker work and worker budgets are unverified."
+      ],
+      "tools": {
+        "tsr": {
+          "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+          "loaded_file_count": 465,
+          "loaded_files_fingerprint": "d24bd2e975ec6bbc0ac49ca34e71e9c6010a4f1ebfe91d4a920dd31fa30f431d",
+          "summary": {
+            "wall_seconds": {
+              "median": 1.1917816670011234,
+              "p95": 1.2830239169998094,
+              "min": 1.1882872080004745,
+              "max": 1.2830239169998094
+            },
+            "user_seconds": {
+              "median": 2.490273,
+              "p95": 2.639297,
+              "min": 2.479504,
+              "max": 2.639297
+            },
+            "system_seconds": {
+              "median": 0.07523099999999999,
+              "p95": 0.10013699999999999,
+              "min": 0.067645,
+              "max": 0.10013699999999999
+            },
+            "peak_rss_bytes": {
+              "median": 269139968,
+              "p95": 275742720,
+              "min": 265060352,
+              "max": 275742720
+            }
+          }
+        },
+        "tsgo": {
+          "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+          "loaded_file_count": 465,
+          "loaded_files_fingerprint": "d24bd2e975ec6bbc0ac49ca34e71e9c6010a4f1ebfe91d4a920dd31fa30f431d",
+          "summary": {
+            "wall_seconds": {
+              "median": 0.32934995899995556,
+              "p95": 0.3406718330006697,
+              "min": 0.32169387500107405,
+              "max": 0.3406718330006697
+            },
+            "user_seconds": {
+              "median": 1.112118,
+              "p95": 1.232173,
+              "min": 1.08231,
+              "max": 1.232173
+            },
+            "system_seconds": {
+              "median": 0.079729,
+              "p95": 0.081185,
+              "min": 0.07545299999999999,
+              "max": 0.081185
+            },
+            "peak_rss_bytes": {
+              "median": 404439040,
+              "p95": 415711232,
+              "min": 401260544,
+              "max": 415711232
+            }
+          }
+        }
+      },
+      "resource_limits": "Full workspace verification was running; default also overlapped the allocator observer batch. Ordinary medians are prioritization observations, not controlled release acceptance or retained-change comparison."
+    },
+    {
+      "mode": "single",
+      "report_sha256": "f51de4f1b628b07e65bb49309f0f82495cf72e017093728c7dbcc363ce72caca",
+      "source_sha": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+      "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+      "flags": [
+        "--project",
+        "/Users/mohebifar/dev/tsr/target/native-optimization-goal/object-rendering/generated400/project/tsconfig.json",
+        "--noEmit",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+        "--pretty",
+        "false",
+        "--singleThreaded",
+        "true"
+      ],
+      "cache_state": "fresh compiler processes, warmed filesystem; incremental/composite disabled",
+      "pairs": [
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 5.48103401756573
+        },
+        {
+          "order": [
+            "tsr",
+            "tsgo"
+          ],
+          "wall_ratio": 5.655092676655325
+        },
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 5.765618913548814
+        },
+        {
+          "order": [
+            "tsr",
+            "tsgo"
+          ],
+          "wall_ratio": 4.49958615684285
+        },
+        {
+          "order": [
+            "tsgo",
+            "tsr"
+          ],
+          "wall_ratio": 5.14670914532451
+        }
+      ],
+      "observed_wall_ratio": 5.409185498725103,
+      "verified_wall_ratio": null,
+      "work_comparable": false,
+      "target_verified": false,
+      "scope_match": true,
+      "options_match": true,
+      "diagnostics_match": true,
+      "diagnostics_stable": true,
+      "inputs_unchanged": true,
+      "comparability_reasons": [
+        "Complete cross-tool query-input coverage is unverified.",
+        "Actual performed checker work and worker budgets are unverified."
+      ],
+      "tools": {
+        "tsr": {
+          "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+          "loaded_file_count": 465,
+          "loaded_files_fingerprint": "d24bd2e975ec6bbc0ac49ca34e71e9c6010a4f1ebfe91d4a920dd31fa30f431d",
+          "summary": {
+            "wall_seconds": {
+              "median": 2.913024667001082,
+              "p95": 3.0622535410002456,
+              "min": 2.771672499999113,
+              "max": 3.0622535410002456
+            },
+            "user_seconds": {
+              "median": 2.853033,
+              "p95": 2.991466,
+              "min": 2.729355,
+              "max": 2.991466
+            },
+            "system_seconds": {
+              "median": 0.0521,
+              "p95": 0.06340799999999999,
+              "min": 0.046075,
+              "max": 0.06340799999999999
+            },
+            "peak_rss_bytes": {
+              "median": 223068160,
+              "p95": 236306432,
+              "min": 215613440,
+              "max": 236306432
+            }
+          }
+        },
+        "tsgo": {
+          "binary_sha256": "25b23e54c98ba8a82f1a9643b6ad68fb9e8fdcf85c54a5ae76020e00af3f8f3e",
+          "loaded_file_count": 465,
+          "loaded_files_fingerprint": "d24bd2e975ec6bbc0ac49ca34e71e9c6010a4f1ebfe91d4a920dd31fa30f431d",
+          "summary": {
+            "wall_seconds": {
+              "median": 0.5385329580003599,
+              "p95": 0.6805633749991102,
+              "min": 0.5041059590002988,
+              "max": 0.6805633749991102
+            },
+            "user_seconds": {
+              "median": 0.665293,
+              "p95": 0.7078519999999999,
+              "min": 0.6357729999999999,
+              "max": 0.7078519999999999
+            },
+            "system_seconds": {
+              "median": 0.032248,
+              "p95": 0.037731,
+              "min": 0.028939,
+              "max": 0.037731
+            },
+            "peak_rss_bytes": {
+              "median": 263372800,
+              "p95": 263847936,
+              "min": 262553600,
+              "max": 263847936
+            }
+          }
+        }
+      },
+      "resource_limits": "Full workspace verification was running; default also overlapped the allocator observer batch. Ordinary medians are prioritization observations, not controlled release acceptance or retained-change comparison."
+    }
+  ],
+  "ordinary_release_launch": {
+    "binary_sha256": "903c3756399e68731e6e153d40870b14d5c41bd3d02e8abc09f1d0de20a003b0",
+    "command_result": {
+      "pid": 49068,
+      "started_at_unix_ns": 1791365134952003000,
+      "command": [
+        "/Users/mohebifar/dev/tsr/target/release/tsr",
+        "--version"
+      ],
+      "wall_seconds": 11.22520679199988,
+      "user_seconds": 0.0009109999999999999,
+      "system_seconds": 0.0015589999999999998,
+      "peak_rss_bytes": 1818624,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "Version 5.9.0\n",
+      "stderr": ""
+    },
+    "source_head": "e744714cc3dea78d2f79bf7d1390a1141b609e72",
+    "observer_feature_enabled": false
+  },
+  "public_driver_replay": {
+    "qualified_modes": 2,
+    "children": 12,
+    "source_sha256": "23e668dac15791c32fa2d563db86b02dab9f371cfba5cf63ba80208ae72f9d76",
+    "controls_sha256": "f3ed9fb82e3372ee5cd7887349923fbdc41b6198de0cfdcf14757d9418c17a79",
+    "status": "passed"
+  }
+}

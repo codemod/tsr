@@ -238,3 +238,174 @@ identical on all four generated projects.
 Against tsgo's 863 ms median (§3) the combined probe would move
 domain-model-large from 1.04 to roughly 0.94–0.97 observed. Real progress, and
 an order of magnitude short of 0.50: see §8 C4.
+
+## §10 Verified ratio (round 5, base `6539256c`)
+
+`whole_project_perf.py` now publishes `verified_wall_ratio` (supersedes §2):
+diagnostics, `--showConfig`, loaded lists and loaded-file bytes must agree,
+and an untimed traced run per tool must report the same `(file, checker)`
+check list — tsgo's `--generateTrace` `checkSourceFile` spans against TSR's
+`TSR_WORK_TRACE` `source_file_check` spans. The measured TSR must therefore be
+a `--features work-trace` build. A/A against the default build on
+domain-model-large, 11 pairs: wall ratio 1.005, median CPU ratio 1.000, so the
+feature costs nothing measurable when the variable is unset. The previous
+branch's receipt/qualification layers (`box/recover-performance-r4`, 42
+commits) were not carried forward: none is needed for this verdict.
+
+14-CPU Linux box, pinned tsgo `target/tsgo-pinned`, 21 pairs, all verified:
+
+| Project | TSR wall | tsgo wall | Verified ratio | TSR CPU | tsgo CPU |
+|---|---:|---:|---:|---:|---:|
+| generic-imports | 106 ms | 113 ms | 0.94 | 97 ms | 222 ms |
+| domain-model | 212 ms | 210 ms | 1.01 | 414 ms | 742 ms |
+| domain-model-large | 821 ms | 572 ms | 1.44 | 1808 ms | 2563 ms |
+
+## §11 Resolved-module lookup by file index (`tsr-2zk.17`)
+
+Profile (perf, frame pointers, domain-model-large, default pool): on the
+critical checker (checker 0, owner of `src/main.ts`)
+`Program::resolved_module_in_mode` was 8.3% inclusive — two path-keyed
+`FxHashMap` probes per query (`resolved_modules[file.path()]`, then
+`files_by_path[target]`), each hashing and `memcmp`-ing a full canonical path.
+The checker asks it per alias resolution (`resolveExternalModule`).
+
+- **Native operation:** `Program.GetResolvedModule` (`program.go:521`, map
+  `p.resolvedModules` keyed by `file.Path()` then `{Name, Mode}`) and
+  `GetSourceFileForResolvedModule` (`filesByPath` lookup), consumed by
+  `checker.go` `resolveExternalModule`.
+- **Identity and owner:** `Program`-owned, immutable after
+  `from_root_files`. Outer key is now the file index whose `path()` the old
+  map was keyed by (a second spelling of one path shares the first's entry);
+  `ModeResolution::resolved_file` is `files_by_path[resolved]`, computed after
+  package redirects are inserted, so it equals the per-query hop.
+- **Publication:** built once before binding; no partial state is visible.
+- **Work boundary:** the checker's repeated queries remain (checker-owned);
+  each is now an index, one specifier hash and a mode scan.
+
+Native control (`/tmp/ctl1`, `module nodenext`, `importHelpers`): resolved
+import (TS2322 through its type), missing file (TS2307), resolved-but-not-held
+untyped JS package (TS7016, must stay distinct from TS2307) and missing
+`tslib` (TS2354): tsgo, base and new TSR print the same four diagnostics.
+Dumps byte-identical to base. Perf vs base, 21 pairs, median CPU ratio:
+domain-model 1.008, generic-imports 0.991, domain-model-large 0.991 (wall
+798 vs 824 ms).
+
+## §12 Unbounded bind lookahead (`tsr-2zk.17.3`)
+
+`Program::bind_source_files` binds files on `front_end::ordered` workers and
+publishes them in file order. Each worker could hold one result ahead, so
+while one worker bound `lib.dom.d.ts` (9.6 ms, program index 9) every other
+worker stalled after two results and the rest of the program bound only
+afterwards. Native `BindSourceFiles` (`program.go`) queues every file on the
+work group and keeps every binding; `ordered` now takes a `Lookahead`, and
+binding uses `All` (each worker's channel holds all its results). Publication
+order, relocation and therefore every identity are unchanged. Root parsing
+keeps `One` (private ASTs coexist with their published copies; `All` measured
+no loader gain).
+
+domain-model-large `Bind time` 40 → 25 ms. Native control `/tmp/ctl3`
+(script-global `Window` merges across files, `declare global` in a module,
+UMD `export as namespace` on the ordered path, `dom` lib): tsgo, base and new
+TSR print the same four diagnostics. Dumps byte-identical. Perf vs base, 21
+pairs, median CPU ratio / wall: domain-model 0.954 / 200 vs 209 ms,
+generic-imports 0.944 / 101 vs 104 ms, domain-model-large 0.976 / 780 vs
+803 ms; peak RSS within 2%.
+
+## §13 Where the remaining domain-model-large gap is (HEAD `786787c3`)
+
+Verified ratio 1.44 → **1.33** (759 vs 572 ms, 21 pairs, `work-trace` build;
+generic-imports 0.91, domain-model 0.97). Phases, this box (virtiofs: stat
+≈136 µs, which inflates both tools' file I/O):
+
+| Phase | TSR | tsgo (`--generateTrace`) |
+|---|---:|---:|
+| Program (load, parse, resolve) | ~158 ms | 137 ms |
+| Bind | 25 ms | 37 ms |
+| Check (4 checkers, native `i % 4` affinity) | ~575 ms | 475 ms |
+
+tsgo's four checkers are busy 473/388/391/395 ms; TSR's checker 0 (owner of
+`src/main.ts`, which imports all 200 modules) runs ~590 ms while checkers 1–3
+finish near 300 ms. The gap is checker 0's extra work, all in
+`tsr-checker` (not this lane). Shares are of checker 0's samples (perf, frame
+pointers, `profiling` build):
+
+- **C5 — eager printing in `check_object_literal_members`**
+  (`objects.rs`, `member_text_at` per property, ~line 1520): 21.1% inclusive
+  via `type_to_string_at_worker`, including most `best_name`/`symbol_chain`
+  work. Native `checkObjectLiteral` builds a symbol table; printing happens
+  only in `typeToString` at report time. Proposed: keep the member type and
+  print on display.
+- **C6 — `resolve_alias` is not memoised** (`symbols.rs:1040`): 20.3%
+  inclusive; `Program::resolved_module_in_mode` is called 709,026 times
+  (366,800 for `main.ts`) for ~1,400 import specifiers. Native `resolveAlias`
+  caches the target in `aliasLinks.aliasTarget` (with `resolvingSymbol` for
+  cycles). Most calls come from printing (`best_name` 7.5%,
+  `module_alias_at` 4.7%, `alias_in_scope_for` 4.4%).
+- §8 C1/C2 still stand (`mentions_type_parameter_inner` 1.7% self; per-call
+  `TSR_PROJ_TRACE` `getenv`).
+
+Refused in this lane: **parallel private parse of the library closure**
+(`filesParser.start` queues `lib.dom.d.ts` beside the roots). The closure from
+`lib_file_names` + `parse_file_references` parsed on two pool workers and
+published at the original visit was output-identical and saved wall
+(domain-model 202 → 194 ms, 41 pairs; domain-model-large −1.8%), but the
+publication copy of `lib.dom.d.ts` (12 ms) plus a slower worker parse
+(35 vs 30 ms) raised median CPU 4.0% on domain-model (gate ≤1.03), and 15%
+on generic-imports without the 128 KiB root bound. It becomes free with a
+zero-copy publication (parse into a reserved node-id range), which is
+parser/AST work outside this lane.
+
+## §14 `resolve_alias` publishes `aliasTarget` (`tsr-1yb.7.7.3`)
+
+Port of `resolveAlias` (`checker.go:16266`) memoisation: a private
+`Checker::alias_targets` keyed by alias `SymbolId`, states uncomputed /
+`Resolving` / `Resolved(Option)` (completed `None` = `unknownSymbol`); a
+re-entrant query answers `None` and the outer resolution completes `None`, as
+`pushTypeResolution` failing does. TS2303 stays in `circular_alias.rs`. The
+record is on `resolve_alias`'s doc comment.
+
+Work boundary, temporary counters (not committed), default pool:
+
+| Project | `resolve_alias` queries | worker runs after | `resolved_module_in_mode` before → after |
+|---|---:|---:|---:|
+| domain-model-large | 693,083 | 7,755 | 709,026 → 23,698 |
+| domain-model | 81,727 | 1,515 | — → 4,658 |
+| generic-imports | 409 | 20 | — → 61 |
+
+Dumps byte-identical to the rebased base `ba0370ec`. Control `/tmp/ctl4`
+(re-export rename chain, `import = require` of an `export =` object, a
+two-file `export { p } from` cycle): base and new print the same six lines;
+tsgo prints five — the extra `TS2708` on the cycle use is pre-existing.
+Perf vs base, 21 pairs, CPU ratio / wall: domain-model 0.956 / 200 vs 205 ms,
+generic-imports 0.996 / 103 vs 104 ms, domain-model-large 0.902 / 687 vs
+803 ms; RSS +0.7%. Verified ratio (work-trace builds) before → after:
+generic-imports 0.908 → 0.911, domain-model 0.951 → 0.962,
+domain-model-large 1.351 → **1.204**.
+
+Re-profiled after this commit (checker 0, domain-model-large):
+`type_to_string_at_worker` fell from 21.3% to 5.5% inclusive and
+`check_object_literal_members` is 8.3% inclusive including its non-printing
+work — most of §13 C5's cost was `resolve_alias` under the printer.
+
+**§13 C5 not ported (`tsr-1yb.16.3.10`).** The printed member text is the
+literal type's identity, not a cache: `check_object_literal_members` mints
+`TypeStore::new_named(OBJECT, render_object_type(&members), symbol)` and
+stores `object_literal_members` as printed `Member`s; 131 `TypeData::Named`
+reads in 27 files consume that text. Printing later is not equivalent:
+`member_text_at` reads state that changes after the mint (pending signature
+returns, alias accessibility at the reference site). Native's
+`checkObjectLiteral` → symbol table → print at report time needs a semantic
+object-literal type behind `Named` for those readers — a representation change
+outside a function-level grant, now worth ≤5.5% of the critical checker.
+
+**Global allocator refused (`mimalloc` 0.1.52 in `crates/tsr`, measured in a
+scratch tree).** Verified ratio vs pinned tsgo (21 pairs) improved —
+generic-imports 0.94 → 0.85, domain-model 0.955 → 0.86, domain-model-large
+1.199 → 1.063 — but peak RSS rose 40 → 120, 58 → 147 and 137 → 249 MB
+(+81–196%). The gain is mimalloc's eager arena commit plus transparent huge
+pages: domain-model-large, 9 runs, glibc 686 ms / 137 MB; mimalloc default
+639 ms / 237 MB; `ARENA_EAGER_COMMIT=0` or `ALLOW_THP=0` 688 ms / 156 MB;
+with `PURGE_DELAY=0` 759 ms / 122 MB. No configuration is faster than glibc
+within +10% RSS on this Linux box. macOS (no THP, slower system malloc) is
+unmeasured; setting options in code needs unsafe FFI, which the workspace
+denies.

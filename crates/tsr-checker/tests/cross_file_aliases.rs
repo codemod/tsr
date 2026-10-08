@@ -176,6 +176,42 @@ fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> 
     Fixture { nodes, node_map, bound, host }
 }
 
+#[test]
+fn imported_value_read_and_assignment_keep_distinct_native_results() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("m", "export const value = 17;"),
+            ("main", "import { value } from './m'; value; value++; value = 2;"),
+        ],
+    );
+    let root = fixture.host.files[1].1;
+    let tsr_ast::Node::SourceFile(file) = fixture.node_map.get(root).unwrap() else { panic!() };
+    let mut checker = Checker::with_module_host(
+        &fixture.bound,
+        &fixture.nodes,
+        &fixture.node_map,
+        Some(&fixture.host),
+    );
+    let tsr_ast::Statement::ExpressionStatement(read) = file.statements[1] else { panic!() };
+    let read_type = checker.check_expression(read.expression.unwrap());
+    assert_eq!(checker.type_to_string(read_type), "17");
+    let tsr_ast::Statement::ExpressionStatement(increment) = file.statements[2] else { panic!() };
+    let tsr_ast::Expression::PostfixUnaryExpression(increment) = increment.expression.unwrap()
+    else {
+        panic!()
+    };
+    let assignment_type = checker.check_expression(increment.operand.unwrap());
+    assert_eq!(assignment_type, checker.intrinsics().error);
+    let tsr_ast::Statement::ExpressionStatement(assignment) = file.statements[3] else { panic!() };
+    let tsr_ast::Expression::BinaryExpression(assignment) = assignment.expression.unwrap() else {
+        panic!()
+    };
+    let target_type = checker.check_expression(assignment.left.unwrap());
+    assert_eq!(target_type, checker.intrinsics().error);
+}
+
 /// The type of the alias declared by an import or export specifier named `name`.
 ///
 /// This is the position the `.types` baseline records and the position

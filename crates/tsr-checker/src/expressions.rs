@@ -728,6 +728,25 @@ impl Checker<'_, '_> {
                             self.prepare_uncontextual_callable(original);
                         }
                         let declared = self.get_type_of_symbol(symbol);
+                        // checkIdentifier (5b1047d:11076-11094): assignment
+                        // targets test the local/export symbol, not the alias's
+                        // value target. The diagnostic walk owns the reporter;
+                        // this semantic read must retain native errorType.
+                        if self.assignment_target_kind(id) != AssignmentTargetKind::None {
+                            let local_or_export =
+                                self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
+                            let flags = self
+                                .binder
+                                .symbols()
+                                .get(self.binder.merged_symbol(local_or_export))
+                                .flags;
+                            if !(flags.intersects(SymbolFlags::VARIABLE)
+                                || self.in_js_file(id)
+                                    && flags.intersects(SymbolFlags::VALUE_MODULE))
+                            {
+                                return self.intrinsics.error;
+                            }
+                        }
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
                         // variable or parameter reference is narrowed. A class,
                         // interface, enum or function reference is not, and
@@ -840,26 +859,6 @@ impl Checker<'_, '_> {
                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
-                        } else if self.assignment_target_kind(id) != AssignmentTargetKind::None
-                            && self.binder.symbols().get(symbol).flags.intersects(
-                                SymbolFlags::FUNCTION
-                                    | SymbolFlags::CLASS
-                                    | SymbolFlags::ENUM
-                                    | SymbolFlags::VALUE_MODULE,
-                            )
-                        {
-                            // §313: ASSIGNING to a function, class, enum or
-                            // namespace name is upstream's TS2629/2630/2631/2632
-                            // family — `checkReferenceExpression` reports and
-                            // the target reads `errorType`, whose observable is
-                            // `any` (every such case carries an errors
-                            // baseline): `eval = 1` records `>eval : any`
-                            // (`parserStrictMode3` — and its `-negative` twin
-                            // proves strict mode is not the trigger),
-                            // `fn = () => {}` records `>fn : any`
-                            // (`assignmentToFunction`, `assignToEnum`,
-                            // `assignToExistingClass`).
-                            self.intrinsics.error
                         } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
                             // §280: a bare enum-member REFERENCE takes the
                             // access spelling, exactly as the property-access

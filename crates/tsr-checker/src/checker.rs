@@ -154,6 +154,8 @@ pub struct Checker<'a, 'n> {
     /// One NAMED placeholder per alias symbol, served to mentions of the
     /// alias inside its own resolution (`checker-notes-narrow.md` §29).
     pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
+    /// `aliasSymbolLinks.aliasTarget`, owned by [`Checker::resolve_alias`].
+    pub(crate) alias_targets: FxHashMap<SymbolId, crate::symbols::AliasTarget>,
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
@@ -386,6 +388,13 @@ pub struct Checker<'a, 'n> {
     /// sensitive arguments. Later contextual reads use the selected signature.
     pub(crate) resolved_call_signatures:
         rustc_hash::FxHashMap<tsr_ast::NodeId, crate::signatures::Signature>,
+    /// Native 5b1047d `signatureLinks.effectsSignature == unknownSignature`.
+    /// Private Checker / call `NodeId` completion, currently admitted only after
+    /// materializing explicitly annotated, noncontextual signatures with no
+    /// predicate or never effect. Absence includes deferred and inferred work;
+    /// no active/provisional `None` is published here. See
+    /// docs/architecture/checker-effects-completion.md.
+    pub(crate) completed_no_effects_calls: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `CallState.candidatesForArgumentError` (`checker.go:8838`) as the
     /// final (assignable) pass of the §487 overload walk left it when both
     /// passes rejected every candidate, keyed by the CALL node. Owner:
@@ -1346,6 +1355,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             last_assignment_pos: FxHashMap::default(),
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
+            alias_targets: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
             file_commonjs_machinery: FxHashMap::default(),
             global_this_type: None,
@@ -1383,6 +1393,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+            completed_no_effects_calls: rustc_hash::FxHashSet::default(),
             overload_argument_failures: rustc_hash::FxHashMap::default(),
             higher_order_context_calls: rustc_hash::FxHashSet::default(),
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
@@ -3080,7 +3091,25 @@ impl<'a, 'n> Checker<'a, 'n> {
                     reference_file
                         .is_some_and(|file| self.file_mentions_module_specifier(file, stem))
                 };
-                if !same_file && !imported_here && !stem.contains('/') && !stem.is_empty() {
+                // `forEachSymbolTableInScope` (`symbolaccessibility.go`) reads
+                // the reference file's own `exports`; `needsQualification`
+                // stops at the first table holding the name. A same-file
+                // symbol that table does not hold (a conflicting declaration
+                // `declareSymbol` split into its own symbol), or whose name
+                // resolves to another symbol first, reaches the specifier for
+                // its own file. Only an exported symbol whose name did not
+                // resolve at all keeps the decline above.
+                let held_by_exports =
+                    self.binder.symbols().get(parent).exports.get(name).is_some_and(|&held| {
+                        self.binder.merged_symbol(held) == self.binder.merged_symbol(symbol)
+                    });
+                let unresolved_export = same_file
+                    && held_by_exports
+                    && self
+                        .binder
+                        .resolve_name(self.nodes, self.node_map, reference, name, meaning)
+                        .is_none();
+                if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     return Some(format!("import(\"./{stem}\")."));
                 }
             }

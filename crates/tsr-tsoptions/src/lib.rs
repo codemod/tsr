@@ -146,9 +146,10 @@ fn parse_config_file_at_depth(
     };
 
     let mut config = Config::default();
-    let root_is_object = match value::root_properties(parsed.source_file, &parsed.nodes) {
+    let properties = value::root_properties(parsed.source_file, &parsed.nodes);
+    let root_is_object = match &properties {
         Some(properties) => {
-            config.read(&properties, &base_path_for_file_names, &parsed.nodes);
+            config.read(properties, &base_path_for_file_names, &parsed.nodes);
             true
         }
         None => false,
@@ -187,7 +188,7 @@ fn parse_config_file_at_depth(
     }
     // Everything so far is positioned in this file's own text.
     let own_file = (!config_file_name.is_empty()).then(|| normalize_slashes(config_file_name));
-    let mut error_files = vec![own_file; errors.len()];
+    let mut error_files = vec![own_file.clone(); errors.len()];
     // `extends` — resolve, parse the base, and layer this config over it.
     //
     // Ported from `getExtendsConfigPathOrArray` (`tsconfigparsing.go:509`) and
@@ -210,11 +211,19 @@ fn parse_config_file_at_depth(
         compiler_options.paths_base_path.clone_from(&base_path_for_file_names);
     }
 
-    let (extended, mut extend_errors) =
-        extended_configs(&raw, config_file_name, &base_path_for_file_names, fs, depth, config_dir);
-    errors.append(&mut extend_errors);
-    // Unpositioned here, where upstream points at the `extends` value.
-    error_files.resize(errors.len(), None);
+    let (extended, extend_errors) = extended_configs(
+        properties.as_deref().unwrap_or_default(),
+        &parsed.nodes,
+        config_file_name,
+        &base_path_for_file_names,
+        fs,
+        depth,
+        config_dir,
+    );
+    for (diagnostic, positioned) in extend_errors {
+        errors.push(diagnostic);
+        error_files.push(if positioned { own_file.clone() } else { None });
+    }
     // Native parseConfig merges bases left-to-right, then the real own fields.
     // Do not treat a previously inherited worker value as an own override.
     let own_workers = (compiler_options.checkers, compiler_options.single_threaded);
@@ -243,11 +252,15 @@ fn parse_config_file_at_depth(
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
     }
-    let specs = file_specs(&raw, &compiler_options, config_file_name, &mut errors);
+    let files_span = properties.as_ref().and_then(|properties| {
+        properties.iter().find(|property| property.name == "files").map(|property| property.span)
+    });
+    let specs = file_specs(&raw, &compiler_options, config_file_name, files_span, &mut errors);
+    error_files.resize(errors.len(), own_file);
     let (file_names, literal_file_count) =
         file_names::expand(&specs, &base_path_for_file_names, &compiler_options, fs);
 
-    if file_names.is_empty() && can_report_no_input_files(&raw) {
+    if depth == 0 && file_names.is_empty() && can_report_no_input_files(&raw) {
         errors.push(Diagnostic::with_args(
             &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
             tsr_core::Span::default(),
@@ -297,52 +310,92 @@ fn expand_config_dir(options: &mut CompilerOptions, config_dir: &str) {
 /// Returns them in declaration order, so a later `extends` entry overrides an
 /// earlier one — which is what upstream's left-to-right merge does.
 fn extended_configs(
-    raw: &OrderedMap<ConfigValue>,
+    properties: &[ConfigProperty<'_>],
+    nodes: &tsr_ast::NodeTable,
     config_file_name: &str,
     base_path: &str,
     fs: &dyn FileSystem,
     depth: u32,
     config_dir: &str,
-) -> (Vec<ParsedCommandLine>, Vec<Diagnostic>) {
+) -> (Vec<ParsedCommandLine>, Vec<(Diagnostic, bool)>) {
     let mut errors = Vec::new();
-    let Some(value) = raw.get("extends") else { return (Vec::new(), errors) };
     if depth >= MAX_EXTENDS_DEPTH {
         return (Vec::new(), errors);
     }
-
-    let names: Vec<&str> = match value {
-        ConfigValue::String(name) => vec![name.as_str()],
-        ConfigValue::List(entries) => entries.iter().filter_map(ConfigValue::as_str).collect(),
-        _ => return (Vec::new(), errors),
-    };
-
     let new_base = if config_file_name.is_empty() {
         base_path.to_string()
     } else {
         get_directory_path(config_file_name).to_string()
     };
-
-    let mut parsed = Vec::new();
-    for name in names {
-        match resolve_extends_path(name, &new_base, fs) {
-            Some(path) => {
-                if let Some(text) = fs.read_file(&path) {
-                    let directory = get_directory_path(&path).to_string();
-                    parsed.push(parse_config_file_at_depth(
-                        &path,
-                        &text,
-                        &directory,
-                        fs,
-                        depth + 1,
-                        config_dir,
-                    ));
+    let mut paths = Vec::new();
+    // onPropertySet resolves every written initializer, retaining its errors,
+    // but overwrites extendedConfigPath: only the final paths load base files.
+    for property in properties.iter().filter(|property| property.name == "extends") {
+        paths.clear();
+        let mut names = Vec::new();
+        match &property.value {
+            ConfigValue::String(name) => names.push((name.as_str(), Some(property.span))),
+            ConfigValue::List(entries) => {
+                let elements = property.value_expression.and_then(|expression| {
+                    if let tsr_ast::Expression::ArrayLiteralExpression(array) = expression {
+                        Some(array.elements)
+                    } else {
+                        None
+                    }
+                });
+                for (index, entry) in entries.iter().enumerate() {
+                    if let Some(name) = entry.as_str() {
+                        let span = elements.and_then(|elements| elements.get(index)).and_then(
+                            |expression| value::span_of(tsr_ast::Node::from(*expression), nodes),
+                        );
+                        names.push((name, span));
+                    }
                 }
             }
-            None => errors.push(Diagnostic::with_args(
-                &messages::FILE_0_NOT_FOUND,
-                tsr_core::Span::default(),
-                [name.to_string()],
-            )),
+            _ => continue,
+        }
+        for (name, span) in names {
+            if let Some(path) = resolve_extends_path(name, &new_base, fs) {
+                paths.push(path);
+            } else {
+                errors.push((
+                    Diagnostic::with_args(
+                        if name.is_empty() {
+                            &messages::COMPILER_OPTION_0_CANNOT_BE_GIVEN_AN_EMPTY_STRING
+                        } else {
+                            &messages::FILE_0_NOT_FOUND
+                        },
+                        span.unwrap_or_default(),
+                        [if name.is_empty() { "extends".to_string() } else { name.to_string() }],
+                    ),
+                    span.is_some(),
+                ));
+            }
+        }
+    }
+
+    let mut parsed = Vec::new();
+    for path in paths {
+        if let Some(text) = fs.read_file(&path) {
+            let directory = get_directory_path(&path).to_string();
+            parsed.push(parse_config_file_at_depth(
+                &path,
+                &text,
+                &directory,
+                fs,
+                depth + 1,
+                config_dir,
+            ));
+        } else {
+            // A resolved explicit .json read failure is global TS5083.
+            errors.push((
+                Diagnostic::with_args(
+                    &messages::CANNOT_READ_FILE_0,
+                    tsr_core::Span::default(),
+                    [path],
+                ),
+                false,
+            ));
         }
     }
     (parsed, errors)
@@ -366,7 +419,11 @@ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Opt
         return resolve_extends_module(&name, base_path, fs);
     }
     let path = get_normalized_absolute_path(&name, base_path);
-    if fs.file_exists(&path) {
+    if fs.file_exists(&path)
+        || std::path::Path::new(name.as_str())
+            .extension()
+            .is_some_and(|extension| extension == "json")
+    {
         return Some(path);
     }
     // A name without `.json` is retried with it, so `"extends": "./base"` works.
@@ -668,6 +725,7 @@ fn file_specs(
     raw: &OrderedMap<ConfigValue>,
     options: &CompilerOptions,
     config_file_name: &str,
+    files_span: Option<tsr_core::Span>,
     errors: &mut Vec<Diagnostic>,
 ) -> ConfigFileSpecs {
     let files = string_list_property(raw, "files");
@@ -680,7 +738,7 @@ fn file_specs(
     {
         errors.push(Diagnostic::with_args(
             &messages::THE_FILES_LIST_IN_CONFIG_FILE_0_IS_EMPTY,
-            tsr_core::Span::default(),
+            files_span.unwrap_or_default(),
             [if config_file_name.is_empty() { "tsconfig.json" } else { config_file_name }
                 .to_string()],
         ));
@@ -730,10 +788,10 @@ fn string_list_property(raw: &OrderedMap<ConfigValue>, name: &str) -> Option<Vec
 /// Whether "no inputs were found" is worth reporting
 /// (`canJsonReportNoInputFiles`).
 ///
-/// A config that names neither `files` nor `include` is relying on the default,
-/// and an empty directory is not its fault.
+/// Only an invocation without explicit files or references reports TS18003;
+/// extended bases are excluded by the caller's resolution depth (5b1047d:1425).
 fn can_report_no_input_files(raw: &OrderedMap<ConfigValue>) -> bool {
-    raw.contains_key("files") || raw.contains_key("include")
+    !raw.contains_key("files") && !raw.contains_key("references")
 }
 
 /// The directory a config's relative paths resolve against
@@ -874,6 +932,57 @@ mod tests {
     }
 
     #[test]
+    fn extends_read_and_resolution_errors_keep_distinct_native_locations() {
+        let text = r#"{"extends":["./missing","./missing.json"],"files":["main.ts"]}"#;
+        let parsed = parse(text, &["/main.ts"]);
+        let diagnostic =
+            |code| parsed.errors.iter().position(|d| d.message.code() == code).unwrap();
+        let resolution = diagnostic(6053);
+        assert_eq!(parsed.error_files[resolution].as_deref(), Some("/tsconfig.json"));
+        let span = parsed.errors[resolution].span;
+        assert_eq!(&text[span.start as usize..span.end as usize], "\"./missing\"");
+        let read = diagnostic(5083);
+        assert_eq!(parsed.error_files[read], None);
+        assert_eq!(parsed.errors[read].args, ["/missing.json"]);
+    }
+
+    #[test]
+    fn empty_files_diagnostic_points_at_its_array() {
+        let text = r#"{"files":[]}"#;
+        let parsed = parse(text, &[]);
+        let index = parsed.errors.iter().position(|d| d.message.code() == 18002).unwrap();
+        assert_eq!(parsed.error_files[index].as_deref(), Some("/tsconfig.json"));
+        let span = parsed.errors[index].span;
+        assert_eq!(&text[span.start as usize..span.end as usize], "[]");
+    }
+
+    #[test]
+    fn duplicate_extends_keeps_each_initializer_location_but_only_loads_final_paths() {
+        for text in [
+            r#"{"extends":"./missing-a","extends":"./missing-b","files":["main.ts"]}"#,
+            r#"{"extends":"./missing-a","extends":["./missing-b"],"files":["main.ts"]}"#,
+        ] {
+            let parsed = parse(text, &["/main.ts"]);
+            let located: Vec<_> = parsed
+                .errors
+                .iter()
+                .enumerate()
+                .filter(|(_, diagnostic)| diagnostic.message.code() == 6053)
+                .map(|(index, diagnostic)| {
+                    assert_eq!(parsed.error_files[index].as_deref(), Some("/tsconfig.json"));
+                    &text[diagnostic.span.start as usize..diagnostic.span.end as usize]
+                })
+                .collect();
+            assert_eq!(located, ["\"./missing-a\"", "\"./missing-b\""]);
+        }
+        let parsed = parse(
+            r#"{"extends":"./missing.json","extends":[],"files":["main.ts"]}"#,
+            &["/main.ts"],
+        );
+        assert!(parsed.errors.is_empty(), "an overwritten resolved path must not be read");
+    }
+
+    #[test]
     fn plugins_is_accepted_and_stored_nowhere() {
         // A language-service option (`declscompiler.go:1181`). It is declared so
         // that `tsc` accepts it and has no `core.CompilerOptions` field, so the
@@ -907,15 +1016,6 @@ mod tests {
         assert_eq!(parsed.compiler_options.strict, Tristate::Unknown);
         assert_eq!(parsed.errors.len(), 1);
         assert!(parsed.errors[0].text().contains("boolean"), "{}", parsed.errors[0].text());
-    }
-
-    #[test]
-    fn no_inputs_is_reported_only_when_the_config_asked_for_some() {
-        // An empty directory with a default include is not the config's fault.
-        assert!(parse("{}", &[]).errors.is_empty());
-        let asked = parse(r#"{ "include": ["src/**/*"] }"#, &[]);
-        assert_eq!(asked.errors.len(), 1);
-        assert!(asked.errors[0].text().contains("No inputs"), "{}", asked.errors[0].text());
     }
 
     #[test]
