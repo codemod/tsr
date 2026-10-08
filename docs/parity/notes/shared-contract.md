@@ -55,3 +55,22 @@ publication; `createTypeNodesFromResolvedType` prints call before construct
 signatures. No new cache: keys reuse the existing SymbolId-owned
 `instantiations` table. `tsr-conformance/tests/original_callable_entry.rs`
 pins the removed non-native TS2464 and needs `[]` (out of lane).
+
+## New alias on generic alias instantiations (tsr-2zk.16.57)
+
+`getTypeFromTypeAliasReference`'s `newAliasSymbol` arm: a generic alias
+reference that is directly the body of a non-generic, non-local alias `A`
+instantiates with `A` as its alias (`getTypeAliasInstantiation` →
+`instantiateTypeWithAlias`). Ported where native hands the alias to the
+created type: `getObjectTypeInstantiation` for type-literal, function and
+non-homomorphic mapped bodies (followed through alias-reference bodies,
+`Omit` → `Pick`), and `getUnionType`/`getIntersectionType` for union and
+intersection bodies whose evaluated instantiation does not reduce to one type.
+Homomorphic mapped bodies keep the target alias (`instantiateConstituent`
+passes nil: `type P = Partial<User>` prints `Partial<User>`), and reducing
+unions keep no alias (`U2<never>`, `Lit<string>`) — native controls. Image
+cache: existing `deferred_alias_references[(A, canonical)]`; the image copies
+the `type_reference_targets` pair, re-runs `capture_mapped_alias` and copies a
+signature bake, so members, relations and inference read the same
+instantiation; only `alias_of` differs. Published after every channel is
+installed; the union check reuses the cached `evaluate_alias_body`.

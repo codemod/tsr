@@ -4833,6 +4833,11 @@ impl<'a> Checker<'a, '_> {
                     self.signature_types.insert(built, signatures);
                     // The name survives: this is an alias-NAMED bake.
                     self.alias_named_signature_types.insert(built);
+                    if let Some(alias) =
+                        node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+                    {
+                        return self.new_alias_instantiation(built, symbol, alias);
+                    }
                     return built;
                 }
             }
@@ -4982,7 +4987,152 @@ impl<'a> Checker<'a, '_> {
             let types = types.clone();
             return self.get_named_union_type(&types,TypeFlags::empty(),alias);
         }
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+            return self.new_alias_instantiation(result, symbol, alias);
+        }
         result
+    }
+
+    /// `getTypeFromTypeAliasReference`'s `newAliasSymbol` arm
+    /// (`checker.go:23580`, lines 23609-23616) into `getTypeAliasInstantiation`
+    /// / `instantiateTypeWithAlias` (`checker.go:23641`, `:22104`): a reference
+    /// to a generic alias that is directly the body of a non-generic alias `A`
+    /// instantiates with `A` as its alias, so `type O = Omit<X, "a">` declares
+    /// a type printed `O`. `alias_symbol_for_type_node` already refuses a
+    /// function-local `A`, so native's `isLocalTypeAlias` gate always holds.
+    ///
+    /// Native attaches the alias only where the instantiation creates a type:
+    /// `getObjectTypeInstantiation` for an anonymous, function or
+    /// non-homomorphic mapped body. A homomorphic mapped body over a
+    /// non-union argument passes `nil` (`instantiateMappedType`'s
+    /// `instantiateConstituent`) and keeps the target's own alias
+    /// (`Partial<User>`); a union or intersection body carries it unless it
+    /// reduces to one type; any other body (conditional, class/interface
+    /// reference, keyword) keeps today's route.
+    ///
+    /// Key: `deferred_alias_references[(A, canonical instantiation)]`, the
+    /// existing SymbolId-owned alias image cache. The image is a fresh mint
+    /// with the canonical `(target, arguments)` in `type_reference_targets`
+    /// its own mapped capture and any signature bake, so members, relations and inference read
+    /// the same instantiation; only the printed alias (`alias_of`) differs.
+    /// Published once, after every channel is installed. No new table.
+    fn new_alias_instantiation(
+        &mut self,
+        result: TypeId,
+        symbol: SymbolId,
+        alias: SymbolId,
+    ) -> TypeId {
+        if !self.local_type_parameters_of(alias).is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.alias_of.contains_key(&result)
+            || self.reference_display_arity.contains_key(&result)
+            || self.mapped_identity_sources.contains_key(&result)
+        {
+            return result;
+        }
+        let Some((target, arguments)) = self.type_reference_targets.get(&result).cloned() else {
+            return result;
+        };
+        if target != symbol
+            || !(self.alias_body_receives_new_alias(symbol, 0)
+                || self.alias_union_body_receives_new_alias(symbol, &arguments))
+        {
+            return result;
+        }
+        let crate::types::TypeData::Named { members, .. } = self.store.get(result).data else {
+            return result;
+        };
+        let flags = self.store.get(result).flags;
+        if flags != TypeFlags::OBJECT {
+            return result;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return cached;
+        }
+        let name = self.binder.symbols().get(alias).name.to_string();
+        let image = self.store.new_named(flags, name, members);
+        self.type_reference_targets.insert(image, (target, arguments.clone()));
+        self.capture_mapped_alias(image, target, &arguments);
+        if self.alias_named_signature_types.contains(&result)
+            && let Some(signatures) = self.signature_types.get(&result).cloned()
+        {
+            self.signature_types.insert(image, signatures);
+            self.alias_named_signature_types.insert(image);
+        }
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        image
+    }
+
+    /// `instantiateTypeWorker`'s union/intersection arm passes the new alias
+    /// to `getUnionType`/`getIntersectionType`, which drop it when the
+    /// constituents reduce to one type (`type U<T> = T | undefined` at
+    /// `never` is `undefined`). The evaluated body answers that reduction.
+    fn alias_union_body_receives_new_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> bool {
+        let Some(body) = self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) else {
+            return false;
+        };
+        if !matches!(body, TypeNode::UnionTypeNode(_) | TypeNode::IntersectionTypeNode(_)) {
+            return false;
+        }
+        self.evaluate_alias_body(symbol, arguments).is_some_and(|evaluated| {
+            matches!(
+                self.store.get(evaluated).data,
+                crate::types::TypeData::Union { .. } | crate::types::TypeData::Intersection { .. }
+            )
+        })
+    }
+
+    /// Whether `instantiateTypeWithAlias` hands a new alias to the type the
+    /// declared body of `symbol` instantiates to: an anonymous object or
+    /// function type, or a mapped type without a homomorphic type variable
+    /// (`getHomomorphicTypeVariable`: a `keyof T` constraint over a type
+    /// parameter). A body that is itself a reference to another generic alias
+    /// is that alias's instantiation, carrying the outer alias in turn
+    /// (`Omit` over `Pick`).
+    fn alias_body_receives_new_alias(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        let Some(body) = self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) else {
+            return false;
+        };
+        match body {
+            TypeNode::TypeLiteralNode(_)
+            | TypeNode::FunctionTypeNode(_)
+            | TypeNode::ConstructorTypeNode(_) => true,
+            TypeNode::MappedTypeNode(mapped) => {
+                let Some(constraint) = mapped.type_parameter.and_then(|p| p.constraint) else {
+                    return false;
+                };
+                let homomorphic = matches!(constraint, TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == SyntaxKind::KeyOfKeyword
+                    && operator.r#type.and_then(Self::skip_type_parentheses).is_some_and(|operand| {
+                        let TypeNode::TypeReferenceNode(reference) = operand else { return false };
+                        reference.type_name.and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                            .is_some_and(|symbol| self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER))
+                    }));
+                !homomorphic
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                if reference.type_arguments.is_empty() {
+                    return false;
+                }
+                let Some(inner) = reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                else {
+                    return false;
+                };
+                self.binder.symbols().get(inner).flags.contains(SymbolFlags::TYPE_ALIAS)
+                    && self.alias_body_receives_new_alias(inner, depth + 1)
+            }
+            _ => false,
+        }
     }
 
     /// A type reference whose name **does not resolve**, printed as the name
