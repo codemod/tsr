@@ -54,6 +54,19 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected alias-resolver continuation after evidence delivery `c92a8cb0`, native
+`5b1047d`: the existing alias links now retain selected owner/target handles,
+completed-unknown publication and type-only declaration metadata. AliasTarget
+uses the shared resolution stack, publishing before pop; the separate resolving
+bit and bounded cycle walk are removed. Name suggestions use its read-only
+probe. Ten actual generic stack tests pass; two mutants each fail one test.
+These tests exclude Checker-specific code. Widening alias results exposes raw
+consumers: compiler 100→93, with final ordinary/work-trace both at 93 E0308.
+Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. The checker still
+cannot run; no alias runtime/native/corpus/performance qualification or canonical
+Rust change. All six tickets and complete-work <=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-alias-owner-continuation.json).
+
 Selected value-worker continuation after evidence delivery `640120e4`, native
 `5b1047d`: the existing accessor, callable and variable/property workers now
 retain selected cache/frame owners. Assignment declarations, constructor-flow
@@ -3766,6 +3779,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Alias continuation after `c92a8cb0`: migrate the selected alias result through
+the remaining declaration/entity, export/member, naming, grammar, JSX, flow and
+reuse consumers exposed by **93 E0308**. Preserve actual private targets and
+the single producer; do not restore a raw return by projecting to the origin.
+Then run the native alias/type-only/cycle/unknown/active/reset/query-order matrix
+and actual worker counts. Ten generic stack passes establish only stack behavior.
+[Exact replay and remaining boundaries](docs/architecture/checker-alias-owner-continuation.json).
 
 Owner continuation after evidence delivery `640120e4`: finish the selected
 alias worker, naming/alias, member/property/ordering and callable-export
@@ -7502,6 +7523,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The alias-resolver draft after `c92a8cb0` is refused for canonical runtime
+integration by **93 E0308** in both ordinary and work-trace checks, down from
+100 after widening the result boundary. No private checker execution is possible.
+The ten generic resolution-stack passes and two detected mutants exclude
+Checker-specific code and cannot establish alias target/type-only correctness,
+private member-image identity, native diagnostic parity or a speed gain.
+Existing non-alias publication approximations and target-worker/error recovery
+still require native controls; all six goal tickets remain in progress.
+[Source-bound evidence](docs/architecture/checker-alias-owner-continuation.json).
 
 The value-worker draft after `640120e4` is refused for canonical runtime
 integration by **25 E0308** in both ordinary and work-trace compiler checks.
@@ -15775,3 +15806,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `472c249f` / native `5b1047d` | — | — | **Selected index/dispatcher private continuation.** Exact five-file replay verifies 1,053 inputs/1,048 unchanged. Existing index memo/visited paths/sibling reads and late-name keys retain selected owners; one flags dispatcher reuses enum/export links. Final compiler count remains 26 E0308: four resolved index boundaries expose four downstream raw workers. Step12 import/getter failures retained then repaired. No canonical Rust, private runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-index-owner-continuation.json). |
 
 | 2026-10-08 | `640120e4` / native `5b1047d` | — | — | **Selected value-worker private continuation.** Exact ten-file replay verifies 1,053 inputs/1,043 unchanged. Accessor/callable/variable cache and frame owners, assignment constructor-flow classification/base reads, completed callable identity and work observation retain actual selected symbols. Compiler 27→26→25; final ordinary/work-trace builds both retain25 E0308. No canonical Rust or runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-value-owner-continuation.json). |
+
+| 2026-10-08 | `c92a8cb0` / native `5b1047d` | — | — | **Selected alias resolver private continuation.** Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Existing alias links retain selected owner/target and type-only metadata, completed-unknown publication and shared AliasTarget stack; separate resolving bit and bounded cycle/suggestion walks removed. Ten actual generic stack passes and two detected mutants exclude Checker-specific code. Widened alias result exposes100 E0308; final ordinary/work-trace each93 after selected suggestion/visibility/truthy migration. No compiling private checker, canonical Rust, alias runtime/native/corpus or performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-owner-continuation.json). |

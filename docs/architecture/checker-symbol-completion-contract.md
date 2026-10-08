@@ -870,6 +870,36 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [alias-resolver private continuation](checker-alias-owner-continuation.json)
+after `c92a8cb0` ports the existing alias links to selected owner and target
+identities. Native `5b1047d` `resolveAlias`/`resolveIndirectionAlias`/`tryResolveAlias`
+provide the operation boundary: uncomputed differs from completed unknown,
+AliasTarget frames live in the shared resolution stack, publication precedes
+pop, failed push does not publish, and failed pop reports at the actual alias
+declaration before replacing the target with completed unknown. Type-only
+declaration NodeIds stay in that same checker-local link; a source marker wins
+over the target marker. No process/global state, origin projection, fabricated
+ID, second target cache or second cycle producer is introduced.
+
+The shared cycle search checks publication before identity and respects
+`resolutionStart`; a positive read-only probe records the existing stack
+observation without failing frames. Declaration checking and name suggestions
+use that producer/probe, replacing their bounded walks. Actual syntax-owned
+target APIs still supply Program IDs, explicitly lifted. Private member-image
+producers and raw declaration/entity/export/naming/grammar/JSX/flow/reuse
+consumers are remaining migration boundaries, not permission to demote targets.
+The existing module-clone payload and alias value cache/frame retain selected
+owners. Existing non-alias publication predicates, missing-module/error recovery
+and type-only worker ordering remain unqualified against native behavior.
+
+Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Widening alias
+results exposes 100 type mismatches; selected suggestion/visibility/truthy
+consumers reduce this to 93 in final ordinary and work-trace checks. Ten actual
+generic stack tests pass and two mutants each fail one test, explicitly excluding
+Checker-specific code. No alias runtime, native controls, full corpus, checked
+scope, expensive-worker counts or wall/CPU/RSS qualification ran. All six tickets
+and the equivalent complete-work TSR/native <=0.50 target remain unfinished.
+
 The [value-worker private continuation](checker-value-owner-continuation.json)
 after `640120e4` carries selected owners into the existing accessor,
 function/class/enum/module and variable/property workers. Their type memo,
