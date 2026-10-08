@@ -745,6 +745,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) array_literal_bases: FxHashMap<TypeId, TypeId>,
     /// getWidenedType's root cache and getUndefinedProperty's name cache.
     pub(crate) widened_object_types: FxHashMap<TypeId, TypeId>,
+    /// Reverse of `regular_object_literal_types` and `widened_object_types`
+    /// for entries whose original precedes its target: target -> originals.
+    /// Maintained by `Checker::record_object_type_transfer`; read only by the
+    /// printer's walk back to a fresh literal (`printing.rs`).
+    pub(crate) object_type_transfer_origins: FxHashMap<TypeId, Vec<(TypeId, bool)>>,
     pub(crate) widening_undefined_properties: FxHashMap<String, crate::widening::WideningProperty>,
     /// The index signature an **object literal** minted, keyed by the type id.
     ///
@@ -1488,6 +1493,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             array_literal_images: FxHashMap::default(),
             array_literal_bases: FxHashMap::default(),
             widened_object_types: FxHashMap::default(),
+            object_type_transfer_origins: FxHashMap::default(),
             widening_undefined_properties: FxHashMap::default(),
             object_literal_members: rustc_hash::FxHashMap::default(),
             anonymous_properties: rustc_hash::FxHashMap::from_iter([

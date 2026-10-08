@@ -531,3 +531,18 @@ property read through inheritance.
 - **Work boundary:** total CPU −2.9%, wall −2.9% (21 pairs against §15.6).
 
 Dumps byte-identical to the base.
+
+### §15.8 The object-literal printer finds its fresh source by index
+
+`certified_object_literal_text_at` (`printing.rs`) walks a regular or
+widened object image back to its fresh literal by scanning all of
+`regular_object_literal_types` and `widened_object_types` for an entry whose
+target is the current type — O(table) per step, per member print. Writers
+now go through `record_object_type_transfer` (`widening.rs`), which keeps
+`object_type_transfer_origins` (target → (original, which map), only entries
+with original < target, the scan's own condition) in step, including the
+widening cache's overwrite of its `id → id` recursion marker. A sole
+original is the scan's answer; several distinct originals still run the scan,
+so its table-order choice is unchanged. Single-threaded check time −3%
+(1.105 → 1.074 s); four-checker CPU −0.4%. No native counterpart: native
+prints from the symbol table and never walks images back.

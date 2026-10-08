@@ -284,13 +284,21 @@ impl Checker<'_, '_> {
             // A distinct target is allocated and published only after its
             // member transformation finishes. Follow existing transfers back
             // to the original image, without resolving or constructing types.
-            source = self
-                .regular_object_literal_types
-                .iter()
-                .chain(self.widened_object_types.iter())
-                .find_map(|(&original, &target)| {
-                    (target == source && original.index() < target.index()).then_some(original)
-                })?;
+            // `object_type_transfer_origins` holds exactly the entries this
+            // scan can match. A sole original is the scan's answer; several
+            // distinct ones keep the scan, whose table order picks one.
+            let origins = self.object_type_transfer_origins.get(&source)?;
+            let &(first, _) = origins.first()?;
+            source = if origins.iter().all(|&(original, _)| original == first) {
+                first
+            } else {
+                self.regular_object_literal_types
+                    .iter()
+                    .chain(self.widened_object_types.iter())
+                    .find_map(|(&original, &target)| {
+                        (target == source && original.index() < target.index()).then_some(original)
+                    })?
+            };
         }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data else {
             return None;

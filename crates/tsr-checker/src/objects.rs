@@ -528,7 +528,7 @@ impl Checker<'_, '_> {
             return id;
         };
         let regular = self.store.new_named(self.store.get(id).flags, text, members);
-        self.regular_object_literal_types.insert(id, regular);
+        self.record_object_type_transfer(true, id, regular);
         if let Some(&spread) = self.object_literal_spread_flags.get(&id) {
             self.object_literal_spread_flags.insert(regular, spread);
         }
