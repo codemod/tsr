@@ -6131,8 +6131,9 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::create_type_reference`] mints for `(NoInfer, [base])` —
     /// the same identity key upstream's cache uses — recorded in
     /// `type_reference_targets`, which this reads. It prints `NoInfer<T>`, as
-    /// `nodebuilderimpl.go:3511` does. Not ported: `getNoInferType`'s
-    /// `isNoInferTargetType` collapse (`NoInfer<string>` is `string`) and the
+    /// `nodebuilderimpl.go:3511` does. `getNoInferType`'s
+    /// `isNoInferTargetType` collapse (`NoInfer<string>` is `string`) runs in
+    /// [`Checker::create_type_reference_with_display`]. Not ported: the
     /// substitution flags, whose base-constraint and narrowable-reference
     /// readers would expose an unfixed contextual parameter type
     /// (`narrowingNoInfer1`). Readers that see through it here: relation
@@ -6176,6 +6177,15 @@ impl<'a> Checker<'a, '_> {
             && self.global_type_symbol_with_arity("NonNullable", 1) == Some(symbol)
         {
             return self.get_global_non_nullable_type_instantiation(arguments[0]);
+        }
+        // getTypeAliasInstantiation's intrinsic NoInfer arm -> getNoInferType
+        // (checker.go:27394): only a base that isNoInferTargetType is wrapped;
+        // `NoInfer<string>` is `string`.
+        if let [base] = arguments.as_slice()
+            && self.is_no_infer_alias(symbol)
+            && !self.is_no_infer_target_type(*base)
+        {
+            return *base;
         }
         if let Some(mapped) = self.instantiate_string_mapping_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);

@@ -85,3 +85,12 @@ declared type is a parameter (bounded depth 8, exact arity, no defaults) and
 answers the own parameter written at that position. Callers (declared type,
 instantiation, annotation-reuse text) are unchanged; no new cache.
 Interface-bodied controls (`VarianceShape<1>`) stay references.
+
+## NoInfer collapse at the reference (tsr-2zk.16.2)
+
+`getTypeAliasInstantiation`'s intrinsic `NoInfer` arm calls `getNoInferType`,
+which wraps only an `isNoInferTargetType` base: `NoInfer<string>` is
+`string`. The instantiation rebuild already collapsed; the written reference
+now does too, in `create_type_reference_with_display` beside the
+`NonNullable` arm. Object and type-parameter bases keep the wrapper (native
+control `NoInfer<{ x: 1 }>` relation unchanged). No new cache.
