@@ -160,3 +160,84 @@ Inline mints use the same helper (§1.2).
 - r5-relater4's `for_constraint_extra` (`relater.rs`) adds the same branch on
   the relater's side. With the capture doing it, the relater's union is
   idempotent. Retiring it is r5-relater5's call.
+
+## 2. `tsr-2zk.1010` and the single-constituent alias — held diff
+
+[`r5-declared-intersection-alias.diff`](r5-declared-intersection-alias.diff)
+(`declared.rs` plus a unit test) ports getTypeAliasInstantiation over an
+intersection body. Items 2 and 3 of the brief turned out to be one change:
+native's `instantiateTypeWithAlias(declared, mapper)` re-runs
+getIntersectionTypeEx (`:26056`) with the alias, and that function both names
+a still-intersection result and returns a reduced singleton before any alias
+is attached (`:26127`).
+
+- **Declared type.** getTypeFromIntersectionTypeNode (`:24218`) for a generic
+  alias's own body (`Some(_) => error` before) now builds the intersection
+  with the alias's own parameters as its arguments (`Name<T>`). It answers the
+  reduced type unaliased when the intersection reduces, which is how
+  `type Id<T> = { [K in keyof T]: T[K] } & {}` records
+  `>Id : { [K in keyof T]: T[K]; }`. The guard is getAliasForTypeNode's: only
+  the alias's *direct* body node gets the alias. A nested `keyof (A & B)` does
+  not.
+- **References.** `create_type_reference_with_display` instantiates the
+  declared constituents through the mapper and re-intersects them, so
+  `Id<{ a: string }>` is `{ a: string; }`. The namespace-rooted qualified
+  generic arm (`React.DetailedHTMLProps<…>` inside `react16.d.ts`) does the
+  same and keeps the mint's exact qualified spelling, so no printed line can
+  move from that arm. A union result (`keyof T & string` over a concrete `T`)
+  carries the alias too: getIntersectionTypeEx hands it to getUnionTypeEx
+  (`:26213`).
+- **Stated divergence: self-referential bodies** (`type LinkedList<T> = T & {
+  next: LinkedList<T> }`) keep the old name mint. With the new arm, `next`
+  read `Entity & { next: LinkedList<Entity>; }` where native reads
+  `LinkedList<Entity>`. The member read goes through the receiver's
+  frame-bound `evaluate_alias_body` (`members.rs`), whose nested reference
+  answers the alias-free body. That cost 12 RIGHT lines in
+  `recursiveIntersectionTypes`. A first draft also forced the declared type
+  while it was resolving and reported a circularity native never sees
+  (`any` for `LinkedList`, `Tree`, `DeepPromised`, 47 lines). The arm now
+  sits after §29's `deferred_since` park, as the other generic arms do.
+
+**Measured.** The first full run against the frozen base moved 35 cases. Every
+later draft was measured filtered on exactly those cases, and the final diff
+reads, against item 1's binaries:
+
+- types: +60 lines (with item 1's +9 inside the same cases);
+  `declarationEmitOptionalMappedTypePropertyNoStrictNullChecks1`–`3`'s
+  declared `Id` lines, `parenthesisDoesNotBlockAliasSymbolCreation`,
+  `spyComparisonChecking`, `typeVariableConstraintIntersections`,
+  `templateLiteralTypes6` and others.
+- diagnostics: +3 cases (`jsxChildWrongType`,
+  `parenthesisDoesNotBlockAliasSymbolCreation`, `spyComparisonChecking`);
+  spellingSuggestionJSXAttribute gains 4 of its missing TS2322 lines and
+  tsxLibraryManagedAttributes gains 2. Neither case converts: the rest are
+  TS2769 (calls lane) and the `Defaultize` mapped constituents.
+- **losses: 1 type line, 1 diagnostics case.** So the diff is held.
+
+The two losses, root-caused:
+
+1. `keyofIntersection:0:17`, `type Result4 = keyof Example4<'x', 'y'>` with
+   `type Example4<T, U> = (Record<T, any> & Record<U, any>)`. The operand
+   resolves to `any` when the reference is first instantiated inside another
+   alias's declared-type computation. Alone in a file the same reference
+   prints `Example4<"x", "y">`. `resolved_keyof_type` never sees the
+   intersection. Not traced further.
+2. `aliasInstantiationExpressionGenericIntersectionNoCrash2` (TS2352 on
+   `wat as Wat<string>`). Before, `Wat<number>` was a Named mint, and the
+   relater's alias-variance arm compared `Wat`'s arguments. Native probes alias
+   variance only for object and conditional types (relater.go
+   structuredTypeRelatedToWorker), so an intersection relates structurally:
+   `typeof Class<number> & typeof fn<number>` against the `string` form. This
+   port's constituents are `ClassAlias<…>`/`FnAlias<…>` name mints (a
+   `typeof` query with type arguments is not an alias-free body), so it cannot
+   decide that structural relation. The old RIGHT came from a road native does
+   not take for this pair. The fix belongs where instantiation expressions get
+   real types (`typeof Class<T>`), not in this arm.
+
+What remains for `tsr-2zk.1010` once the diff lands: the JSX cases' last
+lines need the `Defaultize` mapped constituents (key-filtered mapped types,
+`mapped.rs`, r5-mapped3) and chooseOverload (TS2769). The other
+`declarationEmitOptionalMappedTypePropertyNoStrictNullChecks*` lines are
+cross-file annotation reuse: native reuses `Id<…>` only where `Id` is
+accessible (createApi.ts). In index.ts it prints the structure. That is the
+printer's reuse rule, not this producer.
