@@ -70,9 +70,10 @@ inclusive 25.2M Ir → 148.7M Ir, total +3.0% Ir (4,220.6M → 4,352.2M; the
 alias sweep is included in that binary). Native stores the list on the
 declared type (`InterfaceType.localTypeParameters`); the port needs the same
 memo — a `Checker` field keyed by `SymbolId`, published once per symbol,
-which is a hub (`checker.rs`) edit this lane does not own. Measured CPU on
-the bench projects was inside the gate only by noise; the Ir is the reliable
-number.
+which is a hub (`checker.rs`) edit this lane does not own. Median child CPU
+of that binary against the baseline: domain-model 1.066 at 21 samples, 1.000
+at 41; generic-imports 0.992 / 1.018. The bench projects pass the CPU gate
+only within its noise band; the deterministic Ir is the number that blocks.
 
 **Reopening condition.** Land the per-symbol memo, the alias-declaration
 sweep, and identity-based mention in `instantiate_type`; then apply
@@ -155,3 +156,29 @@ native reports TS2365 and answers `any`, but does not call
 `report_operator_error`, so incorrectRecursiveMappedTypeConstraint's
 diagnostics case stays WRONG on that one TS2365. That wiring is the operators
 lane's.
+
+## 4. r4-jsdoc's patch set re-measured with §1 (`tsr-2zk.911`, stretch)
+
+Measured on the merged head `b2beae4` (integration `0cd6c43` + §2), against
+that head's own dumps (types 470069 RIGHT; diagnostics 4287 RIGHT / 4976
+EMPTY_RIGHT). Applied: `r4-jsdoc-scope-hop.diff`,
+`r4-jsdoc-property-type.diff`, and §1's two diffs in place of
+`r4-jsdoc-class-template.diff` (which §1 subsumes).
+
+**Result:** +187 type lines RIGHT (470248), diagnostics +8 cases RIGHT
+(checkJsdocTypeTagOnExportAssignment1/4/6, checkJsdocSatisfiesTag9,
+jsDeclarationsInheritedTypes, and §1's three), 2 cases EMPTY_RIGHT →
+EMPTY_WRONG, 8 type lines RIGHT → WRONG.
+
+**All four r4-jsdoc losses remain**, each for the reason r4-jsdoc recorded;
+none involves type parameters, so §1 cannot clear them:
+
+| Loss | Still needs |
+|---|---|
+| jsdocImportType:0:8 | `getTypeFromJSDocValueReference` for a `@type` naming a `require` value |
+| importTag24:1:18 | node reuse of a `@returns {Foo}` annotation in the signature printer (`node_reuse.rs`) |
+| checkJsdocTypeTagOnExportAssignment8 (diag) | `getContextualType`'s `KindExportAssignment` arm for a hosted `@type` (`contextual.rs`) |
+| expandoFunctionContextualTypesJs (diag) | contextual type of an expando `F.p = {...}` assignment (`contextual.rs`) |
+
+The other six type losses are §1's own (genericDefaults ×3,
+complexRecursiveCollections ×3).
