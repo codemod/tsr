@@ -384,7 +384,7 @@ type lines, from 3,998 / 467,631 on `main` at `cbca2803`. Every lane merge and h
 passed both zero-loss checks and the CPU-median perf gate, except the last
 held patch (r2-destructure's iteration signatures, `e15cc509`), which went in
 ungated when the queue was stopped and was then cleared by the merge gate. Against `main` the merge loses
-one type line, `reactDefaultPropsInferenceSuccess:0:81` (`tsr-2zk.51`:
+one type line, `reactDefaultPropsInferenceSuccess:0:81` (`tsr-2zk.901`:
 constructor signatures ignore a merged interface's type parameters, exposed by
 `main`'s new `base_types.rs`). Four `@pretty` diagnostics cases change verdict
 only because this branch's oracle reads `@pretty` headers that `main`'s scored
@@ -392,7 +392,7 @@ as empty. Release wall, single runs, is unchanged across `d5b4fe56` (#4),
 `cbca2803` and `b3cd078d` on the three bench projects and a node_modules
 project (1.47 / 1.75 / 1.25 s on domain-model-large). TypeScript's own
 `jsTyping` and `typingsInstallerCore` never finish on all three, because relation
-results are not persistent (`tsr-2zk.52`). Not merged: r3-typerefs' last three
+results are not persistent (`tsr-2zk.902`). Not merged: r3-typerefs' last three
 commits and patch C, r3-names' emit-helpers patch, r3-perf's C1/C2/C5, and the
 final heads of r3-parser, r3-implicitany, r3-misc, r2-calls, r2-operators and
 r3-relate (their branches and reports are in place; r3-relate's weak-type commit
@@ -14963,7 +14963,7 @@ holds only the numbers.
 | 2026-10-06 | `2bf3601b` (measurement source) | — | — | **Allocation-origin refresh, tsr-1yb.16.3:** 40 output-preserving ordinary/probe comparisons, five allocator controls and two detected mutants. Default3.13M versus single1.38M instantiation worker entries; member walks request1.70GB/1.36GB cumulatively. Unclassified traffic and observer overhead remain explicit; reporter v1 rejected by64-byte self-allocation. All665 baseline source/manifest/lock files and ordinary binary restored exactly. No retained runtime optimization, corpus gain or verified native ratio. [Evidence](docs/architecture/checker-allocation-origins.md). |
 
 | 2026-10-06 | `4cfe2340` (measurement source) | — | — | **Intersection-clone attribution / restored rejection, tsr-1yb.16.3.6/.7:** 56 output-preserving probe controls and36 ordinary first-round public children; Next.js clone traffic2.20M/1.03M allocations,176.69MB/70.37MB. Default public gain fails; single RSS1.050321 exceeds1.05. Baseline corpora only; all665 source files/3binaries restored and ordinary CLI rebuild matches. Duplicate borrowed-name task5 closed; follow-up8 attributes anonymous prelookup copying. No runtime optimization or native ratio proof. [Evidence](docs/architecture/checker-intersection-clone.md). |
-| 2026-10-06 | `b3cd078d` (PR #5) | — | — | **Parity round 2 (tsr-2zk) merged:** diagnostics RIGHT 3,998 → 4,160 and type lines 467,631 → 469,110 against `main` at `cbca2803`; one type line lost (`tsr-2zk.51`); 4 `@pretty` verdicts are oracle changes. Release wall unchanged across #4/#5 on the bench projects; `jsTyping`/`typingsInstallerCore` hang predates both (`tsr-2zk.52`). Unmerged box work listed in §1. |
+| 2026-10-06 | `b3cd078d` (PR #5) | — | — | **Parity round 2 (tsr-2zk) merged:** diagnostics RIGHT 3,998 → 4,160 and type lines 467,631 → 469,110 against `main` at `cbca2803`; one type line lost (`tsr-2zk.901`); 4 `@pretty` verdicts are oracle changes. Release wall unchanged across #4/#5 on the bench projects; `jsTyping`/`typingsInstallerCore` hang predates both (`tsr-2zk.902`). Unmerged box work listed in §1. |
 
 ## 8. Updating this file
 
