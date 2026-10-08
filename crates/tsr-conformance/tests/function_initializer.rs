@@ -80,31 +80,33 @@ fn original_local_and_parameter_occurrences_are_restored() {
 }
 
 #[test]
-fn missing_header_body_close_and_swallowed_owners_do_not_certify_leaves() {
-    for source in [
-        include_str!("fixtures/function_initializer/MissingClose.ts"),
-        include_str!("fixtures/function_initializer/MissingHeader.ts"),
-        include_str!("fixtures/function_initializer/Signature.ts"),
-        include_str!("fixtures/function_initializer/CommentClose.ts"),
-        include_str!("fixtures/function_initializer/ParameterRecovery.ts"),
-    ] {
-        // Their complete native bags still contain errors this port misses.
-        // A decline is not asserted to mean native semantic silence.
-        assert!(diagnostics(source).iter().all(|(_, _, code)| *code != 2739 && *code != 2322));
-    }
+fn recovered_owners_report_their_initializers_as_native_does() {
+    // Native `checkSourceFile` has no parse-error gate (r5-report2 §3,
+    // tsr-2zk.981): a declaration the parser recovered is checked like any
+    // other. An unclosed body or comment still holds its declarations.
+    assert!(
+        diagnostics(include_str!("fixtures/function_initializer/MissingClose.ts"))
+            .contains(&(3, 26, 2739))
+    );
+    assert!(
+        diagnostics(include_str!("fixtures/function_initializer/CommentClose.ts"))
+            .contains(&(4, 18, 2739))
+    );
     // A function expression whose `{` is missing has an empty body upstream
     // (`parseBlock`), so the declarations after it are ordinary statements
-    // and native reports their initializers: (6,74) and (8,5). Native also
-    // reports TS2322 at (6,34) and (7,5) on the bodiless function
-    // expressions, which this port still misses.
+    // and native reports their initializers: (6,74) and (8,5), and TS2322 at
+    // (6,34) and (7,5) on the bodiless function expressions.
     let recovered = diagnostics(include_str!("fixtures/function_initializer/Recovery.ts"));
     let relations: Vec<_> =
         recovered.into_iter().filter(|(_, _, code)| *code == 2739 || *code == 2322).collect();
-    assert_eq!(relations, [(4, 25, 2739), (5, 52, 2739), (6, 74, 2739), (8, 5, 2739)]);
+    assert_eq!(
+        relations,
+        [(4, 25, 2739), (5, 52, 2739), (6, 34, 2322), (6, 74, 2739), (7, 5, 2322), (8, 5, 2739)]
+    );
 }
 
 #[test]
-fn function_certification_preserves_source_identity_and_ambient_declines() {
+fn relation_reports_ignore_source_host_and_keep_ambient_declines() {
     use tsr_checker::{Checker, check::FileContext, resolution::ModuleHost};
     use tsr_conformance::types_producer;
     use tsr_core::Arena;
@@ -120,19 +122,23 @@ fn function_certification_preserves_source_identity_and_ambient_declines() {
     let foreign = types_producer::program_for_case(&foreign_arena, &case);
     let root = program.source_file("owner.ts").unwrap().source_file().node_id.unwrap();
     assert_eq!(root, foreign.source_file("owner.ts").unwrap().source_file().node_id.unwrap());
+    // With no parse-error gate the relation reports do not depend on the
+    // module host's source text: every host reports Complete.ts's nine
+    // TS2739s, and an ambient context still declines them all.
     for (host, ambient) in [
         (None, false),
         (Some(&foreign as &dyn ModuleHost), false),
+        (Some(&program as &dyn ModuleHost), false),
         (Some(&program as &dyn ModuleHost), true),
     ] {
         let mut checker =
             Checker::with_module_host(program.binder(), program.nodes(), program.node_map(), host);
         checker.check_source_file(root, FileContext { ambient, has_parse_errors: true });
-        assert!(
-            checker
-                .diagnostics()
-                .iter()
-                .all(|(_, d)| d.message.code() != 2739 && d.message.code() != 2322)
-        );
+        let relations = checker
+            .diagnostics()
+            .iter()
+            .filter(|(_, d)| d.message.code() == 2739 || d.message.code() == 2322)
+            .count();
+        assert_eq!(relations, if ambient { 0 } else { 9 });
     }
 }
