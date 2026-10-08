@@ -1524,6 +1524,16 @@ impl Checker<'_, '_> {
                 // `false` before `true` (`utilities.go:523`), which is what
                 // makes `boolean` print as `false | true` when it is expanded.
                 (TypeData::BooleanLiteral(x), TypeData::BooleanLiteral(y)) => x.cmp(y),
+                // "Intersections are ordered by their constituent type lists"
+                // (`utilities.go:504`). The lists are in source order
+                // (`orderedSet`, `checker.go:26258`), so `T & string` sorts
+                // before `T & F`: `T` ties, then `string`'s flags sort below
+                // an object's. Without this arm two intersections fell to the
+                // type-id tiebreak, i.e. this port's creation order.
+                (
+                    TypeData::Intersection { types: x, .. },
+                    TypeData::Intersection { types: y, .. },
+                ) => self.compare_type_lists(x, y),
                 // Enum members and type parameters are ordered by their symbols'
                 // declaration positions upstream (`compareSymbols`). Here they
                 // fall through to the type-id tiebreak below, which is creation
