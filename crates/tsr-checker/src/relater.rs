@@ -1568,6 +1568,76 @@ impl Relater<'_, '_, '_> {
         }
     }
 
+    /// `isValidOverrideOf` (`checker.go:11928`) for a non-synthetic source
+    /// property against a protected target property: the source must be
+    /// declared in a class that has the target's declaring class as a base
+    /// (`isPropertyInClassDerivedFrom`, `hasBaseType`). A source declared
+    /// outside any class (an object literal, an interface's own member) is
+    /// not a valid override. A protected target whose declaring class is not
+    /// found stays `Unknown`.
+    fn is_valid_override_of(
+        &mut self,
+        source_property: SymbolId,
+        target_property: SymbolId,
+    ) -> RelationResult {
+        let Some(base) = self.declaring_class(target_property) else {
+            return RelationResult::Unknown;
+        };
+        match self.declaring_class(source_property) {
+            Some(derived) if self.class_has_base(derived, base, 0) => RelationResult::Related,
+            _ => RelationResult::NotRelated,
+        }
+    }
+
+    /// `getDeclaringClass` (`checker.go:11920`): the class whose member
+    /// table holds `property`, read off its declaration (a class element, or
+    /// a constructor parameter property).
+    fn declaring_class(&self, property: SymbolId) -> Option<SymbolId> {
+        let declaration = self.checker.binder.symbols().get(property).value_declaration?;
+        let mut container = self.checker.nodes.parent(declaration)?;
+        if matches!(
+            self.checker.node_map.get(container),
+            Some(tsr_ast::Node::ConstructorDeclaration(_))
+        ) {
+            container = self.checker.nodes.parent(container)?;
+        }
+        if !matches!(
+            self.checker.node_map.get(container),
+            Some(tsr_ast::Node::ClassDeclaration(_) | tsr_ast::Node::ClassExpression(_))
+        ) {
+            return None;
+        }
+        let class = self.checker.binder.symbol_of(container)?;
+        Some(self.checker.binder.merged_symbol(class))
+    }
+
+    /// `hasBaseType` (`checker.go:19551`) between two class symbols, over
+    /// `get_base_types`. The depth bound stands in for native's resolution
+    /// guard on a circular `extends` chain.
+    fn class_has_base(&mut self, class: SymbolId, base: SymbolId, depth: usize) -> bool {
+        if class == base {
+            return true;
+        }
+        if depth > 64 {
+            return false;
+        }
+        for base_type in self.checker.get_base_types(class) {
+            let symbol = match self.checker.type_reference_targets.get(&base_type) {
+                Some(&(symbol, _)) => Some(symbol),
+                None => match self.checker.type_of(base_type).data {
+                    TypeData::Named { members: Some(symbol), .. } => Some(symbol),
+                    _ => None,
+                },
+            };
+            if let Some(symbol) = symbol
+                && self.class_has_base(self.checker.binder.merged_symbol(symbol), base, depth + 1)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// The evaluated bodies of two instantiations of one type alias whose
     /// source body is neither an Object nor a Conditional type
     /// (`structuredTypeRelatedToWorker`'s alias-variance gate,
@@ -4131,9 +4201,8 @@ impl Relater<'_, '_, '_> {
             // `checker-notes-assign.md`): PRIVATE on either side relates only
             // when both symbols share one value declaration — an identity
             // this port tests exactly; a protected SOURCE against a public
-            // target rejects; a protected TARGET needs `isValidOverrideOf`,
-            // unported, so that pair is `Unknown` and any reduction touching
-            // it declines whole.
+            // target rejects; a protected TARGET asks `isValidOverrideOf`
+            // (an intersection source stays `Unknown`).
             let source_properties = if source_parts.is_some() {
                 self.checker.intersection_property_symbols(source, name)
             } else {
@@ -4158,7 +4227,14 @@ impl Relater<'_, '_, '_> {
                             privacy.push(RelationResult::NotRelated);
                         }
                     } else if self.checker.property_has_modifier(target_property, protected) {
-                        privacy.push(RelationResult::Unknown);
+                        privacy.push(if source_parts.is_some() {
+                            // isPropertyInClassDerivedFrom walks the
+                            // synthetic source property's constituents with
+                            // ANY; this loop combines with ALL.
+                            RelationResult::Unknown
+                        } else {
+                            self.is_valid_override_of(source_property, target_property)
+                        });
                     } else if self.checker.property_has_modifier(source_property, protected) {
                         privacy.push(RelationResult::NotRelated);
                     }
