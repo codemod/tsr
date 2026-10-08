@@ -60,3 +60,27 @@ parameter, and the subtype entry point is the only caller that passes
 **Measured.** 25 lines gained against the frozen baseline (11 from this
 commit), 0 lost; diagnostics unchanged. Converts
 `compiler/truthinessCallExpressionCoercion1`.
+
+## 3. `removeSubtypes`' class-derivation gate reads `ObjectFlagsClass` (`tsr-2zk.16.86`)
+
+**Native.** `removeSubtypes` (`checker.go:25934`) removes a source related to
+a target under `strictSubtypeRelation` unless both `getTargetType(...)`
+carry `ObjectFlagsClass` and the source does not derive from the target
+(`:26011`). `ObjectFlagsClass` is set on a class's declared instance type
+only.
+
+**TSR before.** `is_class_instance` (`unions.rs`) answered true for any
+`Named` or `Anonymous` type whose symbol is a class. That includes the
+constructor type `typeof C`, an `Anonymous` type carrying the class symbol,
+and the polymorphic `this`, a `TYPE_PARAMETER` minted as `Named` with the
+class as its members symbol. So `[Alpha, Beta]` kept both constructors
+(neither derives from the other), and `b ? this.c : this.self` kept
+`this | C`.
+
+**Change.** `is_class_instance` requires `TypeFlags::OBJECT` and excludes
+`Anonymous`. The relation then decides, as it does natively.
+
+**Measured.** 12 lines gained, 0 lost; diagnostics unchanged. Converts
+`conformance/constructorTagOnClassConstructor` and
+`compiler/abstractClassUnionInstantiation` (8 lines), plus the target lines of
+`conformance/typeRelationships`.

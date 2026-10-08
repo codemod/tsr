@@ -1992,10 +1992,23 @@ impl crate::checker::Checker<'_, '_> {
 
     /// Whether a type is a class **instance** type — the shape upstream's
     /// `removeSubtypes` guards with `ObjectFlagsClass`.
+    ///
+    /// `ObjectFlagsClass` is set on a class's declared (instance) type only
+    /// (`getDeclaredTypeOfClassOrInterface`). A class's constructor type
+    /// `typeof C` is an anonymous object carrying the class symbol, and the
+    /// polymorphic `this` is a type parameter whose members are the class's;
+    /// neither has the flag, so neither takes the derivation gate — `[A, B]`
+    /// over two structurally identical classes reduces to `(typeof A)[]`
+    /// (`constructorTagOnClassConstructor`), and `b ? this.c : this.self`
+    /// to `C` (`typeRelationships`).
     fn is_class_instance(&self, id: crate::types::TypeId) -> bool {
-        let symbol = match &self.store.get(id).data {
-            crate::types::TypeData::Named { members: Some(symbol), .. }
-            | crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+        let ty = self.store.get(id);
+        if !ty.flags.contains(TypeFlags::OBJECT) {
+            return false;
+        }
+        let symbol = match &ty.data {
+            crate::types::TypeData::Named { members: Some(symbol), .. } => Some(*symbol),
+            crate::types::TypeData::Anonymous { .. } => None,
             _ => self.type_reference_targets.get(&id).map(|(symbol, _)| *symbol),
         };
         symbol.is_some_and(|s| {
