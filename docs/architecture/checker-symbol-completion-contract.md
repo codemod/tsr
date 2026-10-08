@@ -256,6 +256,46 @@ previously RIGHT preservation, private-checker isolation and actual worker/copy
 counts remain required. No broader reuse or speed claim follows from these
 focused controls.
 
+### Module-clone record and owner continuation
+
+At frozen TSR `85f9c4cb` / native `5b1047d1`, the private no-redirect
+record-copy operation preserves declaration order, value declaration, raw
+parent, flags and independent member/export tables. Two characterization
+controls fail under the existing redirecting clone; the new operation passes
+191 library and 16 ownership controls. Reintroducing the redirect fails both
+new controls, and exact restoration passes again. This qualifies only the
+record-copy phase, not native module-value or alias-target publication.
+
+Ten natural native observations cover five valid cases in cold and checked-first
+orders. Each namespace import owns a fresh copied symbol and its completed
+anonymous value, with raw export target and originating ImportDeclaration;
+repeated and after-check reads preserve identity without alias/copy workers.
+Both call and construct signature lists are empty. The selected synthetic
+namespace value has zero index infos in the indexed-class case, while a direct
+clone of that natural class value preserves its one index. The import wrapper
+and clone operation therefore need separate controls. Ordinary pinned CLI
+rejects `esModuleInterop=false` with TS5108; that attempted setup is retained
+and excluded from the ten observations.
+
+A parsed Rust owner control remains red both before and after checking: `Head`'s
+anonymous owner is the raw class's `SymbolId(1)`. Four ordinary native/debug TSR
+CLI children on valid indexed input expose a second consequence: native emits
+TS7053, while TSR forwards the raw class index and emits TS2322. These are
+correctness observations, not performance or complete related-diagnostic gates.
+
+The private migration now carries `SymbolRef` in `Anonymous.symbol`, lifts twelve
+bound construction sites and gives module-copy values their fresh private owner.
+It is still uncompiled: 107 diagnostics remain across 21 consumer files, after
+119 at the initial field cutover. This is a current diagnostic set, not a work
+ceiling. Bound/anonymous combined patterns, signatures, declarations, member
+reads, printing, flow and cache identities must retain the real handle; do not
+collapse private owners to their source to satisfy those types. No runtime
+change or speed gain is retained. `tsr-1yb.7.7.2.1` remains in progress.
+The [lossless progress receipt](checker-module-clone-progress.json) includes
+native control sources, worker observations, the tested private writer patch,
+failed gates and the parsed red control. Local continuation sources live under
+`target/native-optimization-goal/module-clone-current-85f/`.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |

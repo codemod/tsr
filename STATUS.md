@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Module-clone continuation, frozen `85f9c4cb` / native `5b1047d`: private
+no-redirect record copying passes 191 library and 16 domain controls; a compiling
+redirect mutant fails both new tests. Ten native cold/checked-first observations
+qualify clone fields, completed value ownership and reuse. Parsed Rust owner
+controls remain red before and after checking; valid indexed CLI input yields
+TSR TS2322 versus native TS7053. Anonymous-owner migration is private and
+uncompiled: twelve bound creators lifted, 107 diagnostics across 21 consumer
+files remain. No runtime retention, full corpus or speed claim.
+[Source-qualified progress](docs/architecture/checker-symbol-completion-contract.md#module-clone-record-and-owner-continuation).
+
 Alias-target audit, frozen `59f6ce22` / native `5b1047d`: a natural 70-alias
 cycle produces zero TS2303 diagnostics in TSR versus native 70. A private stack
 candidate matches all six bounded default/single CLI outputs and passes 39
@@ -3504,6 +3514,12 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+`tsr-1yb.7.7.2.1` is now claimed. Its private no-redirect writer is qualified,
+but the actual anonymous-owner control is red. Continue the existing handle
+migration through the 21 compiler-reported consumer files, preserving private
+cache keys and selected module-value indexes; do not turn those owners back into
+source IDs. Complete alias-target publication and full fidelity gates follow.
 
 `tsr-1yb.7.7.2.1` is the concrete prerequisite for `.7.7.3`: carry native
 module-clone identity through the existing `SymbolRef` domain without a source
@@ -7129,6 +7145,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At frozen `85f9c4cb`, the private module-record writer's 191+16 passes are
+refused as full module-clone qualification: the parsed value-owner test still
+returns raw `SymbolId(1)` in both query orders, and the owner migration has 107
+compiler diagnostics across 21 files. The first cutover has 119. Native setup
+errors and an incorrect expected-one index list are retained separately; the
+qualified final ten observations use valid options and distinguish selected
+namespace indexes (zero) from direct class-value clone indexes (one).
+[Progress receipt](docs/architecture/checker-module-clone-progress.json).
 
 At frozen `59f6ce22` / native `5b1047d`, the private AliasTarget stack candidate
 is refused for integration: 187 library tests pass and two fail, on module-copy
@@ -13965,6 +13990,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Module-clone record and owner progress, tsr-1yb.7.7.2.1.** Private writer passes 191 library+16 domain controls; redirect mutant fails both new tests and restoration passes. Ten native cold/checked-first controls preserve clone fields/value owner and reuse. Rust parsed owner remains raw in both orders; valid indexed CLI has TS2322 versus native TS7053. Began actual Anonymous SymbolRef migration and lifted twelve bound constructors; 107 compiler diagnostics across 21 files remain. No canonical checker, full-corpus or speed retention. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `59f6ce22` / native `5b1047d` | — | — | **Alias-target qualification, tsr-1yb.7.7.3; integration refused.** Fresh baseline misses all 70 circular-alias diagnostics. Private stack candidate passes 39 focused tests and matches six bounded native CLI outputs; library gate remains 187 pass/two fail. Four natural native identity/worker controls and four seeded stack controls pass. Filed tsr-1yb.7.7.2.1 for private module-clone migration and made it a prerequisite. No canonical runtime, full-corpus or speed claim. [Evidence and limits](docs/architecture/checker-symbol-completion-contract.md#current-alias-target-qualification). |
 
