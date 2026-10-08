@@ -222,7 +222,17 @@ pub(crate) struct Binder<'a, 'n> {
     /// flags and parent, not the node — and a redeclaration has to be reported on
     /// declarations bound earlier, which are known only by id. Recording the name
     /// as each declaration is bound is what makes that possible.
-    name_nodes: rustc_hash::FxHashMap<NodeId, NodeId>,
+    ///
+    /// An append-only log, not a map: every named declaration writes one row and
+    /// only a redeclaration diagnostic reads, so the rows are hashed into
+    /// [`Binder::name_index`] on the first read instead of on every write
+    /// (`docs/parity/notes/r5-binperf.md` §4).
+    name_nodes: Vec<(NodeId, NodeId)>,
+    /// `name_nodes[..name_indexed]`, keyed by declaration; a later row for the
+    /// same declaration replaces an earlier one, as the map this replaced did.
+    name_index: rustc_hash::FxHashMap<NodeId, NodeId>,
+    /// How many rows of `name_nodes` `name_index` holds.
+    name_indexed: usize,
     /// Expando assignments (`f.x = 1`), and the scope each was written in.
     ///
     /// Bound in a second pass: the target may be declared further down the file
@@ -628,7 +638,9 @@ impl<'a, 'n> Binder<'a, 'n> {
             jsdoc_type_hosts: rustc_hash::FxHashSet::default(),
             this_container: NodeId::ZERO,
             computed_names,
-            name_nodes: rustc_hash::FxHashMap::default(),
+            name_nodes: Vec::new(),
+            name_index: rustc_hash::FxHashMap::default(),
+            name_indexed: 0,
             expando_assignments: Vec::new(),
             expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
@@ -1210,6 +1222,17 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// deeper trees than that iteratively, so this walk cannot assume its input
     /// is shallow just because the parser survived it.
     fn bind(&mut self, node: Node<'a>) {
+        // A registered token is a leaf that declares nothing; see
+        // [`Binder::bind_token`]. Taken before the depth bookkeeping and the
+        // out-of-line `bind_inner`, whose prologue alone costs more than
+        // everything a token needs.
+        if let Some(id) = node.node_id()
+            && (self.nodes.kind(id) as u16) <= (SyntaxKind::LAST_TOKEN as u16)
+        {
+            self.max_depth = self.max_depth.max(self.depth + 1);
+            self.bind_token(node, id);
+            return;
+        }
         self.depth += 1;
         self.max_depth = self.max_depth.max(self.depth);
         // Check every 32nd level rather than every level. `bind()` is the hottest
@@ -1261,6 +1284,43 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.bind_container(node, id, flags, declared);
         }
         self.ancestors.pop();
+    }
+
+    /// [`Binder::bind_inner`] for a registered token (`kind <= LAST_TOKEN`):
+    /// the same work, without the steps that cannot apply to a leaf.
+    ///
+    /// Upstream's `bind` is one function for every node, and for a token it
+    /// runs the flow half of its switch, `bindWorker` (which declares nothing
+    /// for a token kind), and then returns before `GetContainerFlags` and the
+    /// child walk (`binder.go:726`, `if node.Kind > ast.KindLastToken`). Here the
+    /// same three steps are `record_flow`, a `declare` that returns `None` for
+    /// every token kind (no token has a name, modifiers, members or a
+    /// declaration kind), and the early return. Tokens — identifiers above
+    /// all — are about half of the nodes bound, so the per-kind tests `declare`
+    /// would make (`name_node_of`, `modifiers_of`, `anonymous_declaration`,
+    /// `classify`, …) are skipped as a whole (`docs/parity/notes/r5-binperf.md`
+    /// §3).
+    #[inline]
+    fn bind_token(&mut self, node: Node<'a>, id: NodeId) {
+        debug_assert!(
+            name_node_of(node).is_none()
+                && modifiers_of(node).is_none()
+                && anonymous_declaration(node).is_none()
+                && classify(node, &[]).is_none()
+                && !matches!(
+                    node,
+                    Node::VariableDeclaration(_)
+                        | Node::BindingElement(_)
+                        | Node::TypeParameterDeclaration(_)
+                        | Node::ModuleDeclaration(_)
+                        | Node::CallExpression(_)
+                        | Node::BinaryExpression(_)
+                ),
+            "a token kind reached a declaring arm of `declare`: {node:?}"
+        );
+        self.record_flow(node, id);
+        // What `declare` leaves behind for a node that declares nothing.
+        self.default_export_declaration = None;
     }
 
     fn bind_optional(&mut self, node: Option<Node<'a>>) {
@@ -4073,7 +4133,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         // TS2300 lines**, which is what a position bug looks like from the
         // outside: the same code most-missing and most-extra in the same files.
         if let Some(name_node) = name_node_of(node) {
-            self.name_nodes.insert(id, name_node);
+            self.name_nodes.push((id, name_node));
         }
         // bindCallExpression (native 5b1047d1 binder.go:920): syntactic
         // require calls mark JS CommonJS modules even when the binding is
@@ -4309,7 +4369,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         // bound and present only for the earlier ones — so every diagnostic landed
         // on the `enum`/`class` keyword instead of the name.
         if let Some(name_node) = name_node_of(node) {
-            self.name_nodes.insert(id, name_node);
+            self.name_nodes.push((id, name_node));
         }
         // `bindParameter` / `bindBindingElement`'s `ParameterExcludes`
         // (`binder.go:1182`, `:1200`) — see `declare_into_with_excludes`.
@@ -4399,8 +4459,12 @@ impl<'a, 'n> Binder<'a, 'n> {
     ///
     /// The declaration's name, falling back to the declaration itself — upstream's
     /// `declarationName == nil` branch (`binder.go:245`).
-    fn declaration_name_span(&self, declaration: NodeId) -> tsr_core::Span {
-        self.name_nodes
+    fn declaration_name_span(&mut self, declaration: NodeId) -> tsr_core::Span {
+        for &(id, name) in &self.name_nodes[self.name_indexed..] {
+            self.name_index.insert(id, name);
+        }
+        self.name_indexed = self.name_nodes.len();
+        self.name_index
             .get(&declaration)
             .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name))
     }

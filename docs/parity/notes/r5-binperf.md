@@ -85,3 +85,56 @@ find `import.meta` has the flag by construction).
 built outside the two parser arms (a reparse, a JSDoc-hosted expression
 moved into the tree), which would drop a module reference — visible as a
 missing resolution in a trace or a TS2307 that disappears.
+
+## §3 Registered tokens skip `bind_inner`
+
+**Forcing measurement.** Base `bind_inner` was 18.2 M Ir self on
+generic-imports with `declare` and its per-kind tests inlined; roughly half
+the nodes bound are tokens (identifiers, keywords, literals), and every one
+ran the full sequence: the `bind_inner` prologue (a very large inlined
+frame), the expando check, `record_flow`, `declare` with its seven per-kind
+`match`es (`is_default_export`→`modifiers_of`, `name_node_of`,
+`assignment_declaration_kind`, `anonymous_declaration`, the TypeParameter
+arm, `classify` twice), and only then the `kind <= LAST_TOKEN` early return.
+
+**Upstream's shape.** `bind` (`binder.go:572`) runs the flow half of its
+switch and `bindWorker` for every node, then returns before
+`GetContainerFlags` and the child walk when `node.Kind > ast.KindLastToken`
+is false (`binder.go:726`). `bindWorker` has no arm that declares a token
+kind.
+
+**Change** (`Binder::bind`, `Binder::bind_token`). `bind` reads the kind of a
+registered node first; a token goes to `bind_token`, which does exactly
+what `bind_inner` did for it — `record_flow`, then what `declare` leaves
+behind for a non-declaring node (`default_export_declaration = None`) — and
+records the depth the leaf would have reached (`max_depth`). A
+`debug_assert!` checks that no declaring arm (`name_node_of`,
+`modifiers_of`, `anonymous_declaration`, the kind-only `classify`, and the
+kinds `Binder::classify`/`assignment_declaration_kind` special-case)
+matches the token, so a future declaring arm for a token kind fails the
+debug test suite rather than silently binding nothing.
+
+**Measured:** generic-imports 352,539,427 → **349,539,491 Ir (−0.85%)**;
+domain-model 1,207,537,425 → 1,203,757,273. Smaller than the inlined
+costs suggested, because `record_flow` is now an out-of-line call
+(1.66 M) and `bind` itself grew (4.66 M self); `bind_inner` fell from
+18.2 M to 10.5 M.
+
+## §4 `name_nodes` is an append-only log
+
+**Forcing measurement.** `name_nodes: FxHashMap<NodeId, NodeId>` (declaration
+→ name node) took one insert per named declaration — 56,381 on
+generic-imports, 5.1 M Ir inclusive with 1.5 M of growth rehash — and is
+read only by `declaration_name_span`, i.e. only when a redeclaration
+diagnostic is reported. It is private to one file's `Binder` (reset in
+`resuming_with_names`) and never iterated.
+
+**Change.** Writes push `(declaration, name)` onto a `Vec`; the first read
+hashes every row not yet indexed into `name_index` (in write order, so a
+later row for the same declaration replaces an earlier one, as the map's
+`insert` did) and answers from it. Reads stay O(1) amortised, so a file
+with many redeclarations costs one hash per declaration, as before; a file
+with none hashes nothing.
+
+**Measured:** generic-imports 349,539,491 → **345,084,338 Ir (−1.27%)**;
+domain-model 1,203,757,273 → 1,198,132,683.
