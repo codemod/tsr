@@ -1304,6 +1304,9 @@ impl Relater<'_, '_, '_> {
             || (self.has_members(source) && self.has_members(target))
             || (source_tuple && target_tuple)
             || tuple_array_pair
+            || (self.is_structural_tuple_source(source)
+                && t.contains(TypeFlags::OBJECT)
+                && self.has_members(target))
             || s.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
             || self.checker.deferred_keyof_operands.contains_key(&source)
             || self.checker.deferred_keyof_operands.contains_key(&target)
@@ -3363,7 +3366,13 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
-        if (self.has_members(source) || source_intersection_result.is_some())
+        // The structural arm runs only against an object target
+        // (relater.go:3864); a conditional this port gives a member image is
+        // not one.
+        if (self.has_members(source)
+            || source_intersection_result.is_some()
+            || (self.is_structural_tuple_source(source)
+                && self.checker.type_of(target).flags.contains(TypeFlags::OBJECT)))
             && self.has_members(target)
         {
             // structuredTypeRelatedToWorker (relater.go:3864): properties,
@@ -3389,8 +3398,15 @@ impl Relater<'_, '_, '_> {
                     source_intersection_result.into_iter().chain([signatures]),
                 );
             }
-            let indexes =
-                self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
+            let indexes = if !self.has_members(source)
+                && source_intersection_result.is_none()
+                && self.is_structural_tuple_source(source)
+            {
+                self.tuple_index_signatures_related(source, target)
+            } else {
+                self.related_index_signatures(source, target)
+            }
+            .unwrap_or(RelationResult::Unknown);
             let result = RelationResult::all([properties, signatures, indexes]);
             // Only a completed comparison widens the generic source boundary.
             // Unsupported members (e.g. protected-target checks) must not turn
@@ -3595,6 +3611,38 @@ impl Relater<'_, '_, '_> {
         Some(RelationResult::Unknown)
     }
 
+    /// A tuple reference whose members `propertiesRelatedTo` can read
+    /// (`relater.go:4100`): every element is fixed or spreads a concrete
+    /// array. A tuple has no member table of its own here; its element
+    /// properties, `length` and the inherited `Array`/`ReadonlyArray`
+    /// members are read through `get_type_of_property_of_type`, as native
+    /// reads them from the tuple target's resolved members. Generic tuples
+    /// relate through their base constraint first (`relater.go:3849`) and
+    /// are left out.
+    fn is_structural_tuple_source(&mut self, id: TypeId) -> bool {
+        let Some((elements, _)) = self.tuple_relation_elements(id) else { return false };
+        elements.iter().all(|element| {
+            !element.spread || self.checker.tuple_spread_array_element(element.r#type).is_some()
+        })
+    }
+
+    /// `getUnmatchedProperty` (`checker.go`) over a tuple source: the
+    /// tuple's properties are complete — its fixed elements, `length` and
+    /// the global array members [`Checker::tuple_target_properties`] lists —
+    /// so a string-named target property absent from them is unmatched.
+    /// Symbol-named members are not in that list and stay undecided.
+    fn tuple_source_lacks_property(&mut self, source: TypeId, name: &str) -> bool {
+        if name.starts_with("__@")
+            || name.starts_with('[')
+            || !self.is_structural_tuple_source(source)
+        {
+            return false;
+        }
+        self.checker
+            .tuple_target_properties(source)
+            .is_some_and(|properties| !properties.iter().any(|(property, _)| property == name))
+    }
+
     fn tuple_relation_elements(
         &self,
         id: TypeId,
@@ -3622,8 +3670,9 @@ impl Relater<'_, '_, '_> {
     /// structuredTypeRelatedTo's tuple-to-array index comparison
     /// (internal/checker/relater.go).
     fn tuple_array_related_to(&mut self, source: TypeId, target: TypeId) -> Option<RelationResult> {
-        let fixed = self.checker.tuple_element_lists.get(&source).cloned();
-        if fixed.is_none() && !self.checker.variadic_tuple_elements.contains_key(&source) {
+        if !self.checker.tuple_element_lists.contains_key(&source)
+            && !self.checker.variadic_tuple_elements.contains_key(&source)
+        {
             return None;
         }
         let target_element = self.checker.tuple_spread_array_element(target)?;
@@ -3640,7 +3689,17 @@ impl Relater<'_, '_, '_> {
         if self.checker.tuple_is_readonly(source) && readonly_array != Some(target_symbol) {
             return Some(RelationResult::NotRelated);
         }
-        let source_element = if let Some((mut elements, _)) = fixed {
+        let Some(source_element) = self.tuple_element_union(source) else {
+            return Some(RelationResult::Unknown);
+        };
+        Some(self.is_related_to(source_element, target_element))
+    }
+
+    /// `getIndexTypeOfType(tuple, number)`: the union of a tuple's element
+    /// types, with `undefined` for an optional element under strict null
+    /// checks. `None` when a variadic tuple's union is not computed.
+    fn tuple_element_union(&mut self, source: TypeId) -> Option<TypeId> {
+        if let Some((mut elements, _)) = self.checker.tuple_element_lists.get(&source).cloned() {
             if self.checker.strict_null_checks
                 && self
                     .checker
@@ -3650,14 +3709,40 @@ impl Relater<'_, '_, '_> {
             {
                 elements.push(self.checker.intrinsics.undefined);
             }
-            self.checker.get_union_type(&elements)
-        } else {
-            let Some(element) = self.checker.variadic_tuple_index_union(source) else {
-                return Some(RelationResult::Unknown);
-            };
-            element
-        };
-        Some(self.is_related_to(source_element, target_element))
+            return Some(self.checker.get_union_type(&elements));
+        }
+        self.checker.variadic_tuple_index_union(source)
+    }
+
+    /// `indexSignaturesRelatedTo` (`relater.go:4578`) for a tuple source.
+    /// A tuple's only index info is the numeric one its `Array` or
+    /// `ReadonlyArray` base declares, valued at the element union. A target
+    /// info no numeric key applies to has no source counterpart, and a tuple
+    /// reference is not an object type with an inferable index
+    /// (`typeRelatedToIndexInfo`, `:4603`), so it fails.
+    fn tuple_index_signatures_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let target_infos = self.checker.get_index_infos_of_type(target)?;
+        let target_has_string =
+            target_infos.iter().any(|info| info.key == self.checker.intrinsics.string);
+        let mut parts = Vec::with_capacity(target_infos.len());
+        for info in &target_infos {
+            if self.relation != Relation::StrictSubtype
+                && target_has_string
+                && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
+            {
+                continue;
+            }
+            if !self.checker.is_applicable_index_type(info.key, self.checker.intrinsics.number) {
+                return Some(RelationResult::NotRelated);
+            }
+            let element = self.tuple_element_union(source)?;
+            parts.push(self.is_related_to(element, info.value));
+        }
+        Some(RelationResult::all(parts))
     }
 
     /// Every property of `target` has a corresponding property of `source`, and
@@ -3795,7 +3880,8 @@ impl Relater<'_, '_, '_> {
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
                     && target_metadata.is_some_and(|flags| flags.0)
                     && (self.relation == Relation::Assignable
-                        || self.checker.is_object_literal_type(source))
+                        || self.checker.is_object_literal_type(source)
+                        || self.is_structural_tuple_source(source))
                 {
                     parts.push(RelationResult::Related);
                     continue;
@@ -3810,10 +3896,11 @@ impl Relater<'_, '_, '_> {
                 // (`symbolProperty13`). An unfollowable source keeps the
                 // Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
-                    && intersection_names
+                    && (intersection_names
                         .clone()
                         .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
                         .is_some()
+                        || self.tuple_source_lacks_property(source, &name))
                 {
                     parts.push(RelationResult::NotRelated);
                     continue;
