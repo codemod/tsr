@@ -215,3 +215,46 @@ TS2417 is not emitted. r4-heritage §4 records the heritage check's
 merged-source decline for a class merged with a namespace, which is not in
 this lane. The printer also says `typeof Utils` where native says
 `typeof Path.Utils`.
+
+## 7. Refused: `UNIQUE_ES_SYMBOL` in `FLAG_DECIDABLE` (`uniqueSymbolJs2`)
+
+Native `isSimpleTypeRelatedTo`'s only unique-symbol arm is `ESSymbolLike` →
+`ESSymbol` (relater.go:236), and this port has it. Two unique symbols relate
+only by identity. On the relation side, then, adding the flag is faithful. It
+converted `uniqueSymbolJs2` (TS2367), `symbolType2` and `uniqueSymbolsErrors`.
+
+**It was refused at −3 RIGHT cases**: `uniqueSymbols`,
+`uniqueSymbolsDeclarations` and `computedPropertiesNarrowed` went RIGHT →
+WRONG, with extra TS2322s such as `const constTypeAndCall: unique symbol =
+Symbol()`. The cause is identity, not the relation. Native keys a
+declaration's unique symbol on its symbol (`getESSymbolLikeTypeForNode`,
+checker.go:22982, `links.uniqueESSymbolType`), so the annotation and the
+`Symbol()` initializer are one type. This port mints the written
+`unique symbol` once per type node (`declared.rs`, `unique_symbol_nodes`), and
+the `Symbol()` call mints a fresh one on every evaluation (`calls.rs`, the
+`is_symbol_or_symbol_for_call` arm). The flag stays out until both producers
+key on the declaration symbol. They belong to r5-typeparams2 and main. The
+falsifier is that re-adding the flag after that change shows zero losses.
+
+## 8. Real-world check (jsTyping / typingsInstallerCore)
+
+Scratch `tsconfig.scratch.json` per r4-realworld, `--pretty false`, base binary
+against this branch's head:
+
+| | base total | head total | `SearchResult<undefined>` | `TracingNode`/`EmitNode` TS2352 |
+|---|---|---|---|---|
+| jsTyping | 478 | 453 | 12 → 0 | 5 → 0 |
+| typingsInstallerCore | 484 | 459 | 12 → 0 | 5 → 0 |
+
+No diagnostic was added. The 8 other removals per project are TS2352
+comparable false positives that §1 also fixes (`checker.ts` 15401/23925/46772,
+`parser.ts` 10718/10770, `resolutionCache.ts` 1713/1714, `utilities.ts`
+2486). TypeScript compiles its own sources cleanly.
+
+## 9. Totals
+
+Against the frozen base (`ac56208`), at the head of this lane:
+`diagverdictdump` RIGHT 5070 → 5092, EMPTY_RIGHT 5551 → 5554, WRONG 1521 →
+1499, EMPTY_WRONG 96 → 93. `verdictdump` RIGHT 543119 → 543125. Both loss
+checks are empty. The coverage run gives `checker_types` 8176 → 8183 and
+`diagnostics` 4394 → 4414 (before is the checked-in snapshot at `ac56208`).
