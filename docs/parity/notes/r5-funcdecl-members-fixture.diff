@@ -1,0 +1,13 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 28956514..c0e4c279 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -4372,7 +4372,7 @@ mod property_name_tests {
+         }
+ 
+         let own = r#"static field = 11; static arrow = (n: number): string => 'field';
+-static opaque = function({ "value": value }: { value: number }): number { return value; };
++static opaque = function({ [a + b]: value }: { value: number }): number { return value; };
+ static own(n: number): string { return 'method'; }
+ static get getter(): number { return 13; } static set setter(n: number) {}
+ private static hidden = 19; protected static guarded = 23;

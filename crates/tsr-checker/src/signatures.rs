@@ -3151,6 +3151,27 @@ impl<'a> Checker<'a, '_> {
                         recorded_next = true;
                     }
                 }
+                // `checkAndAggregateYieldOperandTypes` (`checker.go:20334`)
+                // asks `getContextualType(yieldExpression, ContextFlagsNone)`
+                // at EVERY position and appends a non-nil answer to the next
+                // aggregate. The arms above read the written forms directly;
+                // every other contextual position (a call argument —
+                // `f1(yield 1)` in `generatorReturnTypeInference` wants
+                // `Generator<number, void, string>`) asks the general road.
+                // Its `None` cannot tell native's nil from a position this
+                // port does not model, so that answer still declines.
+                // `child` is the outermost parenthesis, the node native's
+                // `KindParenthesizedExpression` delegation asks about.
+                if contextual
+                    && !recorded_next
+                    && let Some(t) = self.get_contextual_type(child)
+                    && t != self.intrinsics.error
+                {
+                    if !next_types.contains(&t) {
+                        next_types.push(t);
+                    }
+                    recorded_next = true;
+                }
                 if contextual && !recorded_next {
                     return None;
                 }
@@ -4860,52 +4881,123 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// §48/§71/§71.1/§71.2's pattern renderer: the written shape verbatim,
-    /// renamed elements as `prop: bound`, initializers dropped, `{}`/`[]`
-    /// for empty, and — §71.2 — NESTED patterns rendered recursively
-    /// (`[[a]]: [[string]]` prints `[[a]]`,
-    /// `destructuringParameterDeclaration1ES5iterable`). Rests and
-    /// computed/string-literal keys keep the decline.
+    /// The printed form of a binding-pattern parameter name: native
+    /// `NodeBuilderImpl.cloneBindingName` (`nodebuilderimpl.go:1713`), reached
+    /// from `parameterToParameterDeclarationName` (`:1691`), as the printer
+    /// then writes it.
+    ///
+    /// `cloneBindingName` visits every child with itself, drops each binding
+    /// element's initializer, and deep-clones the rest verbatim. So the clone
+    /// keeps everything the source wrote except initializers: holes
+    /// (`[, a]`), rests, property names of every kind — identifier, string and
+    /// numeric literal, computed — and the source list's trailing comma. The
+    /// printer's list formats (`printer.go`, `LFArrayBindingPatternElements` /
+    /// `LFObjectBindingPatternElements`) are single-line, comma-delimited with
+    /// a space between siblings, braces spaced and brackets not, and allow a
+    /// trailing comma, which `Printer.hasTrailingComma` (`printer.go:4770`)
+    /// reads from the original list. A hole prints as nothing between its
+    /// delimiters: `[, a, , b, ,]` round-trips.
+    ///
+    /// §48/§71 rendered the plain shapes and declined holes and non-identifier
+    /// keys; those declines answered the whole function `error`
+    /// (`arrayBindingPatternOmittedExpressions`,
+    /// `computedPropertiesInDestructuring1`). The one remaining decline is a
+    /// computed key whose expression [`Self::cloned_expression_text`] does not
+    /// print (`docs/parity/notes/r5-funcdecl.md` §1).
     fn render_binding_pattern(&self, pattern: &tsr_ast::BindingPattern<'_>) -> Option<String> {
-        let mut names = Vec::with_capacity(pattern.elements.len());
+        let mut parts = Vec::with_capacity(pattern.elements.len());
         for element in pattern.elements {
-            let bound = match element.name {
-                Some(tsr_ast::BindingName::Identifier(inner)) => inner.text.to_string(),
-                Some(tsr_ast::BindingName::BindingPattern(inner)) => {
-                    self.render_binding_pattern(inner)?
-                }
-                None => return None,
-            };
-            // §525: a REST element spells `...name` — upstream's
-            // `parameterToParameterDeclarationName` keeps the token
-            // (`fun : ([a, ...b]?: FooIterator) => void`,
-            // `iterableArrayPattern12/14`). A rest with a property name is
-            // not grammar.
+            let mut out = String::new();
             if element.dot_dot_dot_token.is_some() {
-                if element.property_name.is_some() {
-                    return None;
-                }
-                names.push(format!("...{bound}"));
-                continue;
+                out.push_str("...");
             }
-            match element.property_name {
-                None => names.push(bound),
-                Some(tsr_ast::PropertyName::Identifier(prop)) => {
-                    names.push(format!("{}: {}", prop.text, bound));
-                }
-                Some(_) => return None,
+            if let Some(property) = element.property_name {
+                out.push_str(&Self::cloned_property_name_text(property)?);
+                out.push_str(": ");
             }
+            match element.name {
+                Some(tsr_ast::BindingName::Identifier(inner)) => out.push_str(inner.text),
+                Some(tsr_ast::BindingName::BindingPattern(inner)) => {
+                    out.push_str(&self.render_binding_pattern(inner)?);
+                }
+                // A hole (`parseArrayBindingElement`'s all-nil element)
+                // prints as nothing between its delimiters.
+                None => {}
+            }
+            parts.push(out);
         }
+        let id = pattern.node_id?;
         // The side-table kind, not the token field — the §16 CaseKeyword
         // lesson's second application.
-        let is_object = pattern
-            .node_id
-            .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern);
-        Some(match (is_object, names.is_empty()) {
+        let is_object = self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern;
+        let trailing_comma = !parts.is_empty()
+            && self.nodes.flags(id).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA);
+        let mut list = parts.join(", ");
+        if trailing_comma {
+            list.push(',');
+        }
+        Some(match (is_object, parts.is_empty()) {
             (true, true) => "{}".to_string(),
-            (true, false) => format!("{{ {} }}", names.join(", ")),
-            (false, true) => "[]".to_string(),
-            (false, false) => format!("[{}]", names.join(", ")),
+            (true, false) => format!("{{ {list} }}"),
+            (false, _) => format!("[{list}]"),
+        })
+    }
+
+    /// A cloned property name as the printer writes it: a string literal
+    /// with its written quote (`TokenFlagsSingleQuote` survives the clone and
+    /// `getLiteralText` escapes for it), a computed name as `[expression]`.
+    fn cloned_property_name_text(name: tsr_ast::PropertyName<'_>) -> Option<String> {
+        use tsr_ast::PropertyName;
+        Some(match name {
+            PropertyName::Identifier(identifier) => identifier.text.to_string(),
+            PropertyName::PrivateIdentifier(identifier) => identifier.text.to_string(),
+            PropertyName::StringLiteral(string) => cloned_string_literal_text(
+                string.text,
+                string.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE),
+            ),
+            PropertyName::NumericLiteral(numeric) => numeric.text.to_string(),
+            PropertyName::BigIntLiteral(bigint) => bigint.text.to_string(),
+            PropertyName::ComputedPropertyName(computed) => {
+                format!("[{}]", Self::cloned_expression_text(computed.expression?)?)
+            }
+            PropertyName::NoSubstitutionTemplateLiteral(_) => return None,
+        })
+    }
+
+    /// The printer's output for a deep-cloned computed-key expression, for
+    /// the forms a binding key is written with: names, literals, property
+    /// access and calls. Any other form is `None`, which keeps the
+    /// parameter — and so the signature — declined rather than misspelled.
+    fn cloned_expression_text(expression: tsr_ast::Expression<'_>) -> Option<String> {
+        use tsr_ast::Expression;
+        Some(match expression {
+            Expression::Identifier(identifier) => identifier.text.to_string(),
+            Expression::StringLiteral(string) => cloned_string_literal_text(
+                string.text,
+                string.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE),
+            ),
+            Expression::NumericLiteral(numeric) => numeric.text.to_string(),
+            Expression::PropertyAccessExpression(access) => {
+                let left = Self::cloned_expression_text(access.expression?)?;
+                let dot = if access.question_dot_token.is_some() { "?." } else { "." };
+                match access.name? {
+                    tsr_ast::MemberName::Identifier(name) => format!("{left}{dot}{}", name.text),
+                    tsr_ast::MemberName::PrivateIdentifier(name) => {
+                        format!("{left}{dot}{}", name.text)
+                    }
+                }
+            }
+            Expression::CallExpression(call) if call.type_arguments.is_empty() => {
+                let callee = Self::cloned_expression_text(call.expression?)?;
+                let dot = if call.question_dot_token.is_some() { "?." } else { "" };
+                let arguments = call
+                    .arguments
+                    .iter()
+                    .map(|argument| Self::cloned_expression_text(*argument))
+                    .collect::<Option<Vec<_>>>()?;
+                format!("{callee}{dot}({})", arguments.join(", "))
+            }
+            _ => return None,
         })
     }
 
@@ -5167,7 +5259,19 @@ impl<'a> Checker<'a, '_> {
             // and infers through it, so the charity below — which hands
             // inference `any` — would invent an answer. Decline instead,
             // keeping the gap.
-            Self::written_type_text(annotation, &mut false, &mut false)?;
+            //
+            // A type query (`typeof arguments` in an interface,
+            // `compiler/arguments`) is outside that worry: it resolves by name
+            // lookup, whose failure IS upstream's `errorType`, and the reuse
+            // printer spells the written query. Only the gate skips it;
+            // `written_type_text` itself stays unchanged, because its other
+            // callers decide written-form reuse where native does NOT keep a
+            // query verbatim (`declarationEmitNestedGenerics` serializes
+            // `typeof x` as the parameter's type `T`).
+            if !matches!(annotation, TypeNode::TypeQueryNode(query) if query.type_arguments.is_empty())
+            {
+                Self::written_type_text(annotation, &mut false, &mut false)?;
+            }
             // §929: an annotation this port cannot resolve used to decline the
             // PARAMETER, which declines the SIGNATURE, which answers `error` for
             // the whole function — one unreadable part taking out every readable
@@ -7493,19 +7597,19 @@ impl<'a> Checker<'a, '_> {
             {
                 let elements = elements.clone();
                 let mask = self.tuple_optional_masks.get(&parameter_type).cloned();
-                let labels = self.tuple_labels.get(&parameter_type).cloned();
+                let names = self.expanded_rest_names(
+                    signature.declaration,
+                    &parameter.name,
+                    parameter_type,
+                    elements.len(),
+                );
                 let mut pieces = Vec::with_capacity(elements.len());
                 for (position, &element) in elements.iter().enumerate() {
                     let optional =
                         mask.as_ref().is_some_and(|m| m.get(position).copied().unwrap_or(false));
                     pieces.push(format!(
                         "{}{}: {}",
-                        labels
-                            .as_ref()
-                            .and_then(|labels| labels.get(position))
-                            .cloned()
-                            .flatten()
-                            .unwrap_or_else(|| format!("{}_{position}", parameter.name)),
+                        names[position],
                         if optional { "?" } else { "" },
                         render(self, element)
                     ));
@@ -7562,6 +7666,41 @@ impl<'a> Checker<'a, '_> {
         out
     }
 
+    /// The parameter names a fixed tuple rest expands to when printed:
+    /// `getExpandedParameters` (`nodebuilderimpl.go:1912`) naming each
+    /// element through its `getUniqAssociatedNamesFromTupleType` closure and
+    /// `getTupleElementLabel` (`relater.go:1943`). A labelled
+    /// element keeps its label; otherwise the declaration's rest parameter
+    /// labels it ([`tuple_element_label_from_binding_element`]), and a
+    /// signature with no rest declaration falls back to `restName_index`.
+    fn expanded_rest_names(
+        &self,
+        declaration: NodeId,
+        rest_name: &str,
+        rest_type: TypeId,
+        count: usize,
+    ) -> Vec<String> {
+        let labels = self.tuple_labels.get(&rest_type);
+        let rest_declaration = self
+            .signature_parts_of(declaration)
+            .and_then(|parts| parts.parameters.last().copied())
+            .filter(|parameter| parameter.dot_dot_dot_token.is_some());
+        unique_associated_names(
+            (0..count)
+                .map(|index| {
+                    labels.and_then(|labels| labels.get(index)).cloned().flatten().unwrap_or_else(
+                        || match rest_declaration {
+                            Some(parameter) => {
+                                tuple_element_label_from_binding_element(parameter, index)
+                            }
+                            None => format!("{rest_name}_{index}"),
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
     pub(crate) fn signature_to_string(&mut self, signature: &Signature) -> String {
         let mut out = match signature.kind {
             SignatureKind::Call => String::new(),
@@ -7600,17 +7739,17 @@ impl<'a> Checker<'a, '_> {
                 && let Some((elements, _)) = self.tuple_element_lists.get(&parameter_type)
             {
                 let mask = self.tuple_optional_masks.get(&parameter_type);
-                let labels = self.tuple_labels.get(&parameter_type);
+                let names = self.expanded_rest_names(
+                    signature.declaration,
+                    &parameter.name,
+                    parameter_type,
+                    elements.len(),
+                );
                 for (index, &element) in elements.iter().enumerate() {
                     if emitted {
                         out.push_str(", ");
                     }
-                    let name = labels
-                        .and_then(|labels| labels.get(index))
-                        .cloned()
-                        .flatten()
-                        .unwrap_or_else(|| format!("{}_{index}", parameter.name));
-                    out.push_str(&name);
+                    out.push_str(&names[index]);
                     let optional = mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false);
                     out.push_str(if optional { "?: " } else { ": " });
                     out.push_str(&self.type_to_string(element));
@@ -7698,6 +7837,120 @@ pub(crate) fn written_type_literal_text(
     array_headed: &mut bool,
 ) -> Option<String> {
     Checker::written_type_text(TypeNode::TypeLiteralNode(node), single_quoted, array_headed)
+}
+
+/// A string literal printed with its written quote character — the clone
+/// keeps `TokenFlagsSingleQuote` and the emitter's `getLiteralText` escapes
+/// for that quote. Same rule as `node_reuse`'s `quoted_literal`, which is
+/// private to that module.
+fn cloned_string_literal_text(text: &str, single: bool) -> String {
+    let double = crate::printing::quote(text);
+    if !single {
+        return double;
+    }
+    let inner = &double[1..double.len() - 1];
+    let mut out = String::with_capacity(inner.len() + 2);
+    out.push('\'');
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => match chars.next() {
+                Some('"') => out.push('"'),
+                Some(next) => {
+                    out.push('\\');
+                    out.push(next);
+                }
+                None => out.push('\\'),
+            },
+            '\'' => out.push_str("\\'"),
+            other => out.push(other),
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// The node builder's `getUniqAssociatedNamesFromTupleType`, the closure
+/// inside `getExpandedParameters` (`nodebuilderimpl.go:1917`) — the printer's
+/// copy, which differs from the checker's (`checker.go:27759`): the FIRST
+/// occurrence keeps its name and each later duplicate takes the first free
+/// `name_k`, `k` counting from 1 (`(s, s)` prints `(s: string, s_1: string)`,
+/// `spreadParameterTupleType`). The counter map is keyed by the suffixed
+/// name it just produced, as native writes it, so every duplicate starts
+/// again from 1.
+fn unique_associated_names(mut names: Vec<String>) -> Vec<String> {
+    let mut unique: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+    let mut duplicates = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        if !unique.insert(name.clone()) {
+            duplicates.push(index);
+        }
+    }
+    let mut counters: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
+    for index in duplicates {
+        let mut counter = counters.get(&names[index]).copied().unwrap_or(1);
+        let name = loop {
+            let candidate = format!("{}_{counter}", names[index]);
+            if unique.insert(candidate.clone()) {
+                break candidate;
+            }
+            counter += 1;
+        };
+        names[index] = name;
+        counters.insert(names[index].clone(), counter + 1);
+    }
+    names
+}
+
+/// The element-label half of `getTupleElementLabel` (`relater.go:1943`) for
+/// a rest parameter: `getTupleElementLabelFromBindingElement`
+/// (`relater.go:1959`), entered with the parameter declaration.
+///
+/// The tuples whose elements this port expands
+/// ([`crate::checker::Checker::tuple_element_lists`]) hold required and
+/// optional elements only, so every element's flags are
+/// `ElementFlagsFixed`: an identifier written with `...` labels
+/// `name_index`, one written without labels `name`, and the `_n` and
+/// variable arms have no element to answer.
+fn tuple_element_label_from_binding_element(
+    node: &ParameterDeclaration<'_>,
+    index: usize,
+) -> String {
+    fn from_element(
+        dot_dot_dot: bool,
+        name: Option<tsr_ast::BindingName<'_>>,
+        index: usize,
+    ) -> String {
+        match name {
+            Some(tsr_ast::BindingName::Identifier(identifier)) => {
+                if dot_dot_dot {
+                    format!("{}_{index}", identifier.text)
+                } else {
+                    identifier.text.to_string()
+                }
+            }
+            // `ast.KindArrayBindingPattern` is the only pattern arm, and only
+            // for an element carrying `...`.
+            Some(tsr_ast::BindingName::BindingPattern(pattern))
+                if dot_dot_dot && pattern.kind.kind == SyntaxKind::OpenBracketToken =>
+            {
+                let elements = pattern.elements;
+                let last_is_rest =
+                    elements.last().is_some_and(|last| last.dot_dot_dot_token.is_some());
+                let count = elements.len() - usize::from(last_is_rest);
+                if index < count {
+                    let element = elements[index];
+                    return from_element(element.dot_dot_dot_token.is_some(), element.name, index);
+                }
+                if last_is_rest && let Some(last) = elements.last() {
+                    return from_element(true, last.name, index - count);
+                }
+                format!("arg_{index}")
+            }
+            _ => format!("arg_{index}"),
+        }
+    }
+    from_element(node.dot_dot_dot_token.is_some(), node.name, index)
 }
 
 #[cfg(test)]
@@ -8579,18 +8832,21 @@ mod tests {
 
     /// Native 5b1047d keeps these signatures, including inherited ones. The
     /// unsupported parameter rendering must not become an empty or partial set.
+    /// The unsupported rendering is a computed binding key whose expression
+    /// `cloned_expression_text` does not print; a string-literal key
+    /// (the fixture until r5-funcdecl) now renders as native does.
     #[test]
     fn unreadable_interface_signatures_are_not_empty_or_partial_candidates() {
         for strict_null_checks in [false, true] {
             for (member, readable, kind, opposite) in [
                 (
-                    r#"({ "value": value }: { value: number }): number;"#,
+                    r#"({ [a + b]: value }: { value: number }): number;"#,
                     "(value: number): number;",
                     super::SignatureKind::Call,
                     super::SignatureKind::Construct,
                 ),
                 (
-                    r#"new ({ "value": value }: { value: number }): number;"#,
+                    r#"new ({ [a + b]: value }: { value: number }): number;"#,
                     "new (value: number): number;",
                     super::SignatureKind::Construct,
                     super::SignatureKind::Call,
