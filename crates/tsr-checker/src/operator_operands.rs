@@ -47,8 +47,11 @@ impl Checker<'_, '_> {
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
         let Some(operator) = binary.operator_token.map(|token| token.kind) else { return true };
         let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
-        // The equality arm's literal and NaN rules run in JS too (TS2839 only
-        // for `===`/`!==` there), so they precede the JS gate.
+        // **No JavaScript gate.** Upstream's arms run in every file; a plain JS
+        // file's semantic diagnostics are reduced to `plainJSErrors` by the
+        // program (`tsr_compiler::program_diagnostics`), and a `checkJs` file
+        // keeps them all (`plainJSRedeclare2`'s `1 + false` is TS2365).
+        // `docs/parity/notes/r4-operators2.md` §1.
         if matches!(
             operator,
             SyntaxKind::EqualsEqualsToken
@@ -57,9 +60,6 @@ impl Checker<'_, '_> {
                 | SyntaxKind::ExclamationEqualsEqualsToken
         ) {
             self.check_equality_operator(node, operator, left, right);
-            return true;
-        }
-        if self.in_js_file(node) {
             return true;
         }
         match operator {
@@ -192,7 +192,7 @@ impl Checker<'_, '_> {
     pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) -> bool {
         // **No `file_has_parse_errors` gate.** Upstream runs regardless.
         // §892.
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return true;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
@@ -397,7 +397,7 @@ impl Checker<'_, '_> {
     /// (TS2357), *"to avoid reporting cascading errors"*. `true` for the
     /// operators that never reach it, whose caller does not ask.
     pub(crate) fn check_unary_operator_operands(&mut self, node: NodeId, ambient: bool) -> bool {
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return true;
         }
         let (operator, operand) = match self.node_map.get(node) {
