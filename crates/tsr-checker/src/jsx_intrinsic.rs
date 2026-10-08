@@ -78,6 +78,18 @@ impl Checker<'_, '_> {
             .filter(|name| !name.is_empty())
     }
 
+    /// The attributes type `checkJsxAttributes` answers for an opening-like
+    /// element outside inference (`createJsxAttributesTypeFromAttributesProperty`,
+    /// `jsx.go:709`, `CheckModeNormal`): the same builder inference reads,
+    /// with each initializer checked for a mutable location under its
+    /// contextual type. `None` where the builder declines.
+    pub(crate) fn jsx_checked_attributes_type(
+        &mut self,
+        opening: NodeId,
+    ) -> Option<crate::types::TypeId> {
+        self.jsx_attributes_inference_type(opening, false)
+    }
+
     pub(crate) fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
         if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
             return Some("children".to_string());

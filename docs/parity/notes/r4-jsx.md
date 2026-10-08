@@ -164,3 +164,98 @@ Upstream inherits no properties from an `any` base and adds a
 TS2607 fires; TSR's `get_property_names_of_type` answers `None` for that
 base (unfollowable), so the check declines. The fix is in the members
 producer (`members.rs`), not this lane.
+
+## 4. The attributes relation: `checkTypeRelatedToAndOptionallyElaborate` for JSX
+
+**Forcing constraint.** Before this round TSR related no JSX attributes type
+to its props type at all: of the TS2322/2741/2739/2559 lines baselines record
+in `.tsx` files, 5 were produced and 159 (64 cases) were not. Upstream
+relates them in two places: the intrinsic arm of
+`resolveJsxOpeningLikeElement` (`jsx.go:549-551`, target = the
+`IntrinsicElements` member, contextual type = that `& IntrinsicAttributes`)
+and `checkApplicableSignatureForJsxCallLikeElement` (`jsx.go:682-698`,
+target = `getEffectiveFirstArgumentForJsxSignature`) — both through
+`checkTypeRelatedToAndOptionallyElaborate(attributes, target, tagName,
+attributes)`.
+
+**What is ported** (`jsx_component.rs`):
+
+- `check_jsx_attributes_assignable` — the call site. The target is what
+  `jsx_attributes_context` already resolves and publishes (the intrinsic
+  member; for a value tag the single published signature's props, managed
+  and intersected as upstream). The source is the attributes builder the
+  inference road already uses (`jsx_checked_attributes_type`, a new
+  `jsx_intrinsic.rs` wrapper over `jsx_attributes_inference_type(_, false)`).
+- `elaborate_jsx_components` — `elaborateJsxComponents`' attributes half
+  (`jsx.go:295-305` with `elaborateElement`, `relater.go:546`): target member
+  (property, else applicable index), skip an indexed access, relate the
+  member pair, elaborate the initializer (through a `JsxExpression`) and
+  report on the attribute name via the shared `report_assignability_failure`
+  / `check_excess_properties`.
+- `jsx_excess_attribute` / `jsx_is_known_property` /
+  `report_jsx_excess_attribute` — `hasExcessProperties`' JSX arm
+  (`relater.go:2714-2745`): written attributes (and the synthesized
+  `children`, reported on the tag) in order, hyphenated names ignored,
+  `isEmptyObjectType` not exempting a JSX source, `isKnownProperty` with
+  `isComparingJsxAttributes`; TS2322 on the attribute name chained over
+  `Property '{0}' does not exist on type '{1}'` (or the `for`→`htmlFor` /
+  `class`→`className` / spelling `Did you mean` form).
+- Otherwise the shared `report_relation_failure` on the tag name with no
+  elaboration node (TS2741 / TS2559 / TS2322 as it decides).
+
+The order is `checkTypeRelatedToAndOptionallyElaborate`'s: `elaborateError`
+on the `JsxAttributes` node first (its only arm for that kind is
+`elaborateJsxComponents`; `elaborateDidYouMeanToCallOrConstruct` needs call or
+construct signatures on an attributes type, which it never has), then the
+relation report, in which `hasExcessProperties` precedes every other check
+for a fresh attributes source.
+
+**Deviation from the brief, and why.** The brief placed the elaboration arm
+in `assignreport.rs` as a patch. Doing that alone would not have been
+enough: the excess-attribute report is `hasExcessProperties`' JSX branch,
+which the shared reporter does not have (its `is_known_property` is
+"without JSX attributes"), and it must run *after* elaboration and *before*
+the whole-type report. Both JSX branches are therefore here, applied in
+upstream's order at the one JSX call site, with the shared pieces
+(`report_assignability_failure`, `check_excess_properties`,
+`report_relation_failure`) reused unchanged. If the integrator prefers the
+dispatch in `elaborate_error`, the arm is one line —
+`Some(Node::JsxAttributes(_)) => return self.elaborate_jsx_components(node,
+source, target).unwrap_or(false)` — and moves no measured line, since no
+other caller passes a `JsxAttributes` node.
+
+**Declines, each with its upstream reason.**
+
+- A hyphenated attribute name anywhere in the source (written or spread):
+  upstream's relater carries `ObjectFlagsJsxAttributes` and treats such a
+  name as known/common (`isIgnoredJsxProperty`, `hasCommonProperties`); this
+  port's relater has no such flag, and without the decline TS2559 fires
+  falsely (`tsxUnionMemberChecksFilterDataProps`, `tsxUnionElementType5`:
+  both EMPTY_RIGHT → EMPTY_WRONG in the first draft). Removable when the
+  relater learns the flag.
+- An `any` (or error) spread: the attributes type is `any` upstream.
+- A function tag with a minimum argument count above one:
+  `checkTagNameDoesNotExpectTooManyArguments` may answer TS6229 instead.
+- Overloaded / unpublished value-tag signatures (`chooseOverload`, calls
+  lane), a union target's `getBestMatchingType` /
+  `findMatchingDiscriminantType`, an undecided member relation or member
+  table: nothing is reported rather than a different line.
+- The children half of `elaborateJsxComponents` (TS2745/2746/2747) is not
+  ported yet.
+
+**Measured.** WRONG → RIGHT: `tsxAttributeResolution11`,
+`tsxElementResolution10`, `tsxElementResolution11`. Right lines added in
+still-WRONG cases: `spellingSuggestionJSXAttribute` 2,
+`tsxAttributeResolution1` 3, `tsxStatelessFunctionComponents1` 2,
+`tsxStatelessFunctionComponents2` 1, `tsxUnionElementType6` 1,
+`checkJsxChildrenProperty15` 1, `tsxElementResolution15` 1. One wrong line:
+`tsxIntrinsicAttributeErrors` 29:2 reports TS2322 where upstream reports
+TS2741 `Property 'key' is missing … in type 'IntrinsicAttributes'` — the
+shared reporter's missing-property path does not descend into an
+intersection target's failing constituent (`report_relation_failure`,
+`assignreport.rs`; not this lane's). Loss checks empty.
+
+**Remaining in this cluster** (most of the 159): elements whose props
+`jsx_attributes_context` does not resolve (overloads, generic React
+components whose inference declines, destructured-parameter components),
+attribute builders that decline, and the children half.
