@@ -348,3 +348,13 @@ are queued). Owns `flow.rs` `get_initial_or_assigned_type`, `expressions.rs`
 `symbols.rs` `report_missing_module_export` (none touched by `main` since
 `b3cd078d`), and the repro tests for those causes in
 `crates/tsr-conformance/tests/realworld_repros.rs`.
+
+### r4-perf2 (`tsr-2zk.937`)
+
+Dispatched when `r4-perf` finished (65847cb C7 -9.56% Ir, cdc49ee C9 -3.66%;
+corpus byte-identical; vs native tsgo CPU 0.52-0.57, wall 0.78-1.08; C8
+refused: ceiling ~1.9% Ir and no exact cached negative until types carry an
+"edges final" bit). Owns `instantiate_for_reference_with_this` (C3),
+`signature_candidates_of_named_type`, `get_property_names_of_type` /
+`collect_structured_property_names` memo wrappers and `perf_links.rs`; plus a
+measurement-only attribution of the wall-vs-CPU gap (checker pool balance).
