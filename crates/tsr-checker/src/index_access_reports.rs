@@ -195,7 +195,10 @@ impl Checker<'_, '_> {
             || self.mentions_registered_type_parameter(object_type)
             || self.mentions_registered_type_parameter(index_type)
             || self.is_js_literal_type(object_type)
-            || self.is_object_literal_type(object_type)
+            // `:27135` answers a `string`/`number` key with the property union
+            // and a literal key with TS2339; an `any` key falls through to the
+            // TS7053 arm like any other receiver.
+            || index_type != self.intrinsics.any && self.is_object_literal_type(object_type)
             || Some(object_type) == self.global_this_type
             || !self.index_infos_are_declared(object_type)
         {
@@ -220,7 +223,7 @@ impl Checker<'_, '_> {
                     | TypeFlags::NEVER,
             ) || self.is_valid_index_access_key_type(part) != Some(true)
                 || self.is_error(part)
-                || flags.intersects(TypeFlags::ANY)
+                || flags.intersects(TypeFlags::ANY) && part != self.intrinsics.any
             {
                 return;
             }
@@ -239,7 +242,11 @@ impl Checker<'_, '_> {
             return;
         }
         let has_string = infos.iter().any(|info| info.key == self.intrinsics.string);
+        // `isApplicableIndexType(any, key)` holds for every key kind (`any` is
+        // assignable to each), so an `any` key misses only on a receiver with
+        // no index info at all.
         if has_string
+            || index_type == self.intrinsics.any && !infos.is_empty()
             || constituents
                 .into_iter()
                 .all(|part| self.get_applicable_index_info(apparent, part).is_some())
