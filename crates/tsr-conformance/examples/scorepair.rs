@@ -98,6 +98,11 @@ fn main() {
     }
 
     println!("{summary}{}", if filter.is_empty() { "" } else { "   [PARTIAL: filtered run]" });
+    // A case that panicked is one `case:*:*` row (`case_guard`), which keys
+    // match nothing in the baseline: name it rather than let it vanish.
+    for row in rows.iter().filter(|row| verdict_of(row).1 == "PANIC") {
+        println!("PANIC  ⚠  {row}");
+    }
     if matrix.is_empty() {
         println!("no transitions vs baseline");
     }
