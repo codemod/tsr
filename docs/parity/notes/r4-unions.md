@@ -27,3 +27,36 @@ compares by its alias name first, as `getTypeNameSymbol` does.
 unchanged. Converts `compiler/narrowingTypeofFunction`; lines in
 `conformance/intersectionNarrowing` (4), `conformance/unknownControlFlow` (7),
 `conformance/mappedTypes4` (1).
+
+## 2. `reduceVoidUndefined` under subtype reduction (`tsr-2zk.16.86`)
+
+**Native.** `getUnionTypeWorker` (`checker.go:25653`) calls
+`removeRedundantLiteralTypes(typeSet, includes, unionReduction&Subtype != 0)`
+whenever the set holds both `void` and `undefined` (`:25675`), and the third
+argument enables the clause `reduceVoidUndefined && flags&Undefined != 0 &&
+includes&Void != 0` (`:25848`). So under `UnionReductionSubtype` — the
+conditional expression, `||`, `??` — `undefined` disappears beside `void`:
+`required ? console.log('x') : undefined` is `void`.
+
+**TSR before.** `remove_redundant_literal_types` is the literal-reduction
+call and correctly omits the clause. `union_with_subtype_reduction` never
+applied it, and `is_subtype_reduction_free` (`expressions.rs`) declared
+`void` reduction-free, so `check_conditional_expression` never reached the
+subtype path for that pair and printed `void | undefined`.
+
+**Change.** The clause at the top of `union_with_subtype_reduction`, after
+the literal pass and before the `removeSubtypes` walk (native order), and
+`void` removed from `is_subtype_reduction_free`'s safe set. That function's
+contract is "literal and subtype reduction agree", which is false for
+`void` beside `undefined`. Both changes are inside lane-specific functions;
+the second sits in the hub file `expressions.rs`, and the issue names it as
+the TSR site to change.
+
+**Rejected.** Adding the clause to `remove_redundant_literal_types` behind a
+flag. That is upstream's shape, but every literal caller would carry a dead
+parameter, and the subtype entry point is the only caller that passes
+`true`.
+
+**Measured.** 25 lines gained against the frozen baseline (11 from this
+commit), 0 lost; diagnostics unchanged. Converts
+`compiler/truthinessCallExpressionCoercion1`.

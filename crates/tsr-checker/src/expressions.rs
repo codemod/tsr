@@ -2342,7 +2342,10 @@ impl Checker<'_, '_> {
     ///
     /// True for the primitives and the unit types: subtype relationships among
     /// them are exactly the literal-to-base-primitive ones that literal reduction
-    /// already handles. False for everything else — objects, type parameters,
+    /// already handles. `void` is excluded: subtype reduction alone drops
+    /// `undefined` beside it (`removeRedundantLiteralTypes`'
+    /// `reduceVoidUndefined`, `checker.go:25848`), so `c ? f() : undefined`
+    /// with `f(): void` is `void`, not `void | undefined`. False for everything else — objects, type parameters,
     /// intersections, and the enum types, whose reduction is [`crate::unions`]'s
     /// question rather than this one's.
     ///
@@ -2359,7 +2362,6 @@ impl Checker<'_, '_> {
             .union(TypeFlags::BOOLEAN_LITERAL)
             .union(TypeFlags::NULL)
             .union(TypeFlags::UNDEFINED)
-            .union(TypeFlags::VOID)
             .union(TypeFlags::NEVER);
         let t = self.store.get(id);
         if let TypeData::Union { types, symbol, .. } = &t.data {

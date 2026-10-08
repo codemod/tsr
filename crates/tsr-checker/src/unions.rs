@@ -1570,6 +1570,20 @@ impl crate::checker::Checker<'_, '_> {
             // subtype pass could remove.
             _ => return Some(literal),
         };
+        // removeRedundantLiteralTypes (checker.go:25838) at
+        // `reduceVoidUndefined == true`, which only UnionReductionSubtype
+        // passes (`getUnionTypeWorker`, :25675): `undefined` is redundant
+        // beside `void`. The literal pass above ran without the clause.
+        if constituents.iter().any(|&ty| self.store.get(ty).flags.contains(TypeFlags::VOID)) {
+            let kept: Vec<_> = constituents
+                .iter()
+                .copied()
+                .filter(|&ty| !self.store.get(ty).flags.contains(TypeFlags::UNDEFINED))
+                .collect();
+            if kept.len() != constituents.len() {
+                return self.union_with_subtype_reduction(&kept);
+            }
+        }
         // §513: constituents with IDENTICAL PRINTED TEXT are one type to
         // every consumer of this port — print-at-creation is the data model
         // (ADR-0003) — where upstream reaches the same collapse through
