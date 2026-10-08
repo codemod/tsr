@@ -397,7 +397,6 @@ struct Resolution<K> {
 /// **type** for `TypeSystemPropertyNameResolvedTypeArguments`. The checker uses
 /// `Resolutions<SymbolId>` today; the other keys arrive with the code that needs
 /// them.
-#[derive(Debug)]
 pub struct Resolutions<K> {
     stack: Vec<Resolution<K>>,
     /// Stack depths at which this port entered a type construct that native
@@ -432,6 +431,19 @@ pub struct Resolutions<K> {
     /// publication rule (`docs/parity/notes/r4-perf3.md` §2). A `Cell`
     /// because the probes are `&self`; the stack is one checker's.
     observations: std::cell::Cell<u64>,
+}
+
+/// `observations` is left out: it counts reads, so a read-only probe moves
+/// it, and the state snapshots tests take before and after a read-only
+/// probe compare this rendering.
+impl<K: std::fmt::Debug> std::fmt::Debug for Resolutions<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resolutions")
+            .field("stack", &self.stack)
+            .field("deferrals", &self.deferrals)
+            .field("start", &self.start)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<K> Default for Resolutions<K> {
