@@ -108,6 +108,9 @@ impl Checker<'_, '_> {
                 | TypeFlags::SUBSTITUTION,
         ) || self.deferred_keyof_operands.contains_key(&id)
             || self.deferred_indexed_access_types.contains_key(&id)
+            // getStringMappingType's `isGenericIndexType(t)` (checker.go:29233):
+            // a generic intersection such as `K & string` stays deferred.
+            || self.is_generic_index_type(id)
         {
             return self.generic_string_mapping_type(symbol, id);
         }
