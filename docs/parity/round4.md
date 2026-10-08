@@ -297,3 +297,19 @@ checker source: it cuts minimal repros, attributes each to a native
 function and owning file, and files issues; it may add repro tests under
 `crates/tsr-conformance/tests/` that assert native's output with `#[ignore]`
 until fixed.
+
+### r4-typeparams — type-parameter gathering and constraints (`tsr-2zk.901`, `.913`, `.911`)
+
+Dispatched when `r4-templates` finished (8 commits: native enum evaluator,
+TS2565/TS1061 reporting, template-literal escaping, generic index spans; +8
+type cases, +3 diagnostics cases; its isolatedModules patch is queued).
+Several lanes stop on the same functions: `declared.rs`
+`local_type_parameters_of` / `local_type_parameter_names_of` read only the
+first declaration (native `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias`
+gathers every declaration, defaults from any), the constructor
+`SignatureParts` type-parameter arm (`signatures.rs`), JS `@template`
+gathering for class hosts (r4-jsdoc's class-template patch), and TS2313
+circular constraints (`constraints.rs`; native
+`getConstraintOfTypeParameter` -> `circularConstraintType`). Owns exactly
+those functions and `constraints.rs`; no `main` commit touched the
+`declared.rs` functions since `b3cd078d`.
