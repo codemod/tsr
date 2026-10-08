@@ -424,3 +424,19 @@ The inherited-this diff is held as `tsr-2zk.1045`. It gains +3 cases but loses
 The freed slot went to r5-modexports, for `tsr-2zk.991` and `.992`: string-literal
 export names, and the JSON/ESM synthetic default, 438 type lines between them.
 Its symbols.rs part ships as a measured diff, because symbols.rs is main's file.
+
+### r5-jsdoc2 finished; r5-jsdoc3 dispatched (`tsr-2zk.1046`)
+
+r5-jsdoc2 delivered `2b47619`, owned reparse queries that change no verdict on
+their own, plus three diffs that land in batch T:
+- withJSDoc on arrow and function expressions, in the parser;
+- reparsed-parameter consumers;
+- the accessor annotation fallback.
+
+Together they add +72 type lines and +1 case, lose nothing, and keep CPU at
+0.989 on domain-model and 1.008 on generic-imports.
+
+It also found that diagnostics anchored inside JSDoc comments are silently
+dropped: `source_file_of_for_diagnostics` dead-ends at the parentless JSDoc root.
+The faithful fix loses 36 rows until the JSDoc scope hop lands. Both the fix and
+the hop go to r5-jsdoc3.
