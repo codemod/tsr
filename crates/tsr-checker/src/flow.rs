@@ -4310,6 +4310,22 @@ impl Checker<'_, '_> {
                 key_expression = self.initializer_of(declaration)?;
             } else if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ENUM_MEMBER) {
                 return None;
+            } else {
+                // tryGetNameFromEntityNameExpression (flow.go:1770): an enum
+                // member names its initializer's literal, or, without an
+                // initializer, its own property name (`m[E.A]` is `m.A`'s
+                // reference name, not the member value).
+                let declaration = self.binder.symbols().get(symbol).value_declaration?;
+                if !self.value_use_declared_before_use(declaration, argument.node_id()?) {
+                    return None;
+                }
+                let Some(Node::EnumMember(member)) = self.node_map.get(declaration) else {
+                    return None;
+                };
+                match member.initializer {
+                    Some(initializer) => key_expression = initializer,
+                    None => return Some(self.binder.symbols().get(symbol).name.to_string()),
+                }
             }
         }
         let key = self.check_expression(key_expression);

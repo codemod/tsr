@@ -1,0 +1,154 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 1cd6e9e..96002f3 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2911,6 +2911,13 @@ impl Checker<'_, '_> {
+         // `any` answered here is an honest computation, not a failed one wearing
+         // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
+         // from those two adjacent upstream lines.
++        // `resolveCallExpression` (`checker.go:8516`): an `isErrorType`
++        // apparent callee resolves through `resolveErrorCall` (`:9923`), whose
++        // `unknownSignature` returns `errorType` — before the untyped-call arm
++        // below, which would answer `anyType` (ADR-0048).
++        if callee_type == self.intrinsics.native_error {
++            return callee_type;
++        }
+         if self.is_untyped_call_target(callee_type) {
+             bump(&COUNTERS.untyped_call);
+             return self.intrinsics.any;
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 45004c8..feed815 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -170,8 +170,6 @@ pub struct Checker<'a, 'n> {
+     /// Per-file memo: does the file contain import/export machinery? The
+     /// §31 gate (`checker-notes-narrow.md`).
+     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
+-    /// §784: the `CommonJS` half of the same cache.
+-    pub(crate) file_commonjs_machinery: FxHashMap<NodeId, bool>,
+     /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
+     pub(crate) global_this_type: Option<TypeId>,
+     /// One `unique symbol` per WRITTEN `unique symbol` type node
+@@ -1405,7 +1403,6 @@ impl<'a, 'n> Checker<'a, 'n> {
+             base_symbols: FxHashMap::default(),
+             interface_signatures: FxHashMap::default(),
+             file_import_machinery: FxHashMap::default(),
+-            file_commonjs_machinery: FxHashMap::default(),
+             global_this_type: None,
+             unique_symbol_nodes: FxHashMap::default(),
+             this_type_nodes: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 36261bf..524b112 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -257,43 +257,6 @@ impl Checker<'_, '_> {
+         self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
+     }
+ 
+-    /// Whether the node's source file carries COMMONJS module machinery — a
+-    /// reference to `require`, `module` or `exports`. §784.
+-    ///
+-    /// The sibling [`Checker::file_has_import_machinery`] asks the same
+-    /// question — *can an unresolved name here be this port's own binding gap
+-    /// rather than the source's?* — but only over ES `import`/`export`
+-    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
+-    /// the shape `allowJs` corpora are written in.
+-    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
+-        let mut root = node;
+-        while let Some(parent) = self.nodes.parent(root) {
+-            root = parent;
+-        }
+-        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
+-            return cached;
+-        }
+-        let answer = self.node_map.get(root).is_none_or(|file| {
+-            let mut stack = vec![file];
+-            let mut children = Vec::new();
+-            let mut found = false;
+-            while let Some(current) = stack.pop() {
+-                if let Node::Identifier(identifier) = current
+-                    && matches!(identifier.text, "require" | "module" | "exports")
+-                {
+-                    found = true;
+-                    break;
+-                }
+-                children.clear();
+-                tsr_ast::push_children(current, &mut children);
+-                stack.extend(children.iter().copied());
+-            }
+-            found
+-        });
+-        self.file_commonjs_machinery.insert(root, answer);
+-        answer
+-    }
+-
+     /// Whether the node's source file carries any import/export declaration
+     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
+     pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
+@@ -944,9 +907,8 @@ impl Checker<'_, '_> {
+                         // chose how the name PRINTED, which is now the
+                         // writer's decision; measured against a native build
+                         // every line they kept as the gap is `errorType`
+-                        // natively. Two arms stay the gap because there the
+-                        // miss can be this port's own resolution, and one is
+-                        // held (below):
++                        // natively. Two arms stay the gap, because there the
++                        // miss can be this port's own resolution:
+                         //
+                         // - a name found only as an ALIAS: the alias may
+                         //   resolve to a value the port does not reach
+@@ -968,13 +930,7 @@ impl Checker<'_, '_> {
+                             self.binder.symbols().get(found).flags.intersects(SymbolFlags::ALIAS)
+                         });
+                         let arguments_unread = node.text == "arguments" && arguments_container();
+-                        // Held (§3): a JS file with no CommonJS machinery is
+-                        // `errorType` natively too, but there the writer's
+-                        // fast path prints the call through it, and the
+-                        // call road lacks `resolveCallExpression`'s
+-                        // `isErrorType` arm (`checker.go:8516`, `calls.rs`).
+-                        let held_js = self.in_js_file(id) && !self.file_has_commonjs_machinery(id);
+-                        if found_as_alias || arguments_unread || held_js {
++                        if found_as_alias || arguments_unread {
+                             self.intrinsics.error
+                         } else {
+                             self.intrinsics.native_error
+diff --git a/crates/tsr-checker/tests/unresolved_identifier_in_js.rs b/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
+index e94cfbc..1a29992 100644
+--- a/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
++++ b/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
+@@ -1,6 +1,5 @@
+ //! An unresolved identifier EXPRESSION is upstream's `errorType`
+-//! (`checker.go:11048`), whatever module machinery the file carries — with
+-//! one held exception, a `.js` file with no `CommonJS` machinery.
++//! (`checker.go:11048`), whatever module machinery the file carries.
+ //!
+ //! History. §784 made the §31 gate answer the port's gap (printed `error`) in
+ //! a plain `.js` file and the `any` stand-in in a `CommonJS` one, because the
+@@ -10,12 +9,6 @@
+ //! kept is `errorType` natively. The identity is asserted here, not the
+ //! spelling.
+ //!
+-//! The plain-`.js` arm stays the gap for now (§3 there): in a case with no
+-//! `.errors.txt` the writer's fast path prints a call through an `errorType`
+-//! callee, and the call road answers `any` where `resolveCallExpression`
+-//! answers `errorType` (`checker.go:8516`). That fix is in `calls.rs`, held as
+-//! a diff with the switch.
+-
+ use tsr_ast::{NodeFlags, Statement};
+ use tsr_checker::Checker;
+ use tsr_core::Arena;
+@@ -53,11 +46,10 @@ fn is_native_error(source: &str, javascript: bool) -> bool {
+ }
+ 
+ /// `parsingDeepParenthensizedExpression`'s undeclared `f` in a plain `.js`
+-/// file is `errorType` natively, but stays the port's gap until the held
+-/// `calls.rs` arm lands (module docs).
++/// file: TS2304, `errorType` (`checker.go:11048`).
+ #[test]
+-fn an_unresolved_identifier_in_a_plain_js_file_is_held_as_the_gap() {
+-    assert!(!is_native_error("var x = f;", true));
++fn an_unresolved_identifier_in_a_plain_js_file_is_native_error() {
++    assert!(is_native_error("var x = f;", true));
+ }
+ 
+ /// The TS half: the same `unknownSymbol` exit.

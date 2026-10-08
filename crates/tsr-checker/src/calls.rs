@@ -2686,6 +2686,17 @@ impl Checker<'_, '_> {
         let Some((literal, module)) = resolved else {
             return self.promise_of_any();
         };
+        // `:8307`: `getTypeWithSyntheticDefaultOnly` of the resolved module —
+        // a JSON module under node16+ ESM is `Promise<{ default: T }>`.
+        if let Some(specifier_id) = tsr_ast::Node::from(specifier).node_id() {
+            let es_module = self.resolve_external_module_symbol(module);
+            if let Some(synthetic) =
+                self.get_type_with_synthetic_default_only(es_module, module, specifier_id)
+            {
+                let promise = self.global_type_symbol_with_arity("Promise", 1)?;
+                return Some(self.create_type_reference(promise, vec![synthetic]));
+            }
+        }
         // Interned per (module, written spelling): duplicate mints would
         // churn prints (the bar's falsifier c).
         // SS196: the specifier is a STRING and prints escaped —
@@ -2707,6 +2718,16 @@ impl Checker<'_, '_> {
             );
             self.qualified_reference_types.insert(key, minted);
             minted
+        };
+        // `:8309`: `getTypeWithSyntheticDefaultImportType` of the module type.
+        // Only a module without `export =` is asked: `namespace` stands for
+        // the module symbol's type, which is not the `export =` target's
+        // (`docs/parity/notes/r5-modexports.md` §3).
+        let namespace = match tsr_ast::Node::from(specifier).node_id() {
+            Some(specifier_id) if self.resolve_external_module_symbol(module) == module => {
+                self.get_type_with_synthetic_default_import_type(namespace, module, specifier_id)
+            }
+            _ => namespace,
         };
         let promise = self.global_type_symbol_with_arity("Promise", 1)?;
         Some(self.create_type_reference(promise, vec![namespace]))

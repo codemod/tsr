@@ -72,6 +72,7 @@ mod narrowing;
 mod parallel_tests;
 mod suggestion;
 mod symbol;
+mod symbol_table;
 
 use rustc_hash::FxHashMap;
 use tsr_ast::{NodeId, NodeMap, NodeTable, SourceFile, SyntaxKind};
@@ -85,6 +86,9 @@ pub use names::PreparedNames;
 pub use suggestion::{SuggestionHost, SuggestionWalk};
 pub use symbol::{
     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
+};
+pub use symbol_table::{
+    Entry as SymbolTableEntry, Iter as SymbolTableIter, VacantEntry as SymbolTableVacantEntry,
 };
 
 bitflags::bitflags! {

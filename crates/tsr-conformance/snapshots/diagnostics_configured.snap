@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 835/1089 (76.68%)
-Failed         : 254
+Passed         : 837/1089 (76.86%)
+Failed         : 252
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 254 failures:
+First 100 of 252 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -60,14 +60,10 @@ compiler/decoratorMetadataWithImportDeclarationNameCollision4(target=es2015)
   1 missing (first TS2613 at service.ts(1,8))
 compiler/decoratorMetadataWithImportDeclarationNameCollision7(target=es2015)
   2 missing (first TS2702 at service.ts(7,9))
-compiler/deleteExpressionMustBeOptional(strict=false)
-  1 unexpected (first TS2339 at deleteExpressionMustBeOptional.ts(40,10)), 0 missing
-compiler/deleteExpressionMustBeOptional(strict=true)
-  1 unexpected (first TS2339 at deleteExpressionMustBeOptional.ts(40,10)), 0 missing
 compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=false)
-  3 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 0 missing
+  2 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 0 missing
 compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=true)
-  3 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 2 missing
+  2 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 2 missing
 compiler/destructureCatchClause(strict=false,useunknownincatchvariables=false)
   7 missing (first TS2339 at destructureCatchClause.ts(26,17))
 compiler/destructureCatchClause(strict=false,useunknownincatchvariables=true)
@@ -103,7 +99,7 @@ compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
 compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=true)
   1 missing (first TS2366 at functionsWithImplicitReturnTypeAssignableToUndefined.ts(28,16))
 compiler/implicitAnyFromCircularInference(target=es2015)
-  2 unexpected (first TS7024 at implicitAnyFromCircularInference.ts(17,10)), 6 missing
+  2 unexpected (first TS7024 at implicitAnyFromCircularInference.ts(17,10)), 3 missing
 compiler/inKeywordTypeguard(strict=false)
   6 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
 compiler/inKeywordTypeguard(strict=true)
@@ -191,25 +187,25 @@ compiler/useBeforeDeclaration_classDecorators.2(experimentaldecorators=false)
 conformance/ES5For-of30(target=es2015)
   1 missing (first TS2488 at ES5For-of30.ts(3,6))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
-  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arrowFunctionContexts(alwaysstrict=true)
   1 unexpected (first TS2331 at arrowFunctionContexts.ts(44,23)), 0 missing
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
@@ -226,3 +222,7 @@ conformance/asyncGeneratorParameterEvaluation(target=es2018)
   1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
 conformance/autoAccessorDisallowedModifiers(target=es2017)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
+conformance/autoAccessorDisallowedModifiers(target=esnext)
+  3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
+conformance/bundlerImportTsExtensions(allowimportingtsextensions=false,noemit=false)
+  8 missing (first TS5097 at /project/main.ts(3,16))

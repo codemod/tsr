@@ -169,3 +169,73 @@ diagnostics plain 8,761 → 8,763 / 9,816 (`contextualSignatureInstantiation`,
 RIGHT, unchanged. The enum-literal arm alone converts no case (its only
 witness is blocked on the relater, above). Perf, median child CPU over 21
 samples: domain-model 1.024, generic-imports 0.961; diagnostics match.
+
+## §4 TS2371: binding elements and index signatures
+
+`checkVariableLikeDeclaration`'s parameter-initializer arm
+(`checker.go:5851`) runs for any variable-like node that
+`IsPartOfParameterDeclaration` — a binding element inside a parameter's
+pattern too — and its `GetContainingFunction(node).Body()` is missing for
+every signature kind, an index signature included.
+`check_parameter_initializer_needs_body` (`check.rs`) took only a
+`ParameterDeclaration` and listed every signature owner but the index
+signature. It now also takes a binding element (walking out through the
+patterns to its parameter; a renamed element with an identifier name exits
+first, as upstream's `renamedBindingElementsInTypes` arm does at
+`checker.go:5818`), dispatched from the `BindingElement` arm, and the index
+signature owner. Converts `defaultValueInFunctionTypes`
+(`type Foo = ({ first = 0 }: …) => unknown`) and
+`indexSignatureWithInitializer1` (`[a: number = 1]: number`).
+
+The rule keeps its whole-file parse-error gate. Upstream has none, but the
+only case it blocks here, `destructuringParameterDeclaration2`, differs on
+fourteen other lines, so removing it buys nothing measurable now.
+
+Measured on top of §2–§3, both dumps unfiltered against the frozen baseline,
+both loss checks empty: diagnostics plain 8,763 → 8,765 / 9,816, configured
+unchanged; type lines unchanged. Perf, median child CPU: domain-model 0.996
+(21 samples), 1.000 (41). generic-imports was noisy: 1.052 at 21, then four
+41-sample runs of the same binary at 1.082, 1.022, 1.003 and 1.065, while
+the baseline binary against itself in the same harness read 1.051. The
+change is a syntax walk on binding elements inside parameters, and that
+project's check phase is about 1 ms (`round5.md`, r5-perf4), so the spread
+is the harness's, not the rule's.
+
+## §5 Remaining clusters (plain keys, after §1–§4)
+
+TS2403, 8 cases still differ on it:
+
+- **Relater `Unknown` on the assignability road, 2 cases (`relater.rs`).**
+  `typeOfEnumAndVarRedeclarations` (`typeof E` against `{ readonly a: E;
+  readonly b: E; readonly [x: number]: string }`) and
+  `FunctionAndModuleWithSameNameAndCommonRoot` (`() => { x; y }` against
+  `typeof Point`, which also has `Origin`): the primary is unannotated, so
+  the pair is judged by mutual assignability, and the relater answers
+  `Unknown` both ways. Either a decided relater or the structural arm for
+  these operands converts them; the structural arm for every inferred
+  operand is refused (§2).
+- **Mutually assignable but not identical, 1 case.**
+  `parserCastVersusArrowFunction1`: `<T>() => number` against `<T>(a?:
+  number, b?: number) => number`. Only the structural arm can decide it;
+  same trust rule.
+- **Inferred side built wrong, 3 cases.** `objectLiteralContextualTyping`
+  and `indexSignatureTypeInference` infer `any` / `any` where upstream has
+  `unknown` / `unknown[]` (inference producers, `inference.rs`);
+  `objectRest` types a rest binding `any` where upstream has
+  `{ a: number; b: string; }` (destructuring).
+- **Conditional identity, 1 case.** `conditionalTypes1` (`T & U extends
+  string ? …` against `Foo<T & U>`): the identity arm's conditional case
+  (`isDistributive` and the four operands, `relater.go:3328`) is not ported
+  in `identity.rs`; this port's deferred conditional representation was not
+  investigated.
+
+TS2502, still missing:
+
+- `circularOptionalityRemoval`: `flow.rs` (§1).
+- the declines of §1: unannotated declarations, parameters and
+  member-writing annotations wait on deferred type-literal and signature
+  members and a `ResolvedReturnType` frame.
+
+No WRONG row differs on TS1155, TS1182 or TS2481. The TS2448 rows are
+`checkIdentifier`'s block-scoped use-before-declaration
+(`isBlockScopedNameDeclaredBeforeUse`), not this function.

@@ -277,7 +277,7 @@ fn the_bind_result_can_be_read_from_several_threads() {
     let counts: Vec<usize> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
             .map(|_| {
-                scope.spawn(move || result.locals(root).map_or(0, std::collections::HashMap::len))
+                scope.spawn(move || result.locals(root).map_or(0, tsr_binder::SymbolTable::len))
             })
             .collect();
         handles.into_iter().map(|h| h.join().expect("thread panicked")).collect()

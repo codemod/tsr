@@ -11,6 +11,7 @@
 
 pub mod binder_suite;
 pub mod case;
+pub mod case_guard;
 pub mod comment_directives;
 pub mod configuration;
 pub mod corpus;

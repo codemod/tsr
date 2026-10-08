@@ -672,6 +672,16 @@ impl<'a> Checker<'a, '_> {
         if self.nodes.kind(declaration) != SyntaxKind::NamespaceImport {
             return None;
         }
+        // `resolveESModuleSymbol` (`checker.go:15568`) asks
+        // `getTypeWithSyntheticDefaultOnly` before anything else: a JSON
+        // module imported with ES syntax under node16+ is `{ default: T }`.
+        if let Some(specifier) = self.import_declaration_specifier(declaration)
+            && let Some(module) = self.resolve_external_module_name(declaration, specifier)
+            && let Some(wrapper) =
+                self.get_type_with_synthetic_default_only(target, module, specifier)
+        {
+            return Some(wrapper);
+        }
         let target = self.resolve_alias_fully(target);
         let target_flags = self.binder.symbols().get(target).flags;
         let kind = if target_flags.contains(SymbolFlags::CLASS) {
@@ -687,7 +697,7 @@ impl<'a> Checker<'a, '_> {
             // (`module_clone_default_symbol`). names-modules notes §5.
             None
         } else {
-            return None;
+            return self.namespace_import_default_member_type(declaration, value);
         };
         // resolveESModuleSymbol's `module.exports` arm answers that export
         // itself, not a module copy (`namespace_import_module_exports`).
@@ -741,6 +751,40 @@ impl<'a> Checker<'a, '_> {
             self.anonymous_properties.insert(clone, (properties, false));
         }
         Some(clone)
+    }
+
+    /// `resolveESModuleSymbol`'s third arm (`checker.go:15610`) for a module
+    /// whose type has a `default` member and neither signatures nor an
+    /// ESM-to-CommonJS reference (those two are [`Checker::module_clone_type`]'s
+    /// own arms): a structured type becomes
+    /// [`Checker::get_type_with_synthetic_default_import_type`]. `None` keeps
+    /// the plain module type, which is also native's answer when the module
+    /// cannot have a synthetic default (`syntheticType = t`, cloned unchanged).
+    /// `docs/parity/notes/r5-modexports.md` §3.
+    fn namespace_import_default_member_type(
+        &mut self,
+        declaration: NodeId,
+        value: TypeId,
+    ) -> Option<TypeId> {
+        // `TypeFlagsStructuredType`: Object | Union | Intersection.
+        if !self
+            .store
+            .get(value)
+            .flags
+            .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::INTERSECTION)
+            || self.get_property_of_type_ex(value, "default", true).is_none()
+        {
+            return None;
+        }
+        let owner = self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))?;
+        let specifier = self.external_module_name(owner)?;
+        // The `module.exports` arm answers that export, not a module type.
+        if self.namespace_import_module_exports(owner, specifier).is_some() {
+            return None;
+        }
+        let module = self.resolve_external_module_name(declaration, specifier)?;
+        let synthetic = self.get_type_with_synthetic_default_import_type(value, module, specifier);
+        (synthetic != value).then_some(synthetic)
     }
 
     /// The synthetic default aliases the export-equals value. Reuse that
@@ -1512,13 +1556,12 @@ impl<'a> Checker<'a, '_> {
         // §269: the clause's owner is a JSDoc `@import` tag in a JS file —
         // same shape, the specifier just lives on the tag.
         let specifier = match self.node_map.get(parent)? {
-            // §292's narrowing: an import carrying ATTRIBUTES declines — the
-            // attribute validity rules are unported, and upstream errors the
-            // whole import where this road would type through it
-            // (`importAttributes7/8`, the pair's 2 R→W).
-            Node::ImportDeclaration(import) if import.attributes.is_none() => {
-                import.module_specifier
-            }
+            // `getTargetOfImportClause` (`checker.go:14528`) does not read the
+            // attributes: `import a from "./a" with { … }` types through, and
+            // `checkImportAttributes` (`import_attributes.rs`) reports on the
+            // attributes alone. §292's decline predated that port;
+            // `docs/parity/notes/r5-modexports.md` §2.
+            Node::ImportDeclaration(import) => import.module_specifier,
             Node::JSDocImportTag(import) => import.module_specifier,
             _ => return None,
         };
@@ -1755,7 +1798,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `isOnlyImportableAsDefault` (`checker.go:14800`): under `node16`..
     /// `nodenext`, an ES-syntax usage of a JSON module.
-    fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
+    pub(crate) fn is_only_importable_as_default(&self, module: SymbolId, usage: NodeId) -> bool {
         if !(tsr_core::ModuleKind::Node16..=tsr_core::ModuleKind::NodeNext)
             .contains(&self.module_kind)
         {
@@ -1956,10 +1999,12 @@ impl<'a> Checker<'a, '_> {
         let export = self.node_map.get(declaration_of_export)?;
         let Node::ExportDeclaration(export) = export else { return None };
         if export.module_specifier.is_some() {
-            if export.attributes.is_none()
-                && let Some(tsr_ast::ModuleExportName::Identifier(name)) =
-                    specifier.property_name.or(specifier.name)
-                && name.text == "default"
+            // `ast.ModuleExportNameIsDefault` reads `Text()`, so a
+            // string-literal `"default"` takes the default road too.
+            if specifier
+                .property_name
+                .or(specifier.name)
+                .is_some_and(crate::module_exports::module_export_name_is_default)
             {
                 let module_specifier = export.module_specifier?.node_id()?;
                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
@@ -2003,12 +2048,11 @@ impl<'a> Checker<'a, '_> {
         let clause = self.nodes.parent(named_imports)?;
         let import = self.nodes.parent(clause)?;
         if let Some(Node::ImportSpecifier(specifier)) = self.node_map.get(declaration)
-            && let Some(tsr_ast::ModuleExportName::Identifier(name)) = specifier
+            && specifier
                 .property_name
                 .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))
-            && name.text == "default"
+                .is_some_and(crate::module_exports::module_export_name_is_default)
             && let Some(Node::ImportDeclaration(node)) = self.node_map.get(import)
-            && node.attributes.is_none()
         {
             let module_specifier = node.module_specifier?.node_id()?;
             let module = self.resolve_external_module_name(declaration, module_specifier)?;
@@ -2074,11 +2118,11 @@ impl<'a> Checker<'a, '_> {
     fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
         let module_specifier = self.external_module_name(node)?;
         let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
-        // `specifier.PropertyNameOrName()` (`checker.go:14677`). A string
-        // literal name — `import { "a-b" as c }` — is a valid module export
-        // name upstream; it is not looked up here because
-        // `SymbolTable` keys are the identifier text and the two spellings have
-        // not been checked to agree. `None` is a miss.
+        // `specifier.PropertyNameOrName()` (`checker.go:14677`), read through
+        // `name.Text()`. A string-literal name — `import { "a-b" as c }` — is
+        // a valid module export name, and the binder keys `exports` by its
+        // cooked text exactly as it keys an identifier, so one lookup serves
+        // both (`docs/parity/notes/r5-modexports.md` §1).
         let name = match self.node_map.get(specifier)? {
             Node::ImportSpecifier(node) => {
                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
@@ -2086,7 +2130,7 @@ impl<'a> Checker<'a, '_> {
             Node::ExportSpecifier(node) => node.property_name.or(node.name),
             _ => return None,
         }?;
-        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
+        let name = crate::module_exports::module_export_name_text(name);
         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
         // for both callers here: its synthetic-default and
@@ -2095,7 +2139,7 @@ impl<'a> Checker<'a, '_> {
         // neither.
         let target = self.resolve_external_module_symbol(module_symbol);
         if target == module_symbol {
-            return self.get_export_of_module(module_symbol, name.text);
+            return self.get_export_of_module(module_symbol, name);
         }
 
         // Native routes the export name `default` through
@@ -2105,7 +2149,7 @@ impl<'a> Checker<'a, '_> {
         // alias denotes the synthetic default module object, not that property.
         // Preserve the prior miss until the dedicated default road can retain
         // its per-site alias spelling.
-        if name.text == "default" {
+        if name == "default" {
             return None;
         }
 
@@ -2114,7 +2158,7 @@ impl<'a> Checker<'a, '_> {
         // exports belong to the original module. Looking only in either place
         // loses the other meaning.
         let target_type = self.get_type_of_symbol(target);
-        let value = self.get_property_of_type_ex(target_type, name.text, true);
+        let value = self.get_property_of_type_ex(target_type, name, true);
         let value_was_found = value.is_some();
         // This semantic resolver must not outrun the site-aware spelling lane.
         // A pure alias target can replace a written local type name with the
@@ -2158,8 +2202,8 @@ impl<'a> Checker<'a, '_> {
         // target's exports are carried over from the original module; its
         // unrelated value exports must not replace a target property.
         let target_exports = &self.binder.symbols().get(self.binder.merged_symbol(target)).exports;
-        let supplemental = target_exports.get(name.text).copied().or_else(|| {
-            let supplemental = self.get_export_of_module(module_symbol, name.text)?;
+        let supplemental = target_exports.get(name).copied().or_else(|| {
+            let supplemental = self.get_export_of_module(module_symbol, name)?;
             let flags = self.get_symbol_flags(supplemental);
             (flags.intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
                 && !flags.intersects(SymbolFlags::VALUE))
@@ -5829,11 +5873,14 @@ impl<'a> Checker<'a, '_> {
                 Err(())
             };
         };
-        if self.is_error(iterator) {
+        // `getIterationTypesOfIterableSlow` (`checker.go:6463`):
+        // `IsTypeAny(methodType)` answers all-`any`, upstream's `errorType`
+        // included (ADR-0048). Only the port's gap declines.
+        if self.is_gap(iterator) {
             return Err(());
         }
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         if self
             .get_property_of_type(source, name)
@@ -5849,7 +5896,7 @@ impl<'a> Checker<'a, '_> {
         let mut returns = Vec::new();
         for signature in signatures {
             if self.signature_min_argument_count(&signature) == 0 {
-                if self.is_error(signature.r#type) {
+                if self.is_gap(signature.r#type) {
                     return Err(());
                 }
                 returns.push(signature.r#type);
@@ -5859,8 +5906,10 @@ impl<'a> Checker<'a, '_> {
             return Ok(None);
         }
         let iterator = self.get_intersection_type(&returns, None);
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        // `getIterationTypesOfIteratorWorker` (`checker.go:6496`): the
+        // intersection is `IsTypeAny` when any return is, `errorType` too.
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         let mut yields = Vec::new();
         let mut has_iteration_types = false;
@@ -5880,7 +5929,7 @@ impl<'a> Checker<'a, '_> {
                 // for a missing method. Other methods may still yield.
                 continue;
             };
-            if self.is_error(method) {
+            if self.is_gap(method) {
                 return Err(());
             }
             if name == "next"
@@ -5893,8 +5942,10 @@ impl<'a> Checker<'a, '_> {
             if name != "next" {
                 method = self.get_non_nullable_type(method);
             }
-            if method == self.intrinsics.any {
-                return Ok(Some(vec![method]));
+            // `getIterationTypesOfMethod` (`checker.go:6555`):
+            // `IsTypeAny(methodType)` answers all-`any`, `errorType` included.
+            if self.is_type_any(method) {
+                return Ok(Some(vec![self.intrinsics.any]));
             }
             let signatures = if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
                 Vec::new()
@@ -5908,7 +5959,7 @@ impl<'a> Checker<'a, '_> {
             }
             has_iteration_types = true;
             let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
-            if returns.iter().any(|&ty| self.is_error(ty)) {
+            if returns.iter().any(|&ty| self.is_gap(ty)) {
                 return Err(());
             }
             let mut result = self.get_intersection_type(&returns, None);
@@ -5935,7 +5986,10 @@ impl<'a> Checker<'a, '_> {
                 crate::types::TypeData::Union { types, .. } => types,
                 _ => vec![result],
             };
-            if parts.contains(&self.intrinsics.any) {
+            // `getIterationTypesOfIteratorResult` (`checker.go:6650`):
+            // `IsTypeAny` on the result; a union holding an any-flagged
+            // constituent (`errorType` too) is that constituent natively.
+            if parts.iter().any(|&part| self.is_type_any(part)) {
                 return Ok(Some(vec![self.intrinsics.any]));
             }
             // getIterationTypesOfIteratorResult filters yield and return

@@ -13,7 +13,6 @@
 //! is exactly what [ADR-0012](../../../docs/adr/0012-ast-is-sync.md) rules out —
 //! and the binder's output has to be readable from every checker thread at once.
 
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -21,7 +20,7 @@ use tsr_ast::NodeId;
 
 /// Index of a symbol in a [`SymbolStore`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SymbolId(u32);
+pub struct SymbolId(pub(crate) u32);
 
 impl SymbolId {
     pub(crate) fn relocated(self, base: usize) -> Self {
@@ -331,8 +330,7 @@ pub struct Symbol<'a> {
     pub export_symbol: Option<SymbolId>,
 }
 
-/// Names to symbols, within one scope.
-pub type SymbolTable<'a> = FxHashMap<&'a str, SymbolId>;
+pub use crate::symbol_table::SymbolTable;
 
 /// A symbol's native nil-or-present member/export table.
 /// Reads preserve absence. Initialization and insertion publish a present table;
@@ -444,9 +442,8 @@ impl<'a> SymbolTableField<'a> {
 }
 
 /// Borrowed iteration over a possibly absent symbol table.
-pub type SymbolTableFieldIter<'s, 'a> = std::iter::Flatten<
-    std::option::IntoIter<std::collections::hash_map::Iter<'s, &'a str, SymbolId>>,
->;
+pub type SymbolTableFieldIter<'s, 'a> =
+    std::iter::Flatten<std::option::IntoIter<crate::symbol_table::Iter<'s, 'a>>>;
 
 impl<'s, 'a> IntoIterator for &'s SymbolTableField<'a> {
     type Item = (&'s &'a str, &'s SymbolId);

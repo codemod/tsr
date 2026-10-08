@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8234/9538 (86.33%)
-Assertion lines: 471335/478855 (98.43%)  — a gradient, not a pass rate
-Failed         : 1304
+Passed         : 8247/9538 (86.46%)
+Assertion lines: 471402/478855 (98.44%)  — a gradient, not a pass rate
+Failed         : 1291
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1304 failures:
+First 100 of 1291 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -45,10 +45,6 @@ compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: any) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : <TBase extends Constructor>(Base: TBase) => any — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
-compiler/arguments
-  arguments.ts: >method : any — expected >method : (args: typeof arguments) => void
-compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
-  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >a : any — expected >a : (x?: any) => void
 compiler/arrayBindingPatternOmittedExpressions
   arrayBindingPatternOmittedExpressions.ts: >f : any — expected >f : ([, a, , b, , , , s, , ,]?: string[]) => void
 compiler/arrayDestructuringInSwitch2
@@ -97,8 +93,6 @@ compiler/baseConstraintOfDecorator
   baseConstraintOfDecorator.ts: >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : typeof decoratorFunc — expected >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : { new (...args: any[]): decoratorFunc; prototype: classExtender2.decoratorFunc; } & TFunction
 compiler/baseExpressionTypeParameters
   baseExpressionTypeParameters.ts: >base<T>() : Base — expected >base<T>() : base.Base
-compiler/bigintArbirtraryIdentifier
-  correctUse.ts: >foo : any — expected >foo : 0n
 compiler/bigintIndex
   a.ts: >key : any — expected >key : string | number | symbol
 compiler/bigintPropertyName
@@ -213,3 +207,9 @@ compiler/conditionalTypeContextualTypeSimplificationsSuceeds
   conditionalTypeContextualTypeSimplificationsSuceeds.ts: >{ when: value => false } : error — expected >{ when: value => false } : { when: (value: string) => false; }
 compiler/conditionalTypeGenericInSignatureTypeParameterConstraint
   conditionalTypeGenericInSignatureTypeParameterConstraint.ts: >H_inline1 : H_inline1<x> — expected >H_inline1 : x
+compiler/conflictMarkerTrivia3
+  conflictMarkerTrivia3.tsx: 16 assertion(s), expected 4
+compiler/conflictingDeclarationsImportFromNamespace1
+  node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
+compiler/conflictingDeclarationsImportFromNamespace2
+  node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic

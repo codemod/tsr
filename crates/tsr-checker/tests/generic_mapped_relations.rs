@@ -130,3 +130,27 @@ function f5<T, U>(k: keyof T | keyof U, j: keyof T & keyof U) {
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+/// getSimplifiedIndexedAccessType's generic-mapped arm
+/// (`docs/parity/notes/r5-relater6.md` §1): `Partial<T>[K]` is related as
+/// `T[K] | undefined` and `Readonly<U>[K]` as `U[K]`.
+#[test]
+fn indexed_access_of_a_generic_mapped_type_is_substituted() {
+    let source = r#"function f10<T>(x: T, y: Partial<T>, k: keyof T) {
+    x[k] = y[k]; // error
+    y[k] = x[k];
+}
+function f12<T, U extends T, K extends keyof T>(x: T, y: Partial<U>, k: K) {
+    x[k] = y[k]; // error
+    y[k] = x[k]; // error
+}
+function f20<T, U extends T, K extends keyof T>(x: T, y: Readonly<U>, k: K) {
+    x[k] = y[k];
+    y[k] = x[k]; // error
+}
+function f30<T, K extends keyof T>(y: Required<Partial<T>>, k: K) {
+    const v: T[K] = y[k]; // error
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

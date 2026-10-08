@@ -476,3 +476,169 @@ The freed slot went to r5-missingprop, picked from the batch-T base clusters:
 TS2353. Also from those clusters: the gate's "gains" figure counts only
 WRONG→RIGHT, not EMPTY_WRONG→EMPTY_RIGHT. That explains why batch T showed +2
 cases where the boxes measured about +5.
+
+### Batch V merged from green box heads; r5-relater6 dispatched (`tsr-2zk.1051`)
+
+With the queue idle, batch V merges the green heads of four boxes ahead of their
+final reports: r5-declared, r5-relater5, r5-mapped3 and r5-vardecl. A box pushes
+only commits that pass its own gate, and the batch gate re-proves them together.
+
+r5-relater5 finished with `fe31884`: the generic mapped relation arms
+(mappedTypeRelatedTo and the generic-mapped source/target arms) and decidable
+IA/keyof endings. That is +3 cases, 33 diagnostic lines and +2 type lines,
+with no losses and Ir down 0.09%. It declined three pieces, each because a
+measured loss names an upstream piece that is missing:
+- the mapped iteration-parameter constraint (`tsr-2zk.1053`);
+- IAM;
+- inferFromObjectTypes' mapped arm (`.1052`).
+
+Its successor, r5-relater6, takes IAM, Unknown for unprovable generic keys
+(`.1049`, which unblocks TS2536), the as-clause mapped types, IAW, B16, and a
+cached isDiscriminantProperty. The uncached version measured +0.41% Ir.
+
+### r5-vardecl finished; r5-instexpr dispatched
+
+r5-vardecl made three changes:
+- checkVariableLikeDeclaration's and checkAccessorDeclaration's getTypeOfSymbol
+  call (TS2502 on unused self-references), with three declines that wait on
+  deferred resolution;
+- identity's generic-mapped arms;
+- TS2371 in parameter patterns.
+
+That is +8 cases with no losses. Running the structural identity arm on
+inferred operands was refused: +3/−5 cases. Its remainder outside the lane is
+filed as `tsr-2zk.1054` (flow.rs) and `.1055` (relater.rs).
+
+The freed slot went to r5-instexpr. The obvious diagnostic clusters (TS7006,
+TS2339/TS18046, TS2345/TS2769) are main's active lanes (`.11`, `.4`, `.9`), so
+the lane was picked from the type-line clusters instead: instantiation
+expressions (`tsr-2zk.1006`; instantiationExpressionErrors alone has 66 WRONG
+lines) and unique-symbol identity (`.1005`; uniqueSymbolsErrors has 34).
+
+### r5-mapped3 finished; r5-mapped4 dispatched (`tsr-2zk.1056`)
+
+r5-mapped3 landed `f5ea71e9`: the any arms of resolveMappedTypeMembers,
+template optionality, and the non-generic mapped print split. That is +30
+type lines and +2 cases, with Ir +0.05%. Its enum-keys diff touches mapped.rs
+plus flow.rs's tryGetNameFromEntityNameExpression and lands in batch W, for
++12 type lines and no losses. The mapped half alone loses 2 cases, so the two
+halves land together.
+
+The declared-route diff (net +56 type lines, +1 case) waits on two print fixes.
+One is keyof-origin parenthesization in intersections.rs (13 lines). The other
+is node reuse for a signature's type-parameter constraint (6 lines). r5-mapped4
+takes both, and also `.1053`.
+
+Box finding: varianceProblingAndZeroOrderIndexSignatureRelationsAlign peaks at
+about 13.6 GB RSS even on the base. This is the memory-headroom risk behind
+`tsr-2zk.1041`.
+
+### r5-symtab finished (ADR-0049); r5-checkperf dispatched
+
+r5-symtab replaced the FxHashMap SymbolTable with an insertion-ordered table:
+a Vec of entries, plus a boxed open-addressing index above 8 names. It is the
+same size and keeps the same method names, so no checker file changed. Ir fell
+0.15% on generic-imports and 0.73% on domain-model. The diagnostics dump is
+identical, and 13 type lines reorder toward tsgo, 3 of them WRONG→RIGHT.
+
+Pre-sizing was measured at about ±0.05% and refused. The rehash cost it was
+meant to remove came from hashbrown's doubling, which the Vec table does not do.
+
+The correction recorded by r5-symtab: TSR has 59 checker iteration sites over
+binder tables, not 97. Only 5 of them are order-observable. Porting
+getNamedMembers' sort at those sites is filed as `tsr-2zk.1057`.
+
+The freed slot went to r5-checkperf. Domain-model's wall is about half checker,
+and this round's three perf lanes were all front end. It takes `.967`, `.998`,
+`.997`, `.996` and `.935`, with byte-identical outputs.
+
+### r5-modexports finished; r5-typetriage dispatched (`tsr-2zk.1058`)
+
+r5-modexports shipped both items as measured diffs, because symbols.rs is
+main's file. Both land in batch W:
+- string-literal export names in getExternalModuleMember: +175 type lines,
+  +1 case;
+- getTypeWithSyntheticDefaultOnly, createDefaultPropertyWrapperForModule and the
+  synthetic-default import type: +305 type lines.
+
+Neither loses anything, and Ir stays within ±0.03% noise. The remainder is
+filed as `.1059` (declared.rs alias road) and `.1060` (JSON file flags, and the
+export= import() decline). The spread method-form print goes to r5-typetriage.
+
+The freed slot went to r5-typetriage. The integrator's clusters are keyed on
+diagnostic codes, which fits type-print failures badly. With ~7,400 type lines
+still WRONG, the next lanes need a root-cause table ranked by the number of
+cases each cause alone blocks.
+
+### r5-declared finished; r5-declared2 dispatched (`tsr-2zk.1061`)
+
+r5-declared landed two commits:
+- `08095b7`, `.1034`: inline deferred conditionals carry CONDITIONAL, with the
+  distributive constraint and forConstraint (+3 cases). The flags diff's 0:71
+  loss was not in flow.rs: the inline mint had no constraint.
+- `e9d15e8`, `.979`: qualified alias and enum references answer a twin of the
+  declared type (+1 case).
+
+Its isEnumTypeRelatedTo diff in relater.rs lands in batch W and is gated
+unfiltered there. The intersection-alias diff, which covers `.1010` and alias
+naming together, measured +60 lines and +3 cases filtered but loses 1 line and
+1 case. It is held as `.1061` for r5-declared2, the next single owner of
+declared.rs, which also takes `.1042`, `.1043` and `.1059`.
+
+### Type-line triage landed (r5-typetriage)
+
+r5-typetriage clustered the 7,379 WRONG and 988 GAP type lines (1,517 cases) by
+root cause. Its cases.tsv, lines.tsv and classify.py regenerate the table at
+any head.
+
+Cases solely blocked, by owner:
+
+| Owner | Cases solely blocked |
+|---|---|
+| Unclaimed | 175 |
+| r5-declared | 155 |
+| JS-file lines | 113 |
+| Symbol-chain printer (main `.39`) | 93 |
+| errorType GAP | 93 |
+| Module exports | 71 |
+| Unaligned lines | 52 |
+
+The unclaimed causes are now filed or claimed:
+- `.1062`: function-declaration type answers error (14 cases).
+- `.1063`: object-literal `this` (11 cases, main's contextual.rs).
+- `.1064`: flow undefined/optionality (26 cases, main's flow.rs, needs a split
+  by construct).
+- `.16.65` (T_1 rename, 21 cases) and `.16.233` (escaping) go to r5-typetriage,
+  which owns printing.rs.
+
+### r5-harness finished; gate v3 (`tsr-2zk.1041` closed)
+
+Both dumps now run every case under case_guard. It appends `ms=`/`mib=`
+columns and writes PANIC, OOM or TIMEOUT marker rows; the dump exits 3 or 134.
+`examples/slowcases` compares a base and a new dump. On 99b337b the case that
+used to read EMPTY_RIGHT now stops as OOM.
+
+The integrator's gate moves to v3 (`bgate_core3.sh`) at batch Y:
+- **A base-RIGHT key absent from the new dump is a loss.** The old `join` dropped
+  such keys silently (r5-harness §5 item 8). Checked against the current base
+  itself: 0 missing.
+- **slowcases runs on both dumps** once the base carries guard columns. Batch Y
+  is the first guarded freeze, so it skips the check there.
+- **A dump that exits non-zero stops the gate**, through `set -e`/pipefail.
+
+Already over budget, recorded as KNOWN_SLOW:
+- both varianceProbling cases;
+- relationComplexityError;
+- performanceComparison…GenericSignatures.
+
+Profiles became issues: `.1065` (relationCount/TS2859), `.1066` (instantiation
+depth, which goes to r5-declared2), `.1067` (template literal matching), `.1068`
+(variance probing) and `.1069` (timing pass for known-divergence cases).
+The freed slot went to r5-funcdecl (`.1062`, `.1067`). `.37` closed as a duplicate. `.46` got 8 MiB workers everywhere; its root
+cause was not reproduced in 27 full runs.
+
+Integrator process note: in batch W the queue skipped `bmerge r5-declared`, so `e9d15e8`
+(`.979` qualified twins) did not land and only its enum diff did. The cause: I inserted
+lines at the index of the command that was currently running. The runner then re-ran
+that batch's gate and stepped over the inserted line. `e9d15e8` lands through r5-declared2's branch.
+The queue is append-only again, and inserts go strictly after the running line.

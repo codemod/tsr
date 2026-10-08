@@ -818,6 +818,12 @@ pub struct Checker<'a, 'n> {
     /// Module copies have distinct identity, but share their source's property
     /// symbols. Native cloneTypeAsModuleType's originating import/target links.
     pub(crate) module_value_clones: FxHashMap<TypeId, (SymbolId, TypeId)>,
+    /// Native `cachedTypes` under `CachedTypeKindDefaultOnlyType` and
+    /// `CachedTypeKindSyntheticType` (`checker.go:15632`, `:15646`), keyed by
+    /// the module value type. `crate::module_exports`; its convention record
+    /// is `docs/parity/notes/r5-modexports.md` §3.
+    pub(crate) synthetic_default_types:
+        FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
     pub(crate) any_function_type: Option<TypeId>,
     /// `ObjectFlagsNonInferrableType` on `SkipContextSensitive` object images.
@@ -1526,6 +1532,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 (intrinsics.unknown_empty_object, (Vec::new(), true)),
             ]),
             module_value_clones: FxHashMap::default(),
+            synthetic_default_types: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
             any_function_type: None,
             non_inferrable_types: rustc_hash::FxHashSet::default(),

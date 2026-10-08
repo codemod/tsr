@@ -1,0 +1,48 @@
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index a1f38e3..09bfb3a 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -838,7 +838,11 @@ impl<'a> Checker<'a, '_> {
+             let mut current = declaration;
+             loop {
+                 match self.nodes.kind(current) {
+-                    SyntaxKind::ImportEqualsDeclaration | SyntaxKind::ImportDeclaration => {
++                    // A JSDoc `@import` is native's reparsed
++                    // `JSImportDeclaration`, an `ImportDeclaration` kind.
++                    SyntaxKind::ImportEqualsDeclaration
++                    | SyntaxKind::ImportDeclaration
++                    | SyntaxKind::JSDocImportTag => {
+                         import_statement = Some(current);
+                         break;
+                     }
+@@ -854,10 +858,12 @@ impl<'a> Checker<'a, '_> {
+             }
+             if let Some(statement) = import_statement
+                 && !self.has_export_keyword(statement)
+-                && self
+-                    .nodes
+-                    .parent(statement)
+-                    .is_some_and(|parent| self.is_declaration_visible(parent))
++                && if self.nodes.kind(statement) == SyntaxKind::JSDocImportTag {
++                    self.jsdoc_import_declaration_parent(statement)
++                } else {
++                    self.nodes.parent(statement)
++                }
++                .is_some_and(|parent| self.is_declaration_visible(parent))
+             {
+                 continue;
+             }
+diff --git a/crates/tsr-checker/src/jsdoc_params.rs b/crates/tsr-checker/src/jsdoc_params.rs
+--- a/crates/tsr-checker/src/jsdoc_params.rs
++++ b/crates/tsr-checker/src/jsdoc_params.rs
+@@ -723,10 +723,6 @@
+     /// statement of the nearest `SourceFile`, `Block` or `ModuleBlock`
+     /// enclosing the comment's host. `getAnyImportSyntax`'s callers ask
+     /// whether that parent is visible (`hasVisibleDeclarations`).
+-    #[expect(
+-        dead_code,
+-        reason = "read by docs/parity/notes/r5-jsdoc3-node-reuse-jsdoc-import.diff"
+-    )]
+     pub(crate) fn jsdoc_import_declaration_parent(&self, import_tag: NodeId) -> Option<NodeId> {
+         let mut current = import_tag;
+         while let Some(parent) = self.nodes.parent(current) {

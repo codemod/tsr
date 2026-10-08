@@ -96,8 +96,17 @@ enum-literal key type.
 
 Held as [`r5-mapped3-enum-keys.diff`](r5-mapped3-enum-keys.diff): the
 `mapped.rs` arm plus the `flow.rs` port. It lands once main's flow lane
-takes the flow half; the mapped half must not land alone. The pair's
-unfiltered measurement is not yet recorded here.
+takes the flow half; the mapped half must not land alone.
+
+**The pair, measured unfiltered** on top of `f5ea71e9`: types +12 RIGHT
+(`typeGuardNarrowsIndexedAccessOfKnownProperty11`/`12` ×5 each,
+`numericEnumMappedType` ×2), diagnostics unchanged, **zero losses**
+against both the frozen baseline and `f5ea71e9`. Three lines move
+GAP → WRONG in `reducibleIndexedAccessTypes` (`{ 0: (data: string) =>
+void; }` prints `data: string | number | { x: number; y: number; }`): the
+template `Payload[K]` under an enum-literal `K` answers the whole value
+union, an indexed-access gap for enum-literal index types, not a mapped
+one.
 
 ## 3. Mapped nodes printed from their parts (held: `declared.rs`)
 
@@ -132,8 +141,17 @@ mappedTypeWithAny and the `.16.108` cases): `bigintIndex` ×5,
   members. Native reuses the written constraint node there
   (`tryReuseExistingTypeNode`). Owner: `signatures.rs`/`node_reuse.rs`.
 
-Not landable until both are taken. The diff has not been measured
-unfiltered yet.
+**Measured unfiltered** on top of `f5ea71e9`: types 543,942 → 543,998
+RIGHT (+75 converted, 19 lost, net +56), diagnostics +1 case
+(`bigintIndex`), no diagnostics loss. The 19 type losses are exactly the
+two causes above: 13 lines of `keyof X` parenthesized inside an
+intersection (`reverseMappedTypeIntersectionConstraint` ×10,
+`mappedTypeAsClauses` ×2, `reverseMappedTupleContext`), and 6 lines of a
+signature's type-parameter constraint printed from members
+(`mappedTypeContextualTypesApplied` ×4,
+`contextualTypeBasedOnIntersectionWithAnyInTheMix3` ×2). Not landable
+until `intersections.rs` stops parenthesizing an index-origin union and
+the signature printer reuses written constraint nodes; then re-measure.
 
 ## 4. `tsr-2zk.948` — the repro already passes
 

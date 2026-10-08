@@ -73,7 +73,7 @@ impl Checker<'_, '_> {
 
     /// Native getSpreadType folds whole types before resolving concrete members.
     /// Union distribution and generic intersections must precede property lookup.
-    fn get_spread_type(
+    pub(crate) fn get_spread_type(
         &mut self,
         mut left: TypeId,
         mut right: TypeId,
