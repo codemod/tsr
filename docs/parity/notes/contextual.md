@@ -457,3 +457,26 @@ union constituents) there. Other instantiable written types still stay as
 written: this port's base constraint of `{ [P in K]: … }[K]` is not the
 distributed union upstream discriminates (correlatedUnions would lose 3 rows).
 No state.
+
+## 20. Return widening reads the contextual return through the return mapper (tsr-2zk.16.132)
+
+`getReturnTypeFromBody` (`checker.go:20213`) widens a unit return against
+`instantiateContextualType(getReturnTypeOfSignature(sig), fn,
+ContextFlagsNone)`. During inference the contextual signature's return keeps
+the callee's type parameters (object types are not instantiated by
+`instantiateInstantiableTypes`), so only the return mapper applies:
+`(): Promise<'S' | 'E'> => then(() => 'E')` keeps `() => "E"`, while a
+`Promise<string>` context gives `() => string` (tsgo diagnostics, both).
+`contextual_return_widening_type` now applies
+`instantiate_contextual_type_without_signature` inside a live inference
+context; that function also gained upstream's
+`maybeTypeOfKind(contextualType, Instantiable)` gate, without which a concrete
+`boolean` lost its literals to the #48363 filter
+(subtypeReductionWithAnyFunctionType). No state. Not reached on
+benches/projects/domain-model (counted: 0 calls).
+
+Blocked (reported): with an alias union argument (`type DooDad = 'S' | 'E'`)
+`instantiate_signature` fails because `get_union_type([DooDad,
+PromiseLike<DooDad>])` returns error at unions.rs's §53 origin slice gate (an
+alias-union entry beside an object entry); `g<D>()` for
+`g<R>(): R | PromiseLike<R>` prints `error` today.

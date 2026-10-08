@@ -628,6 +628,11 @@ impl<'a> Checker<'a, '_> {
         if self.contextual_prefers_uninstantiated {
             return ty;
         }
+        // `maybeTypeOfKind(contextualType, TypeFlagsInstantiable)` gates the
+        // whole instantiation: a concrete `boolean` is never filtered.
+        if !self.maybe_type_of_kind(ty, crate::flags::TypeFlags::INSTANTIABLE) {
+            return ty;
+        }
         if self.live_inference_context(node).is_some() {
             if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
                 let names: Vec<_> = names.iter().map(String::as_str).collect();
@@ -1874,6 +1879,18 @@ impl<'a> Checker<'a, '_> {
         function: NodeId,
         contextual: TypeId,
     ) -> Option<TypeId> {
+        // getReturnTypeFromBody (`checker.go:20213`) reads
+        // `instantiateContextualType(getReturnTypeOfSignature(sig), fn,
+        // ContextFlagsNone)`: during inference the contextual signature's
+        // return keeps the callee's type parameters, and only the return
+        // mapper's inferences apply — `(): Promise<D> => then(() => 'E')`
+        // keeps `"E"` against `R | PromiseLike<R>` with `R` = `D`. Outside a
+        // live inference context the signature is already instantiated.
+        let contextual = if self.live_inference_context(function).is_some() {
+            self.instantiate_contextual_type_without_signature(contextual, function)
+        } else {
+            contextual
+        };
         if !self.contextual_function_is_async(function) {
             return Some(contextual);
         }
