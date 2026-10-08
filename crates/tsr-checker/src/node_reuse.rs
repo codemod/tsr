@@ -246,6 +246,18 @@ fn text_precedence(text: &str) -> Precedence {
     }
 }
 
+/// `emitTypeNode(node, TypePrecedenceIntersection)` (`printer.go:2274`)
+/// parenthesises a constituent whose node binds below `Intersection`. A
+/// constituent's node kind is only available here as its printed text, so it
+/// is read by [`text_precedence`], the same reader the fallback print uses.
+/// A union's text is its ORIGIN's print when it has one: `keyof NameMap` is a
+/// `TypeOperator` node (getIndexType's `newIndexType` origin), an alias
+/// spelling a `TypeReference`, and an intersection origin an
+/// `IntersectionType`; none of those is parenthesised.
+pub(crate) fn binds_below_intersection(text: &str) -> bool {
+    text_precedence(text) < Precedence::Intersection
+}
+
 /// A string literal printed with its WRITTEN quote character — the clone keeps
 /// `TokenFlagsSingleQuote` (`nodecopy.go:811`), and the emitter's
 /// `getLiteralText` escapes for that quote.
