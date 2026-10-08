@@ -489,6 +489,45 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// The `Type` `reparseHosted`'s `KindJSDocTypeTag` arm
+    /// (`parser/reparser.go:356`) gives a declaration from its **own**
+    /// comment, for the hosts `jsdoc_type_annotation`'s statement walk does
+    /// not reach: an unannotated class property (`#private` and computed
+    /// names included), an object-literal property assignment and a
+    /// catch-clause variable. The first `@type` with a
+    /// type expression in the last comment wins (`reparseTags`' `isLast`;
+    /// a later tag fails `parent.Type() == nil`).
+    ///
+    /// No cache: one `jsdoc_entries` probe that almost always misses, then
+    /// one comment's tags, and only in a JS file.
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc3-hosted-declaration-types.diff"
+    )]
+    pub(crate) fn jsdoc_self_hosted_type(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        let doc = self.jsdoc_entries.get(&declaration)?.last()?;
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        match self.node_map.get(declaration)? {
+            Node::PropertyDeclaration(property) if property.r#type.is_none() => {}
+            Node::PropertyAssignment(property) if property.r#type.is_none() => {}
+            Node::VariableDeclaration(variable)
+                if variable.r#type.is_none()
+                    && self.nodes.parent(declaration).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::CatchClause
+                    }) => {}
+            _ => return None,
+        }
+        doc.tags.iter().find_map(|tag| match tag {
+            JSDocTag::JSDocTypeTag(tag) => match tag.type_expression {
+                Some(Node::JSDocTypeExpression(expression)) => expression.r#type,
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
     /// Whether `makeQuestionIfOptional` (`parser/reparser.go`) gave
     /// `parameter` a reparsed `?`: its function's last comment has a
     /// matching `@param [x]` or `@param {T=} x`, and nothing wrote a `?`.
@@ -673,6 +712,74 @@ impl<'a> Checker<'a, '_> {
                 if declares { HostTypeArm::Always } else { HostTypeArm::None }
             }
             _ => HostTypeArm::None,
+        }
+    }
+
+    /// `BinaryExpression.Type` as `reparseHosted`'s `KindJSDocTypeTag` arm
+    /// sets it (`parser/reparser.go:369`): in a JS file, an assignment
+    /// declaration that is its statement's expression takes the statement's
+    /// `@type`. Read by `getContextualTypeForBinaryOperand`'s first line
+    /// (`checker.go:29811`).
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
+    )]
+    pub(crate) fn jsdoc_binary_type(
+        &self,
+        binary_id: NodeId,
+        binary: &tsr_ast::BinaryExpression<'_>,
+    ) -> Option<TypeNode<'a>> {
+        let statement = self.nodes.parent(binary_id)?;
+        if self.nodes.kind(statement) != SyntaxKind::ExpressionStatement
+            || !self.in_js_file(binary_id)
+            || !self.is_assignment_declaration(binary)
+        {
+            return None;
+        }
+        self.jsdoc_cast_annotation(statement)
+    }
+
+    /// An `ExportAssignment`'s `Type()`: only ever the `@type` that
+    /// `reparseHosted`'s `KindJSDocTypeTag` arm (`parser/reparser.go:356`)
+    /// copies onto it in a JS file — the type `checkExportAssignment`
+    /// checks the expression against (`check_jsdoc_annotated_initializer`)
+    /// and `getContextualType`'s `KindExportAssignment` arm answers.
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
+    )]
+    pub(crate) fn jsdoc_export_assignment_type(&self, node: NodeId) -> Option<TypeNode<'a>> {
+        if !self.in_js_file(node) {
+            return None;
+        }
+        self.jsdoc_cast_annotation(node)
+    }
+
+    /// The parent of the `JSImportDeclaration` that `reparseUnhosted`'s
+    /// `KindJSDocImportTag` arm (`parser/reparser.go:119`) makes of an
+    /// `@import` tag: `parseListIndex` (`parser.go:613`) propagates it out
+    /// of every list but a source file's or a block's statements, so it is a
+    /// statement of the nearest `SourceFile`, `Block` or `ModuleBlock`
+    /// enclosing the comment's host. `getAnyImportSyntax`'s callers ask
+    /// whether that parent is visible (`hasVisibleDeclarations`).
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc3-node-reuse-jsdoc-import.diff"
+    )]
+    pub(crate) fn jsdoc_import_declaration_parent(&self, import_tag: NodeId) -> Option<NodeId> {
+        let mut current = import_tag;
+        while let Some(parent) = self.nodes.parent(current) {
+            current = parent;
+        }
+        let mut current = self.nodes.parent(*self.jsdoc_hosts.get(&current)?)?;
+        loop {
+            if matches!(
+                self.nodes.kind(current),
+                SyntaxKind::SourceFile | SyntaxKind::Block | SyntaxKind::ModuleBlock
+            ) {
+                return Some(current);
+            }
+            current = self.nodes.parent(current)?;
         }
     }
 
