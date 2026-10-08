@@ -530,3 +530,6 @@ per-file flag must become per-node.
 - Legacy octal literals (`scanNumber`): when the previous token is `-`, the
   TS1121 report starts one character earlier and suggests `-0o…`, exactly as
   the scanner does (it reads its still-current previous token).
+- `'{0}' expected` arguments use `scanner.TokenToString`: the full inverted
+  `textToToken` table for punctuation (`...`, `</`, …) and keyword text,
+  never a `SyntaxKind` name.
