@@ -283,8 +283,14 @@ impl Checker<'_, '_> {
         }
         // `core.OrElse(node.Name(), node)`.
         let at = self.declaration_name_of(node).unwrap_or(node);
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
+        // `checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`:
+        // `isRelatedToEx`'s common-property check (`relater.go:2676`) fails a
+        // weak target first and reports TS2559 with no head message.
+        if self.report_weak_type_failure(at, span, source, target) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));

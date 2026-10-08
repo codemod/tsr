@@ -3217,7 +3217,7 @@ impl<'a> Checker<'a, '_> {
     /// against `null`/`undefined` plus one other type is related to that
     /// type. TS2560 when the source's first call (or construct) signature
     /// returns a type related to the target. Answers whether it reported.
-    fn report_weak_type_failure(
+    pub(crate) fn report_weak_type_failure(
         &mut self,
         at: NodeId,
         span: tsr_core::Span,
