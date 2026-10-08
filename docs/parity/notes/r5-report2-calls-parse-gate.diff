@@ -1,0 +1,56 @@
+diff --git a/crates/tsr-checker/src/call_arity.rs b/crates/tsr-checker/src/call_arity.rs
+index c1ec663..4be5e87 100644
+--- a/crates/tsr-checker/src/call_arity.rs
++++ b/crates/tsr-checker/src/call_arity.rs
+@@ -33,7 +33,7 @@ impl<'a> Checker<'a, '_> {
+     /// the caller decided arity from the callee type's signatures
+     /// ([`Checker::check_argument_arity_of_signatures`]).
+     pub(crate) fn check_call_arity(&mut self, node: NodeId, syntactic_arity: bool) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
+@@ -190,7 +190,7 @@ impl<'a> Checker<'a, '_> {
+     /// whole `new` expression rather than on `C`.
+     /// `syntactic_arity` as for [`Checker::check_call_arity`].
+     pub(crate) fn check_new_arity(&mut self, node: NodeId, syntactic_arity: bool) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index d25efe9..2c4c352 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -734,9 +734,6 @@ impl Checker<'_, '_> {
+ 
+     /// Every diagnostic `resolveCallExpression` issues for one call node.
+     pub(crate) fn check_call_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node)
+             && let Some(Expression::KeywordExpression(keyword)) = call.expression
+             && keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
+@@ -2133,9 +2130,6 @@ impl Checker<'_, '_> {
+     /// `noImplicitAny`, a non-`void` return is TS2350; else
+     /// `invocationError(Construct)` is TS2351 on the callee.
+     pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         match self.check_new_expression_head(node) {
+             CallHead::Done => {}
+             CallHead::Resolve(apparent) => {
+@@ -2177,9 +2171,6 @@ impl Checker<'_, '_> {
+     /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
+     /// template is an array element (a likely missing comma).
+     pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+             return;
+         };

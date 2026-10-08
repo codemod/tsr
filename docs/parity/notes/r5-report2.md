@@ -252,3 +252,43 @@ hiding in files that happen to carry a parse error:
 `check_new_arity` (`call_arity.rs`) carry the same gate. The diff removing it
 is [r5-report2-calls-parse-gate.diff](r5-report2-calls-parse-gate.diff),
 measured below on top of this lane's commits.
+
+### The calls.rs / call_arity.rs diff, measured
+
+[r5-report2-calls-parse-gate.diff](r5-report2-calls-parse-gate.diff) on top of
+`5f78d39`: **+18 cases, 5 losses**, so it is *not* landable as it stands.
+Converted: `objectCreationExpressionInFunctionParameter`,
+`taggedTemplatesWithIncompleteTemplateExpressions3`–`6`,
+`newOperatorErrorCases`, `parserMissingLambdaOpenBrace1`,
+`templateStringInObjectLiteral`(`ES6`), `templateStringInPropertyName1`/`2`,
+`templateStringInPropertyNameES6_1`/`_2`, `typeAssertions`; positions
+4842/1263 → 4792/1272. The losses are two recovery shapes the gate hid:
+- `super<T>()` (`superWithTypeArgument`, `errorSuperCalls`; also extra lines
+  in `superWithTypeArgument2`/`3`): TSR adds TS2558 at the type arguments.
+  Native's parser reports TS2754 there (`parser.go:5222`) and drops the type
+  arguments from the node, so the checker never sees them. The fix is the
+  parser's, then the gate can go.
+- A tagged template whose template is unterminated
+  (`taggedTemplatesWithIncompleteNoSubstitutionTemplate1`/`2`,
+  `taggedTemplatesWithIncompleteTemplateExpressions1`; also
+  `decoratorOnArrowFunction`): TSR adds TS2554 at the tag. Native's
+  `getEffectiveCallArguments`/`hasCorrectArity` treat an unterminated template
+  as having every argument (`isTaggedTemplate && !template.isUnterminated`
+  is the arity check's gate, `checker.go` `hasCorrectArity`), so no arity
+  error is possible.
+Both are `calls.rs`/`call_arity.rs` work for main's calls lane.
+
+## 4. unmatched_property_report's alias and single-base declines
+
+r5-report's §1 added `missing_property_chain`, which decides `chainArgsMatch`
+for the head swap from the normalized pair. With it,
+`unmatched_property_report`'s own alias and single-base declines
+(`relater.rs`, not owned) are redundant: the reference's members are the
+base's when the derived declares none, and an alias names the same members.
+[r5-report2-unmatched-property-declines.diff](r5-report2-unmatched-property-declines.diff)
+removes them. Measured on top of `5f78d39`: **no diagnostic line changes on
+either dump** (positions 4842/1263 before and after). Every pair that reached
+those declines is decided identically by the remaining code. It is a
+simplification with no measured effect; it may matter once the
+generic-reference-table diff (r5-report, landing in batch K) certifies generic
+references, which this measurement did not include.

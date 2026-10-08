@@ -1,0 +1,41 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index a03d732..b8adc63 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -821,32 +821,11 @@ impl Checker<'_, '_> {
+         {
+             return None;
+         }
+-        // reportErrorResults displays an aliased or single-base original type,
++        // reportErrorResults displays an aliased or single-base original type
+         // while the missing-property message names the normalized structure;
+-        // chainArgsMatch then fails and the head message stays. An alias image
+-        // or a generic class/interface reference that may normalize to its
+-        // single base (getSingleBaseForNonAugmentingSubtype) is left there.
+-        for side in [source, target] {
+-            if let TypeData::Named { members: Some(owner), .. } = self.type_of(side).data
+-                && self.binder.symbols().get(owner).flags.intersects(SymbolFlags::TYPE_ALIAS)
+-            {
+-                return None;
+-            }
+-            if let Some(&(owner, _)) = self.type_reference_targets.get(&side) {
+-                let flags = self.binder.symbols().get(owner).flags;
+-                if flags.intersects(SymbolFlags::TYPE_ALIAS) {
+-                    return None;
+-                }
+-                if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+-                    && self.binder.symbols().get(owner).members.iter().all(|(_, &member)| {
+-                        !self.binder.symbols().get(member).flags.intersects(SymbolFlags::VALUE)
+-                    })
+-                    && self.base_symbols_of_ex(owner, false).is_none_or(|bases| bases.len() == 1)
+-                {
+-                    return None;
+-                }
+-            }
+-        }
++        // whether chainArgsMatch then keeps the head is
++        // `missing_property_chain`'s question (assignreport.rs), asked of the
++        // names this returns.
+         let source_tuple = self.tuple_element_lists.contains_key(&source)
+             || self.variadic_tuple_elements.contains_key(&source);
+         let source_array = self.array_reference_readonly(source);
