@@ -267,6 +267,29 @@ cargo run -q --release -p tsr-conformance --example slowcases -- $B/cost.tsv $A/
 Run it alone, like the dumps. The pass's own exit status is 0 even with
 markers in it; `slowcases` is the gate. Its exit 1 lists the offenders.
 
+## 6. r5-harness §5 item 8: `scorepair` reports lines that change alignment
+
+A `verdict_rows` row exists only for an aligned line. `scorepair` built its
+matrix from baseline keys present in both runs. A RIGHT line whose expression
+stopped aligning therefore had no current row and was skipped. It left the
+matrix silently, even though it is exactly the loss the gate exists to catch.
+§1's fixes make the other direction common as well: 3,758 lines started
+aligning, and none of them showed as a transition.
+
+The fix: a key on one side only is a transition to or from `UNALIGNED`. Losing
+a RIGHT line (`RIGHT->UNALIGNED`) is adverse, under the existing rule (`from ==
+RIGHT && to != RIGHT`), so it prints with `⚠` and its first keys. A newly
+aligned line is `UNALIGNED-><verdict>`. A panicked case's `case:*:*` marker
+row reads `UNALIGNED->PANIC`, beside the existing `PANIC ⚠` line, and its lost
+RIGHT lines read `RIGHT->UNALIGNED`.
+
+Verified with a hand-made baseline: the base rows of
+`compiler/requireOfJsonFile` plus a fabricated `…:0:999 RIGHT` key give
+`RIGHT->UNALIGNED: 1 ⚠` naming that key. Before the change, the same baseline
+printed no transition for it. `parity_gate.sh compare` already counts such a
+key as `TYPE_MISSING`. The hand-rolled `join` in `box-protocol.md` §5.2 still
+drops it, so the integrator's gate should keep its missing-key check.
+
 ## 4. Follow-ups
 
 - **`noCircularitySelfReferentialGetter2` hangs** (§5): over 120 s and
