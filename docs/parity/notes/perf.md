@@ -487,3 +487,27 @@ property miss of an object type (the `Function`/`Object` augment test).
 
 Dumps byte-identical to the base. Checker-0 CPU −6% against the previous
 step (15 pairs).
+
+### §15.6 Declared property names publish once per owner
+
+Native op: `getPropertiesOfType` over `resolveClassOrInterfaceMembers`
+(pinned 5b1047d): a declared type's own members then `addInheritedMembers`,
+resolved once on the structured type. TSR's `get_property_names_of_type`
+(`members.rs`, `Named` arm) re-ran `collect_structured_property_names` — the
+own table sorted by `compareSymbols`, late-bound names, then every base —
+per query; relation (`is_pure_signature_type`, excess-property checks) asks
+it repeatedly for the same targets.
+
+- **Key and owner:** the `Named` type's member owner symbol → names, in
+  `Checker::structured_property_names`, private to the checker. Type
+  arguments do not rename members, so `Foo<A>` and `Foo<B>` share the entry.
+- **Publication:** only a completed walk (`true`) is stored, and only when
+  no `late_bound_members_of` worker is active (`late_bound_active`, new): an
+  active worker leaves an empty placeholder in `late_bound_member_names`
+  that a walk could have read. A failed walk (unfollowable base) recomputes.
+- **Work boundary:** domain-model-large: 42k queries over 2.4k owners
+  (all checkers); `get_property_names_of_type` 3.9% → 1.3% of checker 0.
+  Total CPU −3.6% (21 pairs); checker 0's own time is flat (most repeat
+  queries were on checkers 1–3).
+
+Dumps byte-identical to the base.

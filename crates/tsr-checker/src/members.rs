@@ -2846,6 +2846,7 @@ impl Checker<'_, '_> {
             return members.clone();
         }
         self.late_bound_member_names.insert(cache_key, Vec::new());
+        self.late_bound_active += 1;
         let declarations: Vec<tsr_ast::NodeId> =
             self.binder.symbols().get(owner).declarations.iter().copied().collect();
         let mut out = Vec::new();
@@ -2921,6 +2922,7 @@ impl Checker<'_, '_> {
             }
         }
         self.late_bound_member_names.insert(cache_key, out.clone());
+        self.late_bound_active -= 1;
         out
     }
 
@@ -3220,9 +3222,26 @@ impl Checker<'_, '_> {
         if let Some(names) = self.mapped_alias_literal_key_names(id, owner) {
             return Some(names);
         }
+        // getPropertiesOfType over resolveClassOrInterfaceMembers (pinned
+        // 5b1047d): the declared type's own-then-inherited properties are
+        // resolved once and read thereafter. Names depend only on the owner
+        // (type arguments do not rename), so the completed walk is kept per
+        // owner symbol. A failed walk (`false`: an unfollowable base) is not
+        // stored and recomputes. Nor is a walk finished while any
+        // `late_bound_members_of` worker is active, since it may have read
+        // that worker's empty placeholder instead of the completed names.
+        if let Some(names) = self.structured_property_names.get(&owner) {
+            return Some(names.clone());
+        }
         let mut names = Vec::new();
         let mut visiting = Vec::new();
-        self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
+        if !self.collect_structured_property_names(owner, &mut names, &mut visiting) {
+            return None;
+        }
+        if self.late_bound_active == 0 {
+            self.structured_property_names.insert(owner, names.clone());
+        }
+        Some(names)
     }
 
     /// The property names resolveMappedTypeMembers (checker.go) gives a
@@ -3894,10 +3913,13 @@ mod property_name_tests {
             |checker, root| {
                 let owner = checker.binder.lookup_local(root, "Shape").unwrap();
                 let ty = checker.get_declared_type_of_symbol(owner);
-                // This is the marker late_bound_members_of publishes on re-entry.
+                // This is the marker late_bound_members_of publishes, with its
+                // active count, while its worker runs.
                 checker.late_bound_member_names.insert((owner, false), Vec::new());
+                checker.late_bound_active += 1;
                 assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["early"]);
                 checker.late_bound_member_names.remove(&(owner, false));
+                checker.late_bound_active -= 1;
                 let mut completed = checker.get_property_names_of_type(ty).unwrap();
                 completed.sort();
                 assert_eq!(completed, ["early", "late"]);
