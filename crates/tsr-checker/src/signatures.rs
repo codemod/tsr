@@ -1321,7 +1321,7 @@ impl<'a> Checker<'a, '_> {
     /// `error` until this was corrected. Asking whether `declaration` is the very
     /// next child of the shared parent answers the same question from the data
     /// this port does have.
-    fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
+    pub(crate) fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
         if self.signature_parts_of(declaration).and_then(|parts| parts.body).is_none()
             || self.nodes.kind(declaration) != self.nodes.kind(previous)
         {

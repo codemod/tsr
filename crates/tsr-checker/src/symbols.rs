@@ -3826,21 +3826,28 @@ impl<'a> Checker<'a, '_> {
                 break 'late None;
             }
             let mut merged: Vec<crate::signatures::Signature> = Vec::with_capacity(siblings.len());
-            let mut printed_forms: Vec<String> = Vec::new();
-            for sibling in siblings {
+            for (index, &sibling) in siblings.iter().enumerate() {
+                // `getSignaturesOfSymbol`'s implementation exclusion
+                // (`checker.go:19818`) over the merged declarations: a body
+                // that immediately follows a same-kind sibling is the overload
+                // set's implementation and contributes no signature, so
+                // `symbolProperty39`'s two implementations after two overloads
+                // print only the overloads. An implementation separated from
+                // its overload by another member keeps its signature, however
+                // it is spelled: `symbolProperty42`'s `(x: string)` + `(x: any)`
+                // (a static member between them), and
+                // `overloadsWithComputedNames`' `[uniqueSym]`, which wants
+                // `{ (): void; (): void; }`. CORRECTED (r5-shapes §5.1): this
+                // loop used to collapse siblings with identical printed text,
+                // citing that case as wanting `() => void`; its baseline says
+                // otherwise.
+                if index > 0 && self.is_overload_implementation(sibling, siblings[index - 1]) {
+                    continue;
+                }
                 let Some(signature) = self.get_signature_from_declaration(sibling) else {
                     break 'late None;
                 };
-                // IDENTICAL siblings collapse — an overload spelled the same
-                // as its implementation is ONE signature upstream
-                // (`overloadsWithComputedNames` wants `() => void`, not
-                // `{ (): void; (): void; }`), while distinct spellings keep
-                // the set (`symbolProperty42`'s `(x: string)` + `(x: any)`).
-                let printed = self.signature_to_string(&signature);
-                if !printed_forms.contains(&printed) {
-                    printed_forms.push(printed);
-                    merged.push(signature);
-                }
+                merged.push(signature);
             }
             if merged.len() < 2 {
                 // A deduped-to-one set is that one signature — the ordinary
