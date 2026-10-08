@@ -48,6 +48,13 @@ pub(crate) struct PerfLinks {
     /// `resolvedProperties`, read by name. Holds only decided answers
     /// (`r4-perf2.md` §3).
     pub(crate) structured_property_names: FxHashMap<SymbolId, std::rc::Rc<[String]>>,
+    /// A class's, interface's or type literal's own-then-inherited index
+    /// infos (`false`) or a class's static ones (`true`), values
+    /// uninstantiated: native `resolveObjectTypeMembers` /
+    /// `resolveAnonymousTypeMembers` publishing the declared type's
+    /// `indexInfos`. Holds only decided answers (`r4-perf3.md` §5).
+    pub(crate) symbol_index_infos:
+        FxHashMap<(SymbolId, bool), Vec<crate::index_signatures::IndexInfo>>,
     /// The `(owner, is_static)` entries of `Checker::late_bound_member_names`
     /// whose `late_bound_members_of` computation is running: their parked
     /// empty list is a placeholder, not a completed answer. Native resolves

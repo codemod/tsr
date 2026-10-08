@@ -171,3 +171,84 @@ them (the next is `properties_related_to_with_optionals`, 8,840 calls,
 
 **How we would know it is wrong.** It cannot change an answer unless a
 consumer mutated a list it got from the memo, which `Rc<[String]>` forbids.
+
+## §5 Index infos per symbol (`PerfLinks::symbol_index_infos`)
+
+**Forcing measurement** (p100 at base): `Relater::is_pure_signature_type`
+was 7.86% of inclusive Ir (260.6 M, 36,811 calls). Of that,
+`get_index_infos_of_type` was 157.5 M for 23,173 calls (the calls whose
+type has no property names), and inside it `union_index_infos` 143.6 M for
+1,814 unions: each `string` constituent reads `String`'s apparent
+interface, and `index_infos_of_symbol` re-scanned every member of every
+`String` declaration for index signatures, then `late_bound_index_infos`
+scanned them again for computed names (7,124 calls, 128.2 M, about 18,000
+Ir each). The property-name half was §4's.
+
+**Native operation.** `resolveObjectTypeMembers` (`checker.go:19106`)
+publishes a class's or interface's `indexInfos` once in its resolved
+members (own declared, then late-bound `__index`, then inherited by key);
+the static side's through `resolveAnonymousTypeMembers`. Consumer here:
+`get_index_infos_of_type` (Named and class-static arms) and the inherited
+loop in `index_infos_of_symbol` itself.
+
+**Identity and owner.** Key `(owner SymbolId, static_side)`; value the
+uninstantiated list exactly as the walk returned it (own declared, own
+late-bound, inherited instantiated through each heritage reference's base).
+Private `Checker`, Program lifetime. The receiver's mapper is applied after
+the read (`get_index_infos_of_type`'s `instantiate_for_reference`), as
+before; the memo stands for the declared type, not the reference.
+
+**Publication.** Published when all hold: admitted by `memo_frames` over
+the owner's declarations (heritage references inside are lexical; the
+same argument as C2, r4-perf2 §3); the walk answered `Some` (`None` is a
+gap or a heritage cycle, recomputed); no value is `errorType` (possibly a
+provisional circular read); and §2's `publishable_since`.
+
+**Read inside a walk.** The memo wraps `index_infos_of_symbol` itself, so
+the inherited loop reads a base's published list. Exact for any
+`visiting`: a published list met no cycle from an empty path, and every
+symbol on the path has the base as an ancestor, so none can recur in its
+walk (the C2/C7 argument).
+
+**Context.** `late_bound_index_infos` mints an `IndexComponentsId` per call;
+a hit now answers the first computation's id. The components it names are
+the same declarations, and native creates the info once. The computed-name
+`check_expression` and sibling `get_type_of_symbol` that it forces now run
+once per owner instead of once per query; their own caches made the
+repeats answer-identical already.
+
+**Work boundary.** The worker is the declaration scan, the late-bound scan
+and the heritage instantiation; a hit is the admission test, one hash
+lookup and a clone of a short `Vec<IndexInfo>` (`Copy` fields).
+
+**How we would know it is wrong.** A §5-gate loss; an index signature that
+appears or disappears between a first read inside an alias evaluation and
+one outside it; or a late-bound `__index` whose value changes after its
+first read (a sibling member whose type was provisional at that read).
+
+## §6 `Relater::is_pure_signature_type`: signature test first — refused
+
+**Attribution** (p100, after §5): 66.3 M inclusive (2.16%), of which
+`get_index_infos_of_type` 33.3 M (23,173 calls) and the name enumeration
+27.6 M (36,811 calls). The function is a TSR gate with no native
+counterpart; its answer is a conjunction of three facts native keeps in
+resolved members (properties, index infos, signatures).
+
+**Tried:** test `signature_types` (a table read) first and skip the two
+enumerations when it fails. Same boolean answer. p100 Ir 3,066,808,905 →
+3,012,115,892 (**−1.78%**), p100 CLI output identical — and the
+diagnostics dump lost a correct line:
+`conformance/mappedTypeRelationships` TS2322 at line 88 (`y = x` with
+`x: Readonly<Thing>`, `y: Readonly<T>`), verdict WRONG both ways. Cause:
+`get_index_infos_of_type` and `get_property_names_of_type` call
+`resolve_mapped_type_members` on the receiver, and a later relation reads
+the mapped members that call published. Skipping the enumeration skips that
+side effect.
+
+**Not shipped**, and per-`TypeId` caching of the answer was not tried for
+the same reason plus a second one: `signature_types` entries move after
+creation (`declared.rs` re-homes a resolved type's signatures to its
+reserved id), so a cached `false`/`true` can go stale. **What would change
+this:** mapped-member resolution moved to where native does it (a mapped
+type's members resolved by whatever reads them, not as a side effect of
+this gate), after which the reorder is exact.

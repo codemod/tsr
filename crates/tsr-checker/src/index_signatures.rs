@@ -451,7 +451,47 @@ impl<'a> Checker<'a, '_> {
     /// prints structurally can have an inherited index signature at all. If a
     /// structural printer for interfaces is ever added, this note is the one to
     /// re-read.
+    ///
+    /// # Memoised like native's resolved members
+    ///
+    /// Native resolves a structured type's index infos once
+    /// (`resolveObjectTypeMembers`, `checker.go:19106`, publishing
+    /// `indexInfos`; the static side through `resolveAnonymousTypeMembers`);
+    /// this port re-scanned every member of every declaration per query —
+    /// `String`'s, for each `string` constituent of a union.
+    /// [`PerfLinks::symbol_index_infos`](crate::perf_links::PerfLinks) keeps
+    /// the decided lists. A published list is exact for any `visiting`: it
+    /// met no cycle from an empty path, and every symbol on the path has
+    /// `owner` as a base, so none can recur in `owner`'s walk. Key,
+    /// publication and context: `docs/parity/notes/r4-perf3.md` §5.
     fn index_infos_of_symbol(
+        &mut self,
+        owner: SymbolId,
+        static_side: bool,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<IndexInfo>> {
+        let binder = self.binder;
+        let Some(frames) = self.memo_frames(&binder.symbols().get(owner).declarations, None) else {
+            return self.index_infos_of_symbol_worker(owner, static_side, visiting);
+        };
+        let key = (owner, static_side);
+        if let Some(cached) = self.perf_links.symbol_index_infos.get(&key) {
+            let cached = cached.clone();
+            self.alias_evaluation_bindings = frames;
+            return Some(cached);
+        }
+        let mark = self.publication_mark();
+        let computed = self.index_infos_of_symbol_worker(owner, static_side, visiting);
+        self.alias_evaluation_bindings = frames;
+        let infos = computed?;
+        if self.publishable_since(mark) && infos.iter().all(|info| !self.is_error(info.value)) {
+            self.perf_links.symbol_index_infos.insert(key, infos.clone());
+        }
+        Some(infos)
+    }
+
+    /// [`Self::index_infos_of_symbol`]'s computation, without the memo.
+    fn index_infos_of_symbol_worker(
         &mut self,
         owner: SymbolId,
         static_side: bool,
