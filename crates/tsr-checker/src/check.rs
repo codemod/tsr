@@ -449,6 +449,7 @@ impl Checker<'_, '_> {
             Node::PropertySignatureDeclaration(_) => {
                 self.check_implicit_any_member(node, ambient);
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 ambient
             }
             Node::GetAccessorDeclaration(accessor) => {
@@ -469,6 +470,7 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 ambient
             }
             // `checkVariableLikeDeclaration` runs for a binding element too,
@@ -496,6 +498,7 @@ impl Checker<'_, '_> {
                     ambient,
                 );
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_using_declaration_initializer(node);
                 self.check_jsdoc_annotated_initializer(node, ambient);
@@ -937,6 +940,7 @@ impl Checker<'_, '_> {
         self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
+            self.resolve_accessor_symbol_type(node);
         }
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the

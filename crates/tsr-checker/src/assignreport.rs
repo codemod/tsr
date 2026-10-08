@@ -323,6 +323,125 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
+    /// `checkVariableLikeDeclaration`'s `getTypeOfSymbol(symbol)`
+    /// (`checker.go:5893`): every variable-like declaration that reaches the
+    /// symbol arms resolves its symbol's type, used or not. That is what
+    /// makes `var r: typeof r;` report TS2502 with no reference anywhere — the
+    /// circularity report lives in the type resolution
+    /// (`report_circularity_error`), and resolution is otherwise lazy here.
+    ///
+    /// Upstream's exits before the call are mirrored: no name, a binding
+    /// pattern name, and a `CommonJS` `require` alias. The resolution runs
+    /// whether or not the declaration is ambient: upstream has no ambient
+    /// exit on this road (`declare global { const foo: typeof foo }` reports).
+    ///
+    /// **Three declines, all waiting on deferred resolution upstream has and
+    /// this port does not** (`docs/parity/notes/r5-vardecl.md` §1):
+    ///
+    /// - a parameter: upstream's `getTypeOfSymbol` on a parameter never
+    ///   resolves its owner's signature, whose members are deferred; this
+    ///   port builds a function's type with its parameters, so
+    ///   `var i: (x: typeof i) => typeof x` cycles through `x` here
+    ///   (`recursiveTypesWithTypeof`). The parameter arm does not call this;
+    /// - an unannotated declaration: its type is its initializer's, and this
+    ///   port computes a function's return type and parameter types eagerly
+    ///   as part of its symbol type, so forcing from the declaration finds
+    ///   cycles upstream's `ResolvedReturnType` frame never sees (TS7022,
+    ///   TS7023, TS7024 in `cyclicGenericTypeInstantiation`,
+    ///   `functionWithDefaultParameterWithNoStatements16`);
+    /// - an annotation that writes a type literal, mapped type or function
+    ///   type: upstream resolves those members lazily
+    ///   (`resolveStructuredTypeMembers`), this port mints them with the
+    ///   annotation, so a self-reference through a member is a cycle here
+    ///   and not upstream (`recursiveTypesWithTypeof`'s `hy2`,
+    ///   `unionTypeWithRecursiveSubtypeReduction3`).
+    pub(crate) fn resolve_variable_like_symbol_type(&mut self, node: NodeId) {
+        let (name, annotation) = match self.node_map.get(node) {
+            Some(Node::VariableDeclaration(declaration)) => (
+                declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+                declaration.r#type,
+            ),
+            Some(Node::PropertyDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type)
+            }
+            Some(Node::PropertySignatureDeclaration(declaration)) => {
+                (declaration.name.node_id(), declaration.r#type)
+            }
+            _ => return,
+        };
+        let Some(name) = name else { return };
+        if matches!(
+            self.nodes.kind(name),
+            SyntaxKind::ObjectBindingPattern | SyntaxKind::ArrayBindingPattern
+        ) {
+            return;
+        }
+        let Some(annotation) = annotation.and_then(|annotation| annotation.node_id()) else {
+            return;
+        };
+        if self.annotation_writes_deferred_members(annotation) {
+            return;
+        }
+        let Some(own) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(own);
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            return;
+        }
+        self.get_type_of_symbol(symbol);
+    }
+
+    /// `checkAccessorDeclaration`'s `getTypeOfAccessors(getSymbolOfDeclaration(node))`
+    /// (`checker.go:2974`): every accessor resolves its symbol's type, so a
+    /// self-referencing annotation in a type nobody uses still reports TS2502
+    /// (`type T2 = { set foo(value: T2["foo"]) }`,
+    /// `circularAccessorAnnotations`). The same two declines as
+    /// [`Checker::resolve_variable_like_symbol_type`]: the annotation
+    /// `getTypeOfAccessors` reads (the getter's, else the setter's
+    /// parameter's) must be written and must not write deferred members;
+    /// an unannotated getter is inferred from its body, which this port does
+    /// eagerly (`report_accessor_circularity` records the same limit).
+    pub(crate) fn resolve_accessor_symbol_type(&mut self, node: NodeId) {
+        let Some(own) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(own);
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let of_kind = |kind| {
+            declarations.iter().copied().find(|&declaration| self.nodes.kind(declaration) == kind)
+        };
+        let Some(annotation) = [of_kind(SyntaxKind::GetAccessor), of_kind(SyntaxKind::SetAccessor)]
+            .into_iter()
+            .flatten()
+            .find_map(|accessor| self.accessor_annotation(accessor))
+            .and_then(|annotation| annotation.node_id())
+        else {
+            return;
+        };
+        if self.annotation_writes_deferred_members(annotation) {
+            return;
+        }
+        self.get_type_of_symbol(symbol);
+    }
+
+    /// Does a written annotation contain a type node whose members upstream
+    /// resolves lazily — a type literal, a mapped type, a function or
+    /// constructor type? [`Checker::resolve_variable_like_symbol_type`]'s
+    /// second decline.
+    fn annotation_writes_deferred_members(&self, node: NodeId) -> bool {
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::TypeLiteral
+                | SyntaxKind::MappedType
+                | SyntaxKind::FunctionType
+                | SyntaxKind::ConstructorType
+        ) {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.annotation_writes_deferred_members(child))
+    }
+
     /// `checkVariableLikeDeclaration` (`checker.go:9967`) — the annotation
     /// against the initialiser.
     ///
