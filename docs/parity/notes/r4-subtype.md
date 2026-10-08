@@ -82,6 +82,13 @@ the element union (`tuple_element_union`, now shared with
 Any other target info fails, because a tuple reference is not an object type
 with an inferable index (`typeRelatedToIndexInfo`, `:4603`).
 
+**Beside r4-arrays' arm.** The integration branch also carries r4-arrays'
+`tuple_source_non_array_target` (`56a3fa3`). It is a negative-only check of
+the same `propertiesRelatedTo` rule and sits in the fallthrough after the
+structural gate. The two agree wherever both apply, so the merge keeps both.
+The full walk here runs first for an object target with a member table.
+Theirs still answers where this gate does not fire.
+
 **Converts** `compiler/concatTuples` (2 lines) and `conformance/literalTypes2`
 (4 lines).
 
@@ -212,6 +219,12 @@ applied, unfiltered:
   4,252,710,937 Ir (+0.17%). The new arms run only where the walk previously
   fell through to `Unknown`, plus one flag test in the structural gate.
 - The census exits now hold 3 of the original 40 pairs (§7).
+
+After merging the integration head `5ad60b1` (which carries r4-arrays'
+tuple-source negative), against a baseline frozen there: types 470138 →
+470172 RIGHT (+34, 0 lost), diagnostics +2 (the same two), 0 lost.
+`literalTypes2`'s four lines are already RIGHT at `5ad60b1` through
+r4-arrays' arm.
 
 ## 9. `r4-unions-array-literal-subtype-gate.diff` (`tsr-2zk.922`)
 
