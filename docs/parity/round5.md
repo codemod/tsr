@@ -394,3 +394,17 @@ four follow-ons (`tsr-2zk.1034`, `.1010`, alias naming, `.979`, all in
 `declared.rs`) now go to a fresh box, r5-declared, whose initial brief
 carries them. Lesson: put follow-on work in the next box's brief. A message to
 a finished box does not reliably restart it.
+
+### r5-tuples finished; r5-harness dispatched
+
+r5-tuples landed two pieces. `1ad41b2` ports addOptionalityEx into
+normalize_variadic_tuple for +13 type lines. A measured `declared.rs` patch adds
+variadic addOptionality and shouldDeferIndexType's generic-tuple arm for +17.
+Neither loses a case, and both are within Ir noise. About 437 tuple-shaped
+WRONG lines remain, routed to the owners of signatures.rs (.16.331),
+declared.rs (`tsr-2zk.1042`, `.1043`), inference.rs, mapped.rs, members.rs
+and index_signatures.rs.
+
+The freed slot went to r5-harness, for gate robustness: `tsr-2zk.1041`
+(per-case wall time and a budget check), `.46` (intermittent SIGABRT), `.37`,
+and then `.1017`.
