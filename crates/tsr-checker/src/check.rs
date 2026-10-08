@@ -807,6 +807,7 @@ impl Checker<'_, '_> {
             Node::AwaitExpression(_) => {
                 self.check_await_in_parameter_initializer(node);
                 self.check_await_in_non_async_function(node);
+                self.check_await_operand_awaited(node);
             }
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
@@ -988,6 +989,7 @@ impl Checker<'_, '_> {
                 | Node::GetAccessorDeclaration(_)
         ) {
             self.check_all_code_paths_return_or_throw(node);
+            self.check_async_function_return_type(node);
         }
         if matches!(
             typed,
