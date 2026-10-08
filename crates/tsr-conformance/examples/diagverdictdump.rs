@@ -11,15 +11,24 @@
 //! ```text
 //! cargo run --release -p tsr-conformance --example diagverdictdump > before.tsv
 //! ```
+//!
+//! Every row ends with two guard columns, `ms=<wall>` and `mib=<peak memory>`
+//! for the case (`tsr_conformance::case_guard`, `tsr-2zk.1041`), after the
+//! four above, which keep their bytes. A case that panics prints `PANIC` as
+//! its verdict; one the watchdog stops prints `OOM` or `TIMEOUT` and ends the
+//! run with exit status 3. `examples/slowcases.rs` reads the guard columns;
+//! `docs/parity/notes/r5-harness.md` says how the gate uses them.
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use tsr_conformance::case_guard::{self, RowShape};
 use tsr_conformance::{Corpus, diagnostics_suite, errors_baseline, repo_root};
 
+#[path = "support/counting_alloc.rs"]
+mod counting_alloc;
+
 fn main() {
-    rayon::ThreadPoolBuilder::new()
-        .stack_size(8 * 1024 * 1024)
-        .build_global()
-        .expect("sizing the corpus thread pool");
+    case_guard::size_worker_pool();
+    case_guard::install(RowShape::Diagnostics);
     let mut cases = Corpus::from_repo_root(&repo_root()).discover().expect("corpus");
     let configured = Corpus::configured(&cases);
     cases.extend(configured);
@@ -42,23 +51,34 @@ fn main() {
                 && !case.is_expanded()
         })
         .map(|case| {
-            let baseline = case.expected_errors().expect("baseline");
-            let mut expected = baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
-            let test = case.load().expect("case");
-            let mut actual = diagnostics_suite::reported_for(&test);
-            expected.sort_unstable();
-            actual.sort_unstable();
-            let verdict = match (expected.is_empty(), expected == actual) {
-                (false, true) => "RIGHT",
-                (false, false) => "WRONG",
-                (true, true) => "EMPTY_RIGHT",
-                (true, false) => "EMPTY_WRONG",
+            let measured = case_guard::run_case(&case.name, || {
+                let baseline = case.expected_errors().expect("baseline");
+                let mut expected =
+                    baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
+                let test = case.load().expect("case");
+                let mut actual = diagnostics_suite::reported_for(&test);
+                expected.sort_unstable();
+                actual.sort_unstable();
+                let verdict = match (expected.is_empty(), expected == actual) {
+                    (false, true) => "RIGHT",
+                    (false, false) => "WRONG",
+                    (true, true) => "EMPTY_RIGHT",
+                    (true, false) => "EMPTY_WRONG",
+                };
+                format!("{}\t{verdict}\t{expected:?}\t{actual:?}", case.name)
+            });
+            let columns = measured.columns();
+            let row = match measured.value {
+                Ok(row) => format!("{row}\t{columns}"),
+                Err(message) => {
+                    RowShape::Diagnostics.marker(&case.name, "PANIC", &message, &columns)
+                }
             };
-            (case.name.clone(), verdict, expected, actual)
+            (case.name.clone(), row)
         })
         .collect();
     rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    for (case, verdict, expected, actual) in rows {
-        println!("{case}\t{verdict}\t{expected:?}\t{actual:?}");
+    for (_, row) in rows {
+        println!("{row}");
     }
 }
