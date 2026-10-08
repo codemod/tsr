@@ -1137,6 +1137,9 @@ pub struct Checker<'a, 'n> {
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
         FxHashMap<SymbolId, Option<Vec<crate::signatures::Signature>>>,
+    /// Memo tables for answers native keeps in symbol/type links
+    /// (`crate::perf_links`; contracts in `docs/parity/notes/r4-perf.md`).
+    pub(crate) perf_links: crate::perf_links::PerfLinks,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1567,6 +1570,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
             circularity_reported: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
+            perf_links: crate::perf_links::PerfLinks::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),

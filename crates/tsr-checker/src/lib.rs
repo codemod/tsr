@@ -169,6 +169,7 @@ pub mod objects;
 pub mod operator_operands;
 pub mod optionality;
 mod parameter_self_reference;
+mod perf_links;
 pub mod printing;
 mod private_setter_read;
 pub mod readonly_target;

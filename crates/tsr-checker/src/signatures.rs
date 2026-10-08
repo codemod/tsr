@@ -1098,6 +1098,39 @@ impl<'a> Checker<'a, '_> {
         visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<Signature>> {
         let symbol = self.binder.merged_symbol(symbol);
+        // Native resolves these once into the declared type's resolved
+        // members (`resolveObjectTypeMembers`); this port rebuilt them per
+        // query. A published list is exact for any `visiting`: it exists only
+        // when the symbol's own heritage walk met no cycle, and every symbol
+        // on the stack has `symbol` as an ancestor, so none can recur in its
+        // walk. Contract: `docs/parity/notes/r4-perf.md` §2.
+        let slot = crate::perf_links::signature_kind_slot(kind);
+        let Some(frames) = self.interface_signature_frames(symbol) else {
+            return self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        };
+        if let Some(cached) = self.perf_links.interface_signatures[slot].get(&symbol) {
+            let cached = cached.clone();
+            self.alias_evaluation_bindings = frames;
+            return Some(cached);
+        }
+        let publish = self.signature_links_publishable();
+        let computed = self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        self.alias_evaluation_bindings = frames;
+        let candidates = computed?;
+        if publish && self.signatures_decided(&candidates) {
+            self.perf_links.interface_signatures[slot].insert(symbol, candidates.clone());
+        }
+        Some(candidates)
+    }
+
+    /// [`Self::signature_candidates_of_interface_symbol`]'s computation for
+    /// the merged `symbol`, without the memo.
+    fn signature_candidates_of_interface_symbol_worker(
+        &mut self,
+        symbol: SymbolId,
+        kind: SignatureKind,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<Signature>> {
         if visiting.contains(&symbol) {
             return None;
         }
