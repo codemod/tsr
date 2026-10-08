@@ -21,96 +21,104 @@ source, as jsTyping did.
 - **Native.** `tsgo` from `scripts/offline-cargo/build-tsgo.sh` (Go 1.26.8
   built from source; the toolchain download was not needed), `vendor/typescript-go`
   @ `5b1047d`. The `outDir` was deleted before every native run.
-- **TSR.** Release `tsr` at `81be45a4` (this branch: r4-realworld `ff7929d` +
-  merge of `claude/beautiful-shannon-ar5gh0` @ `0cd6c437`).
+- **TSR.** Release `tsr`, measured twice: first at `81be45a4` (r4-realworld
+  `ff7929d` + integration `0cd6c437`), then — after `r4-rwfix`, `r4-config`,
+  `r4-heritage` and friends were integrated — at `df89e609` (merge of
+  integration `0399578e`). **The `df89e609` numbers are the current ones**;
+  the first run is kept below because it is what the new causes were found on.
 - **Diff key.** `(file, line, column, code)` of each `error TS` line, as before.
-- **Attribution.** The predecessor's two counterfactual binaries, rebuilt on
-  this tree and never committed: *exp1* drops the origin gate's
+- **Attribution.** The predecessor's counterfactual binaries, rebuilt on each
+  tree and never committed: *exp1* drops the origin gate's
   `return self.intrinsics.error` in `unions.rs` `build_origin_union`
   (cause 1); *exp2* adds `??=`/`||=`/`&&=` to `flow.rs`
-  `get_initial_or_assigned_type` (cause 2). exp1+exp2 and exp2 alone were
-  run on `services`; exp1's share is the difference. Survivors were grouped
-  by message and reduced by hand or with a line-deletion script that keeps
-  a candidate only while TSR reports the key and native reports nothing.
+  `get_initial_or_assigned_type` (cause 2, since ported by r4-rwfix). On
+  `81be45a4`, exp1+exp2 and exp2 alone were run on `services`; on
+  `df89e609`, exp1 alone. Survivors were grouped by message and reduced by
+  hand, or with a line-deletion script that keeps a candidate only while
+  TSR reports the key and native reports nothing.
 
 ## Both projects now finish
 
-Before the relation cache (`tsr-2zk.902`) both hung on every binary. Now:
+Before the relation cache (`tsr-2zk.902`) both hung on every binary.
 
-| | compiler | services |
-|---|---|---|
-| TSR diagnostics | 898 | 1404 |
-| native diagnostics | 86 | 260 |
-| common keys | 56 | 56 |
-| TSR-only | 842 | 1348 |
-| native-only | 30 | 204 |
+| | compiler @ `81be45a4` | services @ `81be45a4` | compiler @ `df89e609` | services @ `df89e609` |
+|---|---|---|---|---|
+| TSR diagnostics | 898 | 1404 | 428 | 750 |
+| native diagnostics | 86 | 260 | 86 | 260 |
+| common keys | 56 | 56 | 73 | 247 |
+| TSR-only | 842 | 1348 | 355 | 503 |
+| native-only | 30 | 204 | 13 | 13 |
 
-**`compiler` adds nothing new beyond jsTyping.** Its TSR-only set is the
+**`compiler` adds nothing beyond jsTyping.** Its TSR-only set is the
 jsTyping set key for key (paths normalised), because jsTyping already
-type-checks every compiler file through the `_namespaces/ts` barrel. That
-set is r4-realworld's 818 (identical per-code counts) **plus 24 TS7053**
-that appeared with the round-4 merges (r4-index's new TS7053 arm,
-`3d248ae8`); see causes N1 and N2.
+type-checks every compiler file through the `_namespaces/ts` barrel. On
+`81be45a4` that set was r4-realworld's 818 (identical per-code counts)
+**plus 24 TS7053** that arrived with the round-4 merges (r4-index's TS7053
+arm, `3d248ae8`; r4-rwfix saw the same 24); see N1 and N2. `services` =
+the same compiler-file keys + its own files' keys (506 then, 148 now).
 
-`services` = the same 842 compiler-file keys + **506** keys in services
-files. Native-only: TS2724 108 (17 compiler + 91 services), TS6307 83,
-TS2591 11, TS7006 1, TS7031 1.
+## Attribution at `df89e609`
 
-## Attribution
+### Native-only (13 in each project)
 
-### Native-only (all already filed)
+All cause 15 (`tsr-2zk.933`, node core module TS2591): TS2591 11, TS7006 1,
+TS7031 1. Causes 12 (TS2724, 108 on services at `81be45a4`) and 13
+(TS6307, 83) are fixed by r4-rwfix and r4-config.
 
-| Cause | compiler | services |
-|---|---|---|
-| 12 `export *` spelling suggestion (`tsr-2zk.930`) | 17 TS2724 | 108 TS2724 |
-| 13 TS6307 composite file list (`tsr-2zk.931`) | 0 | 83 |
-| 15 node core module TS2591 (`tsr-2zk.933`) | 13 | 13 |
-| **total** | **30** | **204** |
-
-### TSR-only, compiler files (842, in both projects)
+### TSR-only, compiler files (355, in both projects)
 
 | Cause | Count |
 |---|---|
-| r4-realworld causes 1-12, 16 and long tail, as recorded there | 818 |
-| **N1** TS7053 arm fires on an access whose index info has an error value (rides cause 1) | 21 |
-| **N2** intersection index infos skip a primitive constituent's apparent type | 3 |
+| 1 Union origin slice gate (exp1) | 132 |
+| — of which **N1** TS7053 on `CompilerOptions`/`OptionsBase` | 21 |
+| — of which TS2678 `SyntaxKind.X` not comparable to a `switch` subject in `transformers/declarations.ts` (new since `81be45a4`; all removed by exp1) | 15 |
+| r4-realworld causes 3-11 and its long tail, plus **N2** (3) | 223 |
 
-N1 was measured with exp1: the 21 vanish with the origin gate removed, the
-3 N2 lines stay.
+The 223 survivors of exp1 are a strict subset of the keys that survived
+exp1+exp2 on `81be45a4`: nothing new appeared outside cause 1, and 37 old
+survivors are gone (17 TS2305 of cause 12, 20 others fixed by the merged
+lanes). They were not re-split by cause.
 
-### TSR-only, services files (506)
+### TSR-only, services files (148)
 
-| Cause | Count | Existing issue |
+| Cause | Count | Issue |
 |---|---|---|
-| 1 Union origin slice gate (exp1, given exp2) | 310 | `tsr-2zk.16.46` |
-| 12 `export *` suggestion (TS2305 vs native TS2724) | 91 | `tsr-2zk.930` |
-| **N4** qualified reference to an alias whose body carries it is a print-only mint | 28 | `tsr-2zk.16.264` (existing; newly counted here) |
-| **N3** enum literal widened under an indirect union contextual type | 26 | new |
-| 2 Logical assignment does not narrow (exp2 alone: 14 TS18048 + 1 TS2345) | 15 | `tsr-2zk.923` |
+| 1 Union origin slice gate (exp1), incl. 6 **N1** TS7053 in `transpile.ts` | 58 | `tsr-2zk.16.46` |
+| **N4** qualified reference to an alias whose body carries it is a print-only mint | 28 | `tsr-2zk.16.264` (existing; newly counted) |
+| **N3** enum literal widened under an indirect union contextual type | 26 | new (see `tsr-2zk.16.150`) |
 | **N5** mapped type over an intersection loses members after an object-literal relation | 15 | new |
-| **N6** assignment narrowing rejects a context-typed arrow in an optional property (`compilerHost`) | 7 | new |
+| **N6** assignment narrowing rejects a context-typed arrow in an optional property | 7 | new |
 | 4 Inference to `T & X` priority (`visitNode(…, isTypeNode)` TS2769) | 2 | `tsr-2zk.924` |
 | **N7** check-order-dependent results (`navigationBar.ts` 259, 264) | 2 | new |
 | Unclassified long tail | 10 | — |
-| **sum** | **506** | |
+| **sum** | **148** | |
 
-exp1+exp2 left 97 services-file keys; 7 of those are not baseline keys at
-all (lines cause 1 was hiding: `findAllReferences.ts` 2399, `convertImport.ts`
-137/138, `completions.ts` 2131, `navigationBar.ts` 258/262, `transpile.ts`
-256), so 90 baseline keys survive both counterfactuals. As in r4-realworld,
-the counts behind causes 2-N7 are taken with cause 1 removed by a
-counterfactual and may move once it lands for real.
+The 90 non-cause-1 keys are the same 90 keys, one for one, that survived
+exp1+exp2 on `81be45a4`.
+
+## First measurement, at `81be45a4`
+
+Native-only: cause 12 TS2724 17 / 108, cause 13 TS6307 0 / 83, cause 15
+13 / 13. TSR-only compiler files: 818 (r4-realworld's set) + N1 21 + N2 3.
+TSR-only services files, 506: cause 1 310 (exp1 given exp2), cause 12 91
+TS2305, N4 28, N3 26, cause 2 15 (exp2 alone: 14 TS18048 + 1 TS2345), N5 15,
+N6 7, cause 4 2, N7 2, tail 10. exp1+exp2 left 97 services-file keys, 7 of
+which were not baseline keys (lines cause 1 hid: `findAllReferences.ts`
+2399, `convertImport.ts` 137/138, `completions.ts` 2131, `navigationBar.ts`
+258/262, `transpile.ts` 256). As in r4-realworld, counts behind the
+non-cause-1 rows are taken with cause 1 removed by a counterfactual and may
+move once it lands for real.
 
 ## New root causes
 
-### N1 — TS7053 arm reads an error-valued index access as "no index signature" (21)
+### N1 — TS7053 arm reads an error-valued index access as "no index signature" (21 + 6)
 
 - **Shape.** `options[name]` with `options: CompilerOptions` / `OptionsBase`,
   whose string index is `CompilerOptionsValue | TsConfigSourceFile |
   undefined`. That union holds the named union `CompilerOptionsValue` beside
   an object, so cause 1 turns the index value into `errorType`; the access
   then answers error and r4-index's arm reports TS7053 against a type that
-  has a string index.
+  has a string index. 21 lines in compiler files, 6 in `services/transpile.ts`.
 - **Native.** `getPropertyTypeForIndexType` (checker.go:27129-27184) reports
   TS7053 only when no index info applies; an applicable info returns its
   type, error or not.
@@ -230,19 +238,24 @@ counterfactual and may move once it lands for real.
   context-sensitive member.
 - **Repro.** `assignment_narrowing_accepts_context_typed_arrow_in_optional_property`.
 
-### N7 — check order changes diagnostics (2 in the default run)
+### N7 — check order changes diagnostics (2 + 2 in the default run)
 
-`tsr --singleThreaded` and the default 4-checker pool disagree on 1 key in
-`compiler` and 5 in `services`, all around `BindableStaticNameExpression`
-(a recursive alias pair with `BindableStaticElementAccessExpression`):
-`utilities.ts:4258` TS2322 and `navigationBar.ts` 259/264 only in the pool,
-`navigationBar.ts` 545/548 only single-threaded. Pooled runs are
-deterministic (`--checkers 2` and `4` agree on `compiler`). Native gives
-none of these. Each checker in the pool checks a different file sequence,
-so some type answer depends on what was resolved first; N5 is one known
-order-dependent mechanism, the recursive alias pair is another candidate.
-No standalone repro: two same-file orderings of a hand-written recursive
-alias pair agree.
+`tsr --singleThreaded` and the default 4-checker pool disagree. At
+`df89e609`: on `compiler`, 2 keys only in the pool (`utilities.ts:4258`
+TS2322 on `Exclude<BindableStaticNameExpression, Identifier>`,
+`transformers/utilities.ts:643` TS2345); on `services`, the same 2 plus
+`findAllReferences.ts` 2165/2166 TS2339 and `navigationBar.ts` 259/264
+only in the pool, and `navigationBar.ts` 545/548 only single-threaded. (At
+`81be45a4`: 1 and 5 keys.) Pooled runs are deterministic (`--checkers 2`
+and `4` agree on `compiler`). Native reports none of these. Each pool
+checker checks a different file sequence, so some answer depends on what was
+resolved first; N5 is one known order-dependent mechanism, and the
+`BindableStaticNameExpression` / `BindableStaticElementAccessExpression`
+recursive alias pair is the visible common element. No standalone repro:
+two same-file orderings of a hand-written recursive alias pair agree. The
+attribution tables count the default (pool) run; `navigationBar.ts`
+259/264 are the 2 in the services table, the 2 compiler-file keys sit in
+the compiler rows.
 
 ### Unclassified tail (10)
 
@@ -254,54 +267,65 @@ hand-written qualified-heritage copy agrees), `services.ts:3266`.
 
 ## Time
 
-4-core box, release builds, `--extendedDiagnostics`. TSR rows were run
-under a per-thread CPU sampler (`/proc/<pid>/task/*/stat`, 0.5 s).
+4-core box, release builds, `--extendedDiagnostics`. TSR wall/user rows were
+run under a per-thread CPU sampler (`/proc/<pid>/task/*/stat`, 0.5 s).
+Native was built once and measured once (its numbers do not depend on the
+TSR head).
 
 | | Parse | Bind | Check | Emit | Wall | User |
 |---|---|---|---|---|---|---|
-| compiler, TSR pool (4) | 0.253 s | 0.064 s | 22.25 s | — | 23.2 s | 52.1 s |
-| compiler, TSR `--singleThreaded` | | | 43.0 s | — | 43.6 s | 43.1 s |
+| compiler, TSR pool (4) @ `df89e609` | 0.221 s | 0.098 s | 15.17 s | — | 15.8 s | 38.4 s |
+| compiler, TSR `--singleThreaded` @ `df89e609` | 0.193 s | 0.139 s | 29.38 s | — | 29.9 s | 29.4 s |
+| compiler, TSR pool (4) @ `81be45a4` | 0.253 s | 0.064 s | 22.25 s | — | 23.2 s | 52.1 s |
+| compiler, TSR `--singleThreaded` @ `81be45a4` | | | 43.0 s | — | 43.6 s | 43.1 s |
 | compiler, native default | 0.229 s | (in check) | 1.471 s | 0.210 s | 2.22 s | 5.16 s |
 | compiler, native `--singleThreaded` | 0.263 s | (in check) | 2.050 s | 0.366 s | 2.99 s | 3.53 s |
-| services, TSR pool (4) | 0.230 s | 0.083 s | 38.42 s | — | 39.0 s | 90.3 s |
-| services, TSR `--singleThreaded` | | | 69.8 s | — | 70.5 s | 69.6 s |
+| services, TSR pool (4) @ `df89e609` | 0.223 s | 0.067 s | 23.21 s | — | 24.0 s | 60.6 s |
+| services, TSR `--singleThreaded` @ `df89e609` | 0.240 s | 0.150 s | 47.21 s | — | 48.2 s | 47.4 s |
+| services, TSR pool (4) @ `81be45a4` | 0.230 s | 0.083 s | 38.42 s | — | 39.0 s | 90.3 s |
+| services, TSR `--singleThreaded` @ `81be45a4` | | | 69.8 s | — | 70.5 s | 69.6 s |
 | services, native default | 0.249 s | (in check) | 1.867 s | 0.200 s | 2.74 s | 7.14 s |
 | services, native `--singleThreaded` | 0.362 s | (in check) | 3.178 s | 0.529 s | 4.48 s | 5.33 s |
 
-Single-threaded check: TSR is **21x** native on `compiler` (43.0 / 2.05) and
-**22x** on `services` (69.8 / 3.18). Wall: 10.5x and 14.2x.
+Single-threaded check at `df89e609`: TSR is **14.3x** native on `compiler`
+(29.38 / 2.05) and **14.9x** on `services` (47.21 / 3.18); wall 7.1x and
+8.8x. The merged lanes took a third off (43.0 → 29.4 s, 69.8 → 47.2 s);
+parse and bind are at parity.
 
 ### user ≈ 2x wall is imbalance, not duplicated checking
 
 - **No file is checked twice.** `Checked files` is 77 / 251, the sum over
   the four checkers, and `checker_pool.rs` assigns file `i` to checker
   `i % 4` exactly as native `checkerpool.go` does.
-- **Per-checker CPU** (thread sampler; checker 0-3): compiler 3.5 / 12.7 /
-  12.3 / 21.4 s; services 37.2 / 18.1 / 17.0 / 15.4 s. Wall is the slowest
-  checker.
+- **Per-checker CPU** (thread sampler; checkers 0-3) at `df89e609`:
+  compiler 2.4 / 9.6 / 10.1 / 14.7 s; services 22.7 / 12.6 / 12.0 / 11.0 s
+  (at `81be45a4`: 3.5 / 12.7 / 12.3 / 21.4 and 37.2 / 18.1 / 17.0 / 15.4).
+  Wall is the slowest checker.
 - **Per-file check time** (temporary `eprintln!` around `check_source_file`
-  in `checker_pool.rs`, separate target dir, not committed): `checker.ts`
-  alone is **14.0 s** single-threaded, 16.8 s in the compiler pool and
-  19.9 s in the services pool; next are `binder.ts` 3.9 s, `utilities.ts`
-  3.5 s, `nodeFactory.ts` 3.1 s, `transformers/jsx.ts` 2.8 s, `parser.ts`
-  2.6 s. In services the checker that owns `checker.ts` also owns
-  `binder.ts` (9.7 s there): 41.1 s of a 39-41 s wall. The critical path is
+  in `checker_pool.rs`, separate target dir, not committed), at
+  `df89e609`: `checker.ts` alone is **8.9 s** single-threaded on compiler
+  (11.4 s on services), 10.5 s in the compiler pool and 14.2 s in the
+  services pool; next are `transformers/jsx.ts` 3.6 s, `utilities.ts`
+  3.0 s, `parser.ts` 1.6 s, `nodeFactory.ts` 1.6 s, `binder.ts` 1.5 s. (At
+  `81be45a4`: `checker.ts` 14.0 s single, `binder.ts` 3.9 s.) In the
+  services pool the checker that owns `checker.ts` also owns `binder.ts`
+  (4.7 s there): 25.3 s of a 24 s wall. The critical path is
   `checker.ts`'s owner.
 - **Repeated global work** exists and is native's design: summed per-file
-  check time is 56.4 s pooled vs 43.1 s single on compiler (+31%), 97.6 vs
-  74.6 s on services (+31%); thread CPU says +19% / +28%. Each checker
+  check time is 35.5 s pooled vs 29.9 s single on compiler (+19%), 62.8 vs
+  48.1 s on services (+31%); thread CPU says +31% / +28%. Each checker
   lazily resolves the shared declarations it touches (lib, `types.ts`,
   imported signatures) again. Native shows the same overhead: user 5.16 vs
   3.53 s (+46%) and 7.14 vs 5.33 s (+34%). TSR does not repeat more than
   native does, proportionally.
 
 So the r4-realworld observation (user = 2x wall) is the critical-path file
-plus ~30% native-shaped per-checker repetition. The lever is the absolute
-cost of checking one large file — `checker.ts` at 14 s against native's
-2.05 s for the whole project — which is `tsr-2zk.915`/`tsr-2zk.935`'s
-territory (relation call volume from narrowing, first-walk member
-resolution). A per-file breakdown is the cheapest next profile target:
-`checker.ts` alone reproduces most of the gap.
+plus ~20-30% native-shaped per-checker repetition, not duplicated checking.
+The lever is the absolute cost of checking one large file — `checker.ts` at
+8.9 s against native's 2.05 s for the whole project — which is
+`tsr-2zk.915`/`tsr-2zk.935`'s territory (relation call volume from
+narrowing, first-walk member resolution). `checker.ts` alone reproduces most
+of the gap and is the cheapest next profile target.
 
 The repository's `work-trace` feature records every type query; on
 `compiler` it wrote 13.7 GB in 45 s before it was stopped, so it is not
