@@ -130,3 +130,26 @@ declarations / type-parameter constraint code (`declared.rs`), not this
 lane. **Reopening condition:** when circular type-parameter constraints
 resolve to upstream's `circularConstraintType`, `git apply` both diffs and
 expect +24 lines / +8 cases with zero losses.
+
+## 4. Re-measured and still blocked (no code)
+
+**`||` / `??` generic gate (`tsr-2zk.16.25`).** Re-measured on `35e96b7`: deleting
+the type-parameter/`unknown` gate in `check_logical_or_coalescing`
+(`binary.rs`) still overflows the stack in
+`conformance/discriminatedUnionJsxElement`, the cycle
+[operators.md](operators.md) §9 describes (JSX discriminant value type →
+`check_expression` → narrowable type → contextual type → same attribute). The
+diagnostics dump is unaffected (+1 RIGHT, 0 losses), but the type dump
+aborts. `nullishCoalescingOperator2` / `_es2020` lines 35–36 (`a7 ??
+'whatever'`, want `{}`) also stay gaps: the subtype reducer cannot decide
+`"whatever"` against `{}`. Owner of the fix: the JSX lane's
+`jsx_discriminant_value_type` reading `getContextFreeTypeOfExpression`
+(`checker.go:7542`). Unchanged reopening condition.
+
+**TS18046 / TS2571 (`checkNonNullTypeWithReporter`, `checker.go:7414`).**
+Re-measured on `35e96b7`: reporting in `check_non_null_type_reporting`
+(name under 100 characters → TS18046, otherwise TS2571) now loses only
+`compiler/nonInferrableTypePropagation2` (EMPTY_RIGHT → EMPTY_WRONG). The
+earlier `mapGroupBy` and `neverInference` losses are gone. It converts no
+whole case, so it is not shipped. Owner of the remaining loss: inference
+publishing the speculative `unknown` parameter type (operators.md §2).
