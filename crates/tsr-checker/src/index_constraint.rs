@@ -245,7 +245,10 @@ impl<'a> Checker<'a, '_> {
                 let name_type = self.check_expression(expression);
                 let member_type = self.get_type_of_symbol(member_symbol);
                 let member_type = self.remove_missing_type(member_type);
-                let name = self.binder.symbols().get(member_symbol).name.to_string();
+                // `symbolToString(prop)` of an anonymous `__computed` symbol
+                // is its declaration name as written (`getNameOfSymbolAsWritten`
+                // -> `getTextOfNode`): `Property '[+s]' of type ...`.
+                let Some(name) = self.computed_member_name_text(member) else { continue };
                 self.check_index_constraint_for_property(
                     ty,
                     owner,
@@ -304,6 +307,16 @@ impl<'a> Checker<'a, '_> {
             _ => {}
         }
         Some(expression)
+    }
+
+    /// The source text of a member's computed name, brackets included.
+    fn computed_member_name_text(&self, member: NodeId) -> Option<String> {
+        let name = self.declaration_name_of(member)?;
+        let span = self.error_span(name);
+        let text = self
+            .source_file_of_for_diagnostics(name)
+            .and_then(|file| self.module_host?.source_text(file, self.nodes))?;
+        Some(text.get(span.start as usize..span.end as usize)?.to_string())
     }
 
     /// `getLiteralTypeFromProperty(prop, TypeFlagsStringOrNumberLiteralOrUnique,
