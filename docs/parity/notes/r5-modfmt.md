@@ -155,13 +155,35 @@ names, `.mts`/`.cts` syntax, top-level `await`, `import x = require`).
   reads its own copy; switching the shared field would move every other
   reader (TS1323's `== ES2015` arm, `emit_helpers.rs`, symbols' Node16 tests)
   and needs its own measured commit.
-- **`moduleDetection` in the binder** (`tsr-2zk.993`): `tsr_binder`'s
+- **`moduleDetection` in the binder** (`tsr-2zk.993`): **shipped as a
+  measured diff, `r5-modfmt-module-detection.diff`** (applies on `aabe910b`),
+  because it edits `Program::bind_source_files`, which main's perf lane
+  changed in the last 36 hours (`fcf22922`). `tsr_binder`'s
   `is_external_module(file)` is statement-only, so under `force` (every
-  `node16`..`nodenext` program) and for `.mts`/`.cts` files under `auto`, a
-  file without imports/exports binds as a script where upstream binds a
-  module. The faithful port passes `GetExternalModuleIndicatorOptions`
-  into the bind (`bind_file`), which changes symbol tables program-wide; not
-  attempted inside this lane's ownership.
+  `node16`..`nodenext` program) and, under `auto`, for files
+  `isFileForcedToBeModuleByFormat`, a file without imports/exports bound as
+  a script where upstream binds a module. The diff:
+  - `loader::force_module_indicator`: `GetExternalModuleIndicatorOptions(...).Force`
+    (`ast/parseoptions.go:19`); the `JSX` arm (a file with a JSX tag under
+    `auto` + `react-jsx`) is not ported.
+  - `tsr_binder::bind_file_forcing_module` / `bind_into_with_jsdoc_forcing_module`:
+    new entry points rather than a `FileInfo` field, because `FileInfo` is
+    built by literal at ~40 sites including the conformance harness.
+  - In the binder, `getExternalModuleIndicator`'s order (module syntax; not
+    a declaration or JSON file; then `Force`), and
+    **`setCommonJSModuleIndicator`'s `ExternalModuleIndicator != file`
+    conjunct** (`binder.go:928`): a forced module still takes a CommonJS
+    indicator. The first measurement without that conjunct lost 18 type
+    lines (`nodeModulesAllowJsCjsFromJs` ×4 configurations,
+    `modulePreserve4`), all `module.exports` in forced JS files.
+
+  Measured against `aabe910b` (full dumps): diagnostics **+2**
+  (`compiler/moduleDetectionIsolatedModulesCjsFileScope`,
+  `compiler/sideEffectImports3(moduledetection=force,nouncheckedsideeffectimports=true)`,
+  both `EMPTY_WRONG → EMPTY_RIGHT`), types unchanged, zero losses on both
+  dumps; perf (median child CPU, 21 samples, against `aabe910b`'s binary)
+  domain-model 0.948, generic-imports 1.017; `tsr-binder` and
+  `tsr-compiler` tests pass.
 
 ## 6. How we would know this is wrong
 
