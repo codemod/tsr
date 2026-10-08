@@ -139,3 +139,49 @@ precondition.
 - If the `is_error` audit finds the decline sites are a small minority, the
   right fix is to give upstream's `isErrorType` its own helper and let
   `is_error` mean the gap, the opposite of what step 1 chose.
+
+## Decision log
+
+Appended while this record is still unmerged to `main`; each entry is dated
+and keeps the entries above it intact.
+
+### 2026-10-08 — question 1 decided: narrow per producer, never wholesale
+
+**Decision (integrator, round 5, recorded by r5-errorsplit3, tsr-2zk.1009).**
+The writer's gap->`any` rewrites are **not** narrowed wholesale: at step 2's
+commit that would have turned 5,063 RIGHT lines into GAP (§"Narrow the
+rewrites now" above), and the zero-loss gate does not bend for a
+bookkeeping change. Narrowing is done **per producer**: when a producer
+switches to `native_error`, its lines leave the gap population and stop
+needing the rewrite. A rewrite (or one of its conditions) may be narrowed to
+`native_error` only where the narrowing costs **zero** RIGHT lines, measured
+unfiltered on both dumps; `ceiling` reports the residual after each step.
+
+What this changes in "How we would know this was wrong": the per-producer
+path is now the only path, so its own falsifier carries the weight — if the
+residual in `ceiling`'s narrowing table stops falling across rounds, the
+wholesale option comes back to the integrator with that number.
+
+### 2026-10-08 — question 3 answered: the `is_error` audit
+
+Item 4 left `Checker::is_error` meaning "either identity" until its call
+sites were audited. r5-errorsplit3 classified all 205 calls against the
+pinned native code (`docs/parity/notes/r5-errorsplit3.md` §2):
+
+- 110 decline on the port's gap where upstream has no test;
+- 14 decline just before an `IsTypeAny` arm;
+- 37 mirror `IsTypeAny`;
+- 25 mirror native `isErrorType` and also decline the gap;
+- 18 mirror `isErrorType` alone;
+- 1, a test, is indifferent.
+
+Declines are the majority (124 of 205), so the last falsifier above (decline
+sites "a small minority") did not hold. Neither single definition fits every
+site, so each site now asks its own predicate:
+
+- `is_error` keeps step 1's meaning (native `isErrorType`, gap counted in)
+  for the sites that mirror it;
+- the declines call the new `Checker::is_gap`;
+- the `IsTypeAny` sites call `is_type_any`.
+
+The measured outcome is in the notes.

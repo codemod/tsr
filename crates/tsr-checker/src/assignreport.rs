@@ -2614,7 +2614,7 @@ impl<'a> Checker<'a, '_> {
             // above describes, under a different type id — a type the port
             // could not build, which the relater cannot distinguish from one
             // that failed.
-            if self.is_error(side) || side == any {
+            if self.is_gap(side) || side == any {
                 return false;
             }
             // The `unknown` SOURCE is a real type that fails real relations

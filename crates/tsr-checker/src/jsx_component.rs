@@ -86,7 +86,7 @@ impl Checker<'_, '_> {
         self.jsx_attributes_context(node);
         let Some(signature) = self.resolved_call_signatures.get(&node).cloned() else { return };
         let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
-        if self.is_error(instance) {
+        if self.is_gap(instance) {
             return;
         }
         let Some(bound) = self.jsx_component_bound(node, kind) else { return };
@@ -147,7 +147,7 @@ impl Checker<'_, '_> {
         {
             let Some(function) = self.global_type_symbol_with_arity("Function", 0) else { return };
             let function = self.get_declared_type_of_symbol(function);
-            if self.is_error(function)
+            if self.is_gap(function)
                 || self.relate_ternary(tag_type, function, Relation::Assignable)
                     != Ternary::NotRelated
             {
@@ -216,7 +216,7 @@ impl Checker<'_, '_> {
         let signature = signature.clone();
         let Some(name) = self.jsx_element_properties_member_name(node) else { return };
         let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
-        if self.is_error(instance)
+        if self.is_type_any(instance)
             || self.store.get(instance).flags.intersects(TypeFlags::ANY | TypeFlags::UNION)
         {
             return;
@@ -292,7 +292,7 @@ impl Checker<'_, '_> {
                 let Some(expression) = spread.expression else { return };
                 let spread_type = self.check_expression(expression);
                 if self.store.get(spread_type).flags.intersects(TypeFlags::ANY)
-                    || self.is_error(spread_type)
+                    || self.is_type_any(spread_type)
                 {
                     return;
                 }
@@ -324,8 +324,8 @@ impl Checker<'_, '_> {
         if !hyphenated.is_empty() && self.jsx_hyphen_sensitive_target(target, &hyphenated) {
             return;
         }
-        if self.is_error(source)
-            || self.is_error(target)
+        if self.is_gap(source)
+            || self.is_gap(target)
             || self.store.get(target).flags.intersects(TypeFlags::ANY)
         {
             return;
@@ -1085,7 +1085,7 @@ impl Checker<'_, '_> {
             let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
             self.check_expression(expression)
         };
-        if self.is_error(tag_type)
+        if self.is_gap(tag_type)
             || self.relate_ternary(tag_type, constraint, Relation::Assignable)
                 != Ternary::NotRelated
         {
@@ -1338,7 +1338,7 @@ impl Checker<'_, '_> {
         let element = |checker: &mut Self| {
             let symbol = checker.jsx_type_symbol(location, "Element")?;
             let element = checker.get_declared_type_of_symbol(symbol);
-            if checker.is_error(element) {
+            if checker.is_gap(element) {
                 return None;
             }
             let null = checker.intrinsics.null;

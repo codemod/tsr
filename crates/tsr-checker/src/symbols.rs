@@ -697,7 +697,7 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        if self.is_error(value)
+        if self.is_gap(value)
             || kind.is_some_and(|kind| {
                 self.signatures_of_type_kind(value, kind)
                     .is_none_or(|signatures| signatures.is_empty())
@@ -5952,7 +5952,7 @@ impl<'a> Checker<'a, '_> {
                     let done = self
                         .get_type_of_property_of_type(part, "done")
                         .unwrap_or(self.intrinsics.false_type);
-                    if self.is_error(done) {
+                    if self.is_gap(done) {
                         return Err(());
                     }
                     match self.relate_ternary(truth, done, crate::relater::Relation::Assignable) {
@@ -5967,7 +5967,7 @@ impl<'a> Checker<'a, '_> {
                 let result = self.get_union_type(&results);
                 let value = self.get_type_of_property_of_type(result, "value");
                 if let Some(value) = value {
-                    if self.is_error(value) {
+                    if self.is_gap(value) {
                         return Err(());
                     }
                     values[index] = Some(value);
@@ -6009,7 +6009,7 @@ impl<'a> Checker<'a, '_> {
             let Some(mut method) = self.iteration_property_type(iterator, name) else {
                 return false;
             };
-            if self.is_error(method) || method == self.intrinsics.any {
+            if self.is_type_any(method) {
                 return false;
             }
             if name != "next" {

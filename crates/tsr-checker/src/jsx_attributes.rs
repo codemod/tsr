@@ -63,7 +63,7 @@ impl Checker<'_, '_> {
                     // intersection with disjoint discriminants to `never`,
                     // which `isValidSpreadType` then rejects either way.
                     let operand_type = self.check_expression(operand);
-                    if self.is_error(operand_type) || !self.is_valid_spread_type(operand_type) {
+                    if self.is_gap(operand_type) || !self.is_valid_spread_type(operand_type) {
                         continue;
                     }
                     // `getPropertiesOfType` reads the reduced apparent type,
@@ -134,7 +134,7 @@ impl Checker<'_, '_> {
                 JsxAttributeLike::JsxSpreadAttribute(spread) => {
                     let Some(operand) = spread.expression else { continue };
                     let ty = self.check_expression(operand);
-                    if self.is_error(ty)
+                    if self.is_type_any(ty)
                         || self.store.get(ty).flags.intersects(crate::flags::TypeFlags::ANY)
                     {
                         return;

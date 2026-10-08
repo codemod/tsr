@@ -315,17 +315,17 @@ impl<'a> Checker<'a, '_> {
         if self.nodes.kind(root) != tsr_ast::SyntaxKind::SourceFile
             || self.nodes.flags(root).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             || alias.type_parameters.len() != arguments.len()
-            || arguments.iter().any(|&argument| self.is_error(argument))
+            || arguments.iter().any(|&argument| self.is_gap(argument))
         {
             return None;
         }
         let body = *self.alias_body_evaluations.get(key)?;
-        if body == id || self.is_error(body) {
+        if body == id || self.is_gap(body) {
             return None;
         }
         let body_key @ (target, elements) = self.type_reference_targets.get(&body)?;
         let [element] = elements.as_slice() else { return None };
-        if self.is_error(*element)
+        if self.is_gap(*element)
             || self.instantiations.get(body_key) != Some(&body)
             || !self
                 .binder
@@ -491,7 +491,7 @@ impl<'a> Checker<'a, '_> {
         let computed = self.index_infos_of_symbol_worker(owner, static_side, visiting);
         self.alias_evaluation_bindings = frames;
         let infos = computed?;
-        if self.publishable_since(mark) && infos.iter().all(|info| !self.is_error(info.value)) {
+        if self.publishable_since(mark) && infos.iter().all(|info| !self.is_gap(info.value)) {
             self.perf_links.symbol_index_infos.insert(key, infos.clone());
         }
         Some(infos)

@@ -1066,7 +1066,7 @@ impl Checker<'_, '_> {
         use crate::flags::TypeFlags;
         let flags = self.store.get(parent).flags;
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER)
-            || self.is_error(parent)
+            || self.is_type_any(parent)
         {
             return None;
         }
@@ -1180,7 +1180,7 @@ impl Checker<'_, '_> {
         if base == self.intrinsics.any {
             return Some(false);
         }
-        if self.is_error(base) {
+        if self.is_gap(base) {
             return None;
         }
         // `TypeFlagsTypeVariable` is `TypeParameter | IndexedAccess`.

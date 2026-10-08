@@ -1943,9 +1943,7 @@ impl Relater<'_, '_, '_> {
         if self.checker.is_generic_homomorphic_mapped_type(id)
             && let Some((properties, true)) = self.checker.anonymous_properties.get(&id)
             && properties.iter().all(|property| {
-                self.checker
-                    .peek_property_type(property)
-                    .is_none_or(|ty| !self.checker.is_error(ty))
+                self.checker.peek_property_type(property).is_none_or(|ty| !self.checker.is_gap(ty))
                     && property.origin.is_some_and(|origin| {
                         !self
                             .checker
@@ -2347,7 +2345,7 @@ impl Relater<'_, '_, '_> {
                 self.checker.signature_type_at_position(target_signature, index)
             };
             let (Some(from), Some(to)) = (source_type, target_type) else { continue };
-            if self.checker.is_error(from) || self.checker.is_error(to) {
+            if self.checker.is_gap(from) || self.checker.is_gap(to) {
                 return None;
             }
             if from == to && self.relation != Relation::StrictSubtype {
@@ -3151,43 +3149,41 @@ impl Relater<'_, '_, '_> {
             {
                 let mut constraints = Vec::with_capacity(constituents.len());
                 for &part in &constituents {
-                    let constraint = if self
-                        .checker
-                        .type_of(part)
-                        .flags
-                        .intersects(TypeFlags::INSTANTIABLE)
-                    {
-                        match self.checker.base_constraint_of_type(part) {
-                            Some(constraint) if !self.checker.is_error(constraint) => constraint,
-                            None if self.checker.type_parameter_symbols.get(&part).is_some_and(
-                                |&symbol| {
-                                    let declarations =
-                                        &self.checker.binder.symbols().get(symbol).declarations;
-                                    !declarations.is_empty()
-                                        && declarations.iter().all(|&node| {
-                                            matches!(
-                                                self.checker.node_map.get(node),
-                                                Some(tsr_ast::Node::TypeParameterDeclaration(p))
-                                                    if p.constraint.is_none()
-                                            ) && !matches!(
-                                                self.checker.nodes.parent(node).and_then(
-                                                    |parent| self.checker.node_map.get(parent)
-                                                ),
-                                                Some(tsr_ast::Node::InferTypeNode(_))
-                                            )
-                                        })
-                                },
-                            ) =>
-                            {
-                                self.checker.intrinsics.unknown
+                    let constraint =
+                        if self.checker.type_of(part).flags.intersects(TypeFlags::INSTANTIABLE) {
+                            match self.checker.base_constraint_of_type(part) {
+                                Some(constraint) if !self.checker.is_gap(constraint) => constraint,
+                                None if self
+                                    .checker
+                                    .type_parameter_symbols
+                                    .get(&part)
+                                    .is_some_and(|&symbol| {
+                                        let declarations =
+                                            &self.checker.binder.symbols().get(symbol).declarations;
+                                        !declarations.is_empty()
+                                            && declarations.iter().all(|&node| {
+                                                matches!(
+                                                    self.checker.node_map.get(node),
+                                                    Some(tsr_ast::Node::TypeParameterDeclaration(p))
+                                                        if p.constraint.is_none()
+                                                ) && !matches!(
+                                                    self.checker.nodes.parent(node).and_then(
+                                                        |parent| self.checker.node_map.get(parent)
+                                                    ),
+                                                    Some(tsr_ast::Node::InferTypeNode(_))
+                                                )
+                                            })
+                                    }) =>
+                                {
+                                    self.checker.intrinsics.unknown
+                                }
+                                // Active or unsupported constraints are not a
+                                // proof of native's absent-constraint unknown.
+                                _ => return RelationResult::Unknown,
                             }
-                            // Active or unsupported constraints are not a
-                            // proof of native's absent-constraint unknown.
-                            _ => return RelationResult::Unknown,
-                        }
-                    } else {
-                        part
-                    };
+                        } else {
+                            part
+                        };
                     constraints.push(constraint);
                 }
                 if constraints == constituents {

@@ -66,7 +66,7 @@ impl Checker<'_, '_> {
         &mut self,
         node: &ElementAccessExpression<'_>,
     ) -> TypeId {
-        let (computed, was_optional) = self.check_element_access_type(node);
+        let (computed, was_optional, error_receiver) = self.check_element_access_type(node);
         // The flow narrowing `checkIndexedAccess` ends with, the same call
         // `crate::members` makes for `a.b` — `bd tsr-6ka`. Split into a wrapper
         // rather than threaded through the six early returns below, because
@@ -75,8 +75,11 @@ impl Checker<'_, '_> {
         //
         // A gap is not narrowed: filtering `errorType` would answer `never` for
         // an access this port could not type.
+        // ADR-0048: nor is the access on upstream's `errorType` receiver,
+        // which returns before `getFlowTypeOfAccessExpression`
+        // (`checker.go:8152`).
         let error = self.intrinsics.error;
-        if computed == error {
+        if computed == error || error_receiver {
             return computed;
         }
         let Some(id) = node.node_id else { return computed };
@@ -221,20 +224,31 @@ impl Checker<'_, '_> {
         self.propagate_optional_type_marker_at(node.node_id, narrowed, was_optional)
     }
 
-    /// The type `a[b]` computes before flow narrowing, and whether an
-    /// optional chain stripped anything on the way (the marker
-    /// `check_element_access_expression` propagates).
-    fn check_element_access_type(&mut self, node: &ElementAccessExpression<'_>) -> (TypeId, bool) {
+    /// The type `a[b]` computes before flow narrowing, whether an optional
+    /// chain stripped anything on the way (the marker
+    /// `check_element_access_expression` propagates), and whether the
+    /// receiver was upstream's `errorType` (the access answers it unnarrowed).
+    fn check_element_access_type(
+        &mut self,
+        node: &ElementAccessExpression<'_>,
+    ) -> (TypeId, bool, bool) {
         let error = self.intrinsics.error;
         let (Some(receiver), Some(index)) = (node.expression, node.argument_expression) else {
-            return (error, false);
+            return (error, false, false);
         };
         let object_type = self.check_expression(receiver);
         // Upstream returns the object type when it is `errorType`
-        // (`checker.go:8154`), which is the same answer by identity — an
-        // unreachable receiver takes the access with it.
+        // (`checker.go:8152`), which is the same answer by identity — an
+        // unreachable receiver takes the access with it. ADR-0048: upstream's
+        // own `errorType` receiver answers itself the same way.
         if object_type == error {
-            return (error, false);
+            return (error, false, false);
+        }
+        if object_type == self.intrinsics.native_error {
+            // The index is checked first (`checker.go:8151`), so its own
+            // diagnostics still report.
+            self.check_expression(index);
+            return (object_type, false, true);
         }
         // The nullable-receiver strip and the chain marker — the same trio a
         // property access runs (`checker-notes-nnaccess.md`): `?.` strips at
@@ -247,11 +261,11 @@ impl Checker<'_, '_> {
         );
         let stripped = self.check_non_null_type(non_optional);
         if stripped == error {
-            return (error, false);
+            return (error, false, false);
         }
         let was_optional = non_optional != object_type;
         let object_type = stripped;
-        (self.element_access_lookup(node, object_type, index), was_optional)
+        (self.element_access_lookup(node, object_type, index), was_optional, false)
     }
 
     /// # The JS-literal arm, transcribed but NOT built (needs an object flag)

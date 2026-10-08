@@ -1678,7 +1678,7 @@ impl Checker<'_, '_> {
         let Some(expression) = base.expression else { return };
         let Some(id) = expression.node_id() else { return };
         let base_type = self.check_expression(expression);
-        if self.is_error(base_type) || base_type == self.intrinsics.unresolved {
+        if self.is_type_any(base_type) || base_type == self.intrinsics.unresolved {
             return;
         }
         let flags = self.type_of(base_type).flags;
@@ -2056,7 +2056,7 @@ impl Checker<'_, '_> {
         let Some(right) = binary.right else { return };
         let Some(id) = right.node_id() else { return };
         let right_type = self.check_expression(right);
-        if self.is_error(right_type) {
+        if self.is_type_any(right_type) {
             return;
         }
         let constituents = match &self.type_of(right_type).data {
@@ -4174,10 +4174,18 @@ impl Checker<'_, '_> {
             // `Array<errorType>` / `I<errorType>` and TS2564 is reported
             // (`missingTypeArguments1`). `docs/parity/notes/decls.md` §17,
             // superseding §6's decline and §324's computed-name bound.
-            if (self.is_error(declared)
+            // ADR-0048 (`r5-errorsplit3.md` §2): only the port's gap needs
+            // the failed-reference proof; upstream's `errorType`, an
+            // unresolved reference and every other any- or unknown-flagged
+            // type are skipped by the flag test itself.
+            if (self.is_gap(declared)
                 && self.annotation_is_failed_reference(property.r#type.and_then(|t| t.node_id())))
-                || declared == self.intrinsics.any
-                || declared == self.intrinsics.unknown
+                || (!self.is_gap(declared)
+                    && self
+                        .store
+                        .get(declared)
+                        .flags
+                        .intersects(TypeFlags::ANY | TypeFlags::UNKNOWN))
                 || self.contains_undefined_type(declared)
             {
                 continue;
@@ -5903,7 +5911,7 @@ impl Checker<'_, '_> {
             return;
         };
         let left = self.check_expression(expression);
-        if self.is_error(left) || self.accepts_some_narrower_string(left) {
+        if self.is_gap(left) || self.accepts_some_narrower_string(left) {
             return;
         }
         let string = self.intrinsics.string;
@@ -5975,7 +5983,7 @@ impl Checker<'_, '_> {
         // adjustment's own.
         let right = self.check_expression(expression);
         let right = self.get_non_nullable_type(right);
-        if self.is_error(right) {
+        if self.is_gap(right) {
             return;
         }
         let never = right == self.intrinsics.never;
@@ -7152,7 +7160,7 @@ impl Checker<'_, '_> {
             }
             _ => self.get_type_of_symbol(symbol),
         };
-        if self.is_error(declared)
+        if self.is_type_any(declared)
             || self.type_of(declared).flags.intersects(
                 crate::flags::TypeFlags::ANY
                     .union(crate::flags::TypeFlags::UNKNOWN)
@@ -13197,7 +13205,7 @@ impl Checker<'_, '_> {
         }
         let mut result = Ternary::Related;
         for (s, t) in pairs {
-            if self.is_error(s) || self.is_error(t) {
+            if self.is_gap(s) || self.is_gap(t) {
                 return Ternary::Unknown;
             }
             let callable = [s, t].into_iter().any(|side| {
@@ -15018,7 +15026,7 @@ impl Checker<'_, '_> {
         };
         arguments.iter().all(|&argument| {
             let argument = self.get_type_from_type_node(argument);
-            !self.is_error(argument)
+            !self.is_gap(argument)
         })
     }
 }

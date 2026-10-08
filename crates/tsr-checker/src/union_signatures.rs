@@ -36,7 +36,7 @@ impl Checker<'_, '_> {
                 .iter()
                 .filter_map(|signature| self.signature_type_at_position(signature, index))
                 .collect();
-            if types.iter().any(|&ty| self.is_error(ty)) {
+            if types.iter().any(|&ty| self.is_gap(ty)) {
                 return None;
             }
             first.set_type(self.union_with_subtype_reduction(&types)?);
@@ -54,7 +54,7 @@ impl Checker<'_, '_> {
                 if let Some(ty) = self.signature_effective_rest_type(signature) {
                     let element =
                         self.resolved_indexed_access_type(ty, self.intrinsics.number, false)?;
-                    if self.is_error(element) {
+                    if self.is_gap(element) {
                         return None;
                     }
                     types.push(element);
@@ -471,7 +471,7 @@ impl Checker<'_, '_> {
         if source == target {
             return true;
         }
-        if depth >= 32 || self.is_error(source) || self.is_error(target) {
+        if depth >= 32 || self.is_gap(source) || self.is_gap(target) {
             return false;
         }
         let source = self.get_regular_type_of_literal_type(source);
@@ -667,7 +667,7 @@ impl Checker<'_, '_> {
             let a = self.signature_type_at_position(longest, index)?;
             let b =
                 self.signature_type_at_position(shorter, index).unwrap_or(self.intrinsics.unknown);
-            if self.is_error(a) || self.is_error(b) {
+            if self.is_gap(a) || self.is_gap(b) {
                 return None;
             }
             let mut ty = self.get_intersection_type(&[a, b], None);
@@ -687,7 +687,7 @@ impl Checker<'_, '_> {
         }
         if extra_rest {
             let ty = self.signature_type_at_position(shorter, count)?;
-            if self.is_error(ty) {
+            if self.is_gap(ty) {
                 return None;
             }
             let array = self.global_type_symbol("Array")?;

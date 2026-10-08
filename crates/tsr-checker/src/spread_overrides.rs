@@ -65,7 +65,7 @@ impl Checker<'_, '_> {
             }
             let Some(operand) = operand else { continue };
             let operand_type = self.check_expression(operand);
-            if self.is_error(operand_type) || !self.is_valid_spread_type(operand_type) {
+            if self.is_type_any(operand_type) || !self.is_valid_spread_type(operand_type) {
                 continue;
             }
             let merged = self.try_merge_union_of_object_type_and_empty_object(operand_type);
@@ -145,7 +145,7 @@ impl Checker<'_, '_> {
         }
         let Some(holder) = self.nodes.parent(pattern_id) else { return };
         let parent_type = self.get_type_for_binding_element_parent(holder);
-        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+        if self.is_type_any(parent_type) {
             return;
         }
         let parent_type = self.destructuring_parent_adjusted(node, holder, parent_type);
@@ -176,7 +176,7 @@ impl Checker<'_, '_> {
         let Some(operand) = attribute.expression else { return };
         let Some(operand_id) = operand.node_id() else { return };
         let operand_type = self.check_expression(operand);
-        if self.is_error(operand_type) || self.is_valid_spread_type(operand_type) {
+        if self.is_type_any(operand_type) || self.is_valid_spread_type(operand_type) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(operand_id) else { return };
@@ -213,7 +213,7 @@ impl Checker<'_, '_> {
         }
         for (at, operand) in operands {
             let operand_type = self.check_expression(operand);
-            if self.is_error(operand_type) || self.is_valid_spread_type(operand_type) {
+            if self.is_type_any(operand_type) || self.is_valid_spread_type(operand_type) {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };

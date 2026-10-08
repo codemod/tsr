@@ -216,11 +216,11 @@ impl Checker<'_, '_> {
         use_: IterationUse,
         error_node: Option<NodeId>,
     ) -> Result<IterationTypes, Unsupported> {
-        if self.is_error(ty) {
+        if self.is_gap(ty) {
             return Err(());
         }
         let ty = self.iteration_reduced_type(ty);
-        if ty == self.intrinsics.any {
+        if self.is_type_any(ty) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         self.get_iteration_types_of_iterable_worker(ty, use_, error_node)
@@ -273,7 +273,7 @@ impl Checker<'_, '_> {
             }
             return Ok(self.combine_iteration_types(&all));
         }
-        if self.is_error(ty) {
+        if self.is_gap(ty) {
             return Err(());
         }
         // `diags`: one buffer across both slow attempts, as upstream's.
@@ -568,10 +568,10 @@ impl Checker<'_, '_> {
         ty: TypeId,
         is_async: bool,
     ) -> Result<IterationTypes, Unsupported> {
-        if self.is_error(ty) {
+        if self.is_gap(ty) {
             return Err(());
         }
-        if ty == self.intrinsics.any {
+        if self.is_type_any(ty) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         let (use_, resolver) = if is_async {
@@ -594,10 +594,10 @@ impl Checker<'_, '_> {
         return_type: TypeId,
         is_async: bool,
     ) -> Result<Option<TypeId>, Unsupported> {
-        if self.is_error(return_type) {
+        if self.is_gap(return_type) {
             return Err(());
         }
-        if return_type == self.intrinsics.any {
+        if self.is_type_any(return_type) {
             return Ok(None);
         }
         let types =
@@ -777,17 +777,17 @@ impl Checker<'_, '_> {
             return Ok(IterationTypes::NONE);
         }
         let Some(method_type) = self.iteration_property_type(ty, name) else { return Err(()) };
-        if self.is_error(method_type) {
+        if self.is_gap(method_type) {
             return Err(());
         }
-        if method_type == self.intrinsics.any {
+        if self.is_type_any(method_type) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         let signatures = self.iteration_call_signatures(method_type)?;
         let mut returns = Vec::new();
         for signature in &signatures {
             if self.signature_min_argument_count(signature) == 0 {
-                if self.is_error(signature.r#type) {
+                if self.is_gap(signature.r#type) {
                     return Err(());
                 }
                 returns.push(signature.r#type);
@@ -826,10 +826,10 @@ impl Checker<'_, '_> {
         resolver: Resolver,
         mut reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
-        if self.is_error(ty) {
+        if self.is_gap(ty) {
             return Err(());
         }
-        if ty == self.intrinsics.any {
+        if self.is_type_any(ty) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         let types = self.get_iteration_types_fast(ty, resolver, true)?;
@@ -872,7 +872,7 @@ impl Checker<'_, '_> {
             && !(name == "next" && self.property_is_optional(method))
         {
             let Some(mut found) = self.iteration_property_type(ty, name) else { return Err(()) };
-            if self.is_error(found) {
+            if self.is_gap(found) {
                 return Err(());
             }
             if name != "next" {
@@ -881,7 +881,7 @@ impl Checker<'_, '_> {
             }
             method_type = Some(found);
         }
-        if method_type == Some(self.intrinsics.any) {
+        if method_type.is_some_and(|method_type| self.is_type_any(method_type)) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         let signatures = match method_type {
@@ -905,12 +905,12 @@ impl Checker<'_, '_> {
         for signature in &signatures {
             if name != "throw" && !signature.parameters.is_empty() {
                 let parameter = self.signature_type_at_position(signature, 0).ok_or(())?;
-                if self.is_error(parameter) {
+                if self.is_gap(parameter) {
                     return Err(());
                 }
                 parameter_types.push(parameter);
             }
-            if self.is_error(signature.r#type) {
+            if self.is_gap(signature.r#type) {
                 return Err(());
             }
             return_types.push(signature.r#type);
@@ -956,10 +956,10 @@ impl Checker<'_, '_> {
         &mut self,
         ty: TypeId,
     ) -> Result<IterationTypes, Unsupported> {
-        if self.is_error(ty) {
+        if self.is_gap(ty) {
             return Err(());
         }
-        if ty == self.intrinsics.any {
+        if self.is_type_any(ty) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         if let Some(arguments) = self.reference_to_global(ty, &["IteratorYieldResult"], 1) {
@@ -1011,7 +1011,7 @@ impl Checker<'_, '_> {
                 }
                 None => return Err(()),
             };
-            if self.is_error(done_type) {
+            if self.is_gap(done_type) {
                 return Err(());
             }
             match self.relate_ternary(done, done_type, crate::relater::Relation::Assignable) {
@@ -1025,7 +1025,7 @@ impl Checker<'_, '_> {
         }
         let result = self.get_union_type(&matching);
         match self.get_type_of_property_of_type(result, "value") {
-            Some(value) if self.is_error(value) => Err(()),
+            Some(value) if self.is_gap(value) => Err(()),
             Some(value) => Ok(Some(value)),
             None if matching
                 .iter()
@@ -1056,7 +1056,7 @@ impl Checker<'_, '_> {
         sent_type: TypeId,
         error_node: NodeId,
     ) {
-        if input == self.intrinsics.any || self.is_error(input) {
+        if self.is_type_any(input) {
             return;
         }
         let allow_async = use_.contains(IterationUse::ALLOWS_ASYNC_ITERABLES);
@@ -1105,7 +1105,7 @@ impl Checker<'_, '_> {
         } else {
             return;
         };
-        if self.is_error(sent_type) || self.is_error(next_type) {
+        if self.is_gap(sent_type) || self.is_gap(next_type) {
             return;
         }
         if self.relate_ternary(sent_type, next_type, crate::relater::Relation::Assignable)
@@ -1258,7 +1258,7 @@ impl Checker<'_, '_> {
         if let Some(element) = named {
             let Some(element_id) = element.node_id else { return };
             let parent_type = self.get_type_for_binding_element_parent(holder);
-            if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+            if self.is_type_any(parent_type) {
                 return;
             }
             let parent_type = self.destructuring_parent_adjusted(element_id, holder, parent_type);
@@ -1280,7 +1280,7 @@ impl Checker<'_, '_> {
         // getWidenedTypeForVariableLikeDeclaration's declared half; this
         // port's parent road already widens an initializer the same way.
         let declared = self.get_type_for_binding_element_parent(holder);
-        if declared == self.intrinsics.any || self.is_error(declared) {
+        if self.is_type_any(declared) {
             return;
         }
         let undefined = self.intrinsics.undefined;
@@ -1315,7 +1315,7 @@ impl Checker<'_, '_> {
                 }
                 let right = binary.right?;
                 let source = self.check_expression(right);
-                (!self.is_error(source)).then_some(source)
+                (!self.is_gap(source)).then_some(source)
             }
             Node::ArrayLiteralExpression(literal) => {
                 let index = literal.elements.iter().position(|e| e.node_id() == Some(node))?;
@@ -1334,7 +1334,7 @@ impl Checker<'_, '_> {
                 } else {
                     self.iterated_element_type(source)?
                 };
-                (!self.is_error(element)).then_some(element)
+                (!self.is_gap(element)).then_some(element)
             }
             _ => None,
         }
@@ -1380,7 +1380,7 @@ impl Checker<'_, '_> {
             _ => return,
         }
         let spread_type = self.check_expression(expression);
-        if spread_type == self.intrinsics.any || self.is_error(spread_type) {
+        if self.is_type_any(spread_type) {
             return;
         }
         if self.binding_parent_is_array_like(spread_type) != Some(false) {
@@ -1406,7 +1406,7 @@ impl Checker<'_, '_> {
         };
         let Some(expression) = for_in.expression else { return string };
         let checked = self.check_expression(expression);
-        if self.is_error(checked) {
+        if self.is_gap(checked) {
             return string;
         }
         // getNonNullableTypeIfNeeded.
@@ -1498,11 +1498,16 @@ impl Checker<'_, '_> {
         self.iteration_global("Iterable", 3)?;
         let checked = self.check_expression(expression);
         let input = self.check_non_null_type(checked);
-        if input == self.intrinsics.any || input == self.intrinsics.never {
-            return Some(self.intrinsics.any);
-        }
-        if self.is_error(input) {
+        if self.is_gap(input) {
             return None;
+        }
+        // `IsTypeAny(inputType)` answers the input itself (`checker.go:6096`):
+        // upstream's `errorType` stays `errorType` (ADR-0048).
+        if self.is_type_any(input) {
+            return Some(input);
+        }
+        if input == self.intrinsics.never {
+            return Some(self.intrinsics.any);
         }
         let types = self.get_iteration_types_of_iterable(input, use_).ok()?;
         Some(types.yield_type.unwrap_or(self.intrinsics.any))

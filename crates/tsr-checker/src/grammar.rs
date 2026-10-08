@@ -1161,7 +1161,7 @@ impl Checker<'_, '_> {
         if let Some(type_node) = variable.r#type {
             let ty = self.get_type_from_type_node(type_node);
             // `is_error` is upstream's `errorType`, which carries `TypeFlagsAny`.
-            if !self.is_error(ty)
+            if !self.is_type_any(ty)
                 && !self.type_of(ty).flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
                 && let Some(id) = type_node.node_id()
             {

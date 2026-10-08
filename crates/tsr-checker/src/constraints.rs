@@ -88,7 +88,7 @@ impl Checker<'_, '_> {
                         }
                     };
                     let Some(constraint) = constraint else { break };
-                    if self.is_error(constraint) || seen.contains(&constraint) {
+                    if self.is_gap(constraint) || seen.contains(&constraint) {
                         break;
                     }
                     if self.store.get(constraint).flags.intersects(
@@ -115,7 +115,7 @@ impl Checker<'_, '_> {
         }
         constraints.extend(domains);
         let constraint = self.get_intersection_without_constraint_reduction(&constraints);
-        (!self.is_error(constraint)).then_some(constraint)
+        (!self.is_gap(constraint)).then_some(constraint)
     }
 
     /// A retained keyof alias reference has `IndexType` semantics even though its
@@ -876,7 +876,7 @@ impl Checker<'_, '_> {
             let filled = self.instantiate_type(default, &map, &parameter_types, &name_refs);
             arguments.push(filled);
         }
-        if arguments.iter().any(|&argument| self.is_error(argument)) {
+        if arguments.iter().any(|&argument| self.is_gap(argument)) {
             return;
         }
         let map: Vec<(TypeId, TypeId)> =
@@ -888,7 +888,7 @@ impl Checker<'_, '_> {
             let Some(at) = argument_node.node_id() else { continue };
             let target = self.instantiate_type(constraint, &map, &parameter_types, &name_refs);
             let source = arguments[index];
-            if self.is_error(target)
+            if self.is_gap(target)
                 || self.type_argument_node_is_generic(at)
                 || self.relation_undecidable_for_constraint(source)
                 || self.relation_undecidable_for_constraint(target)

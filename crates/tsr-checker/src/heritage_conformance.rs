@@ -417,7 +417,7 @@ impl Checker<'_, '_> {
             } else {
                 base
             };
-            if self.is_error(base_type) {
+            if self.is_gap(base_type) {
                 continue;
             }
             let base_property = self.get_property_of_type(base_type, &name);
