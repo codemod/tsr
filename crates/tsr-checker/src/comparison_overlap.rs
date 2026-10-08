@@ -47,7 +47,7 @@ use crate::{
 impl Checker<'_, '_> {
     /// The overlap check for one `==`, `!=`, `===` or `!==`.
     pub(crate) fn check_comparison_overlap(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.file_has_parse_errors {
             return;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };

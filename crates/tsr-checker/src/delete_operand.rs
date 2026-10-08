@@ -24,7 +24,7 @@ impl Checker<'_, '_> {
     /// `checkDeleteExpression` (`checker.go:10804`) after its
     /// not-an-access arm (TS2703, `check_reference_expression`).
     pub(crate) fn check_delete_operand_symbol(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.file_has_parse_errors {
             return;
         }
         let Some(Node::DeleteExpression(delete)) = self.node_map.get(node) else { return };
