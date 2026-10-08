@@ -314,7 +314,7 @@ fn top_level_parameter_tags<'a>(
 
 /// The comment's tags as upstream's `JSDoc.Tags` lists them: an `@overload`
 /// signature's run is part of the overload tag, not the comment.
-fn top_level_tags<'a>(tags: &'a [JSDocTag<'a>]) -> Vec<&'a JSDocTag<'a>> {
+pub(crate) fn top_level_tags<'a>(tags: &'a [JSDocTag<'a>]) -> Vec<&'a JSDocTag<'a>> {
     let mut top = Vec::new();
     let mut index = 0;
     while let Some(tag) = tags.get(index) {
@@ -374,6 +374,9 @@ pub(crate) struct JSDocReparsedFunction<'a> {
     /// One slot per written parameter, in order — or empty when no comment
     /// is reparsed onto the function (every slot would be default).
     pub(crate) parameters: Vec<JSDocReparsedParameter<'a>>,
+    /// The reparsed `fun.Type`: the first typed `@returns` of an
+    /// unannotated function without a full signature.
+    pub(crate) return_type: Option<TypeNode<'a>>,
 }
 
 /// One parameter's reparsed half: the `@param` tag `findMatchingParameter`
@@ -385,6 +388,9 @@ pub(crate) struct JSDocReparsedParameter<'a> {
     /// A reparsed `?` (`NodeFlagsReparsed`): the tag is bracketed or its type
     /// is `T=`, and the parameter had no written `?`.
     pub(crate) question: bool,
+    /// The reparsed `param.Type`: the type expression of the `@param` that
+    /// typed an unannotated parameter.
+    pub(crate) r#type: Option<TypeNode<'a>>,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -440,7 +446,7 @@ impl<'a> Checker<'a, '_> {
             };
             state.host_takes_type = if host == function {
                 match self.nodes.kind(function) {
-                    SyntaxKind::GetAccessor if !parts.return_type => HostTypeArm::Once,
+                    SyntaxKind::GetAccessor if !parts.return_type => HostTypeArm::OwnType,
                     _ => HostTypeArm::None,
                 }
             } else {
@@ -483,9 +489,97 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// Whether `makeQuestionIfOptional` (`parser/reparser.go`) gave
+    /// `parameter` a reparsed `?`: its function's last comment has a
+    /// matching `@param [x]` or `@param {T=} x`, and nothing wrote a `?`.
+    /// Upstream reads that token through `param.QuestionToken` everywhere
+    /// it reads a written one (`isOptionalDeclaration`,
+    /// `getSignatureFromDeclaration`'s `isOptionalParameter`).
+    ///
+    /// No cache: [`Self::jsdoc_reparsed_function`] answers with hash lookups
+    /// for the common uncommented function.
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
+    )]
+    pub(crate) fn jsdoc_reparsed_parameter_question(&self, parameter: NodeId) -> bool {
+        let Some(function) = self.nodes.parent(parameter) else { return false };
+        let Some(parts) = self.function_like_parts(function) else { return false };
+        let Some(index) = parts.parameters.iter().position(|p| p.node_id == Some(parameter)) else {
+            return false;
+        };
+        self.jsdoc_reparsed_function(function)
+            .parameters
+            .get(index)
+            .is_some_and(|slot| slot.question)
+    }
+
+    /// `param.Type()` as the reparser leaves it for an unannotated JS
+    /// parameter: its own `@type` ([`Self::jsdoc_parameter_hosted_type`]),
+    /// else the type of the `@param` its function's comment matched to it.
+    /// `None` for a parameter with a written type, which needs no reparse.
+    ///
+    /// No cache, as for [`Self::jsdoc_reparsed_parameter_question`].
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
+    )]
+    pub(crate) fn jsdoc_reparsed_parameter_type(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+        if let Some(hosted) = self.jsdoc_parameter_hosted_type(parameter) {
+            return Some(hosted);
+        }
+        let function = self.nodes.parent(parameter)?;
+        let parts = self.function_like_parts(function)?;
+        let index = parts.parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        if parts.parameters[index].r#type.is_some() {
+            return None;
+        }
+        self.jsdoc_reparsed_function(function).parameters.get(index)?.r#type
+    }
+
+    /// `getAnnotatedAccessorTypeNode` (`checker.go:20106`) over the reparsed
+    /// tree, for an accessor with no written annotation: a getter's
+    /// `node.Type()` (its own `@type`, else its `@returns`), and a setter's
+    /// `getEffectiveSetAccessorTypeAnnotationNode` — the type of
+    /// `GetSetAccessorValueParameter`, the first parameter that is not
+    /// `this`, which in JS is its reparsed `@param` (or its own `@type`).
+    ///
+    /// No cache: the replay answers from hash lookups when no comment
+    /// applies.
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc2-accessor-annotation.diff, which removes this"
+    )]
+    pub(crate) fn jsdoc_accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        match self.node_map.get(declaration)? {
+            Node::GetAccessorDeclaration(getter) if getter.r#type.is_none() => {
+                if !self.in_js_file(declaration) {
+                    return None;
+                }
+                let reparsed = self.jsdoc_reparsed_function(declaration);
+                if reparsed.full_signature.is_some() {
+                    return None;
+                }
+                reparsed.return_type
+            }
+            Node::SetAccessorDeclaration(setter) => {
+                // `GetSetAccessorValueParameter` (`ast/utilities.go`).
+                let has_this = setter.parameters.len() == 2
+                    && matches!(setter.parameters[0].name,
+                        Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this");
+                let value = setter.parameters.get(usize::from(has_this))?;
+                if value.r#type.is_some() {
+                    return None;
+                }
+                self.jsdoc_reparsed_parameter_type(value.node_id?)
+            }
+            _ => None,
+        }
+    }
+
     /// The written type-parameter list, parameters and return-annotation
     /// presence of a function-like declaration.
-    fn function_like_parts(&self, node: NodeId) -> Option<FunctionLikeParts<'a>> {
+    pub(crate) fn function_like_parts(&self, node: NodeId) -> Option<FunctionLikeParts<'a>> {
         let (type_parameters, parameters, return_type) = match self.node_map.get(node)? {
             Node::FunctionDeclaration(n) => (n.type_parameters, n.parameters, n.r#type),
             Node::FunctionExpression(n) => (n.type_parameters, n.parameters, n.r#type),
@@ -652,6 +746,13 @@ impl<'a> Checker<'a, '_> {
                     }
                     match state.host_takes_type {
                         HostTypeArm::Always => continue,
+                        // The getter's own `Type`: its return annotation.
+                        HostTypeArm::OwnType => {
+                            state.host_takes_type = HostTypeArm::None;
+                            state.has_return_type = true;
+                            out.return_type = annotation;
+                            continue;
+                        }
                         HostTypeArm::Once => {
                             state.host_takes_type = HostTypeArm::None;
                             continue;
@@ -696,6 +797,7 @@ impl<'a> Checker<'a, '_> {
                     if parameter_tag.type_expression.is_some() && !state.typed[index] {
                         state.typed[index] = true;
                         slot.tag = Some(parameter_tag);
+                        slot.r#type = parameter_tag.type_expression;
                     }
                     if parameter.question_token.is_none()
                         && !slot.question
@@ -715,6 +817,9 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 JSDocTag::JSDocReturnTag(return_tag) if out.full_signature.is_none() => {
+                    if !state.has_return_type {
+                        out.return_type = return_tag.type_expression;
+                    }
                     state.has_return_type |= return_tag.type_expression.is_some();
                 }
                 _ => {}
@@ -724,10 +829,10 @@ impl<'a> Checker<'a, '_> {
 }
 
 /// The written shape [`Checker::jsdoc_reparsed_function`] reads.
-struct FunctionLikeParts<'a> {
-    type_parameters: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>],
-    parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
-    return_type: bool,
+pub(crate) struct FunctionLikeParts<'a> {
+    pub(crate) type_parameters: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>],
+    pub(crate) parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
+    pub(crate) return_type: bool,
 }
 
 /// Where a `@type` on a non-function host goes before the function-like arm.
@@ -735,6 +840,9 @@ struct FunctionLikeParts<'a> {
 enum HostTypeArm {
     /// Straight to the function-like arm.
     None,
+    /// A getter's own comment: the first `@type` is its return type
+    /// (`reparseHosted`'s `KindGetAccessor` case).
+    OwnType,
     /// The host's own annotation, the first time only.
     Once,
     /// One untyped variable declaration per tag.

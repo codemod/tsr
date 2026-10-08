@@ -1,0 +1,109 @@
+diff --git a/crates/tsr-checker/src/jsdoc_params.rs b/crates/tsr-checker/src/jsdoc_params.rs
+index 792dd0b..4a48e1e 100644
+--- a/crates/tsr-checker/src/jsdoc_params.rs
++++ b/crates/tsr-checker/src/jsdoc_params.rs
+@@ -498,10 +498,6 @@ impl<'a> Checker<'a, '_> {
+     ///
+     /// No cache: [`Self::jsdoc_reparsed_function`] answers with hash lookups
+     /// for the common uncommented function.
+-    #[expect(
+-        dead_code,
+-        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
+-    )]
+     pub(crate) fn jsdoc_reparsed_parameter_question(&self, parameter: NodeId) -> bool {
+         let Some(function) = self.nodes.parent(parameter) else { return false };
+         let Some(parts) = self.function_like_parts(function) else { return false };
+@@ -520,10 +516,6 @@ impl<'a> Checker<'a, '_> {
+     /// `None` for a parameter with a written type, which needs no reparse.
+     ///
+     /// No cache, as for [`Self::jsdoc_reparsed_parameter_question`].
+-    #[expect(
+-        dead_code,
+-        reason = "read by docs/parity/notes/r5-jsdoc2-reparsed-parameter-consumers.diff, which removes this"
+-    )]
+     pub(crate) fn jsdoc_reparsed_parameter_type(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+         if let Some(hosted) = self.jsdoc_parameter_hosted_type(parameter) {
+             return Some(hosted);
+diff --git a/crates/tsr-checker/src/optionality.rs b/crates/tsr-checker/src/optionality.rs
+index 4c69bdf..e0f0114 100644
+--- a/crates/tsr-checker/src/optionality.rs
++++ b/crates/tsr-checker/src/optionality.rs
+@@ -238,6 +238,10 @@ impl Checker<'_, '_> {
+     pub(crate) fn is_optional_declaration(&self, declaration: NodeId) -> bool {
+         let Some(node) = self.node_map.get(declaration) else { return false };
+         let token = match node {
++            // A JS parameter's `?` may be reparsed from its `@param`.
++            Node::ParameterDeclaration(n) if n.question_token.is_none() => {
++                return self.jsdoc_reparsed_parameter_question(declaration);
++            }
+             Node::ParameterDeclaration(n) => n.question_token,
+             Node::MappedTypeNode(n) => n.question_token,
+             Node::NamedTupleMember(n) => n.question_token,
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index 8ce57d5..ff8d3d3 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -364,13 +364,18 @@ impl<'a> Checker<'a, '_> {
+             return false;
+         }
+         let Some(parts) = self.signature_parts_of(declaration) else { return false };
+-        parts.parameters.iter().any(|parameter| parameter.r#type.is_none())
+-            || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
+-                && !parts
+-                    .parameters
+-                    .first()
+-                    .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
+-                && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
++        // `param.Type()` includes the reparsed JSDoc type (ADR-0046).
++        parts.parameters.iter().any(|parameter| {
++            parameter.r#type.is_none()
++                && parameter
++                    .node_id
++                    .is_none_or(|id| self.jsdoc_reparsed_parameter_type(id).is_none())
++        }) || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
++            && !parts
++                .parameters
++                .first()
++                .is_some_and(|parameter| Self::is_this_parameter_declaration(parameter))
++            && self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS))
+     }
+ 
+     /// Only parameters with no written type read the contextual fixing mapper.
+@@ -1620,13 +1625,36 @@ impl<'a> Checker<'a, '_> {
+                             if matches!(expression.r#type, Some(TypeNode::JSDocOptionalType(_))));
+                     // A bracketed parameter prints its written annotation;
+                     // {T=} carries explicit undefined in the signature too.
+-                    if self.strict_null_checks && suffix_optional {
++                    if self.strict_null_checks && (suffix_optional || *bracketed) {
+                         typed = self.get_optional_type(typed, false);
+                     }
+                     parameter.set_type(typed);
++                    // `serializeTypeForDeclaration` reuses the reparsed
++                    // annotation as it reuses a written one; JSDoc-only
++                    // node kinds are `nodecopy.go`'s rewrites, not ported.
++                    if *bracketed
++                        && let TypeNode::JSDocTypeExpression(expression) = annotation
++                        && let Some(inner) = expression.r#type
++                        && !matches!(
++                            inner,
++                            TypeNode::JSDocOptionalType(_)
++                                | TypeNode::JSDocNullableType(_)
++                                | TypeNode::JSDocNonNullableType(_)
++                                | TypeNode::JSDocAllType(_)
++                                | TypeNode::JSDocVariadicType(_)
++                        )
++                    {
++                        parameter.written_text = self.reuse_annotation(inner, typed);
++                    }
+                     parameter.optional |= *bracketed || suffix_optional;
+                 }
+             }
++            // `makeQuestionIfOptional`'s reparsed `?` (`@param [x]`).
++            if node.question_token.is_none()
++                && node.node_id.is_some_and(|id| self.jsdoc_reparsed_parameter_question(id))
++            {
++                parameter.optional = true;
++            }
+             if index == 0 && parameter.name == "this" {
+                 this_parameter = Some(parameter);
+                 continue;
