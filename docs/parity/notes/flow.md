@@ -524,3 +524,18 @@ control: `x!` and `(x!)` → `string`; the satisfies condition stays
 `string | null`. No cache or traversal added. Gate vs §22: +4 type lines
 (`narrowingWithNonNullExpression`, `inferTypePredicates`), +1 diagnostic case
 (`narrowingWithNonNullExpression`); 0 losses. CPU (21) 0.936 / 1.007.
+
+## 24. Logical assignment results (`checkBinaryLikeExpression`)
+
+Pinned `checker.go:12496-12529`: `&&=`, `||=` and `??=` share the `&&`, `||`
+and `??` result arms; the assignment forms only add `checkAssignmentOperator`,
+which reports and does not change the result. TSR's `check_binary_expression`
+fell to `_ => error` for the three tokens. They now reach the existing
+`check_logical_and` / `check_logical_or_coalescing` workers (`??=` does not run
+`checkNullishCoalesceOperands`, as native). No cache or traversal added.
+Native control: `x.a ??= true` on `boolean | undefined` → `boolean`,
+`x.a &&= false` → `false | undefined`; `x.a ||= 1` on `number | undefined`
+→ `number`. Gate vs §23: +7 type lines (`logicalAssignment9`,
+`thisPrototypeMethodCompoundAssignment[Js]`, `narrowingPastLastAssignment`,
+`nullishCoalescingAssignmentVsPrivateFieldsJsEmit1`); 0 losses. CPU (21)
+0.935 / 0.996.
