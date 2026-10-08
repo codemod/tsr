@@ -24,6 +24,10 @@ use tsr_diagnostics::Diagnostic;
 
 use crate::{Program, ProgramFile, comment_directives};
 
+mod verify_options;
+
+pub use verify_options::{OptionsVerification, verify_compiler_options};
+
 /// `IsSourceFileJS` (`ast/utilities.go:1290`): the file's script kind is
 /// `ScriptKindJS` or `ScriptKindJSX`, which `GetScriptKindFromFileName` derives
 /// from these four extensions, case-insensitively.

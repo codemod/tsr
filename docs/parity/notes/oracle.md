@@ -105,7 +105,7 @@ and reap): `getCompilerFileBasedTest` → `newCompilerTest` →
 TSR, per candidate: `full_oracle::actual` with the native configuration map
 verbatim. Case program = `types_producer::program_and_config_for_case` at
 `/.src`; one configured checker; `compileFilesWithHost` collection (config,
-parse, JS syntax, `bind_and_check_diagnostics` with the program's bind
+program option diagnostics, parse, JS syntax, `bind_and_check_diagnostics` with the program's bind
 diagnostics, include processor, isolated-declaration diagnostics) then
 `sort_and_deduplicate_located_diagnostics`; type rows via
 `types_producer::render_file` through the same checker, `hadErrorBaseline =
@@ -120,6 +120,40 @@ ends the worker, the case is `TSR_FAILED` with that case's stderr, and the slot
 starts a new worker, so no case runs after another case's unwinding.
 `--per-process` runs one process per case; the two modes must publish
 byte-identical artifacts (checked over the full corpus, below).
+
+### Program option diagnostics (`verifyCompilerOptions`)
+
+`tsr_compiler::program_diagnostics::verify_compiler_options` ports
+`Program.verifyCompilerOptions` (`program.go:751`) arm by arm, in order: removed
+options (TS5102/TS5108, `Use '{0}' instead.` chain for `baseUrl`), option
+pairs (TS5052/5053/5069/5051/5091/6304/6379/5074), `paths` patterns, inferred
+`rootDir` (TS5011 with the aka.ms/ts6 chain), JSX factories (with
+`ParseIsolatedEntityName`/`IsIdentifierText`), module and resolution pairs
+(TS5095/5098/5109/5110, TS5096), and the emit-path check
+(TS5055/TS5056 over `outputpaths.GetOutputPathsFor` and the build-info name,
+with the tsconfig-advice chain when the program has no config file). Positions
+follow `createDiagnosticForOption`: the option's key or value in the case's
+`tsconfig.json` compilerOptions (`tsr_tsoptions::syntax`, a port of
+`ForEachTsConfigPropArray`/`ForEachPropertyAssignment` with
+`CreateDiagnosticForNodeInSourceFile` ranges), else the `compilerOptions` key,
+else file-less. No state outlives the call. The harness now applies the emit
+directives the verifier reads (`noEmit`, `emitDeclarationOnly`,
+`declarationMap`, `sourceMap`, `inlineSourceMap`, `inlineSources`, `mapRoot`,
+`sourceRoot`, `downlevelIteration`, `incremental`, `tsBuildInfoFile`,
+`emitDecoratorMetadata`, `rewriteRelativeImportExtensions`; no checker path
+reads them), and `@suppressOutputPathCheck`, which `tsr_core::CompilerOptions`
+has no field for, is passed alongside.
+
+Not produced, each named in the module docs: project-reference checks (no
+references are loaded), the `composite` root-file and `rootDir` membership
+explaining diagnostics (TS6307/TS6059: no file-include reasons), and
+`paths` values of the wrong type / written-empty `lib`/`customConditions`
+(plain vectors in `CompilerOptions`). The CLI (`tsr-execute` `compile.rs`) does
+not call the verifier yet; that caller is outside this lane.
+
+Measured on origin/main `1cea3449`: EXACT 8,165 → 8,260 (95 gained, 0 lost,
+0 missing), including ranked groups 13/22/26 (missing TS5055, TS5110,
+TS5102). No case reports a verifier code native does not.
 
 ## Exactness
 

@@ -490,6 +490,26 @@ pub fn actual(source: &Path, request: &Request) -> Result<String> {
             found.push((file.clone().unwrap_or_default(), d.clone()));
         }
     }
+    // `GetProgramDiagnostics`: `verifyCompilerOptions` against the harness
+    // `ParsedCommandLine`, whose `ConfigFile` is the case's tsconfig unit.
+    let config_unit = config.as_ref().and_then(|_| {
+        case.files.iter().find(|u| crate::trace_case::config_name_from_file_name(&u.name).is_some())
+    });
+    let config_file_name =
+        config_unit.map(|u| tsr_path::get_normalized_absolute_path(&u.name, &current_directory));
+    let config_syntax = config_unit.map(|u| tsr_tsoptions::syntax::ConfigSyntax::parse(&u.content));
+    let suppress_output_path_check = match case.options.get("suppressoutputpathcheck") {
+        Some(v) if v.eq_ignore_ascii_case("true") => tsr_core::Tristate::True,
+        Some(v) if v.eq_ignore_ascii_case("false") => tsr_core::Tristate::False,
+        _ => tsr_core::Tristate::Unknown,
+    };
+    found.extend(tsr_compiler::program_diagnostics::verify_compiler_options(
+        &program,
+        tsr_compiler::program_diagnostics::OptionsVerification {
+            config_file: config_file_name.as_deref().zip(config_syntax.as_ref()),
+            suppress_output_path_check,
+        },
+    ));
     let emit_declarations = options.declaration.is_true() || options.composite.is_true();
     for (i, f) in files.iter().enumerate() {
         let name = f.file_name();
