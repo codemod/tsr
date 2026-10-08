@@ -512,3 +512,15 @@ a non-empty object. TSR returned `t` early on both branches. Native control:
 `() => void`, false branch unchanged. Gate vs §21: +2 type lines
 (`controlFlowInstanceof`); 0 losses. CPU domain-model (41) 0.989 /
 generic-imports (21) 0.996.
+
+## 23. `x!` conditions narrow the inner reference (`narrowType`)
+
+Pinned `flow.go:403`: `narrowType` unwraps `ParenthesizedExpression`,
+`NonNullExpression` and `SatisfiesExpression` alike. TSR only unwrapped
+parentheses, so `if (x!)` on `string | null` kept `string | null`. The binder
+(`isNarrowingExpression`) already admits `x!`; it does not admit `satisfies`,
+so `if ((x !== null) satisfies boolean)` stays un-narrowed in both. Native
+control: `x!` and `(x!)` → `string`; the satisfies condition stays
+`string | null`. No cache or traversal added. Gate vs §22: +4 type lines
+(`narrowingWithNonNullExpression`, `inferTypePredicates`), +1 diagnostic case
+(`narrowingWithNonNullExpression`); 0 losses. CPU (21) 0.936 / 1.007.
