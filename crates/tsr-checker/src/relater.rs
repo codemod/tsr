@@ -3366,6 +3366,22 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
+        // structuredTypeRelatedToWorker (relater.go:3853): under the subtype
+        // relations a fresh empty object literal `{}` admits only empty
+        // sources. Emptiness is certified here only for sources whose members
+        // are known to be non-empty: a tuple (it has `length`) or a type with
+        // enumerated properties.
+        if matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && self.checker.fresh_object_literal_types.contains(&target)
+            && self.checker.is_empty_anonymous_object_type(target)
+            && (self.is_structural_tuple_source(source)
+                || self
+                    .checker
+                    .get_property_names_of_type(source)
+                    .is_some_and(|names| !names.is_empty()))
+        {
+            return RelationResult::NotRelated;
+        }
         // The structural arm runs only against an object target
         // (relater.go:3864); a conditional this port gives a member image is
         // not one.
