@@ -257,6 +257,10 @@ In the 1.034 run the base binary's own median moved by 3%. Callgrind `Ir`
 - domain-model 1,260,420,138 → 1,259,250,972 (−0.09%);
 - generic-imports 399,718,803 → 399,716,152.
 
+Full parity run at `fe31884` (`cargo run --release -p tsr-conformance --bin
+coverage`): checker_types 8,220/9,538, diagnostics 4,501/5,502
+(configured rows 1,636/1,928 and 829/1,089).
+
 The new arms run only after earlier arms have failed. The default arm ends
 pairs that used to walk on to the gate's bottom. Workspace tests pass
 (`cargo test --workspace --release`), including
@@ -271,3 +275,75 @@ file) and `assignreport.rs` (`is_discriminant_property_of_union`) keep their
 private copies until the held diff below lands. The shared function is not
 named `is_discriminant_property` yet: flow.rs's private method holds that
 name on `Checker`.
+
+### 4a. Held diff: switch flow.rs and assignreport.rs
+
+[`r5-relater5-discriminant-property.diff`](r5-relater5-discriminant-property.diff)
+is one diff, as the lane brief asked. It deletes both private copies and
+adds `Checker::is_discriminant_property(t, name)` in `relater.rs` (the
+union-taking form). It switches `flow.rs`'s `get_discriminant_property_access`
+to `is_discriminant_property(..).unwrap_or(false)`. It switches
+`assignreport.rs`'s `discriminate`-by-items caller to
+`is_discriminant_property_of_types(..)?`. The two copies differed from the
+relater's:
+- neither read apparent constituents;
+- `flow.rs` tested genericity as "a type-parameter member";
+- `assignreport.rs` tested it as "any instantiable member", counted string
+  mappings and templates as literal, and declined (`None`) on an
+  uncertified table rather than on a gap member;
+- neither applied the private/protected rule.
+
+Measured on top of `fe31884`: `diagverdictdump` output is byte-identical,
+and `verdictdump`'s verdicts are identical, so no case or line changes.
+Callgrind `Ir`:
+- domain-model 1,260,063,708 → 1,265,268,048 (+0.41%);
+- generic-imports 399,711,729 → 399,707,996.
+
+The cost is `flow.rs`'s discriminant query. It runs on every narrowing
+reference to a property of a union and now reads each constituent's
+apparent type and member symbols. Native caches the answer on the synthetic
+union property (`links.isDiscriminantProperty`). The port has no such
+symbol, so a faithful cache would be keyed by `(union, name)`. That cache
+is the checker port convention's call (owner, publication) and is not
+built here. Land the diff with a cache, or accept the +0.41%. It changes
+no verdict either way.
+
+## 5. Remaining in the lane
+
+Lines still differing on the census cases after `fe31884`. Each entry gives
+its hypothesis and where the fix lands:
+
+- **IAM: getSimplifiedIndexedAccessType's mapped substitution** (relater.rs
+  `is_related_to_with_flags`, getNormalizedType). Native substitutes
+  `{ [P in K]: E }[X]` to `E[P := X]`. Pieces:
+  - `mappedTypeRelationships` 30-46 and 61/66 (8 lines): `Partial<T>[K]`,
+    `Readonly<U>[K]`;
+  - `conditionalTypes1` 114-117 (4): `NonFunctionPropertyNames<T>`;
+  - `mappedTypeConstraints2` 42.
+
+  This is the largest remaining relater piece. It runs on every relation
+  entry, so it needs a perf measurement, and it retires §2's mapped-object
+  decline.
+- **`Pick<T, X>` → `Pick<T, Y>` and alias-reached mapped sources**
+  (`conditionalTypes1` 105-108: 2 extras, 2 misses). The keys are
+  conditionals (`FunctionPropertyNames<T>`), so the constraint relation
+  answers through r5-relater4's conditional arms. Not traced.
+- **`as`-clause mapped types** (`mappedTypeAsClauseRelationships` 12, 22;
+  `mappedTypeConstraints2` 10, 16, 59, 90). `getMappedTypeNameTypeKind` and
+  filtering keys are not ported. `mapped_index_type` computes remapped keys
+  only for non-generic constraints.
+- **Homomorphic mapped source over a tuple constraint** (B16,
+  `mappedTypeUnionConstrainTupleTreatedAsArrayLike`, 3 extras): native's
+  `getApparentType` reaches `getResolvedApparentTypeOfMappedType`. The
+  relater does not read `mapped.rs`'s `apparent_mapped_type`.
+- **IAW**: the write constraint (`noUncheckedIndexedAccess` 39/85/98,
+  `keyofAndIndexedAccessErrors` 114/122/123).
+- **Held**: PI (§2a, `assignmentCompat1` ×2, `indexSignatures1` 289) and
+  B12 (§3, `quickinfoTypeAtReturnPositionsInaccurate` ×3).
+- **Outside relater.rs**:
+  - `paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized` (inference
+    `T = 12` versus `number`, main's `inference.rs`);
+  - `inferenceOuterResultNotIncorrectlyInstantiatedWithInnerResult` (`Omit`
+    keys are conditional; also TS2769, `calls.rs`);
+  - `unionTypeInference` 62 (`DeepPromised<T>` template versus
+    `{} | null | undefined`, the census's U bucket).
