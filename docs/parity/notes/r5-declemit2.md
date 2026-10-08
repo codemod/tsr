@@ -142,4 +142,34 @@ port's `module_specifier_for_symbol` (`checker.rs`) declines every
 specifier (`import("foo/node_modules/nested").MySpecialType` in
 `declarationEmitUnsafeImportSymbolName`), so the specifier port pays twice.
 
-The checker-side codes (§1, last row) belong to their checks' lanes.
+### 4.1 The `this` arm, tried and stopped
+
+TS2527 in `declarationFiles` (4 diagnostics) is the arm closest to §3: a
+`this` type reached while `FlagsInObjectTypeLiteral` is set
+(`nodebuilderimpl.go:3352`, the flag set at `:2741` around a type literal's
+members) reports `ReportInaccessibleThisError`, located at the member name.
+Its error set (`x1`, `x3`, `f1`, `f3`, not `x2`/`x4`/`f2`/`f4`) is exactly
+"`this` under an object type literal, possibly inside an array", so the walk
+must descend object-literal member types and array element types while
+skipping a lone call signature, which native writes as a function type with
+the flag unset (`:2705`).
+
+Stopped before writing it, for one case: an object literal's members here are
+`objects::Member` values carrying **printed** member text, with the semantic
+types in a separate `anonymous_properties` image read through
+`property_type` slots, and array element types live in yet another
+representation. Every arm of the walk would be a separate adapter onto a
+different side table, each a loss risk in the EMPTY_RIGHT `privacy*` and
+class-member cases, for +1 case. It is the first arm to build once (2) above
+exists as a typed member walk.
+
+### 4.2 The checker-side codes, routed
+
+| Code | Native producer (`checker.go` @ `5b1047d`) | In this port |
+|---|---|---|
+| 4111 | `checkPropertyAccessExpressionOrQualifiedName` (`:11362`) | no producer |
+| 4113 / 4114 | `checkMemberForOverrideModifier` (`:4764`, `:4772`) | `heritage_conformance.rs` has it; the late-bindable / computed-name members are missed |
+| 4105 | `checkIndexedAccessIndexType` (`:8248`) | no producer |
+| 4109 / 4110 | `getTypeArguments` circularity (`:21924`) | no producer |
+
+None of these is in a file this lane owns.
