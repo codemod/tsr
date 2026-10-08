@@ -225,3 +225,79 @@ Producers that were not in this box's files, from the same tagged run:
   elements `restName_i`. It should call the same
   `getTupleElementLabel` port (§1.2) so contextual signatures name pattern
   rests as native does.
+
+### 4.1 Correction to the landing commit's message
+
+`4c9d6b66`'s message lists cases as "converted (all lines RIGHT)". That holds
+for arrayBindingPatternOmittedExpressions, spreadParameterTupleType,
+arguments, unusedParametersWithUnderscore, isolatedDeclarationErrorsExpressions,
+contextuallyTypedBindingInitializer(+Negative), generatorTypeCheck39/61 and
+declarationEmitDestructuring5. It does **not** hold for
+computedPropertiesInDestructuring1(+`_ES6`) (10 other lines each),
+renamingDestructuredPropertyInFunctionType(+`3`) (1 each),
+restParameterWithBindingPattern3 (1: the `Array` member list at `:0:21`) or
+coAndContraVariantInferences3 (5). In those cases this lane's target lines
+converted and other lines did not. The line counts in §3 are measured and
+stand.
+
+## 5. `tsr-2zk.1067`: union reduction matched literals by full relation
+
+`removeStringLiteralsMatchedByTemplateLiterals` (`checker.go:25857`) drops a
+string literal from a union when a pattern template beside it matches it. The
+template arm is `isTypeMatchedByTemplateLiteralOrStringMapping` (`:25874`) →
+`isTypeMatchedByTemplateLiteralType` (`relater.go:2332`) with
+`compareTypesAssignable`. That is the direct matcher: infer the
+placeholders from the template's literal parts, then check each placeholder
+on its own (`isValidTypeForTemplateLiteralPlaceholder`, `relater.go:2476`,
+whose `string` target short-circuits). The port called
+`is_type_assignable_to(literal, template)` instead. That reaches the same
+matcher through the relater's template-target arm, but it pays a top-level
+relation setup per pair. r5-harness measured 11.7 M of them in
+`templateLiteralTypes1` (`r5-harness.md` §4).
+
+Ported as `Checker::is_type_matched_by_template_literal_type` in
+`templates.rs`, next to `isValidTypeForTemplateLiteralPlaceholder` with the
+assignable comparer. The relater keeps its own copy (`relater.rs`
+`valid_template_placeholder`), because inside an open relation native passes
+`r.isRelatedToWorker` and not a fresh top-level check.
+
+**Cache/work boundary** (`docs/conventions.md`, checker ports). No cache is
+added. The pinned operation is `isTypeMatchedByTemplateLiteralType`. It has
+no memo natively; per pair it runs one `inferFromLiteralPartsToTemplateLiteral`
+and one comparison per placeholder. The union reduction reads each
+template's parts once and matches every literal against the borrowed parts
+(`is_type_matched_by_template_literal_parts`). Native passes the template by
+pointer. The first draft copied the parts out of `template_literal_parts` per
+pair, and that copy was the next hotspot (gdb stack samples: all in
+`TemplateLiteralParts` clone/drop under the matcher).
+
+Measured: `templateLiteralTypes1` with `--strict --declaration --noEmit
+--singleThreaded true --target es2015`, three runs each, release builds:
+
+| binary | wall |
+|---|---|
+| base `df42dc4` | 34.3 / 35.2 / 36.0 s |
+| item 1 (`4c9d6b66`) | 34.3 / 33.8 / 33.9 s |
+| matcher, parts copied per pair | 4.6 / 4.8 / 4.9 s |
+| matcher, parts read once (landed) | 2.0 / 2.0 / 2.0 s |
+
+The diagnostics output is byte-identical across all four. Both dumps skip this
+case as a known divergence (`r5-harness.md` §4), so the zero-loss gate does
+not see it. The other corpus users of this reduction are measured by the
+dumps in the commit message.
+
+How this would be wrong: a union whose literal is matched by the relater's
+template arm but not by the direct matcher, or the reverse. That would show
+as a union-printing transition in the types dump. The landing commit records
+none.
+
+Gates at the landing commit, against item 1's dumps and the frozen base:
+both dumps are identical to item 1's (verdicts and printed text), so they are
+0 losses with no transitions. Callgrind Ir (`--singleThreaded`) against base
+`df42dc4`: domain-model 1,193,706,276 → 1,193,328,321, and generic-imports
+342,896,776 → 342,886,620. Both are lower. Median child CPU against the base
+binary read 1.031 (21 samples) and 1.037 (41) on domain-model, and 1.024 on
+generic-imports. Two controls on the same box, 41 samples each, show this is
+slot noise and not the change. The base binary against a copy of itself reads
+**0.975**. Item 2 against item 1 directly reads **0.967**. The per-slot bias
+on this container is about ±3%, and the deterministic Ir is the tie-breaker.

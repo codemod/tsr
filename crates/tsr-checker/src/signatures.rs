@@ -8840,13 +8840,13 @@ mod tests {
         for strict_null_checks in [false, true] {
             for (member, readable, kind, opposite) in [
                 (
-                    r#"({ [a + b]: value }: { value: number }): number;"#,
+                    r"({ [a + b]: value }: { value: number }): number;",
                     "(value: number): number;",
                     super::SignatureKind::Call,
                     super::SignatureKind::Construct,
                 ),
                 (
-                    r#"new ({ [a + b]: value }: { value: number }): number;"#,
+                    r"new ({ [a + b]: value }: { value: number }): number;",
                     "new (value: number): number;",
                     super::SignatureKind::Construct,
                     super::SignatureKind::Call,
