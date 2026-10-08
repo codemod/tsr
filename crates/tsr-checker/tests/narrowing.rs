@@ -1175,6 +1175,26 @@ fn a_discriminant_equality_narrows_through_a_property_or_element_access() {
     assert_eq!(type_of_last_expression(&format!("{union}if (\"b\" === u.kind) {{ u; }}")), "B");
 }
 
+/// Pattern-literal property types are discriminants (`HasLiteralType`,
+/// checker.go:21618); non-literal domains are not.
+#[test]
+fn pattern_literal_properties_discriminate_but_plain_primitives_do_not() {
+    let pattern = "type R = { type: `${string}_REQUEST` };\n\
+                   type S = { type: `${string}_SUCCESS`; response: string };\n\
+                   declare let u: R | S;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{pattern}if (u.type === \"FOO_SUCCESS\") {{ u; }}")),
+        "S"
+    );
+    let plain = "type R = { type: string };\n\
+                 type S = { type: number; response: string };\n\
+                 declare let u: R | S;\n";
+    assert_eq!(
+        type_of_last_expression(&format!("{plain}if (u.type === \"FOO_SUCCESS\") {{ u; }}")),
+        "R | S"
+    );
+}
+
 /// §753: the DISCRIMINANT half of `narrowTypeByTypeof` (`flow.go:624`-`:629`),
 /// the third and last of that function's three halves to be ported.
 ///

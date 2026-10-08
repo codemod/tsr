@@ -539,3 +539,18 @@ Native control: `x.a ??= true` on `boolean | undefined` → `boolean`,
 `thisPrototypeMethodCompoundAssignment[Js]`, `narrowingPastLastAssignment`,
 `nullishCoalescingAssignmentVsPrivateFieldsJsEmit1`); 0 losses. CPU (21)
 0.935 / 0.996.
+
+## 25. Pattern-literal discriminants (`isDiscriminantProperty`)
+
+Pinned `createUnionOrIntersectionProperty` (`checker.go:21618`) sets
+`HasLiteralType` for `isLiteralType(t) || isPatternLiteralType(t)`, and
+`isDiscriminantProperty` (`relater.go:1087`) requires non-uniform plus literal.
+TSR's `is_discriminant_property` only counted unit literals, so
+`{ type: \`${string}_REQUEST\` } | { type: \`${string}_SUCCESS\`; … }` was not
+discriminated by `action.type === "FOO_SUCCESS"`. It now also counts
+`is_pattern_template` (= `isPatternLiteralType`). No cache added. Native
+control: the pattern union narrows to the `_SUCCESS` member in both; a
+`{ type: string } | { type: number }` union stays whole in both.
+`assignreport.rs::is_discriminant_property_of_union` keeps the old literal
+test (relate-report lane). Gate vs §24: +4 type lines (`templateLiteralTypes3`);
+0 losses. CPU (21) 0.983 / 1.003.
