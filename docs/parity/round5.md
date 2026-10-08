@@ -243,3 +243,19 @@ r5-tables:
 That is +2 diagnostics cases and +7 type lines. The new box `r5-decls` takes
 the declaration checks: TS2391, TS2300, TS2507 and TS2502. Main's decls lane
 has not touched these in 36 hours.
+
+### r5-classfields finished (+30 rows, +3 with diffs); r5-declemit3 dispatched (`tsr-2zk.1024`)
+
+r5-classfields ported:
+- checkKindsOfPropertyMemberOverrides (TS2610/2611, moved into
+  `heritage_conformance.rs`);
+- TS2373's scope-change rule;
+- TS2818 checkReflectCollision;
+- TS2301's emit-standard gate;
+- TS2699's computed arm;
+- TS2372/2373 through binding elements.
+
+The integrator lands its three diffs: the TS2729 target gate, the parameter
+scope walk, and the useDefineForClassFields default. The new box
+`r5-declemit3` takes the declaration-emit SymbolTracker/IsSymbolAccessible
+(`.1000`) and the late-bound override-modifier reports (`.1001`).
