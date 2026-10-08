@@ -573,26 +573,71 @@ impl<'a> Scanner<'a> {
     }
 
     /// Skip `/* … */`, returning whether it spanned a line break.
+    ///
+    /// Driven by bytes, like the trivia loop in [`Scanner::scan`]: comment text
+    /// is most of the bytes in a commented declaration file (`lib.dom.d.ts`),
+    /// and a `char` decode per byte made this the scanner's largest self cost
+    /// (`r5-bind.md` §3). Only `*`, `/`, `\n`, `\r` and the UTF-8 lead of
+    /// U+2028/U+2029 matter, all of which are bytes no UTF-8 continuation
+    /// byte can equal, so every other byte is skipped without decoding.
     fn skip_block_comment(&mut self) -> bool {
         let start = self.pos;
-        self.bump(); // '/'
-        self.bump(); // '*'
+        let bytes = self.source.as_bytes();
+        let limit = self.limit as usize;
+        // Past the opening `/*`.
+        let mut i = start as usize + 2;
         let mut crossed_line = false;
-        loop {
-            let Some(ch) = self.bump() else {
-                // Unterminated: report at the opening delimiter, which is where a
-                // reader needs to look.
-                self.error(&messages::ASTERISK_SLASH_EXPECTED, Span::new(start, self.pos));
-                return crossed_line;
-            };
-            if is_line_break(ch) {
-                crossed_line = true;
+        while i < limit {
+            match bytes[i] {
+                b'*' if i + 1 < limit && bytes[i + 1] == b'/' => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        self.pos = (i + 2) as u32;
+                    }
+                    return crossed_line;
+                }
+                b'\n' | b'\r' => {
+                    crossed_line = true;
+                    break;
+                }
+                // U+2028 / U+2029 (`E2 80 A8` / `E2 80 A9`), the non-ASCII
+                // line terminators `is_line_break` accepts.
+                0xE2 if i + 2 < limit
+                    && bytes[i + 1] == 0x80
+                    && matches!(bytes[i + 2], 0xA8 | 0xA9) =>
+                {
+                    crossed_line = true;
+                    break;
+                }
+                _ => {}
             }
-            if ch == '*' && self.peek() == Some('/') {
-                self.bump();
-                return crossed_line;
-            }
+            i += 1;
         }
+        // Once a line break is seen only the terminator matters, and `*` is
+        // found by the library's word-at-a-time `memchr` rather than per byte.
+        // `i` sits on an ASCII byte or a U+2028/U+2029 lead, so the slice
+        // starts on a character boundary.
+        if crossed_line {
+            let text = &self.source[..limit];
+            while let Some(offset) = text[i..].find('*') {
+                let star = i + offset;
+                if star + 1 < limit && bytes[star + 1] == b'/' {
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        self.pos = (star + 2) as u32;
+                    }
+                    return true;
+                }
+                i = star + 1;
+            }
+            i = limit;
+        }
+        debug_assert!(i >= limit);
+        // Unterminated: report at the opening delimiter, which is where a
+        // reader needs to look.
+        self.pos = self.limit;
+        self.error(&messages::ASTERISK_SLASH_EXPECTED, Span::new(start, self.pos));
+        crossed_line
     }
 
     fn scan_token(&mut self, flags: &mut TokenFlags) -> SyntaxKind {

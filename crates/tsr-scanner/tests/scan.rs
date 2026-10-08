@@ -219,6 +219,41 @@ fn unterminated_block_comment_is_reported() {
     assert_eq!(diagnostics[0].message.code(), 1010, "expected '*/' expected");
 }
 
+/// The byte-level block-comment skip (`r5-bind.md` §3): the terminator is found
+/// before and after the first line break, through `*` runs, non-ASCII text and
+/// U+2028/U+2029, and an unterminated comment spans to the end of the text.
+#[test]
+fn block_comments_end_at_their_first_terminator_wherever_it_is() {
+    for (source, line_break) in [
+        ("a /**/ b", false),
+        ("a /*/ */ b", false),
+        ("a /* ** ***/ b", false),
+        ("a /* é 🎉 */ b", false),
+        ("a /* x\n * y **\n */ b", true),
+        ("a /*\r\n*/ b", true),
+        ("a /*\n*/ b", true),
+        ("a /* é\u{2028} * 🎉 */ b", true),
+        ("a /* x\u{2029}*/ b", true),
+        ("a /*\n * / * \n*/ b", true),
+    ] {
+        let (tokens, diagnostics) = tokenize(source);
+        assert!(diagnostics.is_empty(), "{source:?}");
+        assert_eq!(
+            tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            vec![Identifier, Identifier, EndOfFile]
+        );
+        assert_eq!(tokens[1].has_preceding_line_break(), line_break, "{source:?}");
+        assert_eq!(&source[tokens[1].span.start as usize..tokens[1].span.end as usize], "b");
+    }
+    for source in ["/* x\n * never closed *", "/* é\u{2028} *", "/*\n"] {
+        let (tokens, diagnostics) = tokenize(source);
+        assert_eq!(diagnostics.len(), 1, "{source:?}");
+        assert_eq!(diagnostics[0].message.code(), 1010);
+        assert_eq!(diagnostics[0].span.end as usize, source.len(), "{source:?}");
+        assert_eq!(tokens.last().map(|t| t.kind), Some(EndOfFile));
+    }
+}
+
 #[test]
 fn line_breaks_are_recorded_for_semicolon_insertion() {
     let (tokens, _) = tokenize("a\nb");
