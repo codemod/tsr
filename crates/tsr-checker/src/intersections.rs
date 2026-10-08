@@ -264,10 +264,41 @@ impl Checker<'_, '_> {
             );
         }
         let result = create_intersection(&mut self.store, set, named);
-        if let Some(parts) = constrained_variable {
-            self.constrained_type_variables.insert(result, parts);
+        if let Some((variable, primitive)) = constrained_variable {
+            let primitive = self.constraint_identity_of_empty_type_literal(variable, primitive);
+            self.constrained_type_variables.insert(result, (variable, primitive));
         }
         result
+    }
+
+    /// The identity `removeConstrainedTypeVariables` (`checker.go:25881`)
+    /// compares a constraining intersection's primitive side by.
+    ///
+    /// Upstream every member-less, unaliased type literal is the one shared
+    /// `emptyTypeLiteralType` (`checker.go:22939`), so `containsType(primitives,
+    /// t)` finds the `{}` of `T & {}` among the constituents of `T extends {} |
+    /// null`. This port gives each written `{}` its own [`TypeId`] and answers
+    /// that identity with [`Checker::is_unaliased_empty_type_literal`]. The side
+    /// table therefore records the constraint's own `{}` for an `{}` operand,
+    /// which is the identity upstream's membership test sees; any other
+    /// primitive is recorded as written. See `docs/parity/notes/r5-intersections.md` §1.
+    fn constraint_identity_of_empty_type_literal(
+        &mut self,
+        variable: TypeId,
+        primitive: TypeId,
+    ) -> TypeId {
+        if !self.is_unaliased_empty_type_literal(primitive) {
+            return primitive;
+        }
+        let Some(constraint) = self.base_constraint_of_type(variable) else { return primitive };
+        let parts = match &self.store.get(constraint).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![constraint],
+        };
+        parts
+            .into_iter()
+            .find(|&part| self.is_unaliased_empty_type_literal(part))
+            .unwrap_or(primitive)
     }
 
     /// The constraint-reduction branch of `getIntersectionTypeEx` (checker.go).
