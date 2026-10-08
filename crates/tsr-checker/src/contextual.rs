@@ -658,8 +658,21 @@ impl<'a> Checker<'a, '_> {
     /// getApparentTypeOfContextualType maps union operands while preserving
     /// mapped templates. An unconstrained instantiable type has unknown as its
     /// apparent type, hence no contextual call signature.
+    ///
+    /// Under `contextual_prefers_uninstantiated` (the written-parameter read)
+    /// only a bare type parameter maps to its constraint, as upstream's first
+    /// pass does: `ft<T extends { c: U }, U extends string>({ c: 'x' })` reads
+    /// `U` for `c` and keeps `"x"`. Other instantiable written types stay
+    /// as written there, because this port's base constraint of a generic
+    /// indexed access over a mapped type (`{ [P in K]: … }[K]`) is not the
+    /// distributed union upstream discriminates.
     pub(crate) fn apparent_contextual_type(&mut self, ty: TypeId) -> TypeId {
-        if self.contextual_prefers_uninstantiated || self.mapped_types.contains_key(&ty) {
+        if self.mapped_types.contains_key(&ty)
+            || (self.contextual_prefers_uninstantiated
+                && !self.store.get(ty).flags.intersects(
+                    crate::flags::TypeFlags::TYPE_PARAMETER | crate::flags::TypeFlags::UNION,
+                ))
+        {
             return ty;
         }
         if let TypeData::Union { types, .. } = &self.store.get(ty).data {

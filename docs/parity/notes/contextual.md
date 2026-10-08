@@ -441,3 +441,19 @@ the argument per candidate in `chooseOverload`. `isTupleLikeType`
 context mints `[]`, and `removeSubtypes` then declines on the relater's
 unported tuple-source/interface-target pair (`[] -> RegExpMatchArray`,
 `NoMembersTable`), losing 19 bestChoiceType rows.
+
+## 19. The written-parameter read maps a bare type parameter to its constraint (tsr-2zk.16.94)
+
+`getApparentTypeOfContextualType` (`checker.go:30686`) always applies
+`getApparentType` to the (return-mapper-instantiated) contextual type, so in
+upstream's first inference pass an object literal argument under a bare `T`
+reads its members from `T`'s constraint, and `isLiteralOfContextualType`
+(`checker.go:25522`) sees a constrained type variable:
+`ft<T extends { c: U }, U extends string>({ c: 'x' })` is `{ c: "x"; }` while
+`fw<T extends { c: string }>` and an unconstrained `U` give `{ c: string; }`
+(tsgo diagnostics). `apparent_contextual_type` returned the type untouched
+under `contextual_prefers_uninstantiated`; it now maps a type parameter (and
+union constituents) there. Other instantiable written types still stay as
+written: this port's base constraint of `{ [P in K]: … }[K]` is not the
+distributed union upstream discriminates (correlatedUnions would lose 3 rows).
+No state.
