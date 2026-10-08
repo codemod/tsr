@@ -284,3 +284,16 @@ answers Unknown (`NoMembersTable`). Native builds the attributes type in
 construction in `jsx_intrinsic.rs` (no `main` commit touched it since
 `b3cd078d`), plus the r4-jsx files. Other r4-jsx blockers are filed as
 `tsr-2zk.917`-`.920`.
+
+### r4-realworld — real-project diagnostic triage (`tsr-2zk.916`, parent `.914`)
+
+Dispatched when `r4-relcache` finished. `r4-relcache` (626495a, f3fad58)
+ported checker-lifetime `Relation.results`: corpus byte-identical, CPU -2..-6%,
+Ir -2.8%, and TypeScript's own `src/jsTyping` / `src/typingsInstallerCore`
+now finish (24.6 s / 24.9 s; native 1.50 s / 1.57 s) where every earlier
+binary hung. On them TSR reports 875 diagnostics against native's 163/169
+(`tsr-2zk.914`); the remaining time is `tsr-2zk.915`. This lane owns no
+checker source: it cuts minimal repros, attributes each to a native
+function and owning file, and files issues; it may add repro tests under
+`crates/tsr-conformance/tests/` that assert native's output with `#[ignore]`
+until fixed.
