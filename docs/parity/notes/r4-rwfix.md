@@ -98,3 +98,84 @@ needs the full table, that cache is the right move.
 **Measured.** jsTyping on the merged head: 802 → 802 diagnostics, common
 56 → 73, TSR-only 746 → 729, native-only 107 → 90 (all 17 TS2724
 converted).
+
+Re-measured on integration head `59c76e7` (which already carries cause 2 and
+much of cause 1; jsTyping there is TSR 505, common 133, native-only 30):
+cause 12 takes common 133 → 150 and native-only 30 → 13, TSR-only
+unchanged at 355, corpus unchanged, both loss checks empty.
+
+## Cause 15 — unresolved Node core module reports TS2591 (`tsr-2zk.933`)
+
+**Delivered as a measured patch, not as code:**
+[r4-rwfix-ts2591.diff](r4-rwfix-ts2591.diff) (applies to this branch's head).
+The lane owns `module_specifier_unfindable`; the port also needs the message
+substitution in `report_module_not_found`, the three TS2307 reporters'
+call sites (`check.rs`), and a `uses_wildcard_types` field read in
+`Checker::apply_compiler_options` (`checker.rs`), none of which this lane
+owns.
+
+**Forcing constraint.** `typeof import("fs")` without `@types/node` reported
+nothing. `module_specifier_unfindable` declined every Node core module, a
+refusal list chosen because the right code was not TS2307. Native resolves a
+core module like any other specifier and substitutes the message
+(`resolveExternalModuleName`, `checker.go:15101` →
+`getCannotResolveModuleNameErrorForSpecificModule`, `checker.go:15110`):
+TS2580 when `types` contains `"*"`, else TS2591. A side-effect import keeps
+its own message (`checkImportDeclaration`, `checker.go:5325`).
+
+**Port (in the patch).**
+- `module_specifier_unfindable_worker(specifier, admit_node_core)`; the
+  existing `module_specifier_unfindable` passes `false` (unchanged answers
+  for every caller), and the new `module_specifier_unfindable_for_diagnostics`
+  passes `!uses_wildcard_types` and is called by the three TS2307 reporters.
+- `cannot_resolve_module_name_error_for_specific_module` answers TS2591 for a
+  core module; `report_module_not_found` uses it only when handed the TS2307
+  default message, which is exactly the `resolveExternalModuleName` route.
+- `is_node_core_module` is made exact (`core.NodeCoreModules()`: the
+  unprefixed names bare and with `node:`, plus the five `node:`-only names).
+  It used to admit every `node:` prefix, harmless only while it was a
+  refusal list.
+
+**Two declines kept, each measured.** A first version admitted core modules
+for every caller and lost two corpus results:
+- `compiler/localRequireFunction`, 4 type lines RIGHT → WRONG: the type
+  callers (`get_type_of_alias`'s calibrated unfindable-import `any`) answer
+  `any` for `const fs = require("fs")` in a JS file where native prints
+  `error`. The type callers therefore keep the decline. Whether that `any`
+  calibration is right for the JS `require` arm is a question for
+  `symbols.rs`' owner, not settled here.
+- `compiler/referenceTypesPreferedToPathIfPossible`, EMPTY_RIGHT →
+  EMPTY_WRONG: under `@types: *` native loads `@types/node`, whose
+  `declare module "url"` resolves the import. The conformance harness does
+  not load wildcard `@types` (the CLI does, through `tsr-compiler`'s
+  automatic type directive task, and agrees with native on a copy of the
+  case), so TS2580 there was a false report. Core modules stay declined for
+  diagnostics under a wildcard until the harness loads them; that is the
+  only route to TS2580, so the patch does not spell it.
+
+**Measured (patch on `c46e060`).** Corpus: `compiler/importTypeWithUnparenthesizedGenericFunctionParsed`
+and `compiler/undeclaredModuleError` WRONG → RIGHT; both loss checks empty;
+perf (41 samples, new/old median child CPU) domain-model 0.980,
+generic-imports 1.000. jsTyping: TSR 505 → 516, common 150 → 161,
+native-only 13 → 2 (all 11 TS2591), TSR-only unchanged.
+
+**Remaining native-only (2).** TS7006/TS7031 at `compiler/sys.ts(1696)`,
+`activeSession.post("Profiler.stop", (err, { profile }) => …)` with
+`activeSession: import("inspector").Session | "stopping" | undefined`.
+Native types the unresolved import type as `errorType`, so the callback's
+parameters are implicitly `any`. That is `getTypeFromImportTypeNode`'s
+answer for an unresolved module (`check.rs`'s import-type arm / the type
+reference path), outside this lane.
+
+## Perf note on cause 12
+
+At 41 samples generic-imports measured 1.033, then 1.025, against a
+domain-model 1.000. The code runs only on a missing-import report, and
+generic-imports reports only one TS2322. Controls on the same box: the cause-2
+binary vs the merged baseline 1.002, the baseline against a copy of itself
+0.996, and the cause-12 binary in the *old* slot 1.020 (i.e. faster).
+Callgrind on generic-imports: baseline 434,789,788 instructions, cause 12
+434,651,470. Recorded as slot noise, not a regression.
+
+Cause 2's callgrind on `generate_perf_project.py --modules 100`: 4,108,492,223
+→ 4,104,520,214 instructions.
