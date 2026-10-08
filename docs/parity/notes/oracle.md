@@ -260,21 +260,24 @@ case, p99 1.55 s, about 13,200 worker-seconds; 910 s wall at `c4bd3a6d`.
 
 That cost is TSR checking the bundled libraries. The native harness never
 does: `CompileFiles` defaults `SkipDefaultLibCheck` to true
-(`harnessutil.go:99`), and `program_and_config_for_case` does not. With that
-default ported (plus `createProgram`'s `SingleThreaded`) the run takes 125 s
-wall at `c4bd3a6d` (0.1 s per case; serve/per-process byte-identical at the
-previous main), so a 16-core gate fits in 10 minutes. The port is **held**: it
-gains `genericPrototypeProperty2` and `plainJSReservedStrict` but loses
-`compiler/sliceResultCast.ts`, whose EXACT depends on checking `lib.es5.d.ts`
-first. For `x: [number, string] | [number, string, string]`, native prints
-`x.slice` as a union of two distinct instantiated signatures (also with
-`@skipDefaultLibCheck: false`); TSR prints that union only when
-`lib.es5.d.ts` was checked before the case, and one signature otherwise. The
-union projection (`get_type_of_property_with_this_argument`, `members.rs`) must
-keep one instantiation per tuple receiver (`getTypeWithThisArgument`)
-independent of check order; that is a checker fix outside this lane. The
-legacy dumps (`parity_gate.sh compare`) show no transition from the held
-port.
+(`harnessutil.go:99`). `program_and_config_for_case` now applies that default
+before the directives (so `@skipDefaultLibCheck: false` still wins; the
+directive is applied too) together with `createProgram`'s `SingleThreaded`
+(`harnessutil.go:939`, the test default). On origin/main `1cea3449` + this
+lane it cuts the TSR worker time from 6,142 to 2,019 worker-seconds (median
+478 → 119 ms per case, p99 757 → 394 ms) and gains
+`conformance/salsa/plainJSReservedStrict.ts`, with no EXACT loss; the
+`@skipDefaultLibCheck: false` cases (`duplicateNumericIndexers`,
+`libCompileChecks`, `verifyDefaultLib_dom`, ...) keep their `lib.es5.d.ts`
+diagnostics and verdicts. It was held while it lost
+`compiler/sliceResultCast.ts`, whose EXACT depended on checking `lib.es5.d.ts`
+first (`x.slice` on `[number, string] | [number, string, string]`: native
+prints a union of two instantiated signatures, TSR one unless the lib was
+checked first; `get_type_of_property_with_this_argument` must keep one
+instantiation per tuple receiver independent of check order). origin/main
+`1cea3449` already reports that case WRONG with the libraries checked, so
+the port no longer costs an EXACT case; the check-order fix remains the
+checker's.
 
 ## Root causes ranked (`c4bd3a6d` report)
 

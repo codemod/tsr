@@ -460,6 +460,7 @@ pub fn apply_test_directives(
         no_implicit_this: tristate("noimplicitthis", base.no_implicit_this),
         // §648's group probe — the four §647 named, priced together.
         skip_lib_check: tristate("skiplibcheck", base.skip_lib_check),
+        skip_default_lib_check: tristate("skipdefaultlibcheck", base.skip_default_lib_check),
         use_define_for_class_fields: tristate(
             "usedefineforclassfields",
             base.use_define_for_class_fields,
