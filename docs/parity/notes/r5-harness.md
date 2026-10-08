@@ -209,6 +209,28 @@ SIGSEGV handler and then aborts, and for an allocation failure
 It is also why per-case `catch_unwind` alone cannot make a panicking case
 visible in the dumps. The panic hook does.
 
+## 3. `tsr-2zk.37`: `source_variable_initializer::javascript_keeps_its_existing_decline`
+
+**Root cause: a stale expectation, already corrected on main. Nothing to
+change.** The test asserted that a `.js` file with `allowJs` + `checkJs`
+reports no TS2322/TS2739 for annotated initializers. `a0fa106e` ("supply JSDoc
+annotations to CLI checking and initializer context") made the port report
+them, and the test failed on main. That is `tsr-2i2`, closed 2026-10-05 with
+this evidence: the pinned native `TestLocal` with `allowJs` + `checkJs`
+reports the same initializer errors in `.js` as in `.ts`, beside each TS8010,
+because a type annotation in JavaScript is still the declared type. Main
+replaced the test with `javascript_reports_native_initializer_errors`, which
+asserts the nine native occurrences.
+
+The js box reported `tsr-2zk.37` at its base `0d996e82`. That base still
+carries the old test (`git show 0d996e82:crates/tsr-conformance/tests/source_variable_initializer.rs`
+has `fn javascript_keeps_its_existing_decline`) and the new behaviour, so it
+fails there. The parity branch took main's corrected test in `638b0ae7`
+(2026-10-05 23:10 UTC, after the report). At `1252ab9`, `cargo test
+--workspace --release` passes 3,260 tests with 0 failures, including all nine
+`source_variable_initializer` tests. No assertion was changed here. `tsr-2zk.37`
+is a duplicate of `tsr-2i2` and can be closed.
+
 ## 5. Issues for the integrator to file
 
 `bd` cannot be installed in this container (`box-protocol.md` §1). These are
