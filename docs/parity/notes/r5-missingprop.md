@@ -364,3 +364,70 @@ Measured on top of `51fca9c`:
 Perf, median child CPU new/old at 21 samples: domain-model 1.009,
 generic-imports 0.996. There is no unit test, because the shapes need the
 React declarations; the three corpus cases pin it.
+
+## 6. Where the lane stands
+
+### Committed
+
+The commits below are on `claude/beautiful-shannon-ar5gh0-r5-missingprop`,
+and all are in `assignreport.rs` plus hooks.
+
+| Commit | Port | Cases |
+|---|---|---|
+| `8b91f88` | `checkYieldExpression`'s `yield*` arm | `generatorTypeCheck20` |
+| `2f0aa85` | `checkSignatureDeclaration`'s generator arm (TS2505, generator instantiation) | `generatorTypeCheck6`, `generatorTypeCheck9` |
+| `41f0175` | `isRelatedToEx`'s nullable-union narrowing in the report path | text only; prerequisite of §3b |
+| `69f2017` | `checkObjectLiteral`'s `contextualTypeHasPattern` TS2353 | 5 cases |
+| `04a3aeb` | function-type literals have no properties (`isKnownProperty`) | `excessPropertyErrorForFunctionTypes` |
+
+Totals against the frozen base `bd8ae26`:
+
+| Measure | Before | After |
+|---|---|---|
+| Diagnostics dump RIGHT | 5350 | 5359 (+9 cases, no loss) |
+| Types dump RIGHT | 544,047 | 544,047 (unchanged) |
+| Coverage `diagnostics` | — | 4526/5502 |
+| Coverage `checker_types` | — | 8232/9538 |
+
+### Shipped as measured diffs
+
+These touch files this lane does not own. Applied together on HEAD they give
+**+11 cases** with no loss.
+
+| Diff | Files | Cases |
+|---|---|---|
+| [heritage-constraints](r5-missingprop-heritage-constraints.diff) | `constraints.rs` (+ visibility in `type_argument_arity.rs`, `meaning_mismatch.rs`) | +7 |
+| [using-reporter](r5-missingprop-using-reporter.diff) | `using_declaration.rs` | +1 (and one exposed false positive, §3b) |
+| [switch-case-excess](r5-missingprop-switch-case-excess.diff) | `comparison_overlap.rs` (+ an `assignreport.rs` entry) | +1 |
+| [jsx-hyphen-intersection](r5-missingprop-jsx-hyphen-intersection.diff) | `jsx_component.rs` | +2 |
+
+### Remaining, by owner
+
+- **Calls and inference** (`calls.rs`, `inference.rs`; main). 10 sole-TS2741
+  cases (cluster B) plus `reverseMappedTypeLimitedConstraint` and
+  `symbolProperty21`.
+- **Type-only re-export alias chains resolve to `error`** (`chained`,
+  `renamed`, `mergeSymbolReexportInterface`). Alias resolution.
+- **Members through type-argument and construct-signature bases**
+  (`tsr-2zk.1013`). Covers `generatorTypeCheck7`, `MyIterator extends
+  Iterator<string>` → `Disposable`, and `usingDeclarationsWithIteratorObject`.
+- **Mapped targets** (`r5-mapped3`). `{}` → `Record<E, any>` answers Related.
+  The `as`-clause mapped type over `keyof number[]` is Unknown.
+  `Partial<Record<Keys, unknown>>` has no property list.
+- **Expando element-access members** (`expandoFunction…` extras). These are
+  binder/members work.
+- **Destructuring-assignment rest** (`nonIterableRestElement3`).
+- **Object-literal member literal widening** under a discriminable-union
+  contextual type (`excessPropertyCheckWithMultipleDiscriminants` 131:5). TSR
+  types `type: 'string'` as `string`, so the discriminant match is ambiguous
+  and declines (`objects.rs`/`contextual.rs`).
+- **Object literal with a context-sensitive member against an index-only
+  target** types as `error` (`objectLitIndexerContextualType` 18:5,
+  `objects.rs`).
+- **JSDoc** `@type` on `export default` and `@satisfies` (r5-jsdoc3).
+- **`typeof ns` of a module with type-only exports** lists the type as a
+  property (`namespaceImportTypeQuery2`/`3`).
+- **Parser**: an object-literal method with no body (`{ *y(): 1; }`) gets a
+  recovered block. Natively the body is nil (§2.2).
+- **Printer**: defaulted type arguments are dropped (`Iterator<string,
+  undefined>` vs native `Iterator<string, undefined, any>`).
