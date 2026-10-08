@@ -1273,6 +1273,25 @@ impl Relater<'_, '_, '_> {
                 return self.is_related_to(apparent, target);
             }
         }
+        // isSimpleTypeRelatedTo relates an `any` source to anything only
+        // under the assignable and comparable relations (relater.go:261); the
+        // `any`/`unknown` targets fired above. Under the subtype relations
+        // structuredTypeRelatedToWorker has no arm relating `any` to a type
+        // parameter (relater.go:3423) or to an object target: its apparent
+        // type is `any`, which is not an object, so the structural arm
+        // (relater.go:3864) does not run. A generic mapped target keeps its
+        // keyof-based arm (relater.go:3593), and a qualified alias mint's
+        // flags are not evidence.
+        if s.contains(TypeFlags::ANY)
+            && matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && (t.contains(TypeFlags::TYPE_PARAMETER)
+                || (t.contains(TypeFlags::OBJECT)
+                    && !self.checker.mapped_types.contains_key(&target)
+                    && !self.is_generic_mapped_target(target)
+                    && !self.is_qualified_alias_mint(target)))
+        {
+            return RelationResult::NotRelated;
+        }
         // structuredTypeRelatedTo compares the non-primitive `object` through
         // its apparent type, the empty object type (getApparentType,
         // checker.go), so a target requiring a property rejects it
