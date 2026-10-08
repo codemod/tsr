@@ -284,3 +284,19 @@ The calls.rs half of the gate removal is +18 cases but loses 5 until two arity
 rules are ported (`tsr-2zk.1027`, main's calls lane). Performance is the other
 unmet target, so the new box `r5-bind` takes the front-end wall: a pipelined
 bind or cheaper AST publication, and first-touch page faults.
+
+### r5-constraints2 finished; r5-jsdoc2 dispatched (`tsr-2zk.1029`)
+
+r5-constraints2 landed:
+- getTypeParametersForTypeAndSymbol's declaration walk;
+- typeof arguments decided in checkTypeArgumentConstraints;
+- object-vs-enum identity (TS2403);
+- checkTypeParameter's default-vs-constraint check;
+- bare type-parameter arguments related through their constraint.
+
+The integrator lands its circular-any diff. Its remaining TS2344 clusters are
+the relater's generic pairs (r5-relater4), JSDoc type nodes never visited,
+generic import types and calls.rs overloads (main). The new box `r5-jsdoc2`
+takes the JSDoc type-hosting roots: about 50 blocked cases across
+`.16.98`/`.105`/`.106`/`.107`/`.120`/`.147`/`.163`/`.38`, none of them
+claimed, with the JSDoc files quiet on main.
