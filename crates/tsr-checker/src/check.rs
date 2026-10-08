@@ -9211,11 +9211,20 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// A top-level `any`/`unknown` is an identity operand only when the
-    /// declaration's written annotation is that keyword.
+    /// A top-level `any` is an identity operand only when the declaration's
+    /// written annotation is that keyword; a top-level `unknown` always is.
     fn identity_side_is_trusted(&self, ty: TypeId, declaration: NodeId) -> bool {
         let flags = self.type_of(ty).flags;
         if !flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return true;
+        }
+        // **An `unknown` is upstream's `unknown`.** This port's
+        // could-not-compute answers are the error type and, historically,
+        // `any` (§865 measured trusting `any` at −34 cases); `unknown` comes
+        // from the inference defaults and annotations that produce it
+        // upstream (`contextualSignatureInstantiation`'s `bar("one", 1, g)`).
+        // Measured lossless; `docs/parity/notes/r5-vardecl.md` §2.
+        if flags.contains(TypeFlags::UNKNOWN) {
             return true;
         }
         // **A circular initializer's `any` is upstream's `any`.**

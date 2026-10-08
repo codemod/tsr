@@ -46,7 +46,7 @@ So the call declines:
 
 - **an unannotated declaration** — its type is its initializer's, and the
   initializer reaches eager return and parameter types (the
-  `ResolvedReturnType` frame `symbols.rs` §217 records as missing);
+  `ResolvedReturnType` frame the comment on `report_circularity_error` records as missing);
 - **an annotation that writes a type literal, mapped type, function type or
   constructor type** anywhere in it — upstream resolves those members
   lazily (`resolveStructuredTypeMembers`); this port mints them with the
@@ -93,3 +93,79 @@ checks empty:
 - type lines: 543,912 RIGHT of 552,533, unchanged;
 - perf, median child CPU over 21 samples, new/old: domain-model 1.020,
   generic-imports 1.002; diagnostics match the baseline binary.
+
+## §2 TS2403: `unknown` is trusted; an enum literal is not its enum union
+
+Two narrowings of `check_subsequent_declaration_identity`'s declines, both
+toward `isTypeIdenticalTo`'s answer.
+
+**`unknown` as an operand.** `identity_side_is_trusted` (`check.rs`) trusted
+a top-level `any` or `unknown` only where the annotation wrote that keyword,
+because in this port `any` is often "no better answer" (the comment on
+`is_decidable_primitive` in `check.rs` records trusting `any` at −34 cases). `unknown` was grouped with it by analogy, not
+by measurement. This port's could-not-compute answer is the error type
+(ADR-0048) and, historically, `any`; `unknown` comes from inference defaults
+and annotations, as upstream's does. `contextualSignatureInstantiation`
+prints `bar("one", 1, g) : unknown` RIGHT in its `.types` and missed the three
+TS2403 lines (`string | number` against `unknown`) only because of the trust
+rule. Trusting `unknown` converts the case.
+
+**Falsifier.** A new extra TS2403 naming `unknown` would mean some producer
+answers `unknown` for "not computed" (`inference.rs` has `unwrap_or(unknown)`
+fallbacks on unresolved indexed accesses); that producer is the fix, and the
+rule here would narrow to the producers known good.
+
+**Enum literal against enum union.** `identity.rs` declines every flags
+difference between two enum-like types, because one enum has two
+representations here. One pair is safe: an enum literal against a union of
+enum literals with at least two distinct values. Upstream's flags differ
+(`NumberLiteral|EnumLiteral` against `Union|EnumLiteral`), so
+`isTypeRelatedTo` answers false, and no representation of a two-valued union
+is one value. This is the property comparison inside `typeof E` against
+`{ readonly a: E; … }` (`typeOfEnumAndVarRedeclarations`).
+
+That case still does not convert: its primary declaration is unannotated
+(`var x = E`), so the pair takes the assignability road (`decls.md` §2), and
+the relater answers `Unknown` both ways for `typeof E` against the object
+literal type (`relater.rs`, not owned). Running the structural arm for every
+pair converts it, and `parserCastVersusArrowFunction1` and
+`FunctionAndModuleWithSameNameAndCommonRoot` too, but measured **5 cases
+lost**: `arrayLiteralWidened` and `typeRelationships` (decls.md §2's known
+producers) gain an extra TS2403, and `forStatementsMultipleInvalidDecl`,
+`invalidMultipleVariableDeclarations` and `strictTupleLength` lose one,
+because the structural arm answers `Unknown` where mutual assignability
+decided. Not shipped; the trust rule stands.
+
+## §3 TS2403: a generic mapped type is identical only to a generic mapped type
+
+`structuredTypeRelatedToWorker` under identity (`relater.go:3805`, `:3817`):
+a generic mapped target relates only to a generic mapped source through
+`mappedTypeRelatedTo`, and a generic mapped source relates to nothing else.
+Both arms run after the alias-variance probe (`:3389`), which only settles a
+pair whose arguments are identical. `identity.rs` declined every mapped
+operand. It now:
+
+- tries the same-target reference arm first (a success settles it, as the
+  alias probe does);
+- classifies each side with `mapped_shape_for_identity`, which reads
+  `isGenericMappedType` from the alias body's mapped metadata (the
+  constraint is a generic index type);
+- answers `NotRelated` when exactly one side is generic and the other is not
+  mapped or is a resolved mapped type;
+- keeps `Unknown` for two generic sides (`mappedTypeRelatedTo` is not ported
+  here), for two resolved sides (members not complete enough), and for an
+  `as` clause over a non-generic constraint (`isGenericMappedType`
+  instantiates the name type; not ported).
+
+Converts `noExcessiveStackDepthError`: `FindConditions<any>` (constraint
+`string | number | symbol`) against `FindConditions<Entity>` (constraint
+`keyof Entity`).
+
+### Measured (§2 and §3 together, on top of §1)
+
+Both dumps unfiltered against the frozen baseline, both loss checks empty:
+diagnostics plain 8,761 → 8,763 / 9,816 (`contextualSignatureInstantiation`,
+`noExcessiveStackDepthError`), configured unchanged; type lines 543,912
+RIGHT, unchanged. The enum-literal arm alone converts no case (its only
+witness is blocked on the relater, above). Perf, median child CPU over 21
+samples: domain-model 1.024, generic-imports 0.961; diagnostics match.
