@@ -6802,7 +6802,9 @@ impl Checker<'_, '_> {
                 Some(f) if f != prop_type => non_uniform = true,
                 Some(_) => {}
             }
-            if self.is_literal_type(prop_type) {
+            // createUnionOrIntersectionProperty (checker.go:21618) sets
+            // HasLiteralType for literal and pattern-literal property types.
+            if self.is_literal_type(prop_type) || self.is_pattern_template(prop_type) {
                 has_literal = true;
             }
             if self.store.get(prop_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
