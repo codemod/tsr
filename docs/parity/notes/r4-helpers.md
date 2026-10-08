@@ -68,3 +68,48 @@ tsconfig-driven `tslib*` cases do. The one-line fix is
   `await using` starts at `using` (parser lane).
 - **Perf** (median child CPU, new/old, 41 samples): `domain-model` 1.016,
   `generic-imports` 1.001. The arm returns on `!import_helpers` first.
+
+## §2. TS2693 for a primitive name in a file with parse errors (`tsr-2zk.6.3`)
+
+### The forcing constraint
+
+`checkAndReportErrorForUsingTypeAsValue` (`checker.go:1662`) reports TS2693
+for `any`/`string`/`number`/`boolean`/`never`/`unknown` in a value position
+whether or not the file parsed cleanly; the checker runs on recovered trees.
+`check_value_identifier` (`check.rs`, the TS2693 primitive arm) declined
+all six names in any file with a parse error. That gate was §949's
+(`checker-notes-diag2.md`): the first build without it reported 48 extra
+lines in recovered files, and gating removed them along with 29 right
+lines, with the case count unchanged. Eight of the 23 TS2693-missing cases
+at this baseline are parse-error fixtures whose baselines carry TS2693
+(`autoLift2`, `createArray`, `staticsInAFunction`,
+`overloadingStaticFunctionsInFunctions`, `classMemberWithMissingIdentifier2`,
+`parserUnterminatedGeneric2`, `privateIndexer2`, …).
+
+### Decision
+
+Remove the gate; keep the `!upstream_six` decline (`void`, `object`,
+`symbol`, `bigint` are not in upstream's `isPrimitiveTypeName`). The parser
+has moved since §949: re-measured, the 48 extras are gone.
+
+**Alternative rejected:** keep the gate and special-case the recovered
+shapes — a heuristic over parser output, which §3a of the box protocol
+rejects.
+
+### Measured (box baseline `78bde77`, on top of §1)
+
+Diagnostics **+7** (`autoLift2`, `classMemberWithMissingIdentifier2`,
+`createArray`, `overloadingStaticFunctionsInFunctions`, `staticsInAFunction`,
+`parserUnterminatedGeneric2`, `privateIndexer2`), 0 lost; types unchanged.
+Two new extra lines in cases already wrong, both parser divergences:
+`parseErrorIncorrectReturnToken` (4,15) — this parser recovers
+`type F2 = (n: number): string` with `number` in a value position, upstream
+with `string` (4,24); `mappedTypeProperties` (18,21) — this parser reports a
+parse error upstream does not, after `[placeType in PlaceType]?: void;`, and
+recovers `model(duration: number)` with `number` as a value. Owner: parser.
+Perf (21 samples): `domain-model` 1.021, `generic-imports` 0.978.
+
+**Would be wrong if** a later unfiltered run shows TS2693 extras
+concentrated in parse-error files whose upstream baselines have none; then
+the divergent recovery is the parser's to fix, not a reason to restore the
+gate.

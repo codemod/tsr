@@ -4337,7 +4337,12 @@ impl Checker<'_, '_> {
             // `void`, `object`, `symbol` and `bigint`, which upstream's
             // `isPrimitiveTypeName` does not list and which stay declined here.
             // §948.
-            if !upstream_six || self.file_has_parse_errors {
+            // **No parse-error gate.** §949 added one to hide 48 extra lines in
+            // files the parser recovered; upstream reports TS2693 in such
+            // files (`autoLift2`, `createArray`, `parserUnterminatedGeneric2`
+            // are parse-error fixtures whose baselines carry it). Re-measured
+            // without it: +7 cases, 0 lost. `docs/parity/notes/r4-helpers.md` §2.
+            if !upstream_six {
                 return;
             }
         }
