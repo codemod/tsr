@@ -1117,6 +1117,32 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(error_node, effective, source, target);
     }
 
+    /// The object literal expression a fresh object-literal type was checked
+    /// from (its symbol's single declaration), when it has no spread.
+    fn fresh_object_literal_node(&self, source: TypeId) -> Option<NodeId> {
+        if !self.fresh_object_literal_types.contains(&source) {
+            return None;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data else {
+            return None;
+        };
+        let &[literal] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let Some(Node::ObjectLiteralExpression(node)) = self.node_map.get(literal) else {
+            return None;
+        };
+        // shouldCheckAsExcessProperty reads each *final* property's
+        // declaration parent: a key a later spread overrides is the spread's,
+        // which `excess_properties_verdict`'s written-member walk cannot see.
+        if node.properties.iter().any(|property| {
+            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        }) {
+            return None;
+        }
+        Some(literal)
+    }
+
     /// `ast.SkipParentheses`.
     fn skip_outer_parentheses(&self, mut node: NodeId) -> NodeId {
         while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
@@ -2064,6 +2090,19 @@ impl<'a> Checker<'a, '_> {
         if !self.assignability_pair_is_reportable(source, target) {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
+        }
+        // When `elaborateError` stays silent, `checkTypeRelatedToEx` relates
+        // the fresh literal, and `isRelatedTo` meets `hasExcessProperties`
+        // (`relater.go:2714`) before the structural relation; its report
+        // moves the error node to the excess member (TS2353/TS2561). A union
+        // target took that path in `union_object_literal_failure`.
+        if union_literal.is_none()
+            && let Some(literal) = self.fresh_object_literal_node(source)
+            && let Some(ExcessProperties::Excess { at, name, error_target }) =
+                self.excess_properties_verdict(literal, source, target)
+        {
+            probe!(PROBE_REPORTED);
+            return self.report_excess_property(at, &name, error_target);
         }
         if self.report_weak_type_failure(at, span, source, target) {
             probe!(PROBE_REPORTED);
