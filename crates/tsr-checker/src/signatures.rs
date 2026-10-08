@@ -1120,11 +1120,11 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluation_bindings = frames;
             return Some(cached);
         }
-        let publish = self.signature_links_publishable();
+        let mark = self.publication_mark();
         let computed = self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
         self.alias_evaluation_bindings = frames;
         let candidates = computed?;
-        if publish && self.signatures_decided(&candidates) {
+        if self.publishable_since(mark) && self.signatures_decided(&candidates) {
             self.perf_links.interface_signatures[slot].insert(symbol, candidates.clone());
         }
         Some(candidates)

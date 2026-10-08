@@ -58,6 +58,13 @@ pub(crate) struct PerfLinks {
 /// length name the slice.
 pub(crate) type HeritageBaseKey = (SymbolId, Option<NodeId>, Option<NodeId>, usize);
 
+/// [`Checker::publication_mark`]'s answer.
+#[derive(Clone, Copy)]
+pub(crate) struct PublicationMark {
+    top_level: bool,
+    observations: u64,
+}
+
 pub(crate) const fn signature_kind_slot(kind: SignatureKind) -> usize {
     match kind {
         SignatureKind::Call => 0,
@@ -67,15 +74,30 @@ pub(crate) const fn signature_kind_slot(kind: SignatureKind) -> usize {
 }
 
 impl Checker<'_, '_> {
-    /// Whether an answer computed now may be published. Native resolves a
-    /// type's members once and publishes them unconditionally; this port's
-    /// resolution can answer provisionally inside an active resolution (a
-    /// circular read answers error) and inside a flow loop (an incomplete
-    /// loop type), so those do not publish. Read only after
-    /// [`Self::interface_signature_frames`] admitted the request, which
-    /// already excluded the mapper frames.
-    pub(crate) fn signature_links_publishable(&self) -> bool {
-        self.resolutions.depth() == 0 && self.flow_loop_stack.is_empty()
+    /// Open a computation whose answer a memo may publish under
+    /// [`Self::publishable_since`]. Native resolves a type's members once and
+    /// publishes them unconditionally; this port's resolution can answer
+    /// provisionally inside an active resolution (a circular read answers
+    /// error) and inside a flow loop (an incomplete loop type), so those do
+    /// not publish. Read only after [`Self::memo_frames`] admitted the
+    /// request, which already excluded the mapper frames.
+    pub(crate) fn publication_mark(&self) -> PublicationMark {
+        PublicationMark {
+            top_level: self.resolutions.depth() == 0,
+            observations: self.resolutions.observations(),
+        }
+    }
+
+    /// Whether the computation opened at `mark` may publish: no flow loop is
+    /// active, and either no resolution was open when it began
+    /// (the rule before `r4-perf3.md` §2) or nothing it did
+    /// depended on the open frames — no cycle closed and no probe saw a frame
+    /// (`resolution::Resolutions::observations`). A circular read inside an
+    /// active resolution is how such an answer turns provisional, and it is
+    /// exactly what the count sees (`r4-perf3.md` §2).
+    pub(crate) fn publishable_since(&self, mark: PublicationMark) -> bool {
+        self.flow_loop_stack.is_empty()
+            && (mark.top_level || self.resolutions.observations() == mark.observations)
     }
 
     /// Whether a computed signature list may be published: every member's

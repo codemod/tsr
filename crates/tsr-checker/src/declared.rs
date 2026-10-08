@@ -190,11 +190,11 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluation_bindings = frames;
             return Some(cached);
         }
-        let publish = self.signature_links_publishable();
+        let mark = self.publication_mark();
         let computed = self.instantiated_heritage_base_worker(base, written_arguments, location);
         self.alias_evaluation_bindings = frames;
         let ty = computed?;
-        if publish && !self.is_error(ty) {
+        if self.publishable_since(mark) && !self.is_error(ty) {
             self.perf_links.heritage_bases.insert(key, ty);
         }
         Some(ty)

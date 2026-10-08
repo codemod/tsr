@@ -2127,6 +2127,7 @@ impl Checker<'_, '_> {
         let result = match self.perf_links.reference_member_types.get(&key) {
             Some(&(published_this, result)) if published_this == this_type => result,
             _ => {
+                let mark = self.publication_mark();
                 let (result, mapped) = self.instantiate_for_reference_with_this_worker(
                     symbol,
                     receiver,
@@ -2141,7 +2142,7 @@ impl Checker<'_, '_> {
                 let decided = result != self.intrinsics.error
                     && (!mapped || result != declared || self.is_leaf_type(declared));
                 if decided
-                    && self.signature_links_publishable()
+                    && self.publishable_since(mark)
                     && self.polymorphic_this_of(symbol) == this_type
                 {
                     self.perf_links.reference_member_types.insert(key, (this_type, result));
@@ -3455,8 +3456,9 @@ impl Checker<'_, '_> {
             Some(names.clone())
         } else {
             let mut walk = StructuredNamesWalk::memoised();
+            let mark = self.publication_mark();
             let complete = self.collect_structured_property_names(owner, &mut walk);
-            if complete && !walk.cycle && !walk.unsettled && self.signature_links_publishable() {
+            if complete && !walk.cycle && !walk.unsettled && self.publishable_since(mark) {
                 self.perf_links.structured_property_names.insert(owner, walk.names.clone());
             }
             complete.then_some(walk.names)
