@@ -40,6 +40,7 @@ use tsr_core::ScriptTarget;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
+use crate::expressions::AssignmentTargetKind;
 use crate::resolution::ImportHelpersModule;
 
 /// `ExternalEmitHelpers` (`internal/checker/types.go:114`): one bit per
@@ -385,6 +386,38 @@ impl Checker<'_, '_> {
             Node::BindingElement(element) => {
                 self.check_binding_element_emit_helpers(node, element);
             }
+            Node::PropertyAccessExpression(access) => {
+                if matches!(access.name, Some(tsr_ast::MemberName::PrivateIdentifier(_))) {
+                    let left = access.expression.and_then(|left| left.node_id());
+                    self.check_private_access_emit_helpers(node, left);
+                }
+            }
+            Node::BinaryExpression(binary) => {
+                // `checkInExpression` (`checker.go:13081-13086`): `#x in o`,
+                // after both operands are checked.
+                if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::InKeyword)
+                    && let Some(tsr_ast::Expression::PrivateIdentifier(left)) = binary.left
+                    && let Some(left) = left.node_id
+                    && self.will_transform_private_names()
+                {
+                    self.request_operand_emit_helpers_first(
+                        binary.right.and_then(|right| right.node_id()),
+                    );
+                    self.check_external_emit_helpers(left, helpers::CLASS_PRIVATE_FIELD_IN);
+                }
+            }
+            Node::ForInOrOfStatement(statement) => {
+                if statement.await_modifier.is_some() {
+                    self.check_for_await_emit_helpers(node);
+                }
+            }
+            Node::YieldExpression(expression) => {
+                if expression.asterisk_token.is_some() {
+                    let operand = expression.expression.and_then(|operand| operand.node_id());
+                    self.check_yield_star_emit_helpers(node, operand);
+                }
+            }
+            Node::SpreadAssignment(_) => self.check_destructuring_rest_emit_helpers(node),
             _ => {}
         }
         self.check_decorators_emit_helpers(typed);
@@ -409,32 +442,122 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `checkPropertyAccessExpressionOrQualifiedName`'s private-name requests
+    /// (`checker.go:11268-11278`): a write asks for `__classPrivateFieldSet`,
+    /// a read for `__classPrivateFieldGet`, a compound assignment for both.
+    fn check_private_access_emit_helpers(&mut self, node: NodeId, left: Option<NodeId>) {
+        if !self.will_transform_private_names() {
+            return;
+        }
+        self.request_operand_emit_helpers_first(left);
+        let kind = self.assignment_target_kind(node);
+        if kind != AssignmentTargetKind::None {
+            self.check_external_emit_helpers(node, helpers::CLASS_PRIVATE_FIELD_SET);
+        }
+        if kind != AssignmentTargetKind::Definite {
+            self.check_external_emit_helpers(node, helpers::CLASS_PRIVATE_FIELD_GET);
+        }
+    }
+
+    /// The condition both private-name sites test: private names are
+    /// downleveled before ES2022, before `ESNext` (decorators), or when class
+    /// fields are not `[[Define]]` (`GetUseDefineForClassFields`, which
+    /// `standard_class_fields` holds).
+    fn will_transform_private_names(&self) -> bool {
+        self.language_version < ScriptTarget::ES2022
+            || self.language_version < ScriptTarget::ESNext
+            || !self.standard_class_fields
+    }
+
     /// `checkSignatureDeclaration`'s requests (`checker.go:2731-2741`), on
     /// `GetFunctionFlags` (`ast/functionflags.go:13`): a generator only for
     /// the three kinds that can carry `*`, async by syntactic modifier, and
     /// invalid without a body.
     fn check_signature_emit_helpers(&mut self, node: NodeId, typed: Node<'_>) {
-        let (modifiers, generator, body) = match typed {
-            Node::FunctionDeclaration(n) => {
-                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
-            }
-            Node::MethodDeclaration(n) => {
-                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
-            }
-            Node::FunctionExpression(n) => {
-                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
-            }
-            Node::ArrowFunction(n) => (n.modifiers, false, n.body.is_some()),
-            _ => return,
-        };
-        if !body || !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword) {
+        let Some(flags) = function_flags(typed) else { return };
+        if !flags.valid || !flags.is_async {
             return;
         }
-        if generator && self.language_version < ScriptTarget::ES2018 {
+        if flags.generator && self.language_version < ScriptTarget::ES2018 {
             self.check_external_emit_helpers(node, helpers::ASYNC_GENERATOR_INCLUDES);
         }
-        if !generator && self.language_version < ScriptTarget::ES2017 {
+        if !flags.generator && self.language_version < ScriptTarget::ES2017 {
             self.check_external_emit_helpers(node, helpers::AWAITER);
+        }
+    }
+
+    /// `checkForOfStatement`'s request (`checker.go:4036-4045`): `for await`
+    /// in an async function or async generator before ES2018. Upstream makes
+    /// it before checking the statement's parts, as this pre-order walk does.
+    fn check_for_await_emit_helpers(&mut self, node: NodeId) {
+        // `getContainingFunctionOrClassStaticBlock`.
+        let container =
+            self.nodes.ancestors(node).find(|&a| self.is_function_like_or_static_block(a));
+        let Some(container) = container else { return };
+        if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration {
+            return;
+        }
+        let flags = self.node_map.get(container).and_then(function_flags);
+        if flags.is_some_and(|flags| flags.valid && flags.is_async)
+            && self.language_version < ScriptTarget::ES2018
+        {
+            self.check_external_emit_helpers(node, helpers::FOR_AWAIT_OF_INCLUDES);
+        }
+    }
+
+    /// `checkYieldExpression`'s `yield*` request (`checker.go:10971-10978`),
+    /// made after the operand is checked: in an async generator before
+    /// ES2018.
+    fn check_yield_star_emit_helpers(&mut self, node: NodeId, operand: Option<NodeId>) {
+        // `ast.GetContainingFunction`.
+        let Some(function) = self.containing_function(node) else { return };
+        let Some(flags) = self.node_map.get(function).and_then(function_flags) else { return };
+        if !flags.generator || !flags.is_async || self.language_version >= ScriptTarget::ES2018 {
+            return;
+        }
+        self.request_operand_emit_helpers_first(operand);
+        self.check_external_emit_helpers(node, helpers::ASYNC_DELEGATOR_INCLUDES);
+    }
+
+    /// `checkObjectLiteralDestructuringPropertyAssignment`'s rest request
+    /// (`checker.go:12619-12626`): `{ ...rest } = value` before ES2018, only
+    /// for a spread in last position (a misplaced one is an error and
+    /// requests nothing).
+    fn check_destructuring_rest_emit_helpers(&mut self, node: NodeId) {
+        if self.language_version >= ScriptTarget::ES2018 {
+            return;
+        }
+        let Some(literal) = self.nodes.parent(node) else { return };
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return;
+        };
+        if object.properties.last().and_then(tsr_ast::ObjectLiteralElementLike::node_id)
+            != Some(node)
+        {
+            return;
+        }
+        if self.assignment_target_kind(literal) != AssignmentTargetKind::Definite {
+            return;
+        }
+        self.check_external_emit_helpers(node, helpers::REST);
+    }
+
+    /// Requests a node's subtree would make, ahead of the node's own, for the
+    /// sites upstream reaches only after checking an operand
+    /// (`checkPropertyAccessExpression` checks `left` first, `checkInExpression`
+    /// runs after both operands, `checkYieldExpression` after its operand).
+    /// The walk visits that operand again afterwards; a request is
+    /// idempotent once made (the per-file mask), so the revisit is silent and
+    /// the first request — the reported one — is upstream's.
+    fn request_operand_emit_helpers_first(&mut self, operand: Option<NodeId>) {
+        let Some(operand) = operand else { return };
+        let mut stack = vec![operand];
+        while let Some(node) = stack.pop() {
+            let Some(typed) = self.node_map.get(node) else { continue };
+            self.check_construct_emit_helpers(node, typed);
+            let start = stack.len();
+            tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+            stack[start..].reverse();
         }
     }
 
@@ -489,4 +612,33 @@ impl Checker<'_, '_> {
             self.check_external_emit_helpers(first, helpers::ES_DECORATE_AND_RUN_INITIALIZERS);
         }
     }
+}
+
+/// `ast.GetFunctionFlags` (`ast/functionflags.go:13`) for the node kinds that
+/// carry a body; `None` for any other kind (upstream's `Invalid` without a
+/// body slot).
+#[derive(Debug, Clone, Copy)]
+struct FunctionFlags {
+    is_async: bool,
+    generator: bool,
+    /// Not `FunctionFlagsInvalid`: the function has a body.
+    valid: bool,
+}
+
+fn function_flags(typed: Node<'_>) -> Option<FunctionFlags> {
+    let (modifiers, generator, body): (&[tsr_ast::ModifierLike<'_>], bool, bool) = match typed {
+        Node::FunctionDeclaration(n) => (n.modifiers, n.asterisk_token.is_some(), n.body.is_some()),
+        Node::MethodDeclaration(n) => (n.modifiers, n.asterisk_token.is_some(), n.body.is_some()),
+        Node::FunctionExpression(n) => (n.modifiers, n.asterisk_token.is_some(), n.body.is_some()),
+        Node::ArrowFunction(n) => (n.modifiers, false, n.body.is_some()),
+        Node::ConstructorDeclaration(n) => (&[], false, n.body.is_some()),
+        Node::GetAccessorDeclaration(n) => (&[], false, n.body.is_some()),
+        Node::SetAccessorDeclaration(n) => (&[], false, n.body.is_some()),
+        _ => return None,
+    };
+    Some(FunctionFlags {
+        is_async: tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword),
+        generator,
+        valid: body,
+    })
 }

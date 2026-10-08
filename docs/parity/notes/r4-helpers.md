@@ -80,11 +80,11 @@ whether or not the file parsed cleanly; the checker runs on recovered trees.
 all six names in any file with a parse error. That gate was §949's
 (`checker-notes-diag2.md`): the first build without it reported 48 extra
 lines in recovered files, and gating removed them along with 29 right
-lines, with the case count unchanged. Eight of the 23 TS2693-missing cases
+lines, with the case count unchanged. Seven of the 23 TS2693-missing cases
 at this baseline are parse-error fixtures whose baselines carry TS2693
 (`autoLift2`, `createArray`, `staticsInAFunction`,
 `overloadingStaticFunctionsInFunctions`, `classMemberWithMissingIdentifier2`,
-`parserUnterminatedGeneric2`, `privateIndexer2`, …).
+`parserUnterminatedGeneric2`, `privateIndexer2`).
 
 ### Decision
 
@@ -113,3 +113,56 @@ Perf (21 samples): `domain-model` 1.021, `generic-imports` 0.978.
 concentrated in parse-error files whose upstream baselines have none; then
 the divergent recovery is the parser's to fix, not a reason to restore the
 gate.
+
+## §3. The expression-level helper requests (`tsr-2zk.21`)
+
+Five more `checkExternalEmitHelpers` sites, in the same walk-top arm as §1:
+
+| Upstream site | Condition |
+|---|---|
+| `checkPropertyAccessExpressionOrQualifiedName` (`:11268-11278`) | `x.#p` when private names are downleveled (`< ES2022`, `< ESNext`, or not `useDefineForClassFields`): a write → `__classPrivateFieldSet`, a read → `__classPrivateFieldGet`, compound → both (`getAssignmentTargetKind`) |
+| `checkInExpression` (`:13081-13086`) | `#p in o`, same condition → `__classPrivateFieldIn` |
+| `checkForOfStatement` (`:4036-4045`) | `for await` whose `getContainingFunctionOrClassStaticBlock` is an async function `< ES2018` → `__asyncValues` |
+| `checkYieldExpression` (`:10971-10978`) | `yield*` in an async generator `< ES2018` → `__await`+`__asyncDelegator`+`__asyncValues` |
+| `checkObjectLiteralDestructuringPropertyAssignment` (`:12619-12626`) | `{ ...r } = v`, the spread last, `< ES2018` → `__rest` |
+
+`GetFunctionFlags` is now one function (`function_flags`), shared with §1's
+signature arm.
+
+### Order: operand first where upstream checks the operand first
+
+Three of these sites run *after* their operand is checked upstream:
+`checkPropertyAccessExpression` checks `left` before
+`checkPropertyAccessExpressionOrQualifiedName`; `checkInExpression` runs
+after both operands; `checkYieldExpression` after its operand. The walk is
+pre-order, so `this.#a.#b` would request at the outer access first, while
+upstream reports a missing `__classPrivateFieldGet` at the inner one.
+`request_operand_emit_helpers_first` replays the operand subtree's requests
+before the site's own. A request is idempotent once made (the per-file
+mask), so the walk's later visit of that subtree is silent. Cost: a subtree
+walk per such site, only under `importHelpers`.
+
+**Not replayed:** the destructuring rest. Upstream checks the assignment's
+right operand before the target's properties (`checkDestructuringAssignment`
+receives `checkExpression(right)`); here the spread's request comes first.
+It matters only when the right operand also requests `__rest` (a nested
+destructuring assignment) — no corpus case; recorded rather than built.
+
+### Verified against native
+
+`tsgo` built from the pinned submodule (`scripts/offline-cargo/build-tsgo.sh`)
+and TSR give identical TS2343 output (8 diagnostics: get, set, in,
+async generator ×2, for-await, `yield*`, object-literal rest) on a
+probe with an empty `tslib`, `target: es2015`, `useDefineForClassFields:
+false`.
+
+### Measured (box baseline `78bde77`, on top of §1-§2)
+
+With the harness diff: diagnostics **+2** (`privateNameEmitHelpers`,
+`privateNameStaticEmitHelpers`), 0 lost; without it, no change and 0 lost.
+Types unchanged. Perf (41 samples): `domain-model` 1.008,
+`generic-imports` 1.017.
+
+Still unported: `checkDecorators`' `__setFunctionName` / `__propKey` arms,
+`checkClassExpressionExternalHelpers`, and `markDecoratorAliasReferenced`'s
+`__metadata` request.
