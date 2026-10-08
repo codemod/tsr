@@ -505,3 +505,12 @@ an object or type-parameter constituent answered nothing. Removed:
 assignable to '"prefix"'` (tsgo), i.e. the tuple slot is the element's context;
 `[1]` under `[0] | Promise<[0]>` is `[1]`, under `Promise<[0]>` `number[]`.
 The unit test that pinned the refusal is deleted. No state.
+
+## 23. getContextualType's SpreadAssignment arm (tsr-2zk.16.182)
+
+`getContextualType` (`checker.go:29378`) gives the operand of `...expr` in an
+object literal the containing literal's contextual type, so
+`const a: { f: (x: string) => void } = { ...{ f: x => … } }` types `x` as
+`string`, while an unannotated `{ ...{ f: x => … } }` leaves `x` implicitly
+`any` (TS7006; tsgo control, both). `get_contextual_type` now has that arm.
+No state.
