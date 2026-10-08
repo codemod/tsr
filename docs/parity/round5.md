@@ -375,3 +375,22 @@ Refused, with numbers:
 What remains in the front end: JSDoc is about 40% of generic-imports Ir
 (main's `.17.1`; a single-pass note is filed as `.1040`), and the binder is
 16%. The new box `r5-binperf` takes the binder hot paths.
+
+### Gate hole: an OOM case read as EMPTY_RIGHT (`tsr-2zk.1041`)
+
+r5-relater4 found that `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`
+OOMs (exit 137) when run alone at `99b337b`. Both full dumps still recorded it
+as EMPTY_RIGHT. The verdict compares diagnostics only, so an empty-baseline case
+that is pathologically slow, or that survives only on host memory headroom, is
+indistinguishable from a fast one. Its fix, `25a8f62`, merges in batch S. The
+harness change is tracked as `tsr-2zk.1041`: it adds per-case wall time to the
+dumps and makes the gate treat over-budget cases as losses.
+
+### r5-typeparams2 retired; r5-declared dispatched
+
+r5-typeparams2 finished its lane. It then declined the follow-ons as
+other-session instructions outside the brief it was given, and sat idle. Its
+four follow-ons (`tsr-2zk.1034`, `.1010`, alias naming, `.979`, all in
+`declared.rs`) now go to a fresh box, r5-declared, whose initial brief
+carries them. Lesson: put follow-on work in the next box's brief. A message to
+a finished box does not reliably restart it.
