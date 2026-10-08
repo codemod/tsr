@@ -7186,8 +7186,15 @@ impl<'a> Checker<'a, '_> {
         // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
         let site_anchor = signature.declaration;
         let names_depth = self.render_type_parameter_names.allocations.len();
-        let signature =
-            &self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);
+        let mut renamed =
+            self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);
+        // r5-sigs §1: the clone prints the original's written annotations
+        // under the allocated names (`typeParameterToName` inside the reused
+        // node). `rename_type_parameters_for_site` (inference.rs) is the
+        // faithful home for every printer; `r5-sigs-rename-reuse.diff` moves
+        // this call there.
+        self.carry_written_annotations_through_rename(signature, &mut renamed);
+        let signature = &renamed;
         let scope_depth = self.render_type_parameter_scope.len();
         self.push_render_type_parameter_scope(signature);
         let out = self.signature_to_string_at_inner(signature, reference);

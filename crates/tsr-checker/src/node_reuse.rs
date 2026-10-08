@@ -48,7 +48,9 @@
 //!   it from the annotation's own file
 //!   ([`Checker::site_free_annotation_text`]).
 //!   Type-parameter renaming by `typeParameterToName` inside the reused node
-//!   is not modelled.
+//!   reads the render's name allocations (`ctx.typeParameterNames`); a
+//!   print-only rename clone re-attaches the original's annotations
+//!   ([`Checker::carry_written_annotations_through_rename`], r5-sigs §1).
 //! - **Work boundary:** upstream decides reuse inside the node builder, at
 //!   print time, and so does this port: building a signature stores two ids
 //!   per annotated slot and walks nothing (the one exception is the
@@ -90,8 +92,15 @@ pub struct WrittenAnnotation {
     /// The annotation node (`PseudoTypeDirect`'s node).
     node: NodeId,
     /// `getTypeFromTypeNode` of the annotation: the type the printed slot must
-    /// still hold for the node to be reused.
+    /// still hold for the node to be reused. For a [`Self::renamed`]
+    /// annotation, the rename clone's image of that type.
     r#type: TypeId,
+    /// Carried onto a print-only rename clone
+    /// ([`Checker::carry_written_annotations_through_rename`]): the node is
+    /// the ORIGINAL signature's annotation, and its type-parameter names are
+    /// spelled through the render's allocations, as `typeParameterToName`
+    /// spells them inside the reused node (`nodecopy.go:301`).
+    renamed: bool,
 }
 
 impl WrittenAnnotation {
@@ -107,6 +116,10 @@ impl WrittenAnnotation {
 
 /// The visitor's context: the print site (`ctx.enclosingDeclaration`), if
 /// known, and the root of the node being reused.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent findings of one walk, each read by a different refusal"
+)]
 struct ReuseContext {
     site: Option<NodeId>,
     root: NodeId,
@@ -121,11 +134,25 @@ struct ReuseContext {
     /// left to the type's own serialization rather than to the visitor's
     /// per-node fallback, which answers only upstream's own failures.
     unnameable: bool,
+    /// The node declares type parameters of its own (a function, constructor
+    /// or member signature's list, a mapped type's key, an `infer`). Upstream
+    /// gives each such declaration its own `enterNewScope`
+    /// (`nodecopy.go:700-845`), whose `typeParameterToName` can rename it
+    /// against the names already allocated; this visitor emits them as
+    /// written. See [`Checker::renamed_annotation_in_scope`].
+    declares_type_parameters: bool,
 }
 
 impl ReuseContext {
     fn new(site: Option<NodeId>, root: NodeId) -> Self {
-        Self { site, root, scope_local: false, mapped: false, unnameable: false }
+        Self {
+            site,
+            root,
+            scope_local: false,
+            mapped: false,
+            unnameable: false,
+            declares_type_parameters: false,
+        }
     }
 }
 
@@ -339,7 +366,71 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
         }
-        Some(WrittenAnnotation { node: root, r#type: equivalent })
+        Some(WrittenAnnotation { node: root, r#type: equivalent, renamed: false })
+    }
+
+    /// Native prints a shadowing signature UNINSTANTIATED: the renaming is
+    /// `typeParameterToName`'s, inside the node builder's scope
+    /// (`signatureToSignatureDeclarationHelper` → `enterNewScope`,
+    /// `nodebuilderscopes.go:59`), so every slot's reuse decision
+    /// (`serializeTypeForDeclaration`, `serializeReturnTypeForSignature`) is
+    /// asked of the ORIGINAL signature's types, and a reused node's
+    /// type-parameter identifiers print their allocated names
+    /// (`attachSymbolToLeftmostIdentifier`, `nodecopy.go:292`).
+    /// `complexRecursiveCollections`' `Collection.Indexed<Z_1>` is that reuse.
+    ///
+    /// This port prints a print-only CLONE instantiated to fresh parameters
+    /// (`rename_type_parameters_for_site`), and the instantiation ends every
+    /// slot's reuse because the image differs. This re-attaches each written
+    /// annotation the original could reuse (its slot holds the annotation's
+    /// own type), keyed to the clone's image so every printer's identity gate
+    /// holds, and marked [`WrittenAnnotation::renamed`] so the visitor spells
+    /// the renamed parameters. Slots the original could not reuse stay as the
+    /// clone left them.
+    pub(crate) fn carry_written_annotations_through_rename(
+        &mut self,
+        original: &crate::signatures::Signature,
+        renamed: &mut crate::signatures::Signature,
+    ) {
+        let pairs = original
+            .this_parameter
+            .iter()
+            .zip(renamed.this_parameter.iter_mut())
+            .chain(original.parameters.iter().zip(renamed.parameters.iter_mut()));
+        let mut carried = Vec::new();
+        for (index, (source, target)) in pairs.enumerate() {
+            if target.written_text.is_some() {
+                continue;
+            }
+            let Some(written) = source.written_text else { continue };
+            if self.parameter_type(source) != written.r#type {
+                continue;
+            }
+            carried.push((index, written.node, self.parameter_type(target)));
+        }
+        for (index, node, image) in carried {
+            let target = if renamed.this_parameter.is_some() {
+                match index {
+                    0 => renamed.this_parameter.as_mut(),
+                    _ => renamed.parameters.get_mut(index - 1),
+                }
+            } else {
+                renamed.parameters.get_mut(index)
+            };
+            if let Some(target) = target {
+                target.written_text =
+                    Some(WrittenAnnotation { node, r#type: image, renamed: true });
+            }
+        }
+        if renamed.written_return.is_none()
+            && let Some(written) = original.written_return
+            && self.get_return_type_of_signature(original).unwrap_or(original.r#type)
+                == written.r#type
+        {
+            let image = self.get_return_type_of_signature(renamed).unwrap_or(renamed.r#type);
+            renamed.written_return =
+                Some(WrittenAnnotation { node: written.node, r#type: image, renamed: true });
+        }
     }
 
     /// `reuseTypeNode` (`nodecopy.go:56`) for a printer with no print site:
@@ -368,12 +459,17 @@ impl<'a> Checker<'a, '_> {
         written: WrittenAnnotation,
         current: TypeId,
     ) -> Option<(String, bool)> {
-        if !written.is_equivalent_to(current, self.intrinsics.error) {
+        if !written.is_equivalent_to(current, self.intrinsics.error)
+            || !self.renamed_annotation_in_scope(written)
+        {
             return None;
         }
         let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
         let mut cx = ReuseContext::new(None, written.node);
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
+        if written.renamed && cx.declares_type_parameters {
+            return None;
+        }
         Some((text, cx.scope_local))
     }
 
@@ -411,13 +507,32 @@ impl<'a> Checker<'a, '_> {
         current: TypeId,
         reference: NodeId,
     ) -> Option<String> {
-        if !written.is_equivalent_to(current, self.intrinsics.error) {
+        if !written.is_equivalent_to(current, self.intrinsics.error)
+            || !self.renamed_annotation_in_scope(written)
+        {
             return None;
         }
         let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
         let mut cx = ReuseContext::new(Some(reference), written.node);
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
+        if written.renamed && cx.declares_type_parameters {
+            return None;
+        }
         (!cx.unnameable).then_some(text)
+    }
+
+    /// A [`WrittenAnnotation::renamed`] node names its renamed parameters
+    /// from the render's allocations, which live only while the rename
+    /// clone's render runs; printed outside one, the clone's image is
+    /// serialized instead. A renamed node that declares type parameters of
+    /// its own is likewise refused after the walk
+    /// ([`ReuseContext::declares_type_parameters`]): its inner declarations
+    /// would need their own allocation against the renamed scope
+    /// (`jsxGenericComponentWithSpreadingResultOfGenericFunction`'s
+    /// `<T_1>(obj: T_1) => Omit<T_1, K_1>`), which the visitor does not model,
+    /// and the clone's serialization already renames them.
+    fn renamed_annotation_in_scope(&self, written: WrittenAnnotation) -> bool {
+        !written.renamed || !self.render_type_parameter_names.allocations.is_empty()
     }
 
     /// `trackExistingEntityName` (`nodecopy.go:317`) for the leftmost
@@ -989,7 +1104,33 @@ impl<'a> Checker<'a, '_> {
                 // through `typeParameterToName`, and `tryVisitTypeReference`
                 // serializes one the context's mapper remaps
                 // (`nodecopy.go:416`); both are the site's own rendering of
-                // the parameter.
+                // the parameter. A name the render already allocated
+                // (`ctx.typeParameterNames`, a shadow rename) is that name
+                // with or without a site.
+                if reference.type_arguments.is_empty()
+                    && let EntityName::Identifier(identifier) = name
+                    && let Some(id) = identifier.node_id
+                    && !self.render_type_parameter_names.allocations.is_empty()
+                    && let Some(symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        identifier.text,
+                        SymbolFlags::TYPE,
+                    )
+                    && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                    && !self.declared_inside_reused_node(symbol, cx.root)
+                {
+                    let parameter = self.get_type_from_type_node(node);
+                    if let Some((_, allocated)) = self
+                        .render_type_parameter_names
+                        .allocations
+                        .iter()
+                        .find(|(owner, _)| *owner == parameter)
+                    {
+                        return Some(allocated.clone());
+                    }
+                }
                 if let Some(site) = cx.site
                     && reference.type_arguments.is_empty()
                     && let EntityName::Identifier(identifier) = name
@@ -1163,6 +1304,7 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 let parameter = mapped.type_parameter?;
+                cx.declares_type_parameters = true;
                 let readonly = match mapped.readonly_token.map(|token| token.kind) {
                     None => "",
                     Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
@@ -1201,6 +1343,7 @@ impl<'a> Checker<'a, '_> {
             }
             TypeNode::InferTypeNode(infer) => {
                 let parameter = infer.type_parameter?;
+                cx.declares_type_parameters = true;
                 let mut text = format!("infer {}", parameter.name?.text);
                 if let Some(constraint) = parameter.constraint {
                     text.push_str(" extends ");
@@ -1389,6 +1532,7 @@ impl<'a> Checker<'a, '_> {
         if parameters.is_empty() {
             return Some(String::new());
         }
+        cx.declares_type_parameters = true;
         let mut parts = Vec::with_capacity(parameters.len());
         for parameter in parameters {
             let mut text = modifiers_prefix(parameter.modifiers)?;
