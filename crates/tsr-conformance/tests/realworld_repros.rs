@@ -324,15 +324,15 @@ export const c: number = p[i];
 }
 
 #[test]
-#[ignore = "tsr-2zk.938: TS7053 arm reports an access whose applicable index info has an error value type"]
 fn index_signature_with_error_valued_info_is_not_an_implicit_any_access() {
     // Native `getPropertyTypeForIndexType` (checker.go:27129-27184) reaches
     // TS7053 only when no index info applies. Here the string index applies;
-    // its value `V | boolean` is cause 1's `errorType` in TSR, so the access
-    // answers error and `index_access_reports.rs`
-    // `report_implicit_any_element_access` reads that as "no index info".
-    // compiler: `options[name]` on `CompilerOptions`/`OptionsBase` (21 lines).
-    // Passes once either cause 1 lands or the arm checks the applicable info.
+    // its value `V | boolean` is cause 1's `errorType` in TSR, and
+    // `index_signatures.rs` `index_infos_of_declaration` dropped an info whose
+    // value was `errorType`, so `report_implicit_any_element_access` found no
+    // applicable info. compiler: `options[name]` on
+    // `CompilerOptions`/`OptionsBase` (21 lines). Fixed by r4-index3
+    // (tsr-2zk.945): the info is kept, as `getIndexInfosOfIndexSymbol` does.
     check(
         "type V = string | number;
 interface O { [k: string]: V | boolean; }

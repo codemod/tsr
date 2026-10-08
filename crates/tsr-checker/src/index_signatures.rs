@@ -969,13 +969,14 @@ impl<'a> Checker<'a, '_> {
         let key = self.get_type_from_type_node(key);
         // `valueType := c.anyType` unless a type is written (`checker.go:19649`):
         // `[k: string];` is a string index of `any`, not no index.
+        // An `errorType` value still declares the key (`:19656` builds the
+        // info whatever `getTypeFromTypeNode` answered), so an access through
+        // it answers that value and never reaches TS7053's "no applicable
+        // index" arm. `docs/parity/notes/r4-index3.md` §1.
         let value = match signature.r#type {
             Some(value) => self.get_type_from_type_node(value),
             None => self.intrinsics.any,
         };
-        if value == self.intrinsics.error {
-            return Vec::new();
-        }
         let keys = match &self.store.get(key).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![key],
