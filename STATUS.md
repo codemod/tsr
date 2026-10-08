@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected binding-owner continuation after `bda345a6`, native `5b1047d`:
+existing alias frames, captured conditionals and default/constraint/type-literal
+keys now retain actual selected parameter identity. Delete/callee/heritage/index
+property diagnostics carry selected handles. Exact 19-file replay
+covers 1,053 inputs/1034 unchanged. Final ordinary/work-trace both
+**71 errors**; full lib-test no-run **127 errors**.
+Three bounded extracted actual key controls pass, a compiling origin-projection
+mutant fails two, and restored controls pass three. Full Checker remains
+uncompilable; no canonical runtime, native/corpus/performed-work or speed claim.
+[Replay](docs/architecture/checker-binding-owner-continuation.json).
+
+
 Selected property-owner continuation after evidence delivery `39cdcdd9`, native
 `5b1047d`: existing property/declared/anonymous/export-star results and composite
 constituents now carry selected identities. Instance/static name walks and the
@@ -3819,6 +3831,14 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Binding-key continuation leaves the actual entity/module/alias/naming and
+ancestor-result consumers as the next compile repairs. Finish all full library
+test expectations, then run the complete private checker/native/corpus gates
+before canonical integration and member-builder cost selection. All six tickets
+remain in progress; 71 library errors still refuse runtime acceptance.
+[Checkpoint](docs/architecture/checker-binding-owner-continuation.json).
+
+
 Property-owner continuation at `39cdcdd9`: complete the remaining selected
 property diagnostic/result consumers, module/entity alias and semantic naming
 channels, then the conditional frame keys. Full test-target expectations and
@@ -7592,6 +7612,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The binding-owner draft after `bda345a6` remains refused by **71 library errors**
+in ordinary and work-trace modes and **127 lib-test no-run errors**. Three
+extracted actual key tests pass, detect a compiling origin-projection mutation
+(two failures), and pass after restoration. Full private Checker construction,
+conditional/default/constraint evaluation, scope admission, native/corpus and
+speed qualification remain absent. [Exact evidence](docs/architecture/checker-binding-owner-continuation.json).
+
 
 The property-owner draft after `39cdcdd9` is refused for canonical integration
 by **80 errors** in both ordinary/work-trace modes. Widening actual producer
@@ -15662,6 +15690,8 @@ holds only the numbers.
 | 2026-10-08 | `189a2c1d` plus five owned Rust overlays / native `5b1047d` | — | — | **String mapping selected-owner prerequisite and general factory continuation.** Existing mapping stores and consumers retain actual owners; two controls, 3,245 workspace passes/19 existing ignores and 212 private reader passes. Compiling origin mutant fails. Four native fresh/checked-first order rows repeat identically. Full 552,533 type rows/12,238 diagnostic rows byte identical to qualified baseline; seven distinct inherited Clippy errors, no new ones, fmt passes. Private general factory/computed rebuild, alias/mapped/union and variance state preserve owners; 60→84→65→59→51 compile mismatches retained with exact five/16-file replayable deltas. Full factory/mapper/natural alias controls unexecuted. All six tickets unfinished, no speed or coverage gain. [Evidence](docs/architecture/checker-string-mapping-owner.json). |
 
 | 2026-10-08 | `39cdcdd9` / native `5b1047d` | — | — | **Selected property-owner private continuation.** Existing property/export-star producer results, composite constituents, static/instance names and existing structured-name cache carry actual selected identities. Exact 29-file replay across all 1,053 inputs; 1,024 unchanged. Compiler 198→156→110→88→81→80; final ordinary/work-trace 80 errors. One extracted actual existing symbol-store copy/member/export test passes, with opaque TypeId fixture and no private property/runtime qualification. No canonical Rust/corpus/performed-work/speed claim; all six tickets and complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-property-owner-continuation.json). |
+
+| 2026-10-08 | `bda345a6` / native `5b1047d` | — | — | **Selected binding-owner private continuation.** Existing alias/captured-conditional frames and default/constraint/type-literal keys retain selected identity; delete/callee/heritage/index diagnostic consumers read selected metadata. Exact 19-file replay, all 1,053 inputs, 1,034 unchanged. Final ordinary/work-trace 71 errors; full lib-test no-run 127 errors. Three extracted actual key controls pass, compiling origin-projection mutant fails two, restored controls pass three; bounded fixture does not qualify full Checker. No canonical runtime/native/corpus/performed-work/speed claim. All six tickets and complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-binding-owner-continuation.json). |
 
 ## 8. Updating this file
 

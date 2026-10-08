@@ -1178,3 +1178,17 @@ store-copy/member/export control passes in extraction; it does not execute the
 property producer or certify full member/alias/native/corpus/speed behavior.
 Remaining property diagnostics, entity/module/naming and conditional-frame
 channels still block the six-ticket goal and canonical runtime integration.
+
+The [binding-owner continuation](checker-binding-owner-continuation.json) after
+`bda345a6` carries actual selected handles through existing alias frames,
+captured conditionals and default/constraint/type-literal keys. Genuine AST
+parameter inputs lift at their binder boundary; private mapper symbols retain
+their owner. Flattening preserves inner shadowing, and the existing selected
+symbol comparator normalizes key vectors without an origin projection. Existing
+scope/publication gates remain, with no new memo or broadened completed-state
+claim. Selected delete/callee/heritage/index diagnostics read actual metadata.
+Three bounded extracted key controls pass, catch a compiling origin-projection
+mutation, and pass after restoration. The bounded fixture is explicitly distinct
+from full Checker construction/evaluation. Ordinary/work-trace71 errors and the
+full lib-test no-run refusal keep canonical integration and all six goal tickets
+unfinished; native/corpus/performed-work and equivalent-work speed gates remain.
