@@ -636,6 +636,49 @@ There is no main runtime change, full corpus gate or equivalent-work speed win.
 Actual expensive-worker attribution remains `tsr-1yb.11`, and the release target
 remains verified TSR/pinned-tsgo median wall ratio <=0.50.
 
+### Selected metadata and heritage consumer continuation
+
+Frozen main `27ec35b7` continues the actual owner migration under
+`tsr-1yb.7.7.2.1`. Selected flags, declarations, reference names and raw member/
+export presence now come from `CheckerSymbols` views. Generic-alias cycle keys,
+narrowing completeness, class-extends and heritage traversal retain actual
+handles. Bound declaration entry points lift explicitly; the existing heritage
+syntax resolver still supplies bound targets. Its private alias/entity dispatch
+remains unfinished under `tsr-1yb.7.7.3`. These are existing cache and traversal
+domain changes, preserving their active-alias refusal, cycle and depth policies.
+
+Native `5b1047d` `hasBaseType`/`getTargetType` (`checker.go:19551`) compares actual
+targets, not names or overlapping declarations. The reader's existing class
+member-order control now parses `Shape extends Base`, clones each actual symbol,
+and proves the private Shape follows bound Base but does not derive from the
+distinct private Base clone. The test first failed to compile for the missing
+selected heritage API; after migrating the existing base-cache worker/key and
+walks, all 209 library tests pass. This is a direct private-handle control, not a
+new native execution or full module-clone certificate.
+
+The full draft remains uncompiled: 70 type mismatches across 19 files, down from
+114 after intermediate 98/86/71-error checks. The separate parsed module-owner
+test still fails Head/raw `SymbolId(1)`. Both fmt checks pass. Strict reader
+Clippy returns to the inherited six library/five test errors after fixing two
+new lints. Borrowed declaration iteration removes the narrowing-presence walk's
+temporary vector; no measured performance benefit is claimed. Short owner
+clones end immutable borrows before mutable work, without copying whole type
+payloads. Each slice has 1,053 stable inputs and the reader binary identifies its
+source root. Canonical reconstruction from runtime plus inherited archives
+checks all 684 Rust files per slice before and after the exact three/24-file
+deltas. All 33 historical fields stay identical; the
+[archive](checker-module-clone-progress.json) adds
+`selected_metadata_heritage_continuation`, including failed checks/corrections.
+
+Selected symbol/type/value, general alias/reference factory, member/static/
+index/signature and naming dispatch are still required. Native
+`getVariancesWorker`/`createMarkerType` (`relater.go`) store variance on the actual
+symbol's links and instantiate that owner's declared type. Their source was
+read here; the actual factory must migrate before variance reuse can retain
+private owners. Full factory/this/mapper, previously-RIGHT corpus and equivalent
+complete-work median <=0.50 gates remain unverified. No canonical runtime or
+speed win follows from this checkpoint.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
