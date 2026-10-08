@@ -4177,7 +4177,7 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
-        if std::env::var("TSR_CTX_DEBUG").is_ok() {
+        if crate::debug_env::is_set("TSR_CTX_DEBUG") {
             eprintln!(
                 "DISCRIM: {} discriminators, eliminated_any={eliminated_any}, include={include:?}",
                 discriminators.len()
@@ -4435,7 +4435,7 @@ impl<'a> Checker<'a, '_> {
                 // resolve). Reentrancy-guarded: typing the callee from
                 // inside a member-symbol computation can recurse.
                 SyntaxKind::CallExpression => {
-                    let debug = std::env::var("TSR_CTX_DEBUG").is_ok();
+                    let debug = crate::debug_env::is_set("TSR_CTX_DEBUG");
                     let Some(Node::CallExpression(call)) = self.node_map.get(holder) else {
                         return None;
                     };

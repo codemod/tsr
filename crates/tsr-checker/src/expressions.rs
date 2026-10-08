@@ -124,11 +124,7 @@ impl Checker<'_, '_> {
             None
         } else {
             node.node_id.and_then(|location| {
-                self.evaluate_template_constant(
-                    &Expression::TemplateExpression(node),
-                    location,
-                    &mut Vec::new(),
-                )
+                self.evaluate_template_constant(&Expression::TemplateExpression(node), location)
             })
         };
         if let Some(EvaluatedValue::Text(value)) = folded {
@@ -326,98 +322,25 @@ impl Checker<'_, '_> {
         at
     }
 
-    /// Constant-variable/global-number slice of `evaluateEntity` (checker.go:24024).
-    /// Each initializer becomes the location for its recursive evaluation, so
-    /// forward references and self/dependent initializer cycles cannot fold.
+    /// `checkTemplateExpression`'s `c.evaluate(node, node)` (`checker.go:7992`):
+    /// the checker's evaluator, shared with enum member values
+    /// ([`Checker::evaluate_constant`], `evaluateEntity` at `checker.go:24024`).
+    /// Each constant variable's initializer is evaluated with its declaration
+    /// as the location, so forward references and self/dependent initializer
+    /// cycles cannot fold; an enum member reads its folded value.
     fn evaluate_template_constant(
         &mut self,
         expression: &Expression<'_>,
         location: NodeId,
-        active: &mut Vec<NodeId>,
     ) -> Option<EvaluatedValue> {
-        evaluate_constant_expression_with(expression, &mut |entity| {
-            let symbol = self.constant_entity_symbol(entity, SymbolFlags::VALUE)?;
-            let symbol = self.binder.merged_symbol(symbol);
-            // Pinned 5b1047d: evaluateEntity recognizes these numbers only
-            // through global-symbol identity, never a property's spelling or
-            // a shadowing/imported variable with the same name.
-            if let Expression::Identifier(identifier) = entity
-                && matches!(identifier.text, "Infinity" | "NaN")
-                && self.binder.global(identifier.text) == Some(symbol)
-            {
-                return Some(EvaluatedValue::Number(if identifier.text == "Infinity" {
-                    f64::INFINITY
-                } else {
-                    f64::NAN
-                }));
+        match self.evaluate_constant(expression.node_id()?, location)? {
+            crate::enum_initializer::EnumConstant::Number(value) => {
+                Some(EvaluatedValue::Number(value))
             }
-            if !self.is_constant_variable(symbol) {
-                return None;
+            crate::enum_initializer::EnumConstant::String(value) => {
+                Some(EvaluatedValue::Text(value))
             }
-            let declaration = self.binder.symbols().get(symbol).value_declaration?;
-            let Node::VariableDeclaration(variable) = self.node_map.get(declaration)? else {
-                return None;
-            };
-            if variable.r#type.is_some() || declaration == location || active.contains(&declaration)
-            {
-                return None;
-            }
-            if self.source_file_of_for_diagnostics(declaration)
-                == self.source_file_of_for_diagnostics(location)
-                && (self.nodes.span(declaration).start > self.nodes.span(location).start
-                    || self.nodes.ancestors(location).any(|id| id == declaration))
-            {
-                return None;
-            }
-            let initializer = variable.initializer?;
-            active.push(declaration);
-            let value = self.evaluate_template_constant(&initializer, declaration, active);
-            active.pop();
-            value
-        })
-    }
-
-    /// `resolveEntityName` (pinned 5b1047d checker.go:15772), ignoring errors.
-    /// Object properties are not namespace exports. Alias targets use the
-    /// existing checker-owned resolver (including its unresolved-chain bound),
-    /// not a value/type cache; the caller evaluates each terminal declaration
-    /// with its own location and evaluation-local active declaration stack.
-    fn constant_entity_symbol(
-        &mut self,
-        expression: &Expression<'_>,
-        meaning: SymbolFlags,
-    ) -> Option<tsr_binder::SymbolId> {
-        let symbol = match expression {
-            Expression::Identifier(identifier) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                identifier.node_id?,
-                identifier.text,
-                meaning,
-            ),
-            Expression::PropertyAccessExpression(access) => {
-                let owner =
-                    self.constant_entity_symbol(&access.expression?, SymbolFlags::NAMESPACE)?;
-                let name = match access.name? {
-                    tsr_ast::MemberName::Identifier(identifier) => identifier.text,
-                    tsr_ast::MemberName::PrivateIdentifier(_) => return None,
-                };
-                self.binder
-                    .symbols()
-                    .get(self.binder.merged_symbol(owner))
-                    .exports
-                    .get(name)
-                    .copied()
-            }
-            _ => None,
-        }?;
-        let symbol = self.binder.merged_symbol(symbol);
-        let symbol = if self.binder.symbols().get(symbol).flags.intersects(meaning) {
-            symbol
-        } else {
-            self.resolve_alias_fully(symbol)
-        };
-        self.binder.symbols().get(symbol).flags.intersects(meaning).then_some(symbol)
+        }
     }
 
     /// The §50 shape test + pseudo-narrow + re-projection

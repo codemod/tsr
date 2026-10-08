@@ -3363,7 +3363,7 @@ impl Checker<'_, '_> {
                 back
             };
             state.depth = depth_mark;
-            if std::env::var("TSR_TRACE_LOOP").is_ok() {
+            if crate::debug_env::is_set("TSR_TRACE_LOOP") {
                 eprintln!(
                     "  LOOPANTE key={key:?} t={:?} incomplete={}",
                     flow_type.t, flow_type.incomplete
@@ -3429,7 +3429,7 @@ impl Checker<'_, '_> {
         };
         let result = self.recombine_unknown_type(result);
         let incomplete = first.is_some_and(|f| f.incomplete);
-        if std::env::var("TSR_TRACE_LOOP").is_ok() {
+        if crate::debug_env::is_set("TSR_TRACE_LOOP") {
             eprintln!(
                 "LOOP key={key:?} types={types:?} subtype_red={subtype_reduction} result={result:?} incomplete={incomplete}"
             );
