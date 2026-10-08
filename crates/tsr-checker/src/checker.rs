@@ -725,6 +725,12 @@ pub struct Checker<'a, 'n> {
     /// `lib` list names the DOM lib (`"dom"` maps to `lib.dom.d.ts` in
     /// `tsoptions.LibMap`; both spellings, case-insensitively).
     pub(crate) lib_includes_dom: bool,
+    /// `c.compilerOptions.UsesWildcardTypes()` (`core/compileroptions.go:326`):
+    /// `types` contains `"*"`. Upstream then reports TS2580 rather than
+    /// TS2591 for an unresolved Node core module
+    /// (`getCannotResolveModuleNameErrorForSpecificModule`); this port
+    /// declines instead (`module_specifier_unfindable_for_diagnostics`).
+    pub(crate) uses_wildcard_types: bool,
     /// Object-literal types created in a JS file — upstream's
     /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
@@ -1493,6 +1499,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
+            uses_wildcard_types: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
@@ -1714,6 +1721,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+        self.uses_wildcard_types =
+            options.types.as_ref().is_some_and(|types| types.iter().any(|t| t == "*"));
         self.lib_includes_dom = options
             .lib
             .iter()

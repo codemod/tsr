@@ -208,8 +208,7 @@ impl Checker<'_, '_> {
         let Some(class_symbol) = self.binder.symbol_of(node) else { return };
         let this_type = self.class_instance_this_type(class_symbol);
         // The late-bound names of the class's own instance members.
-        let late_bound =
-            self.late_bound_members_of(self.binder.merged_symbol(class_symbol), false);
+        let late_bound = self.late_bound_members_of(self.binder.merged_symbol(class_symbol), false);
         let mut issued = false;
         let mut undecided = false;
         for member in members {

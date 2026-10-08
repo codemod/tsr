@@ -250,11 +250,10 @@ export { Diagnostics };
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: unresolved node core module reports nothing instead of TS2591"]
 fn unresolved_node_core_module_reports_install_types_hint() {
     // Native `getCannotResolveModuleNameErrorForSpecificModule`
-    // (checker.go:15110); TSR `module_specifier_unfindable` (check.rs)
-    // declines every node core module.
+    // (checker.go:15110) substitutes TS2591 for TS2307 on an unresolved Node
+    // core module (TSR `report_module_not_found`, tsr-2zk.933).
     check(
         "export let fs: typeof import(\"fs\");
 ",

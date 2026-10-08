@@ -3068,7 +3068,7 @@ impl Checker<'_, '_> {
                 self.check_esm_import_from_commonjs(node, literal);
             }
             if let Some(literal) = literal
-                && self.module_specifier_unfindable(literal)
+                && self.module_specifier_unfindable_for_diagnostics(literal)
                 && let Some(Node::StringLiteral(text)) = self.node_map.get(literal)
                 && let Some(file) = self.source_file_of_for_diagnostics(literal)
             {
@@ -3726,7 +3726,7 @@ impl Checker<'_, '_> {
     /// | the specifier resolves to a file | TS2306 `File_0_is_not_a_module`, TS7016, the `node16` mode family — never 2307 |
     /// | a `declare module "x"` names it | resolved; no diagnostic |
     /// | a **pattern** ambient module matches (`declare module "foo/*"`) | resolved by `FindBestPatternMatch` (`checker.go:15364`); names-modules notes §6 |
-    /// | a Node core module name (`fs`, `path`, …) | TS2580/TS2591, substituted by `getCannotResolveModuleNameErrorForSpecificModule` (`checker.go:15109`) |
+    /// | a Node core module name (`fs`, `path`, …) under `types: ["*"]` | TS2580, but the harness does not load wildcard `@types`; any other core module is reported as TS2591 (tsr-2zk.933) |
     /// | `@types/…` | TS6137 is emitted *as well*, so the multiset would still differ |
     ///
     /// # Where a `None` from resolution is *not* a missing module
@@ -3749,7 +3749,7 @@ impl Checker<'_, '_> {
         // `checkExternalImportOrExportDeclaration` held: the declaration's
         // `checkExternalEmitHelpers` requests. names-modules notes §7.
         self.check_declaration_emit_helpers(declaration);
-        if !self.module_specifier_unfindable(specifier) {
+        if !self.module_specifier_unfindable_for_diagnostics(specifier) {
             // **The other branch of the load-bearing distinction.** A specifier
             // that resolved to a file which is not in the program is not
             // TS2307's; it is TS7016's when that file is JavaScript and
@@ -3897,7 +3897,38 @@ impl Checker<'_, '_> {
                 return;
             }
         }
+        let module_not_found = if module_not_found.code()
+            == messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS.code()
+        {
+            self.cannot_resolve_module_name_error_for_specific_module(specifier)
+                .unwrap_or(module_not_found)
+        } else {
+            module_not_found
+        };
         self.report(importing, Diagnostic::with_args(module_not_found, span, [text.to_string()]));
+    }
+
+    /// `getCannotResolveModuleNameErrorForSpecificModule` (`checker.go:15110`):
+    /// the message `resolveExternalModuleName` (`checker.go:15101`) reports in
+    /// place of TS2307 for an unresolved Node core module. Only that route
+    /// substitutes; a side-effect import (`checkImportDeclaration`,
+    /// `checker.go:5325`) keeps its own message, which is why
+    /// [`Checker::report_module_not_found`] asks only when handed the TS2307
+    /// default.
+    ///
+    /// Upstream's TS2580 arm (`types` contains `"*"`) is never reached: under
+    /// a wildcard [`Checker::module_specifier_unfindable_for_diagnostics`]
+    /// still declines core modules (see there), so this answers TS2591.
+    fn cannot_resolve_module_name_error_for_specific_module(
+        &self,
+        specifier: NodeId,
+    ) -> Option<&'static tsr_diagnostics::Message> {
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else {
+            return None;
+        };
+        is_node_core_module(literal.text).then_some(
+            &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_INSTALL_TYPE_DEFINITIONS_FOR_NODE_TRY_NPM_I_SAVE_DEV_TYPES_SLASHNODE_AND_THEN_ADD_NODE_TO_THE_TYPES_FIELD_IN_YOUR_TSCONFIG,
+        )
     }
 
     /// TS7016 — `Could not find a declaration file for module '{0}'. '{1}'
@@ -3978,6 +4009,39 @@ impl Checker<'_, '_> {
     /// only when every decline-gate passes and the host, consulted, found
     /// nothing. Position is the caller's test.
     pub(crate) fn module_specifier_unfindable(&mut self, specifier: NodeId) -> bool {
+        self.module_specifier_unfindable_worker(specifier, false)
+    }
+
+    /// [`Checker::module_specifier_unfindable`] for the three TS2307
+    /// reporters, which also admit an unresolved Node core module: upstream
+    /// reports it with TS2591 instead of TS2307
+    /// (`getCannotResolveModuleNameErrorForSpecificModule`,
+    /// `checker.go:15110`), substituted in
+    /// [`Checker::report_module_not_found`]. tsr-2zk.933.
+    ///
+    /// Two declines remain, each for a measured reason:
+    ///
+    /// - The type callers (`get_type_of_alias`, the type-reference arm in
+    ///   `declared.rs`) keep reading the core-module decline. Admitting it
+    ///   there makes `const fs = require("fs")` in a JS file answer their
+    ///   calibrated `any` where native prints `error`
+    ///   (`compiler/localRequireFunction`, 4 type lines).
+    /// - Under `types: ["*"]` upstream loads every `@types` package, and the
+    ///   conformance harness does not, so `declare module "url"` in
+    ///   `@types/node` goes unseen and TS2580 would be a false report
+    ///   (`compiler/referenceTypesPreferedToPathIfPossible`). The CLI loads
+    ///   them (`tsr-compiler` `add_automatic_type_directive_task`) and
+    ///   agrees with native there.
+    fn module_specifier_unfindable_for_diagnostics(&mut self, specifier: NodeId) -> bool {
+        let admit_node_core = !self.uses_wildcard_types;
+        self.module_specifier_unfindable_worker(specifier, admit_node_core)
+    }
+
+    fn module_specifier_unfindable_worker(
+        &mut self,
+        specifier: NodeId,
+        admit_node_core: bool,
+    ) -> bool {
         let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else {
             return false;
         };
@@ -3994,7 +4058,10 @@ impl Checker<'_, '_> {
         if self.has_pattern_ambient_module() && self.binder.pattern_ambient_module(text).is_some() {
             return false;
         }
-        if is_node_core_module(text) {
+        // A Node core module (`fs`, `node:path`, …) is resolved like any other
+        // specifier upstream; only the *message* differs. Admitted for the
+        // reporters only — see `module_specifier_unfindable_for_diagnostics`.
+        if !admit_node_core && is_node_core_module(text) {
             return false;
         }
         if text.starts_with("@types/") {
@@ -12155,7 +12222,7 @@ impl Checker<'_, '_> {
             return;
         };
         let Some(Node::StringLiteral(text)) = self.node_map.get(argument) else { return };
-        if !self.module_specifier_unfindable(argument) {
+        if !self.module_specifier_unfindable_for_diagnostics(argument) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(argument) else { return };
@@ -14489,17 +14556,23 @@ impl Checker<'_, '_> {
     }
 }
 
-/// `core.NodeCoreModules()` (`internal/core/nodemodules.go`).
+/// `core.NodeCoreModules()` (`internal/core/nodemodules.go`): every
+/// `UnprefixedNodeCoreModules` name bare and with `node:`, plus
+/// `ExclusivelyPrefixedNodeCoreModules`.
 ///
 /// Upstream substitutes a *different* message for these
-/// (`getCannotResolveModuleNameErrorForSpecificModule`, `checker.go:15109`), so
-/// the list is a **refusal list** here rather than a resolution one: a name on
-/// it is never reported as TS2307. Transcribed from upstream rather than
-/// guessed, because a name missing from it becomes a false positive and a name
-/// wrongly on it costs only silence.
+/// (`getCannotResolveModuleNameErrorForSpecificModule`, `checker.go:15110`).
+/// The set is exact: a `node:` name not on it (`node:foo`) is an ordinary
+/// TS2307. Until tsr-2zk.933 this was a refusal list that also admitted every
+/// `node:` prefix, because a name on it only cost silence.
 fn is_node_core_module(name: &str) -> bool {
-    let bare = name.strip_prefix("node:").unwrap_or(name);
-    NODE_CORE_MODULES.contains(&bare) || name.starts_with("node:")
+    match name.strip_prefix("node:") {
+        Some(bare) => {
+            NODE_CORE_MODULES.contains(&bare)
+                || matches!(bare, "quic" | "sea" | "sqlite" | "test" | "test/reporters")
+        }
+        None => NODE_CORE_MODULES.contains(&name),
+    }
 }
 
 /// The names `core.NodeCoreModules()` returns.
