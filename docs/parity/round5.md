@@ -708,3 +708,21 @@ shadow test at the print site and ports the binder's computed-name rule
 renames by instantiation and re-resolves deferred conditional constraints, where
 native renames only at print time. It waits on a print-only rename in
 inference.rs (`.1072`, main `.9`).
+
+### r5-jsdoc3 finished; r5-jsdoc4 dispatched (`tsr-2zk.1075`)
+
+r5-jsdoc3 root-caused all 36 of r5-jsdoc2's walk losses: the JSDoc scope hop,
+reparsed-return parents, unstamped JSDoc roots, this_container and arity. It
+shipped its owned queries plus seven diffs, landed in batch AB in order:
+1. contextual JS assignments;
+2. node-reuse @import;
+3. require alias;
+4. scope hop (rebuilt; r4's version cost +0.47% Ir);
+5. hosted declaration types;
+6. JSDoc diagnostics;
+7. @template constraint.
+
+Together: +110 type lines and +9 diagnostics cases, with no losses. Ir is
++0.10% on domain-model and flat on generic-imports. One placement was refused
+on its number: in_js_file crossing the comment cost +0.22% Ir, so the loader
+stamps JSDoc roots instead. r5-jsdoc4 takes the remainder.
