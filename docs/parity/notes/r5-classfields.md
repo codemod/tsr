@@ -244,3 +244,36 @@ with both unfiltered dumps, and reverted.
   (together with the diff above, only that diff's row changed): every judged
   compilation that reaches these checks names a target. Upstream's reading,
   offered for faithfulness, not for a number.
+- **TS2373 for a later parameter** (`capturedParametersInInitializers1`,
+  `capturedParametersInInitializers2(target=es2015)`):
+  `parameter_self_reference.rs::enclosing_parameter_initializer` treats every
+  class expression and function-like as deferred, where upstream's
+  `getIsDeferredContext` keeps an IIFE, a static property and a computed
+  member name live. Diff: `r5-classfields-parameter-scope-walk.diff` — the
+  check takes its association from `class_fields.rs::parameter_initializer_scope`
+  (filtered to a `Parameter`; a binding element's is §2's) and the old walk
+  is deleted. **Measured on top of the second commit: +2 rows (both cases
+  above, WRONG → RIGHT, the only rows whose output changed), types
+  unchanged, 0 lost.**
+
+## 8. Remaining in the lane
+
+Of the 36 lane rows at the baseline, 30 convert with this lane's commits and
+2 more with the diffs in §7. Left:
+
+- `classUsedBeforeInitializedVariables(target=es2015)`: one missing TS2729
+  at `(class extends this.withinClassDeclarationExtension { })` inside a
+  property initializer. Hypothesis: `readonly_target.rs`'s
+  `property_of_access_for_use_before_init` resolves `this` in a class
+  expression's heritage clause against the class expression rather than the
+  enclosing class (upstream's `getThisContainer` passes the heritage clause
+  up to the property declaration). Not this lane's file.
+- `classStaticBlock6(target=es2015)`, `classStaticBlock26` ×2: TS18037
+  (`await` in a class static block, a grammar check) with TS2662/TS2815 and,
+  in `classStaticBlock26`, parser recovery codes (TS1005/1003/1109). Not
+  gated on target or class fields; the plain `classStaticBlock7` has the
+  same TS18037 gap.
+- `abstractPropertyNegative(target=es2015)`: TS2654/TS2676 (abstract
+  accessor pairing), not gated.
+- `optionalChainingInParameterBindingPattern.2(target=es2015)`: its TS2373
+  lines are now right; an extra TS2537 remains.
