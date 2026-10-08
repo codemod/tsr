@@ -313,9 +313,9 @@ is numeric, so it mismatches a known string. Native's per-pair memo
 pairs, and it would need a `Checker` field (`checker.rs`). `relater.rs` belongs
 to r5-relater5, so this ships as a diff.
 
-Measured on top of this lane's final code, filtered on the 248 cases whose
-names contain `enum`/`Enum` plus `dynamicNames` and
-`namespaceDisambiguationInUnion`, against the item-4 binaries:
+Measured on top of this lane's final code, filtered on 248 cases (names
+containing `enum`/`Enum`, plus `dynamicNames` and
+`namespaceDisambiguationInUnion`), against the item-4 binaries:
 
 - `enumAssignmentCompat6` goes WRONG→RIGHT.
 - `enumAssignmentCompat3` goes from 18 reported TS2322 to 11. Native reports 12; the one still missing is line 70.
