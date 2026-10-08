@@ -87,7 +87,10 @@ use tsr_path::{
     is_declaration_file_name, is_rooted_disk_path, normalize_path, path_is_relative, to_path,
 };
 
-use crate::ProgramFile;
+use crate::{
+    ProgramFile,
+    file_include::{FileIncludeReason, ImportReference, ReferencedFileData},
+};
 
 /// The containing file the automatic `types` resolutions are made from
 /// (`module.InferredTypesContainingFile`).
@@ -314,6 +317,15 @@ pub struct LoadedFiles<'a> {
     /// Duplicate package paths redirected to the first source file with the
     /// same complete package identity (`filesparser.go:getProcessedFiles`).
     pub package_redirects: FxHashMap<Path, Path>,
+    /// Every reason each file is in the program, in replay order
+    /// (`includeProcessor.fileIncludeReasons`, filled by `collectFiles`),
+    /// positionally matching [`LoadedFiles::files`]. A reason's containing
+    /// file is a file index too.
+    pub include_reasons: Vec<Vec<FileIncludeReason>>,
+    /// `(loading task, edge task)` per reason the replay walk recorded, in
+    /// order; turned into [`LoadedFiles::include_reasons`] once file indices
+    /// exist. Indices rather than clones, so recording allocates nothing.
+    reason_edges: Vec<(usize, usize)>,
     /// Zero unless `extendedDiagnostics` requested attribution.
     pub statistics: LoadStatistics,
 }
@@ -323,7 +335,10 @@ pub struct LoadedFiles<'a> {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SourceFileMetaData {
     /// The `type` field of the nearest enclosing `package.json`, if it applies.
-    package_json_type: String,
+    pub(crate) package_json_type: String,
+    /// The directory of the nearest enclosing `package.json`, whether or not
+    /// its `type` applies (`SourceFileMetaData.PackageJsonDirectory`).
+    pub(crate) package_json_directory: String,
     /// The format the file is treated as.
     implied_node_format: ResolutionMode,
     /// Native sourceFilesFoundSearchingNodeModules: the completed canonical
@@ -351,6 +366,10 @@ struct ParseTask<'a> {
     path: Path,
     /// Whether this is the synthetic task that resolves `types`/`@types`.
     is_for_automatic_type_directive: bool,
+    /// Why this task's file is wanted (`parseTask.includeReason`). `None` only
+    /// for the automatic-type-directive task, whose reason upstream never
+    /// records.
+    include_reason: Option<FileIncludeReason>,
     /// The bundled lib file this task loads, if it loads one
     /// (`parseTask.libFile`).
     ///
@@ -388,6 +407,7 @@ impl ParseTask<'_> {
             file_name,
             path,
             is_for_automatic_type_directive: false,
+            include_reason: None,
             lib_file: None,
             depth: Depth::default(),
             lowest_depth: None,
@@ -409,6 +429,7 @@ struct ResolvedRef {
     file_name: String,
     depth: Depth,
     package_id: PackageId,
+    include_reason: FileIncludeReason,
 }
 
 struct DependencyParse {
@@ -527,8 +548,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             prepared_dependencies: FxHashMap::default(),
         };
 
-        for root in &root_file_names {
-            loader.add_root_file_task(root);
+        for (index, root) in root_file_names.iter().enumerate() {
+            loader.add_root_file_task(root, index);
         }
         loader.prefetch_root_files();
         // `fileloader.go:157`. Both this and the automatic type directives are
@@ -590,6 +611,23 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 metadata
             })
             .collect();
+        // Each task is one edge of the task tree and the walk visits each edge
+        // at most once, so its reason is moved, not cloned.
+        let mut file_of_task = vec![usize::MAX; loader.tasks.len()];
+        for (file_index, &task) in order.iter().enumerate() {
+            file_of_task[task] = file_index;
+        }
+        result.include_reasons = vec![Vec::new(); order.len()];
+        for (loading, edge) in std::mem::take(&mut result.reason_edges) {
+            let file_index = file_of_task[loading];
+            if file_index == usize::MAX {
+                continue;
+            }
+            if let Some(mut reason) = loader.tasks[edge].include_reason.take() {
+                reason.map_containing_file(|task| file_of_task[task]);
+                result.include_reasons[file_index].push(reason);
+            }
+        }
         result.files = order
             .into_iter()
             .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))
@@ -609,7 +647,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     // ---- Root tasks --------------------------------------------------------
 
     /// `fileLoader.addRootFileTask`.
-    fn add_root_file_task(&mut self, file_name: &str) {
+    fn add_root_file_task(&mut self, file_name: &str, index: usize) {
         let current_directory = self.host.current_directory().to_string();
         let absolute = get_normalized_absolute_path(file_name, &current_directory);
         // A root file with no extension is resolved against the first extension
@@ -618,7 +656,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // name and becomes a missing-file diagnostic upstream.
         let resolved =
             self.source_file_from_reference(&absolute, &current_directory).unwrap_or(absolute);
-        self.push_root(resolved);
+        let task = self.push_root(resolved);
+        self.tasks[task].include_reason = Some(FileIncludeReason::RootFile { index });
     }
 
     /// Read every root file concurrently before the walk.
@@ -725,9 +764,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
     /// the program: [`FileLoader::collect_files`] sorts the libs afterwards, as
     /// `sortLibs` does.
     fn add_lib_file_tasks(&mut self) {
-        for name in tsr_tsoptions::libs::lib_file_names(&self.options) {
+        for (lib_index, name) in tsr_tsoptions::libs::lib_file_names_with_index(&self.options) {
             let index = self.push_root(self.path_for_lib_file(name));
             self.tasks[index].lib_file = Some(name);
+            self.tasks[index].include_reason =
+                Some(FileIncludeReason::LibFile { index: lib_index });
         }
     }
 
@@ -993,6 +1034,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         self.tasks[index].metadata = if self.tasks[index].lib_file.is_some() {
             SourceFileMetaData {
                 package_json_type: String::new(),
+                package_json_directory: String::new(),
                 implied_node_format: ResolutionMode::CommonJS,
                 found_searching_node_modules: false,
             }
@@ -1099,11 +1141,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // is resolved.
         if !self.options.no_resolve.is_true() {
             let references = file.file_references().referenced_files.clone();
-            for reference in &references {
-                if let Some(resolved) =
-                    self.resolve_tripleslash_path_reference(&reference.file_name, &file_name)
-                {
-                    self.add_sub_task(index, &resolved);
+            for (reference_index, reference) in references.iter().enumerate() {
+                if let Some(resolved) = self.resolve_tripleslash_path_reference(
+                    &reference.file_name,
+                    &file_name,
+                    ReferencedFileData { file: index, index: reference_index },
+                ) {
+                    self.add_sub_task(index, resolved);
                 } else {
                     // `File_0_not_found` (`fileloader.go:407`). The argument is
                     // the reference text with slashes normalised
@@ -1130,15 +1174,18 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // loader diagnostic is.
         if !self.options.no_lib.is_true() {
             let libs = file.file_references().lib_reference_directives.clone();
-            for lib in &libs {
+            for (lib_index, lib) in libs.iter().enumerate() {
                 if let Some(name) = tsr_tsoptions::libs::get_lib_file_name(&lib.file_name) {
                     let path = self.path_for_lib_file(name);
                     let sub = self.add_sub_task(
                         index,
-                        &ResolvedRef {
+                        ResolvedRef {
                             file_name: path,
                             depth: Depth::default(),
                             package_id: PackageId::default(),
+                            include_reason: FileIncludeReason::LibReferenceDirective(
+                                ReferencedFileData { file: index, index: lib_index },
+                            ),
                         },
                     );
                     self.tasks[sub].lib_file = Some(name);
@@ -1204,8 +1251,12 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             if resolved.is_resolved() {
                 self.add_sub_task(
                     index,
-                    &ResolvedRef {
+                    ResolvedRef {
                         file_name: resolved.resolved_file_name,
+                        include_reason: FileIncludeReason::AutomaticTypeDirectiveFile {
+                            type_reference: name.clone(),
+                            package_id: resolved.package_id.clone(),
+                        },
                         package_id: resolved.package_id,
                         depth: Depth {
                             increase: resolved.is_external_library_import,
@@ -1226,7 +1277,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let file_name = self.tasks[index].file_name.clone();
         let metadata = self.tasks[index].metadata.clone();
 
-        for directive in &directives {
+        for (directive_index, directive) in directives.iter().enumerate() {
             // `getModeForTypeReferenceDirectiveInFile`: an explicit
             // `resolution-mode` on the directive wins over the file's format.
             let mode = match directive.resolution_mode {
@@ -1258,8 +1309,12 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             if resolved.is_resolved() {
                 self.add_sub_task(
                     index,
-                    &ResolvedRef {
+                    ResolvedRef {
                         file_name: resolved.resolved_file_name,
+                        include_reason: FileIncludeReason::TypeReferenceDirective {
+                            reference: ReferencedFileData { file: index, index: directive_index },
+                            package_id: resolved.package_id.clone(),
+                        },
                         package_id: resolved.package_id,
                         depth: Depth {
                             increase: resolved.is_external_library_import,
@@ -1359,9 +1414,26 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     &resolved_file_name,
                     SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT,
                 );
+                // `referencedFileData{index: importIndex, synthetic}`: a
+                // synthetic specifier keeps which helper it names, since this
+                // port has no synthesized node to compare against.
+                let specifier_reference = if is_synthetic {
+                    ImportReference::Synthetic {
+                        text: specifier.text.clone(),
+                        import_helpers: specifier.text == EXTERNAL_HELPERS_MODULE_NAME
+                            && position == 0
+                            && self.options.import_helpers.is_true(),
+                    }
+                } else {
+                    ImportReference::Specifier {
+                        index: position - imports_start,
+                        pos: specifier.pos,
+                        context: specifier.context,
+                    }
+                };
                 self.add_sub_task(
                     index,
-                    &ResolvedRef {
+                    ResolvedRef {
                         depth: Depth {
                             increase: resolved.is_external_library_import,
                             elide: resolved.is_external_library_import
@@ -1369,6 +1441,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                                 && resolved_file_name.contains("/node_modules/"),
                         },
                         file_name: resolved_file_name,
+                        include_reason: FileIncludeReason::Import {
+                            file: index,
+                            specifier: specifier_reference,
+                            package_id: resolved.package_id.clone(),
+                        },
                         package_id: resolved.package_id,
                     },
                 );
@@ -1435,6 +1512,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         &self,
         module_name: &str,
         containing_file: &str,
+        reference: ReferencedFileData,
     ) -> Option<ResolvedRef> {
         let base = get_directory_path(containing_file);
         let referenced = if is_rooted_disk_path(module_name) {
@@ -1448,6 +1526,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             file_name: resolved,
             depth: Depth::default(),
             package_id: PackageId::default(),
+            include_reason: FileIncludeReason::ReferenceFile(reference),
         })
     }
 
@@ -1490,7 +1569,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             .any(|group| file_extension_is_one_of(canonical_file_name, group))
     }
 
-    fn add_sub_task(&mut self, parent: usize, reference: &ResolvedRef) -> usize {
+    fn add_sub_task(&mut self, parent: usize, reference: ResolvedRef) -> usize {
         let index = self.new_task(normalize_path(&reference.file_name));
         if reference.package_id.is_set() {
             self.package_ids
@@ -1498,6 +1577,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 .or_insert_with(|| reference.package_id.clone());
         }
         self.tasks[index].depth = reference.depth;
+        self.tasks[index].include_reason = Some(reference.include_reason);
         self.tasks[parent].sub_tasks.push(index);
         index
     }
@@ -1510,6 +1590,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let module_resolution = self.options.module_resolution_kind();
 
         let mut package_json_type = String::new();
+        let package_json_directory = scope
+            .as_ref()
+            .filter(|scope| scope.contents.is_some())
+            .map(|scope| scope.package_directory.clone())
+            .unwrap_or_default();
         if let Some(scope) = &scope
             && let Some(contents) = &scope.contents
             && let Some(value) = &contents.package_type.value
@@ -1532,6 +1617,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         SourceFileMetaData {
             implied_node_format: implied_node_format_for_file(file_name, &package_json_type),
             package_json_type,
+            package_json_directory,
             found_searching_node_modules: false,
         }
     }
@@ -1725,8 +1811,16 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         rest: &mut Vec<usize>,
         packages: &mut FxHashMap<PackageId, Path>,
     ) {
+        // `collectFiles` records the edge's reason on the task that loaded the
+        // path (`task.loadedTask`) before the seen check, so a file reached
+        // twice keeps both reasons; the automatic-type-directive task's own
+        // reason is never recorded (`filesparser.go:357-366`).
+        let edge = index;
         let index = self.claimed.get(&self.tasks[index].path).copied().unwrap_or(index);
         let task = &self.tasks[index];
+        if task.loaded && self.tasks[edge].include_reason.is_some() {
+            result.reason_edges.push((index, edge));
+        }
         if !task.loaded || !seen.insert(task.path.clone()) {
             return;
         }

@@ -1372,6 +1372,11 @@ impl Checker<'_, '_> {
         name: &str,
     ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
         let node = location;
+        if is_super
+            && let Some(error) = self.super_property_accessibility_error(property, writing, name)
+        {
+            return Some(error);
+        }
         let declaration = self.modifier_declaration_of(property, writing)?;
         let is_private = self.member_declaration_has(declaration, SyntaxKind::PrivateKeyword);
         if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {

@@ -97,6 +97,55 @@ Defaults, in the order they are applied:
   exclude themselves. Otherwise the second build compiles what the first emitted.
 - Neither `files` nor `include` → `include: ["**/*"]`.
 
+### Inherited `files` / `include` / `exclude`
+
+Ported from `parseConfig`'s `setPropertyValue` (`internal/tsoptions/
+tsconfigparsing.go:1101-1170` @ `5b1047d`); `tsr-2zk.932`.
+
+**The forcing constraint.** A base config's specs are written relative to the
+*base's* directory but are expanded against the *invoked* config's
+directory. Copying them verbatim — what this port did until 2026-10-08 —
+made `"extends": "../base/tsconfig.json"` with an inherited `"include":
+["*.ts"]` glob the extending directory instead: 0 files and TS18003, or,
+because `references` was copied too, 0 files and *no* error. TypeScript's
+own `src/jsTyping` run through a config outside its directory hit exactly
+that (r4-realworld cause 14): 0 files here, 83 natively.
+
+**What upstream does, and this port now does:**
+
+1. Only `include`, `exclude`, `files` and `compileOnSave` pass from a base's
+   raw config to the extending one, and each only when the extending config
+   writes none of its own. Every other root key — `references`, the base's own
+   `extends`, `typeAcquisition` — stays with the file that wrote it.
+2. Each relative spec is prefixed with `relativeDifference`, the path from the
+   extending config's directory to the base's directory
+   (`ConvertToRelativePath`), computed once per base. Rooted and
+   `${configDir}` specs are unchanged. The prefix is joined with
+   `CombinePaths`, **not** normalised, and applied per hop, so a two-level
+   chain yields `../configs/mid/../base/../../src/main.ts`. Native
+   `--showConfig` prints that string; normalising it would be tidier and would
+   differ from every native echo of the spec.
+3. With several bases, a later `extends` entry's specs overwrite an earlier
+   one's.
+4. A base is read by `parseConfig` alone: its files are never expanded and the
+   spec checks of `parseJsonConfigFileContentWorker` (the empty-`files` error)
+   never run on it. This port used to expand every base's wildcards and throw
+   the result away.
+5. `${configDir}` in a spec is substituted after the merge, against the invoked
+   config's directory (`getSubstitutedStringArrayWithConfigDirTemplate`).
+
+**Alternative rejected:** making inherited specs absolute at merge time. It
+selects the same files, but `--showConfig`, `ParsedCommandLine.raw` and the
+`Matched by include pattern '…'` explanation would print paths native never
+prints. What would change the choice: a consumer that needs absolute specs
+and no consumer that echoes them.
+
+**How we would know it is wrong:** `crates/tsr-tsoptions/tests/extends_rebasing.rs`
+loads six trees from a real temporary directory; each expectation was checked
+against native `tsgo --showConfig` (docs/parity/notes/r4-config.md). A
+divergence in a real project shows as a different file count against native
+`--listFilesOnly`.
+
 ### Extension priority
 
 A wildcard must not pull in a file's own compiler output. Given `a.ts` and `a.js`
@@ -133,10 +182,11 @@ exponential, so a pattern like `*a*a*a*b` is not a denial of service.
 
 Each is a named gap, not an oversight:
 
-- **`extends`** — 6 of the corpus's 130 `tsconfig.json` units use it and none of
-  the 20 the resolution baselines judge. It needs a resolution stack, circularity
-  detection, and in its package form a module resolution of its own, which would
-  make config parsing depend on `tsr-module`. bd tsr-9or.6.
+- ~~**`extends`**~~ — *corrected 2026-10-08:* this entry was stale.
+  `extends` (relative and package form, arrays, `${configDir}`) has been parsed
+  since `tsr-9or.6`; see [Inherited specs](#inherited-files--include--exclude)
+  for how a base's file selection is rebased. Still absent: upstream's
+  resolution-stack circularity error (a depth cap of 32 stands in for it).
 - **Project references** — with the rest of the project-reference machinery the
   file loader also lacks.
 - **The command line** — `tsc` is Phase 6.

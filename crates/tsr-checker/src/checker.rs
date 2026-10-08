@@ -691,6 +691,9 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.ShouldPreserveConstEnums()` — see
     /// [`Checker::set_preserve_const_enums`].
     pub(crate) preserve_const_enums: bool,
+    /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
+    /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
+    pub(crate) isolated_modules: bool,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -1140,6 +1143,9 @@ pub struct Checker<'a, 'n> {
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
         FxHashMap<SymbolId, Option<Vec<crate::signatures::Signature>>>,
+    /// Memo tables for answers native keeps in symbol/type links
+    /// (`crate::perf_links`; contracts in `docs/parity/notes/r4-perf.md`).
+    pub(crate) perf_links: crate::perf_links::PerfLinks,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1462,6 +1468,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,
+            isolated_modules: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
@@ -1571,6 +1578,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
             circularity_reported: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
+            perf_links: crate::perf_links::PerfLinks::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
@@ -1740,6 +1748,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
+        self.isolated_modules = options.get_isolated_modules();
 
         // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
         self.no_unchecked_side_effect_imports =

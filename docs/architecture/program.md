@@ -339,5 +339,12 @@ second rewire when the identity model changed underneath it.
   empty one; `CompilerOptions::lib` is a `Vec<String>` with no such
   distinction, so an explicit empty list loads the target default here and
   loads nothing upstream. No corpus case writes it — checked.
-- **Project references, redirects, package deduplication, and `--explainFiles`
-  include reasons**, as with the [file loader](file-loader.md).
+- **Project references, redirects, and `--explainFiles`**, as with the
+  [file loader](file-loader.md). The include reasons `--explainFiles` prints
+  are recorded (`Program::file_include_reasons`) and explain TS6307, the
+  composite file-list check of `verifyCompilerOptions`
+  (`program_diagnostics::composite_file_list_diagnostics`). The rest of
+  `verifyCompilerOptions` (`programDiagnostics`: option conflicts, removed
+  options) has no producer, and the global half of `GetProgramDiagnostics`
+  (`program_diagnostics::global_program_diagnostics`) is not yet reported by
+  `tsr-execute`, which also means its gate on the semantic pass is absent.
