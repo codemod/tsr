@@ -315,3 +315,21 @@ harness does not.
 
 Operands for a conditional root whose only generic part is the extends type
 (r5-declared §1.4) were not attempted in this session.
+
+## 6. Folded diffs from other lanes (integrator request)
+
+Two measured `declared.rs` diffs written by other boxes, applied as written:
+
+- r5-errorsplit4's [`r5-errorsplit4-default-declared.diff`](r5-errorsplit4-default-declared.diff)
+  (on its branch): `get_resolved_type_parameter_default` withholds
+  publication only for the port's gap (`is_gap`), so an unresolved default
+  is cached once, as getResolvedTypeParameterDefault does (`:22007`), rather
+  than minted anew per read (ADR-0048).
+- r5-typetriage's [`r5-typetriage-enum-member-ascii-escape.diff`](r5-typetriage-enum-member-ascii-escape.diff)
+  (on its branch): the two `(typeof E)[…]` enum-member spellings use
+  `quote_ascii` (nodebuilderimpl.go:3276–3278 has no NoAsciiEscaping).
+
+Measured together, unfiltered, on top of §4's commit: type lines +1
+(`enumWithUnicodeEscape1:0:1`), diagnostics unchanged, zero losses on both
+dumps. Ir vs the base binary: generic-imports −0.007%, domain-model +0.01%.
+Tests pass.

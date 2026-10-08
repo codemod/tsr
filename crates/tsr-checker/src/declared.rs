@@ -110,8 +110,11 @@ impl<'a> Checker<'a, '_> {
                     let names: Vec<_> = instance.names.iter().map(String::as_str).collect();
                     let image =
                         self.instantiate_type(default, &instance.map, &instance.parameters, &names);
+                    // ADR-0048: only the port's gap withholds publication;
+                    // native caches the resolved default unconditionally
+                    // (`getResolvedTypeParameterDefault`, `checker.go:22007`).
                     if matches!(target_default, TypeParameterDefaultState::Unsupported(_))
-                        || self.is_error(image)
+                        || self.is_gap(image)
                     {
                         TypeParameterDefaultState::Unsupported(image)
                     } else {
@@ -134,7 +137,8 @@ impl<'a> Checker<'a, '_> {
             match node {
                 Some(node) => {
                     let default = self.get_type_from_type_node(node);
-                    if self.is_error(default) {
+                    // ADR-0048: as above, the gap alone is unsupported.
+                    if self.is_gap(default) {
                         TypeParameterDefaultState::Unsupported(default)
                     } else {
                         TypeParameterDefaultState::Resolved(Some(default))
@@ -7245,7 +7249,7 @@ impl<'a> Checker<'a, '_> {
                     let per_name = if identifier_like {
                         format!("{name}.{member_name}")
                     } else {
-                        format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                        format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
                     };
                     let (flags, data) = literal_data(per_name);
                     let fresh = self.store.intern_literal(flags, data, true);
@@ -7260,7 +7264,7 @@ impl<'a> Checker<'a, '_> {
                 let member_text = if identifier_like {
                     format!("{name}.{member_name}")
                 } else {
-                    format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                    format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
                 };
                 // Value-keyed interning: a later member with a seen value
                 // REUSES the first member's type (`B = A` prints `E9.A`);
@@ -10948,7 +10952,7 @@ mod parameter_default_state_tests {
     }
 
     #[test]
-    fn an_unresolved_default_preserves_its_named_identity_without_completed_reuse() {
+    fn an_unresolved_default_preserves_its_named_identity_and_is_published_once() {
         inspect_defaults_source(
             "interface Box<T, U=Missing<T>> { value:U }",
             |checker, _, u, _| {
@@ -10961,15 +10965,17 @@ mod parameter_default_state_tests {
                 let written = checker.get_type_from_type_node(node.default_type.unwrap());
                 assert!(checker.is_error(written));
                 assert_ne!(written, checker.intrinsics.error);
+                // ADR-0048: the unresolved reference is upstream's any-flagged
+                // type, not the gap, so the default is published once and every
+                // later read answers the same identity (`checker.go:22007`).
+                let first = checker.get_default_from_type_parameter(u).unwrap();
                 for _ in 0..2 {
                     let returned = checker.get_default_from_type_parameter(u).unwrap();
                     assert!(checker.is_error(returned));
                     assert_ne!(returned, checker.intrinsics.error);
-                    // Unresolved references currently mint a fresh identity on an
-                    // uncached AST evaluation. Preserve its named payload, without
-                    // converting it to the intrinsic gap or claiming completion.
+                    assert_eq!(returned, first);
                     assert_eq!(checker.store.get(returned).data, checker.store.get(written).data);
-                    assert!(checker.type_parameter_default_cache.is_empty());
+                    assert_eq!(checker.type_parameter_default_cache.len(), 1);
                 }
             },
         );
