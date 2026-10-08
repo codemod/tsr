@@ -562,3 +562,28 @@ Controls: `super.g()` (method), `super.h` (`accessor`) and static `super.s`
 stay silent; `super.p` on a private field is TS2855, not TS2341, as natively.
 Converts `classFieldSuperNotAccessible`, `classFieldSuperNotAccessibleJs`,
 `classAbstractSuperCalls`.
+
+## 23. TS7053/TS7015 for a `string`/`number` index (tsr-2zk.4)
+
+`getPropertyTypeForIndexType`'s no-index-signature arm (`checker.go:27129`)
+also runs for an index with no property name: under `noImplicitAny`, an object
+with no applicable (nor `string`) index info reports TS7015 at the argument
+when it has a `number` index, else TS7053 at the access chained to `No index
+signature with a parameter of type '{0}' was found on type '{1}'.` Only the
+literal-key arm was ported. `check_computed_index_implicit_any` now asks it for
+an index typed exactly `string`/`number` (a for-in key over numeric property
+names reads `number`, `isForInVariableForNumericPropertyNames`), a certified
+receiver (`receiver_type_is_the_declared_one`) and a single object apparent
+type whose index infos are published (`index_infos_are_certified`: the
+completeness walk, a captured member image, or class/interface declarations
+plus bases whose computed names are all `Symbol.x` — any other computed name
+may late-bind an index signature this port does not publish). Declines:
+unions/intersections/generic receivers, class static sides, JS literals,
+const enums, `get`/`set` members (TS7052), and a for-in key over a generic
+object, whose upstream type is `Extract<keyof T, string>`
+(`getTypeForVariableLikeDeclaration`), not the `string` this port answers.
+An unwidened object literal answers the union of its members instead.
+
+The literal-key TS7053 now carries its chain (`Property '{0}' does not exist
+on type '{1}'.`), as `NewDiagnosticChainForNode` builds it. No cache.
+Converts `noImplicitAnyForIn`, `for-inStatementsArrayErrors`.

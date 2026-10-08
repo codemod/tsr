@@ -939,7 +939,7 @@ impl Checker<'_, '_> {
     /// node.Statement` test, so the head's own expression never matches
     /// itself — whose iterated object's type has exactly one index info and
     /// it is numeric (`hasNumericPropertyNames`, `:8216`).
-    fn is_for_in_variable_for_numeric_property_names(
+    pub(crate) fn is_for_in_variable_for_numeric_property_names(
         &mut self,
         index: tsr_ast::Expression<'_>,
     ) -> bool {
