@@ -360,3 +360,18 @@ r5-errorsplit3:
 No rewrite narrowing is free yet: every rewrite still matches some RIGHT gap
 lines. The new box `r5-errorsplit4` takes the next producer, the §31 gate's 838
 lines, and the held IsTypeAny arms.
+
+### r5-bind finished; r5-binperf dispatched (`tsr-2zk.1039`)
+
+r5-bind `e1c66eb` skips block comments by bytes: lib.dom is 66% comment text,
+so generic-imports Ir fell 6.45%. Wall vs tsgo, interleaved runs:
+generic-imports 1.063 → 0.974, domain-model 0.785 → 0.734.
+
+Refused, with numbers:
+- **Pipelined bind:** it hides only 3–4 ms, because lib.dom parses last.
+- **Huge-page arenas:** faults fell 17–24%, but zeroing dominates, and the wall
+  change's sign flipped between runs.
+
+What remains in the front end: JSDoc is about 40% of generic-imports Ir
+(main's `.17.1`; a single-pass note is filed as `.1040`), and the binder is
+16%. The new box `r5-binperf` takes the binder hot paths.
