@@ -1124,6 +1124,7 @@ impl Checker<'_, '_> {
         self.check_unmatched_jsdoc_parameters(node);
         self.check_jsdoc_satisfies_tags(node, ambient);
         if self.file_is_js {
+            self.check_jsdoc_reparsed_this_parameter(node);
             for reparsed in self.jsdoc_reparsed_type_nodes(node) {
                 self.check_node(reparsed, ambient, depth + 1);
             }

@@ -170,7 +170,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The expression `reparseHosted`'s satisfies arm wraps for `host`.
-    fn jsdoc_satisfies_target(&self, host: NodeId) -> Option<tsr_ast::Expression<'a>> {
+    pub(crate) fn jsdoc_satisfies_target(&self, host: NodeId) -> Option<tsr_ast::Expression<'a>> {
         match self.node_map.get(host)? {
             Node::ParenthesizedExpression(node) => node.expression,
             Node::ReturnStatement(node) => node.expression,
