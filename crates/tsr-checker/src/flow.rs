@@ -5429,6 +5429,18 @@ impl Checker<'_, '_> {
                     .and_then(|e| e.node_id())
                     .map_or(t, |id| self.narrow_type(state, t, id, assume_true))
             }
+            // Pinned narrowType (flow.go:403) unwraps ParenthesizedExpression,
+            // NonNullExpression and SatisfiesExpression alike. The binder's
+            // isNarrowingExpression admits `x!` but not `satisfies`, so the
+            // satisfies arm is reached only where native also reaches it.
+            Node::NonNullExpression(inner) => inner
+                .expression
+                .and_then(|expression| expression.node_id())
+                .map_or(t, |id| self.narrow_type(state, t, id, assume_true)),
+            Node::SatisfiesExpression(inner) => inner
+                .expression
+                .and_then(|expression| expression.node_id())
+                .map_or(t, |id| self.narrow_type(state, t, id, assume_true)),
             // `if (!x)`, which upstream reaches by flipping the assumption
             // rather than by a separate rule.
             Node::PrefixUnaryExpression(unary)

@@ -40,6 +40,25 @@ fn narrowed_type(source: &str, strict_null_checks: bool) -> String {
 }
 
 #[test]
+fn nonnull_and_satisfies_conditions_preserve_inner_narrowing() {
+    for (condition, expected) in [
+        ("x!", "string"),
+        ("(x!)", "string"),
+        // The binder's isNarrowingExpression does not see through satisfies.
+        ("(x !== null) satisfies boolean", "string | null"),
+    ] {
+        assert_eq!(
+            narrowed_type(
+                &format!("declare let x: string | null; if ({condition}) {{ x; }}"),
+                true
+            ),
+            expected,
+            "{condition}"
+        );
+    }
+}
+
+#[test]
 fn binding_initial_default_retains_literal_before_assignment_reduction() {
     assert_eq!(
         narrowed_type(
