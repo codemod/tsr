@@ -70,3 +70,31 @@ EMPTY_RIGHT 4968 -> 4969 (`genericClassesRedeclaration`,
 `indexSignatures1` gains its 8 TS2374 lines and stays WRONG on other codes);
 `checker_types` unchanged; both loss checks empty. Perf at 21 samples, median
 child CPU new/old: domain-model 1.008, generic-imports 1.000.
+
+## 2. TS7053 for an `any` key (tsr-2zk.905)
+
+**Forcing constraint.** `getPropertyTypeForIndexType` enters its index-info
+arm when `isTypeAssignableToKind(indexType, StringLike|NumberLike|ESSymbolLike)`
+(`checker.go:27083`), which `any` satisfies. `getApplicableIndexInfo(objectType,
+any)` then finds any info at all (`isApplicableIndexType` asks
+`isTypeAssignableTo(any, key)`), so an `any` key misses only on a receiver
+with **no** index info, and reaches the TS7053 report. The object-literal
+shortcut at `:27135` answers only a `string`/`number` key (property union) or
+a literal key (TS2339); an `any` key falls past it. r4-index's reporter
+declined every `any` constituent and every object-literal receiver, so
+`var emptyObj = {}; emptyObj[hi]` with `hi: any` was silent
+(`noImplicitAnyIndexing:30`).
+
+Pinned `tsgo` on `{}`, a class instance and `{ a: number }` receivers with an
+`any` key: three TS7053 lines, text identical to this port's after the
+change; a receiver with only a number index is silent in both.
+
+**Kept declines.** An `error` key is still declined ([box protocol](../box-protocol.md) §3a: this port's `error`
+is "not computed", not native's `errorType`). That leaves `newOperator:56`
+(`new M.T[]`, a missing argument natively typed `errorType` and printed
+`any`) open: the missing-expression producer would have to answer native's
+`errorType` distinctly from "not computed".
+
+Port convention record: no cache, side table or traversal; two predicates
+in the existing reporter widen, and the `any`-key early exit reads the
+`get_index_infos_of_type` answer the reporter already computes.
