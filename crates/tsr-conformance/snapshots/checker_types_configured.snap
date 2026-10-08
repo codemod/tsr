@@ -1,0 +1,230 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+checker_types_configured Summary:
+What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
+Passed         : 1587/1928 (82.31%)
+Assertion lines: 72280/78552 (92.02%)  — a gradient, not a pass rate
+Failed         : 341
+Skipped        : 2240 (excluded from the denominator)
+
+  36  skipped: the .types baseline has no assertions
+  458  skipped: upstream recorded no .types baseline
+  36  skipped: upstream recorded no output for this case
+  68  skipped: upstream records a known divergence from TypeScript
+  52  skipped: upstream skips this case: alwaysStrict=false is unsupported
+  20  skipped: upstream skips this case: esModuleInterop=false is unsupported
+  2  skipped: upstream skips this case: unsupported baseUrl /.src
+  109  skipped: upstream skips this case: unsupported module kind AMD
+  151  skipped: upstream skips this case: unsupported module kind System
+  30  skipped: upstream skips this case: unsupported module kind UMD
+  13  skipped: upstream skips this case: unsupported module resolution kind Classic
+  1  skipped: upstream skips this case: unsupported module resolution kind Node10
+  4  skipped: upstream skips this case: unsupported outFile /.src/all.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/c.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/computedPropertyNames52-emit.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/d.js
+  8  skipped: upstream skips this case: unsupported outFile /.src/out.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
+  1244  skipped: upstream skips this case: unsupported target ES5
+
+First 100 of 341 failures:
+compiler/accessorWithInitializer(target=es2015)
+  accessorWithInitializer.ts: >v : any — expected >v : number
+compiler/accessorWithRestParam(target=es2015)
+  accessorWithRestParam.ts: >v : any — expected >v : any[]
+compiler/ambientRequireFunction(module=commonjs)
+  app.js: >require("fs") : any — expected >require("fs") : typeof fs
+compiler/ambientRequireFunction(module=preserve)
+  app.js: >require("fs") : any — expected >require("fs") : typeof fs
+compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
+  argumentsBindsToFunctionScopeArgumentList.ts: >arguments : number — expected >arguments : IArguments
+compiler/argumentsSpreadRestIterables(target=esnext)
+  argumentsSpreadRestIterables.tsx: >(function(...rest) {}) : (...rest: any[]) => void — expected >(function(...rest) {}) : (...rest: number[]) => void
+compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=es2015)
+  arrayIterationLibES5TargetDifferent.ts: >[1, 2, 3] : any — expected >[1, 2, 3] : {}
+compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=esnext)
+  arrayIterationLibES5TargetDifferent.ts: >[1, 2, 3] : any — expected >[1, 2, 3] : {}
+compiler/bigintWithoutLib(target=es2015)
+  bigintWithoutLib.ts: >bigintVal = bigintVal.valueOf() : any — expected >bigintVal = bigintVal.valueOf() : Object
+compiler/circularObjectLiteralAccessors(target=es2015)
+  circularObjectLiteralAccessors.ts: >a : { b: { foo: string; }; foo: string; } — expected >a : { b: { get foo(): string; set foo(value: string); }; foo: string; }
+compiler/classMemberInitializerScoping2(target=es2017,usedefineforclassfields=true)
+  classMemberInitializerScoping2.ts: >p : number — expected >p : any
+compiler/collisionArgumentsInType(alwaysstrict=true)
+  collisionArgumentsInType.ts: >v2 : { (arguments: number, ...restParameters: any[]): any; new (arguments: number, ...restParameters: any[]): any; foo(arguments: number, ...restParameters: any[]): any; prop: (arguments: number, ...restParameters: any[]) => void; } — expected >v2 : { (arguments: number, ...restParameters: any[]): any; new (arguments: number, ...restParameters: any[]): any; foo(arguments: number, ...restParameters: any[]): any; prop: (arguments: number, ...restParameters: any) => void; }
+compiler/commentsOnObjectLiteral3(target=es2015)
+  commentsOnObjectLiteral3.ts: >v : { prop: number; func: () => void; func1(): void; a: any; } — expected >v : { prop: number; func: () => void; func1(): void; a: number; }
+compiler/computerPropertiesInES5ShouldBeTransformed(target=es2015)
+  computerPropertiesInES5ShouldBeTransformed.ts: >b : error — expected >b : ({ [`key`]: renamed }: { key: any; }) => any
+compiler/contextuallyTypedOptionalProperty(exactoptionalpropertytypes=true)
+  contextuallyTypedOptionalProperty.ts: >{ y: match(y => y > 0) } : { y: number | undefined; } — expected >{ y: match(y => y > 0) } : { y: number; }
+compiler/declFileTypeAnnotationTupleType(target=es2015)
+  declFileTypeAnnotationTupleType.ts: >[new c(), new m.c()] : [c, c] — expected >[new c(), new m.c()] : [c, m.c]
+compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=false)
+  declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >Out : InexactOptionals<In> — expected >Out : Out
+compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=true)
+  declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >Out : InexactOptionals<In> — expected >Out : Out
+compiler/declarationEmitModuleWithScopeMarker(target=es2015)
+  declarationEmitModuleWithScopeMarker.ts: >before : error — expected >before : () => typeof func
+compiler/declarationEmitSymlinkPaths(target=es2015)
+  /packages/search-prefix/src/Store/NotificationStore.ts: >getNotification : () => NotificationResponse — expected >getNotification : () => import("../API/NotificationAPIUtils").NotificationResponse
+compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)
+  /index.ts: >minimist : (x: any) => thing.ParsedArgs — expected >minimist : (x: any) => minimist.ParsedArgs
+compiler/declarationEmitWithDefaultAsComputedName(target=es2015)
+  main.ts: >other : Experiment<"foo"> — expected >other : { name: "foo"; }
+compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)
+  main.ts: >other2.default : Experiment<"foo"> — expected >other2.default : { name: "foo"; }
+compiler/decoratorMetadataWithImportDeclarationNameCollision2(target=es2015)
+  service.ts: >db : error — expected >db : Database
+compiler/decoratorMetadataWithImportDeclarationNameCollision6(target=es2015)
+  service.ts: >db : error — expected >db : database
+compiler/deleteExpressionMustBeOptional(strict=false)
+  deleteExpressionMustBeOptional.ts: >b.a : any — expected >b.a : number
+compiler/deleteExpressionMustBeOptional(strict=true)
+  deleteExpressionMustBeOptional.ts: >b.a : any — expected >b.a : number
+compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=false)
+  deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts: >b.a : any — expected >b.a : number
+compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=true)
+  deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts: >b.a : any — expected >b.a : number
+compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=false)
+  discriminateWithOptionalProperty2.ts: >iterator.return : ((value?: R | PromiseLike<R>) => Promise<IteratorResult<T, R>>) | undefined — expected >iterator.return : ((value?: R | PromiseLike<R> | undefined) => Promise<IteratorResult<T, R>>) | undefined
+compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=true)
+  discriminateWithOptionalProperty2.ts: >iterator.return : ((value?: R | PromiseLike<R>) => Promise<IteratorResult<T, R>>) | undefined — expected >iterator.return : ((value?: R | PromiseLike<R> | undefined) => Promise<IteratorResult<T, R>>) | undefined
+compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=false)
+  discriminateWithOptionalProperty3.ts: >variableValues : Maybe<{ readonly [variable: string]: unknown; }> | undefined — expected >variableValues : Maybe<{ readonly [variable: string]: unknown; }>
+compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=true)
+  discriminateWithOptionalProperty3.ts: >variableValues : Maybe<{ readonly [variable: string]: unknown; }> | undefined — expected >variableValues : Maybe<{ readonly [variable: string]: unknown; }>
+compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)
+  discriminateWithOptionalProperty4.ts: >z.a : string[] — expected >z.a : string[] | undefined
+compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=true)
+  discriminateWithOptionalProperty4.ts: >z : { a: string[]; b?: undefined; } | { a?: undefined; b: string[]; } — expected >z : { a: string[]; b?: never; } | { a?: never; b: string[]; }
+compiler/divergentAccessorsTypes3(target=es2015)
+  divergentAccessorsTypes3.ts: >u1.prop1 : string — expected >u1.prop1 : string | number
+compiler/doYouNeedToChangeYourTargetLibraryES2023(target=esnext)
+  doYouNeedToChangeYourTargetLibraryES2023.ts: >array.toSorted : (compareFn?: (a: number, b: number) => number) => number[] — expected >array.toSorted : (compareFn?: ((a: number, b: number) => number) | undefined) => number[]
+compiler/downlevelLetConst16(target=es2015)
+  downlevelLetConst16.ts: >y : any — expected >y : undefined
+compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)
+  duplicateIdentifierBindingElementInParameterDeclaration1.ts: >f7 : any — expected >f7 : (a: any, func?: (a: any) => number) => void
+compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
+  duplicateIdentifierBindingElementInParameterDeclaration2.ts: >f7 : any — expected >f7 : (a: any, func?: (a: any) => number) => void
+compiler/duplicateObjectLiteralProperty(target=es2015)
+  duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
+compiler/emitDecoratorMetadata_isolatedModules(module=commonjs)
+  index.ts: >event : error — expected >event : T1
+compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
+  index.ts: >event : any — expected >event : T1
+compiler/es5-yieldFunctionObjectLiterals(target=es2015)
+  es5-yieldFunctionObjectLiterals.ts: >objectLiteral1 : error — expected >objectLiteral1 : () => Generator<number, void, unknown>
+compiler/es5ExportDefaultClassDeclaration3(target=es2015)
+  es5ExportDefaultClassDeclaration3.ts: >C : any — expected >C : typeof C
+compiler/es5ExportDefaultClassDeclaration4(target=es2015)
+  es5ExportDefaultClassDeclaration4.ts: >t : any — expected >t : typeof C
+compiler/es5ExportDefaultFunctionDeclaration4(target=es2015)
+  es5ExportDefaultFunctionDeclaration4.ts: >before : any — expected >before : () => typeof func
+compiler/es5ModuleInternalNamedImports(target=es2015)
+  es5ModuleInternalNamedImports.ts: >M_A : any — expected >M_A : typeof M_M
+compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
+  client.ts: >c : typeof c — expected >c : typeof import("./server").c
+compiler/esmNoSynthesizedDefault(module=esnext)
+  /index.ts: >mdast2 : any — expected >mdast2 : typeof import("mdast-util-to-string")
+compiler/esmNoSynthesizedDefault(module=preserve)
+  /index.ts: >mdast2 : any — expected >mdast2 : typeof import("mdast-util-to-string")
+compiler/functionLikeInParameterInitializer(target=es2015)
+  functionLikeInParameterInitializer.ts: >bar : (func?: () => string) => void — expected >bar : (func?: () => any) => void
+compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
+  functionsMissingReturnStatementsAndExpressions.ts: >() => {    // Ok, contextual type for implicit return is `undefined`} : () => void — expected >() => {    // Ok, contextual type for implicit return is `undefined`} : () => undefined
+compiler/importHelpers(target=es2015)
+  external.ts: >result : error — expected >result : TemplateStringsArray
+compiler/inKeywordTypeguard(strict=false)
+  inKeywordTypeguard.ts: >window.ontouchstart : (this: GlobalEventHandlers, ev: TouchEvent) => any — expected >window.ontouchstart : ((this: GlobalEventHandlers, ev: TouchEvent) => any) & ((this: Window, ev: TouchEvent) => any)
+compiler/inKeywordTypeguard(strict=true)
+  inKeywordTypeguard.ts: >window.ontouchstart : ((this: GlobalEventHandlers, ev: TouchEvent) => any) | null | undefined — expected >window.ontouchstart : (((this: GlobalEventHandlers, ev: TouchEvent) => any) & ((this: Window, ev: TouchEvent) => any)) | null | undefined
+compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
+  intersectionsAndOptionalProperties2.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
+compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
+  intersectionsAndOptionalProperties3.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
+compiler/iterableWithNeverAsUnionMember(target=esnext)
+  iterableWithNeverAsUnionMember.ts: >o1 : { a: "foo"; } & { a: "bar"; } — expected >o1 : never
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)
+  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
+  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
+compiler/jsxRuntimePragma(jsx=preserve)
+  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
+compiler/jsxRuntimePragma(jsx=react)
+  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
+compiler/jsxRuntimePragma(jsx=react-jsx)
+  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
+compiler/jsxRuntimePragma(jsx=react-jsxdev)
+  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
+compiler/jsxSpreadTag(target=es2015)
+  /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
+compiler/jsxSpreadTag(target=esnext)
+  /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
+compiler/modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib(target=es2015)
+  modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib.ts: >arguments : any — expected >arguments : {}
+compiler/neverAsDiscriminantType(strict=false)
+  neverAsDiscriminantType.ts: >GatewayPayload : error — expected >GatewayPayload : GatewayPayload
+compiler/neverAsDiscriminantType(strict=true)
+  neverAsDiscriminantType.ts: >GatewayPayload : error — expected >GatewayPayload : GatewayPayload
+compiler/newLexicalEnvironmentForConvertedLoop(target=es2015)
+  newLexicalEnvironmentForConvertedLoop.ts: >...[] : error — expected >...[] : never
+compiler/nonNullableAndObjectIntersections(strict=false)
+  nonNullableAndObjectIntersections.ts: >TestNew : NonNullableNew<null> — expected >TestNew : never
+compiler/nonNullableAndObjectIntersections(strict=true)
+  nonNullableAndObjectIntersections.ts: >TestNew : NonNullableNew<null> — expected >TestNew : never
+compiler/operationsAvailableOnPromisedType(target=es2015)
+  operationsAvailableOnPromisedType.ts: >[...c] : any — expected >[...c] : any[]
+compiler/optionalChainWithInstantiationExpression1(target=es2019)
+  optionalChainWithInstantiationExpression1.ts: >a?.b<c>.d : any — expected >a?.b<c>.d : number
+compiler/optionalChainWithInstantiationExpression1(target=es2020)
+  optionalChainWithInstantiationExpression1.ts: >a?.b<c>.d : any — expected >a?.b<c>.d : number
+compiler/optionalChainWithInstantiationExpression2(target=es2019)
+  optionalChainWithInstantiationExpression2.ts: >a<b>?.() : error — expected >a<b>?.() : "b type" | undefined
+compiler/optionalChainWithInstantiationExpression2(target=es2020)
+  optionalChainWithInstantiationExpression2.ts: >a<b>?.() : error — expected >a<b>?.() : "b type" | undefined
+compiler/optionalParamReferencingOtherParams2(target=es2015)
+  optionalParamReferencingOtherParams2.ts: >strange : (x?: number, y?: string) => string — expected >strange : (x?: number, y?: any) => any
+compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)
+  index.tsx: >React : typeof import("react").React — expected >React : typeof React
+compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsxdev)
+  index.tsx: >React : typeof import("react").React — expected >React : typeof React
+compiler/recursiveProperties(target=es2015)
+  recursiveProperties.ts: >testProp : error — expected >testProp : any
+compiler/restElementWithNumberPropertyName(target=es2015)
+  restElementWithNumberPropertyName.ts: >b : { [n: number]: number; length: number; toString(): string; toLocaleString(): string; toLocaleString(locales: string | string[], options?: Intl.NumberFormatOptions & Intl.DateTimeFormatOptions): string; pop(): number | undefined; push(...items: number[]): number; concat(...items: ConcatArray<number>[]): number[]; concat(...items: (number | ConcatArray<number>)[]): number[]; join(separator?: string): string; reverse(): number[]; shift(): number | undefined; slice(start?: number, end?: number): number[]; sort(compareFn?: (a: number, b: number) => number): number[]; splice(start: number, deleteCount?: number): number[]; splice(start: number, deleteCount: number, ...items: number[]): number[]; unshift(...items: number[]): number; indexOf(searchElement: number, fromIndex?: number): number; lastIndexOf(searchElement: number, fromIndex?: number): number; every<S extends number>(predicate: (value: number, index: number, array: number[]) => value is S, thisArg?: any): this is S[]; every(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): boolean; some(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): boolean; forEach(callbackfn: (value: number, index: number, array: number[]) => void, thisArg?: any): void; map<U>(callbackfn: (value: number, index: number, array: number[]) => U, thisArg?: any): U[]; filter<S extends number>(predicate: (value: number, index: number, array: number[]) => value is S, thisArg?: any): S[]; filter(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): number[]; reduce(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number): number; reduce(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number, initialValue: number): number; reduce<U>(callbackfn: (previousValue: U, currentValue: number, currentIndex: number, array: number[]) => U, initialValue: U): U; reduceRight(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number): number; reduceRight(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number, initialValue: number): number; reduceRight<U>(callbackfn: (previousValue: U, currentValue: number, currentIndex: number, array: number[]) => U, initialValue: U): U; find<S extends number>(predicate: (value: number, index: number, obj: number[]) => value is S, thisArg?: any): S | undefined; find(predicate: (value: number, index: number, obj: number[]) => unknown, thisArg?: any): number | undefined; findIndex(predicate: (value: number, index: number, obj: number[]) => unknown, thisArg?: any): number; fill(value: number, start?: number, end?: number): this; copyWithin(target: number, start: number, end?: number): this; [Symbol.iterator](): ArrayIterator<number>; entries(): ArrayIterator<[number, number]>; keys(): ArrayIterator<number>; values(): ArrayIterator<number>; [Symbol.unscopables]: { [K in keyof any[]]?: boolean; }; } — expected >b : { [n: number]: number; toString(): string; toLocaleString(): string; toLocaleString(locales: string | string[], options?: Intl.NumberFormatOptions & Intl.DateTimeFormatOptions): string; pop(): number | undefined; push(...items: number[]): number; concat(...items: ConcatArray<number>[]): number[]; concat(...items: (number | ConcatArray<number>)[]): number[]; join(separator?: string): string; reverse(): number[]; shift(): number | undefined; slice(start?: number, end?: number): number[]; sort(compareFn?: ((a: number, b: number) => number) | undefined): [number, number, number]; splice(start: number, deleteCount?: number): number[]; splice(start: number, deleteCount: number, ...items: number[]): number[]; unshift(...items: number[]): number; indexOf(searchElement: number, fromIndex?: number): number; lastIndexOf(searchElement: number, fromIndex?: number): number; every<S extends number>(predicate: (value: number, index: number, array: number[]) => value is S, thisArg?: any): this is S[]; every(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): boolean; some(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): boolean; forEach(callbackfn: (value: number, index: number, array: number[]) => void, thisArg?: any): void; map<U>(callbackfn: (value: number, index: number, array: number[]) => U, thisArg?: any): U[]; filter<S extends number>(predicate: (value: number, index: number, array: number[]) => value is S, thisArg?: any): S[]; filter(predicate: (value: number, index: number, array: number[]) => unknown, thisArg?: any): number[]; reduce(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number): number; reduce(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number, initialValue: number): number; reduce<U>(callbackfn: (previousValue: U, currentValue: number, currentIndex: number, array: number[]) => U, initialValue: U): U; reduceRight(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number): number; reduceRight(callbackfn: (previousValue: number, currentValue: number, currentIndex: number, array: number[]) => number, initialValue: number): number; reduceRight<U>(callbackfn: (previousValue: U, currentValue: number, currentIndex: number, array: number[]) => U, initialValue: U): U; find<S extends number>(predicate: (value: number, index: number, obj: number[]) => value is S, thisArg?: any): S | undefined; find(predicate: (value: number, index: number, obj: number[]) => unknown, thisArg?: any): number | undefined; findIndex(predicate: (value: number, index: number, obj: number[]) => unknown, thisArg?: any): number; fill(value: number, start?: number, end?: number): [number, number, number]; copyWithin(target: number, start: number, end?: number): [number, number, number]; [Symbol.iterator](): ArrayIterator<number>; entries(): ArrayIterator<[number, number]>; keys(): ArrayIterator<number>; values(): ArrayIterator<number>; [Symbol.unscopables]: { [x: number]: boolean | undefined; length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; pop?: boolean | undefined; push?: boolean | undefined; concat?: boolean | undefined; join?: boolean | undefined; reverse?: boolean | undefined; shift?: boolean | undefined; slice?: boolean | undefined; sort?: boolean | undefined; splice?: boolean | undefined; unshift?: boolean | undefined; indexOf?: boolean | undefined; lastIndexOf?: boolean | undefined; every?: boolean | undefined; some?: boolean | undefined; forEach?: boolean | undefined; map?: boolean | undefined; filter?: boolean | undefined; reduce?: boolean | undefined; reduceRight?: boolean | undefined; find?: boolean | undefined; findIndex?: boolean | undefined; fill?: boolean | undefined; copyWithin?: boolean | undefined; [Symbol.iterator]?: boolean | undefined; entries?: boolean | undefined; keys?: boolean | undefined; values?: boolean | undefined; readonly [Symbol.unscopables]?: boolean | undefined; }; 0: number; 1: number; 2: number; length: 3; }
+compiler/shadowedReservedCompilerDeclarationsWithNoEmit(target=es2015)
+  shadowedReservedCompilerDeclarationsWithNoEmit.ts: >t : any — expected >t : typeof C2
+compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
+  shorthandPropertyAssignmentsInDestructuring.ts: >a : any — expected >a : { s: number; }
+compiler/sourceMap-LineBreaks(target=es2015)
+  sourceMap-LineBreaks.ts: >"line 1\line 2" : "line 1line 2" — expected >"line 1\line 2" : "line 1\u0085line 2"
+compiler/sourceMapValidationDestructuringForArrayBindingPattern2(target=es2015)
+  sourceMapValidationDestructuringForArrayBindingPattern2.ts: >[, nameA] : (string | undefined)[] — expected >[, nameA] : [undefined, string]
+compiler/sourceMapValidationDestructuringForArrayBindingPatternDefaultValues2(target=es2015)
+  sourceMapValidationDestructuringForArrayBindingPatternDefaultValues2.ts: >[, nameA = "name"] : (string | undefined)[] — expected >[, nameA = "name"] : [undefined, string]
+compiler/sourceMapValidationDestructuringForOfArrayBindingPattern2(target=es2015)
+  sourceMapValidationDestructuringForOfArrayBindingPattern2.ts: >[, nameA] : (string | undefined)[] — expected >[, nameA] : [undefined, string]
+compiler/sourceMapValidationDestructuringForOfArrayBindingPatternDefaultValues2(target=es2015)
+  sourceMapValidationDestructuringForOfArrayBindingPatternDefaultValues2.ts: >[, nameA = "noName"] : (string | undefined)[] — expected >[, nameA = "noName"] : [undefined, string]
+compiler/sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues(target=es2015)
+  sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues.ts: >{ primary: "nosKill", secondary: "noSkill" } : { primary: string; secondary: string; } — expected >{ primary: "nosKill", secondary: "noSkill" } : { primary?: string; secondary?: string; }
+compiler/sourceMapValidationDestructuringParametertArrayBindingPattern(target=es2015)
+  sourceMapValidationDestructuringParametertArrayBindingPattern.ts: >foo1 : error — expected >foo1 : ([, nameA]: Robot) => void
+compiler/sourceMapValidationDestructuringParametertArrayBindingPattern2(target=es2015)
+  sourceMapValidationDestructuringParametertArrayBindingPattern2.ts: >foo1 : error — expected >foo1 : ([, skillA]: Robot) => void
+compiler/sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues(target=es2015)
+  sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues.ts: >foo1 : error — expected >foo1 : ([, nameA]?: Robot) => void
+compiler/sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2(target=es2015)
+  sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2.ts: >foo1 : error — expected >foo1 : ([, skillA]?: Robot) => void
+compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPattern3(target=es2015)
+  sourceMapValidationDestructuringVariableStatementArrayBindingPattern3.ts: >[, nameA] : (string | undefined)[] — expected >[, nameA] : [undefined, string]
+compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPatternDefaultValues3(target=es2015)
+  sourceMapValidationDestructuringVariableStatementArrayBindingPatternDefaultValues3.ts: >[, nameA = "helloNoName"] : (string | undefined)[] — expected >[, nameA = "helloNoName"] : [undefined, string]
+compiler/spreadObjectPermutations(exactoptionalpropertytypes=false)
+  spreadObjectPermutations.ts: >v_bc : { x?: string | number | undefined; } — expected >v_bc : { x?: string | number; }
+compiler/spreadObjectPermutations(exactoptionalpropertytypes=true)
+  spreadObjectPermutations.ts: >v_bc : { x?: string | number | undefined; } — expected >v_bc : { x?: string | number; }
+compiler/stableTypeOrdering(stabletypeordering=true)
+  stableTypeOrdering.ts: >enumUnion : (x: Color | string | string[]) => any — expected >enumUnion : (x: Color | string | string[]) => string | string[] | Color

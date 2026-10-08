@@ -5,7 +5,7 @@ What a pass means: every symbol in the .symbols baseline exists with the same de
 Passed         : 8511/8511 (100.00%)
 Skipped        : 3933 (excluded from the denominator)
 
-  1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  1397  skipped: configuration-varied baseline, judged per configuration by binder_symbols_configured
   674  skipped: the baseline names no symbols in any unit we bind
   488  skipped: the parser reports errors for this file
   924  skipped: upstream recorded no .symbols baseline

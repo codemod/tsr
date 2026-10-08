@@ -2,16 +2,16 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4372/5502 (79.46%)
-Failed         : 1130
+Passed         : 4394/5502 (79.86%)
+Failed         : 1108
 Skipped        : 6942 (excluded from the denominator)
 
-  793  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
   5068  skipped: the case expects no diagnostics (see parser_typescript)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1130 failures:
+First 100 of 1108 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -58,14 +58,10 @@ compiler/arrowFunctionsMissingTokens
   1 unexpected (first TS2304 at arrowFunctionsMissingTokens.ts(6,14)), 0 missing
 compiler/assignmentCompat1
   2 missing (first TS2322 at assignmentCompat1.ts(8,1))
-compiler/assignmentCompatability40
-  1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
 compiler/assignmentToAnyArrayRestParameters
   1 missing (first TS2536 at assignmentToAnyArrayRestParameters.ts(18,16))
 compiler/assignmentToObjectAndFunction
   1 unexpected (first TS2322 at assignmentToObjectAndFunction.ts(8,5)), 2 missing
-compiler/asyncFunctionReturnExpressionErrorSpans
-  1 missing (first TS2322 at asyncFunctionReturnExpressionErrorSpans.ts(16,21))
 compiler/asyncIteratorExtraParameters
   2 missing (first TS2504 at asyncIteratorExtraParameters.ts(11,27))
 compiler/augmentExportEquals1
@@ -86,8 +82,6 @@ compiler/baseConstraintOfDecorator
   1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
 compiler/baseExpressionTypeParameters
   1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
-compiler/bases
-  1 missing (first TS2420 at bases.ts(11,7))
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
 compiler/bigintArbirtraryIdentifier
@@ -162,8 +156,6 @@ compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
 compiler/classTypeParametersInStatics
   2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
-compiler/classUpdateTests
-  2 missing (first TS2415 at classUpdateTests.ts(63,7))
 compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
 compiler/clodulesDerivedClasses
@@ -178,8 +170,6 @@ compiler/commonSourceDirectory_dts
   1 missing (first TS5011 at /app/tsconfig.json(3,9))
 compiler/commonjsAccessExports
   1 missing (first TS7009 at /a.js(12,18))
-compiler/compareTypeParameterConstrainedByLiteralToLiteral
-  1 missing (first TS2367 at compareTypeParameterConstrainedByLiteralToLiteral.ts(5,5))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -212,3 +202,13 @@ compiler/contextualPropertyOfGenericFilteringMappedType
   3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
 compiler/contextualSignatureInArrayElementLibEs2015
   1 missing (first TS7006 at contextualSignatureInArrayElementLibEs2015.ts(8,4))
+compiler/contextualSignatureInArrayElementLibEs5
+  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs5.ts(8,4))
+compiler/contextualTypeFunctionObjectPropertyIntersection
+  2 missing (first TS2353 at contextualTypeFunctionObjectPropertyIntersection.ts(84,5))
+compiler/contextualTyping38
+  1 missing (first TS7006 at contextualTyping38.ts(1,38))
+compiler/contextualTypingOfGenericFunctionTypedArguments1
+  1 missing (first TS2345 at contextualTypingOfGenericFunctionTypedArguments1.ts(17,32))
+compiler/contextualTypingWithGenericAndNonGenericSignature
+  4 missing (first TS7006 at contextualTypingWithGenericAndNonGenericSignature.ts(8,7))

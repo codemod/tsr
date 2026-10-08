@@ -1,0 +1,109 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+binder_symbols_configured Summary:
+What a pass means: the binder_symbols judgement for each configuration upstream's runner compiles a configuration-varied case under, against that configuration's suffixed .symbols baseline
+Passed         : 1666/1706 (97.66%)
+Failed         : 40
+Skipped        : 2462 (excluded from the denominator)
+
+  195  skipped: the baseline names no symbols in any unit we bind
+  63  skipped: the parser reports errors for this file
+  458  skipped: upstream recorded no .symbols baseline
+  36  skipped: upstream recorded no output for this case
+  68  skipped: upstream records a known divergence from TypeScript (.diff baseline)
+  52  skipped: upstream skips this case: alwaysStrict=false is unsupported
+  20  skipped: upstream skips this case: esModuleInterop=false is unsupported
+  2  skipped: upstream skips this case: unsupported baseUrl /.src
+  109  skipped: upstream skips this case: unsupported module kind AMD
+  151  skipped: upstream skips this case: unsupported module kind System
+  30  skipped: upstream skips this case: unsupported module kind UMD
+  13  skipped: upstream skips this case: unsupported module resolution kind Classic
+  1  skipped: upstream skips this case: unsupported module resolution kind Node10
+  4  skipped: upstream skips this case: unsupported outFile /.src/all.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/c.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/computedPropertyNames52-emit.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/d.js
+  8  skipped: upstream skips this case: unsupported outFile /.src/out.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
+  1244  skipped: upstream skips this case: unsupported target ES5
+
+compiler/classStaticPropertyAccess(target=es2015)
+  1 symbol(s): A["\""]: no symbol
+compiler/moduleNodeDefaultImports(module=node16)
+  2 symbol(s): b.mts: self.def: no symbol; b.mts: self.default: no symbol
+compiler/moduleNodeDefaultImports(module=node18)
+  2 symbol(s): b.mts: self.def: no symbol; b.mts: self.default: no symbol
+compiler/moduleNodeDefaultImports(module=node20)
+  2 symbol(s): b.mts: self.def: no symbol; b.mts: self.default: no symbol
+compiler/moduleNodeDefaultImports(module=nodenext)
+  2 symbol(s): b.mts: self.def: no symbol; b.mts: self.default: no symbol
+compiler/unicodeEscapesInNames01(target=es2015)
+  3 symbol(s): IdentifierNameWithEscape1.ts: IdentifierNameWithEscape1[x]: no symbol; IdentifierNameWithEscape2.ts: IdentifierNameWithEscape2[xx]: no symbol; IdentifierNameWithExtendedEscape1.ts: IdentifierNameWithExtendedEscape1[x]: no symbol
+compiler/unicodeEscapesInNames01(target=esnext)
+  3 symbol(s): IdentifierNameWithEscape1.ts: IdentifierNameWithEscape1[x]: no symbol; IdentifierNameWithEscape2.ts: IdentifierNameWithEscape2[xx]: no symbol; IdentifierNameWithExtendedEscape1.ts: IdentifierNameWithExtendedEscape1[x]: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
+  3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
+conformance/jsDeclarationsDefault(target=es2015)
+  1 symbol(s): index6.js: func: declared on {0}, expected to include {0, 3}
+conformance/jsDeclarationsDefaultsErr(target=es2015)
+  1 symbol(s): index3.js: default: declared on {2}, expected to include {2, 4}
+conformance/jsDeclarationsExportAssignedClassExpressionAnonymous(target=es2015)
+  1 symbol(s): exports.t: no symbol
+conformance/nodeModules1(module=node16)
+  3 symbol(s): index.mts: m2.x: no symbol; index.cts: m3.x: no symbol; index.ts: m1.x: no symbol
+conformance/nodeModules1(module=node18)
+  3 symbol(s): index.mts: m2.x: no symbol; index.cts: m3.x: no symbol; index.ts: m1.x: no symbol
+conformance/nodeModules1(module=node20)
+  3 symbol(s): index.mts: m2.x: no symbol; index.cts: m3.x: no symbol; index.ts: m1.x: no symbol
+conformance/nodeModules1(module=nodenext)
+  3 symbol(s): index.mts: m2.x: no symbol; index.cts: m3.x: no symbol; index.ts: m1.x: no symbol
+conformance/nodeModulesAllowJs1(module=node16)
+  3 symbol(s): index.js: m1.x: no symbol; index.cjs: m3.x: no symbol; index.mjs: m2.x: no symbol
+conformance/nodeModulesAllowJs1(module=node18)
+  3 symbol(s): index.js: m1.x: no symbol; index.cjs: m3.x: no symbol; index.mjs: m2.x: no symbol
+conformance/nodeModulesAllowJs1(module=node20)
+  3 symbol(s): index.js: m1.x: no symbol; index.cjs: m3.x: no symbol; index.mjs: m2.x: no symbol
+conformance/nodeModulesAllowJs1(module=nodenext)
+  3 symbol(s): index.js: m1.x: no symbol; index.cjs: m3.x: no symbol; index.mjs: m2.x: no symbol
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node16)
+  3 symbol(s): index.js: _h: declared on {1}, expected to include {1, 4}; index.js: mod: declared on {1}, expected to include {0, 1}; index.js: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node18)
+  3 symbol(s): index.js: _h: declared on {1}, expected to include {1, 4}; index.js: mod: declared on {1}, expected to include {0, 1}; index.js: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=node20)
+  3 symbol(s): index.js: _h: declared on {1}, expected to include {1, 4}; index.js: mod: declared on {1}, expected to include {0, 1}; index.js: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=nodenext)
+  3 symbol(s): index.js: _h: declared on {1}, expected to include {1, 4}; index.js: mod: declared on {1}, expected to include {0, 1}; index.js: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesExportsSourceTs(module=node16)
+  2 symbol(s): index.ts: inner: no symbol; index.ts: x: no symbol
+conformance/nodeModulesExportsSourceTs(module=node18)
+  2 symbol(s): index.ts: inner: no symbol; index.ts: x: no symbol
+conformance/nodeModulesExportsSourceTs(module=node20)
+  2 symbol(s): index.ts: inner: no symbol; index.ts: x: no symbol
+conformance/nodeModulesExportsSourceTs(module=nodenext)
+  2 symbol(s): index.ts: inner: no symbol; index.ts: x: no symbol
+conformance/nodeModulesSynchronousCallErrors(module=node16)
+  3 symbol(s): index.ts: _h: declared on {1}, expected to include {1, 4}; index.ts: mod: declared on {1}, expected to include {0, 1}; index.ts: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesSynchronousCallErrors(module=node18)
+  3 symbol(s): index.ts: _h: declared on {1}, expected to include {1, 4}; index.ts: mod: declared on {1}, expected to include {0, 1}; index.ts: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesSynchronousCallErrors(module=node20)
+  3 symbol(s): index.ts: _h: declared on {1}, expected to include {1, 4}; index.ts: mod: declared on {1}, expected to include {0, 1}; index.ts: mod2: declared on {3}, expected to include {0, 3}
+conformance/nodeModulesSynchronousCallErrors(module=nodenext)
+  3 symbol(s): index.ts: _h: declared on {1}, expected to include {1, 4}; index.ts: mod: declared on {1}, expected to include {0, 1}; index.ts: mod2: declared on {3}, expected to include {0, 3}

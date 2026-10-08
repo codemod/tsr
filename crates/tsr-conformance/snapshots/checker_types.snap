@@ -2,17 +2,17 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8175/9538 (85.71%)
-Assertion lines: 470755/478855 (98.31%)  — a gradient, not a pass rate
-Failed         : 1363
+Passed         : 8176/9538 (85.72%)
+Assertion lines: 470766/478855 (98.31%)  — a gradient, not a pass rate
+Failed         : 1362
 Skipped        : 2906 (excluded from the denominator)
 
-  1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
   135  skipped: the .types baseline has no assertions
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1363 failures:
+First 100 of 1362 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
