@@ -1,0 +1,28 @@
+diff --git a/crates/tsr-checker/src/member_completeness.rs b/crates/tsr-checker/src/member_completeness.rs
+index 5768d2d4..4e39fcbd 100644
+--- a/crates/tsr-checker/src/member_completeness.rs
++++ b/crates/tsr-checker/src/member_completeness.rs
+@@ -460,13 +460,18 @@ impl Checker<'_, '_> {
+         true
+     }
+ 
+-    /// Does this member declaration carry a `?`?
++    /// Does this member declaration carry a `?`? A property's postfix token
++    /// can also be the definite-assignment `!`, which is not optional
++    /// (`ast.HasQuestionToken`, `isOptionalDeclaration`).
+     fn declaration_is_optional_member(&self, declaration: NodeId) -> bool {
++        let question = |token: Option<&tsr_ast::Token<'_>>| {
++            token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken)
++        };
+         match self.node_map.get(declaration) {
+-            Some(Node::PropertySignatureDeclaration(property)) => property.postfix_token.is_some(),
+-            Some(Node::PropertyDeclaration(property)) => property.postfix_token.is_some(),
+-            Some(Node::MethodSignatureDeclaration(method)) => method.postfix_token.is_some(),
+-            Some(Node::MethodDeclaration(method)) => method.postfix_token.is_some(),
++            Some(Node::PropertySignatureDeclaration(property)) => question(property.postfix_token),
++            Some(Node::PropertyDeclaration(property)) => question(property.postfix_token),
++            Some(Node::MethodSignatureDeclaration(method)) => question(method.postfix_token),
++            Some(Node::MethodDeclaration(method)) => question(method.postfix_token),
+             Some(Node::ParameterDeclaration(_)) => self.is_optional_declaration(declaration),
+             _ => false,
+         }

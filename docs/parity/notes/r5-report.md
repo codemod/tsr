@@ -168,3 +168,86 @@ with a hyphenated attribute (`data-extra`), which the caller still declines
 for want of the JSX-attributes relater flag. Loss checks empty; missing/extra
 positions 5051/1323 → 5037/1309. Perf (21 samples, new/old): domain-model
 1.027, generic-imports 1.027.
+
+## 3. Alias and generic targets (root cause C)
+
+### What the census called "alias declines" were three other things
+
+Round 4 recorded `generic`, `chained2`, `importClause_namespaceImport`,
+`mappedTypeNotMistakenlyHomomorphic` and `consistentAliasVsNonAliasRecordBehavior`
+as declines on alias targets. Tracing each with the reporter instrumented:
+
+1. **`a!: string` read as optional** (`chained2`, `importClause_namespaceImport`).
+   The type-only imports are not the cause: `class L { a!: string }; const l:
+   L = {}` declined the same way. `declaration_is_optional_member`
+   (`member_completeness.rs`, not owned) treats any `postfix_token` as `?`,
+   but a property's postfix token can be the definite-assignment `!`
+   (`ast.HasQuestionToken` is `?` only). Fix: compare the token kind. Measured
+   alone on top of §2: zero losses on both dumps, positions 5037/1309 →
+   5032/1304 (both TS2741 positions in `chained2` and
+   `importClause_namespaceImport`, plus one in
+   `didYouMeanElaborationsForExpressionsWhichCouldBeCalled`); no verdict flips
+   because the remaining positions in those cases are other codes (TS2339,
+   TS2749). Shipped as
+   [r5-report-optional-postfix.diff](r5-report-optional-postfix.diff), not
+   applied (file not owned).
+2. **Generic class/interface references decline the table** (`generic`:
+   `A<boolean>`). `declared_property_table_worker` declines every
+   `type_reference_targets` entry that is not an identity map, and
+   `declaration_property_names_are_readable` declines any declaration with
+   type parameters. `resolveTypeReferenceMembers` instantiates the target's
+   members: names and `SymbolFlagsOptional` survive, so the (name, optional)
+   table of `A<boolean>` is the target symbol's. Lifting both gates (tuple and
+   alias targets still declined) on top of 1: zero losses, `generic` and
+   `errorsWithInvokablesInUnions01` WRONG → RIGHT — but it exposed one position
+   regression, `deepExcessPropertyCheckingWhenTargetIsIntersection` 21:33
+   TS2353 → 21:24 TS2322, which §4's port removes. With §4 applied, 1 + 2 add
+   `generic` and `errorsWithInvokablesInUnions01` with no loss and no case
+   worse. Shipped as
+   [r5-report-generic-reference-table.diff](r5-report-generic-reference-table.diff)
+   (contains 1), not applied.
+3. **Mapped alias instances** (`mappedTypeNotMistakenlyHomomorphic`'s
+   `Gen2<ABC.A>`, `consistentAliasVsNonAliasRecordBehavior`'s `Record`) are
+   genuine table gaps for non-identity mapped types — the mapped-type lane's
+   member resolution, not the reporter. Not investigated further.
+
+## 4. hasExcessProperties before the structural relation, for every fresh literal
+
+### Forcing constraint
+
+`checkTypeRelatedToAndOptionallyElaborate` runs `elaborateError` first; when it
+stays silent, `checkTypeRelatedToEx` relates the source, and for a fresh object
+literal `isRelatedTo` runs `hasExcessProperties` (`relater.go:2714`) before
+anything structural. Its report moves the error node to the excess member's
+declaration (TS2353, or TS2561 with a suggestion). `report_relation_failure`
+ran that order only for a *union* target (`union_object_literal_failure`);
+against any other target a nested literal with a foreign key — reached through
+`check_object_literal_member` or an elaboration — fell through to TS2322 at the
+member name.
+
+### What was ported
+
+After `elaborate_error` and the reportability gate, a fresh object-literal
+source (its symbol's single `ObjectLiteralExpression` declaration) is run
+through the existing `excess_properties_verdict`; an `Excess` answer is
+reported with `report_excess_property` and ends the report. `None` (undecided)
+and the other answers fall through to the code that ran before, so no existing
+report is withdrawn.
+
+A literal with a spread is left out: `shouldCheckAsExcessProperty` reads each
+*final* property's declaration parent, so a written key a later spread
+overrides belongs to the spread and is not excess, and
+`excess_properties_verdict`'s written-member walk cannot see that. The
+`mapped_property_relations` guard test (`need = { foreign: 1, ...inherited }`
+is TS2739 natively) caught the first version, which had no such limit.
+
+### Measured
+
+On top of §2: `excessPropertyCheckIntersectionWithIndexSignature`,
+`excessPropertyChecksWithNestedIntersections`, `logicalOrExpressionIsContextuallyTyped`,
+`namespaceImportTypeQuery`, `namespaceImportTypeQuery4`,
+`nonPrimitiveUnionIntersection`, `objectLiteralShorthandPropertiesAssignmentError`,
+`objectLiteralShorthandPropertiesAssignmentErrorFromMissingIdentifier`,
+`propertyAccess` WRONG → RIGHT; identical with and without the spread
+limit. Loss checks empty; positions 5037/1309 → 5014/1286.
+Perf (41 samples, new/old): domain-model 0.977, generic-imports 1.015.
