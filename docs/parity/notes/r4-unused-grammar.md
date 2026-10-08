@@ -137,3 +137,16 @@ which is the same name and the same answer.
 
 Cases converted: `compiler/noUnusedLocals_destructuringAssignment`,
 `compiler/noUnusedLocals_selfReference`.
+
+## §5 `using _` is exempt like a `for…of` variable
+
+`isUnreferencedVariableDeclaration` (`checker.go:7221`) exempts an
+underscore-prefixed name on a parameter, on a `for…in`/`for…of` variable,
+**and on any declaration whose combined node flags carry `NodeFlagsUsing`**
+(`using` and `await using`, the latter being `Const | Using`). The port had
+the first two only, so `using _ = …` reported TS6133. The flag lives on the
+`VariableDeclarationList` in this parser (`tsr-parser/src/statement.rs`),
+the level `getCombinedNodeFlags` reaches for a declaration.
+
+Cases converted: `conformance/usingDeclarations.15`,
+`conformance/awaitUsingDeclarations.15` (both EMPTY_WRONG → EMPTY_RIGHT).

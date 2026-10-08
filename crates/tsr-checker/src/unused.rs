@@ -829,6 +829,14 @@ impl Checker<'_, '_> {
                     self.nodes.kind(gp) == SyntaxKind::ForInStatement
                         || self.nodes.kind(gp) == SyntaxKind::ForOfStatement
                 }))
+            // `getCombinedNodeFlagsCached(node) & NodeFlagsUsing`
+            // (`checker.go:7240`): a `using` or `await using` declaration. The
+            // parser writes the flag on the declaration list, which is the only
+            // level `getCombinedNodeFlags` can find it at for a declaration.
+            || (kind == SyntaxKind::VariableDeclaration
+                && parent.is_some_and(|list| {
+                    self.nodes.flags(list).contains(tsr_ast::NodeFlags::USING)
+                }))
             || (kind == SyntaxKind::BindingElement
                 && !(parent
                     .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ObjectBindingPattern)
