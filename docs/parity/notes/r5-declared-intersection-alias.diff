@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
-index 3454ab6c..a169545d 100644
+index 01eea682..283683e0 100644
 --- a/crates/tsr-checker/src/declared.rs
 +++ b/crates/tsr-checker/src/declared.rs
 @@ -3213,10 +3213,107 @@ impl<'a> Checker<'a, '_> {
@@ -110,7 +110,7 @@ index 3454ab6c..a169545d 100644
      /// emptyTypeLiteralType's completed source identity (checker.go:22933).
      pub(crate) fn is_unaliased_empty_type_literal(&self, id: TypeId) -> bool {
          self.type_literal_origins.get(&id).is_some_and(|&origin| {
-@@ -5474,6 +5571,19 @@ impl<'a> Checker<'a, '_> {
+@@ -5478,6 +5575,19 @@ impl<'a> Checker<'a, '_> {
              if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
                  return existing;
              }
@@ -130,7 +130,7 @@ index 3454ab6c..a169545d 100644
              let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
              self.qualified_generic_reference_types.insert(key, minted);
              self.type_reference_targets.insert(minted, (resolved, arguments));
-@@ -6264,6 +6374,27 @@ impl<'a> Checker<'a, '_> {
+@@ -6348,6 +6458,27 @@ impl<'a> Checker<'a, '_> {
              self.instantiations.insert((symbol, arguments), evaluated);
              return evaluated;
          }
@@ -158,7 +158,7 @@ index 3454ab6c..a169545d 100644
          if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
              self.instantiations.insert((symbol, arguments), template);
              return template;
-@@ -6272,7 +6403,6 @@ impl<'a> Checker<'a, '_> {
+@@ -6356,7 +6487,6 @@ impl<'a> Checker<'a, '_> {
              self.instantiations.insert((symbol, arguments), mapped);
              return mapped;
          }
@@ -166,7 +166,7 @@ index 3454ab6c..a169545d 100644
          let printed = self.type_reference_text(symbol, &arguments[..shown]);
          // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a
          // TypeLiteral body mints the BODY's symbol — §46's admission, one
-@@ -6337,6 +6467,110 @@ impl<'a> Checker<'a, '_> {
+@@ -6421,6 +6551,110 @@ impl<'a> Checker<'a, '_> {
          id
      }
  
@@ -277,7 +277,7 @@ index 3454ab6c..a169545d 100644
      /// `getGlobalNonNullableTypeInstantiation` (`checker.go:31207`). Preserve
      /// the global alias when it names an intersection, retaining its operands
      /// so subsequent instantiation operates on types rather than printed text.
-@@ -7015,6 +7249,38 @@ impl<'a> Checker<'a, '_> {
+@@ -7099,6 +7333,38 @@ impl<'a> Checker<'a, '_> {
              if self.resolutions.deferred_since(symbol, PropertyName::DeclaredType) {
                  return mint(self);
              }
@@ -317,16 +317,16 @@ index 3454ab6c..a169545d 100644
                  if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
                      return error;
 diff --git a/crates/tsr-checker/tests/r5_declared.rs b/crates/tsr-checker/tests/r5_declared.rs
-index c065cff6..1bfb85c2 100644
+index 9f558e45..48dac39d 100644
 --- a/crates/tsr-checker/tests/r5_declared.rs
 +++ b/crates/tsr-checker/tests/r5_declared.rs
-@@ -71,3 +71,23 @@ fn for_constraint_adds_the_true_branch_of_an_overlapping_extends_type() {
-         format!("{prelude}function f<T extends string>(x: Foo<T>) {{ let t: false = x; }}");
-     assert_eq!(codes(&narrow), vec!["TS2322".to_string()]);
+@@ -88,3 +88,23 @@ fn a_qualified_alias_reference_relates_as_its_declared_type() {
+     );
+     assert_eq!(codes(&right), Vec::<String>::new());
  }
 +
 +/// getTypeAliasInstantiation over an intersection body (instantiateTypeWithAlias
-+/// → getIntersectionTypeEx with the alias, checker.go:26043): the reference is
++/// → getIntersectionTypeEx with the alias, checker.go:26056): the reference is
 +/// the alias-carrying intersection of its instantiated constituents, so its
 +/// members are the constituents' members. A print-only mint enumerated no
 +/// properties and accepted any object (`tsr-2zk.1010`).
