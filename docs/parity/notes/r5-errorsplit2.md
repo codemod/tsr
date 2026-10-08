@@ -189,3 +189,33 @@ identifier and expression via `GetTypeAtLocation`, `RET` for
 `GetReturnTypeOfSignature(GetSignatureFromDeclaration(fn))`, `PARAM` for
 `GetTypeOfSymbol(param)` and `CONSTRAINT` for
 `GetConstraintOfTypeParameter`.
+
+## §7 The held diffs, measured
+
+Each diff applies to `8d7a436` alone and was measured unfiltered on both dumps
+against the frozen base (the commit's own +1 GAP→RIGHT appears in every row).
+
+| diff | file(s) not owned | type losses | diag losses | other transitions | `native_error` lines (matched) | credited gap | narrowing RIGHT→GAP |
+|---|---|---:|---:|---|---:|---:|---:|
+| commit `8d7a436` alone | — | 0 | 0 | — | 171 (171) | 4,494 | 5,063 |
+| [flow](r5-errorsplit2-flow.diff) | `flow.rs` | 0 | 0 | none | 10,171 (10,171) | **14,494** | 15,063 |
+| [empty-name](r5-errorsplit2-empty-name.diff) | `signatures.rs` | 0 | 0 | none | 635 (597) | 4,516 | 5,091 |
+| [p4-symbols](r5-errorsplit2-p4-symbols.diff) | `symbols.rs` | 0 | 0 | +3 WRONG→RIGHT | 428 (425) | 4,696 | 5,343 |
+| [final-else](r5-errorsplit2-final-else.diff) | `members.rs`, `array_literals.rs` | **1** | 0 | +2 WRONG→RIGHT, 1 WRONG→GAP | 3,497 (3,463) | 4,660 | 5,250 |
+
+**Flow (b).** TS2563's three sites (`get_flow_type_of_reference_ex`'s
+disabled-container arm, `get_type_at_flow_node`'s depth bail and the
+evolving-array depth bail, all `flow.go:82`/`:118-125`) answer
+`native_error`, and §14.1's TS/JS split goes away: the writer decides the
+spelling. 10,000 `largeControlFlowGraph` lines move from the `any` stand-in
+to `native_error`, all matched. **But the credited gap grows by the same
+10,000**: `data[0]` on a `native_error` receiver answers the port's *gap*
+through the element-access road, and SS180 prints that `any`. Upstream
+answers `errorType` there (an any-like receiver), so the receiver consumers
+(`members.rs`, as in diff B, and the element-access road) are what turn this
+diff's propagated lines from credited gap into native. Same shape for P4's
++202. Landable as is (zero losses); the instrument now shows where its
+propagation leaks.
+
+**Empty-name and P4** are landable as is. **Final-else** is not (the
+`tuple_array_like` loss and the `is_error` question, §2 and §5).
