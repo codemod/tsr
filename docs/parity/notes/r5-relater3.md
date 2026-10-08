@@ -215,3 +215,93 @@ TS2417 is not emitted. r4-heritage §4 records the heritage check's
 merged-source decline for a class merged with a namespace, which is not in
 this lane. The printer also says `typeof Utils` where native says
 `typeof Path.Utils`.
+
+## 7. Refused: `UNIQUE_ES_SYMBOL` in `FLAG_DECIDABLE` (`uniqueSymbolJs2`)
+
+Native `isSimpleTypeRelatedTo`'s only unique-symbol arm is `ESSymbolLike` →
+`ESSymbol` (relater.go:236), and this port has it. Two unique symbols relate
+only by identity. On the relation side, then, adding the flag is faithful. It
+converted `uniqueSymbolJs2` (TS2367), `symbolType2` and `uniqueSymbolsErrors`.
+
+**It was refused at −3 RIGHT cases**: `uniqueSymbols`,
+`uniqueSymbolsDeclarations` and `computedPropertiesNarrowed` went RIGHT →
+WRONG, with extra TS2322s such as `const constTypeAndCall: unique symbol =
+Symbol()`. The cause is identity, not the relation. Native keys a
+declaration's unique symbol on its symbol (`getESSymbolLikeTypeForNode`,
+checker.go:22982, `links.uniqueESSymbolType`), so the annotation and the
+`Symbol()` initializer are one type. This port mints the written
+`unique symbol` once per type node (`declared.rs`, `unique_symbol_nodes`), and
+the `Symbol()` call mints a fresh one on every evaluation (`calls.rs`, the
+`is_symbol_or_symbol_for_call` arm). The flag stays out until both producers
+key on the declaration symbol. They belong to r5-typeparams2 and main. The
+falsifier is that re-adding the flag after that change shows zero losses.
+
+## 8. Real-world check (jsTyping / typingsInstallerCore)
+
+Scratch `tsconfig.scratch.json` per r4-realworld, `--pretty false`, base binary
+against this branch's head:
+
+| | base total | head total | `SearchResult<undefined>` | `TracingNode`/`EmitNode` TS2352 |
+|---|---|---|---|---|
+| jsTyping | 478 | 453 | 12 → 0 | 5 → 0 |
+| typingsInstallerCore | 484 | 459 | 12 → 0 | 5 → 0 |
+
+No diagnostic was added. The 8 other removals per project are TS2352
+comparable false positives that §1 also fixes (`checker.ts` 15401/23925/46772,
+`parser.ts` 10718/10770, `resolutionCache.ts` 1713/1714, `utilities.ts`
+2486). TypeScript compiles its own sources cleanly.
+
+## 9. Totals
+
+Against the frozen base (`ac56208`), at the head of this lane:
+`diagverdictdump` RIGHT 5070 → 5092, EMPTY_RIGHT 5551 → 5554, WRONG 1521 →
+1499, EMPTY_WRONG 96 → 93. `verdictdump` RIGHT 543119 → 543125. Both loss
+checks are empty. The coverage run gives `checker_types` 8176 → 8183 and
+`diagnostics` 4394 → 4414 (before is the checked-in snapshot at `ac56208`).
+
+## 10. `tsr-2zk.978` — `typeRelatedToDiscriminatedType`: held as a patch
+
+Assigned after the round started (r5-triage2322 buckets X4/B12/D/B8: 16 lines,
+5 cases, all false positives). The port is in
+[`r5-relater3-discriminated-type.diff`](r5-relater3-discriminated-type.diff).
+It contains `type_related_to_discriminated_type` (relater.go:3989),
+`discriminant_property_related_to` (propertyRelatedTo with the source read as
+one discriminant type), `is_discriminant_of` (isDiscriminantProperty over the
+target's object-only constituents), `properties_related_to_excluding`
+(propertiesRelatedTo's `excludedProperties`), and the call from the union-target
+arm (relater.go:3889-3897). It also carries a single-combination early return
+(see the last bullet).
+
+**Measured on probes:** all the triage repros relate as native does. That covers
+`{ type: 'a' | 'b' }` → `{ type: 'a' } | { type: 'b' }`, `{ a: 0 | 2, b: 4 }`
+→ the three-way `T`, the tuple union `[b, 1]`, `{ foo?: number | undefined }`
+→ `{ foo?: undefined } | { foo: number }`, and the conditional-type
+`{ x: 'x' | 'y', y }` extends `Y`. The two negatives are kept:
+`{ type: 'a' | 'c' }` → `Action`, and a discriminant match whose other
+property fails.
+
+**Not landed. Neither corpus dump finished.**
+`varianceProblingAndZeroOrderIndexSignatureRelationsAlign` and `…Align2` take
+about 0 s on the base binary. With the arm they run out of memory in about 18 s
+(a 3 GB cap; the unbounded dump reached 6.9 GB). The trace is a recursive
+expansion. In order, it goes `properties_related_to_excluding` →
+`related_signatures` → `instantiate_signature_in_context` →
+`create_type_reference_with_display`, over `Either<L, (a: A) => B>`
+(Left/Right classes discriminated by `_tag`, whose `map`/`ap` return `Either`
+of a growing argument). Native has the same arm. It survives because
+`recursiveTypeRelatedTo`'s `isDeeplyNestedType` cuts expanding generic
+recursion by type identity. This port's relation stack does not cut that
+expansion, and each discriminated decomposition multiplies the work at every
+level. Returning early for a single combination (every discriminant one
+type) did not bound it.
+
+**Prerequisite:** a faithful `isDeeplyNestedType` recursion identity for
+expanding generic instantiations in `recursive_type_related_to`. That is the
+relation stack, not an arm, so it is not this lane's to change. A falsifier for
+the patch once the cut exists: both `varianceProbing…` cases finish at base
+speed, and the dumps show zero losses.
+
+Corpus sweep tool, for whoever picks this up: a per-file `tsr --noEmit
+--strict` run with `ulimit -v 3000000; timeout 20`. Of the files it flags,
+`recursiveConditionalCrash3` aborts and `relationComplexityError` /
+`templateLiteralTypes1` take 30–55 s on the **base** binary too.
