@@ -16,6 +16,33 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// A decided answer of the `getAwaitedType` family: native's type, or
+/// native's `nil`. Wrapped in `Option`, `None` is this port's gap.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Native {
+    Type(TypeId),
+    Nil,
+}
+
+impl Native {
+    /// The type, or `None` for native's `nil`.
+    pub(crate) fn ty(self) -> Option<TypeId> {
+        match self {
+            Native::Type(t) => Some(t),
+            Native::Nil => None,
+        }
+    }
+}
+
+/// The error node, head message and collected reports of one
+/// [`Checker::check_awaited_type`] walk (`getAwaitedTypeNoAliasEx`'s
+/// `errorNode`/`diagnosticMessage`), emitted only when the walk is decidable.
+pub(crate) struct AwaitedReports {
+    node: NodeId,
+    message: &'static tsr_diagnostics::Message,
+    diagnostics: Vec<tsr_diagnostics::Diagnostic>,
+}
+
 /// `AssignmentKind` (`internal/checker/utilities.go`): how a reference is
 /// written, which decides whether `checkIdentifier` narrows it at all.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2949,10 +2976,111 @@ impl Checker<'_, '_> {
         self.awaited_type(operand_type).unwrap_or(error)
     }
 
-    /// getAwaitedTypeEx/createAwaitedTypeIfNeeded (checker.go): concrete
-    /// unwrapping precedes the optional global Awaited<T> alias instantiation.
+    /// `checkAwaitExpression`'s report (`checker.go:10848`): the operand's
+    /// `checkAwaitedType` with TS1320 at the await expression. The type
+    /// itself is [`Checker::check_await_expression`]'s; this is the
+    /// diagnostics walk's half, so the report is made once per node.
+    pub(crate) fn check_await_operand_awaited(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::AwaitExpression(expression)) = self.node_map.get(node) else { return };
+        let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) else {
+            return;
+        };
+        let operand_type = self.check_expression_at_node(operand);
+        if operand_type == self.intrinsics.error {
+            return;
+        }
+        self.check_awaited_type(
+            operand_type,
+            true,
+            node,
+            &tsr_diagnostics::messages::TYPE_OF_AWAIT_OPERAND_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+        );
+    }
+
+    /// `checkAsyncFunctionReturnType` (`checker.go:2776`), reached from
+    /// `checkSignatureDeclaration` (`:2764`) for a function whose flags are
+    /// exactly `Async` (not a generator, not bodiless) and that has a written
+    /// return type: TS1064 at the annotation when it is not a reference to
+    /// the global `Promise`, otherwise `checkAwaitedType` with TS1058 at the
+    /// function. A gap in the awaited walk reports nothing.
+    pub(crate) fn check_async_function_return_type(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let (annotation, generator, modifiers, has_body) = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::FunctionExpression(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::MethodDeclaration(f)) => {
+                (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+            }
+            Some(Node::ArrowFunction(f)) => (f.r#type, false, f.modifiers, f.body.is_some()),
+            _ => return,
+        };
+        if generator
+            || !has_body
+            || !crate::check::has_modifier(modifiers, SyntaxKind::AsyncKeyword)
+        {
+            return;
+        }
+        let Some(annotation) = annotation else { return };
+        let Some(annotation_node) = annotation.node_id() else { return };
+        let return_type = self.get_type_from_type_node(annotation);
+        if return_type == self.intrinsics.error {
+            return;
+        }
+        // `getGlobalPromiseTypeChecked() != emptyGenericType`.
+        let Some(promise) = self.global_type_symbol_with_arity("Promise", 1) else { return };
+        let promise = self.binder.merged_symbol(promise);
+        // A generic alias reference (`PromiseAlias<void>`) is its instantiated
+        // body natively, so the reference test reads the body (§1 of the notes).
+        let body = self.binding_type_alias_body(return_type);
+        let is_promise_reference = self
+            .type_reference_targets
+            .get(&body)
+            .is_some_and(|&(target, _)| self.binder.merged_symbol(target) == promise);
+        if !is_promise_reference {
+            let awaited =
+                match self.awaited_type_no_alias_worker(return_type, &mut Vec::new(), None) {
+                    None => return,
+                    Some(awaited) => awaited.ty().unwrap_or(self.intrinsics.void),
+                };
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(annotation_node);
+            let printed = self.type_to_string(awaited);
+            self.report(
+                file,
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::THE_RETURN_TYPE_OF_AN_ASYNC_FUNCTION_OR_METHOD_MUST_BE_THE_GLOBAL_PROMISE_T_TYPE_DID_YOU_MEAN_TO_WRITE_PROMISE_0,
+                    span,
+                    [printed],
+                ),
+            );
+            return;
+        }
+        self.check_awaited_type(
+            return_type,
+            false,
+            node,
+            &tsr_diagnostics::messages::THE_RETURN_TYPE_OF_AN_ASYNC_FUNCTION_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+        );
+    }
+
+    /// getAwaitedTypeEx (checker.go:31257): concrete unwrapping precedes the
+    /// optional global Awaited<T> alias instantiation.
     pub(crate) fn awaited_type(&mut self, id: TypeId) -> Option<TypeId> {
         let awaited = self.awaited_type_no_alias(id)?;
+        self.create_awaited_type_if_needed(awaited)
+    }
+
+    /// createAwaitedTypeIfNeeded/tryCreateAwaitedType (checker.go:31410).
+    fn create_awaited_type_if_needed(&mut self, awaited: TypeId) -> Option<TypeId> {
         if self.is_awaited_type_needed(awaited)?
             && let Some(symbol) = self.global_type_symbol_with_arity("Awaited", 1)
         {
@@ -3051,11 +3179,13 @@ impl Checker<'_, '_> {
         Some(false)
     }
 
-    /// isThenableType (checker.go:31450), for the resolved base constraints
-    /// inspected by isAwaitedTypeNeeded. Unsupported signatures remain a gap.
-    fn is_thenable_type(&mut self, id: TypeId) -> Option<bool> {
+    /// `allTypesAssignableToKind(getBaseConstraintOrType(t), Primitive|Never)`,
+    /// the primitive exclusion shared by `isThenableType` and
+    /// `getPromisedTypeOfPromiseEx`. An unsupported relation is not a
+    /// primitive proof.
+    fn all_types_assignable_to_primitive(&mut self, id: TypeId) -> bool {
         if self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
-            return Some(false);
+            return true;
         }
         // allTypesAssignableToKind tests assignability as well as flags. The
         // caller already visits normalized constraint union constituents; an
@@ -3075,8 +3205,17 @@ impl Checker<'_, '_> {
             if self.relate_ternary(id, primitive, crate::relater::Relation::Assignable)
                 == crate::relater::Ternary::Related
             {
-                return Some(false);
+                return true;
             }
+        }
+        false
+    }
+
+    /// isThenableType (checker.go:31450), for the resolved base constraints
+    /// inspected by isAwaitedTypeNeeded. Unsupported signatures remain a gap.
+    fn is_thenable_type(&mut self, id: TypeId) -> Option<bool> {
+        if self.all_types_assignable_to_primitive(id) {
+            return Some(false);
         }
         let Some(then) = self.get_type_of_property_of_type(id, "then") else {
             return Some(false);
@@ -3098,52 +3237,72 @@ impl Checker<'_, '_> {
         )
     }
 
-    /// `getAwaitedTypeNoAlias` (`checker.go:31270`), widened from the §18
-    /// slice (`checker-notes-callres.md`) to every shape decidable without
-    /// the `Awaited<T>` alias mint. `None` is a gap, never `any`.
-    ///
-    /// The arms, in upstream's order:
-    ///
-    /// - `IsTypeAny(t)` passes through (`:31271`) — and this port's
-    ///   `errorType` never reaches here (both callers screen it first).
-    /// - A **union** awaits per constituent (`:31285`); one undecidable
-    ///   constituent gaps the whole.
-    /// - Generic types retain their identity only when isAwaitedTypeNeeded
-    ///   requires it. Otherwise promised-type lookup uses their constraints.
-    /// - A reference to the **global `Promise`** unwraps to its argument
-    ///   (`getPromisedTypeOfPromiseEx`'s short-circuit, `checker.go:28941`),
-    ///   recursively. `PromiseLike<T>` reaches the same `T` upstream through
-    ///   the `then`-signature walk — its `onfulfilled` first parameter is
-    ///   declared `value: T` — so the reference form answers directly.
-    /// - Everything else is its own awaited type **unless it carries a
-    ///   `then` member** (`:31417`): a primitive cannot (`isThenableType`'s
-    ///   first test, `:31450`), and an object type is probed through
-    ///   [`Checker::get_type_of_property_of_type`]. Callable `then` members
-    ///   unwrap their fulfillment callback's first parameter, recursively;
-    ///   noncallable members leave the object unchanged. Unsupported signature
-    ///   or relation lookups and recursive fulfillment types decline.
+    /// `getAwaitedTypeNoAlias` (`checker.go:31266`). `None` is a gap, never
+    /// `any`; native's `nil` (an awaited type that cannot be computed: a
+    /// non-promise thenable or a recursive fulfillment type) is also `None`
+    /// here — [`Checker::check_awaited_type`] is the reporting form that tells
+    /// the two apart.
     ///
     /// Native 5b1047d getAwaitedTypeNoAliasEx: recursion is owned by this call's
     /// `TypeId` stack in the private Checker, not a persistent completion cache.
-    /// Active repeats and unsupported images return None; only completed walks
-    /// return Some. Constraint/member/signature work uses the existing owners
-    /// and mapper/alias frames; lookup and this filtering retain the original
+    /// Constraint/member/signature work uses the existing owners and
+    /// mapper/alias frames; lookup and this filtering retain the original
     /// receiver. No new member image or publication state is introduced.
     pub(crate) fn awaited_type_no_alias(&mut self, id: TypeId) -> Option<TypeId> {
-        self.awaited_type_no_alias_worker(id, &mut Vec::new())
+        self.awaited_type_no_alias_worker(id, &mut Vec::new(), None).and_then(Native::ty)
     }
 
+    /// `checkAwaitedType` (`checker.go:31232`) with its error node: the
+    /// awaited type (wrapped in `Awaited<T>` when `with_alias` and needed),
+    /// `errorType` where native's `getAwaitedTypeNoAliasEx` answers `nil` —
+    /// having reported TS1062 or `message` (chained under TS2684 when a
+    /// `then` signature's `this` rejected the receiver) at `node` — and
+    /// `None`, reporting nothing, where a step is not decidable here.
+    pub(crate) fn check_awaited_type(
+        &mut self,
+        id: TypeId,
+        with_alias: bool,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+    ) -> Option<TypeId> {
+        let mut reports = AwaitedReports { node, message, diagnostics: Vec::new() };
+        let awaited = self.awaited_type_no_alias_worker(id, &mut Vec::new(), Some(&mut reports))?;
+        if let Some(file) = self.source_file_of_for_diagnostics(node) {
+            for diagnostic in reports.diagnostics {
+                self.report(file, diagnostic);
+            }
+        }
+        let Native::Type(awaited) = awaited else { return Some(self.intrinsics.error) };
+        if with_alias { self.create_awaited_type_if_needed(awaited) } else { Some(awaited) }
+    }
+
+    /// `getAwaitedTypeNoAliasEx` (`checker.go:31270`), arm for arm:
+    /// `Some(Native::Type(t))` is native's type, `Some(Native::Nil)` native's `nil` (reported
+    /// into `reports` when present), `None` a gap. Reports are collected and
+    /// emitted by the caller only when the whole walk is decidable.
+    ///
+    /// - `IsTypeAny(t)` passes through, as does an existing `Awaited<T>`.
+    /// - A generic **type alias** reference is this port's form of native's
+    ///   instantiated alias body (see the arm).
+    /// - A **union** maps per constituent (`mapType`: a `nil` constituent is
+    ///   dropped; all `nil` is `nil`; unchanged is the union itself), and a
+    ///   union already on the stack is TS1062.
+    /// - Generic types retain their identity when `isAwaitedTypeNeeded`.
+    /// - A promised type (`getPromisedTypeOfPromiseEx`) is awaited
+    ///   recursively; one equal to `t` or already on the stack is TS1062.
+    /// - Otherwise a thenable is `nil` with `message`, anything else is `t`.
     fn awaited_type_no_alias_worker(
         &mut self,
         id: TypeId,
         stack: &mut Vec<TypeId>,
-    ) -> Option<TypeId> {
-        if id == self.intrinsics.error || stack.contains(&id) {
+        mut reports: Option<&mut AwaitedReports>,
+    ) -> Option<Native> {
+        if id == self.intrinsics.error {
             return None;
         }
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
-            return Some(id);
+            return Some(Native::Type(id));
         }
         // Native recognizes an existing Awaited alias before constraint work.
         if flags.contains(TypeFlags::CONDITIONAL)
@@ -3154,25 +3313,140 @@ impl Checker<'_, '_> {
                     })
             })
         {
-            return Some(id);
+            return Some(Native::Type(id));
         }
-        if let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data {
+        let is_union = matches!(self.store.get(id).data, TypeData::Union { .. });
+        if stack.contains(&id) {
+            if !is_union {
+                return None;
+            }
+            // `slices.Contains(c.awaitedTypeStack, t)` for a union.
+            Self::report_awaited_recursion(self, reports);
+            return Some(Native::Nil);
+        }
+        // Native's `getTypeAliasInstantiation` result *is* the instantiated
+        // body carrying an alias, so `PromiseOrValue<U>` reaches the union arm
+        // below as `Promise<U> | U`. This port holds generic alias references
+        // as named references; await their body, and keep the reference when
+        // the body comes back unchanged (native returns `t`, alias intact).
+        if let Some((symbol, _)) = self.type_reference_targets.get(&id)
+            && self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            let body = self.binding_type_alias_body(id);
+            if body != id {
+                stack.push(id);
+                let awaited = self.awaited_type_no_alias_worker(body, stack, reports);
+                stack.pop();
+                return awaited.map(|awaited| match awaited {
+                    Native::Type(t) if t == body => Native::Type(id),
+                    other => other,
+                });
+            }
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
             stack.push(id);
-            let mapped: Option<Vec<_>> = constituents
-                .into_iter()
-                .map(|part| self.awaited_type_no_alias_worker(part, stack))
-                .collect();
+            let mut mapped = Vec::with_capacity(constituents.len());
+            let mut changed = false;
+            let mut gap = false;
+            for part in constituents {
+                match self.awaited_type_no_alias_worker(part, stack, reports.as_deref_mut()) {
+                    None => {
+                        gap = true;
+                        break;
+                    }
+                    Some(Native::Type(awaited)) => {
+                        changed |= awaited != part;
+                        mapped.push(awaited);
+                    }
+                    Some(Native::Nil) => changed = true,
+                }
+            }
             stack.pop();
-            return Some(self.get_union_type(&mapped?));
+            if gap {
+                return None;
+            }
+            if !changed {
+                return Some(Native::Type(id));
+            }
+            if mapped.is_empty() {
+                return Some(Native::Nil);
+            }
+            return Some(Native::Type(self.get_union_type(&mapped)));
         }
         if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
-            return Some(id);
+            return Some(Native::Type(id));
         }
         // Retention must precede promised-type lookup: awaiting a constrained
         // generic thenable yields Awaited<T>, not its constraint's value type.
         if self.is_awaited_type_needed(id)? {
-            return Some(id);
+            return Some(Native::Type(id));
+        }
+        let mut this_type_for_error = None;
+        let promised = self.promised_type_of_promise_worker(id, &mut this_type_for_error)?;
+        if let Native::Type(promised) = promised {
+            if promised == id || stack.contains(&promised) {
+                Self::report_awaited_recursion(self, reports);
+                return Some(Native::Nil);
+            }
+            stack.push(id);
+            let awaited = self.awaited_type_no_alias_worker(promised, stack, reports);
+            stack.pop();
+            return awaited;
+        }
+        // A non-promise "thenable" never settles: `nil`, reported with the
+        // caller's message (`checker.go:31372`).
+        if self.is_thenable_type(id)? {
+            if let Some(reports) = reports {
+                let span = self.error_span(reports.node);
+                let head = this_type_for_error.map(|this_type| {
+                    tsr_diagnostics::Diagnostic::with_args(
+                        &tsr_diagnostics::messages::THE_THIS_CONTEXT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_METHOD_S_THIS_OF_TYPE_1,
+                        span,
+                        [self.type_to_string(id), self.type_to_string(this_type)],
+                    )
+                });
+                let diagnostic = match head {
+                    Some(head) => {
+                        tsr_diagnostics::Diagnostic::new_chain(Some(head), reports.message, [])
+                    }
+                    None => tsr_diagnostics::Diagnostic::new(reports.message, span),
+                };
+                reports.diagnostics.push(diagnostic);
+            }
+            return Some(Native::Nil);
+        }
+        Some(Native::Type(id))
+    }
+
+    /// TS1062 at the awaited error node (`checker.go:31289`, `:31341`).
+    fn report_awaited_recursion(&self, reports: Option<&mut AwaitedReports>) {
+        if let Some(reports) = reports {
+            let span = self.error_span(reports.node);
+            reports.diagnostics.push(tsr_diagnostics::Diagnostic::new(
+                &tsr_diagnostics::messages::TYPE_IS_REFERENCED_DIRECTLY_OR_INDIRECTLY_IN_THE_FULFILLMENT_CALLBACK_OF_ITS_OWN_THEN_METHOD,
+                span,
+            ));
+        }
+    }
+
+    /// `getPromisedTypeOfPromiseEx` (`checker.go:28926`) without an error
+    /// node: the global `Promise` short-circuit, the primitive exclusion,
+    /// compatible `then` signatures (a rejected `this` goes to
+    /// `this_type_for_error`), nullable callback removal, and the
+    /// subtype-reduced fulfillment value types.
+    ///
+    /// `PromiseLike<T>` also answers `T` directly: upstream reaches the same
+    /// `T` through the `then`-signature walk, since its `onfulfilled` first
+    /// parameter is declared `value: T`.
+    fn promised_type_of_promise_worker(
+        &mut self,
+        id: TypeId,
+        this_type_for_error: &mut Option<TypeId>,
+    ) -> Option<Native> {
+        use crate::relater::{Relation, Ternary};
+        if self.store.get(id).flags.contains(TypeFlags::ANY) {
+            return Some(Native::Nil);
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
             && arguments.len() == 1
@@ -3183,68 +3457,45 @@ impl Checker<'_, '_> {
                     .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
             });
             if is_promise {
-                stack.push(id);
-                let result = self.awaited_type_no_alias_worker(arguments[0], stack);
-                stack.pop();
-                return result;
+                return Some(Native::Type(arguments[0]));
             }
         }
-        // Both promised-type lookup and its native fallback exclude primitive
-        // constraints, including branded primitives with callable then members.
-        // The existing relation/member worker distinguishes absent from
-        // unsupported members without replacing the concrete receiver by a bound.
-        if !self.is_thenable_type(id)? {
-            return Some(id);
+        // Primitives with a `{ then() }` won't be unwrapped/adopted.
+        if self.all_types_assignable_to_primitive(id) {
+            return Some(Native::Nil);
         }
         let Some(then) = self.get_type_of_property_of_type(id, "then") else {
-            return Some(id);
+            return Some(Native::Nil);
         };
         if then == self.intrinsics.error {
             return None;
         }
+        // `IsTypeAny(thenFunction)`; the other flags have no call signatures.
         if self
             .store
             .get(then)
             .flags
             .intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::PRIMITIVE | TypeFlags::NEVER)
         {
-            return Some(id);
+            return Some(Native::Nil);
         }
         let signatures =
             self.signatures_of_type_kind(then, crate::signatures::SignatureKind::Call)?;
         if signatures.is_empty() {
-            // isThenableType removes null/undefined before testing callability.
-            let non_null =
-                self.get_type_with_facts(then, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
-            return self
-                .signatures_of_type_kind(non_null, crate::signatures::SignatureKind::Call)?
-                .is_empty()
-                .then_some(id);
+            return Some(Native::Nil);
         }
-        let promised = self.promised_type_of_thenable(id, &signatures)?;
-        stack.push(id);
-        let result = self.awaited_type_no_alias_worker(promised, stack);
-        stack.pop();
-        result
-    }
-
-    /// getPromisedTypeOfPromiseEx (checker.go): compatible then signatures,
-    /// nullable callback removal, and subtype-reduced fulfillment value types.
-    fn promised_type_of_thenable(
-        &mut self,
-        id: TypeId,
-        signatures: &[crate::signatures::Signature],
-    ) -> Option<TypeId> {
-        use crate::relater::{Relation, Ternary};
         let mut callbacks = Vec::new();
-        for signature in signatures {
+        for signature in &signatures {
             if let Some(this) = &signature.this_parameter
                 && self.parameter_type(this) != self.intrinsics.void
             {
                 let this_type = self.parameter_type(this);
                 match self.relate_ternary(id, this_type, Relation::Subtype) {
                     Ternary::Related => {}
-                    Ternary::NotRelated => continue,
+                    Ternary::NotRelated => {
+                        *this_type_for_error = Some(this_type);
+                        continue;
+                    }
                     Ternary::Unknown => return None,
                 }
             }
@@ -3252,19 +3503,24 @@ impl Checker<'_, '_> {
                 self.signature_type_at_position(signature, 0).unwrap_or(self.intrinsics.never),
             );
         }
-        if callbacks.is_empty() || callbacks.contains(&self.intrinsics.error) {
+        if callbacks.is_empty() {
+            return Some(Native::Nil);
+        }
+        if callbacks.contains(&self.intrinsics.error) {
             return None;
         }
         let callbacks = self.get_union_type(&callbacks);
         let callbacks =
             self.get_type_with_facts(callbacks, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
-        if self.store.get(callbacks).flags.contains(TypeFlags::ANY) {
-            return None;
+        // `IsTypeAny`, or `never` (no `onfulfilled` parameter at all), whose
+        // `getSignaturesOfType` is empty: both are native's `nil`.
+        if self.store.get(callbacks).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+            return Some(Native::Nil);
         }
         let signatures =
             self.signatures_of_type_kind(callbacks, crate::signatures::SignatureKind::Call)?;
         if signatures.is_empty() {
-            return None;
+            return Some(Native::Nil);
         }
         let values: Vec<_> = signatures
             .iter()
@@ -3275,7 +3531,7 @@ impl Checker<'_, '_> {
         if values.contains(&self.intrinsics.error) {
             return None;
         }
-        self.union_with_subtype_reduction(&values)
+        self.union_with_subtype_reduction(&values).map(Native::Type)
     }
 
     fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {

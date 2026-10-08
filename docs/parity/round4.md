@@ -388,3 +388,54 @@ class-expression patches are in batch D). Owns `heritage_conformance.rs` (no
 `main` commit since `b3cd078d`): interface index constraints once per symbol
 from the first checked declaration, no parse-error early return, and the
 TS2415/2416/2417/2420/2430 clusters. Not `tsr-2zk.3.6` (main's decls lane).
+
+### r4-mapped (`tsr-2zk.925`, `.16.121`)
+
+Dispatched when `r4-config` finished (b87c323: inherited include/exclude/files
+rebased per extends hop, a config in another directory now finds 83 files
+instead of 0; f1a82fc: composite TS6307 with native include-reason chains, all
+77/83 lines on jsTyping/typingsInstallerCore byte-identical to native). Owns
+`mapped.rs`' instantiation and member-resolution functions (main touched the
+file only for laziness accessor routing, 39dd8de9): homomorphic mapped types
+over a union with a generic base and over an array intersection (real-world
+causes 5 and 8), and the template optionality/index arm.
+
+### Wave after r4-jsx2 / r4-subtype / r4-typeparams
+
+Outcomes (all in batch D): r4-jsx2 1d0f8ab + its relater/members prerequisite
+(+25 diagnostics cases); r4-subtype ba34b01..1a31445 (37 of 40 strict-subtype
+pairs decided, +34 type lines, +2 cases); r4-typeparams 8666fa6 (TS2313 via
+the mapped-type constraint step), which unblocks r4-operators' held `+`
+patches (batch E). r4-typeparams' merged-parameter diff (+126 lines) stays held
+on 6 losses and +3% Ir until a per-symbol memo exists.
+
+Dispatched:
+- `r4-variants` (`tsr-2zk.940`): configuration-varied baselines are skipped by
+  the diagnostics and types suites (793 / 2,032), so every parity number so
+  far excludes them. Per-variant scoring will change the denominators; plain
+  and varied counts are reported separately.
+- `r4-operators2` (`tsr-2zk.941`), `r4-constraints` (`tsr-2zk.942`).
+
+### r4-errorsplit — single owner of the errorType/gap split (`tsr-2zk.944`)
+
+Dispatched when `r4-anyaudit` finished (3a168d4: no contextual return for an
+unannotated getter, +26 type lines; audit table and blocked producers in its
+notes). Its contract finding: TSR's `error` is both native `errorType` and the
+port's gap, so every producer that native answers `errorType` for is blocked,
+and ADR-0038's ceiling (~26,000 lines, reachable ~94.6%) makes 99.9% impossible
+under the current contract. ADR-0038's own falsifier — telling `errorType` from
+a gap — is what this lane builds: a distinct gap intrinsic that keeps printing
+`error`, and a true `errorType` that prints `any`, introduced class by class
+where native's `errorType` is provable, with a superseding ADR. This box is the
+only one that changes the intrinsic contract.
+
+### r4-perf3 (`tsr-2zk.943`)
+
+Dispatched when `r4-perf2` finished (C3 reference-member memo -2.18% Ir, C2
+structured property-name memo -7.27%; corpus byte-identical; vs tsgo CPU
+0.50-0.61, wall 0.80-1.15). Its §6: tsgo's default mode spends 2.5x its
+single-threaded CPU (four checkers redo work), so the CPU ratio flatters TSR;
+on equal single-threaded work TSR's checker is ~2.2x tsgo's, and wall 0.50
+needs ~30% less checker CPU. This lane owns the infrastructure r4-perf2 named
+(Resolutions cycle counter, late-bound in-progress marker, shared property-name
+lists, is_pure_signature_type) and single-threaded attribution.

@@ -2092,39 +2092,136 @@ impl Checker<'_, '_> {
         self.instantiate_for_reference_with_this(receiver, declared, receiver)
     }
 
+    /// # Memoised like native's instantiated-symbol links
+    ///
+    /// Native computes an instantiated member's type once, in
+    /// `getTypeOfInstantiatedSymbol` (`checker.go:15987`), and keeps it in the
+    /// instantiated symbol's links. This port has no instantiated symbols, so
+    /// every read re-ran the substitution here.
+    /// [`PerfLinks::reference_member_types`](crate::perf_links::PerfLinks)
+    /// keeps the decided answers; key, publication and context are
+    /// `docs/parity/notes/r4-perf2.md` §2.
     fn instantiate_for_reference_with_this(
         &mut self,
         receiver: TypeId,
         declared: TypeId,
         this_argument: TypeId,
     ) -> TypeId {
-        // resolveTypeReferenceMembers also supplies a this argument for a
-        // non-generic class or interface. The port keeps those as Named types
-        // rather than entries in type_reference_targets.
-        let (symbol, arguments) =
-            if let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver) {
-                (*symbol, Some(arguments.clone()))
-            } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
-                && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
-                && self
-                    .binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            {
-                (symbol, None)
-            } else {
-                return declared;
-            };
+        let Some(symbol) = self.reference_target_symbol(receiver) else {
+            return declared;
+        };
+        let binder = self.binder;
+        let Some(frames) = self.memo_frames(&binder.symbols().get(symbol).declarations, None)
+        else {
+            return self
+                .instantiate_for_reference_with_this_worker(
+                    symbol,
+                    receiver,
+                    declared,
+                    this_argument,
+                )
+                .0;
+        };
+        let key = (receiver, declared, this_argument);
+        let this_type = self.polymorphic_this_of(symbol);
+        let result = match self.perf_links.reference_member_types.get(&key) {
+            Some(&(published_this, result)) if published_this == this_type => result,
+            _ => {
+                let (result, mapped) = self.instantiate_for_reference_with_this_worker(
+                    symbol,
+                    receiver,
+                    declared,
+                    this_argument,
+                );
+                // An error answer may be provisional (an unresolved parameter
+                // list, an arity mismatch, a pending return, the depth or
+                // count limit); an unchanged `declared` after a real
+                // substitution read `declared`'s current contents, which
+                // `TypeStore::complete_object` may still fill in place.
+                let decided = result != self.intrinsics.error
+                    && (!mapped || result != declared || self.is_leaf_type(declared));
+                if decided
+                    && self.signature_links_publishable()
+                    && self.polymorphic_this_of(symbol) == this_type
+                {
+                    self.perf_links.reference_member_types.insert(key, (this_type, result));
+                }
+                result
+            }
+        };
+        self.alias_evaluation_bindings = frames;
+        result
+    }
+
+    /// Whether `id` is a primitive, literal or enum type, or a union of them:
+    /// a type with no object, instantiable or intersection content, so no
+    /// later in-place completion can give it a type parameter to substitute.
+    fn is_leaf_type(&self, id: TypeId) -> bool {
+        let non_leaf = TypeFlags::OBJECT | TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION;
+        let ty = self.store.get(id);
+        match &ty.data {
+            TypeData::Union { types, .. } => types.iter().all(|&member| {
+                !self.store.get(member).flags.intersects(non_leaf | TypeFlags::UNION)
+            }),
+            _ => !ty.flags.intersects(non_leaf | TypeFlags::UNION),
+        }
+    }
+
+    /// The class or interface whose members `receiver` reads: a reference's
+    /// target, or a non-generic class/interface kept as a Named type
+    /// (`resolveTypeReferenceMembers` supplies a this argument for those too).
+    fn reference_target_symbol(&self, receiver: TypeId) -> Option<SymbolId> {
+        if let Some((symbol, _)) = self.type_reference_targets.get(&receiver) {
+            return Some(*symbol);
+        }
+        if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
+            && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return Some(symbol);
+        }
+        None
+    }
+
+    /// The target's polymorphic `this` type if one has been minted yet; it is
+    /// minted lazily on the first `this` reference, so the answer can change.
+    fn polymorphic_this_of(&self, symbol: SymbolId) -> Option<TypeId> {
+        self.this_types.get(&symbol).copied().or_else(|| {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .find_map(|node| self.this_type_nodes.get(node).copied())
+        })
+    }
+
+    /// The substitution itself: `declared` with `receiver`'s arguments and
+    /// its this argument substituted for `symbol`'s parameters, and whether a
+    /// non-empty mapper was applied (an empty one answers `declared` whatever
+    /// `declared` holds).
+    fn instantiate_for_reference_with_this_worker(
+        &mut self,
+        symbol: SymbolId,
+        receiver: TypeId,
+        declared: TypeId,
+        this_argument: TypeId,
+    ) -> (TypeId, bool) {
+        let arguments =
+            self.type_reference_targets.get(&receiver).map(|(_, arguments)| arguments.clone());
         let error = self.intrinsics.error;
         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
-            return error;
+            return (error, false);
         };
         let arguments = arguments
             .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
         if parameters.len() != arguments.len() {
-            return error;
+            return (error, false);
         }
         // instantiateSymbol (checker.go:20753) retains the complete receiver
         // mapper. A member's own same-named parameter has a distinct TypeId,
@@ -2141,15 +2238,7 @@ impl Checker<'_, '_> {
         }
         // resolveTypeReferenceMembers pads the type arguments with the
         // reference itself for the target's polymorphic this parameter.
-        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
-            self.binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .iter()
-                .find_map(|node| self.this_type_nodes.get(node).copied())
-        });
-        if let Some(this_type) = this_type
+        if let Some(this_type) = self.polymorphic_this_of(symbol)
             && this_type != this_argument
         {
             types.push(this_type);
@@ -2157,9 +2246,9 @@ impl Checker<'_, '_> {
         }
         // A reference without type parameters or a polymorphic this needs no map.
         if map.is_empty() {
-            return declared;
+            return (declared, false);
         }
-        self.instantiate_type(declared, &map, &types, &names)
+        (self.instantiate_type(declared, &map, &types, &names), true)
     }
 
     /// `getPropertyOfTypeEx`'s union and intersection arms
@@ -3341,9 +3430,39 @@ impl Checker<'_, '_> {
         if let Some(names) = self.mapped_alias_literal_key_names(id, owner) {
             return Some(names);
         }
-        let mut names = Vec::new();
-        let mut visiting = Vec::new();
-        self.collect_structured_property_names(owner, &mut names, &mut visiting).then_some(names)
+        self.structured_property_names(owner)
+    }
+
+    /// A class's or interface's instance property names, own then
+    /// inherited: [`Self::collect_structured_property_names`] from the top.
+    ///
+    /// # Memoised like native's resolved members
+    ///
+    /// Native resolves a structured type's member list once
+    /// (`resolveStructuredTypeMembers` → `resolveObjectTypeMembers`,
+    /// `checker.go:19106`, publishing `resolvedProperties`); this port rebuilt
+    /// and re-sorted it per query.
+    /// [`PerfLinks::structured_property_names`](crate::perf_links::PerfLinks)
+    /// keeps the decided lists; key, publication and context are
+    /// `docs/parity/notes/r4-perf2.md` §3.
+    fn structured_property_names(&mut self, owner: SymbolId) -> Option<Vec<String>> {
+        let binder = self.binder;
+        let Some(frames) = self.memo_frames(&binder.symbols().get(owner).declarations, None) else {
+            let mut walk = StructuredNamesWalk::uncached();
+            return self.collect_structured_property_names(owner, &mut walk).then_some(walk.names);
+        };
+        let names = if let Some(names) = self.perf_links.structured_property_names.get(&owner) {
+            Some(names.clone())
+        } else {
+            let mut walk = StructuredNamesWalk::memoised();
+            let complete = self.collect_structured_property_names(owner, &mut walk);
+            if complete && !walk.cycle && !walk.unsettled && self.signature_links_publishable() {
+                self.perf_links.structured_property_names.insert(owner, walk.names.clone());
+            }
+            complete.then_some(walk.names)
+        };
+        self.alias_evaluation_bindings = frames;
+        names
     }
 
     /// The property names resolveMappedTypeMembers (checker.go) gives a
@@ -3447,17 +3566,34 @@ impl Checker<'_, '_> {
     /// for the same reason: `class A extends B` with `class B extends A` is a
     /// real cycle in the base-type graph. Re-entry contributes nothing rather
     /// than failing — every name reachable through the cycle has already been
-    /// collected by the outer visit.
+    /// collected by the outer visit — and marks the walk cyclic, so its list
+    /// is not published.
+    ///
+    /// A memoised walk reads a base's published list instead of walking it:
+    /// a published list met no cycle, so every name the base's own walk would
+    /// add here is either already present or appears in the same relative
+    /// order in the list (`r4-perf2.md` §3).
     fn collect_structured_property_names(
         &mut self,
         owner: tsr_binder::SymbolId,
-        names: &mut Vec<String>,
-        visiting: &mut Vec<tsr_binder::SymbolId>,
+        walk: &mut StructuredNamesWalk,
     ) -> bool {
-        if visiting.contains(&owner) {
+        if walk.visiting.contains(&owner) {
+            walk.cycle = true;
             return true;
         }
-        visiting.push(owner);
+        if walk.memoised
+            && !walk.visiting.is_empty()
+            && let Some(published) = self.perf_links.structured_property_names.get(&owner)
+        {
+            for name in published {
+                if !walk.names.contains(name) {
+                    walk.names.push(name.clone());
+                }
+            }
+            return true;
+        }
+        walk.visiting.push(owner);
         // A members table also holds type parameters, so the value gate is the
         // same one `getPropertyOfType` applies; without it `interface I<T>`
         // would demand a property named `T`.
@@ -3472,19 +3608,91 @@ impl Checker<'_, '_> {
             .collect();
         // Late-bound own declarations belong to this same ordered partition,
         // not an appended table. Instance and static identities stay separate.
+        // `late_bound_members_of` parks an empty list while it computes, so an
+        // empty answer for an owner that declares computed names may be that
+        // placeholder, and the walk's list is not published.
+        if walk.memoised
+            && self.late_bound_member_names.get(&(owner, false)).is_some_and(Vec::is_empty)
+            && self.declares_computed_member_name(owner)
+        {
+            walk.unsettled = true;
+        }
         own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
             |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
         ));
         own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
         for (name, _) in own {
-            if !names.contains(&name) {
-                names.push(name);
+            if !walk.names.contains(&name) {
+                walk.names.push(name);
             }
         }
         let Some(bases) = self.base_symbols_of_ex(owner, false) else {
             return false;
         };
-        bases.into_iter().all(|base| self.collect_structured_property_names(base, names, visiting))
+        bases.into_iter().all(|base| self.collect_structured_property_names(base, walk))
+    }
+
+    /// Whether one of `owner`'s class, interface or literal declarations
+    /// has a member named by a computed property name — the members
+    /// [`Self::late_bound_members_of`] considers.
+    fn declares_computed_member_name(&self, owner: SymbolId) -> bool {
+        use tsr_ast::PropertyName::ComputedPropertyName;
+        self.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
+            let members: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => {
+                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
+                }
+                Some(Node::ClassExpression(class)) => {
+                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
+                }
+                Some(Node::InterfaceDeclaration(interface)) => interface
+                    .members
+                    .iter()
+                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
+                    .collect(),
+                Some(Node::TypeLiteralNode(literal)) => literal
+                    .members
+                    .iter()
+                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
+                    .collect(),
+                Some(Node::ObjectLiteralExpression(literal)) => literal
+                    .properties
+                    .iter()
+                    .filter_map(|member| tsr_ast::Node::from(*member).node_id())
+                    .collect(),
+                _ => return false,
+            };
+            members.into_iter().any(|member| {
+                matches!(
+                    self.node_map.get(member),
+                    Some(
+                        Node::PropertyDeclaration(tsr_ast::PropertyDeclaration {
+                            name: ComputedPropertyName(_),
+                            ..
+                        }) | Node::PropertySignatureDeclaration(
+                            tsr_ast::PropertySignatureDeclaration {
+                                name: ComputedPropertyName(_),
+                                ..
+                            }
+                        ) | Node::MethodDeclaration(tsr_ast::MethodDeclaration {
+                            name: ComputedPropertyName(_),
+                            ..
+                        }) | Node::MethodSignatureDeclaration(
+                            tsr_ast::MethodSignatureDeclaration {
+                                name: ComputedPropertyName(_),
+                                ..
+                            }
+                        ) | Node::GetAccessorDeclaration(tsr_ast::GetAccessorDeclaration {
+                            name: ComputedPropertyName(_),
+                            ..
+                        }) | Node::SetAccessorDeclaration(tsr_ast::SetAccessorDeclaration {
+                            name: ComputedPropertyName(_),
+                            ..
+                        })
+                    )
+                )
+            })
+        })
     }
 
     pub(crate) fn late_bound_static_members_of(
@@ -4754,6 +4962,42 @@ type Tree = [string, Tree][]; declare const tree: Tree;"
                 }
                 assert_eq!(publication(checker), before);
             });
+        }
+    }
+}
+
+/// The state of one [`Checker::collect_structured_property_names`] walk.
+struct StructuredNamesWalk {
+    names: Vec<String>,
+    visiting: Vec<SymbolId>,
+    /// Whether a base re-entered the walk (a cyclic base graph).
+    cycle: bool,
+    /// Whether an owner's late-bound names may have been read while their
+    /// computation was still running.
+    unsettled: bool,
+    /// Whether published base lists may be read: only when the request was
+    /// admitted by [`Checker::memo_frames`].
+    memoised: bool,
+}
+
+impl StructuredNamesWalk {
+    const fn memoised() -> Self {
+        Self {
+            names: Vec::new(),
+            visiting: Vec::new(),
+            cycle: false,
+            unsettled: false,
+            memoised: true,
+        }
+    }
+
+    const fn uncached() -> Self {
+        Self {
+            names: Vec::new(),
+            visiting: Vec::new(),
+            cycle: false,
+            unsettled: false,
+            memoised: false,
         }
     }
 }

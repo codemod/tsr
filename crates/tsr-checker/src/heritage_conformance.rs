@@ -28,7 +28,9 @@ use crate::{
 impl Checker<'_, '_> {
     /// The heritage conformance checks for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
+        // `checkInterfaceDeclaration` has no parse-error gate; the class arm
+        // keeps this port's.
+        if self.file_has_parse_errors && self.nodes.kind(node) != SyntaxKind::InterfaceDeclaration {
             return;
         }
         if self.in_js_file(node) {
@@ -488,18 +490,22 @@ impl Checker<'_, '_> {
     /// Interface_0_incorrectly_extends_interface_1)` for each base type and
     /// `checkIndexConstraints`.
     ///
-    /// `links.interfaceChecked` is the symbol's first interface declaration
-    /// here, the one a file-order check reaches first.
+    /// `links.interfaceChecked` is set by the first interface declaration that
+    /// is **checked**, the one a file-order check reaches first. A bundled
+    /// default-library declaration is never checked, so a user augmentation
+    /// of a lib interface (`interface Object { … }`) runs the block even
+    /// though lib.es5's declaration is first in the merged symbol
+    /// (`objectTypeHidingMembersOfExtendedObject`).
     fn check_interface_heritage_conformance(&mut self, node: NodeId) {
         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
         let Some(name) = interface.name.and_then(|n| n.node_id) else { return };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        let first = declarations
-            .iter()
-            .copied()
-            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::InterfaceDeclaration);
+        let first = declarations.iter().copied().find(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::InterfaceDeclaration
+                && !self.in_default_library(declaration)
+        });
         if first != Some(node) {
             return;
         }
@@ -570,7 +576,9 @@ impl Checker<'_, '_> {
                 );
             }
         }
-        self.check_index_constraints(node);
+        // `c.checkIndexConstraints(t, symbol, false)` on the declared type.
+        let declared = self.get_declared_type_of_class_or_interface(symbol);
+        self.check_index_constraints_of_type(declared, symbol, false);
     }
 
     /// `checkInheritedPropertiesAreIdentical` (`checker.go`): two bases that

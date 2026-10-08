@@ -527,7 +527,7 @@ pub(crate) enum OperatorRelation {
 }
 
 /// Kleene conjunction over the port's three-valued relation answers.
-fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
+pub(crate) fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
     match (a, b) {
         (Ternary::NotRelated, _) | (_, Ternary::NotRelated) => Ternary::NotRelated,
         (Ternary::Related, Ternary::Related) => Ternary::Related,
@@ -536,7 +536,7 @@ fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
 }
 
 /// Kleene disjunction.
-fn ternary_or(a: Ternary, b: Ternary) -> Ternary {
+pub(crate) fn ternary_or(a: Ternary, b: Ternary) -> Ternary {
     match (a, b) {
         (Ternary::Related, _) | (_, Ternary::Related) => Ternary::Related,
         (Ternary::NotRelated, Ternary::NotRelated) => Ternary::NotRelated,
