@@ -183,8 +183,95 @@ first misaligned line (`want` is native, `got` is the port's node):
 for the integrator to file as parser issues on main, one per row. Each row's
 witness is the smallest case in it.
 
+## 5. `tsr-2zk.1069`: the cost of the cases neither dump scores
+
+### The hole
+
+Both dumps skip a case with a native `.types.diff`, `.errors.txt.diff` or
+`.js.diff` (`CaseEntry::has_known_divergence`). Native records that its own
+output differs from TypeScript's there, so the baseline is no specification.
+The skip also takes away the cost. `recursiveConditionalCrash3` and
+`templateLiteralTypes1` are both in this population (r5-harness §4), and a
+change that made either worse, or made one crash, passed the gate.
+
+### What runs it
+
+`examples/divergentcost.rs` is a timing-only pass over that population: 518
+entries at `4a8d493`. It takes the dumps' own eligibility with the divergence
+filter inverted. Each named configuration of a varied case is its own entry,
+and the varied case as itself never is. Per entry it does both dumps' work:
+`diagnostics_suite::reported_for` and, with a `.types` baseline, the
+producer's rendered lines. Nothing is compared. The row is
+`case<TAB>TIMED<TAB>-<TAB>-<TAB>ms=…<TAB>mib=…`, in the diagnostics dump's
+shape, so `slowcases` reads it unchanged. A guard marker (`PANIC`, `OOM`,
+`TIMEOUT`) replaces `TIMED`. A child that dies with no row at all prints
+`CRASH`.
+
+**One process per case**, because this population has cases that hang.
+`case_guard`'s watchdog cannot stop a thread, so it ends its process (exit
+3). In one process the first hang would end the pass and lose every row not
+yet printed. The dumps accept that because none of their cases is known to
+hang; here three are. The parent runs `TSR_JOBS` children at a time (default:
+available parallelism). It gives each one `TSR_CASE_TIMEOUT_S=120` and a
+`TSR_DUMP_MEM_MIB` share of three quarters of `MemTotal`, unless they are
+already set. The child finds its one entry without deriving the population. The
+first version did derive it, and every child re-expanded every case file's
+configurations, about 7 s of CPU each.
+
+Considered and rejected:
+- **A flag on the dumps.** It would put rows with no verdict into files the
+  key/verdict `join` reads, and the first hang would still end the run.
+- **Excluding the known hangs.** Then a change that fixed one, or made a
+  new case hang, would be invisible, which is this item's hole again.
+
+### `slowcases` changes
+
+- `CRASH` counts as a failure marker, like `PANIC`, `OOM` and `TIMEOUT`.
+- **`KNOWN_FAILED`**: a case with the same marker in the base is listed
+  and does not fail the gate. This is the `KNOWN_SLOW` rule applied to markers.
+  Without it, the three cases that hang at the base would fail every gate.
+  A *different* marker, or a marker in a case the base finished, still fails.
+
+### Measured at `4a8d493` (4 cores)
+
+| | |
+|---|---:|
+| entries | 518 |
+| wall, full pass | 3 m 40 s (8 m 06 s user) |
+| `TIMEOUT` at 120 s | 3: `compiler/noCircularitySelfReferentialGetter2` (1,568–1,895 MiB), `compiler/recursiveConditionalCrash3` (1,809–2,090 MiB), `conformance/templateLiteralTypes1` (850 MiB) |
+| every other entry | under 3 s |
+
+`noCircularitySelfReferentialGetter2` was not on the slow list before, so this
+pass is its first measurement. It has a `.types.diff`, grows to about 1.9 GiB
+in 120 s, and native checks it in well under a second. It is a new checker
+issue for the integrator to file (§4).
+`templateLiteralTypes1` took 26 s in r5-harness's CLI run, but passes 120 s
+here with four children sharing the box. It is in the same `KNOWN_FAILED`
+state in both of this box's runs.
+
+Verified:
+- **Two passes of the same binary.** `slowcases` exits 0 and lists the three
+  as `KNOWN_FAILED TIMEOUT`.
+- **`TSR_CASE_INJECT=panic:conformance/jsdocVariadicType`** in one pass, under
+  release `panic = "abort"`, yields that case's `PANIC` row from the
+  child's hook. `slowcases` exits 1 with `FAILED PANIC`.
+
+### How the integrator runs it
+
+```bash
+cargo run -q --release -p tsr-conformance --example divergentcost > $B/cost.tsv   # once per base
+cargo run -q --release -p tsr-conformance --example divergentcost > $A/cost.tsv
+cargo run -q --release -p tsr-conformance --example slowcases -- $B/cost.tsv $A/cost.tsv
+```
+
+Run it alone, like the dumps. The pass's own exit status is 0 even with
+markers in it; `slowcases` is the gate. Its exit 1 lists the offenders.
+
 ## 4. Follow-ups
 
+- **`noCircularitySelfReferentialGetter2` hangs** (§5): over 120 s and
+  about 1.9 GiB, against native's sub-second check. Checker lane, not
+  profiled here.
 - **Producer current directory.** `/` vs native `/.src` (§2.4). It costs
   `referenceTypesPreferedToPathIfPossible` here. Any case whose type roots or
   `node_modules` lookups depend on the current directory is exposed the same
