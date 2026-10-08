@@ -82,10 +82,12 @@ impl Checker<'_, '_> {
                     == Ternary::NotRelated
                     && let Some(at) = options.node_id()
                 {
+                    // checkTypeAssignableTo (checker.go:8291) passes no
+                    // expression, so nothing is elaborated.
                     self.report_relation_failure(
                         at,
                         self.error_span(at),
-                        options.node_id(),
+                        None,
                         options_type,
                         target,
                         None,
