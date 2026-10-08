@@ -259,3 +259,16 @@ The integrator lands its three diffs: the TS2729 target gate, the parameter
 scope walk, and the useDefineForClassFields default. The new box
 `r5-declemit3` takes the declaration-emit SymbolTracker/IsSymbolAccessible
 (`.1000`) and the late-bound override-modifier reports (`.1001`).
+
+### r5-sigs finished; the merged type-parameter stack lands; r5-heritage2 dispatched (`tsr-2zk.1026`)
+
+r5-sigs `d70453b` reuses written annotations when type parameters are renamed
+for printing (typeParameterToName, nodecopy.go:292). That unblocked
+r5-typeparams2's held stack: rename-reuse, identity substitution, merged
+parameters and alias call sites. The stack is +170 type lines and +3
+diagnostics cases with zero losses, and the integrator lands it.
+
+Async-generator `next` (`.1015`) is blocked on members inherited through
+type-argument bases (`.1013`, `members.rs`). That file is inside main's
+property lane (`tsr-2zk.4`), so it is filed but not dispatched. The new box
+`r5-heritage2` takes the heritage conformance checks.
