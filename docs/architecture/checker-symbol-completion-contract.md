@@ -792,6 +792,55 @@ controls remain unexecuted. This ownership prerequisite claims no speed or
 coverage gain; the equivalent complete-work TSR/native median <=0.50 remains
 unverified.
 
+### String mapping owner integration
+
+Frozen main `189a2c1d` plus the five Rust overlays in
+[the evidence](checker-string-mapping-owner.json) carries actual `SymbolRef`
+owners through the existing string-mapping stores, recursion, constraint
+rebuilding, substitution, inference and relations. Genuine bound alias entries
+lift their input and use the same selected worker. There is no origin projection,
+second worker, new cache or cross-Checker state.
+
+Pinned native `5b1047d` `getStringMappingTypeForGenericType` keys its completed
+image by the actual mapping symbol and target type. `getStringMappingType`
+returns an existing image when its mapping symbol is the same; distinct clones
+must remain distinct even with identical spelling and shared declarations.
+Literal/union/template results still use structural reuse. The rejected
+alternative of normalizing a clone to its origin merges generic image identity
+and changes same-owner inference and relation behavior. Native direct-worker
+controls confirm distinct owners/images, repeat reuse, shared completed literals,
+same-owner inference, cross-owner refusal and nested substitution in both query
+orders, before and after checking. All four rows repeat byte identically.
+
+Both mutable maps remain Checker-local, keyed by validated owner and local
+`TypeId`; they publish only completed generic image construction. This operation
+has no active reservation. No captured mapper or alias frame is reused here;
+the actual selected owner survives later target substitution. Generic image
+construction still formats its target as before. Worker counts and allocation
+cost are unmeasured (`tsr-1yb.11`); this correctness prerequisite is not a speed
+win or authorization to memoize another computation.
+
+The workspace passes 3,245 tests with zero failures and 19 existing ignores.
+The isolated reader passes 212 library tests. An actual compiling origin mutant
+fails one owner test while the genuine bound test passes. Unfiltered outputs
+retain all 552,533 eligible type rows and 12,238 diagnostic rows byte for byte
+against the source-qualified baseline. All 779 tracked build inputs match the
+previous qualified baseline and main `189a2c1d`. Strict Clippy has the same seven
+distinct inherited errors on baseline and candidate (seven versus twelve raw
+messages because candidate targets repeat five errors); format checks pass.
+These are expected-driven corpus gates, not a fresh complete native oracle.
+
+The broader private continuation routes computed reference rebuilding through
+the general selected factory and preserves selected alias/mapped/union and
+variance state. Its compiler mismatches move through 60, 84, 65, 59 and 51 as
+the owner boundary exposes further callers. Exact five/16-file continuation
+deltas replay against the preceding artifact and retain all 1,053 input hashes
+per slice. The full draft is still uncompiled; full factory/mapper, natural alias,
+member publication and private variance controls remain unexecuted. The direct
+native string worker controls do not stand in for those gates. All six goal
+tickets remain unfinished; equivalent complete-work wall ratio <=0.50 remains
+unverified.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |

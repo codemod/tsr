@@ -3259,10 +3259,10 @@ impl Relater<'_, '_, '_> {
             };
         }
         if let Some((target_symbol, target_inner)) =
-            self.checker.string_mapping_types.get(&target).copied()
+            self.checker.string_mapping_types.get(&target).cloned()
         {
             if let Some((source_symbol, source_inner)) =
-                self.checker.string_mapping_types.get(&source).copied()
+                self.checker.string_mapping_types.get(&source).cloned()
             {
                 return if source_symbol == target_symbol {
                     self.is_related_to(source_inner, target_inner)

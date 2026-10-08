@@ -531,11 +531,11 @@ impl Checker<'_, '_> {
                 self.get_template_literal_type(&parts.texts, &types)
             }));
         }
-        if let Some((symbol, target)) = self.string_mapping_types.get(&ty).copied() {
+        if let Some((symbol, target)) = self.string_mapping_types.get(&ty).cloned() {
             let constraint = self.next_base_constraint(target);
             return Some(match constraint {
                 Some(constraint) if constraint != target => {
-                    self.get_string_mapping_type(symbol, constraint)
+                    self.get_string_mapping_type_ref(&symbol, constraint)
                 }
                 _ => self.intrinsics.string,
             });

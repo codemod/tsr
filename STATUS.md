@@ -54,6 +54,20 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Production string-mapping ownership integration, frozen main `189a2c1d` plus
+five Rust overlays in [the evidence](docs/architecture/checker-string-mapping-owner.json):
+existing generic mapping images/cache and their constraint/substitution/inference/
+relation consumers retain actual selected owners. Workspace tests pass 3,245/
+zero failures/19 existing ignores; the private reader passes 212. All 552,533
+eligible type rows and 12,238 diagnostic rows are byte identical to the qualified
+baseline. Four pinned native owner/order/checked-first rows repeat identically;
+a compiling origin mutant fails one control. Strict Clippy reproduces seven
+distinct inherited errors with no new ones; fmt passes. The wider private draft
+now preserves general reference, alias/mapped/union and variance owners, but
+still has 51 compiler mismatches. Full factory/mapper/natural alias controls
+remain unexecuted. No speed or coverage gain; all six goal tickets remain
+unfinished and the <=0.50 equivalent complete-work target remains unverified.
+
 Production template-alias ownership integration, frozen main `835ef559` plus
 the two Rust overlays in the [evidence](docs/architecture/checker-template-alias-owner.json):
 the existing evaluator and active set retain actual selected owners, with
@@ -3701,11 +3715,13 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Owner continuation at `835ef559`: finish the general reference factory and
-selected alias, member, naming, index and variance consumers from the 60
-compiler mismatches retained in [the template-owner evidence](docs/architecture/checker-template-alias-owner.json).
-Then execute the full factory/mapper and natural alias controls before broader
-integration. The template helper is a shipped ownership prerequisite, not
+Owner continuation at `189a2c1d`: finish the selected base/class, member, naming,
+index and flow callers from the 51 compiler mismatches retained in
+[the string-mapping evidence](docs/architecture/checker-string-mapping-owner.json).
+The private general factory/computed rebuild and variance state now retain
+selected owners, but do not compile or qualify the full execution path yet.
+Then execute full factory/mapper, natural alias and member-publication controls
+before broader integration. Shipped owner helpers are prerequisites, not
 completion of `tsr-1yb.7.7.3`, `tsr-1yb.33.1` or the performance goal.
 
 
@@ -7428,6 +7444,17 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+At `189a2c1d` plus the five string-mapping overlays, the compiling origin mutant
+is refused by one failing owner control while its bound control passes. The
+first short exact test filter ran zero tests and is not proof. An initial
+membership claim about `Lowercase<T>` failed; the correct string-domain control
+uses `Lowercase<string>` and passes. The full private draft remains refused for
+production by 51 compiler mismatches; its factory/mapper/natural alias controls
+are unexecuted. Native direct worker rows, 212 reader passes and unchanged
+corpora do not certify the broader draft. Seven distinct inherited Clippy
+errors remain on both baseline and candidate. No measured performance gain.
+[Evidence](docs/architecture/checker-string-mapping-owner.json).
 
 Owner continuation at `835ef559`: the compiling origin-substitution mutant
 is refused by one failing selected-template-owner control (one bound control
@@ -15404,6 +15431,8 @@ holds only the numbers.
 | 2026-10-08 | `405b55ce` / native `5b1047d` | — | — | **Parity round 4 (tsr-2zk) wrap-up:** 30+ cloud lanes integrated through zero-loss gates. Plain checker_types 8,075 → 8,176 cases, plain type lines 469,946 → 470,766 RIGHT, diagnostics 4,232 → 4,394. Configured variants are now judged (ADR-0047). Upstream errorType is split from the gap (r4-errorsplit step 1). The relation-cache hang is fixed (jsTyping finishes). vs tsgo wall 0.90 (domain-model) / 1.22 (generic-imports); 0.50 not met. Main merged with four duplicated ports resolved (`docs/parity/notes/main-merge-r4.md`). Beads: 25 closed, 37 claims released. [Round record](docs/parity/round4.md). |
 
 | 2026-10-08 | `835ef559` plus two owned Rust overlays / native `5b1047d` | — | — | **Template alias selected-owner prerequisite.** Existing evaluator/active set migrated to actual SymbolRef; captured syntax-parameter frames preserved. Two focused controls and final 197 library tests pass; compiling origin mutant fails. Four cold/checked-first native owner rows repeat identically with distinct alias links and shared literal identity. Workspace 3,243 passes/19 existing ignores before test relocation; strict Clippy reproduces seven inherited errors, fmt passes. All 552,533 eligible type rows/12,238 diagnostic cases byte identical. Wider private owner draft moves from 69 mismatches through 60 mismatches plus 13 borrow/move errors to 60 mismatches only; exact deltas and diagnostics retained. Full factory/mapper/natural alias controls unexecuted; six goal tickets remain unfinished, no speed/coverage claim. [Evidence](docs/architecture/checker-template-alias-owner.json). |
+
+| 2026-10-08 | `189a2c1d` plus five owned Rust overlays / native `5b1047d` | — | — | **String mapping selected-owner prerequisite and general factory continuation.** Existing mapping stores and consumers retain actual owners; two controls, 3,245 workspace passes/19 existing ignores and 212 private reader passes. Compiling origin mutant fails. Four native fresh/checked-first order rows repeat identically. Full 552,533 type rows/12,238 diagnostic rows byte identical to qualified baseline; seven distinct inherited Clippy errors, no new ones, fmt passes. Private general factory/computed rebuild, alias/mapped/union and variance state preserve owners; 60→84→65→59→51 compile mismatches retained with exact five/16-file replayable deltas. Full factory/mapper/natural alias controls unexecuted. All six tickets unfinished, no speed or coverage gain. [Evidence](docs/architecture/checker-string-mapping-owner.json). |
 
 ## 8. Updating this file
 
