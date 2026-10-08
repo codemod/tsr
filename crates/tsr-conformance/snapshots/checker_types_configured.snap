@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
 Passed         : 1643/1928 (85.22%)
-Assertion lines: 72806/78552 (92.69%)  — a gradient, not a pass rate
+Assertion lines: 73266/78552 (93.27%)  — a gradient, not a pass rate
 Failed         : 285
 Skipped        : 2240 (excluded from the denominator)
 
@@ -217,14 +217,14 @@ compiler/trailingCommasES5(target=es2015)
 compiler/transformNestedGeneratorsWithTry(target=es2015)
   main.ts: >Bluebird : PromiseConstructor — expected >Bluebird : { all<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>; all<T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; race<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>>; race<T extends readonly unknown[] | []>(values: T): Promise<Awaited<T[number]>>; prototype: Promise<any>; reject<T = never>(reason?: any): Promise<T>; resolve(): Promise<void>; resolve<T>(value: T): Promise<Awaited<T>>; resolve<T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; [Symbol.species]: PromiseConstructor; default: PromiseConstructor; }
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
