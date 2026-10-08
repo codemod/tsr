@@ -159,7 +159,6 @@ export const k: string = x.kind;
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: alias type-argument variance applied to a union alias"]
 fn union_alias_relates_structurally_not_by_variance() {
     // Native `structuredTypeRelatedToWorker` probes alias variance only for
     // Object|Conditional sources; `SearchResult<T>` is a union alias, so
