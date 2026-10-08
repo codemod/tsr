@@ -530,6 +530,58 @@ full previously-RIGHT corpus or speed gain is claimed; all six goal tickets
 remain unfinished and the equivalent complete-work median <=0.50 target remains
 unmet and unverified.
 
+### Reference, polymorphic this and member-owner continuation
+
+Frozen main `4a0ff849` continues the immutable `67440ffd` draft. The pinned
+native `5b1047d` `getDeclaredTypeOfClassOrInterface` writer publishes a class's
+own `thisType`, constrained by its own declared type. Actual parsed `Box<T, U>`
+module copies retain the same parameter declaration types but distinct declared,
+reference and polymorphic-this types. Two cold/check-first native observations
+pass all 34 ownership, reuse and ordered receiver-substitution assertions with
+zero diagnostics. These direct workers do not certify natural imports.
+
+The private full draft now keys the existing `this_types` table by actual
+`SymbolRef`; bound expression, explicit-this and type-node writers share its
+factory. Declared class publication mints this after publishing the declared
+link. `type_parameter_constraint` follows the selected class owner. Full native
+outer-parameter publication and early interface this policy remain unported.
+The legacy interface declaration-node table supplies a this type only when its
+bound declaration owner equals the selected symbol; copied declarations cannot
+supply the original owner's this type to a private copy.
+
+Reference-target queries retain actual handles, and generic receiver workers
+read selected declarations and parameters. Existing receiver/declared/this-arg
+memo keys, alias-frame admission, publication marks and provisional refusal
+rules remain in place. Generic heritage cycle paths use actual owner handles.
+The existing base-cache key now retains the selected owner and refusal policy;
+its declaration syntax still calls the bound heritage entity resolver and keeps
+bound result symbols. Private alias/heritage target resolution remains explicitly
+unfinished in `tsr-1yb.7.7.2.1` and `tsr-1yb.7.7.3`.
+
+A raw-member iterator preserves each table edge's actual handle, including a
+private edge that differs from its source and sibling copy. It neither resolves
+aliases nor publishes member completion; absent/empty presence remains separate.
+Property enumeration and completeness walks read those edges and retain actual
+owner cycle identities. Another 53 compiler-identified raw metadata reads across
+18 files use selected views. No origin projection or additional semantic store
+is introduced. Builder/substitution work and copies remain under the existing
+`tsr-1yb.11` attribution; this identity migration claims no saved work or speed.
+
+The compilable reader slice passes all 209 library tests, including the
+strengthened member-edge ownership control. Its separately executed parsed
+import-owner test still fails Head/raw `SymbolId(1)`. The full 40-file owner
+draft remains uncompiled: 204 library errors (183 type mismatches, 21 ownership
+moves), down from the inherited 267. Its class/reference/this/substitution test
+has not executed. Strict reader Clippy retains six library errors and five
+library-test errors; the earlier runtime-equivalent baseline had five library
+errors. Both formatter checks pass. The final 1,053 inputs in each Rust slice
+and 5,005 Go inputs remain stable around qualification, and binaries identify
+their new source roots. Exact-byte replay verifies 26/40 Rust and 13 Go changed
+files. The [lossless archive](checker-module-clone-progress.json) preserves all
+older records plus `reference_this_member_continuation`, including failed API,
+iterator-lifetime and patch-format checks. No main runtime change, complete
+corpus gate or equivalent-work <=0.50 speed certificate follows.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
