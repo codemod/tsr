@@ -128,6 +128,38 @@ impl Suite for ModuleResolution {
     }
 }
 
+/// `module_resolution`, over each named configuration of a case whose
+/// directives vary ([`crate::Corpus::configured`]), against that
+/// configuration's own `case(<configuration>).trace.json`.
+///
+/// The judgement is [`ModuleResolution`]'s exactly; only the population
+/// differs, and it is its own row so the plain row's denominator does not move
+/// (ADR-0047, the mechanism `diagnostics_configured` uses).
+pub struct ModuleResolutionConfigured;
+
+impl Suite for ModuleResolutionConfigured {
+    fn name(&self) -> &'static str {
+        "module_resolution_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the module_resolution suite's judgement for each configuration upstream's runner \
+         compiles a configuration-varied case under, against that configuration's \
+         suffixed .trace.json"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.configuration.is_none() {
+            return Outcome::Skipped { reason: "not a named configuration".into() };
+        }
+        ModuleResolution.run(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
+    }
+}
+
 /// What kind of thing a baseline block resolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequestKind {
@@ -488,6 +520,53 @@ File '/src/a.ts' exists - use it as a name resolution result.
             ],
             "cases upstream ran with an empty trace"
         );
+    }
+}
+
+#[cfg(test)]
+mod configured_tests {
+    use crate::{Corpus, repo_root};
+
+    /// Every named configuration of a `@traceResolution` case lands in exactly
+    /// one bucket: its own suffixed `.trace.json` exists, upstream's runner
+    /// skips its options, or it traced nothing. The plain-run test above pins
+    /// the varied cases as one bucket; this pins what they expand into, so a
+    /// configuration whose baseline this enumeration cannot name would show up
+    /// as a fourth bucket rather than as a silent skip (ADR-0047).
+    #[test]
+    fn every_configured_trace_has_a_baseline_or_a_reason() {
+        let corpus = Corpus::from_repo_root(&repo_root());
+        if !corpus.is_available() {
+            return;
+        }
+        let cases = corpus.discover().expect("discovering cases");
+        let (mut judged, mut skipped_by_option, mut empty, mut unnamed) =
+            (0_usize, 0_usize, Vec::new(), Vec::new());
+        for case in Corpus::configured(&cases) {
+            let Ok(parsed) = case.load() else { continue };
+            if !parsed.options.contains_key("traceresolution") {
+                continue;
+            }
+            match crate::trace_case::prepare(&case) {
+                crate::trace_case::Setup::Ready(prepared) if prepared.expected.is_empty() => {
+                    empty.push(case.name.clone());
+                }
+                crate::trace_case::Setup::Ready(_) => judged += 1,
+                crate::trace_case::Setup::Skip(reason) if reason.contains("upstream skips") => {
+                    skipped_by_option += 1;
+                }
+                crate::trace_case::Setup::Skip(reason) => unnamed.push((case.name.clone(), reason)),
+            }
+        }
+        assert!(unnamed.is_empty(), "configurations skipped for another reason: {unnamed:#?}");
+        assert_eq!(
+            (judged, skipped_by_option, empty.len()),
+            (42, 0, 1),
+            "the configured trace buckets changed\n\nempty trace: {empty:#?}"
+        );
+        // Without `libReplacement` the lib files are not resolved through the
+        // module resolver, and this case imports nothing else.
+        assert_eq!(empty, ["compiler/libReplacement(libreplacement=false)"]);
     }
 }
 

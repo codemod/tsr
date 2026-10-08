@@ -138,16 +138,35 @@ pub fn prepare(case: &CaseEntry) -> Setup {
         );
     }
 
+    // A case whose directives vary (`// @moduleResolution: node16, nodenext`)
+    // is never compiled as itself: upstream traces each named configuration
+    // into its own `case(<configuration>).trace.json`, and those are judged
+    // by the `*_configured` rows, where `case.load()` has already applied the
+    // configuration's values (ADR-0047). Loaded as itself, its raw directive
+    // `node16, nodenext` would parse as unset — a compilation upstream never
+    // ran.
+    if case.is_expanded() {
+        return Setup::Skip(
+            "configuration-varied trace baselines, judged per configuration by \
+             module_resolution_configured and file_loader_configured"
+                .to_string(),
+        );
+    }
+
     let prepared = match prepare_loaded_compilation(&parsed) {
         CompilationSetup::Ready(prepared) => prepared,
         CompilationSetup::Skip(reason) => return Setup::Skip(reason),
     };
 
+    // For a named configuration `baseline_path` is the suffixed
+    // `case(<configuration>).trace.json`.
     let expected = if let Ok(expected) = std::fs::read_to_string(case.baseline_path("trace.json")) {
         expected
     } else {
         if case.baselines.has_variant(case.stem(), "trace.json") {
-            return Setup::Skip("configuration-varied trace baselines (bd tsr-bb4.1)".to_string());
+            return Setup::Skip(
+                "configuration-varied trace baselines this enumeration does not name".to_string(),
+            );
         }
         // Not skipped and no baseline means upstream ran the case and traced
         // *nothing*: `baseline.Run` deletes the reference file when the content
@@ -402,22 +421,20 @@ pub fn apply_test_directives(
     case: &TestCase,
     current_directory: &str,
 ) -> CompilerOptions {
+    // Every directive naming a declared option first, through the option
+    // table, as `SetOptionsFromTestConfig` does; the hand-written map below
+    // then re-applies the options it names over that, unchanged.
+    let base = apply_declared_directives(base, case, current_directory);
     let get = |name: &str| case.options.get(name).map(String::as_str);
     let tristate = |name: &str, base: Tristate| match get(name) {
         Some(value) if value.eq_ignore_ascii_case("true") => Tristate::True,
         Some(value) if value.eq_ignore_ascii_case("false") => Tristate::False,
         _ => base,
     };
-    let list = |name: &str| {
-        get(name).map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|part| !part.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-    };
+    // `getOptionValue`'s list arm: `ParseListTypeOption`, which trims the
+    // entries of an enum list (`lib`) and keeps a string list's entries as
+    // written — see [`parse_list_type_option`].
+    let list = |name: &str| get(name).map(|value| parse_list_type_option(name, value));
     // `rootDirs` and `typeRoots` are made absolute against the current directory
     // before the resolver ever sees them.
     let absolute_list = |name: &str| {
@@ -630,6 +647,118 @@ pub fn apply_test_directives(
         // `casedelta.rs` is what would show a missing one.
         ..base
     }
+}
+
+/// Apply every `// @name: value` directive that names a compiler option, through
+/// that option's own declaration (`harnessutil.SetOptionsFromTestConfig`,
+/// `getCommandLineOption`, `getOptionValue`, `tsoptions.ParseCompilerOptions`).
+///
+/// **Why this exists beside the hand-written map in [`apply_test_directives`].**
+/// Upstream's harness has no list of the directives it honours: it looks every
+/// directive name up, case-insensitively, in `tsoptions.OptionsDeclarations`
+/// (plus four harness-only booleans this port's table also declares) and hands
+/// the parsed value to the same setter a `tsconfig.json` key reaches. The map
+/// below names 70-odd options; the ones it does not name were *dropped* here —
+/// `moduleDetection`, `noPropertyAccessFromIndexSignature`,
+/// `noFallthroughCasesInSwitch`, `allowUmdGlobalAccess`, `erasableSyntaxOnly`,
+/// `emitDecoratorMetadata`, `noEmit`, `emitDeclarationOnly`, … — which is a
+/// harness cause the configuration-varied rows exposed (a `@moduleDetection:
+/// legacy, force` case compiled every configuration the same way).
+/// `docs/parity/notes/r5-variants2.md` §2 has the measurements.
+///
+/// Running the table first and the map over it keeps every option the map
+/// already handled exactly as it was (the map reads the directive again and
+/// overrides), so the change is confined to the options it dropped.
+///
+/// A value upstream would `t.Fatalf` on (a non-boolean for a boolean, an
+/// unknown enum key, an object-kind option) is left unapplied: upstream writes
+/// no baseline for such a case, so nothing here is judged against it.
+pub(crate) fn apply_declared_directives(
+    mut options: CompilerOptions,
+    case: &TestCase,
+    current_directory: &str,
+) -> CompilerOptions {
+    use tsr_tsoptions::{
+        declarations::{COMPILER_OPTIONS, OptionKind},
+        value::ConfigValue,
+    };
+
+    let absolute = |text: &str| get_normalized_absolute_path(text, current_directory);
+    for (name, value) in &case.options {
+        let Some(option) =
+            COMPILER_OPTIONS.iter().find(|option| option.name.eq_ignore_ascii_case(name))
+        else {
+            continue;
+        };
+        // `getOptionValue`, by the option's kind.
+        let converted = match option.kind {
+            OptionKind::String if option.is_file_path => ConfigValue::String(absolute(value)),
+            OptionKind::String | OptionKind::Enum => ConfigValue::String(value.clone()),
+            OptionKind::Number => match value.parse::<i32>() {
+                Ok(number) => ConfigValue::Number(f64::from(number)),
+                Err(_) => continue,
+            },
+            OptionKind::Boolean => match value.to_ascii_lowercase().as_str() {
+                "true" => ConfigValue::Bool(true),
+                "false" => ConfigValue::Bool(false),
+                _ => continue,
+            },
+            // `plugins`' elements are objects: "List of object is not yet
+            // supported" is a panic upstream.
+            OptionKind::List(_) if option.name == "plugins" => continue,
+            // `ParseListTypeOption`; a file-path list is made absolute entry
+            // by entry.
+            OptionKind::List(_) => ConfigValue::List(
+                parse_list_type_option(name, value)
+                    .into_iter()
+                    .map(|entry| {
+                        ConfigValue::String(if option.is_file_path {
+                            absolute(&entry)
+                        } else {
+                            entry
+                        })
+                    })
+                    .collect(),
+            ),
+            // "Object type options like 'paths' are not supported".
+            OptionKind::PathMap => continue,
+        };
+        (option.apply)(&mut options, &converted);
+    }
+    options
+}
+
+/// `tsoptions.ParseListTypeOption` over a directive's value, for the list
+/// option `name` (lowercased).
+///
+/// **A string list keeps its entries' whitespace.** The value as a whole is
+/// `TrimSpace`d, then split on `,`; an entry of a *string* list goes through
+/// `validateJsonOptionValue` as written and is dropped only when empty, while
+/// an entry of an *enum* list is trimmed (`strings.TrimFunc(v,
+/// IsWhiteSpaceLike)`) before `convertJsonOptionOfEnumType` looks it up. So
+/// `// @customConditions: webpack, browser` sets the conditions `webpack` and
+/// ` browser` — and the native trace records exactly that
+/// (`conformance/customConditions(…).trace.json`: `'webpack', ' browser'`).
+/// This harness trimmed every entry, and the two configured traces failed on
+/// it. Of upstream's list options only `lib` has enum elements
+/// (`declscompiler.go:350`); this port's table declares it as a string list,
+/// so the distinction is made by name here.
+///
+/// A value starting with `-` is the next command-line flag upstream, and an
+/// empty list here; the corpus has no such directive, but the rule is kept.
+#[must_use]
+pub fn parse_list_type_option(name: &str, value: &str) -> Vec<String> {
+    let value = value.trim();
+    if value.starts_with('-') || value.is_empty() {
+        return Vec::new();
+    }
+    let enum_elements = name.eq_ignore_ascii_case("lib");
+    value
+        .split(',')
+        .map(|entry| if enum_elements { entry.trim() } else { entry })
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn parse_module_resolution(value: &str) -> Option<ModuleResolutionKind> {
