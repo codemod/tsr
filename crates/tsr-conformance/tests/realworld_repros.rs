@@ -143,7 +143,6 @@ export const r: number = g(x, cb);
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: homomorphic mapped type over a union loses inherited generic-base members"]
 fn mapped_type_over_union_with_generic_base_member() {
     // `Mutable<HasContainerFlags>` in binder.ts; `Mutable<OLE>` alone is fine.
     check(
@@ -153,8 +152,9 @@ interface OLE extends Base<number> {}
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 declare const x: Mutable<OLE | Node>;
 export const n: Node = x;
+export const k: string = x.kind;
 ",
-        &[],
+        &[(7, 14, 2322)],
     );
 }
 
