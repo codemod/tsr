@@ -3640,11 +3640,22 @@ impl<'a> Checker<'a, '_> {
                     },
                     _ => None,
                 };
+                let spread = matches!(element, TypeNode::RestTypeNode(_));
+                let optional = matches!(element, TypeNode::OptionalTypeNode(_))
+                    || member.is_some_and(|member| member.question_token.is_some());
+                // getTypeFromOptionalTypeNode / getTypeFromNamedTupleTypeNode
+                // (checker.go:24206, :24170): addOptionality(t, isProperty,
+                // optional) on every non-rest optional element, as the
+                // non-variadic path below already does (tsr-2zk.16.79).
+                let resolved = if optional && !spread && self.strict_null_checks {
+                    self.get_optional_type(resolved, true)
+                } else {
+                    resolved
+                };
                 resolved_elements.push(crate::tuples::TupleElement {
                     r#type: resolved,
-                    spread: matches!(element, TypeNode::RestTypeNode(_)),
-                    optional: matches!(element, TypeNode::OptionalTypeNode(_))
-                        || member.is_some_and(|member| member.question_token.is_some()),
+                    spread,
+                    optional,
                     label: member.and_then(|member| member.name).map(|name| name.text.to_string()),
                 });
                 // A rest over a CONCRETE tuple splices — upstream expands it
@@ -3693,6 +3704,10 @@ impl<'a> Checker<'a, '_> {
                 let printed = if matches!(element, TypeNode::RestTypeNode(_)) {
                     let unaliased = self.without_alias(resolved);
                     self.type_to_string(unaliased)
+                } else if matches!(element, TypeNode::OptionalTypeNode(_)) {
+                    // The node builder's OptionalType node parenthesizes a
+                    // union operand: `(number | undefined)?`.
+                    self.optional_tuple_element_text(resolved)
                 } else {
                     self.type_to_string(resolved)
                 };
@@ -8580,6 +8595,7 @@ impl<'a> Checker<'a, '_> {
                     && types.iter().any(|&part| self.is_empty_anonymous_object_type(part)));
         if self.store.get(target).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
             || deferred_intersection
+            || self.is_generic_tuple_type(target)
             || self.is_generic_homomorphic_mapped_type(target)
             || self.mapped_types.get(&target).cloned().is_some_and(|info| {
                 info.name_type.is_some()

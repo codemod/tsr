@@ -130,6 +130,18 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isGenericTupleType` (checker.go:24904): a tuple whose target's combined
+    /// flags include `ElementFlagsVariadic`. After normalization a spread
+    /// element that is not a rest over an array-like is a generic `...T`.
+    pub(crate) fn is_generic_tuple_type(&mut self, id: TypeId) -> bool {
+        let Some((elements, _)) = self.variadic_tuple_elements.get(&id).cloned() else {
+            return false;
+        };
+        elements.iter().any(|element| {
+            element.spread && self.tuple_spread_array_element(element.r#type).is_none()
+        })
+    }
+
     /// Parentheses for a union/intersection under the optional tuple element
     /// node emitted by typeToTypeNode (internal/checker/nodebuilder.go).
     pub(crate) fn optional_tuple_element_text(&mut self, id: TypeId) -> String {
