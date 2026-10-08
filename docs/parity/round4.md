@@ -472,3 +472,44 @@ TS2741 is the largest single-code cluster after TS2322/TS2345/TS2339: 32 cases
 at the batch-F baseline, in `reportRelationError`'s head swap. Main's
 relate-report lane (`tsr-2zk.1`) last touched `.1.2` two days ago (5b1ed61c), so
 the box builds on that and stops if main resumes.
+
+## Round-4 wrap-up (2026-10-08, integration `405b55ce`)
+
+The round was closed at the user's request because the usage limit was near.
+Every box was told to stop, push a green state and report. Each report was
+integrated through the same gates: zero diagnostics/type-line losses, perf, and
+workspace tests. Final batches:
+
+- **Main merge** (`3f34e0da`, accepted): +29 diagnostics cases, +392 type lines,
+  all from main's work. Four ported pieces were duplicated on both sides; how
+  each was resolved is in `docs/parity/notes/main-merge-r4.md`.
+- **Batch G** (accepted at `405b55ce`): +22 diagnostics cases and +11 type
+  lines, with no losses. It integrates:
+  - final branches: r4-awaited (+2 measured diffs), r4-heritage (with its main
+    0ecbd92 resolution, +3 measured diffs), r4-rwfix (TS2591 diff),
+    r4-constraints (+relater diff), r4-variants, r4-operators2 (+comparable
+    type-parameter diff), r4-perf3, r4-index3, r4-mapped, r4-errorsplit;
+  - notes-only branches: r4-relater2 and r4-report.
+- **Batch G perf:** generic-imports read 1.073 at 21 samples and 1.038 at 41.
+  Two 61-sample runs read 1.046 and 0.994. Callgrind Ir on the
+  single-threaded run is 399,669,277 → 399,624,225 (−0.01%), so the read is
+  timing noise and the batch was accepted with that record.
+
+### Contract changes a later round must know
+
+- **r4-variants** (ADR-0047) adds per-configuration rows:
+  `checker_types_configured`, `diagnostics_configured` and
+  `binder_symbols_configured`.
+  - The plain rows keep their denominators.
+  - 754 plain diagnostics rows that native only compiles per configuration
+    left the plain dump.
+  - The type dump's TOTAL line now includes configured lines; split plain from
+    configured by the `(opt=val)` key suffix.
+- **r4-errorsplit:** `Intrinsics::native_error` (slot 2) is upstream's
+  `errorType`, and `Intrinsics::error` stays the port's gap.
+  - No producer answers `native_error` yet (step 2).
+  - The ADR that supersedes ADR-0038 must take **ADR-0048**, because r4-variants
+    used 0047.
+  - The writer's gap→`any` rewrites currently credit about 4,644 RIGHT lines
+    whose computed type is the port's gap. Narrowing those rewrites fails the
+    zero-loss gate by construction, so it needs an explicit decision.
