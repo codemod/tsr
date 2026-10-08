@@ -94,13 +94,24 @@ kept regardless of target, a variable only when
 for the suggestion walk) holds. The check then asks `resolve_name` and
 requires the same symbol, so an IIFE between that shadows the name declines.
 
-**The later-parameter arm stays where it is.** A later *parameter* is
-`parameter_self_reference.rs`'s, whose deferred-context test treats every
+**A parameter binding element's association is this check's too.** When
+the first associated declaration is a binding element of a parameter
+(`([c, d = c, e = e])`, `([f, g = f, h = i, i = f])`), upstream reports
+TS2372 when the resolved symbol is the element's own and TS2373 when it is a
+parameter-list name declared after it. `parameter_self_reference.rs` only
+ever associates a `Parameter` reached through its initializer, so these were
+reported by nobody; `check_parameter_reference_to_body_declaration` now takes
+a parameter-list candidate when (and only when) the association is a binding
+element, so the two checks never report the same use
+(`destructuringArrayBindingPatternAndAssignment3`, plain).
+
+**The later-parameter arm stays where it is.** A later *parameter* reached
+from a parameter is `parameter_self_reference.rs`'s, whose deferred-context test treats every
 class expression and function-like as deferred; this check excludes
 parameters so nothing is reported twice. `capturedParametersInInitializers2`
 (target=es2015) is that arm's remainder (`static c = x` in a class
 expression is *not* deferred upstream; `[x]` computed names are not either).
-Reported as an outside-file change (§7).
+Reported as an outside-file change.
 
 **Accepted.** `DeclarationNameToString` prints a binding pattern's source
 text; the checker has no source text, so the pattern is rebuilt from its
@@ -177,6 +188,14 @@ or a member of a class *expression*.
 
 ## 6. Measured
 
+**Second commit (binding-element arm of §2)**, against the first commit's
+dumps: diagnostics **+1** (`destructuringArrayBindingPatternAndAssignment3`,
+plain, the only row whose output changed), types unchanged, 0 lost. Perf
+new/old: domain-model 1.063 at 21 samples, **0.989 at 41**; generic-imports
+0.968.
+
+**First commit:**
+
 Frozen baseline `9cccd51` → §1-§5 together, unfiltered dumps
 (`diagverdictdump`, `verdictdump`):
 
@@ -204,19 +223,57 @@ Frozen baseline `9cccd51` → §1-§5 together, unfiltered dumps
 
 ## 7. Needed outside owned files (not made)
 
+Each was applied to a scratch tree on top of this lane's commits, measured
+with both unfiltered dumps, and reverted.
+
 - **TS2729 under `useDefineForClassFields` on an old target**
   (`initializationOrdering1(target=es2021,usedefineforclassfields=true)`,
   extra TS2729): `readonly_target.rs::emit_standard_class_fields` returns
   `standard_class_fields` and its comment says "the checker keeps no target";
   it does (`language_version`). Upstream's `GetEmitStandardClassFields`
   also requires `target >= ES2022`. Diff:
-  `docs/parity/notes/r5-classfields-ts2729-emit-standard.diff`.
+  `r5-classfields-ts2729-emit-standard.diff` (calls
+  `get_emit_standard_class_fields`). **Measured +1 row
+  (`initializationOrdering1(es2021,udcf=true)` EMPTY_WRONG → EMPTY_RIGHT),
+  0 lost on either dump.**
 - **`standard_class_fields` ignores an unset target.** `checker.rs`
   `apply_compiler_options` defaults it from `options.target >= ES2022`;
   upstream's `GetUseDefineForClassFields` reads `GetEmitScriptTarget()`,
-  which is ES2025 when `target` is unset. Measured separately (§8).
-- **TS2373 for a later parameter** (`capturedParametersInInitializers2`,
-  `capturedParametersInInitializers1`): `parameter_self_reference.rs`'s
-  `enclosing_parameter_initializer` treats every class expression and
-  function-like as deferred; `class_fields.rs::parameter_initializer_scope`
-  is upstream's `getIsDeferredContext` walk and could replace it.
+  which is ES2025 when `target` is unset. Diff:
+  `r5-classfields-use-define-default-target.diff`. **Measured 0 rows moved**
+  (together with the diff above, only that diff's row changed): every judged
+  compilation that reaches these checks names a target. Upstream's reading,
+  offered for faithfulness, not for a number.
+- **TS2373 for a later parameter** (`capturedParametersInInitializers1`,
+  `capturedParametersInInitializers2(target=es2015)`):
+  `parameter_self_reference.rs::enclosing_parameter_initializer` treats every
+  class expression and function-like as deferred, where upstream's
+  `getIsDeferredContext` keeps an IIFE, a static property and a computed
+  member name live. Diff: `r5-classfields-parameter-scope-walk.diff` — the
+  check takes its association from `class_fields.rs::parameter_initializer_scope`
+  (filtered to a `Parameter`; a binding element's is §2's) and the old walk
+  is deleted. **Measured on top of the second commit: +2 rows (both cases
+  above, WRONG → RIGHT, the only rows whose output changed), types
+  unchanged, 0 lost.**
+
+## 8. Remaining in the lane
+
+Of the 36 lane rows at the baseline, 30 convert with this lane's commits and
+2 more with the diffs in §7. Left:
+
+- `classUsedBeforeInitializedVariables(target=es2015)`: one missing TS2729
+  at `(class extends this.withinClassDeclarationExtension { })` inside a
+  property initializer. Hypothesis: `readonly_target.rs`'s
+  `property_of_access_for_use_before_init` resolves `this` in a class
+  expression's heritage clause against the class expression rather than the
+  enclosing class (upstream's `getThisContainer` passes the heritage clause
+  up to the property declaration). Not this lane's file.
+- `classStaticBlock6(target=es2015)`, `classStaticBlock26` ×2: TS18037
+  (`await` in a class static block, a grammar check) with TS2662/TS2815 and,
+  in `classStaticBlock26`, parser recovery codes (TS1005/1003/1109). Not
+  gated on target or class fields; the plain `classStaticBlock7` has the
+  same TS18037 gap.
+- `abstractPropertyNegative(target=es2015)`: TS2654/TS2676 (abstract
+  accessor pairing), not gated.
+- `optionalChainingInParameterBindingPattern.2(target=es2015)`: its TS2373
+  lines are now right; an extra TS2537 remains.

@@ -20,7 +20,8 @@ impl Checker<'_, '_> {
     }
 
     /// TS2373 — `Parameter '{0}' cannot reference identifier '{1}' declared
-    /// after it.` — for a name the function's **body** declares.
+    /// after it.` — for a name the function's **body** declares, and TS2372 /
+    /// TS2373 under a parameter binding element.
     ///
     /// `onSuccessfullyResolvedSymbol` (`checker.go:1850`-`:1858`) with the
     /// walk state of `NameResolver.Resolve` (`binder/nameresolver.go`): the
@@ -34,8 +35,10 @@ impl Checker<'_, '_> {
     /// `useOuterVariableScopeInParameter` is false — the function's
     /// parameters need a scope change (`requiresScopeChange`: a static field
     /// without standard class fields, `?.`/`??` below ES2020, an object rest
-    /// below ES2017). A later *parameter* is
-    /// [`Checker::check_parameter_self_reference`]'s. §1.
+    /// below ES2017). A parameter-list name reached from a parameter is
+    /// [`Checker::check_parameter_self_reference`]'s; reached from a parameter
+    /// binding element (`([c, e = e])`, `([h = i, i])`) it is this check's,
+    /// TS2372 when it is the element itself. §2.
     pub(crate) fn check_parameter_reference_to_body_declaration(
         &mut self,
         node: NodeId,
@@ -53,23 +56,35 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(value_declaration) = symbol.value_declaration else { return };
-        // A parameter of the same list is the self-reference check's.
-        if self.nodes.kind(value_declaration) == SyntaxKind::Parameter
-            || symbol.flags.contains(SymbolFlags::FUNCTION_SCOPED_VARIABLE)
-                && self
-                    .nodes
-                    .ancestors(value_declaration)
-                    .take_while(|&ancestor| ancestor != function)
-                    .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter)
-        {
+        let is_variable = symbol.flags.intersects(SymbolFlags::VARIABLE);
+        // A name the parameter list declares. With a parameter as the
+        // associated declaration that is [`Checker::check_parameter_self_reference`]'s;
+        // with a parameter binding element it is this check's, which that one
+        // never reaches.
+        let declared_by_parameters = self.nodes.kind(value_declaration) == SyntaxKind::Parameter
+            || self
+                .nodes
+                .ancestors(value_declaration)
+                .take_while(|&ancestor| ancestor != function)
+                .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter);
+        let through_binding_element = self.nodes.kind(associated) == SyntaxKind::BindingElement;
+        if declared_by_parameters && !through_binding_element {
             return;
         }
-        if symbol.flags.intersects(SymbolFlags::VARIABLE)
+        // `useOuterVariableScopeInParameter`: a body variable is passed over
+        // unless the parameters need a scope change.
+        if !declared_by_parameters
+            && is_variable
             && !self.declaration_requires_scope_change(function)
         {
             return;
         }
-        if self.nodes.span(value_declaration).start <= self.nodes.span(associated).start {
+        let refers_to_itself = through_binding_element
+            && self.binder.symbol_of(associated).map(|own| self.binder.merged_symbol(own))
+                == Some(candidate);
+        if !refers_to_itself
+            && self.nodes.span(value_declaration).start <= self.nodes.span(associated).start
+        {
             return;
         }
         // The walk above stands in for the resolver's; the symbol it found
@@ -91,19 +106,22 @@ impl Checker<'_, '_> {
         let name_text = self.binding_name_text(name);
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(
-            file,
+        // Upstream's `if` / `else if`: the declaration naming itself first.
+        let diagnostic = if refers_to_itself {
+            Diagnostic::with_args(&messages::PARAMETER_0_CANNOT_REFERENCE_ITSELF, span, [name_text])
+        } else {
             Diagnostic::with_args(
                 &messages::PARAMETER_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_AFTER_IT,
                 span,
                 [name_text, text.to_string()],
-            ),
-        );
+            )
+        };
+        self.report(file, diagnostic);
     }
 
     /// The associated declaration and the function-like whose parameter it
     /// belongs to, for a name read outside every deferred context between.
-    fn parameter_initializer_scope(&self, node: NodeId) -> Option<(NodeId, NodeId)> {
+    pub(crate) fn parameter_initializer_scope(&self, node: NodeId) -> Option<(NodeId, NodeId)> {
         let mut associated: Option<NodeId> = None;
         let mut last = node;
         for location in self.nodes.ancestors(node) {
