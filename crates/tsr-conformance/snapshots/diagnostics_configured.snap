@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 798/1089 (73.28%)
-Failed         : 291
+Passed         : 816/1089 (74.93%)
+Failed         : 273
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,9 +25,9 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 291 failures:
+First 100 of 273 failures:
 compiler/abstractPropertyNegative(target=es2015)
-  1 unexpected (first TS2610 at abstractPropertyNegative.ts(34,5)), 5 missing
+  5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
   2 missing (first TS1052 at accessorWithInitializer.ts(2,9))
 compiler/ambientWithStatements(alwaysstrict=true)

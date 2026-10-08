@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4470/5502 (81.24%)
-Failed         : 1032
+Passed         : 4488/5502 (81.57%)
+Failed         : 1014
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1032 failures:
+First 100 of 1014 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -60,8 +60,6 @@ compiler/assignmentToAnyArrayRestParameters
   1 missing (first TS2536 at assignmentToAnyArrayRestParameters.ts(18,16))
 compiler/assignmentToObjectAndFunction
   1 unexpected (first TS2322 at assignmentToObjectAndFunction.ts(8,5)), 2 missing
-compiler/asyncIteratorExtraParameters
-  2 missing (first TS2504 at asyncIteratorExtraParameters.ts(11,27))
 compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
 compiler/augmentExportEquals5
@@ -95,7 +93,7 @@ compiler/bindingPatternCannotBeOnlyInferenceSource
 compiler/bluebirdStaticThis
   1 unexpected (first TS2724 at bluebirdStaticThis.ts(22,51)), 2 missing
 compiler/builtinIterator
-  5 missing (first TS2511 at builtinIterator.ts(38,1))
+  7 missing (first TS2511 at builtinIterator.ts(38,1))
 compiler/cannotIndexGenericWritingError
   2 missing (first TS2862 at cannotIndexGenericWritingError.ts(4,5))
 compiler/capturedParametersInInitializers1
@@ -212,3 +210,5 @@ compiler/contextuallyTypedParametersWithInitializers1
   2 missing (first TS7006 at contextuallyTypedParametersWithInitializers1.ts(24,24))
 compiler/controlFlowArrayErrors
   8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
+compiler/controlFlowFunctionLikeCircular1
+  2 unexpected (first TS2456 at controlFlowFunctionLikeCircular_8.ts(5,10)), 11 missing

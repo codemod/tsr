@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1614/1928 (83.71%)
-Assertion lines: 72616/78552 (92.44%)  — a gradient, not a pass rate
-Failed         : 314
+Passed         : 1634/1928 (84.75%)
+Assertion lines: 72724/78552 (92.58%)  — a gradient, not a pass rate
+Failed         : 294
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 314 failures:
+First 100 of 294 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -139,9 +139,9 @@ compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
 compiler/iterableWithNeverAsUnionMember(target=esnext)
   iterableWithNeverAsUnionMember.ts: >el1 : any — expected >el1 : never
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)
-  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
+  /index.tsx: >Comp : () => import("@emotion/react/jsx-runtime/jsx-namespace").EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
-  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
+  /index.tsx: >Comp : () => import("@emotion/react/jsx-runtime/jsx-namespace").EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/jsxSpreadTag(target=es2015)
   /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
 compiler/jsxSpreadTag(target=esnext)
