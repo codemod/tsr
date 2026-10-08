@@ -2743,7 +2743,11 @@ impl<'a> Checker<'a, '_> {
     /// one, else its own export table (no `export *` walk, unlike
     /// [`Checker::get_export_of_module`]). Upstream's property read skips the
     /// global Object/Function augment; no name this is asked for can meet it.
-    fn resolve_export_by_name(&mut self, module: SymbolId, name: &str) -> Option<SymbolId> {
+    pub(crate) fn resolve_export_by_name(
+        &mut self,
+        module: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
         let export_equals = self.binder.symbols().get(module).exports.get("export=").copied();
         match export_equals {
             Some(export_equals) => {

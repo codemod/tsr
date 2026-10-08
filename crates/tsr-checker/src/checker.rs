@@ -703,6 +703,8 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
     /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
     pub(crate) isolated_modules: bool,
+    /// The options `module_format.rs` reads (`tsr-2zk.985`).
+    pub(crate) module_format_options: crate::module_format::ModuleFormatOptions,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -1495,6 +1497,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unreachable_code_is_error: false,
             preserve_const_enums: false,
             isolated_modules: false,
+            module_format_options: crate::module_format::ModuleFormatOptions::default(),
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
@@ -1780,6 +1783,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
         self.isolated_modules = options.get_isolated_modules();
+        self.module_format_options =
+            crate::module_format::ModuleFormatOptions::from_options(options);
 
         // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
         self.no_unchecked_side_effect_imports =
