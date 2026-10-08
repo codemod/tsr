@@ -450,3 +450,13 @@ tuple (has declarations, (file, position), name, id), so each symbol's walk
 runs once per sort instead of O(log n) times. The comparator itself uses the
 key; minimum searches keep calling it. Sorting fell from 1.8% to ~0.3% of
 checker 0.
+
+### §15.4 `best_name` copies a scope table only when it reaches it
+
+`best_name` (the `getAccessibleSymbolChain` scope walk) copied every scope's
+locals, every enclosing module's exports and the whole globals table into
+vectors before looking at the first one, although the innermost hit returns.
+It now records which tables exist (locals, exports, class-expression name,
+globals) in the same order and copies each when the loop reaches it, so a
+name found in its file's locals never copies globals. Iteration order within
+a table is the table's own, as before.

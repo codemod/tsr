@@ -4088,13 +4088,21 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// aliases, not an immediate answer, and the earlier declaration wins
     /// (`docs/parity/notes/type-refs.md` §3.3).
     pub(crate) fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<String> {
+        /// One scope table, copied only when the walk reaches it: a name found
+        /// in an inner scope never copies the outer ones (notably globals).
+        enum Table<'a> {
+            Locals(NodeId),
+            Exports(SymbolId),
+            ClassName(&'a str, SymbolId),
+            Globals,
+        }
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
-        let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
+        let mut tables: Vec<Table<'a>> = Vec::new();
         let mut current = Some(reference);
         while let Some(node) = current {
-            if let Some(locals) = self.binder.locals(node) {
-                tables.push(locals.iter().map(|(&name, &id)| (name, id)).collect());
+            if self.binder.locals(node).is_some() {
+                tables.push(Table::Locals(node));
             }
             // `someSymbolTableInScope` visits a namespace declaration's
             // exports immediately after its locals
@@ -4106,9 +4114,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile
             ) && let Some(module) = self.binder.symbol_of(node)
             {
-                let module = self.binder.merged_symbol(module);
-                let exports = &self.binder.symbols().get(module).exports;
-                tables.push(exports.iter().map(|(&name, &id)| (name, id)).collect());
+                tables.push(Table::Exports(self.binder.merged_symbol(module)));
             }
             // someSymbolTableInScope / getClassExpressionNameTable (native
             // symbolaccessibility.go:794): the private self-name is an AST
@@ -4119,12 +4125,30 @@ impl<'a, 'n> Checker<'a, 'n> {
                 && let Some(name) = class.name
                 && let Some(symbol) = self.binder.symbol_of(node)
             {
-                tables.push(vec![(name.text, symbol)]);
+                tables.push(Table::ClassName(name.text, symbol));
             }
             current = self.nodes.parent(node);
         }
-        tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
+        tables.push(Table::Globals);
+        let binder = self.binder;
         for table in tables {
+            let table: Vec<(&'a str, SymbolId)> = match table {
+                Table::Locals(node) => binder
+                    .locals(node)
+                    .into_iter()
+                    .flat_map(|locals| locals.iter())
+                    .map(|(&name, &id)| (name, id))
+                    .collect(),
+                Table::Exports(module) => binder
+                    .symbols()
+                    .get(module)
+                    .exports
+                    .iter()
+                    .map(|(&name, &id)| (name, id))
+                    .collect(),
+                Table::ClassName(name, symbol) => vec![(name, symbol)],
+                Table::Globals => binder.globals().iter().map(|(&name, &id)| (name, id)).collect(),
+            };
             let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
             if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
                 return Some(own.to_string());
