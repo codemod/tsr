@@ -98,9 +98,16 @@ impl<'a> Checker<'a, '_> {
                 return self.union_index_infos(&types);
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
+            // Native resolves the members of the intersection's apparent type,
+            // `getApparentTypeOfIntersectionType` (`checker.go:21796`), whose
+            // `getTypeWithThisArgument(.., needApparentType)` reads every
+            // constituent through `getApparentType`: the `string` of
+            // `string & { brand }` contributes `String`'s number index.
+            // `docs/parity/notes/r4-index3.md` §2.
             TypeData::Intersection { types, .. } => {
                 let mut infos: Vec<IndexInfo> = Vec::new();
                 for ty in types {
+                    let ty = self.apparent_type(ty);
                     for next in self.get_index_infos_of_type(ty)? {
                         if let Some(info) = infos.iter_mut().find(|info| info.key == next.key) {
                             info.value =
@@ -1009,13 +1016,14 @@ impl<'a> Checker<'a, '_> {
         let key = self.get_type_from_type_node(key);
         // `valueType := c.anyType` unless a type is written (`checker.go:19649`):
         // `[k: string];` is a string index of `any`, not no index.
+        // An `errorType` value still declares the key (`:19656` builds the
+        // info whatever `getTypeFromTypeNode` answered), so an access through
+        // it answers that value and never reaches TS7053's "no applicable
+        // index" arm. `docs/parity/notes/r4-index3.md` §1.
         let value = match signature.r#type {
             Some(value) => self.get_type_from_type_node(value),
             None => self.intrinsics.any,
         };
-        if value == self.intrinsics.error {
-            return Vec::new();
-        }
         let keys = match &self.store.get(key).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![key],
