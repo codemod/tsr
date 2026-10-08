@@ -42,6 +42,12 @@ pub(crate) struct PerfLinks {
     /// answers (`r4-perf2.md` §2).
     pub(crate) reference_member_types:
         FxHashMap<(TypeId, TypeId, TypeId), (Option<TypeId>, TypeId)>,
+    /// A class's or interface's instance property names, own members in
+    /// declaration order then each base's, de-duplicated: native
+    /// `resolveObjectTypeMembers` publishing the declared type's
+    /// `resolvedProperties`, read by name. Holds only decided answers
+    /// (`r4-perf2.md` §3).
+    pub(crate) structured_property_names: FxHashMap<SymbolId, Vec<String>>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
 }

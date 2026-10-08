@@ -123,3 +123,122 @@ inside an alias evaluation and one outside it (the admission rule), or one
 whose declared object type gains a type-parameter edge after the first read
 (rule 4).
 
+## §3 C2 — structured property-name lists (`PerfLinks::structured_property_names`)
+
+**Forcing measurement.** After C3, `get_property_names_of_type` was 9.41% and
+`collect_structured_property_names` 8.59% of inclusive Ir. 18,589 walks per
+run; each rebuilt the own-member list from the binder table, sorted it with
+`compare_symbols` (3.15% + 1.03% in the sort alone) and recursed into every
+base. Main callers: `Relater::is_pure_signature_type` (30,811 calls, 5.78%),
+`properties_related_to_with_optionals` (2.49%), `infer_from_members`.
+
+**Native operation.** `resolveStructuredTypeMembers` →
+`resolveObjectTypeMembers` (`checker.go:19106`) publishes a class's or
+interface's `resolvedProperties` once (own members, then
+`addInheritedMembers` per base); `getPropertiesOfType` reads them.
+
+**Identity and owner.** Key: the owning class or interface `SymbolId`
+(`TypeData::Named { members: Some(owner) }`). Value: the name list, own
+members in `compareSymbols` order then each base's, de-duplicated — exactly
+what the top-level walk returned. Private `Checker`, Program lifetime.
+
+**Publication.** Only from a top-level request (the `get_property_names_of_type`
+Named arm), and only when: admitted by `memo_frames` over the owner's
+declarations (bases need no check, r4-perf §2); the walk returned `true`
+(every base resolved; `base_symbols_of_ex` answering `None` is a gap and is
+recomputed); the walk met no cycle (`StructuredNamesWalk::cycle`, set when a
+base re-enters); and `signature_links_publishable`.
+
+**Read inside a walk.** A memoised walk reads a base's published list instead
+of walking the base. Exact: a published list met no cycle, so no symbol
+already on the walk can recur in the base's walk (that would be a cycle
+through the base), and every symbol the base's walk would skip as already
+visited has all its names in the list already; so appending the published
+list with de-duplication yields the same names in the same order as walking.
+An unadmitted request (`StructuredNamesWalk::uncached`) neither reads nor
+publishes.
+
+**Late-bound placeholder.** `late_bound_members_of` parks an empty list in
+its own cache (`late_bound_member_names`) while it computes, so a walk
+re-entered from inside that computation reads no late-bound names. Such a list
+must not be published (the unit test
+`active_late_bound_entry_does_not_complete_the_outer_name_list` pins this; the
+first build of this memo failed it). The placeholder is indistinguishable from
+a completed empty list, and that table is not this lane's, so the walk marks
+itself unsettled when an owner's entry is already present and empty *and* the
+owner declares a member with a computed property name
+(`declares_computed_member_name`, the shapes `late_bound_members_of`
+considers). An owner with no computed names cannot have late-bound members, so
+its empty entry is final. Cost: nothing measurable (Ir 3,088,001,352 →
+3,088,273,279).
+
+**Work boundary.** The walk (binder table, late-bound members, sort, bases).
+A hit is one hash lookup plus cloning the `Vec<String>` (1.18% Ir; consumers
+take ownership, and changing `get_property_names_of_type`'s return type would
+touch relater code this lane does not own).
+
+**Measured** (§1):
+
+| | Ir | Δ vs previous | Δ vs base |
+|---|---:|---:|---:|
+| C3 | 3,330,344,380 | — | −2.18% |
+| + C2, first build (published under a live placeholder; not shipped) | 3,088,001,352 | −7.28% | −9.29% |
+| + C2 as shipped | 3,088,273,279 | **−7.27%** | **−9.29%** |
+
+`get_property_names_of_type` inclusive 313.5 M → 76.7 M; 1,235 walks remain
+(18,589 before).
+
+**Corpus.** Both dumps `cmp`-identical to the base (run with C3+C2 as
+shipped).
+
+**Wall and CPU** (§1, 21 samples, medians; `self` is C3+C2 against the C3
+binary, `base` against `eec4b6b`, `tsgo` against native):
+
+| Project | self wall | self CPU | base CPU | vs tsgo wall | vs tsgo CPU |
+|---|---:|---:|---:|---:|---:|
+| generic-imports | 1.022 | 0.991 | 1.034, re-run at 41 samples: **1.000** | 109.8 / 95.4 ms (1.152) | 0.610 |
+| domain-model | 0.970 | 0.921 | 0.929 | 196.6 / 246.1 ms (**0.799**) | 0.504 |
+| domain-model-large | 0.975 | 0.956 | 0.937 | 791.7 / 942.8 ms (**0.840**) | 0.526 |
+
+generic-imports checks three files and does not reach this code; its row is
+the noise floor.
+
+**How we would know it is wrong.** A §5 loss; a class or interface whose
+property list differs between a first enumeration inside an alias evaluation
+and one outside it; or a class with computed-name members whose enumerated
+names lack a late-bound member (the placeholder rule above).
+
+## §4 Candidate 3 — `signature_candidates_of_named_type` per `(receiver, kind)`: refused
+
+Built as a third table keyed by the reference `TypeId` and kind, under C7's
+admission and publication gates (`r4-perf.md` §2), on top of C3+C2:
+
+| | Ir |
+|---|---:|
+| C3+C2 | 3,088,001,352 |
+| + receiver signature memo | 3,083,678,154 (−0.14%) |
+
+181,625 requests, 6,993 published lists; the function stayed at 2.51% Ir,
+of which `memo_frames` admission was 0.80% and the C7 memo read 0.46%. Most
+receivers' lists are empty or short, so the receiver mapper this memo skips
+was already cheap; what remains is the admission test every memo pays. A
+0.14% gain does not pay for a third table and its contract. **What would
+change this:** a cheaper admission test (§5), after which the remaining cost
+is the lookup itself.
+
+## §5 `memo_frames` admission cost: a hash-memo of its syntax facts refused
+
+After C3+C2, `memo_frames` is 1.38% self Ir (C3 adds 18,589 + ~52,000
+requests to C7/C9's). Tried: memoising each bound parameter's scope owners
+(`FxHashMap<SymbolId, Option<Vec<NodeId>>>`) and each `(owner, anchor)`
+enclosure answer (`FxHashMap<(NodeId, NodeId), bool>`). Ir rose: with the
+candidate-3 table present, 3,083,678,154 → 3,101,327,170 (+0.57%), and
+`memo_frames` grew from 44.9 M to 62.9 M. The parent walk is an array index
+per step and the owners lists are one to three nodes, so two hash probes cost
+more than the walk they replace. **What would change this:** a pre-order
+node-range table (r4-perf §3), which makes the enclosure test two integer
+comparisons without a hash.
+
+## §6 Wall versus CPU (candidate 4)
+
+Written after the measurements below; see the end of this file.
