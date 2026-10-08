@@ -379,3 +379,12 @@ patch). Second read-only triage pass on TypeScript's `src/compiler` and
 `src/services`, which hung before the relation cache. Also: the unmerged
 r3-misc branch (reserved-name gate, mergeSymbol alias-target error, ambient
 module position checks, flow-graph isPostSuperFlowNode) is merged in batch C.
+
+### r4-heritage (`tsr-2zk.939`, `.3.2`)
+
+Dispatched when `r4-index2` finished (7d4e420 TS2374 key-type grouping over
+merged declarations, b9dd8e2 TS7053 any-key arm; its tuple-number-index and
+class-expression patches are in batch D). Owns `heritage_conformance.rs` (no
+`main` commit since `b3cd078d`): interface index constraints once per symbol
+from the first checked declaration, no parse-error early return, and the
+TS2415/2416/2417/2420/2430 clusters. Not `tsr-2zk.3.6` (main's decls lane).

@@ -2561,11 +2561,24 @@ impl Checker<'_, '_> {
             SyntaxKind::DeleteExpression => return Some(self.intrinsics.undefined),
             _ => {}
         }
-        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`), restricted to a
-        // plain `x = e`. A destructuring default (`[x = 1] = y`) reaches the same
-        // upstream function by a different route and is not handled.
+        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`) for an
+        // assignment whose left operand is the target: `x = e` and the
+        // logical assignments `x ??= e`, `x ||= e`, `x &&= e`. The binder
+        // gives the logical forms an assignment flow node on the branch that
+        // evaluates `e` (`bindLogicalLikeExpression`), and upstream answers
+        // `getTypeOfExpression(right)` for every operator that reaches here.
+        // Compound operators (`+=`) never do: `getTypeAtFlowAssignment`
+        // returns the antecedent's type for them first. A destructuring
+        // default (`[x = 1] = y`) reaches the same upstream function by a
+        // different route and is not handled.
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
-        if binary.operator_token?.kind != SyntaxKind::EqualsToken {
+        if !matches!(
+            binary.operator_token?.kind,
+            SyntaxKind::EqualsToken
+                | SyntaxKind::QuestionQuestionEqualsToken
+                | SyntaxKind::BarBarEqualsToken
+                | SyntaxKind::AmpersandAmpersandEqualsToken
+        ) {
             return None;
         }
         if binary.left.and_then(|left| Node::from(left).node_id()) != Some(node) {

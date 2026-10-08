@@ -492,10 +492,11 @@ impl Checker<'_, '_> {
             }
         }
         let members = self.property_members(&properties);
+        let symbol = self.binder.symbol_of(attributes.node_id?);
         let ty = self.store.new_named(
             crate::flags::TypeFlags::OBJECT,
             crate::objects::render_object_type(&members),
-            None,
+            symbol,
         );
         if non_inferrable {
             self.non_inferrable_types.insert(ty);
