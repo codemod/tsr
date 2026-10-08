@@ -838,7 +838,7 @@ impl<'a> Checker<'a, '_> {
     /// inside a literal that has one, through the matching element whose own
     /// name is a nested pattern. Everything else is `None` and the members
     /// print exactly as before.
-    fn contextual_binding_pattern(
+    pub(crate) fn contextual_binding_pattern(
         &self,
         literal: tsr_ast::NodeId,
     ) -> Option<&'a tsr_ast::BindingPattern<'a>> {
@@ -998,7 +998,7 @@ impl<'a> Checker<'a, '_> {
     /// right of an assignment never enters a resolution for the left. That is
     /// what makes the arm safe to run here at all; §890–§892 spent three
     /// entries on re-entrancy of exactly this shape.
-    fn contextual_assignment_pattern(
+    pub(crate) fn contextual_assignment_pattern(
         &self,
         literal: tsr_ast::NodeId,
     ) -> Option<&'a tsr_ast::ObjectLiteralExpression<'a>> {

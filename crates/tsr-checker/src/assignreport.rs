@@ -735,6 +735,226 @@ impl<'a> Checker<'a, '_> {
         self.report_relation_failure(at, span, None, instantiation, return_type, None);
     }
 
+    /// `checkObjectLiteral`'s binding-pattern arm (`checker.go:13250`): a
+    /// literal whose contextual type is the implied type of an object binding
+    /// pattern (`contextualTypeHasPattern`, found by
+    /// `contextual_binding_pattern`) reports TS2353 at each property,
+    /// shorthand or method member whose symbol name the implied type lacks —
+    /// unless the pattern has a computed name that is not a property-name
+    /// literal (`ObjectLiteralPatternWithComputedProperties`) or a rest
+    /// element (the implied type's string index). The member's name is its
+    /// binder name: a computed name that is not a string or numeric literal
+    /// is `__computed`, which no implied property has, printed `[k]`. The
+    /// type printed is the implied type itself.
+    ///
+    /// `getContextualTypeForInitializerExpression` (`checker.go:29431`) gives
+    /// a declaration's own initializer the implied type only when the pattern
+    /// has elements; a nested literal's contextual type is the implied
+    /// property's (pattern) type whatever its arity. Run once per literal
+    /// from the check walk, as `checkObjectLiteral`'s result is cached. No
+    /// cache or side table.
+    pub(crate) fn check_object_literal_binding_pattern_members(&mut self, node: NodeId) {
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
+            return;
+        };
+        let Some(pattern) = self.contextual_binding_pattern(node) else {
+            self.check_object_literal_assignment_pattern_members(node, literal);
+            return;
+        };
+        let own_initializer = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::VariableDeclaration
+                    | SyntaxKind::Parameter
+                    | SyntaxKind::BindingElement
+            )
+        });
+        if own_initializer && pattern.elements.is_empty() {
+            return;
+        }
+        let mut implied_names = Vec::with_capacity(pattern.elements.len());
+        for element in pattern.elements {
+            if element.dot_dot_dot_token.is_some() {
+                return;
+            }
+            let name = match element.property_name {
+                Some(name) => {
+                    let Some(name) = name.node_id() else { return };
+                    match self.object_literal_member_name(name) {
+                        Ok(Some((text, _))) => text,
+                        Ok(None) | Err(()) => return,
+                    }
+                }
+                None => match element.name {
+                    Some(tsr_ast::BindingName::Identifier(identifier)) => {
+                        identifier.text.to_string()
+                    }
+                    _ => return,
+                },
+            };
+            implied_names.push(name);
+        }
+        let mut excess = Vec::new();
+        for property in literal.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    shorthand.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                _ => continue,
+            };
+            let Some(name) = name.node_id() else { return };
+            let Some((symbol_name, printed)) = self.object_literal_binder_name(name) else {
+                return;
+            };
+            if symbol_name.as_deref().is_none_or(|text| !implied_names.iter().any(|n| n == text)) {
+                excess.push((name, printed));
+            }
+        }
+        if excess.is_empty() {
+            return;
+        }
+        let Some(implied) = self.binding_pattern_implied_type(pattern) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let printed_type = self.type_to_string(implied);
+        for (at, printed) in excess {
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
+                    span,
+                    [printed, printed_type.clone()],
+                ),
+            );
+        }
+    }
+
+    /// The assignment half of `contextualTypeHasPattern`: the right of a
+    /// destructuring assignment is contextually typed by the left literal's
+    /// type, which `checkObjectLiteral` records in `patternForType` for an
+    /// assignment target (`checker.go:13212`), whatever its arity. Its
+    /// properties are the left members' names (a computed name by its
+    /// literal type); a computed name that is not a property-name literal
+    /// sets `ObjectLiteralPatternWithComputedProperties`, and a spread makes
+    /// the left's type a spread type with no pattern, so either ends the
+    /// check. Members are named and printed as in the binding arm.
+    fn check_object_literal_assignment_pattern_members(
+        &mut self,
+        node: NodeId,
+        literal: &tsr_ast::ObjectLiteralExpression<'a>,
+    ) {
+        let Some(pattern) = self.contextual_assignment_pattern(node) else { return };
+        let mut pattern_names = Vec::with_capacity(pattern.properties.len());
+        for property in pattern.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    shorthand.name
+                }
+                _ => return,
+            };
+            let Some(name) = name.node_id() else { return };
+            match self.object_literal_member_name(name) {
+                Ok(Some((text, _))) => pattern_names.push(text),
+                Ok(None) | Err(()) => return,
+            }
+        }
+        let mut excess = Vec::new();
+        for property in literal.properties {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    shorthand.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                _ => continue,
+            };
+            let Some(name) = name.node_id() else { return };
+            let Some((symbol_name, printed)) = self.object_literal_binder_name(name) else {
+                return;
+            };
+            if symbol_name.as_deref().is_none_or(|text| !pattern_names.iter().any(|n| n == text)) {
+                excess.push((name, printed));
+            }
+        }
+        if excess.is_empty() {
+            return;
+        }
+        let pattern_type =
+            self.check_expression(tsr_ast::Expression::ObjectLiteralExpression(pattern));
+        if self.is_gap(pattern_type) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let printed_type = self.type_to_string(pattern_type);
+        for (at, printed) in excess {
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
+                    span,
+                    [printed, printed_type.clone()],
+                ),
+            );
+        }
+    }
+
+    /// An object-literal member's binder name and its `symbolToString`
+    /// spelling: an identifier, string or numeric name binds its text (a
+    /// non-identifier string prints quoted). A computed name binds the text
+    /// of a string, template or numeric literal expression and anything else
+    /// binds `__computed` (`None` here); either way it prints as the written
+    /// expression in brackets (`["x"]`, `[k]`). `None` when the name cannot
+    /// be spelled (no source text, or a prefix operator other than a sign).
+    fn object_literal_binder_name(&self, name: NodeId) -> Option<(Option<String>, String)> {
+        if let Some(text) = self.written_member_name(name) {
+            let printed = if crate::symbols::is_identifier_text(&text)
+                || text.parse::<u64>().is_ok_and(|number| number.to_string() == text)
+            {
+                text.clone()
+            } else {
+                crate::printing::quote_ascii(&text)
+            };
+            return Some((Some(text), printed));
+        }
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return None;
+        };
+        let expression = computed.expression?.node_id()?;
+        let bound = match self.node_map.get(expression)? {
+            Node::StringLiteral(literal) => Some(literal.text.to_string()),
+            Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text.to_string()),
+            Node::NumericLiteral(literal) => Some(crate::printing::normalise_number(literal.text)),
+            // `ast.IsSignedNumericLiteral`: the operator's text and the number.
+            Node::PrefixUnaryExpression(unary) => {
+                let sign = match unary.operator.kind {
+                    SyntaxKind::MinusToken => "-",
+                    SyntaxKind::PlusToken => "+",
+                    _ => return None,
+                };
+                let Some(tsr_ast::Expression::NumericLiteral(number)) = unary.operand else {
+                    return None;
+                };
+                Some(format!("{sign}{}", crate::printing::normalise_number(number.text)))
+            }
+            _ => None,
+        };
+        let file = self.source_file_of_for_diagnostics(expression)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        let span = self.nodes.span(expression);
+        let written = text.get(span.start as usize..span.end as usize)?.trim();
+        Some((bound, format!("[{written}]")))
+    }
+
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
     /// against the function's **written** return annotation.
     ///
@@ -1554,6 +1774,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         span: tsr_core::Span,
         source: TypeId,
+        display_target: TypeId,
         target: TypeId,
         properties: &[String],
     ) -> MissingPropertyHead {
@@ -1568,12 +1789,12 @@ impl<'a> Checker<'a, '_> {
         }
         let chain_source = self.single_base_normalized(chain_source);
         let chain_target = self.single_base_normalized(target);
-        if chain_source == source && chain_target == target {
+        if chain_source == source && chain_target == display_target {
             return MissingPropertyHead::Suppressed;
         }
-        let displayed_source = self.assignability_source_for_error_display(source, target);
+        let displayed_source = self.assignability_source_for_error_display(source, display_target);
         if self.type_to_string(displayed_source) == self.type_to_string(chain_source)
-            && self.type_to_string(target) == self.type_to_string(chain_target)
+            && self.type_to_string(display_target) == self.type_to_string(chain_target)
         {
             return MissingPropertyHead::Suppressed;
         }
@@ -1827,23 +2048,50 @@ impl<'a> Checker<'a, '_> {
         // does for TS2322; a fresh literal keeps the written-key guard.
         // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
         // missing-property messages name the normalized target.
-        let normalized = self.no_infer_base_type(target).unwrap_or(target);
+        let (normalized, chain_target, display_target) =
+            self.relation_error_targets(source, target);
         if not_related
             && let Some(properties) = self
                 .missing_required_property(source, normalized)
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
             let MissingPropertyHead::Kept(chain) =
-                self.missing_property_chain(span, source, normalized, &properties)
+                self.missing_property_chain(span, source, chain_target, normalized, &properties)
             else {
                 self.report_missing_properties(file, span, source, normalized, &properties);
                 return true;
             };
-            self.report_argument_head(file, span, source, target, None, chain);
+            self.report_argument_head(file, span, source, display_target, None, chain);
             return true;
         }
-        self.report_argument_head(file, span, source, target, signature_error, None);
+        self.report_argument_head(file, span, source, display_target, signature_error, None);
         true
+    }
+
+    /// The pair `isRelatedToEx` (`relater.go:2600`) relates after its
+    /// normalization, and the target `reportErrorResults` (`relater.go:4705`)
+    /// displays. `getNormalizedType` (`relater.go:2619`) unwraps `NoInfer<T>`;
+    /// then a definitely non-nullable source against a union of `null` and/or
+    /// `undefined` plus one other type is related to that type alone
+    /// (`relater.go:2646`), so the missing-property messages name it. The
+    /// head shows the normalized target unless the original has an alias
+    /// (a union printed by its alias name), as `reportErrorResults` keeps
+    /// `originalTarget` then. Answers (related target, the target
+    /// `chainArgsMatch` compares, the head's printed target); a `NoInfer`
+    /// target keeps its original head, as before.
+    fn relation_error_targets(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> (TypeId, TypeId, TypeId) {
+        let normalized = self.no_infer_base_type(target).unwrap_or(target);
+        let Some(candidate) = self.non_nullable_union_candidate(source, normalized) else {
+            return (normalized, normalized, target);
+        };
+        let aliased =
+            matches!(self.type_of(normalized).data, TypeData::Union { symbol: Some(_), .. });
+        let display = if aliased { target } else { candidate };
+        (candidate, display, display)
     }
 
     /// `reportRelationError`'s TS2345 head (`relater.go:4751`) for
@@ -2011,18 +2259,33 @@ impl<'a> Checker<'a, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
         // missing-property messages name the normalized target.
-        let normalized = self.no_infer_base_type(target).unwrap_or(target);
+        let (normalized, chain_target, display_target) =
+            self.relation_error_targets(source, target);
+        let narrowed = normalized != self.no_infer_base_type(target).unwrap_or(target);
+        // A union literal's own machinery decided the excess question; once
+        // the target narrows to one type, the missing-property report is the
+        // plain one again (unless the excess check already failed).
+        let missing_property_report = union_literal.is_none() || (narrowed && !excess_failed);
         if REPORT_MISSING_REQUIRED_PROPERTY
-            && union_literal.is_none()
+            && missing_property_report
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            match self.missing_property_chain(span, source, normalized, &properties) {
+            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
                 MissingPropertyHead::Kept(chain) => {
-                    self.report_relation_head(at, file, span, source, target, head, None, chain);
+                    self.report_relation_head(
+                        at,
+                        file,
+                        span,
+                        source,
+                        display_target,
+                        head,
+                        None,
+                        chain,
+                    );
                 }
             }
             return true;
@@ -2055,20 +2318,38 @@ impl<'a> Checker<'a, '_> {
             return true;
         }
         if not_related
-            && union_literal.is_none()
+            && missing_property_report
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            match self.missing_property_chain(span, source, normalized, &properties) {
+            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
                 MissingPropertyHead::Kept(chain) => {
-                    self.report_relation_head(at, file, span, source, target, head, None, chain);
+                    self.report_relation_head(
+                        at,
+                        file,
+                        span,
+                        source,
+                        display_target,
+                        head,
+                        None,
+                        chain,
+                    );
                 }
             }
             return true;
         }
-        self.report_relation_head(at, file, span, source, target, head, signature_error, None);
+        self.report_relation_head(
+            at,
+            file,
+            span,
+            source,
+            display_target,
+            head,
+            signature_error,
+            None,
+        );
         true
     }
 
@@ -3321,7 +3602,26 @@ impl<'a> Checker<'a, '_> {
 
     /// A complete property-name list for an object type: the relation
     /// reporters' certified table, else `getPropertiesOfType`'s names.
+    ///
+    /// A function or constructor type literal (`() => any`) is an anonymous
+    /// type whose `__type` symbol holds only its signature, so
+    /// `resolveAnonymousTypeMembers` gives it no properties (the global
+    /// `Function` members are `getPropertyOfType`'s apparent-type fallback,
+    /// which `isKnownProperty`'s `getPropertyOfObjectType` does not take).
     fn certified_property_names(&mut self, t: TypeId) -> Option<Vec<String>> {
+        if let TypeData::Anonymous { symbol, .. } = self.type_of(t).data {
+            let declarations = &self.binder.symbols().get(symbol).declarations;
+            if !declarations.is_empty()
+                && declarations.iter().all(|&declaration| {
+                    matches!(
+                        self.nodes.kind(declaration),
+                        SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+                    )
+                })
+            {
+                return Some(Vec::new());
+            }
+        }
         match self.relation_property_table(t) {
             Some(table) => Some(table.into_iter().map(|(name, _)| name).collect()),
             None => self.get_property_names_of_type(t),

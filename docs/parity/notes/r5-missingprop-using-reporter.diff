@@ -1,0 +1,49 @@
+diff --git a/crates/tsr-checker/src/using_declaration.rs b/crates/tsr-checker/src/using_declaration.rs
+index 67a2480..00d4717 100644
+--- a/crates/tsr-checker/src/using_declaration.rs
++++ b/crates/tsr-checker/src/using_declaration.rs
+@@ -5,13 +5,12 @@
+ //! memoised expression type, the declared types of the global
+ //! `AsyncDisposable`/`Disposable` interfaces, the object-literal widening
+ //! `widenTypeForVariableLikeDeclaration` performs, and one assignability
+-//! relation per declaration.
++//! relation per declaration, reported through `assignreport.rs`'s reporter.
+ 
+ use tsr_ast::{Node, NodeId, SyntaxKind};
+-use tsr_diagnostics::{Diagnostic, Message, messages};
++use tsr_diagnostics::{Message, messages};
+ 
+ use crate::checker::Checker;
+-use crate::relater::{Relation, Ternary};
+ use crate::types::TypeId;
+ 
+ impl Checker<'_, '_> {
+@@ -73,21 +72,14 @@ impl Checker<'_, '_> {
+         // `getWidenedTypeWithContext`; the implicit-any report is off.
+         let source = self.widen_object_literal_freshness(initializer_type);
+         let target = self.get_union_type(&members);
+-        // Without `strictNullChecks` the union collapses to one interface, and
+-        // `reportRelationError` (`relater.go:4816`) then replaces the head
+-        // message with the relation's missing-property report (TS2741), whose
+-        // reporter is private to `assignreport.rs`. Declined there.
+-        if !self.store.get(target).flags.intersects(crate::flags::TypeFlags::UNION) {
+-            return;
+-        }
+-        if !self.assignability_pair_is_reportable(source, target)
+-            || self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
+-        {
+-            return;
+-        }
+-        let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
++        // `checkTypeAssignableTo` with the head message and no expression to
++        // elaborate: the shared reporter, so `reportRelationError`
++        // (`relater.go:4816`) replaces the head with the missing-property
++        // report (TS2741) when the chain names the same pair — without
++        // `strictNullChecks` the union is `Disposable` itself, and with it
++        // `isRelatedToEx` narrows a non-nullable source to `Disposable`.
+         let span = self.error_span(initializer_id);
+-        self.report(file, Diagnostic::new(message, span));
++        self.report_relation_failure(initializer_id, span, None, source, target, Some(message));
+     }
+ 
+     /// `getGlobalAsyncDisposableType` / `getGlobalDisposableType`
