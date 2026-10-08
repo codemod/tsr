@@ -1,7 +1,8 @@
-//! `checkYieldExpression`'s assignability check for `yield*`: the delegated
-//! iterable's iterated type against the annotation's yield type
-//! (`getYieldedTypeOfYieldExpression`, `checker.go:11019`). The expected
-//! texts are native tsgo's (vendor `5b1047d`) for the same source.
+//! Generator assignability: `checkYieldExpression`'s check for `yield*` (the
+//! delegated iterable's iterated type against the annotation's yield type,
+//! `getYieldedTypeOfYieldExpression`, `checker.go:11019`) and
+//! `checkSignatureDeclaration`'s generator arm (`checker.go:2757`). The
+//! expected texts are native tsgo's (vendor `5b1047d`) for the same source.
 
 use tsr_checker::{Checker, check::FileContext};
 use tsr_core::Arena;
@@ -85,4 +86,45 @@ fn yield_star_reports_the_element_union_at_the_operand() {
     let heads: Vec<(u32, &str)> =
         actual.iter().map(|(code, text)| (*code, text.lines().next().unwrap_or(""))).collect();
     assert_eq!(heads, [(2322, "Type 'Baz | Foo' is not assignable to type 'Foo'.")]);
+}
+
+#[test]
+fn a_void_generator_annotation_is_ts2505() {
+    let actual = diagnostics("function* g(): void { }\n");
+    assert_eq!(actual, [(2505, "A generator cannot have a 'void' type annotation.".to_string())]);
+}
+
+#[test]
+fn the_generator_instantiation_must_be_assignable_to_the_annotation() {
+    // generatorTypeCheck6: reported at the annotation.
+    let actual = diagnostics("function* g(): number { }\n");
+    assert_eq!(
+        actual,
+        [(
+            2322,
+            "Type 'Generator<any, any, unknown>' is not assignable to type 'number'.".to_string()
+        )]
+    );
+}
+
+#[test]
+fn an_annotation_the_instantiation_satisfies_is_silent() {
+    let actual = diagnostics(
+        "function* g(): Iterator<number> { yield 1; }\n\
+         function* h(): Generator<number, string, boolean> { return \"\"; }\n\
+         function* k(): {} { }\n",
+    );
+    assert_eq!(actual, []);
+}
+
+#[test]
+fn a_bodiless_generator_is_not_checked() {
+    // `FunctionFlagsInvalid`: an overload signature has no body, so only the
+    // grammar error (TS1222) is reported, not TS2322 at `number`.
+    let actual = diagnostics(
+        "function* g(): number;\n\
+         function* g(): any { }\n",
+    );
+    let codes: Vec<u32> = actual.iter().map(|(code, _)| *code).collect();
+    assert_eq!(codes, [1222]);
 }

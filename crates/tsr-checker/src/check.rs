@@ -998,6 +998,7 @@ impl Checker<'_, '_> {
         ) {
             self.check_all_code_paths_return_or_throw(node);
             self.check_async_function_return_type(node);
+            self.check_generator_return_annotation(node);
         }
         if matches!(
             typed,
