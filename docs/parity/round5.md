@@ -440,3 +440,20 @@ It also found that diagnostics anchored inside JSDoc comments are silently
 dropped: `source_file_of_for_diagnostics` dead-ends at the parentless JSDoc root.
 The faithful fix loses 36 rows until the JSDoc scope hop lands. Both the fix and
 the hop go to r5-jsdoc3.
+
+### r5-binperf finished; r5-symtab dispatched (`tsr-2zk.1047`)
+
+r5-binperf made three performance-only changes with byte-identical dumps:
+- the loader's two whole-tree walks are gated on parser source flags, as
+  upstream does;
+- registered tokens take a light bind path, and name_nodes became a Vec;
+- the diagnostics truncate in restore is skipped when there is nothing to drop.
+
+On generic-imports this cuts Ir by 8.1% and moves interleaved wall vs tsgo
+from 0.984 to 0.901. Domain-model is neutral within noise, at about 0.76–0.78,
+because half its wall is the checker.
+
+It refused symbol-table pre-sizing. reserve_rehash is 4.7M of the 7.6M insert
+Ir, but pre-sizing would change iteration order at 97 checker sites. Go's map
+order is randomized, so tsgo cannot depend on it. r5-symtab's ADR decides the
+representation.
