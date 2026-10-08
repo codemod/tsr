@@ -1221,7 +1221,13 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 .imports
                 .extend(tsr_parser::collect_jsdoc_import_references(file.jsdoc(), &self.nodes));
         }
-        self.resolve_imports_and_module_augmentations(index, references, is_external_module);
+        let jsx_import = self.jsx_runtime_import(file.file_references());
+        self.resolve_imports_and_module_augmentations(
+            index,
+            references,
+            is_external_module,
+            jsx_import,
+        );
         self.tasks[index].file = Some(file);
     }
 
@@ -1337,6 +1343,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         index: usize,
         references: tsr_parser::ExternalModuleReferences,
         is_external_module: bool,
+        jsx_import: Option<String>,
     ) {
         let file_name = self.tasks[index].file_name.clone();
         let metadata = self.tasks[index].metadata.clone();
@@ -1359,7 +1366,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             });
         }
         if is_js_file || file_extension_is(&file_name, EXTENSION_TSX) {
-            if let Some(jsx_import) = self.jsx_runtime_import() {
+            if let Some(jsx_import) = jsx_import {
                 specifiers.push(tsr_parser::ModuleSpecifier {
                     text: jsx_import,
                     pos: 0,
@@ -1723,21 +1730,27 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             )
     }
 
-    /// `ast.GetJSXRuntimeImport(ast.GetJSXImplicitImportBase(…))`.
-    ///
-    /// The `@jsxImportSource` and `@jsxRuntime` *pragmas* are not read: the
-    /// preamble scanner does not extract them yet, so a file overriding the
-    /// runtime per-file resolves the option's value instead.
-    fn jsx_runtime_import(&self) -> Option<String> {
+    /// `ast.GetJSXRuntimeImport(ast.GetJSXImplicitImportBase(options, file))`
+    /// (`utilities.go:2771`, `fileloader.go:551`): per file, so the
+    /// `@jsxImportSource` and `@jsxRuntime` pragmas choose the synthetic
+    /// import the checker's `getJSXRuntimeImportSpecifier` later reads
+    /// (`docs/parity/notes/r5-jsx3.md` §7).
+    fn jsx_runtime_import(&self, pragmas: &tsr_parser::FileReferences) -> Option<String> {
+        let runtime = pragmas.jsx_runtime.as_deref();
+        if runtime == Some("classic") {
+            return None;
+        }
         let automatic = matches!(self.options.jsx, JsxEmit::ReactJsx | JsxEmit::ReactJsxDev)
-            || !self.options.jsx_import_source.is_empty();
+            || !self.options.jsx_import_source.is_empty()
+            || pragmas.jsx_import_source.is_some()
+            || runtime == Some("automatic");
         if !automatic {
             return None;
         }
-        let base = if self.options.jsx_import_source.is_empty() {
-            "react"
-        } else {
-            &self.options.jsx_import_source
+        let base = match pragmas.jsx_import_source.as_deref() {
+            Some(source) if !source.is_empty() => source,
+            _ if !self.options.jsx_import_source.is_empty() => &self.options.jsx_import_source,
+            _ => "react",
         };
         let runtime = if self.options.jsx == JsxEmit::ReactJsxDev {
             "jsx-dev-runtime"

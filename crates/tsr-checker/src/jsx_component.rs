@@ -52,6 +52,7 @@ impl Checker<'_, '_> {
     ///   choice (calls lane);
     /// - an error return type or bound: `errorType` relates to everything.
     pub(crate) fn check_jsx_component_bound(&mut self, node: NodeId, typed: Node<'_>) {
+        self.check_jsx_runtime_module(node, typed);
         let tag = match typed {
             Node::JsxOpeningElement(element) => element.tag_name,
             Node::JsxSelfClosingElement(element) => element.tag_name,
