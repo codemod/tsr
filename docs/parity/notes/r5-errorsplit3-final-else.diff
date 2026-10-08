@@ -1,8 +1,125 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 1cd6e9e6..c7f30207 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2911,6 +2911,13 @@ impl Checker<'_, '_> {
+         // `any` answered here is an honest computation, not a failed one wearing
+         // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
+         // from those two adjacent upstream lines.
++        // ADR-0048: `resolveCallExpression` asks `isErrorType(apparentType)`
++        // before the untyped-call test (`checker.go:8516`) and answers
++        // `resolveErrorCall`, whose `unknownSignature` returns `errorType`
++        // (`checker.go:1043`): upstream's own error callee calls to itself.
++        if callee_type == self.intrinsics.native_error {
++            return callee_type;
++        }
+         if self.is_untyped_call_target(callee_type) {
+             bump(&COUNTERS.untyped_call);
+             return self.intrinsics.any;
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index b2713a1c..c415ca65 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -168,8 +168,6 @@ pub struct Checker<'a, 'n> {
+     /// Per-file memo: does the file contain import/export machinery? The
+     /// §31 gate (`checker-notes-narrow.md`).
+     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
+-    /// §784: the `CommonJS` half of the same cache.
+-    pub(crate) file_commonjs_machinery: FxHashMap<NodeId, bool>,
+     /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
+     pub(crate) global_this_type: Option<TypeId>,
+     /// One `unique symbol` per WRITTEN `unique symbol` type node
+@@ -1394,7 +1392,6 @@ impl<'a, 'n> Checker<'a, 'n> {
+             base_symbols: FxHashMap::default(),
+             interface_signatures: FxHashMap::default(),
+             file_import_machinery: FxHashMap::default(),
+-            file_commonjs_machinery: FxHashMap::default(),
+             global_this_type: None,
+             unique_symbol_nodes: FxHashMap::default(),
+             this_type_nodes: FxHashMap::default(),
 diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
-index e58732d5..e314d4b2 100644
+index e58732d5..210b6728 100644
 --- a/crates/tsr-checker/src/expressions.rs
 +++ b/crates/tsr-checker/src/expressions.rs
-@@ -970,11 +970,10 @@ impl Checker<'_, '_> {
+@@ -257,43 +257,6 @@ impl Checker<'_, '_> {
+         self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
+     }
+ 
+-    /// Whether the node's source file carries COMMONJS module machinery — a
+-    /// reference to `require`, `module` or `exports`. §784.
+-    ///
+-    /// The sibling [`Checker::file_has_import_machinery`] asks the same
+-    /// question — *can an unresolved name here be this port's own binding gap
+-    /// rather than the source's?* — but only over ES `import`/`export`
+-    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
+-    /// the shape `allowJs` corpora are written in.
+-    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
+-        let mut root = node;
+-        while let Some(parent) = self.nodes.parent(root) {
+-            root = parent;
+-        }
+-        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
+-            return cached;
+-        }
+-        let answer = self.node_map.get(root).is_none_or(|file| {
+-            let mut stack = vec![file];
+-            let mut children = Vec::new();
+-            let mut found = false;
+-            while let Some(current) = stack.pop() {
+-                if let Node::Identifier(identifier) = current
+-                    && matches!(identifier.text, "require" | "module" | "exports")
+-                {
+-                    found = true;
+-                    break;
+-                }
+-                children.clear();
+-                tsr_ast::push_children(current, &mut children);
+-                stack.extend(children.iter().copied());
+-            }
+-            found
+-        });
+-        self.file_commonjs_machinery.insert(root, answer);
+-        answer
+-    }
+-
+     /// Whether the node's source file carries any import/export declaration
+     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
+     pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
+@@ -944,25 +907,17 @@ impl Checker<'_, '_> {
+                         {
+                             return self.intrinsics.native_error;
+                         }
++                        // ADR-0048 (`r5-errorsplit3.md` §6): §784's JS
++                        // clause is gone. It sent an unresolved name in a JS
++                        // file without COMMONJS machinery to the gap because
++                        // the final `else`'s `any` stand-in was wrong there
++                        // (upstream reports TS2304 and records `errorType`);
++                        // with the final `else` answering `native_error`,
++                        // that file is the final `else`'s case exactly as a
++                        // TS file is.
+                         if anywhere.is_some()
+                             || node.text == "arguments"
+                             || self.file_has_import_machinery(id)
+-                            // §784: the JS half the §31 comment above already
+-                            // argues for but the gate never tested. A `.js`
+-                            // file is checked with `allowJs`, where upstream
+-                            // still reports TS2304 on an unresolved name and
+-                            // the oracle records `error` — so `any` is this
+-                            // port's own over-answer, not upstream's. The
+-                            // exception is a JS file carrying COMMONJS
+-                            // machinery: `require`/`module.exports` bring
+-                            // names into scope through roads this port only
+-                            // partly has, so an unresolved name THERE may be
+-                            // the port's miss, exactly as the ES-declaration
+-                            // test above allows. The ES-only detector cannot
+-                            // see them; measured at 11 RIGHT->GAP without
+-                            // this second half.
+-                            || (self.in_js_file(id)
+-                                && !self.file_has_commonjs_machinery(id))
+                         {
+                             self.intrinsics.error
+                         } else {
+@@ -970,11 +925,10 @@ impl Checker<'_, '_> {
                              // with no import machinery: `getResolvedSymbol`
                              // answers `unknownSymbol` and `checkIdentifier`
                              // returns `errorType` (`checker.go:11048`).
@@ -18,6 +135,19 @@ index e58732d5..e314d4b2 100644
                          }
                      }
                  }
+@@ -2332,6 +2286,12 @@ impl Checker<'_, '_> {
+         // `resolveNewExpression` (`checker.go:8593`): `new` through an `any`
+         // callee is the same untyped call the call arm answers
+         // (`resolveUntypedCall`, `checker.go:9902`).
++        // ADR-0048: `isErrorType(apparentType)` answers `resolveErrorCall`
++        // before the untyped `new` (`checker.go:8586`), and its
++        // `unknownSignature` returns `errorType`.
++        if callee_type == self.intrinsics.native_error {
++            return callee_type;
++        }
+         if self.is_untyped_call_target(callee_type) {
+             return self.intrinsics.any;
+         }
 diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
 index c0c756e2..cadae53f 100644
 --- a/crates/tsr-checker/src/members.rs
@@ -35,3 +165,144 @@ index c0c756e2..cadae53f 100644
          // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
          // to the lookup (`checker.go:11258`), and a chain link goes through
          // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is
+diff --git a/crates/tsr-checker/tests/narrowing.rs b/crates/tsr-checker/tests/narrowing.rs
+index 75731a23..186bf0ac 100644
+--- a/crates/tsr-checker/tests/narrowing.rs
++++ b/crates/tsr-checker/tests/narrowing.rs
+@@ -72,6 +72,12 @@ fn type_of_last_expression_with_null_checks(
+     let last = last_expression_statement(parsed.source_file.statements)
+         .expect("the fixture must end with an expression statement");
+     let id = checker.check_expression(last);
++    // ADR-0048: upstream's `errorType` prints `any` inside the checker and
++    // `error` through the baseline writer's intrinsic-name fast path; these
++    // fixtures pin the identity, so they read it the writer's way.
++    if id == checker.intrinsics().native_error {
++        return "error".to_string();
++    }
+     checker.type_to_string(id)
+ }
+ 
+diff --git a/crates/tsr-checker/tests/types.rs b/crates/tsr-checker/tests/types.rs
+index f1ffd3b8..47ab4b1c 100644
+--- a/crates/tsr-checker/tests/types.rs
++++ b/crates/tsr-checker/tests/types.rs
+@@ -448,7 +448,7 @@ fn a_cycle_through_two_symbols_resolves_instead_of_hanging() {
+ }
+ 
+ #[test]
+-fn an_unresolved_name_is_upstreams_any() {
++fn an_unresolved_name_is_upstreams_error_type() {
+     // The name outlived its truth at §31: upstream's TS2304 answer IS
+     // `errorType` printed `any`, and this port now answers the observable.
+     let arena = Arena::new();
+@@ -469,8 +469,10 @@ fn an_unresolved_name_is_upstreams_any() {
+     // OBSERVABLE is `any`, and this port answers the `any` intrinsic
+     // directly. The fixture's original claim (errorType, to keep gaps
+     // distinguishable) was ADR-0038's; §31 argues the boundary: this is
+-    // upstream's own deliberate error-answer, not a port failure.
+-    assert_eq!(id, checker.intrinsics().any);
++    // upstream's own deliberate error-answer, not a port failure. ADR-0048
++    // (`r5-errorsplit3.md` §6): the answer is that identity itself,
++    // `native_error`, no longer the `any` stand-in.
++    assert_eq!(id, checker.intrinsics().native_error);
+ }
+ 
+ #[test]
+diff --git a/crates/tsr-checker/tests/unresolved_identifier_in_js.rs b/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
+index 68e04218..6eb5ee73 100644
+--- a/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
++++ b/crates/tsr-checker/tests/unresolved_identifier_in_js.rs
+@@ -22,6 +22,15 @@
+ //! already excuses. [`Checker::file_has_import_machinery`] cannot see those,
+ //! because it looks for ES `import`/`export` DECLARATIONS and a `CommonJS` file
+ //! has none.
++//!
++//! **Superseded by ADR-0048 (`docs/parity/notes/r5-errorsplit3.md` §6).** The
++//! split above existed because the final `else` answered an `any` stand-in
++//! that was wrong for a JS file. With that arm answering upstream's own
++//! `errorType` identity (`native_error`), every file with no ES import
++//! machinery — TS, plain JS, `CommonJS` JS — gets the same answer, which is
++//! what native does (a probe of `var y = nosuch3;` beside `require("fs")`
++//! answers `GetErrorType()`). The fixtures now pin that identity; they read it
++//! as the baseline writer's fast path prints it, `error`.
+ 
+ use tsr_ast::{NodeFlags, Statement};
+ use tsr_checker::Checker;
+@@ -56,6 +65,9 @@ fn type_of_initializer(source: &str, javascript: bool) -> String {
+         .expect("one declaration");
+     let initializer = declaration.initializer.expect("an initializer");
+     let id = checker.check_expression(initializer);
++    if id == checker.intrinsics().native_error {
++        return "error".to_string();
++    }
+     checker.type_to_string(id)
+ }
+ 
+@@ -66,26 +78,24 @@ fn an_unresolved_identifier_in_a_plain_js_file_is_error() {
+     assert_eq!(type_of_initializer("var x = f;", true), "error");
+ }
+ 
+-/// The TS half is unchanged: with no machinery of any kind the gate still
+-/// answers `any`, because a TS file's unresolved name is upstream's TS2304 on
+-/// a source this port read in full.
++/// The TS half: with no machinery of any kind the name is upstream's TS2304
++/// on a source this port read in full, and the answer is its `errorType`.
+ #[test]
+-fn an_unresolved_identifier_in_a_plain_ts_file_is_still_any() {
+-    assert_eq!(type_of_initializer("var x = f;", false), "any");
++fn an_unresolved_identifier_in_a_plain_ts_file_is_error_too() {
++    assert_eq!(type_of_initializer("var x = f;", false), "error");
+ }
+ 
+-/// The measured exception. A `.js` file that binds names through `CommonJS` is
+-/// one whose unresolved names this port may itself be failing to bind, so it
+-/// keeps the `any` the §31 gate gives every other incompletely-read file.
+-/// Reverting [`Checker::file_has_commonjs_machinery`] reddens this and costs
+-/// 11 RIGHT->GAP on the corpus.
++/// The former exception. A `.js` file that binds names through `CommonJS`
++/// took the final `else`'s `any` stand-in; it now takes upstream's
++/// `errorType` like every file without ES import machinery (measured with
++/// zero losses, `r5-errorsplit3.md` §6).
+ #[test]
+-fn an_unresolved_identifier_in_a_commonjs_js_file_is_any() {
+-    assert_eq!(type_of_initializer("var lib = require('./lib');\nvar x = f;", true), "any");
++fn an_unresolved_identifier_in_a_commonjs_js_file_is_error() {
++    assert_eq!(type_of_initializer("var lib = require('./lib');\nvar x = f;", true), "error");
+ }
+ 
+-/// `module.exports` counts as the same machinery as `require`.
++/// `module.exports` is the same.
+ #[test]
+-fn module_exports_is_commonjs_machinery_too() {
+-    assert_eq!(type_of_initializer("module.exports = {};\nvar x = f;", true), "any");
++fn an_unresolved_identifier_beside_module_exports_is_error() {
++    assert_eq!(type_of_initializer("module.exports = {};\nvar x = f;", true), "error");
+ }
+diff --git a/crates/tsr-conformance/tests/reader_error_any.rs b/crates/tsr-conformance/tests/reader_error_any.rs
+index 0c81352a..0c101b6b 100644
+--- a/crates/tsr-conformance/tests/reader_error_any.rs
++++ b/crates/tsr-conformance/tests/reader_error_any.rs
+@@ -43,13 +43,16 @@ fn records(
+                 id,
+                 &mut false,
+             );
+-            let identity = if raw == checker.intrinsics().error {
+-                "error"
+-            } else if raw == checker.intrinsics().any {
+-                "any"
+-            } else {
+-                "concrete"
+-            };
++            // ADR-0048: either error identity, the port's gap or upstream's
++            // own `errorType` (`native_error`), is the computed error-any.
++            let identity =
++                if raw == checker.intrinsics().error || raw == checker.intrinsics().native_error {
++                    "error"
++                } else if raw == checker.intrinsics().any {
++                    "any"
++                } else {
++                    "concrete"
++                };
+             (assertion, identity)
+         })
+         .collect()
