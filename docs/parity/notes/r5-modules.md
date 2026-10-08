@@ -115,7 +115,20 @@ Left, with the piece each waits for:
   (the same `ast.IsImportMeta` walk, taken only when no statement is an
   indicator; `tsr-parser` is only a dev-dependency of the binder). Measured
   on the same population: `importMetaNarrowing` ×2 diagnostics EMPTY_WRONG →
-  EMPTY_RIGHT and 6 type lines WRONG → RIGHT, 2 WRONG → GAP, nothing else. After it, the narrowing of
+  EMPTY_RIGHT and 6 type lines WRONG → RIGHT, 2 WRONG → GAP, nothing else.
+  **Not landed: it costs.** Callgrind, single-threaded: generic-imports
+  399,702,651 → 409,833,872 instructions (+2.5%), domain-model
+  1,345,856,578 → 1,377,157,460 (+2.3%) — every script file is walked, and
+  `tsr_binder::is_external_module(&SourceFile)` is called again at eight
+  checker sites (`check.rs`, `checker.rs`), each paying the walk. The
+  parser's `PossiblyContainsImportMeta` flag (`NodeFlags::POSSIBLY_CONTAINS_IMPORT_META`
+  exists; the parser does not set it) does not fix that alone, because the
+  function receives no `NodeTable` to read it from. The shape that would:
+  the parser sets the flag in its `import.meta` arm; the binder computes
+  the module indicator once per file (statements, else the flag-gated walk)
+  and records it in `BindResult`; the eight checker call sites read that
+  record instead of recomputing. Those call sites are hub-file lines
+  outside this lane. After it, the narrowing of
   `import.meta.foo` is flow work (`isMatchingReference`'s `MetaProperty` arm,
   `flow.rs`, main's file).
 - **`new.target`'s type** (`checkNewTargetMetaProperty`'s return,
