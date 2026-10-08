@@ -4528,6 +4528,9 @@ impl Relater<'_, '_, '_> {
                 RelationResult::NotRelated
             };
         }
+        if let Some(answer) = self.generic_mapped_apparent_source_related_to(source, target) {
+            return answer;
+        }
         if let Some(answer) = self.tuples_related_to(source, target) {
             return answer;
         }
@@ -5717,6 +5720,73 @@ impl Relater<'_, '_, '_> {
         Some(self.is_related_to(source_element, target_element))
     }
 
+    /// `structuredTypeRelatedToWorker`'s apparent source (relater.go:3815)
+    /// for a generic homomorphic mapped type over an array- or
+    /// tuple-constrained `T`: `getResolvedApparentTypeOfMappedType` applies
+    /// the mapped type to that constraint (`apparent_mapped_type`), so
+    /// `{ [P in keyof T]: X }` with `T extends [number] | [string]` is a
+    /// union of mapped tuples. Against an array target the array case
+    /// (relater.go:3841) relates the number-index types when the target is
+    /// readonly and every constituent is an array or tuple, or when every
+    /// constituent is a mutable tuple. Otherwise a union apparent type is
+    /// not an object, so neither the structural nor the discriminated arm
+    /// applies and the worker ends False; a single apparent type is related
+    /// in the source's place. `None` when the source has no distinct
+    /// apparent type.
+    fn generic_mapped_apparent_source_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        if !self.checker.is_generic_homomorphic_mapped_type(source) {
+            return None;
+        }
+        let apparent = self.checker.apparent_mapped_type(source);
+        if apparent == source {
+            return None;
+        }
+        let parts = self.union_constituents(apparent);
+        if let Some(target_element) = self.checker.tuple_spread_array_element(target)
+            && !self.checker.type_of(target).flags.contains(TypeFlags::ANY)
+            && let Some(&(target_symbol, _)) = self.checker.type_reference_targets.get(&target)
+        {
+            let target_symbol = self.checker.binder.merged_symbol(target_symbol);
+            let readonly_target = self
+                .checker
+                .global_type_symbol("ReadonlyArray")
+                .is_some_and(|symbol| self.checker.binder.merged_symbol(symbol) == target_symbol);
+            let constituents = parts.clone().unwrap_or_else(|| vec![apparent]);
+            let mut every_array_or_tuple = true;
+            let mut every_mutable_tuple = true;
+            for &part in &constituents {
+                let tuple = self.checker.tuple_element_lists.contains_key(&part)
+                    || self.checker.variadic_tuple_elements.contains_key(&part);
+                let array = !tuple && self.checker.tuple_spread_array_element(part).is_some();
+                every_array_or_tuple &= tuple || array;
+                every_mutable_tuple &= tuple && !self.checker.tuple_is_readonly(part);
+            }
+            if (readonly_target && every_array_or_tuple) || every_mutable_tuple {
+                let mut elements = Vec::with_capacity(constituents.len());
+                for part in constituents {
+                    let element = match self.tuple_element_union(part) {
+                        Some(element) => Some(element),
+                        None => self.checker.tuple_spread_array_element(part),
+                    };
+                    let Some(element) = element else {
+                        return Some(RelationResult::Unknown);
+                    };
+                    elements.push(element);
+                }
+                let source_element = self.checker.get_union_type(&elements);
+                return Some(self.is_related_to(source_element, target_element));
+            }
+        }
+        if parts.is_some() {
+            return Some(RelationResult::NotRelated);
+        }
+        Some(self.is_related_to_with_flags(apparent, target, RecursionFlags::SOURCE))
+    }
+
     /// `getIndexTypeOfType(tuple, number)`: the union of a tuple's element
     /// types, with `undefined` for an optional element under strict null
     /// checks. `None` when a variadic tuple's union is not computed.
@@ -6779,6 +6849,27 @@ mod generic_key_tests {
             assert_eq!(checker.relate_ternary(s, target, Relation::Assignable), Ternary::Related);
             assert_eq!(
                 checker.relate_ternary(n, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
+        });
+    }
+
+    /// `docs/parity/notes/r5-relater6.md` §5: a generic homomorphic mapped
+    /// source over a tuple-constrained `T` relates through its apparent
+    /// type, the mapped tuples (relater.go:3815, :3841).
+    #[test]
+    fn a_homomorphic_mapped_source_over_tuples_meets_arrays_as_its_apparent_type() {
+        let source = r"type H<T> = { [P in keyof T]: T[P] extends string ? boolean : null };
+            interface Array<T> { [n: number]: T; length: number }
+            interface ReadonlyArray<T> { readonly [n: number]: T; readonly length: number }
+            function f<T extends [number] | [string], U extends [number] | readonly [string]>(
+                t: H<T>, u: H<U>, mutable: any[], readonly: readonly any[]) {}";
+        with_parameters(source, |checker, types| {
+            let [t, u, mutable, readonly] = types[..] else { panic!("four parameters") };
+            assert_eq!(checker.relate_ternary(t, mutable, Relation::Assignable), Ternary::Related);
+            assert_eq!(checker.relate_ternary(u, readonly, Relation::Assignable), Ternary::Related);
+            assert_eq!(
+                checker.relate_ternary(u, mutable, Relation::Assignable),
                 Ternary::NotRelated
             );
         });

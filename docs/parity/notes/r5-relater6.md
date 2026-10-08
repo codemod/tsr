@@ -430,3 +430,47 @@ Unit test: `relater.rs`
 `generic_key_tests::an_indexed_access_target_relates_through_its_write_constraint`
 (`string → R[K]` Related, `number → R[K]` NotRelated). On §2's commit the
 first answers `Unknown`.
+
+## 5. B16 — a homomorphic mapped source over a tuple-constrained `T`
+
+**Forcing constraint.** Before the structural arm,
+`structuredTypeRelatedToWorker` replaces the source by `getApparentType`
+(relater.go:3815). For a generic homomorphic mapped type, that is
+`getResolvedApparentTypeOfMappedType`. When every constituent of the
+modifiers type's base constraint is an array or tuple, the mapped type is
+applied to that constraint. So `{ [P in keyof T]: X }` with `T extends
+[number] | [string]` has the mapped tuples `[null] | [boolean]` as its
+apparent type.
+
+The array case (relater.go:3841) then relates its number-index type to an
+array target when:
+- the target is readonly and every constituent is an array or tuple; or
+- every constituent is a mutable tuple.
+
+Otherwise a union apparent type is not an object. Neither the structural
+nor the discriminated arm applies, and the worker ends False. The port
+walked the mapped type's own member table (`length`, `toString`, …)
+against the array's, and failed
+(`mappedTypeUnionConstrainTupleTreatedAsArrayLike`, three extra TS2322s).
+
+**Ported** (`generic_mapped_apparent_source_related_to`): `mapped.rs`'s
+`apparent_mapped_type` supplies the apparent type. The array case uses
+the port's tuple/array readers (`tuple_element_union`,
+`tuple_spread_array_element`, `tuple_is_readonly`). If none of the cases
+applies:
+- a union apparent type is NotRelated;
+- a single apparent type is related in the source's place.
+
+The arm sits before the tuple arms, which is native's order.
+
+**Measured** against §4's dumps, both loss checks empty:
+- `mappedTypeUnionConstrainTupleTreatedAsArrayLike` WRONG → RIGHT (its 3
+  extras are gone);
+- types unchanged.
+- `Ir`: generic-imports 342,944,726 → 342,966,309 (+0.006%); domain-model
+  1,197,029,508 → 1,196,501,747 (−0.04%). CLI output is identical.
+- Median child CPU (21 samples): 1.012 and 0.994.
+
+Unit test: `relater.rs`
+`generic_key_tests::a_homomorphic_mapped_source_over_tuples_meets_arrays_as_its_apparent_type`.
+On §4's commit it answers NotRelated for `H<T> → any[]`.
