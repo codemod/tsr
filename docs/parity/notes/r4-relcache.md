@@ -30,6 +30,19 @@ Perf gate, 21 samples, median child CPU new/old (wall new/old):
 domain-model 1.0019 (1.0115), generic-imports 0.9991 (1.0024),
 domain-model-large 0.9826 (1.0253); `diagnostics_match` true on all three.
 
+### Commit 2: `isTypeRelatedTo` entry read
+
+Corpus dumps byte-identical to the baseline again. Perf gate, 21 samples,
+median child CPU new/old (wall): domain-model 0.9796 (0.9993),
+generic-imports 0.9895 (0.9919), domain-model-large 0.9422 (0.9988).
+Callgrind, generated 100 modules: 4,405,146,014 Ir. `jsTyping`: 27.1/28.8 s
+(commit 1) → 24.6/24.7 s, interleaved runs, identical output.
+
+Counter run on `jsTyping` (temporary, not shipped): 8.8 M top-level relation
+calls; 1.28 M structured-walk entries, 1.03 M completed hits, 66 k `Unknown`
+structured results. The call volume comes from narrowing callers
+(`map_narrowing_type`, flow), which this lane does not own.
+
 ## Left in the lane
 
 - Generic-reference key equivalence (native `'g'` keys and the

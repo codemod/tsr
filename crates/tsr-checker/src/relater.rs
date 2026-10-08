@@ -706,6 +706,11 @@ impl Checker<'_, '_> {
         relation: Relation,
         report_errors: bool,
     ) -> (Ternary, Option<tsr_diagnostics::Diagnostic>) {
+        if !report_errors
+            && let Some(answer) = self.cached_object_relation(source, target, relation)
+        {
+            return (answer, None);
+        }
         let mut relater = Relater::new(self, relation, report_errors.then_some((source, target)));
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
@@ -723,6 +728,52 @@ impl Checker<'_, '_> {
             None
         };
         (answer, diagnostic)
+    }
+
+    /// `isTypeRelatedTo`'s completed-result read for two object types
+    /// (`relater.go:193`): before opening a walk, an object pair answers from
+    /// the relation's results under `IntersectionStateNone`.
+    ///
+    /// Equivalent to the walk it skips: `recursive_type_related_to` is the
+    /// only writer, it is reached only after `is_related_to_with_flags`'
+    /// arms decline the pair, and those arms read nothing but the pair, the
+    /// relation and the options [`crate::relation_cache::RelationResults`]
+    /// validates. For two object types that walk's normalizations reduce to
+    /// `get_regular_type_of_literal_type`, applied here; the variance-marker
+    /// pairs it answers first never reach the store. A framed walk
+    /// ([`Relater::new`]) does not read the store, and neither does this.
+    fn cached_object_relation(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+    ) -> Option<Ternary> {
+        if !self.alias_evaluation_bindings.is_empty() || self.mapped_template_depth != 0 {
+            return None;
+        }
+        let source = self.get_regular_type_of_literal_type(source);
+        let target = self.get_regular_type_of_literal_type(target);
+        if source == target
+            || !self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            || !self.type_of(target).flags.contains(TypeFlags::OBJECT)
+        {
+            return None;
+        }
+        self.relation_results.validate(self.relation_options());
+        Some(match self.relation_results.get(relation, (source, target, false))? {
+            CachedRelation::Succeeded => Ternary::Related,
+            CachedRelation::Failed => Ternary::NotRelated,
+        })
+    }
+
+    /// The options [`crate::relation_cache::RelationOptions`] names.
+    fn relation_options(&self) -> crate::relation_cache::RelationOptions {
+        [
+            self.strict_null_checks,
+            self.strict_function_types,
+            self.exact_optional_property_types,
+            self.no_implicit_any,
+        ]
     }
 
     /// The missing-property message `checkTypeRelatedToEx` would leave at the
@@ -1018,12 +1069,8 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
         let framed =
             !checker.alias_evaluation_bindings.is_empty() || checker.mapped_template_depth != 0;
         if !framed {
-            checker.relation_results.validate([
-                checker.strict_null_checks,
-                checker.strict_function_types,
-                checker.exact_optional_property_types,
-                checker.no_implicit_any,
-            ]);
+            let options = checker.relation_options();
+            checker.relation_results.validate(options);
         }
         Relater {
             checker,
@@ -4106,7 +4153,16 @@ mod relation_cache_tests {
                 checker.relation_results.get(Relation::Assignable, (a, e, false)),
                 Some(CachedRelation::Failed)
             );
-            // A repeat answers from the store.
+            // A repeat answers from the store, before a walk opens.
+            assert_eq!(
+                checker.cached_object_relation(a, c, Relation::Assignable),
+                Some(Ternary::Related)
+            );
+            assert_eq!(
+                checker.cached_object_relation(a, e, Relation::Assignable),
+                Some(Ternary::NotRelated)
+            );
+            assert_eq!(checker.cached_object_relation(c, a, Relation::Assignable), None);
             assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
             assert_eq!(checker.relate_ternary(a, e, Relation::Assignable), Ternary::NotRelated);
         });
@@ -4126,6 +4182,11 @@ mod relation_cache_tests {
             assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
             checker.mapped_template_depth -= 1;
             assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
+            // Nor does a framed entry read a frame-free result.
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            checker.mapped_template_depth += 1;
+            assert_eq!(checker.cached_object_relation(a, c, Relation::Assignable), None);
+            checker.mapped_template_depth -= 1;
         });
     }
 
@@ -4138,6 +4199,7 @@ mod relation_cache_tests {
             assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
             assert!(checker.relation_results.len(Relation::Assignable) > 0);
             checker.strict_function_types = !checker.strict_function_types;
+            assert_eq!(checker.cached_object_relation(a, c, Relation::Assignable), None);
             assert_eq!(checker.relate_ternary(c, c, Relation::Assignable), Ternary::Related);
             assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
         });

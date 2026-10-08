@@ -65,7 +65,8 @@ same deep declaration-type pairs (`Node`, `Declaration`, ... of
 | Publication | Unchanged from the per-walk rules above: `Related` and discharged `Maybe` scopes publish `Succeeded`; `NotRelated` publishes `Failed` ("false under assumptions is false without them"); `CircularVariance` and `Unknown` (unsupported work, depth refusal) never publish. A completed hit returns at once; an active assumption is still walk-local (`maybe_keys`). Native's `Reported`, `ComplexityOverflow`/`StackDepthOverflow` and `ReportsUnmeasurable`/`ReportsUnreliable` flags are not represented: the port has no `relationCount` budget, its depth refusal is an unpublished `Unknown`, and it propagates no reliability flags (`tsr-1yb.4.1.3`). |
 | Context frames | A walk opened while a conditional-alias evaluation frame (`alias_evaluation_bindings`) or a mapped-template frame (`mapped_template_depth`) is active reads member and template types through that frame, so its answers are not the frame-free pair's. Native has neither frame. Such a walk keeps a walk-local map (exactly the pre-change behavior) and neither reads nor publishes the checker store. Print frames (`render_type_parameter_*`) change names only and are not excluded. An open type resolution is not excluded either: native publishes under open resolutions too, and the corpus below is byte-identical. |
 | Diagnostics | Native re-runs a cached failure when it elaborates (`relater.go:3069`). The port elaborates only the direct pair's signature arity (`diagnostic_pair`), so a cached failure is re-run only for that pair; a cached success needs no elaboration. |
-| Expensive work | A hit skips the structured walk (`structured_type_related_to` and everything below it). Callgrind on `scripts/generate_perf_project.py --modules 100`: 4,530,691,360 → 4,416,164,874 instructions (−2.5%). |
+| Entry read | Native `isTypeRelatedTo` (`relater.go:193`) reads the results of two object types under `IntersectionStateNone` before it opens a walk. `Checker::cached_object_relation` ports it at the `relate_ternary` entry (not for the diagnostic pair, not in a frame). It is equivalent to the walk it skips: `recursive_type_related_to` is the store's only writer and is reached only after `is_related_to_with_flags`' arms decline the pair; those arms read only the pair, the relation and the validated options, and for two object types the walk's normalizations reduce to `get_regular_type_of_literal_type`, applied before the read. Variance-marker pairs are answered before the store is ever written. |
+| Expensive work | A hit skips the structured walk (`structured_type_related_to` and everything below it); an entry hit also skips `is_related_to_with_flags`' arms. Callgrind on `scripts/generate_perf_project.py --modules 100`: 4,530,691,360 → 4,416,164,874 instructions (−2.5%) with the store, 4,405,146,014 (−2.8%) with the entry read. On `jsTyping` a temporary counter (not shipped) saw 8.8 million top-level relation calls, 1.28 million structured-walk entries, 1.03 million of them completed hits, and 66,048 structured results `Unknown` (recomputed every time, as they may not publish). |
 
 **Alternatives rejected.** (1) Keying by native's `getRelationKey` string:
 needs the generic-reference equivalence audit (`tsr-1yb.4.1.4`) and a hash
@@ -97,7 +98,9 @@ and an option change discards results.
 **Outcome.** `jsTyping` and `typingsInstallerCore` (with `types: []`,
 because the submodule has no `@types/node` and native otherwise stops at
 TS2688 before checking) finish in 25.1 s and 24.9 s; native tsgo takes
-1.50 s and 1.57 s. TSR reports 875 diagnostics on each against native's 163
+1.50 s and 1.57 s. The entry read takes `jsTyping` from 27.1-28.8 s to
+24.6 s in an interleaved pair of runs on the same box (output
+byte-identical). TSR reports 875 diagnostics on each against native's 163
 and 169, with 56 location/code keys in common. TSR's largest extra codes are
 TS2339 (293), TS2345 (194), TS2769 (91) and TS18048 (79); native's largest
 code TSR lacks is TS6307 (77, project file list). The baseline never
