@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8223/9538 (86.21%)
-Assertion lines: 471229/478855 (98.41%)  — a gradient, not a pass rate
-Failed         : 1315
+Passed         : 8232/9538 (86.31%)
+Assertion lines: 471296/478855 (98.42%)  — a gradient, not a pass rate
+Failed         : 1306
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1315 failures:
+First 100 of 1306 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -42,7 +42,7 @@ compiler/allowJscheckJsTypeParameterNoCrash
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
 compiler/amdLikeInputDeclarationEmit
-  ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: unknown) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
+  ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: any) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : <TBase extends Constructor>(Base: TBase) => any — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
 compiler/arguments
@@ -67,8 +67,6 @@ compiler/arrowExpressionBodyJSDoc
   mytest.js: >{ ...value } : T | {} — expected >{ ...value } : {}
 compiler/arrowExpressionJs
   mytest.js: >{ ...value } : T | {} — expected >{ ...value } : {}
-compiler/arrowFunctionJSDocAnnotation
-  index.js: >param => param : (param: any) => any — expected >param => param : (param: number) => number | undefined
 compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: >c : any — expected >c : (x: any) => void
 compiler/assignmentToInstantiationExpression
@@ -213,3 +211,5 @@ compiler/conditionalTypeBasedContextualTypeReturnTypeWidening
   conditionalTypeBasedContextualTypeReturnTypeWidening.ts: >useState1 : error — expected >useState1 : <S>(initialState: (S extends (() => any) ? never : S) | (() => S)) => S
 compiler/conditionalTypeContextualTypeSimplificationsSuceeds
   conditionalTypeContextualTypeSimplificationsSuceeds.ts: >{ when: value => false } : error — expected >{ when: value => false } : { when: (value: string) => false; }
+compiler/conditionalTypeGenericInSignatureTypeParameterConstraint
+  conditionalTypeGenericInSignatureTypeParameterConstraint.ts: >H_inline1 : H_inline1<x> — expected >H_inline1 : x
