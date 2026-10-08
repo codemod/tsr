@@ -169,6 +169,35 @@ TS2552s, so the producer is the resolver, not this check. Median child CPU
 against the baseline binary at 21 samples: domain-model 0.965,
 generic-imports 0.977.
 
+## §7 TS2403: a circular initializer's `any` is upstream's `any` (diff)
+
+`conformance/witness` misses 7 TS2403 lines, all `Variable 'x' must be of
+type 'any', but here has type 'number'` (and one `{ m: any; }`) for
+`var co1 = (co1, 3); var co1: number;` and the like. Upstream's `any` is
+`reportCircularityError`'s (`checker.go:18822`): the variable's type
+resolution reaches itself and answers `anyType`. TSR reaches the same point,
+`report_circularity_error` in `symbols.rs`, and answers `any` too. But
+TS2403's `identity_side_is_trusted` (`check.rs`, `decls.md` §1) trusts an
+`any` only where it was written, because elsewhere this port's `any` is
+often "no better answer".
+
+The fix belongs to the producer, not to a syntax guess (`box-protocol.md`
+§3a). `r5-constraints2-circular-any-trust.diff` (`checker.rs`,
+`symbols.rs`, `check.rs`; none owned here):
+
+- `report_circularity_error` records the unannotated declaration in a new
+  `circular_any_declarations` set when it answers `any`;
+- `identity_side_is_trusted` trusts `any` for a variable or parameter
+  declaration in that set.
+
+It is limited to variables and parameters because the same fallback is
+too coarse for functions (`symbols.rs` §221: upstream keeps the signature
+and degrades only the return slot).
+
+Measured on top of the §6 commit, both dumps: diagnostics +1 case
+(`witness`, all 9 TS2403 lines with the baseline's messages), 0 lost; type
+lines 543,275 RIGHT, 0 lost.
+
 ## §8 Measurements
 
 Baseline: integration `2919d8c`, frozen dumps. Both loss checks empty unless
@@ -186,5 +215,58 @@ Diagnostics counts are over all dump keys (plain and configured). The §1
 diff measured with the full native skip (no namespace stop), on top of the
 committed `constraints.rs`: diagnostics +3 cases, type lines +89 RIGHT and 3
 lost (the `complexRecursiveCollections` lines of §1). With the namespace
-stop, diagnostics +2 (`nonPrimitiveInGeneric`, `nonPrimitiveStrictNull`), 0
-lost; its type-line numbers are in the final report.
+stop, measured on top of the §6 commit: diagnostics +2
+(`nonPrimitiveInGeneric`, `nonPrimitiveStrictNull`), 0 lost; type lines
+543,275 → 543,317 RIGHT (+42), 0 lost.
+
+## §9 Remaining clusters (plain keys, after the commits)
+
+TS2344, 19 cases still differ on it:
+
+- **Generic-pair relations, `relater.rs` (r5-relater4), about 11 cases.**
+  The pairs are an indexed-access source (`constraintWithIndexedAccess`), a
+  generic reference (`circularlyConstrained…`,
+  `reactReduxLikeDeferredInferenceAllowsAssignment`: `GetProps<C>` against
+  `Shared<…>`), `styledComponentsInstantiaionLimitNotReached`, a generic
+  target (`subclassThisTypeAssignable01`'s `Lifecycle<Attrs, State>`,
+  `genericDefaultsErrors`' `U extends T = number`), `complexRecursiveCollections`,
+  `variadicTuples1`, `instantiationExpressionErrorNoCrash` and
+  `tsxTypeArgumentResolution`. It also gives an extra TS2344 in
+  `relatedViaDiscriminatedTypeNoError2`. §4 measures the relater on these
+  pairs: wrong more often than right.
+- **JSDoc type nodes are not visited, 3 cases.** Upstream reparses `@type`,
+  `@extends` and `@template` into the tree and checks them with
+  `checkTypeReferenceNode`; TSR's `check_node` walk does not reach JSDoc type
+  expressions (`checkJsdocTypeTag4`, `extendsTag5`,
+  `unmetTypeConstraintInJSDocImportCall`). This needs the JSDoc walk in
+  `check.rs`/`jsdoc_annotations.rs`.
+- **Generic import types, 1 case.** `get_type_from_import_type_node`
+  (`declared.rs`) answers the error type for `import("./m").Foo<T>`, so
+  `checkImportType`'s constraint check has no type
+  (`unmetTypeConstraintInImportCall`).
+- **Call-site overloads, 3 cases, `calls.rs` (main, `.980`).**
+  `overloadResolution`, `…ClassConstructors` and `…Constructors` need
+  `chooseOverload`'s type-argument filtering across several candidates
+  (`candidateForTypeArgumentError` is the last candidate whose type
+  arguments failed). TSR only checks a single generic candidate
+  (`check_single_generic_candidate_arguments`). The same cases also miss the
+  TS2345s that this filtering produces.
+
+TS2403, 10 cases still differ on it (9 once the §7 diff lands):
+
+- **Enum against enum** (`typeOfEnumAndVarRedeclarations`, `typeof E`
+  against a written literal type whose members are `E`). The two-
+  representation decline in `identity.rs` stays until enum member literals
+  and the enum union are built consistently.
+- **Inferred operands judged by assignability** (`parserCastVersusArrowFunction1`'s
+  optional-parameter arrow, `objectLiteralContextualTyping`, `objectRest`,
+  `indexSignatureTypeInference`, `contextualSignatureInstantiation`'s
+  inferred `unknown`). The inferred side's producer is unsure (`decls.md`
+  §2) or answers the error type.
+- **Generic mapped identity** (`noExcessiveStackDepthError`'s
+  `FindConditions<any>` against `FindConditions<Entity>`). `identity.rs`
+  declines mapped types; the generic-mapped identity arm is unported.
+- `FunctionAndModuleWithSameNameAndCommonRoot` and `conditionalTypes1` were
+  not investigated.
+- The brief's witness `tsr-2zk.20` (`declare var Symbol: number`) already
+  reports at the baseline: `ES5SymbolProperty3`–`5` are RIGHT.
