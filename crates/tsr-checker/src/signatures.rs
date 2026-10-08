@@ -1105,6 +1105,39 @@ impl<'a> Checker<'a, '_> {
         visiting: &mut Vec<SymbolId>,
     ) -> Option<Vec<Signature>> {
         let symbol = self.binder.merged_symbol(symbol);
+        // Native resolves these once into the declared type's resolved
+        // members (`resolveObjectTypeMembers`); this port rebuilt them per
+        // query. A published list is exact for any `visiting`: it exists only
+        // when the symbol's own heritage walk met no cycle, and every symbol
+        // on the stack has `symbol` as an ancestor, so none can recur in its
+        // walk. Contract: `docs/parity/notes/r4-perf.md` §2.
+        let slot = crate::perf_links::signature_kind_slot(kind);
+        let Some(frames) = self.interface_signature_frames(symbol) else {
+            return self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        };
+        if let Some(cached) = self.perf_links.interface_signatures[slot].get(&symbol) {
+            let cached = cached.clone();
+            self.alias_evaluation_bindings = frames;
+            return Some(cached);
+        }
+        let publish = self.signature_links_publishable();
+        let computed = self.signature_candidates_of_interface_symbol_worker(symbol, kind, visiting);
+        self.alias_evaluation_bindings = frames;
+        let candidates = computed?;
+        if publish && self.signatures_decided(&candidates) {
+            self.perf_links.interface_signatures[slot].insert(symbol, candidates.clone());
+        }
+        Some(candidates)
+    }
+
+    /// [`Self::signature_candidates_of_interface_symbol`]'s computation for
+    /// the merged `symbol`, without the memo.
+    fn signature_candidates_of_interface_symbol_worker(
+        &mut self,
+        symbol: SymbolId,
+        kind: SignatureKind,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<Signature>> {
         if visiting.contains(&symbol) {
             return None;
         }
@@ -4169,6 +4202,26 @@ impl<'a> Checker<'a, '_> {
     /// are not in that list; an object-literal method is, and it is exactly
     /// the shape `may_return_never` already discriminates — the two facts are
     /// the same upstream boundary read off two fields.
+    /// `getContextualReturnType` (`checker.go:29665`) for an unannotated get
+    /// accessor: nil exactly when no accessor of the pair carries the type
+    /// annotation `getAnnotatedAccessorTypeNode` would read. A late-bound
+    /// (`__computed`) pair is split across symbols here (§523), so its
+    /// setter cannot be shown absent and the answer stays "not shown".
+    fn getter_takes_no_contextual_return(&self, getter: NodeId) -> bool {
+        if self.accessor_annotation(getter).is_some() {
+            return false;
+        }
+        let Some(symbol) = self.binder.symbol_of(getter) else { return false };
+        let symbol = self.binder.symbols().get(symbol);
+        if symbol.name == "__computed" {
+            return false;
+        }
+        symbol.declarations.iter().all(|&declaration| {
+            self.nodes.kind(declaration) != SyntaxKind::SetAccessor
+                || self.accessor_annotation(declaration).is_none()
+        })
+    }
+
     fn declaration_takes_no_contextual_return(
         &self,
         declaration: NodeId,
@@ -4712,6 +4765,17 @@ impl<'a> Checker<'a, '_> {
                         .is_some_and(|parts| parts.return_annotation.is_some())
                     {
                         return false;
+                    }
+                    // `getReturnTypeFromAnnotation`'s get-accessor arm reads
+                    // the paired SETTER's parameter annotation
+                    // (`getAnnotatedAccessorTypeNode`); without one, a getter
+                    // is neither a function expression, an arrow nor an
+                    // object-literal method, so
+                    // `getContextualSignatureForFunctionLikeDeclaration` is
+                    // nil and so is the return context
+                    // (`docs/parity/notes/r4-anyaudit.md` §3).
+                    if self.nodes.kind(owner) == SyntaxKind::GetAccessor {
+                        return self.getter_takes_no_contextual_return(owner);
                     }
                     return self.declaration_takes_no_contextual_return(owner, false);
                 }

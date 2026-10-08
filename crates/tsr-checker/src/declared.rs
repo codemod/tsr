@@ -164,7 +164,44 @@ impl<'a> Checker<'a, '_> {
 
     /// getTypeFromClassOrInterfaceReference / fillMissingTypeArguments for a
     /// heritage member lookup. Defaults see the arguments already supplied.
+    ///
+    /// Native computes a heritage reference's type once, into the derived
+    /// type's `resolvedBaseTypes` (`resolveBaseTypesOfInterface`,
+    /// `resolveBaseTypesOfClass`); this port asks per member lookup and keeps
+    /// decided answers in [`crate::perf_links::PerfLinks`]
+    /// (`docs/parity/notes/r4-perf.md` §3).
     pub(crate) fn instantiated_heritage_base(
+        &mut self,
+        base: SymbolId,
+        written_arguments: &[TypeNode<'a>],
+        location: Option<NodeId>,
+    ) -> Option<TypeId> {
+        let first = written_arguments.first().and_then(TypeNode::node_id);
+        if first.is_none() && !written_arguments.is_empty() {
+            return self.instantiated_heritage_base_worker(base, written_arguments, location);
+        }
+        let key = (base, location, first, written_arguments.len());
+        let binder = self.binder;
+        let anchors = &binder.symbols().get(base).declarations;
+        let Some(frames) = self.memo_frames(anchors, first.or(location)) else {
+            return self.instantiated_heritage_base_worker(base, written_arguments, location);
+        };
+        if let Some(&cached) = self.perf_links.heritage_bases.get(&key) {
+            self.alias_evaluation_bindings = frames;
+            return Some(cached);
+        }
+        let publish = self.signature_links_publishable();
+        let computed = self.instantiated_heritage_base_worker(base, written_arguments, location);
+        self.alias_evaluation_bindings = frames;
+        let ty = computed?;
+        if publish && !self.is_error(ty) {
+            self.perf_links.heritage_bases.insert(key, ty);
+        }
+        Some(ty)
+    }
+
+    /// [`Self::instantiated_heritage_base`]'s computation, without the memo.
+    fn instantiated_heritage_base_worker(
         &mut self,
         base: SymbolId,
         written_arguments: &[TypeNode<'a>],
@@ -2296,10 +2333,13 @@ impl<'a> Checker<'a, '_> {
             };
             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
             self.signature_types.insert(built, vec![signature]);
-            if alias.is_some() {
+            if let Some(alias) = alias {
                 // The alias name is the print; the site re-render that
                 // collapses the signature applies to an unaliased literal.
                 self.alias_named_signature_types.insert(built);
+                // ADR-0045 rule 2: the type-literal constructor records the
+                // alias `getAliasSymbolForTypeNode` answered (`Type.alias`).
+                self.alias_of.insert(built, (alias, Vec::new()));
             }
             return built;
         }

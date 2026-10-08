@@ -1886,6 +1886,78 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// The property symbol a member inherited through a GENERIC heritage
+    /// entry comes from, found by [`Self::generic_heritage_member`]'s walk
+    /// (each base instantiated, then the ordinary symbol road on it).
+    ///
+    /// Upstream's `getPropertyOfType` answers the instantiated symbol
+    /// (`instantiateSymbol`), which keeps the declaration's flags. This
+    /// answers the declaring symbol: its optional/readonly modifiers are the
+    /// same, its type is not instantiated, so only flag readers may use it —
+    /// which is why [`Self::get_property_of_type`] itself does not fall back
+    /// to it (`base_symbols_of`'s §202 refusal).
+    pub(crate) fn generic_heritage_property_symbol(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        if visiting.contains(&owner) {
+            return None;
+        }
+        visiting.push(owner);
+        let declarations: Vec<tsr_ast::NodeId> =
+            self.binder.symbols().get(owner).declarations.iter().copied().collect();
+        for declaration in declarations {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => continue,
+            };
+            for clause in clauses {
+                if clause.token.kind != tsr_ast::SyntaxKind::ExtendsKeyword {
+                    continue;
+                }
+                for entry in clause.types {
+                    let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else {
+                        continue;
+                    };
+                    if visiting.contains(&base) {
+                        continue;
+                    }
+                    let arguments = if entry.type_arguments.is_empty()
+                        && entry.node_id.is_some_and(|node| self.in_js_file(node))
+                    {
+                        entry
+                            .node_id
+                            .and_then(|node| self.jsdoc_augments_type_arguments(node))
+                            .unwrap_or(entry.type_arguments)
+                    } else {
+                        entry.type_arguments
+                    };
+                    let Some(base_type) =
+                        self.instantiated_heritage_base(base, arguments, entry.node_id)
+                    else {
+                        continue;
+                    };
+                    if let Some(property) = self.get_property_of_type(base_type, name) {
+                        return Some(property);
+                    }
+                    if let Some(property) =
+                        self.generic_heritage_property_symbol(base_type, name, visiting)
+                    {
+                        return Some(property);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Root declarations contributing an intersection property, corresponding
     /// to createUnionOrIntersectionProperty's distinct property set.
     pub(crate) fn intersection_property_symbols(
@@ -3598,7 +3670,31 @@ impl Checker<'_, '_> {
 
     /// resolveEntityName for the expression-shaped names in heritage clauses.
     /// Intermediate namespaces and imported aliases are resolved before exports.
+    ///
+    /// Native publishes the answer in the name's `links.resolvedSymbol`; this
+    /// port keeps resolved answers in [`crate::perf_links::PerfLinks`]
+    /// (`docs/parity/notes/r4-perf.md` §3). An unresolved answer may come
+    /// from an alias still resolving, so it is recomputed.
     pub(crate) fn heritage_entity_symbol(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let key = expression.node_id().map(|node| (node, meaning.bits()));
+        if let Some(key) = key
+            && let Some(&symbol) = self.perf_links.heritage_entity_symbols.get(&key)
+        {
+            return Some(symbol);
+        }
+        let symbol = self.heritage_entity_symbol_worker(expression, meaning)?;
+        if let Some(key) = key {
+            self.perf_links.heritage_entity_symbols.insert(key, symbol);
+        }
+        Some(symbol)
+    }
+
+    /// [`Self::heritage_entity_symbol`]'s resolution, without the memo.
+    fn heritage_entity_symbol_worker(
         &mut self,
         expression: tsr_ast::Expression<'_>,
         meaning: SymbolFlags,
