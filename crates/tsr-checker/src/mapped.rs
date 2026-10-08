@@ -683,14 +683,16 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// isTypeUsableAsPropertyName/getPropertyNameFromType (checker.go): a
-    /// string or number literal key names a property by its value. Native
-    /// also admits enum literals; that arm is held until flow names an
-    /// enum-member element access as tryGetNameFromEntityNameExpression does
-    /// (r5-mapped3.md §2).
+    /// string, number or enum literal key names a property by its value.
     fn mapped_key_property_name(&self, ty: TypeId) -> Option<String> {
-        use crate::types::TypeData;
+        use crate::types::{EnumLiteralValue, TypeData};
         match &self.store.get(ty).data {
-            TypeData::StringLiteral(name) | TypeData::NumberLiteral(name) => Some(name.clone()),
+            TypeData::StringLiteral(name)
+            | TypeData::NumberLiteral(name)
+            | TypeData::EnumLiteral {
+                value: EnumLiteralValue::String(name) | EnumLiteralValue::Number(name),
+                ..
+            } => Some(name.clone()),
             _ => None,
         }
     }
