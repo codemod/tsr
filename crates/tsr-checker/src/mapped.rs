@@ -505,6 +505,8 @@ impl<'a> Checker<'a, '_> {
             }
             // An open homomorphic map can enumerate an object constraint, but
             // an unsupported constraint is not a proven empty member table.
+            let composite =
+                self.store.get(source).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION);
             let names = if info
                 .modifiers_source
                 .is_some_and(|source| self.signature_parameter_type_is_generic(source))
@@ -515,16 +517,14 @@ impl<'a> Checker<'a, '_> {
                 // A complete name list is not that symbol image: generic
                 // composite modifiers still need represented property roots
                 // before this producer can publish mapped members. tsr-6.47.4.1.
-                if self
-                    .store
-                    .get(source)
-                    .flags
-                    .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+                if composite
                     && names.iter().any(|name| self.get_property_of_type(source, name).is_none())
                 {
                     return None;
                 }
                 names
+            } else if composite {
+                self.composite_modifiers_property_names(source)
             } else {
                 self.property_names_of(source)
             };
@@ -590,6 +590,45 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(keys)
+    }
+
+    /// getPropertiesOfUnionOrIntersectionType (checker.go:18861) for a
+    /// concrete composite modifiers type: candidate names come from each
+    /// constituent's own properties in order, and a name is kept when the
+    /// composite resolves it (getPropertyOfUnionOrIntersectionType, which
+    /// drops a union's partial properties). A union reads past its first
+    /// constituent only while constituents carry index signatures.
+    ///
+    /// `Readonly<string[] & { brand }>` reaches this through
+    /// instantiateAnonymousType, because isArrayOrTupleOrIntersection needs
+    /// every constituent to be an array or tuple. The certified enumeration
+    /// (`get_property_names_of_type`) declines on array methods that mention
+    /// `this`; names alone are all a key walk needs, since each member's value
+    /// is the template under its key (r4-mapped.md §2). Nothing is published
+    /// here: the caller's member image is the only table.
+    fn composite_modifiers_property_names(&mut self, source: TypeId) -> Vec<String> {
+        use crate::types::TypeData;
+        let (types, is_union) = match &self.store.get(source).data {
+            TypeData::Union { types, .. } => (types.clone(), true),
+            TypeData::Intersection { types, .. } => (types.clone(), false),
+            _ => return self.property_names_of(source),
+        };
+        let mut checked = rustc_hash::FxHashSet::default();
+        let mut names = Vec::new();
+        for part in types {
+            for name in self.property_names_of(part) {
+                if checked.insert(name.clone())
+                    && self.get_property_of_type(source, &name).is_some()
+                {
+                    names.push(name);
+                }
+            }
+            if is_union && self.get_index_infos_of_type(part).is_some_and(|infos| infos.is_empty())
+            {
+                break;
+            }
+        }
+        names
     }
 
     fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
