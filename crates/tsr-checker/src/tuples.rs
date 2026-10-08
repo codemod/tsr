@@ -153,7 +153,7 @@ impl Checker<'_, '_> {
     /// parameter's base constraint (`internal/checker/checker.go`).
     pub(crate) fn tuple_array_like(&mut self, id: TypeId) -> bool {
         fn visit(checker: &mut Checker<'_, '_>, id: TypeId, seen: &mut Vec<TypeId>) -> bool {
-            if seen.contains(&id) || checker.is_error(id) {
+            if seen.contains(&id) || checker.is_gap(id) {
                 return false;
             }
             if checker.tuple_element_lists.contains_key(&id)
@@ -294,7 +294,13 @@ impl Checker<'_, '_> {
         }
         let mut normalized = Vec::new();
         for mut element in elements {
-            if element.spread && element.r#type == self.intrinsics.any {
+            // `TupleNormalizer`: an any-flagged Variadic becomes a Rest of
+            // itself (`checker.go:23372`); upstream's `errorType` included
+            // (ADR-0048).
+            if element.spread
+                && (element.r#type == self.intrinsics.any
+                    || element.r#type == self.intrinsics.native_error)
+            {
                 let Some(array) = self.global_type_symbol("Array") else {
                     return self.intrinsics.error;
                 };
@@ -643,7 +649,7 @@ impl Checker<'_, '_> {
         }
         let Some(prop_name) = self.property_name_from_index(index_type) else { return };
         let object_type = self.get_type_from_type_node(object_node);
-        if self.is_error(object_type) {
+        if self.is_gap(object_type) {
             return;
         }
         self.report_tuple_index_out_of_bounds(object_type, &prop_name, index_id);
@@ -672,7 +678,7 @@ impl Checker<'_, '_> {
         };
         let Some(holder) = self.nodes.parent(pattern_id) else { return };
         let parent_type = self.get_type_for_binding_element_parent(holder);
-        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+        if self.is_type_any(parent_type) {
             return;
         }
         let parent_type = self.destructuring_parent_adjusted(node, holder, parent_type);

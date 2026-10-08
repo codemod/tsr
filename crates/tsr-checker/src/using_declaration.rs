@@ -97,7 +97,7 @@ impl Checker<'_, '_> {
     fn global_disposable_type(&mut self, name: &str) -> Option<TypeId> {
         let symbol = self.global_type_symbol_with_arity(name, 0)?;
         let declared = self.get_declared_type_of_symbol(symbol);
-        (!self.is_error(declared)).then_some(declared)
+        (!self.is_gap(declared)).then_some(declared)
     }
 
     /// Is this `USING` list an `await using` one (`NodeFlagsAwaitUsing`,

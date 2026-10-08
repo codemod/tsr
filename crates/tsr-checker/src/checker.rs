@@ -4431,10 +4431,42 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// Both of the port's error identities answer true (ADR-0048): its gap
     /// ([`Intrinsics::error`](crate::Intrinsics)) and upstream's own
     /// `errorType` ([`Intrinsics::native_error`](crate::Intrinsics)).
+    ///
+    /// This is upstream's `isErrorType` (`checker.go:26638`: `errorType`, or an
+    /// any-flagged type with an alias — this port's `unresolved_types`) with
+    /// the gap counted in, because the gap stands where upstream may have
+    /// answered `errorType`. A caller that mirrors native `isErrorType` uses
+    /// this; a caller that only means "the port computed nothing" uses
+    /// [`Checker::is_gap`]; one that mirrors `IsTypeAny` uses
+    /// [`Checker::is_type_any`]. The audit that sorted the call sites is
+    /// `docs/parity/notes/r5-errorsplit3.md` §2.
     pub(crate) fn is_error(&self, id: TypeId) -> bool {
         id == self.intrinsics.error
             || id == self.intrinsics.native_error
             || self.unresolved_types.contains(&id)
+    }
+
+    /// Whether a type is the port's gap: "this port could not compute it".
+    ///
+    /// No upstream counterpart, by construction: a caller asking this declines
+    /// where upstream has no test, and upstream's `errorType` and unresolved
+    /// references flow past it like any other any-flagged type (ADR-0048).
+    ///
+    /// The deferred mints count as the gap: the `keyof T` and `T[K]` types
+    /// this port mints as an OBJECT-flagged `Named` in
+    /// [`Checker::unresolved_types`] ([`Checker::deferred_keyof_types`], the
+    /// declared-index mints) are its placeholder for an index or indexed-access
+    /// type it does not represent, not anything upstream computes. Upstream's
+    /// own unresolved reference is any-flagged with an alias
+    /// (`checker.go:26641`), which is exactly the any-flagged members of that
+    /// set. Measured: `keyofAndForIn` and the three
+    /// `declarationEmitOptionalMappedTypePropertyNoStrictNullChecks` cases
+    /// report spuriously when the mints stop declining
+    /// (`docs/parity/notes/r5-errorsplit3.md` §3).
+    pub(crate) fn is_gap(&self, id: TypeId) -> bool {
+        id == self.intrinsics.error
+            || (self.unresolved_types.contains(&id)
+                && !self.store.get(id).flags.intersects(crate::flags::TypeFlags::ANY))
     }
 
     /// The error a union or intersection answers once `constituent`, an error

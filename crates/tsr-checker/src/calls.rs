@@ -661,7 +661,7 @@ impl Checker<'_, '_> {
             // property or an unresolved module is upstream's `errorType`,
             // which reports nothing; only a written `any` is the same claim.
             if self.store.get(func_type).flags.intersects(TypeFlags::ANY)
-                && !self.is_error(func_type)
+                && !self.is_gap(func_type)
                 && !self.untyped_any_is_written(callee)
             {
                 return CallHead::Unknown;
@@ -999,7 +999,7 @@ impl Checker<'_, '_> {
         if let Some(template) = written.template {
             let Some(strings) = self.global_template_strings_array_type() else { return };
             let Some(target) = self.signature_type_at_position(signature, 0) else { return };
-            if self.is_error(target) || self.report_argument_failure(template, strings, target) {
+            if self.is_gap(target) || self.report_argument_failure(template, strings, target) {
                 return;
             }
         }
@@ -1009,7 +1009,7 @@ impl Checker<'_, '_> {
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return;
             };
-            if self.is_error(target) {
+            if self.is_gap(target) {
                 return;
             }
             if self.argument_type_is_not_upstreams(*argument) {
@@ -1211,7 +1211,7 @@ impl Checker<'_, '_> {
                 let Some(target) = self.signature_type_at_position(candidate, 0) else {
                     return false;
                 };
-                if self.is_error(target) {
+                if self.is_gap(target) {
                     return false;
                 }
                 match self.relate_ternary(strings, target, Relation::Assignable) {
@@ -1228,7 +1228,7 @@ impl Checker<'_, '_> {
                 let Some(target) = self.signature_type_at_position(candidate, position) else {
                     return false;
                 };
-                if self.is_error(target) {
+                if self.is_gap(target) {
                     return false;
                 }
                 let source = self.check_expression(*argument);
@@ -1327,7 +1327,7 @@ impl Checker<'_, '_> {
         for (position, argument) in arguments.iter().enumerate() {
             let Some(argument_id) = argument.node_id() else { break };
             let Some(target) = self.signature_type_at_position(&last, position) else { break };
-            if self.is_error(target) {
+            if self.is_gap(target) {
                 break;
             }
             let checked = failure.checked.get(position).copied().flatten();
@@ -1611,7 +1611,7 @@ impl Checker<'_, '_> {
                     None => self.intrinsics.unknown,
                 },
             };
-            if self.is_error(argument) {
+            if self.is_gap(argument) {
                 return None;
             }
             map.push((parameter, argument));
@@ -1622,7 +1622,7 @@ impl Checker<'_, '_> {
             };
             let target = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
-            if self.is_error(target)
+            if self.is_gap(target)
                 || self.head_could_contain_type_variables(source, 3)
                 || self.head_could_contain_type_variables(target, 3)
             {
@@ -1674,7 +1674,7 @@ impl Checker<'_, '_> {
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return;
             };
-            if self.is_error(target) || self.argument_type_is_not_upstreams(*argument) {
+            if self.is_gap(target) || self.argument_type_is_not_upstreams(*argument) {
                 return;
             }
             let source = self.check_expression(*argument);
@@ -1855,7 +1855,7 @@ impl Checker<'_, '_> {
                 continue;
             };
             let spread_type = self.check_expression(spread.expression?);
-            if self.is_error(spread_type) {
+            if self.is_gap(spread_type) {
                 return None;
             }
             if let Some((elements, _)) = self.tuple_element_lists.get(&spread_type) {
@@ -1918,7 +1918,7 @@ impl Checker<'_, '_> {
             let Some(t) = self.signature_type_at_position(signature, position) else {
                 return Some(false);
             };
-            if self.is_error(t) {
+            if self.is_gap(t) {
                 return None;
             }
             // `filterType(t, acceptsVoid)` is `never` unless a constituent is
@@ -2313,7 +2313,7 @@ impl Checker<'_, '_> {
                 if !self.no_implicit_any
                     && let Some(signature) = self.complete_signature_return(signature.clone())
                     && signature.r#type != self.intrinsics.void
-                    && !self.is_error(signature.r#type)
+                    && !self.is_gap(signature.r#type)
                 {
                     self.report_at_node(
                         node,
@@ -2524,7 +2524,7 @@ impl Checker<'_, '_> {
         }
         let function = self.global_type_symbol_with_arity("Function", 0)?;
         let function = self.get_declared_type_of_symbol(function);
-        if self.is_error(function) {
+        if self.is_gap(function) {
             return None;
         }
         match self.relate_ternary(func_type, function, Relation::Assignable) {
@@ -5428,7 +5428,7 @@ impl Checker<'_, '_> {
                 let Some(parameter) = self.signature_type_at_position(&concrete, index) else {
                     return OverloadPass::Undecidable;
                 };
-                if self.is_error(parameter) {
+                if self.is_gap(parameter) {
                     return OverloadPass::Undecidable;
                 }
                 parameter_types.push(parameter);

@@ -194,7 +194,7 @@ impl<'a> Checker<'a, '_> {
         let computed = self.instantiated_heritage_base_worker(base, written_arguments, location);
         self.alias_evaluation_bindings = frames;
         let ty = computed?;
-        if self.publishable_since(mark) && !self.is_error(ty) {
+        if self.publishable_since(mark) && !self.is_gap(ty) {
             self.perf_links.heritage_bases.insert(key, ty);
         }
         Some(ty)
@@ -252,7 +252,7 @@ impl<'a> Checker<'a, '_> {
             let map: Vec<_> = ids.iter().copied().zip(arguments.iter().copied()).collect();
             arguments[index] = self.instantiate_type(default, &map, &ids, &names);
         }
-        if arguments.iter().any(|&argument| self.is_error(argument)) {
+        if arguments.iter().any(|&argument| self.is_gap(argument)) {
             return None;
         }
         Some(self.create_type_reference(base, arguments))
@@ -1930,7 +1930,7 @@ impl<'a> Checker<'a, '_> {
                     }
                     let instantiated =
                         self.get_instantiated_type_reference(node, merged, parameters);
-                    return if self.is_error(instantiated) {
+                    return if self.is_gap(instantiated) {
                         self.unresolved_type_reference(node)
                     } else {
                         instantiated
@@ -2605,7 +2605,7 @@ impl<'a> Checker<'a, '_> {
                             crate::types::TypeData::Union { types, .. } => types.clone(),
                             _ => vec![key],
                         };
-                        !self.is_error(key)
+                        !self.is_gap(key)
                             && !keys.into_iter().any(|key| self.is_valid_index_key_type(key))
                     }),
                     _ => true,
@@ -3386,7 +3386,7 @@ impl<'a> Checker<'a, '_> {
         let Some(node) = node else { return reference };
         let Some(alias) = self.alias_symbol_for_type_node(node) else { return reference };
         if !self.local_type_parameters_of(alias).is_empty()
-            || self.is_error(reference)
+            || self.is_gap(reference)
             || !self.type_reference_targets.contains_key(&reference)
         {
             return reference;

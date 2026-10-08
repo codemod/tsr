@@ -70,7 +70,7 @@ impl Checker<'_, '_> {
         index_node: NodeId,
     ) {
         if self.is_error(object_type)
-            || self.is_error(index_type)
+            || self.is_gap(index_type)
             || self.has_instantiable_constituent(object_type)
             || self.has_instantiable_constituent(index_type)
             || self.indexed_access_index_is_generic(index_type)
@@ -183,7 +183,7 @@ impl Checker<'_, '_> {
         }
         let object_flags = self.store.get(object_type).flags;
         if self.is_error(object_type)
-            || self.is_error(index_type)
+            || self.is_gap(index_type)
             || object_flags.intersects(
                 TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER | TypeFlags::NULLABLE,
             )
@@ -222,14 +222,14 @@ impl Checker<'_, '_> {
                     | TypeFlags::BOOLEAN_LITERAL
                     | TypeFlags::NEVER,
             ) || self.is_valid_index_access_key_type(part) != Some(true)
-                || self.is_error(part)
+                || self.is_gap(part)
                 || flags.intersects(TypeFlags::ANY) && part != self.intrinsics.any
             {
                 return;
             }
         }
         let apparent = self.apparent_type(object_type);
-        if self.is_error(apparent)
+        if self.is_gap(apparent)
             || self.store.get(apparent).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER)
             || matches!(self.store.get(apparent).data, TypeData::Named { members: None, .. })
                 && !self.type_reference_targets.contains_key(&apparent)
@@ -238,7 +238,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(infos) = self.get_index_infos_of_type(apparent) else { return };
-        if infos.iter().any(|info| self.is_error(info.key) || self.is_error(info.value)) {
+        if infos.iter().any(|info| self.is_gap(info.key) || self.is_gap(info.value)) {
             return;
         }
         let has_string = infos.iter().any(|info| info.key == self.intrinsics.string);
@@ -347,8 +347,8 @@ impl Checker<'_, '_> {
         index_type: TypeId,
         index_node: NodeId,
     ) {
-        if self.is_error(object_type)
-            || self.is_error(index_type)
+        if self.is_type_any(object_type)
+            || self.is_gap(index_type)
             || self.has_instantiable_constituent(object_type)
             || self.has_instantiable_constituent(index_type)
             || self.indexed_access_index_is_generic(index_type)
@@ -423,11 +423,11 @@ impl Checker<'_, '_> {
         // name) is a valid key kind with no access expression to report
         // through, so it reaches the final arm as TS2538 when no index
         // signature applies.
-        let any_key = key_type == self.intrinsics.any || self.is_error(key_type);
+        let any_key = self.is_type_any(key_type);
         let key_flags = self.store.get(key_type).flags;
         let symbol_key = key_flags.intersects(TypeFlags::ES_SYMBOL_LIKE);
         if has_default
-            || self.is_error(object_type)
+            || self.is_type_any(object_type)
             || object_type == self.intrinsics.any
             || self.has_instantiable_constituent(object_type)
             || self.mentions_registered_type_parameter(object_type)
@@ -516,7 +516,7 @@ impl Checker<'_, '_> {
                 let Some(expression_id) = expression.node_id() else { return };
                 let key_type = self.check_expression(expression);
                 let parent_type = self.get_type_for_binding_element_parent(holder);
-                if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+                if self.is_type_any(parent_type) {
                     return;
                 }
                 let Some(name) = literal_key_name(&self.store.get(key_type).data) else {
@@ -600,7 +600,7 @@ impl Checker<'_, '_> {
             return;
         }
         let parent_type = self.get_type_for_binding_element_parent(holder);
-        if parent_type == self.intrinsics.any || self.is_error(parent_type) {
+        if self.is_type_any(parent_type) {
             return;
         }
         // The strict-mode parent adjustments (`checker.go:17713`-`:17718`).
@@ -846,7 +846,7 @@ impl Checker<'_, '_> {
                 _ => return None,
             };
             let t = self.get_type_of_property_of_type(outer_source, text)?;
-            return (!self.is_error(t)
+            return (!self.is_gap(t)
                 && !self.type_of(t).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION))
             .then_some(t);
         }

@@ -104,7 +104,7 @@ impl Checker<'_, '_> {
         // A found readonly property is a positive answer; unlike an absence
         // it needs no member-completeness certificate (§944.1's measurement
         // for the type road applies to this one too).
-        if self.is_error(receiver_type)
+        if self.is_type_any(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return;
@@ -197,7 +197,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type)
+        if self.is_type_any(receiver_type)
             || self
                 .type_of(receiver_type)
                 .flags
@@ -221,7 +221,7 @@ impl Checker<'_, '_> {
         } else {
             let Some(argument) = argument else { return };
             let key = self.check_expression(argument);
-            if self.is_error(key) {
+            if self.is_gap(key) {
                 return;
             }
             let property_name = match &self.type_of(key).data {
@@ -511,7 +511,7 @@ impl Checker<'_, '_> {
         // declaration — passed. Lifting it is **+6 `WRONG->RIGHT`, zero
         // adverse**, and 4 of the 6 are `bigintWithLib`: §933's falsifier,
         // resolved.
-        if self.is_error(receiver_type)
+        if self.is_type_any(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return false;
@@ -793,7 +793,7 @@ impl Checker<'_, '_> {
         let declared_receiver = self.check_expression(receiver);
         // A receiver this port could not type is a gap; `unknown` becoming
         // the error type below is `checkNonNullExpression`'s own answer.
-        let is_error = self.is_error(declared_receiver);
+        let is_error = self.is_gap(declared_receiver);
         let receiver_type = self.check_non_null_type(declared_receiver);
         let flags = self.type_of(receiver_type).flags;
         let any_like = is_error
@@ -1279,7 +1279,7 @@ impl Checker<'_, '_> {
             .node_id()
             .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::SuperKeyword);
         let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type)
+        if self.is_type_any(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return None;
@@ -1337,7 +1337,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let parent_type = self.get_type_for_binding_element_parent(holder);
-        if self.is_error(parent_type)
+        if self.is_gap(parent_type)
             || self.type_of(parent_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return;
@@ -1561,7 +1561,7 @@ impl Checker<'_, '_> {
     fn class_declared_type_text(&mut self, class: NodeId) -> Option<String> {
         let symbol = self.binder.symbol_of(class)?;
         let declared = self.get_declared_type_of_symbol(self.binder.merged_symbol(symbol));
-        if self.is_error(declared) {
+        if self.is_gap(declared) {
             return None;
         }
         Some(self.type_to_string(declared))
@@ -1827,7 +1827,7 @@ impl Checker<'_, '_> {
             None
         };
         let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type)
+        if self.is_type_any(receiver_type)
             || self.type_of(receiver_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
         {
             return None;

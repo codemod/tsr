@@ -325,7 +325,7 @@ impl Checker<'_, '_> {
             };
             let Some(annotation) = declaration.constraint else { return Ok((None, false)) };
             let constraint = self.get_type_from_type_node(annotation);
-            if self.is_error(constraint) {
+            if self.is_gap(constraint) {
                 return Err(());
             }
             if !self.store.get(constraint).flags.contains(TypeFlags::TYPE_PARAMETER) {

@@ -32,7 +32,7 @@ impl Checker<'_, '_> {
         let Some(lexical) = self.lexical_private_name_class(node, name.text) else { return };
         let Some(receiver) = access.expression else { return };
         let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type) {
+        if self.is_type_any(receiver_type) {
             return;
         }
         let receiver_type = self.get_non_nullable_type(receiver_type);

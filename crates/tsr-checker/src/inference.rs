@@ -512,7 +512,7 @@ impl<'a> Checker<'a, '_> {
         for (position, &argument) in arguments.iter().enumerate().skip(start) {
             if let Expression::SpreadElement(node) = argument {
                 let source = self.check_expression(node.expression?);
-                if self.is_error(source) {
+                if self.is_gap(source) {
                     return None;
                 }
                 if let Some((types, _)) = self.tuple_element_lists.get(&source).cloned() {
@@ -2839,7 +2839,7 @@ impl<'a> Checker<'a, '_> {
         for (index, declaration) in signature.type_parameters.iter().enumerate() {
             if let Some(constraint) = declaration.constraint {
                 let constraint = self.instantiate_type(constraint, &map, &own, &names);
-                if self.is_error(constraint) {
+                if self.is_gap(constraint) {
                     return None;
                 }
                 if self.relate_ternary(
@@ -2863,7 +2863,7 @@ impl<'a> Checker<'a, '_> {
         returned: TypeId,
         parameters: &[crate::signatures::TypeParameter],
     ) -> TypeId {
-        if parameters.is_empty() || self.is_error(returned) {
+        if parameters.is_empty() || self.is_gap(returned) {
             return returned;
         }
         let Some(signatures) = self.signature_types.get(&returned).cloned() else {

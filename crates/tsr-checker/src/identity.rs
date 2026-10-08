@@ -103,8 +103,8 @@ impl Checker<'_, '_> {
         if source == target {
             return Ternary::Related;
         }
-        if self.is_error(source)
-            || self.is_error(target)
+        if self.is_gap(source)
+            || self.is_gap(target)
             || source == self.intrinsics.unresolved
             || target == self.intrinsics.unresolved
         {

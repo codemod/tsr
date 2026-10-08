@@ -56,7 +56,7 @@ impl Checker<'_, '_> {
         for &argument in call.arguments.iter().skip(2) {
             self.check_expression(argument);
         }
-        if !self.is_error(specifier_type)
+        if !self.is_gap(specifier_type)
             && (self.store.get(specifier_type).flags.intersects(TypeFlags::NULLABLE)
                 || self.relate_ternary(
                     specifier_type,
@@ -72,11 +72,11 @@ impl Checker<'_, '_> {
                 self.error_span(at), [printed]));
         }
         let (Some(options), Some(options_type)) = (options, options_type) else { return };
-        if !self.is_error(options_type)
+        if !self.is_gap(options_type)
             && let Some(symbol) = self.global_type_symbol_with_arity("ImportCallOptions", 0)
         {
             let target = self.get_declared_type_of_symbol(symbol);
-            if !self.is_error(target) && target != self.intrinsics.empty_object {
+            if !self.is_gap(target) && target != self.intrinsics.empty_object {
                 let target = self.get_union_type(&[target, self.intrinsics.undefined]);
                 if self.relate_ternary(options_type, target, Relation::Assignable)
                     == Ternary::NotRelated

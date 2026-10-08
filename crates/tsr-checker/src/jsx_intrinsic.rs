@@ -233,7 +233,7 @@ impl Checker<'_, '_> {
             let mut lists = Vec::with_capacity(types.len());
             for part in types {
                 if self.store.get(part).flags.intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
-                    || self.is_error(part)
+                    || self.is_gap(part)
                 {
                     return None;
                 }
@@ -245,10 +245,10 @@ impl Checker<'_, '_> {
                 if !signature.type_parameters.is_empty()
                     || signature.kind == SignatureKind::AbstractConstruct
                     || signature.union_contains_abstract
-                    || self.is_error(signature.r#type)
+                    || self.is_gap(signature.r#type)
                     || signature.parameters.iter().any(|parameter| {
                         let parameter_type = self.parameter_type(parameter);
-                        self.is_error(parameter_type)
+                        self.is_gap(parameter_type)
                     })
                 {
                     return None;
@@ -960,7 +960,7 @@ impl Checker<'_, '_> {
             return;
         }
         let ty = self.check_expression(expression);
-        if ty == self.intrinsics.any || self.is_error(ty) || self.is_jsx_array_type(ty) {
+        if ty == self.intrinsics.any || self.is_gap(ty) || self.is_jsx_array_type(ty) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };

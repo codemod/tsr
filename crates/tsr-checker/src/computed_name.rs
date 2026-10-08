@@ -61,7 +61,9 @@ impl Checker<'_, '_> {
         // `errorType` and `any` both satisfy the rule upstream — `any` by the
         // message's own wording, `errorType` because it carries `TypeFlagsAny`
         // (§43). `is_error` and not identity, for the same reason.
-        if self.is_error(named) || self.type_of(named).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+        if self.is_type_any(named)
+            || self.type_of(named).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
             return;
         }
         // **An unconstrained type parameter cannot be a computed name**, and the

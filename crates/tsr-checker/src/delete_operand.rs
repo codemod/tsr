@@ -53,7 +53,7 @@ impl Checker<'_, '_> {
             return;
         }
         let ty = self.get_type_of_symbol(symbol);
-        if self.is_error(ty)
+        if self.is_type_any(ty)
             || self.store.get(ty).flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NEVER)
         {
             return;
@@ -104,7 +104,7 @@ impl Checker<'_, '_> {
                     let text = name.text.to_string();
                     let access_type =
                         self.check_expression(Expression::PropertyAccessExpression(access));
-                    if self.is_error(access_type) {
+                    if self.is_gap(access_type) {
                         return None;
                     }
                     (receiver, text)
@@ -128,7 +128,7 @@ impl Checker<'_, '_> {
             _ => return None,
         };
         let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type) {
+        if self.is_type_any(receiver_type) {
             return None;
         }
         let receiver_type = self.get_non_nullable_type(receiver_type);

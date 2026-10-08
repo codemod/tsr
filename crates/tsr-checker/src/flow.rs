@@ -7007,7 +7007,7 @@ impl Checker<'_, '_> {
                 let Some(value) = self.get_type_of_property_of_type(part, &name) else {
                     continue 'property;
                 };
-                if self.is_error(value) || self.store.get(value).flags.contains(TypeFlags::NEVER) {
+                if self.is_gap(value) || self.store.get(value).flags.contains(TypeFlags::NEVER) {
                     continue 'property;
                 }
                 optional &= self.property_is_optional(property);
@@ -9001,8 +9001,8 @@ impl Checker<'_, '_> {
                 // too: a generator's `TReturn`, an async function's awaited
                 // type (`generatorNoImplicitReturns`).
                 let unwrapped = self.unwrap_return_type_for_code_paths(inferred, generator, is_async);
-                if self.is_error(inferred)
-                    || self.is_error(unwrapped)
+                if self.is_type_any(inferred)
+                    || self.is_type_any(unwrapped)
                     || self.maybe_type_of_kind(unwrapped, TypeFlags::VOID)
                     || self.type_of(unwrapped).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED)
                 {
@@ -9025,7 +9025,7 @@ impl Checker<'_, '_> {
     /// on an already unwrapped type. An unresolved annotation is this port's
     /// error type, which upstream's `errorType` answers through its `Any` flag.
     pub(crate) fn is_unwrapped_return_type_undefined_void_or_any(&mut self, t: TypeId) -> bool {
-        self.is_error(t)
+        self.is_type_any(t)
             || self.maybe_type_of_kind(t, TypeFlags::VOID)
             || self.type_of(t).flags.intersects(TypeFlags::ANY | TypeFlags::UNDEFINED)
     }

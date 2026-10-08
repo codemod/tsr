@@ -716,7 +716,15 @@ impl Checker<'_, '_> {
                     // non-array-like destructuring rest, its numeric index type
                     // (or unknown) is wrapped in the array representation that
                     // this port's normalizer uses for a Rest element.
-                    if self.tuple_array_like(operand_type) {
+                    // ADR-0048: upstream's `errorType` is array-like
+                    // (`isArrayLikeType`, `checker.go:23520`: assignable to
+                    // `ReadonlyArray<any>`), so it stays Variadic and the
+                    // normalizer makes it a Rest of itself (`:23372`) —
+                    // `[...c] = tupel` records `[...c] : any[]`
+                    // (`assignmentRestElementWithErrorSourceType`).
+                    if self.tuple_array_like(operand_type)
+                        || operand_type == self.intrinsics.native_error
+                    {
                         (operand_type, true)
                     } else {
                         let indexed = if self
@@ -824,7 +832,7 @@ impl Checker<'_, '_> {
                     }
                 } else {
                     let t = self.check_array_literal_element(node, *element);
-                    if self.is_error(t) {
+                    if self.is_gap(t) {
                         return error;
                     }
                     // checkArrayLiteral marks ordinary elements after an
@@ -837,7 +845,7 @@ impl Checker<'_, '_> {
                     };
                     (t, false)
                 };
-                if self.is_error(t) {
+                if self.is_gap(t) {
                     return error;
                 }
                 arguments.push(crate::tuples::TupleElement {
@@ -863,7 +871,7 @@ impl Checker<'_, '_> {
                     } else {
                         argument.r#type
                     };
-                    if self.is_error(t) {
+                    if self.is_gap(t) {
                         return error;
                     }
                     elements.push(t);
@@ -1227,10 +1235,13 @@ impl Checker<'_, '_> {
         // `checkIteratedTypeOrElementType` answers the anyType straight off
         // (`[...obj?.a]` is `any[]`, `propertyAccessChain.3`,
         // `trailingCommasInBindingPatterns`). Identity against the intrinsic,
-        // not a flag test: `errorType` carries ANY and must stay the gap
-        // above.
-        if operand == self.intrinsics.any {
-            return Some(self.intrinsics.any);
+        // not a flag test: the port's gap carries ANY and must stay the
+        // decline above. ADR-0048: upstream's own `errorType` is any-flagged
+        // too, so `IsTypeAny(inputType)` returns it unchanged
+        // (`checkIteratedTypeOrElementType`, `checker.go:6096`) — the element is
+        // `errorType`.
+        if operand == self.intrinsics.any || operand == self.intrinsics.native_error {
+            return Some(operand);
         }
         if let Some((target, arguments)) = self.type_reference_targets.get(&operand).cloned()
             && arguments.len() == 1

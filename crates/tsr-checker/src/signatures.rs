@@ -6602,7 +6602,7 @@ impl<'a> Checker<'a, '_> {
         semantic: TypeId,
         reference: NodeId,
     ) -> Option<String> {
-        if self.is_error(semantic) {
+        if self.is_gap(semantic) {
             return None;
         }
         let (text, erased_alias) = self.annotation_alias_node_at(annotation, reference)?;
