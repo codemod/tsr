@@ -745,3 +745,20 @@ The contextual.rs remainder is filed as `.1076` and the binding-element key as
 type parameters declared by an enclosing declaration, for +18 type lines and
 +1 case. The freed slot went to r5-modules2 (printed import specifiers, 16
 cases solely blocked; `.989`, `.999`, `.1060`).
+
+### r5-declared2 finished; r5-declared3 dispatched
+
+r5-declared2 first carried r5-declared's `e9d15e8`, which batch W's queue skip
+had dropped. Then:
+- `.1061`, the intersection alias: +3 cases, +53 type lines;
+- `.1042`, tuple alias naming via getTupleElementFlags: +23 type lines;
+- `.1059`, the renamed-import alias road: +10 configured cases, +20 type lines;
+- `.1043`: held as an inference.rs diff (fillMissingTypeArguments' errorType
+  pre-fill, +17 lines). It lands with the merge.
+
+The total is +13 cases and +96 type lines, plus 17 from the diff, with no losses
+and Ir down 0.01–0.06%.
+
+r5-declared3 is now declared.rs' single owner. It takes the instantiation-depth
+bound that hangs recursiveConditionalCrash3 (`.1066`), the leftovers (`.1078`),
+and two small diffs other lanes left for declared.rs.
