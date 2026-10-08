@@ -1233,6 +1233,61 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
             .collect();
         signatures.len() > 1 || (signatures.len() == 1 && signatures[0] != node)
     }
+
+    /// `EmitResolver.IsImportRequiredByAugmentation` (`emitresolver.go:504`):
+    /// the imported file augments one of this file's own exports.
+    ///
+    /// Native asks whether `getMergedSymbol(s) != s` for each symbol of the
+    /// *parse-tree* module symbol's `getExportsOfModule`, then whether the
+    /// merged symbol has a declaration in the import's target file. This
+    /// port's augmentation merge (`merge_module_augmentations`) unions into
+    /// the target symbol in place, so "merged into" reads as: an export
+    /// declared in this file that also carries a declaration from the target.
+    /// The "declared in this file" half is what native's original table
+    /// guarantees: a name the augmentation *adds* lives only in native's
+    /// merged clone, never in `file.Symbol.exports`. `export *` re-exports
+    /// are not walked; upstream reaches them through `getExportsOfModule`
+    /// but they are only "merged" when augmented, so this declines rather
+    /// than invents.
+    pub fn is_import_required_by_augmentation(&mut self, node: NodeId) -> bool {
+        let Some(tsr_ast::Node::ImportDeclaration(import)) = self.checker.node_map.get(node) else {
+            return false;
+        };
+        let Some(file) = self.checker.source_file_of(node) else { return false };
+        // A script file has no module symbol.
+        let Some(module) = self.checker.binder.symbol_of(file) else { return false };
+        // `GetExternalModuleFileFromDeclaration`: the resolved module's
+        // source-file declaration.
+        let Some(specifier) = import.module_specifier.and_then(|s| s.node_id()) else {
+            return false;
+        };
+        let Some(target) = self.checker.resolve_external_module_name(node, specifier) else {
+            return false;
+        };
+        let target = self.checker.binder.merged_symbol(target);
+        let Some(target_file) = self
+            .checker
+            .binder
+            .symbols()
+            .get(target)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&d| self.kind(d) == tsr_ast::SyntaxKind::SourceFile)
+        else {
+            return false;
+        };
+        if target_file == file {
+            return false;
+        }
+        let symbols = self.checker.binder.symbols();
+        symbols.get(module).exports.values().any(|&export| {
+            let declarations = &symbols.get(export).declarations;
+            let file_of = |d: NodeId| self.checker.source_file_of(d);
+            declarations.iter().any(|&d| file_of(d) == Some(file))
+                && declarations.iter().any(|&d| file_of(d) == Some(target_file))
+        })
+    }
 }
 
 fn first_identifier_of_module_reference(

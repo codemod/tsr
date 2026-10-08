@@ -66,6 +66,17 @@ pub trait AccessibilityResolver {
     ) -> EntityNameVisibility;
     /// `IsImplementationOfOverload`.
     fn is_implementation_of_overload(&mut self, node: NodeId) -> bool;
+    /// `IsImportRequiredByAugmentation`, asked of an `import` declaration.
+    fn is_import_required_by_augmentation(&mut self, _import: NodeId) -> bool {
+        false
+    }
+}
+
+/// The `SymbolTrackerSharedState` options the walk reads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WalkOptions {
+    /// `isolatedDeclarations` (`tracker.go:238`).
+    pub isolated_declarations: bool,
 }
 
 /// Report the accessibility errors for written names in one TypeScript file.
@@ -80,11 +91,26 @@ pub fn written_name_diagnostics(
     text: &str,
     resolver: &mut impl AccessibilityResolver,
 ) -> Vec<Diagnostic> {
+    declaration_walk_diagnostics(file, nodes, map, text, WalkOptions::default(), resolver)
+}
+
+/// [`written_name_diagnostics`] with the transform's options, which add the
+/// `isolatedDeclarations` errors the transform itself raises (TS9026).
+#[must_use]
+pub fn declaration_walk_diagnostics(
+    file: NodeId,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    text: &str,
+    options: WalkOptions,
+    resolver: &mut impl AccessibilityResolver,
+) -> Vec<Diagnostic> {
     let Some(Node::SourceFile(source)) = map.get(file) else { return Vec::new() };
     let mut walk = Walk {
         nodes,
         map,
         text,
+        options,
         resolver,
         enclosing: file,
         context: None,
@@ -116,6 +142,7 @@ struct Walk<'a, 'n, 'r, R> {
     nodes: &'n NodeTable,
     map: &'n NodeMap<'a>,
     text: &'n str,
+    options: WalkOptions,
     resolver: &'r mut R,
     /// `tx.enclosingDeclaration`.
     enclosing: NodeId,
@@ -240,7 +267,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         self.late_marked.retain(|&statement| statement != id);
         match self.kind(id) {
             K::ImportEqualsDeclaration => return self.transform_import_equals_declaration(id),
-            K::ImportDeclaration => return,
+            K::ImportDeclaration => return self.transform_import_declaration(id),
             _ => {}
         }
         if self.is_declaration_and_not_visible(id) {
@@ -350,6 +377,43 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             self.visit_opt(clause.node_id);
         }
         self.enclosing = previous_enclosing;
+    }
+
+    /// `transformImportDeclaration` (`transform.go:2471`), for the one error
+    /// it raises: a named-imports declaration none of whose bindings is
+    /// visible is kept bare only when an augmentation needs it, which
+    /// `isolatedDeclarations` cannot express. A side-effect import, a
+    /// default-only import and a namespace import return before that arm
+    /// (`:2472`, `:2491`, `:2509`), as upstream's do.
+    ///
+    /// Upstream raises this on the *first* transform of the statement; a
+    /// later late-painted re-transform finds a visible binding and returns
+    /// earlier, but the diagnostic already added stays. Visiting the
+    /// statement once in order reproduces that.
+    fn transform_import_declaration(&mut self, id: NodeId) {
+        let Some(Node::ImportDeclaration(import)) = self.map.get(id) else { return };
+        let Some(clause) = import.import_clause else { return };
+        let Some(tsr_ast::NamedImportBindings::NamedImports(named)) = clause.named_bindings else {
+            return;
+        };
+        if clause.name.is_some()
+            && let Some(clause_id) = clause.node_id
+            && self.resolver.is_declaration_visible(clause_id)
+        {
+            return;
+        }
+        let elements: Vec<NodeId> = named.elements.iter().filter_map(|e| e.node_id).collect();
+        if elements.into_iter().any(|element| self.resolver.is_declaration_visible(element)) {
+            return;
+        }
+        if self.resolver.is_import_required_by_augmentation(id)
+            && self.options.isolated_declarations
+        {
+            self.out.push(Diagnostic::new(
+                &m::DECLARATION_EMIT_FOR_THIS_FILE_REQUIRES_PRESERVING_THIS_IMPORT_FOR_AUGMENTATIONS_THIS_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS,
+                self.nodes.span(id),
+            ));
+        }
     }
 
     /// `transformImportEqualsDeclaration` (`transform.go:2448`).

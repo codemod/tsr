@@ -435,11 +435,12 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
             if javascript || unit.file.file_name().contains("/node_modules/") {
                 continue;
             }
-            let found = tsr_dts::accessibility::written_name_diagnostics(
+            let found = tsr_dts::accessibility::declaration_walk_diagnostics(
                 unit.id,
                 program.nodes(),
                 program.node_map(),
                 unit.file.text(),
+                tsr_dts::accessibility::WalkOptions { isolated_declarations: isolated },
                 &mut resolver,
             );
             reported.extend(found.into_iter().map(|d| (position, d)));
@@ -516,6 +517,10 @@ impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '
 
     fn is_implementation_of_overload(&mut self, node: NodeId) -> bool {
         self.0.is_implementation_of_overload(node)
+    }
+
+    fn is_import_required_by_augmentation(&mut self, import: NodeId) -> bool {
+        self.0.is_import_required_by_augmentation(import)
     }
 }
 
