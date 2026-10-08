@@ -27,6 +27,36 @@ are not complete TSR reports or whose native identity (revisions, native
 producer sources, native binary, plan, native results, native deadline and
 filter) or TSR deadline and filter differ.
 
+### One-command integrator gate (macOS or Linux)
+
+`exact-candidate` = build, `oracle-tsr` into a fresh report, `oracle-compare`
+against the base report. Exit 0: no EXACT loss; 1: a `LOST`/`MISSING` line (or
+incomparable reports); 2: the TSR run failed (log in `<out>.log`).
+
+```sh
+# once per machine: Go matching vendor/typescript-go/go.mod, the pinned Rust.
+brew install go                       # macOS; any Go >= go.mod's version
+git submodule update --init --recursive
+cd "$(git rev-parse --show-toplevel)"   # every command runs inside the checkout
+
+# once per native identity (pinned tsgo + corpus + Go producer sources):
+scripts/parity_gate.sh oracle-native ~/oracle/native
+
+# once per base commit (main), from a clean checkout of it:
+scripts/parity_gate.sh oracle-tsr ~/oracle/native ~/oracle/main-<sha>
+
+# per candidate, from a clean checkout of the candidate:
+scripts/parity_gate.sh exact-candidate ~/oracle/native ~/oracle/main-<sha> ~/oracle/cand-<sha>
+echo $?
+```
+
+Workers default to every core (`--workers N` overrides). The native directory
+is refused, not silently reused, once the pinned revisions or the Go producer
+sources change: re-run `oracle-native`. A filtered base (`--filter S`) only
+compares with a candidate run under the same filter.
+
+`full_oracle_run rank REPORT [TOP]` prints the root-cause ranking below.
+
 ## Identity (`identity.tsv`)
 
 Native run: pinned native revision and clean checkout, corpus submodule
@@ -204,3 +234,63 @@ keep one instantiation per tuple receiver (`getTypeWithThisArgument`)
 independent of check order; that is a checker fix outside this lane. The
 legacy dumps (`parity_gate.sh compare`) show no transition from the held
 port.
+
+## Root causes ranked (`c4bd3a6d` report)
+
+`full_oracle_run rank` attributes every non-exact case to its first
+difference (`full_oracle::blocker`, diagnostic half first): the missing
+(native-side) or extra (TSR-side) diagnostic, the moved diagnostic for
+span/code classes, the first differing chain (`C`) or related (`R`) record for
+`diag:chain`/`diag:related-info` (code `TSa in TSb` = record `a` under head
+`b`), or the first differing type row. A case counts once. Buckets are
+`(class, code, native operation, node<parent>)`:
+
+- diagnostics: the native operation is every non-editor tsgo function that
+  names the record's message (`native_emitters`, scanned from the pinned
+  sources). For relation codes (TS2322/2345/2741, chain codes) the emitter is
+  `reportRelationError`/`reportError`, so the node column names the caller:
+  `Identifier<VariableDeclaration>` = `checkVariableLikeDeclaration`'s
+  initializer check, `~ReturnStatement` = the return-statement check (`~`: no
+  node has exactly the native span, here the `return` keyword);
+- type rows: `getTypeOfNode`'s dispatch for the walked node (a declaration name
+  reads `getTypeOfSymbol`, anything else `check<Kind>`) and the answer (`TSR
+  error`, `TSR any`, `native any`, `both types`).
+
+Node kinds come from TSR's parse of the native configuration; nothing here
+feeds a verdict. 4,913 non-exact cases fall into 1,623 buckets; the top 30
+cover 1,344.
+
+| # | cases | class | code | native operation | node<parent> | side | examples |
+|---|---|---|---|---|---|---|---|
+| 1 | 173 | types:type-text |  | getTypeOfSymbol (VariableDeclaration name) [both types] | Identifier<VariableDeclaration> |  | `compiler/badInferenceLowerPriorityThanGoodInference.ts`, `compiler/circularObjectLiteralAccessors.ts (target=es2015)`, `compiler/collisionArgumentsInType.ts (alwaysstrict=true)` |
+| 2 | 125 | diag:span-only | TS2322 | checker.reportRelationError | ~ReturnStatement<Block> | native | `compiler/accessors_spec_section-4.5_error-cases.ts`, `compiler/arrayAssignmentTest1.ts`, `compiler/arrayAssignmentTest5.ts` |
+| 3 | 101 | types:type-text |  | getTypeOfSymbol (FunctionDeclaration name) [both types] | Identifier<FunctionDeclaration> |  | `compiler/anonClassDeclarationEmitIsAnon.ts`, `compiler/arrayFlatNoCrashInference.ts`, `compiler/arrayFlatNoCrashInferenceDeclarations.ts` |
+| 4 | 73 | types:type-text |  | getTypeOfSymbol (TypeAliasDeclaration name) [both types] | Identifier<TypeAliasDeclaration> |  | `compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts`, `compiler/computedTypesKeyofNoIndexSignatureType.ts`, `compiler/conditionalTypeGenericInSignatureTypeParameterConstraint.ts` |
+| 5 | 69 | diag:missing | TS2339 | checker.checkPropertyAccessExpressionOrQualifiedName / checker.getIntrinsicTagSymbol / checker.getPropertyTypeForIndexType +4 more | Identifier<PropertyAccessExpression> | native | `compiler/accessorInferredReturnTypeErrorInReturnStatement.ts`, `compiler/controlFlowInstanceof.ts`, `compiler/extension.ts` |
+| 6 | 62 | types:type-text |  | getTypeOfSymbol (VariableDeclaration name) [TSR error] | Identifier<VariableDeclaration> |  | `compiler/arrayFromAsync.ts`, `compiler/classNonUniqueSymbolMethodHasSymbolIndexer.ts`, `compiler/computerPropertiesInES5ShouldBeTransformed.ts (target=es2015)` |
+| 7 | 57 | diag:extra | TS2304 | checker.checkGrammarPrivateIdentifierExpression / checker.getCannotFindNameDiagnosticForName | Identifier<TypeReference> | tsr | `compiler/callsOnComplexSignatures.tsx`, `compiler/contextuallyTypedJsxAttribute2.tsx`, `compiler/contextuallyTypedJsxChildren.tsx` |
+| 8 | 51 | diag:chain | TS2322 | checker.reportRelationError | Identifier<BinaryExpression> | native | `compiler/conditionalTypeVarianceBigArrayConstraintsPerformance.ts`, `compiler/controlFlowForStatementContinueIntoIncrementor1.ts`, `compiler/errorMessageOnIntersectionsWithDiscriminants01.ts` |
+| 9 | 45 | diag:related-info | TS6203 in TS2403 | checker.addDuplicateDeclarationError / checker.errorNextVariableOrPropertyDeclarationMustHaveSameType | Identifier<VariableDeclaration> | native | `compiler/augmentedTypesVar.ts`, `compiler/capturedLetConstInLoop14.ts (target=es2015)`, `compiler/duplicateIdentifierInCatchBlock.ts` |
+| 10 | 43 | diag:extra | TS1254 | checker.checkAmbientInitializer | TrueKeyword<VariableDeclaration> | tsr | `conformance/node/allowJs/nodeModulesAllowJsConditionalPackageExports.ts (module=node16)`, `conformance/node/allowJs/nodeModulesAllowJsConditionalPackageExports.ts (module=node18)`, `conformance/node/allowJs/nodeModulesAllowJsConditionalPackageExports.ts (module=node20)` |
+| 11 | 42 | diag:message-text-only | TS2339 | checker.checkPropertyAccessExpressionOrQualifiedName / checker.getIntrinsicTagSymbol / checker.getPropertyTypeForIndexType +4 more | Identifier<PropertyAccessExpression> | native | `compiler/allowSyntheticDefaultImports10.ts`, `compiler/autolift4.ts`, `compiler/detachedCommentAtStartOfFunctionBody1.ts` |
+| 12 | 37 | diag:missing | TS2322 | checker.reportRelationError | Identifier<VariableDeclaration> | native | `compiler/aliasDoesNotDuplicateSignatures.ts`, `compiler/deepComparisons.ts`, `compiler/enumAssignmentCompat.ts` |
+| 13 | 34 | diag:missing | TS5055 | compiler.verifyCompilerOptions | -<-> | native | `compiler/declarationFileOverwriteError.ts`, `compiler/jsFileCompilationAbstractModifier.ts`, `compiler/jsFileCompilationAmbientVarDeclarationSyntax.ts` |
+| 14 | 34 | types:type-text |  | getTypeOfSymbol (VariableDeclaration name) [TSR any] | Identifier<VariableDeclaration> |  | `compiler/arraySigChecking.ts`, `compiler/callbacksDontShareTypes.ts`, `compiler/contravariantOnlyInferenceWithAnnotatedOptionalParameterJs.ts` |
+| 15 | 31 | diag:missing | TS7006 | checker.reportImplicitAny | Identifier<Parameter> | native | `compiler/argumentsReferenceInFunction1_Js.ts`, `compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts`, `compiler/contextualSignatureInArrayElementLibEs2015.ts` |
+| 16 | 31 | types:type-text |  | checkBinaryExpression [TSR error] | BinaryExpression<ExpressionStatement> |  | `compiler/concatTuples.ts`, `compiler/contextualExpressionTypecheckingDoesntBlowStack.ts (target=es2015)`, `compiler/contextualTypingWithGenericSignature.ts` |
+| 17 | 29 | diag:missing | TS2322 | checker.reportRelationError | Identifier<JsxAttribute> | native | `compiler/excessiveStackDepthFlatArray.ts`, `compiler/jsxIntrinsicDeclaredUsingTemplateLiteralTypeSignatures.tsx`, `compiler/jsxNamespacePrefixIntrinsics.tsx` |
+| 18 | 28 | diag:extra | TS2322 | checker.reportRelationError | Identifier<VariableDeclaration> | tsr | `compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3.ts`, `compiler/contextualTypeIterableUnions.ts`, `compiler/correctOrderOfPromiseMethod.ts` |
+| 19 | 26 | diag:chain | TS2322 | checker.reportRelationError | Identifier<VariableDeclaration> | native | `compiler/aliasUsageInOrExpression.ts`, `compiler/conditionalExpression1.ts`, `compiler/contextualTypingOfConditionalExpression2.ts` |
+| 20 | 26 | types:type-text |  | getTypeOfSymbol (ImportSpecifier name) [both types] | Identifier<ImportSpecifier> |  | `compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration.ts`, `compiler/declarationEmitAliasInlineing.ts`, `compiler/declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference.ts` |
+| 21 | 25 | diag:missing | TS2322 | checker.reportRelationError | Identifier<BinaryExpression> | native | `compiler/aliasAssignments.ts`, `compiler/argumentsBindsToFunctionScopeArgumentList.ts (alwaysstrict=true)`, `compiler/assignmentCompat1.ts` |
+| 22 | 25 | diag:missing | TS5110 | compiler.verifyCompilerOptions | -<-> | native | `compiler/elidedJSImport2.ts (module=commonjs)`, `compiler/elidedJSImport2.ts (module=es2022)`, `compiler/jsDeclarationEmitExportedClassWithExtends.ts` |
+| 23 | 24 | diag:related-info | TS2728 in TS2729 | checker.checkApplicableSignatureForJsxCallLikeElement / checker.checkIndexConstraintForProperty / checker.checkPropertyNotUsedBeforeDeclaration +6 more | Identifier<PropertyAccessExpression> | native | `compiler/checkInheritedProperty.ts`, `compiler/classMergedWithInterfaceMultipleBasesNoError.ts`, `compiler/classStaticInitializersUsePropertiesBeforeDeclaration.ts` |
+| 24 | 23 | diag:chain | TS2326 in TS2322 | checker.hasExcessProperties / checker.propertyRelatedTo / checker.reportError | PropertyAccessExpression<BinaryExpression> | native | `compiler/assignmentCompatability11.ts`, `compiler/assignmentCompatability12.ts`, `compiler/assignmentCompatability13.ts` |
+| 25 | 23 | diag:chain | TS2328 in TS2322 | checker.compareSignaturesRelated | Identifier<BinaryExpression> | native | `compiler/assignmentStricterConstraints.ts`, `compiler/contextualSignatureInstatiationContravariance.ts`, `compiler/contextualTyping24.ts` |
+| 26 | 22 | diag:missing | TS5102 | compiler.verifyCompilerOptions | -<-> | native | `compiler/blockScopedBindingsInDownlevelGenerator.ts (target=es2015)`, `compiler/sourceMapValidationVarInDownLevelGenerator.ts (target=es2015)`, `conformance/async/es5/asyncArrowFunction/asyncArrowFunction11_es5.ts (target=es2015)` |
+| 27 | 22 | types:type-text |  | checkPropertyAccessExpression [both types] | PropertyAccessExpression<CallExpression> |  | `compiler/arrayconcat.ts`, `compiler/circularContextualReturnType.ts`, `compiler/contextualSignatureInObjectFreeze.ts` |
+| 28 | 22 | types:type-text |  | getTypeOfSymbol (Parameter name) [both types] | Identifier<Parameter> |  | `compiler/coAndContraVariantInferences3.ts`, `compiler/complicatedIndexesOfIntersectionsAreInferencable.ts`, `compiler/declarationEmitReusesLambdaParameterNodes.ts` |
+| 29 | 21 | diag:missing | TS2749 | checker.checkAndReportErrorForUsingValueAsType / checker.resolveQualifiedName | Identifier<TypeReference> | native | `compiler/jsEnumTagOnObjectFrozen.ts`, `compiler/jsExportMemberMergedWithModuleAugmentation.ts`, `conformance/jsdoc/declarations/jsDeclarationsEnumTag.ts (target=es2015)` |
+| 30 | 20 | diag:chain | TS2326 in TS2430 | checker.hasExcessProperties / checker.propertyRelatedTo / checker.reportError | Identifier<InterfaceDeclaration> | native | `compiler/addMoreOverloadsToBaseSignature.ts`, `compiler/derivedInterfaceCallSignature.ts`, `compiler/interfaceDeclaration3.ts` |
+
+Non-exact cases by class: diag:missing 1,684; types:type-text 1,109; diag:chain 520; diag:related-info 438; diag:missing+extra 339; diag:extra 307; diag:span-only 288; diag:message-text-only 180; diag:code-at-same-span 43; tsr:timeout 2; types:section-set 2; tsr:error 1.
