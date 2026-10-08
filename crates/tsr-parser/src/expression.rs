@@ -1208,6 +1208,14 @@ impl<'a> Parser<'a> {
             | SyntaxKind::FalseKeyword
             | SyntaxKind::ImportKeyword => {
                 let kind = self.token.kind;
+                if kind == SyntaxKind::ImportKeyword {
+                    // `parseMemberExpressionOrHigher`'s import-call arm
+                    // (`parser.go:5183`). Set for every `import` keyword
+                    // expression, a superset of upstream's `(`/`<` lookahead:
+                    // the flag only gates the loader's dynamic-import walk
+                    // (`references.rs`), which finds nothing extra.
+                    self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
+                }
                 self.next_token();
                 let node = self.finish_node(KeywordExpression::new(kind), kind, start);
                 Expression::KeywordExpression(node)

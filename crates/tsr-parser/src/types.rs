@@ -349,6 +349,8 @@ impl<'a> Parser<'a> {
             }
             // `import("m").T` and `typeof import("m")`.
             SyntaxKind::ImportKeyword => {
+                // `parseImportType` (`parser.go:3027`).
+                self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
                 self.next_token();
                 self.expect(SyntaxKind::OpenParenToken);
                 let argument = self.parse_type();

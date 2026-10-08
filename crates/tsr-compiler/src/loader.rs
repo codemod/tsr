@@ -1711,7 +1711,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         file_name: &str,
         metadata: &SourceFileMetaData,
     ) -> bool {
-        if tsr_parser::is_file_probably_external_module(source_file) {
+        if tsr_parser::is_file_probably_external_module(source_file, &self.nodes) {
             return true;
         }
         if is_declaration_file_name(file_name) {
