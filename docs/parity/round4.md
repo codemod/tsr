@@ -313,3 +313,14 @@ circular constraints (`constraints.rs`; native
 `getConstraintOfTypeParameter` -> `circularConstraintType`). Owns exactly
 those functions and `constraints.rs`; no `main` commit touched the
 `declared.rs` functions since `b3cd078d`.
+
+### r4-awaited — getAwaitedType family (`tsr-2zk.10.1`, `.10.5`)
+
+Dispatched when `r4-unused-grammar` finished (9 commits: TS1101/2410, TS1355,
+TS1211, TS1254 predicate, six unused-identifier fixes; +14 diagnostics cases,
+EMPTY_WRONG 100 -> 95). Its parser enum-member JSDoc patch duplicates main's
+cff77b4b and is dropped. Owns `expressions.rs` `awaited_type`,
+`awaited_type_no_alias(_worker)` and new promised/awaited functions; mirror
+`getAwaitedType`, `getAwaitedTypeNoAlias`, `getPromisedTypeOfPromise`,
+`getAwaitedTypeOfPromise`, `checkAwaitedType` and the thenable reports
+(TS1320, TS1058, TS1062, TS2794).
