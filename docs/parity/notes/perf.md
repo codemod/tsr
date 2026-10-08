@@ -438,3 +438,15 @@ values) and only search for the first mentioned type (same table order as
 before) when that walk says one is present. No cache or table is added; the
 answer per query is unchanged. `mentions_type_parameter_inner` fell from
 2.0% self (plus 2.7% under `access_member_lookup`) to 0.6%.
+
+### §15.3 `compareSymbols` sorts compute each key once
+
+`compare_symbols` (`compareSymbolsWorker`, `utilities.go:366`) walks both
+first declarations up to their `SourceFile` on every comparison. The three
+whole-table sorts (`collect_structured_property_names`,
+`collect_static_property_names`, the anonymous-property printer) now use
+`sort_by_cached_key` over `compare_symbols_key`, the same ordering as a
+tuple (has declarations, (file, position), name, id), so each symbol's walk
+runs once per sort instead of O(log n) times. The comparator itself uses the
+key; minimum searches keep calling it. Sorting fell from 1.8% to ~0.3% of
+checker 0.

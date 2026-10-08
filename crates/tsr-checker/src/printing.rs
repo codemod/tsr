@@ -56,7 +56,7 @@ impl Checker<'_, '_> {
         }
         let mut properties: Vec<_> =
             self.binder.symbols().get(symbol).members.values().copied().collect();
-        properties.sort_by(|&a, &b| self.compare_symbols(a, b));
+        properties.sort_by_cached_key(|&symbol| self.compare_symbols_key(symbol));
         let result = properties
             .into_iter()
             .map(|property| {

@@ -3765,35 +3765,34 @@ impl<'a, 'n> Checker<'a, 'n> {
         if a == b {
             return std::cmp::Ordering::Equal;
         }
-        let key = |symbol: SymbolId| {
-            self.binder.symbols().get(symbol).declarations.first().map(|&declaration| {
-                let mut file = declaration;
-                let mut current = Some(declaration);
-                while let Some(node) = current {
-                    if self.nodes.kind(node) == SyntaxKind::SourceFile {
-                        file = node;
-                        break;
-                    }
-                    current = self.nodes.parent(node);
+        self.compare_symbols_key(a).cmp(&self.compare_symbols_key(b))
+    }
+
+    /// [`Checker::compare_symbols`] as a sort key: equal keys are the same
+    /// symbol, and key order is that comparison's order. A sort over many
+    /// symbols computes it once per element (`sort_by_cached_key`) instead of
+    /// re-walking two declarations' parent chains per comparison.
+    pub(crate) fn compare_symbols_key(
+        &self,
+        symbol: SymbolId,
+    ) -> (bool, Option<(NodeId, u32)>, &'a str, SymbolId) {
+        let entry = self.binder.symbols().get(symbol);
+        let position = entry.declarations.first().map(|&declaration| {
+            let mut file = declaration;
+            let mut current = Some(declaration);
+            while let Some(node) = current {
+                if self.nodes.kind(node) == SyntaxKind::SourceFile {
+                    file = node;
+                    break;
                 }
-                (file, self.nodes.span(declaration).start)
-            })
-        };
+                current = self.nodes.parent(node);
+            }
+            (file, self.nodes.span(declaration).start)
+        });
         // `len(s1.Declarations) != 0` before the comparison (`:376-383`): a
-        // symbol WITH declarations sorts before one without, which is what
-        // `Option`'s own ordering gives once `None` is mapped to the greater
-        // side.
-        match (key(a), key(b)) {
-            (Some(a_key), Some(b_key)) if a_key != b_key => return a_key.cmp(&b_key),
-            (Some(_), None) => return std::cmp::Ordering::Less,
-            (None, Some(_)) => return std::cmp::Ordering::Greater,
-            _ => {}
-        }
-        let names = self.binder.symbols().get(a).name.cmp(self.binder.symbols().get(b).name);
-        if names != std::cmp::Ordering::Equal {
-            return names;
-        }
-        a.cmp(&b)
+        // symbol WITH declarations sorts before one without; then the first
+        // declaration's position, the name, and the id.
+        (position.is_none(), position, entry.name, symbol)
     }
 
     /// Completed TYPE chain for a declaration-namespace member, ported from

@@ -3276,7 +3276,7 @@ impl Checker<'_, '_> {
         own.extend(self.late_bound_static_members_of(owner));
         // getNamedMembers/compareSymbols (5b1047d): source declaration order
         // within the own table, retaining original symbols and value filtering.
-        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        own.sort_by_cached_key(|&(_, symbol)| self.compare_symbols_key(symbol));
         for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
@@ -3340,7 +3340,7 @@ impl Checker<'_, '_> {
         own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
             |(name, declaration)| self.binder.symbol_of(declaration).map(|symbol| (name, symbol)),
         ));
-        own.sort_by(|(_, left), (_, right)| self.compare_symbols(*left, *right));
+        own.sort_by_cached_key(|&(_, symbol)| self.compare_symbols_key(symbol));
         for (name, _) in own {
             if !names.contains(&name) {
                 names.push(name);
