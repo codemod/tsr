@@ -116,3 +116,58 @@ compare ratios, not milliseconds):
 harness runs against tsgo drifted by more than the change (generic-imports
 base 101 ms vs new 106 ms CPU in back-to-back sessions, against −8% when
 interleaved), which is why the interleaved rows are the ones reported.
+
+## §5 Where domain-model's wall goes (after §3)
+
+`--extendedDiagnostics`, medians of 9 runs of the §3 binary on this box:
+
+| phase | domain-model | generic-imports |
+|---|---:|---:|
+| loader (parse 75 / 57 of it) | 87 ms | 63 ms |
+| serial bind | 31 ms | 24 ms |
+| program total | 119 ms | 92 ms |
+| checker init | 1 ms | 1 ms |
+| check (4 checkers) | 129 ms | 1 ms |
+| compilation | 252 ms | 94 ms |
+
+So domain-model is about half front end, half check; the check half is
+main's lane (`tsr-2zk.17`). Inside the loader (scratch probe, three runs):
+reading the 42 roots 1.2–1.5 ms; root parse preparation 4.5–8 ms on the
+pool plus 7.8–9 ms of publication; serially the same roots parse in 11.8–13.7
+ms. Both orders reach the lib walk at 17–23 ms, which is r5-loader §6.1's
+neutral result again; the lib walk then runs to the end of the load
+(`lib.dom.d.ts` ≈ 45–50 ms of it).
+
+## §6 Measured and refused
+
+1. **Arena chunks on transparent huge pages** (2 MiB-aligned 4 MiB chunks
+   after the first 1 MiB, `madvise(MADV_HUGEPAGE)`; THP is `madvise` here).
+   Minor faults fell 5,652 → 4,312 (generic-imports) and 11,330 → 9,405
+   (domain-model), but sys time did not: the kernel still zeroes the same
+   bytes. Interleaved, two sessions: generic-imports wall 101.8 → 98.1 ms
+   (31 samples) then 98.0 → 101.0 ms (41); domain-model 230.2 → 225.8 then
+   217.5 → 220.6. The sign flips between sessions, so it is noise. The
+   other ~4,300 faults are spread over `Vec`/hash-table growth, and
+   `GLIBC_TUNABLES` mmap/trim/top-pad thresholds left the fault count
+   unchanged (they are first touches, not re-faults). Not built.
+2. **Pipelined bind** (§4): ceiling 3–4 ms, needs a concurrently readable
+   `NodeTable`. Not built.
+3. **Overlapping the lib walk with root parsing** by parsing libs on
+   workers: this is r5-loader §6.2's refused design (publication of
+   `lib.dom.d.ts` ≈ 15 ms on the critical path); §5's timeline adds
+   nothing that changes its arithmetic.
+
+## §7 What is left for the front end, by measured size
+
+Callgrind, generic-imports after §3 (372.9 M Ir):
+
+1. JSDoc (main, `tsr-2zk.17.1`): `bump`+`peek` 63.8 M (≈90% from
+   `scan_jsdoc_comment_text_token`/`scan_jsdoc_token`), `jsdoc_ranges_in`
+   25.3 M, `scan_jsdoc_comment_text_token` 22.3 M self, and
+   `mentions_tag` 6.3 M (two `@`-tag sweeps per `/**` comment in
+   `classify_block_comment`, 7,411 comments) — together ≈ 40%.
+2. Binder 60.7 M (16%): `bind_inner` 18.2 M self, the child visitor
+   (`push_children`) 10.9 M, symbol-table inserts ~12 M. Binding semantics
+   are not this lane's.
+3. Non-JSDoc scanning is now small: `scan` 27.6 M self, identifiers 10.1 M,
+   keyword lookup 3.0 M.
