@@ -449,6 +449,7 @@ impl Checker<'_, '_> {
             Node::PropertySignatureDeclaration(_) => {
                 self.check_implicit_any_member(node, ambient);
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 ambient
             }
             Node::GetAccessorDeclaration(accessor) => {
@@ -469,6 +470,7 @@ impl Checker<'_, '_> {
                 self.check_annotated_initializer(node, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 ambient
             }
             // `checkVariableLikeDeclaration` runs for a binding element too,
@@ -496,6 +498,7 @@ impl Checker<'_, '_> {
                     ambient,
                 );
                 self.check_subsequent_declaration_type(node);
+                self.resolve_variable_like_symbol_type(node);
                 self.check_variable_like_declaration(node, declaration, ambient);
                 self.check_using_declaration_initializer(node);
                 self.check_jsdoc_annotated_initializer(node, ambient);
@@ -937,6 +940,7 @@ impl Checker<'_, '_> {
         self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
+            self.resolve_accessor_symbol_type(node);
         }
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
@@ -9284,11 +9288,20 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// A top-level `any`/`unknown` is an identity operand only when the
-    /// declaration's written annotation is that keyword.
+    /// A top-level `any` is an identity operand only when the declaration's
+    /// written annotation is that keyword; a top-level `unknown` always is.
     fn identity_side_is_trusted(&self, ty: TypeId, declaration: NodeId) -> bool {
         let flags = self.type_of(ty).flags;
         if !flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return true;
+        }
+        // **An `unknown` is upstream's `unknown`.** This port's
+        // could-not-compute answers are the error type and, historically,
+        // `any` (§865 measured trusting `any` at −34 cases); `unknown` comes
+        // from the inference defaults and annotations that produce it
+        // upstream (`contextualSignatureInstantiation`'s `bar("one", 1, g)`).
+        // Measured lossless; `docs/parity/notes/r5-vardecl.md` §2.
+        if flags.contains(TypeFlags::UNKNOWN) {
             return true;
         }
         // **A circular initializer's `any` is upstream's `any`.**

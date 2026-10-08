@@ -135,6 +135,14 @@ impl Checker<'_, '_> {
                 } else if !target_flags.intersects(enum_like) {
                     (target, target_flags)
                 } else {
+                    // Except an enum literal against a union of distinct enum
+                    // literals: `NumberLiteral|EnumLiteral` against
+                    // `Union|EnumLiteral` differ in flags upstream, and no
+                    // representation of a union of two values is one value
+                    // (`E.a` against `E`; notes `r5-vardecl.md` §2).
+                    if self.enum_literal_against_enum_union(source, target) {
+                        return Ternary::NotRelated;
+                    }
                     return Ternary::Unknown;
                 };
                 if !object_side.1.contains(TypeFlags::OBJECT)
@@ -233,13 +241,6 @@ impl Checker<'_, '_> {
             }
             return Ternary::Unknown;
         }
-        // `isGenericMappedType(source)` is `False` under identity
-        // (`relater.go:3817`); a resolved mapped type is compared by its
-        // members upstream, but this port's mapped members are not complete
-        // enough to prove a negative.
-        if self.is_mapped_for_identity(source) || self.is_mapped_for_identity(target) {
-            return Ternary::Unknown;
-        }
         // Type references to one generic target: the type arguments are
         // related under identity whatever their variance, except an
         // independent parameter, which is never witnessed. A success settles
@@ -270,6 +271,24 @@ impl Checker<'_, '_> {
                 return result;
             }
         }
+        // The generic-mapped arms of `structuredTypeRelatedToWorker` under
+        // identity, reached after the alias-variance probe above
+        // (`relater.go:3805`, `:3817`): a generic mapped target relates only
+        // to a generic mapped source (`mappedTypeRelatedTo`, unported here),
+        // and a generic mapped source to nothing else. So exactly one generic
+        // side is `NotRelated` (`FindConditions<any>` against
+        // `FindConditions<Entity>`, `noExcessiveStackDepthError`). A resolved
+        // mapped type is compared by its members upstream, but this port's
+        // mapped members are not complete enough to prove a negative.
+        // `docs/parity/notes/r5-vardecl.md` §3.
+        match (self.mapped_shape_for_identity(source), self.mapped_shape_for_identity(target)) {
+            (MappedShape::NotMapped, MappedShape::NotMapped) => {}
+            (MappedShape::Generic, MappedShape::NotMapped | MappedShape::Resolved)
+            | (MappedShape::NotMapped | MappedShape::Resolved, MappedShape::Generic) => {
+                return Ternary::NotRelated;
+            }
+            _ => return Ternary::Unknown,
+        }
         let properties = self.properties_identical_to(source, target, walk);
         if properties == Ternary::NotRelated {
             return properties;
@@ -287,6 +306,48 @@ impl Checker<'_, '_> {
             return indexes;
         }
         and(result, indexes)
+    }
+
+    /// How [`Self::structured_identical_to`] sees a mapped operand:
+    /// `isGenericMappedType` (`checker.go`), read from the alias body's
+    /// mapped metadata. A constraint that is a generic index type is
+    /// generic; an `as` clause over a non-generic constraint, or a mapped
+    /// image without its metadata, is undecided.
+    fn mapped_shape_for_identity(&mut self, ty: TypeId) -> MappedShape {
+        if !self.is_mapped_for_identity(ty) {
+            return MappedShape::NotMapped;
+        }
+        let body = self.binding_type_alias_body(ty);
+        let Some(info) = self.mapped_types.get(&body) else {
+            return MappedShape::Undecided;
+        };
+        if self.is_generic_index_type(info.constraint) {
+            MappedShape::Generic
+        } else if info.name_type.is_some() {
+            MappedShape::Undecided
+        } else {
+            MappedShape::Resolved
+        }
+    }
+
+    /// One side an enum literal, the other a union of at least two enum
+    /// literals with distinct values: upstream's flags differ
+    /// (`NumberLiteral|EnumLiteral` against `Union|EnumLiteral`) and a union
+    /// of two distinct literals is never one literal.
+    fn enum_literal_against_enum_union(&self, source: TypeId, target: TypeId) -> bool {
+        let literal_value = |id: TypeId| match &self.type_of(id).data {
+            TypeData::EnumLiteral { owner, value, .. } => Some((*owner, format!("{value:?}"))),
+            _ => None,
+        };
+        let distinct_union = |id: TypeId| match &self.type_of(id).data {
+            TypeData::Union { types, .. } => {
+                let values: Option<Vec<_>> = types.iter().map(|&t| literal_value(t)).collect();
+                values.is_some_and(|values| values.iter().any(|value| value != &values[0]))
+            }
+            _ => false,
+        };
+        (literal_value(source).is_some() && distinct_union(target))
+            || (literal_value(target).is_some() && distinct_union(source))
     }
 
     /// An object-flagged `Named` image whose symbol is an enum: a qualified
@@ -654,6 +715,15 @@ struct PropertyMetadata {
     accessibility: Accessibility,
     optional: bool,
     readonly: bool,
+}
+
+/// [`Checker::mapped_shape_for_identity`]'s answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MappedShape {
+    NotMapped,
+    Generic,
+    Resolved,
+    Undecided,
 }
 
 /// Ternary conjunction: `NotRelated` dominates, then `Unknown`.
