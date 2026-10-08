@@ -149,6 +149,7 @@ pub mod intrinsics;
 mod iteration;
 mod js_case_data;
 mod jsdoc_annotations;
+mod jsdoc_checks;
 mod jsdoc_full_signature;
 mod jsdoc_links;
 mod jsdoc_modifiers;
