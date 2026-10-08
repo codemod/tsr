@@ -4026,17 +4026,18 @@ impl Relater<'_, '_, '_> {
             let (Some(target_type), Some(source_type)) = (target_type, source_type) else {
                 // Row 2 of `checker-notes-assign.md` §2, half-answered by §15:
                 // a target property with no source counterpart is fine when
-                // the target property is OPTIONAL — under assignability
-                // always, under the subtype relations only for an
-                // object-literal source (`requireOptionalProperties`,
-                // upstream `propertiesRelatedTo`; interface-backed sources
+                // the target property is OPTIONAL — under the assignable and
+                // comparable relations always, under the subtype relations
+                // only for an object-literal source
+                // (`requireOptionalProperties`, relater.go:4232, which only
+                // the two subtype relations set; interface-backed sources
                 // must still match optionals or subtype reduction loses its
-                // order). Captured mapped modifiers override declaration
+                // order; tsr-2zk.929). Captured mapped modifiers override declaration
                 // optionality; this binder does not write SymbolFlags::OPTIONAL.
                 // Everything else stays row 2's Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
                     && target_metadata.is_some_and(|flags| flags.0)
-                    && (self.relation == Relation::Assignable
+                    && (!matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
                         || self.checker.is_object_literal_type(source)
                         || self.is_structural_tuple_source(source))
                 {
@@ -4146,8 +4147,11 @@ impl Relater<'_, '_, '_> {
             // `{ p?: number }` is not related to `{ p: any }`, which is what
             // keeps `Contextual | Ellement` un-reduced
             // (`nonContextuallyTypedLogicalOr`, §15.1's two wrong lines).
+            // Comparability passes `skipOptional` (relater.go:4259, tested at
+            // :4318) for every source shape, so `x as { a: T[] }` from
+            // `{ a?: T[] }` overlaps (tsr-2zk.929).
             if target_metadata.is_some_and(|flags| !flags.0)
-                && (source_parts.is_none() || self.relation != Relation::Comparable)
+                && self.relation != Relation::Comparable
             {
                 if source_metadata.is_some_and(|flags| flags.0) {
                     parts.push(RelationResult::NotRelated);
