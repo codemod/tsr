@@ -3303,12 +3303,9 @@ impl Checker<'_, '_> {
         {
             return Some(Native::Type(id));
         }
-        let is_union = matches!(self.store.get(id).data, TypeData::Union { .. });
-        if stack.contains(&id) {
-            if !is_union {
-                return None;
-            }
-            // `slices.Contains(c.awaitedTypeStack, t)` for a union.
+        // `slices.Contains(c.awaitedTypeStack, t)` for a union. Any other
+        // repeat is caught where native catches it: at the promised type.
+        if matches!(self.store.get(id).data, TypeData::Union { .. }) && stack.contains(&id) {
             Self::report_awaited_recursion(self, reports);
             return Some(Native::Nil);
         }
@@ -3322,6 +3319,9 @@ impl Checker<'_, '_> {
         {
             let body = self.binding_type_alias_body(id);
             if body != id {
+                if stack.contains(&id) {
+                    return None;
+                }
                 stack.push(id);
                 let awaited = self.awaited_type_no_alias_worker(body, stack, reports);
                 stack.pop();
@@ -3330,6 +3330,22 @@ impl Checker<'_, '_> {
                     other => other,
                 });
             }
+        }
+        // A self-referential alias's mention inside its own body is this
+        // port's NAME placeholder; native's is the alias's own type, so
+        // `type T1 = 1 | Promise<T1> | T1[]` awaits `Promise<T1>`'s promised
+        // type as the `T1` union already on the stack (TS1062).
+        if let Some(declared) = self.completed_alias_placeholder_type(id) {
+            if stack.contains(&id) {
+                return None;
+            }
+            stack.push(id);
+            let awaited = self.awaited_type_no_alias_worker(declared, stack, reports);
+            stack.pop();
+            return awaited.map(|awaited| match awaited {
+                Native::Type(t) if t == declared => Native::Type(id),
+                other => other,
+            });
         }
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let constituents = types.clone();
@@ -3405,6 +3421,30 @@ impl Checker<'_, '_> {
             return Some(Native::Nil);
         }
         Some(Native::Type(id))
+    }
+
+    /// The completed declared type behind a self-referential alias's NAME
+    /// placeholder (`alias_placeholders`, `get_declared_type_of_type_alias`
+    /// §29): native's deferred mention of the alias inside its own body *is*
+    /// the alias's type. Only one owner's placeholder, only once that owner's
+    /// declared type is published and not on the resolution stack; a read of
+    /// the existing `declared_types` entry, no evaluation.
+    fn completed_alias_placeholder_type(&self, id: TypeId) -> Option<TypeId> {
+        if !matches!(self.store.get(id).data, TypeData::Named { members: None, .. })
+            || self.alias_placeholders.is_empty()
+        {
+            return None;
+        }
+        let mut owners =
+            self.alias_placeholders.iter().filter(|(_, placeholder)| **placeholder == id);
+        let (&owner, _) = owners.next()?;
+        if owners.next().is_some()
+            || self.resolutions.on_stack(owner, crate::resolution::PropertyName::DeclaredType)
+        {
+            return None;
+        }
+        let declared = *self.declared_types.get(&owner)?;
+        (declared != self.intrinsics.error && declared != id).then_some(declared)
     }
 
     /// TS1062 at the awaited error node (`checker.go:31289`, `:31341`).

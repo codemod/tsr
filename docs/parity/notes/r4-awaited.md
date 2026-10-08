@@ -131,3 +131,100 @@ line 17's TS1058, which is the *inferred* return type's `checkAwaitedType`
 
 **Falsifier.** A TS1064 on an annotation native's `isReferenceToType`
 accepts, or a TS1058 on a function whose return type native awaits.
+
+## 4. A self-referential alias's placeholder awaits as the alias (`tsr-2zk.10.1`)
+
+**Forcing constraint.** In `type T1 = 1 | Promise<T1> | T1[]`, native's
+`Promise<T1>` argument is the alias's own (deferred) type, the `T1` union;
+`getAwaitedTypeNoAliasEx` on `T1` pushes the union, finds `Promise<T1>`'s
+promised type already on the stack, reports TS1062 and drops the
+constituent (`mapType`), answering `1 | T1[]`
+(`compiler/unresolvableSelfReferencingAwaitedUnion`). This port's mention is
+the memoized NAME placeholder (`alias_placeholders`,
+`get_declared_type_of_type_alias` §29), a distinct `Named` type with no
+members, so the stack test never matched and the placeholder was its own
+awaited type: `1 | T1[] | T1`, no TS1062.
+
+**Decision.** `completed_alias_placeholder_type` maps a placeholder to its
+owner's declared type, and the worker awaits that, keeping the placeholder
+when it comes back unchanged. Checker port convention record:
+
+- *Native operation:* the deferred alias mention resolving to the alias's
+  declared type (`getDeclaredTypeOfTypeAlias`, `:23837`), read inside
+  `getAwaitedTypeNoAliasEx`.
+- *Key identity and owner:* the placeholder `TypeId`, owned by
+  `alias_placeholders`[owner symbol]; exactly one owner or decline (the same
+  scan as `members.rs` `completed_array_placeholder_length_body`).
+- *Publication state:* only a published `declared_types`[owner] that is not
+  `errorType` and whose `DeclaredType` resolution is not on the stack; no
+  evaluation, insertion or cache.
+- *Expensive work boundary:* one scan of `alias_placeholders` per
+  member-less `Named` type reaching the worker, skipped when the map is
+  empty.
+
+The general "already on the stack → gap" entry test is narrowed to what
+native has: a union on the stack is TS1062; an alias reference or
+placeholder re-entered while its own projection is open is still a gap (no
+native counterpart — native has no projection step); every other repeat is
+caught at the promised type, as native catches it. That is what lets
+`EffectResult`'s narrowed `Promise<EffectResult>` reach TS1062 instead of a
+gap when it meets itself inside the union.
+
+**Converted.** Types `unresolvableSelfReferencingAwaitedUnion` lines 9, 10,
+29 (`1 | T1[]`, `() => EffectResult`). Its diagnostics now carry both TS1062;
+the case stays WRONG on an extra TS2349 at `result()` after
+`result instanceof Function` (narrowing, not this lane).
+
+**Falsifier.** A placeholder awaited as its declared type where native keeps
+the deferred reference, or a gap on a repeat native resolves.
+
+## 5. `checkReturnStatement`'s async arm — a measured patch for `assignreport.rs`
+
+**Forcing constraint.** `checkReturnStatement` (`:4086`) relates an async
+function's returned value against `unwrapReturnType` — the annotation's
+`getAwaitedTypeNoAlias` (`:20388`) — after `checkReturnExpression` replaces
+the operand's type by `checkAwaitedType(exprType, false, node, TS1058)`
+(`:4146`). `assignreport.rs`'s `return_type_from_annotation` declined every
+async container, because the awaited type of a generic alias was wrong (§1
+fixed it). `assignreport.rs` is not this lane's file, so the arm is delivered
+as [`r4-awaited-async-return.diff`](r4-awaited-async-return.diff) (against
+`37c6443`), not committed as code.
+
+**What the patch does.** `return_type_from_annotation` answers
+`(returnType, unwrappedReturnType, isAsync)`: an async function's target is
+`awaited_type_no_alias` of its annotation (a gap or native `nil` declines —
+`nil` would be an `errorType` target that relates to everything); the raw
+`returnType` keeps the non-strict "bare `return` against `never`" test
+reading the annotation, as native's `returnType.flags&TypeFlagsNever` does.
+`check_return_expression` gains `is_async` and relates
+`check_awaited_type(source, false, node, TS1058)`, declining on a gap. The
+concise-body arrow arm does the same for an async arrow.
+
+**Measured** (box baseline `554211e` + this lane through `37c6443`, patch
+applied, both dumps unfiltered): diagnostics +3 —
+`compiler/asyncFunctionReturnExpressionErrorSpans`,
+`compiler/promiseEmptyTupleNoException`, `conformance/asyncImportedPromise_es6`
+— types unchanged; both loss checks empty.
+
+## 6. `getPromisedTypeOfPromise` / `getAwaitedTypeOfPromise` for callers (`tsr-2zk.10.5`)
+
+**Forcing constraint.** Native exposes `GetPromisedTypeOfPromise`
+(`:28920`) and `getAwaitedTypeOfPromise` (`:31458`); their callers are in
+other lanes' files (TS2801 truthiness `:3861`, iteration `:6186`/`:6706`,
+relation elaboration `:9334`, property access `:11558`, operators `:12803`,
+contextual return `:20414`). `truthiness.rs` carried its own partial copy
+(`has_awaited_type_of_promise`: no `this` filter, no awaited step, a gap for
+every generic).
+
+**Decision.** `promised_type_of_promise` and `awaited_type_of_promise`
+(`Option<Native>`) over the §2 worker. Shipping them without a caller is dead
+code (clippy `-D warnings`), and `truthiness.rs` is not this lane's, so the
+pair and the truthiness switch (one call site; the local copy deleted) are
+delivered together as
+[`r4-awaited-promise-of-promise.diff`](r4-awaited-promise-of-promise.diff)
+(against `5b94a2f`).
+
+**Measured.** Both dumps byte-identical to the lane tip (TS2801 cases were
+already RIGHT; the change is faithfulness, not a conversion). Median child
+CPU, 41 samples, patched/unpatched HEAD builds: domain-model 1.009,
+generic-imports 1.018. Clippy adds nothing in the touched files.
