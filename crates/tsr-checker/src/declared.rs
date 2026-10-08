@@ -1784,10 +1784,25 @@ impl<'a> Checker<'a, '_> {
             // declaration-kind gate can cut. ImportEquals targets are
             // same-unit namespaces in practice, which is why §157 held.
             && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
-                matches!(self.node_map.get(declaration), Some(Node::ImportEqualsDeclaration(_)))
+                matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::ImportEqualsDeclaration(_) | Node::VariableDeclaration(_))
+                )
             })
         {
-            let target = self.resolve_alias(symbol).or_else(|| {
+            // A JS `const D = require("m")` is the same alias
+            // (`getTargetOfImportEqualsDeclaration` covers both), and
+            // `resolveEntityName` resolves it fully: `resolve_alias` stops
+            // at the module's `export=`. docs/parity/notes/r5-jsdoc3.md §1.4.
+            let require = self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
+                self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            });
+            let target = if require {
+                Some(self.resolve_alias_fully(symbol))
+            } else {
+                self.resolve_alias(symbol)
+            };
+            let target = target.or_else(|| {
                 let declaration = self.declaration_of_alias_symbol(symbol)?;
                 let Some(Node::ImportEqualsDeclaration(import)) = self.node_map.get(declaration)
                 else {
