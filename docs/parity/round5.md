@@ -762,3 +762,31 @@ and Ir down 0.01–0.06%.
 r5-declared3 is now declared.rs' single owner. It takes the instantiation-depth
 bound that hangs recursiveConditionalCrash3 (`.1066`), the leftovers (`.1078`),
 and two small diffs other lanes left for declared.rs.
+
+### r5-missingprop finished; r5-unionorder dispatched (`tsr-2zk.1079`)
+
+r5-missingprop triaged the 30 cases blocked only by TS2741 and the 21 blocked
+only by TS2353, then ported:
+- checkYieldExpression's yield* arm;
+- checkSignatureDeclaration's generator arm;
+- isRelatedToEx's nullable-union narrowing in the report path;
+- contextualTypeHasPattern TS2353;
+- function-type known-property certification.
+
+That is +9 cases. Its four diffs (heritage constraints, the using reporter,
+switch-case excess, JSX hyphen intersection) land in batch AD for +11 more.
+All zero-loss and within perf noise.
+
+About half the remainder is in main's calls.rs and inference.rs (`.1080`), plus
+one parser item (`.1081`). The freed slot went to r5-unionorder: union member
+order (15 cases solely blocked), tested first for a single systemic cause.
+
+**Batch AC reverted.** The r5-declared2 merge lost 1 case once stacked on
+batch AA, aliasInstantiationExpressionGenericIntersectionNoCrash2: its `.1061`
+decline stopped firing after instantiation expressions landed. The gate
+stopped it, but the merge was already on the remote. The integrator's
+autopush daemon had pushed the branch tip on a timer, ahead of the gate; it
+also explains the earlier pushes of un-gated merges. The daemon is stopped,
+so only an accepted gate pushes now. `58ead272` reverts the batch, leaving the
+source tree equal to batch AB's. r5-declared3 re-lands r5-declared2's work with
+the decline re-measured.
