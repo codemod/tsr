@@ -1251,3 +1251,77 @@ impl Checker<'_, '_> {
         );
     }
 }
+
+impl Checker<'_, '_> {
+    /// `!isInvalidInitializer` of `checkGrammarVariableLikeDeclaration`'s
+    /// ambient tail (`grammarchecks.go:1963`): the initializers a `const` or
+    /// `readonly` declaration without an annotation may carry in an ambient
+    /// context —
+    /// `isInitializerStringOrNumberLiteralExpression` (`:1978`),
+    /// `isInitializerSimpleLiteralEnumReference` (`:1996`), `true`/`false`,
+    /// and `isInitializerBigIntLiteralExpression` (`:1983`), in that order.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §6.
+    pub(crate) fn is_valid_ambient_const_initializer(
+        &mut self,
+        initializer: Expression<'_>,
+    ) -> bool {
+        let Some(node) = initializer.node_id() else { return false };
+        is_string_or_number_literal_initializer(self, node)
+            || self.is_initializer_simple_literal_enum_reference(initializer)
+            || matches!(self.nodes.kind(node), SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+            || is_bigint_literal_initializer(self, node)
+    }
+
+    /// `isInitializerSimpleLiteralEnumReference` (`grammarchecks.go:1996`):
+    /// a property access, or an element access with a string/number literal
+    /// argument on an entity name expression, whose checked type
+    /// (`checkExpressionCached`) is enum-like.
+    fn is_initializer_simple_literal_enum_reference(&mut self, expression: Expression<'_>) -> bool {
+        match expression {
+            Expression::PropertyAccessExpression(_) => {}
+            Expression::ElementAccessExpression(access) => {
+                let argument = access.argument_expression.and_then(|a| a.node_id());
+                let receiver = access.expression.and_then(|e| e.node_id());
+                if !argument.is_some_and(|a| is_string_or_number_literal_initializer(self, a))
+                    || !receiver.is_some_and(|r| self.is_entity_name_expression(r))
+                {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+        let checked = self.check_expression(expression);
+        self.store.get(checked).flags.intersects(crate::flags::TypeFlags::ENUM_LIKE)
+    }
+}
+
+/// `isInitializerStringOrNumberLiteralExpression` (`grammarchecks.go:1978`):
+/// `IsStringOrNumericLiteralLike` — a string, no-substitution template or
+/// numeric literal — or `-` over a numeric literal.
+fn is_string_or_number_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> bool {
+    match checker.nodes.kind(node) {
+        SyntaxKind::StringLiteral
+        | SyntaxKind::NoSubstitutionTemplateLiteral
+        | SyntaxKind::NumericLiteral => true,
+        SyntaxKind::PrefixUnaryExpression => matches!(
+            checker.node_map.get(node),
+            Some(Node::PrefixUnaryExpression(unary))
+                if unary.operator.kind == SyntaxKind::MinusToken
+                    && matches!(unary.operand, Some(Expression::NumericLiteral(_)))
+        ),
+        _ => false,
+    }
+}
+
+/// `isInitializerBigIntLiteralExpression` (`grammarchecks.go:1983`).
+fn is_bigint_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> bool {
+    match checker.node_map.get(node) {
+        Some(Node::BigIntLiteral(_)) => true,
+        Some(Node::PrefixUnaryExpression(unary)) => {
+            unary.operator.kind == SyntaxKind::MinusToken
+                && matches!(unary.operand, Some(Expression::BigIntLiteral(_)))
+        }
+        _ => false,
+    }
+}

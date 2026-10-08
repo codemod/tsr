@@ -1337,6 +1337,9 @@ impl Relater<'_, '_, '_> {
         if let Some(result) = self.non_array_source_tuple_target(source, target) {
             return result;
         }
+        if let Some(result) = self.tuple_source_non_array_target(source, target) {
+            return result;
+        }
         // Nothing fired. That is an **answer** only where the simple arms above
         // are a complete decision procedure for both sides — `string -> number`
         // is genuinely not related. Where either side carries a flag this port
@@ -3593,6 +3596,54 @@ impl Relater<'_, '_, '_> {
             return Some(RelationResult::NotRelated);
         }
         Some(RelationResult::Unknown)
+    }
+
+    /// propertiesRelatedTo (relater.go:4100) for a tuple source and an
+    /// object target that is neither an array nor a tuple: a required target
+    /// property the tuple does not have (`getPropertyOfObjectType(source,
+    /// name) == nil`, relater.go:4146) is `false` under every relation.
+    /// `[] -> RegExpMatchArray` fails on `0`. Only that definite negative is
+    /// taken; every other pair keeps the undecided fallthrough.
+    fn tuple_source_non_array_target(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let source_properties = self.checker.tuple_target_properties(source)?;
+        if !self.checker.type_of(target).flags.contains(TypeFlags::OBJECT)
+            || self.tuple_relation_elements(target).is_some()
+            || self.checker.tuple_spread_array_element(target).is_some()
+            || self.checker.mapped_types.contains_key(&target)
+        {
+            return None;
+        }
+        // The target's OWN declared members suffice for a negative: an
+        // inherited requirement can only add failures, never remove one.
+        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(target).data else {
+            return None;
+        };
+        let owner = self.checker.binder.merged_symbol(owner);
+        let members: Vec<_> = self
+            .checker
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .map(|(name, &symbol)| ((*name).to_string(), symbol))
+            .collect();
+        let missing = members.into_iter().any(|(name, symbol)| {
+            self.checker
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::PROPERTY | tsr_binder::SymbolFlags::METHOD)
+                && !self.checker.property_is_optional(symbol)
+                && !source_properties.iter().any(|(property, _)| *property == name)
+                && self.checker.get_property_of_type(source, &name).is_none()
+        });
+        missing.then_some(RelationResult::NotRelated)
     }
 
     fn tuple_relation_elements(

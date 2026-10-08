@@ -207,3 +207,49 @@ Measured against this box's frozen baseline (built on `1606bb0`): diag
 `isolatedModulesGlobalNamespacesAndEnums` gains its TS18055 line (still WRONG
 on TS1280/TS1281); both loss checks empty; types unchanged; perf CPU ratio
 domain-model 1.007, generic-imports 1.000 (21 samples).
+
+## §6 Template literal type text is escaped as the printer escapes it
+
+**Forcing constraint.** The node builder prints a template literal type's
+parts as `TemplateHead`/`Middle`/`Tail` nodes with `EFNoAsciiEscaping`
+(`nodebuilderimpl.go:3482`), and the printer writes their text through
+`escapeStringWorker(text, QuoteCharBacktick, NeverAsciiEscape)`
+(`printer/utilities.go:77`, `:296`). `escape_template_text` escaped only
+`\`, the backtick and `${`, so a part holding a tab or CRLF printed raw
+(`templateLiteralsInTypes`: `` `${string}:\t${number}\r\n` `` — 6 lines).
+
+**What changed.** `escape_template_text` is that worker for the backtick
+quote: the canonical escapes of `escapedCharsMap`, CRLF as one `\r\n`, LF
+kept, `$` only before `{`, `\0` (`\x00` before a digit), other C0 controls
+and U+2028/2029/0085 as `\uXXXX`. Lone surrogates, which the worker also
+escapes, cannot occur in a Rust `String`.
+
+**Consequence accepted.** `node_reuse.rs` and `signatures.rs` call the same
+function on a *written* template's cooked text, where upstream reprints the
+node's raw source text. For an escape sequence written in source the two
+now agree (both `\t`); a literal tab or CR typed raw into a template type
+would now print escaped where upstream keeps it raw. No corpus line moved.
+
+## §7 `addSpans` keeps a generic index type as a span
+
+**Forcing constraint.** `getTemplateLiteralType`'s `addSpans`
+(`checker.go:29165`) keeps a span type `t` when
+`isGenericIndexType(t) || isPatternLiteralPlaceholderType(t)`, and fails
+(the whole template is `string`) otherwise. The port tested `t`'s *own*
+flags against a fixed list (type parameter, index, indexed access,
+substitution, string mapping), so `` `${T & { foo: string }}` `` — an
+intersection whose type-parameter member makes it a generic index type —
+became `string` (`templateLiteralIntersection`, 1 line).
+
+**What changed.** `is_generic_index_type` ports the `IsGenericIndexType`
+half of `getGenericObjectFlags` (`:24880`): any constituent of a union or
+intersection; otherwise `InstantiableNonPrimitive | Index` (adding the
+conditional type the list lacked), a deferred `keyof`, or a template
+literal / string mapping that is not a pattern literal
+(`isGenericStringLikeType`). Substitution types take upstream's
+`baseType | constraint` road there; this port does not build them, and the
+flag test answers for one.
+
+**Port record.** No cache: upstream memoises the union/intersection bit on
+the type; here the members are walked per call. The only caller sees a span
+after union distribution, so the walk is one intersection's members.

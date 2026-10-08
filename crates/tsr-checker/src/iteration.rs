@@ -838,9 +838,8 @@ impl Checker<'_, '_> {
     /// the protocol decidably fails. Upstream reports the union's whole type
     /// when one constituent fails (`checker.go:6293`).
     ///
-    /// Only the `iterableExists` road is ported: without a global `Iterable`
-    /// upstream takes the array-like road (TS2461/TS2495), which stays
-    /// unreported here.
+    /// Without a global `Iterable` the array-like road reports instead
+    /// ([`Checker::check_array_like_iteration`]).
     pub(crate) fn check_iterated_type_or_element_type(
         &mut self,
         use_: IterationUse,
@@ -857,6 +856,7 @@ impl Checker<'_, '_> {
         }
         let iterable_exists = self.iteration_global("Iterable", 3).is_some();
         if !iterable_exists {
+            self.check_array_like_iteration(use_, input, error_node);
             return;
         }
         if let Ok(types) = self.get_iteration_types_of_iterable(input, use_)
@@ -864,6 +864,110 @@ impl Checker<'_, '_> {
         {
             self.report_type_not_iterable_error(error_node, input, allow_async);
         }
+    }
+
+    /// The array-like road of `getIteratedTypeOrElementType`
+    /// (`checker.go:6106`) taken when the program has no global `Iterable`
+    /// (`iterableExists == false`, e.g. `@lib: es5`): an async-iterable use
+    /// first asks the iteration protocol without an error node and returns
+    /// on a yield type; then string-like constituents are removed for a use
+    /// that allows strings, and a remaining type that is not array-like
+    /// reports `getIterationDiagnosticDetails`' message (TS2802, TS2495 or
+    /// TS2461) on `error_node`. A relation this port cannot decide reports
+    /// nothing. The `Did you forget to use 'await'?` related information is
+    /// not ported (`report_type_not_iterable_error` makes the same call).
+    fn check_array_like_iteration(
+        &mut self,
+        use_: IterationUse,
+        input: TypeId,
+        error_node: NodeId,
+    ) {
+        if use_.contains(IterationUse::ALLOWS_ASYNC_ITERABLES) {
+            match self.get_iteration_types_of_iterable(input, use_) {
+                Ok(types) if types.yield_type.is_some() => return,
+                Ok(_) => {}
+                Err(()) => return,
+            }
+        }
+        let mut array_type = input;
+        let mut has_string_constituent = false;
+        if use_.contains(IterationUse::ALLOWS_STRING_INPUT) {
+            if let TypeData::Union { types, .. } = &self.store.get(input).data {
+                let types = types.clone();
+                let filtered: Vec<_> = types
+                    .iter()
+                    .copied()
+                    .filter(|&t| !self.store.get(t).flags.intersects(TypeFlags::STRING_LIKE))
+                    .collect();
+                if filtered.len() != types.len() {
+                    let Some(reduced) = self.union_with_subtype_reduction(&filtered) else {
+                        return;
+                    };
+                    array_type = reduced;
+                }
+            } else if self.store.get(input).flags.intersects(TypeFlags::STRING_LIKE) {
+                array_type = self.intrinsics.never;
+            }
+            has_string_constituent = array_type != input;
+            if has_string_constituent && self.store.get(array_type).flags.contains(TypeFlags::NEVER)
+            {
+                return;
+            }
+        }
+        let array_like = if self.tuple_array_like(array_type) {
+            true
+        } else if self.store.get(array_type).flags.intersects(TypeFlags::NULLABLE) {
+            false
+        } else {
+            let Some(array) = self.global_type_symbol("ReadonlyArray") else { return };
+            let array = self.create_type_reference(array, vec![self.intrinsics.any]);
+            match self.relate_ternary(array_type, array, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => true,
+                crate::relater::Ternary::NotRelated => false,
+                crate::relater::Ternary::Unknown => return,
+            }
+        };
+        if array_like {
+            return;
+        }
+        // getIterationDiagnosticDetails (checker.go): the downlevel message
+        // when the type is iterable after all or names an ES2015 collection.
+        let allows_strings =
+            use_.contains(IterationUse::ALLOWS_STRING_INPUT) && !has_string_constituent;
+        let iterable = match self.get_iteration_types_of_iterable(input, use_) {
+            Ok(types) => types.yield_type.is_some(),
+            Err(()) => return,
+        };
+        let input_symbol = match self.store.get(input).data {
+            TypeData::Named { members, .. } => members,
+            _ => self.type_reference_targets.get(&input).map(|(target, _)| *target),
+        };
+        let es2015_collection = input_symbol.is_some_and(|symbol| {
+            matches!(
+                self.binder.symbols().get(symbol).name,
+                "Float32Array"
+                    | "Float64Array"
+                    | "Int16Array"
+                    | "Int32Array"
+                    | "Int8Array"
+                    | "NodeList"
+                    | "Uint16Array"
+                    | "Uint32Array"
+                    | "Uint8Array"
+                    | "Uint8ClampedArray"
+            )
+        });
+        let message: &'static tsr_diagnostics::Message = if iterable || es2015_collection {
+            &messages::TYPE_0_CAN_ONLY_BE_ITERATED_THROUGH_WHEN_USING_THE_DOWNLEVELITERATION_FLAG_OR_WITH_A_TARGET_OF_ES2015_OR_HIGHER
+        } else if allows_strings {
+            &messages::TYPE_0_IS_NOT_AN_ARRAY_TYPE_OR_A_STRING_TYPE
+        } else {
+            &messages::TYPE_0_IS_NOT_AN_ARRAY_TYPE
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(error_node) else { return };
+        let text = self.type_to_string(array_type);
+        let span = self.error_span(error_node);
+        self.report(file, Diagnostic::with_args(message, span, [text]));
     }
 
     /// `reportTypeNotIterableError` (`checker.go:6699`). The await suggestion
