@@ -30,11 +30,10 @@
 //!
 //! Not here, and each is a named gap rather than an oversight:
 //!
-//! - **`extends`.** 6 of the corpus's 130 `tsconfig.json` units use it and none
-//!   of the 20 that the resolution baselines judge. It needs a resolution stack,
-//!   circularity detection, and — in its package form — a module resolution of
-//!   its own, which would make config parsing depend on `tsr-module`. bd
-//!   tsr-9or.6.
+//! - **`extends` circularity.** `extends` itself is here (relative, package
+//!   and array forms; inherited specs rebased as `parseConfig` does, see
+//!   `docs/architecture/tsconfig.md`), but a cycle stops at a depth cap instead
+//!   of upstream's `Circularity detected while resolving configuration` error.
 //! - **Project references.** They belong with the rest of the project-reference
 //!   machinery the file loader also does not have.
 //! - **The command line.** `tsc` does not exist yet (Phase 6).
@@ -69,6 +68,13 @@ use crate::{
 /// The default `include` when a config gives neither `files` nor `include`
 /// (`tsoptions.defaultIncludeSpec`).
 const DEFAULT_INCLUDE_SPEC: &str = "**/*";
+
+/// The root keys whose specs an extending config inherits, rebased, from its
+/// base (`setPropertyValue` in `parseConfig`, `tsconfigparsing.go:1106`).
+const INHERITED_SPEC_PROPERTIES: [&str; 3] = ["include", "exclude", "files"];
+
+/// `configDirTemplate` (`tsconfigparsing.go`).
+const CONFIG_DIR_TEMPLATE: &str = "${configDir}";
 
 /// A parsed config file (`tsoptions.ParsedCommandLine`).
 #[derive(Debug, Default)]
@@ -229,22 +235,49 @@ fn parse_config_file_at_depth(
     let own_workers = (compiler_options.checkers, compiler_options.single_threaded);
     let mut inherited_workers = (None, Tristate::Unknown);
     let mut raw = raw;
-    for base in extended {
+    // `parseConfig`'s `extendsResult` (`tsconfigparsing.go:1101-1170`): only
+    // `include`, `exclude`, `files` and `compileOnSave` pass from a base's raw
+    // config to this one's, and a later `extends` entry overwrites an earlier
+    // one's. Every other root key (`references`, a base's own `extends`, ...)
+    // stays with the file that wrote it.
+    let mut inherited_specs: [Option<ConfigValue>; 3] = [None, None, None];
+    let mut inherited_compile_on_save = false;
+    let use_case_sensitive_file_names = fs.use_case_sensitive_file_names();
+    for (extended_config_path, base) in extended {
         inherited_workers = merge_worker_options(
             inherited_workers,
             (base.compiler_options.checkers, base.compiler_options.single_threaded),
             &base.raw,
         );
-        for (key, value) in base.raw.entries() {
-            // Native raw compilerOptions describes this config, including its
-            // explicit nulls; ancestor nulls must not become own nulls.
-            if key != "compilerOptions" && !raw.contains_key(key) {
-                raw.set(key.to_string(), value.clone());
+        let mut relative_difference = None;
+        for (slot, name) in inherited_specs.iter_mut().zip(INHERITED_SPEC_PROPERTIES) {
+            if raw.contains_key(name) {
+                continue;
             }
+            if let Some(ConfigValue::List(specs)) = base.raw.get(name) {
+                *slot = Some(ConfigValue::List(rebase_inherited_specs(
+                    specs,
+                    &extended_config_path,
+                    base_path,
+                    use_case_sensitive_file_names,
+                    &mut relative_difference,
+                )));
+            }
+        }
+        if let Some(ConfigValue::Bool(compile_on_save)) = base.raw.get("compileOnSave") {
+            inherited_compile_on_save = *compile_on_save;
         }
         compiler_options = merge_options(base.compiler_options, compiler_options);
         errors.splice(0..0, base.errors);
         error_files.splice(0..0, base.error_files);
+    }
+    for (slot, name) in inherited_specs.into_iter().zip(INHERITED_SPEC_PROPERTIES) {
+        if let Some(specs) = slot {
+            raw.set(name.to_string(), specs);
+        }
+    }
+    if inherited_compile_on_save && !raw.contains_key("compileOnSave") {
+        raw.set("compileOnSave".to_string(), ConfigValue::Bool(true));
     }
     (compiler_options.checkers, compiler_options.single_threaded) =
         merge_worker_options(inherited_workers, own_workers, &raw);
@@ -252,15 +285,38 @@ fn parse_config_file_at_depth(
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
     }
+    // An extended config is read by `ParseExtendedConfig` -> `parseConfig`
+    // alone (`tsconfigparsing.go:1033`): its options and raw specs are merged
+    // into the extending config, but its files are never expanded and the
+    // spec checks of `parseJsonConfigFileContentWorker` never run on it. Only
+    // the invoked config's merged specs select the program.
+    if depth > 0 {
+        error_files.resize(errors.len(), own_file);
+        return ParsedCommandLine {
+            compiler_options,
+            file_names: Vec::new(),
+            literal_file_count: 0,
+            raw,
+            errors,
+            error_files,
+        };
+    }
     let files_span = properties.as_ref().and_then(|properties| {
         properties.iter().find(|property| property.name == "files").map(|property| property.span)
     });
-    let specs = file_specs(&raw, &compiler_options, config_file_name, files_span, &mut errors);
+    let specs = file_specs(
+        &raw,
+        &compiler_options,
+        config_file_name,
+        &base_path_for_file_names,
+        files_span,
+        &mut errors,
+    );
     error_files.resize(errors.len(), own_file);
     let (file_names, literal_file_count) =
         file_names::expand(&specs, &base_path_for_file_names, &compiler_options, fs);
 
-    if depth == 0 && file_names.is_empty() && can_report_no_input_files(&raw) {
+    if file_names.is_empty() && can_report_no_input_files(&raw) {
         errors.push(Diagnostic::with_args(
             &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
             tsr_core::Span::default(),
@@ -272,6 +328,74 @@ fn parse_config_file_at_depth(
     error_files.resize(errors.len(), None);
 
     ParsedCommandLine { compiler_options, file_names, literal_file_count, raw, errors, error_files }
+}
+
+/// One inherited `include`/`exclude`/`files` list, rewritten to be relative
+/// to the extending config (the `core.Map` in `parseConfig`'s
+/// `setPropertyValue`, `tsconfigparsing.go:1110-1130`).
+///
+/// A base's specs were written relative to the base's directory, but they are
+/// expanded against the *invoked* config's directory, so each relative spec is
+/// prefixed with the path from the extending config's `base_path` to the
+/// base's directory. A rooted spec, a `${configDir}` spec (which already names
+/// the invoked config's directory), and a non-string element pass through.
+///
+/// `relative_difference` is computed once per extended config, on its first
+/// relative spec, and shared by its three lists, as upstream's closure
+/// variable is. Upstream tests it against `""` rather than a separate flag, so
+/// a base in the same directory recomputes the (empty) difference each time;
+/// the `Option` gives the same answers.
+fn rebase_inherited_specs(
+    specs: &[ConfigValue],
+    extended_config_path: &str,
+    base_path: &str,
+    use_case_sensitive_file_names: bool,
+    relative_difference: &mut Option<String>,
+) -> Vec<ConfigValue> {
+    specs
+        .iter()
+        .map(|spec| {
+            let ConfigValue::String(path) = spec else {
+                return spec.clone();
+            };
+            if starts_with_config_dir_template(path) || tsr_path::is_rooted_disk_path(path) {
+                return spec.clone();
+            }
+            let difference = relative_difference.get_or_insert_with(|| {
+                tsr_path::convert_to_relative_path(
+                    get_directory_path(extended_config_path),
+                    &tsr_path::ComparePathsOptions {
+                        use_case_sensitive_file_names,
+                        current_directory: normalize_slashes(base_path),
+                    },
+                )
+            });
+            ConfigValue::String(tsr_path::combine_paths(difference, &[path]))
+        })
+        .collect()
+}
+
+/// `startsWithConfigDirTemplate` (`tsconfigparsing.go:441`): a
+/// case-insensitive prefix test.
+fn starts_with_config_dir_template(value: &str) -> bool {
+    value
+        .get(..CONFIG_DIR_TEMPLATE.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(CONFIG_DIR_TEMPLATE))
+}
+
+/// `getSubstitutedStringArrayWithConfigDirTemplate` (`tsconfigparsing.go:1590`)
+/// with `getSubstitutedPathWithConfigDirTemplate` (`:1586`): a spec that starts
+/// with `${configDir}` has its first exact occurrence replaced by `./` and is
+/// made absolute against the invoked config's directory.
+fn substitute_config_dir_in_specs(specs: &mut [String], base_path: &str) {
+    for spec in specs {
+        if starts_with_config_dir_template(spec) {
+            *spec = get_normalized_absolute_path(
+                &spec.replacen(CONFIG_DIR_TEMPLATE, "./", 1),
+                base_path,
+            );
+        }
+    }
 }
 
 /// Substitute `${configDir}` in every path-valued option.
@@ -305,10 +429,15 @@ fn expand_config_dir(options: &mut CompilerOptions, config_dir: &str) {
     }
 }
 
+/// A parsed base config and the path it was read from.
+type ExtendedConfig = (String, ParsedCommandLine);
+
 /// Resolve and parse every config this one extends.
 ///
-/// Returns them in declaration order, so a later `extends` entry overrides an
-/// earlier one — which is what upstream's left-to-right merge does.
+/// Returns them in declaration order, each with the path it was read from, so
+/// a later `extends` entry overrides an earlier one — which is what upstream's
+/// left-to-right merge does — and inherited specs can be rebased from the
+/// base's directory.
 fn extended_configs(
     properties: &[ConfigProperty<'_>],
     nodes: &tsr_ast::NodeTable,
@@ -317,7 +446,7 @@ fn extended_configs(
     fs: &dyn FileSystem,
     depth: u32,
     config_dir: &str,
-) -> (Vec<ParsedCommandLine>, Vec<(Diagnostic, bool)>) {
+) -> (Vec<ExtendedConfig>, Vec<(Diagnostic, bool)>) {
     let mut errors = Vec::new();
     if depth >= MAX_EXTENDS_DEPTH {
         return (Vec::new(), errors);
@@ -378,14 +507,9 @@ fn extended_configs(
     for path in paths {
         if let Some(text) = fs.read_file(&path) {
             let directory = get_directory_path(&path).to_string();
-            parsed.push(parse_config_file_at_depth(
-                &path,
-                &text,
-                &directory,
-                fs,
-                depth + 1,
-                config_dir,
-            ));
+            let base =
+                parse_config_file_at_depth(&path, &text, &directory, fs, depth + 1, config_dir);
+            parsed.push((path, base));
         } else {
             // A resolved explicit .json read failure is global TS5083.
             errors.push((
@@ -725,6 +849,7 @@ fn file_specs(
     raw: &OrderedMap<ConfigValue>,
     options: &CompilerOptions,
     config_file_name: &str,
+    base_path_for_file_names: &str,
     files_span: Option<tsr_core::Span>,
     errors: &mut Vec<Diagnostic>,
 ) -> ConfigFileSpecs {
@@ -763,11 +888,16 @@ fn file_specs(
         (_, include) => include.unwrap_or_default(),
     };
 
-    ConfigFileSpecs {
-        files: files.unwrap_or_default(),
-        include,
-        exclude: exclude.unwrap_or_default(),
+    // `${configDir}` in a spec names the invoked config's directory, after the
+    // output-directory default (whose values are already absolute).
+    let mut files = files.unwrap_or_default();
+    let mut include = include;
+    let mut exclude = exclude.unwrap_or_default();
+    for specs in [&mut files, &mut include, &mut exclude] {
+        substitute_config_dir_in_specs(specs, base_path_for_file_names);
     }
+
+    ConfigFileSpecs { files, include, exclude }
 }
 
 /// A root property read as a list of strings, or `None` if absent.
