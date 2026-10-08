@@ -464,13 +464,13 @@ fn an_unresolved_name_is_upstreams_any() {
     let symbol = bound.lookup_local(root, "a").expect("`a` is declared");
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
-    // §31 (`checker-notes-narrow.md`): a truly unresolved free name in an
-    // import-free file answers upstream's TS2304 `errorType` — whose
-    // OBSERVABLE is `any`, and this port answers the `any` intrinsic
-    // directly. The fixture's original claim (errorType, to keep gaps
-    // distinguishable) was ADR-0038's; §31 argues the boundary: this is
-    // upstream's own deliberate error-answer, not a port failure.
-    assert_eq!(id, checker.intrinsics().any);
+    // §31 (`checker-notes-narrow.md`) answered the `any` stand-in for
+    // upstream's TS2304 `errorType`. ADR-0048 gave `errorType` its own
+    // identity, and r5-errorsplit3/4 moved this arm to it
+    // (`checker.go:11048`); widening keeps an intrinsic as is, so the
+    // declaration is `errorType` too, printed `any` by the checker.
+    assert_eq!(id, checker.intrinsics().native_error);
+    assert_eq!(checker.type_to_string(id), "any");
 }
 
 #[test]

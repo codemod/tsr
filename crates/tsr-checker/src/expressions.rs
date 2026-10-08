@@ -826,13 +826,12 @@ impl Checker<'_, '_> {
                         }
                     }
                     // `checkIdentifier`'s unresolved exit: upstream reports
-                    // TS2304 and answers `errorType` — printed `any`, the
-                    // §14/§27/§31 boundary argument. Gated on the name being
-                    // absent in EVERY meaning: a name this port can find as
-                    // an alias/type/namespace but not resolve as a value is
-                    // the PORT's resolution gap, and answering `any` there
-                    // manufactured 1,909 adverse lines in the ungated
-                    // measurement (`checker-notes-narrow.md` §31).
+                    // TS2304 and answers `errorType` (`checker.go:11048`).
+                    // The §31 gate (`checker-notes-narrow.md`) once chose
+                    // between `any` and the gap by file shape; since
+                    // ADR-0048 the writer decides the spelling and only a
+                    // miss the port can cause keeps the gap (the last arm
+                    // below, `docs/parity/notes/r5-errorsplit4.md` §2).
                 } else {
                     {
                         let anywhere = self.binder.resolve_name(
@@ -845,14 +844,6 @@ impl Checker<'_, '_> {
                                 | SymbolFlags::NAMESPACE
                                 | SymbolFlags::ALIAS,
                         );
-                        // The structural gate: a file with import/export
-                        // machinery can miss through the PORT's alias
-                        // resolution; a `///<reference>`-style script cannot
-                        // — its unresolved names are the SOURCE's.
-                        // `arguments` is THIS PORT's miss (upstream binds
-                        // `IArguments` in every function), and a JS/JSX file
-                        // resolves through machinery with known port gaps —
-                        // both stay honest gaps.
                         // §33: `globalThis` mints its own type; members
                         // resolve through the merged globals table.
                         if node.text == "globalThis" {
@@ -944,35 +935,48 @@ impl Checker<'_, '_> {
                         {
                             return self.intrinsics.native_error;
                         }
-                        if anywhere.is_some()
-                            || node.text == "arguments"
-                            || self.file_has_import_machinery(id)
-                            // §784: the JS half the §31 comment above already
-                            // argues for but the gate never tested. A `.js`
-                            // file is checked with `allowJs`, where upstream
-                            // still reports TS2304 on an unresolved name and
-                            // the oracle records `error` — so `any` is this
-                            // port's own over-answer, not upstream's. The
-                            // exception is a JS file carrying COMMONJS
-                            // machinery: `require`/`module.exports` bring
-                            // names into scope through roads this port only
-                            // partly has, so an unresolved name THERE may be
-                            // the port's miss, exactly as the ES-declaration
-                            // test above allows. The ES-only detector cannot
-                            // see them; measured at 11 RIGHT->GAP without
-                            // this second half.
-                            || (self.in_js_file(id)
-                                && !self.file_has_commonjs_machinery(id))
-                        {
+                        // ADR-0048 (`docs/parity/notes/r5-errorsplit4.md`
+                        // §2): every other unresolved name is upstream's
+                        // `unknownSymbol`, and `checkIdentifier` answers
+                        // `errorType` (`checker.go:11048`). The §31 gate's
+                        // structural heuristics (import machinery, a JS file
+                        // without CommonJS) and its blanket `arguments` arm
+                        // chose how the name PRINTED, which is now the
+                        // writer's decision; measured against a native build
+                        // every line they kept as the gap is `errorType`
+                        // natively. Two arms stay the gap because there the
+                        // miss can be this port's own resolution, and one is
+                        // held (below):
+                        //
+                        // - a name found only as an ALIAS: the alias may
+                        //   resolve to a value the port does not reach
+                        //   (19 of 34 such lines are values natively);
+                        // - `arguments` inside a function when `IArguments`
+                        //   could not be read: upstream binds
+                        //   `argumentsSymbol` there (`nameresolver.go:228`)
+                        //   and answers its type, never `errorType`.
+                        //
+                        // A name found in another meaning that is not an
+                        // alias has no value meaning to lose: `resolveName`
+                        // with `Value` passes it by and fails (TS2693/TS2708).
+                        // `arguments` outside any function container — top
+                        // level, a property initializer, a static block — is
+                        // `unknownSymbol` or `checkIdentifier`'s property
+                        // initializer arm (`checker.go:11050-11053`), both
+                        // `errorType`.
+                        let found_as_alias = anywhere.is_some_and(|found| {
+                            self.binder.symbols().get(found).flags.intersects(SymbolFlags::ALIAS)
+                        });
+                        let arguments_unread = node.text == "arguments" && arguments_container();
+                        // Held (§3): a JS file with no CommonJS machinery is
+                        // `errorType` natively too, but there the writer's
+                        // fast path prints the call through it, and the
+                        // call road lacks `resolveCallExpression`'s
+                        // `isErrorType` arm (`checker.go:8516`, `calls.rs`).
+                        let held_js = self.in_js_file(id) && !self.file_has_commonjs_machinery(id);
+                        if found_as_alias || arguments_unread || held_js {
                             self.intrinsics.error
                         } else {
-                            // The name is absent in every meaning in a file
-                            // with no import machinery: `getResolvedSymbol`
-                            // answers `unknownSymbol` and `checkIdentifier`
-                            // returns `errorType` (`checker.go:11048`).
-                            // ADR-0048: upstream's own error identity, after
-                            // the consumer audit
-                            // (`docs/parity/notes/r5-errorsplit3.md` §5).
                             self.intrinsics.native_error
                         }
                     }
