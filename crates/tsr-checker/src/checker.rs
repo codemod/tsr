@@ -2035,6 +2035,8 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        // typeToTypeNodeHelper reduces before printing (nodebuilderimpl.go:3228).
+        let id = self.get_reduced_type(id);
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }

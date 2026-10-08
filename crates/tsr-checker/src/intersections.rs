@@ -271,6 +271,38 @@ impl Checker<'_, '_> {
         result
     }
 
+    /// `getReducedType` (`checker.go:21819`) and `getReducedUnionType`
+    /// (`:21843`): an intersection with a never-reduced property
+    /// (`isNeverReducedProperty`, `:21856`) is `never`, and a union containing
+    /// intersections is rebuilt from its reduced constituents. Native's node
+    /// builder applies it to every type it prints (`nodebuilderimpl.go:3228`).
+    pub(crate) fn get_reduced_type(&mut self, t: TypeId) -> TypeId {
+        match &self.store.get(t).data {
+            TypeData::Union { types, .. } => {
+                if !types
+                    .iter()
+                    .any(|&id| self.store.get(id).flags.contains(TypeFlags::INTERSECTION))
+                {
+                    return t;
+                }
+                let types = types.clone();
+                let reduced: Vec<_> = types.iter().map(|&id| self.get_reduced_type(id)).collect();
+                if reduced == types {
+                    return t;
+                }
+                self.get_union_type(&reduced)
+            }
+            TypeData::Intersection { .. } => {
+                if self.intersection_has_never_discriminant(t) {
+                    self.intrinsics.never
+                } else {
+                    t
+                }
+            }
+            _ => t,
+        }
+    }
+
     /// The identity `removeConstrainedTypeVariables` (`checker.go:25881`)
     /// compares a constraining intersection's primitive side by.
     ///
