@@ -54,6 +54,7 @@
 
 pub mod comment_directives;
 mod file;
+pub mod file_include;
 mod front_end;
 pub mod loader;
 pub mod program_diagnostics;
@@ -188,6 +189,19 @@ pub struct Program<'a> {
     /// (`program.fileProcessingDiagnostics`): they belong to no checker and to
     /// no binder, and before §240 this port had nowhere to put them at all.
     loader_diagnostics: Vec<loader::LoaderDiagnostic>,
+    /// Why each file is in the program, by file index, in the loader's
+    /// replay order (`includeProcessor.fileIncludeReasons`). Empty for a
+    /// program built from a file list, which ran no loader.
+    include_reasons: Vec<Vec<file_include::FileIncludeReason>>,
+    /// The root file names the program was loaded from
+    /// (`opts.Config.FileNames()`). Empty for a program built from a file list.
+    root_file_names: Vec<String>,
+    /// The include-explaining diagnostics `verifyCompilerOptions` adds to the
+    /// include processor, computed once on first read as upstream's
+    /// `includeProcessor.getDiagnostics` (`computedDiagnosticsOnce`):
+    /// `(file index it is positioned in, diagnostic)`, `None` for a global one.
+    /// See [`program_diagnostics::composite_file_list_diagnostics`].
+    explaining_diagnostics: std::sync::OnceLock<Vec<(Option<usize>, tsr_diagnostics::Diagnostic)>>,
     /// Kind, span and parent for every node of **every** file
     /// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)).
     nodes: NodeTable,
@@ -359,6 +373,9 @@ impl<'a> Program<'a> {
             use_case_sensitive_file_names,
             lib_file_count: 0,
             loader_diagnostics: Vec::new(),
+            include_reasons: Vec::new(),
+            root_file_names: Vec::new(),
+            explaining_diagnostics: std::sync::OnceLock::new(),
             nodes,
             node_map,
             binder: BindResult::empty(),
@@ -390,6 +407,7 @@ impl<'a> Program<'a> {
         options: loader::LoadOptions,
     ) -> Self {
         let compiler_options = options.compiler_options.clone();
+        let root_file_names = options.root_file_names.clone();
         let loaded = loader::FileLoader::load(arena, host, options);
         let indexing_started = compiler_options.extended_diagnostics.is_true().then(Instant::now);
 
@@ -427,6 +445,9 @@ impl<'a> Program<'a> {
             use_case_sensitive_file_names,
             lib_file_count: loaded.lib_file_count,
             loader_diagnostics: loaded.loader_diagnostics,
+            include_reasons: loaded.include_reasons,
+            root_file_names,
+            explaining_diagnostics: std::sync::OnceLock::new(),
             nodes: loaded.nodes,
             node_map: loaded.node_map,
             binder: BindResult::empty(),
@@ -756,6 +777,31 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn loader_diagnostics(&self) -> &[loader::LoaderDiagnostic] {
         &self.loader_diagnostics
+    }
+
+    /// Every reason program file `file_index` is in the program, in the order
+    /// the loader's replay walk met them (`includeProcessor.fileIncludeReasons`).
+    #[must_use]
+    pub fn file_include_reasons(&self, file_index: usize) -> &[file_include::FileIncludeReason] {
+        self.include_reasons.get(file_index).map_or(&[], Vec::as_slice)
+    }
+
+    /// [`program_diagnostics::composite_file_list_diagnostics`], computed once.
+    pub(crate) fn explaining_diagnostics(&self) -> &[(Option<usize>, tsr_diagnostics::Diagnostic)] {
+        self.explaining_diagnostics
+            .get_or_init(|| program_diagnostics::composite_file_list_diagnostics(self))
+    }
+
+    /// The root file names this program was loaded from
+    /// (`opts.Config.FileNames()`).
+    #[must_use]
+    pub fn root_file_names(&self) -> &[String] {
+        &self.root_file_names
+    }
+
+    /// File `file_index`'s module-format metadata (`GetSourceFileMetaData`).
+    pub(crate) fn meta_data(&self, file_index: usize) -> Option<&loader::SourceFileMetaData> {
+        self.meta_datas.get(file_index)
     }
 
     /// The file `import "<specifier>"` in `importing_file` resolved to under

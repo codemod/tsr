@@ -188,10 +188,14 @@ are in [ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md
 - Single-threaded, and each path is claimed once. Upstream additionally keys
   tasks by file-name casing and reprocesses a task reached at a lower depth.
 - `moduleDetection` is assumed `auto`. It is not a ported option.
-- The include-reason bookkeeping behind `--explainFiles`, and the diagnostics for
-  a missing or unsupported-extension file, are dropped: each place upstream
-  records one, this returns nothing. None is a resolution, so none is visible in
-  the oracle.
+- The diagnostics for a missing or unsupported-extension file are dropped:
+  each place upstream records one, this returns nothing. None is a resolution,
+  so none is visible in the oracle.
+- *Corrected 2026-10-08 (r4-config, `tsr-2zk.931`):* include reasons **are**
+  recorded now. Every task carries its `FileIncludeReason` and the replay walk
+  collects them per path in `collectFiles`' order, before its seen check, so a
+  file reached twice keeps both (`crates/tsr-compiler/src/file_include.rs`).
+  The first consumer is TS6307; `--explainFiles` itself is still not ported.
 
 ## Lib files, added 2026-08-05
 
