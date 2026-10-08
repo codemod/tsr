@@ -298,3 +298,21 @@ fn a_tuple_length_is_its_element_count() {
         "2"
     );
 }
+
+/// `TupleNormalizer.add` (`checker.go:23440`) stores every optional element as
+/// `addOptionalityEx(t, true, true)`, so a tuple inferred from optional
+/// parameters carries `undefined` in each optional slot
+/// (`genericRestParameters1.types:581`).
+#[test]
+fn a_tuple_inferred_from_optional_parameters_carries_undefined() {
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { length: number }\n\
+             declare function bind<T, U extends unknown[], V>(f: (x: T, ...rest: U) => V, x: T): (...rest: U) => V;\n\
+             declare const g20: (x: number, y?: string, z?: boolean) => string[];\n\
+             const g21 = bind(g20, 42);",
+            "g21",
+        ),
+        "(y?: string | undefined, z?: boolean | undefined) => string[]"
+    );
+}

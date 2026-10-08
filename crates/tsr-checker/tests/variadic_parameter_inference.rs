@@ -162,7 +162,10 @@ fn returned_variadic_tuple_preserves_optional_suffix() {
         "{LIB}declare function f<T extends unknown[]>(): [...T, boolean?];\n\
          const a = f<[string, number]>();"
     );
-    assert_eq!(type_of_initialiser(&source, "a"), "[string, number, boolean?]");
+    // `TupleNormalizer.add` (checker.go:23440) gives the optional slot
+    // `addOptionality` under strictNullChecks, as `[...T, (number | undefined)?]`
+    // records (`variadicTuples1.types:1221`).
+    assert_eq!(type_of_initialiser(&source, "a"), "[string, number, (boolean | undefined)?]");
 }
 
 #[test]
