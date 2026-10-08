@@ -91,3 +91,24 @@ compound included. `this_expression.rs`'s shape test accepted only `=`, so
 
 Measured: `thisPrototypeMethodCompoundAssignment` and its `Js` twin lose
 two wrong TS2683 lines each.
+
+## §5 TS2855/TS2513: `checkPropertyAccessibilityAtLocation`'s `isSuper` arm
+
+Not ported before. For `super.x`, native (`checker.go:11788`) first rejects an
+abstract member (TS2513, with `getDeclaringClass` printed) and then a
+non-static member any of whose declarations `isClassInstanceProperty`
+(TS2855): a class `PropertyDeclaration` without `accessor`, or in JS an
+expando assignment that is neither a prototype nor a static assignment
+(`this.x = …` counts). The flags come from
+`getDeclarationModifierFlagsFromSymbolEx(prop, writing)`.
+
+The arm is `Checker::super_property_accessibility_error` in
+`super_expression.rs`, with the `ast` helpers it needs
+(`IsBindableStaticAccessExpression`, `IsBindableStaticElementAccessExpression`,
+`IsBindableStaticNameExpression`, `IsPrototypeAccess`). Its faithful call site
+is the top of `property_accessibility_error` (`readonly_target.rs`, not
+owned): **`docs/parity/notes/r4-classsyntax-super-accessibility.diff`** is the
+measured five-line patch. Until it is applied the function is unused and
+carries `#[allow(dead_code)]`; remove that attribute with the patch.
+
+Measured with the patch applied (numbers in the commit message).
