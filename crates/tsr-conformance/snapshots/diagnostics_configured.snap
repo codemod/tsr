@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 685/1089 (62.90%)
-Failed         : 404
+Passed         : 734/1089 (67.40%)
+Failed         : 355
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 404 failures:
+First 100 of 355 failures:
 compiler/abstractPropertyNegative(target=es2015)
   1 unexpected (first TS2610 at abstractPropertyNegative.ts(34,5)), 5 missing
 compiler/accessorWithInitializer(target=es2015)
@@ -172,24 +172,12 @@ compiler/jsxFragmentFactoryReference(jsx=react-jsx)
   1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
 compiler/jsxFragmentFactoryReference(jsx=react-jsxdev)
   1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
-compiler/jsxNamespaceElementChildrenAttributeIgnoredWhenReactJsx(jsx=react-jsx)
-  1 unexpected (first TS2322 at /test.tsx(7,2)), 1 missing
-compiler/jsxNamespaceElementChildrenAttributeIgnoredWhenReactJsx(jsx=react-jsxdev)
-  1 unexpected (first TS2322 at /test.tsx(7,2)), 1 missing
 compiler/jsxSpreadTag(target=es2015)
   4 missing (first TS2304 at /a.tsx(5,13))
 compiler/jsxSpreadTag(target=esnext)
   4 missing (first TS2304 at /a.tsx(5,13))
 compiler/moduleAugmentationGlobal8_1(target=es2015)
   1 missing (first TS2670 at moduleAugmentationGlobal8_1.ts(2,5))
-compiler/moduleNodeDefaultImports(module=node16)
-  6 missing (first TS2349 at b.mts(15,1))
-compiler/moduleNodeDefaultImports(module=node18)
-  6 missing (first TS2349 at b.mts(15,1))
-compiler/moduleNodeDefaultImports(module=node20)
-  6 missing (first TS2349 at b.mts(15,1))
-compiler/moduleNodeDefaultImports(module=nodenext)
-  6 missing (first TS2349 at b.mts(15,1))
 compiler/modulePreserveTopLevelAwait1(target=es2016)
   2 missing (first TS1432 at modulePreserveTopLevelAwait1.ts(1,5))
 compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertytypes=true)
@@ -226,3 +214,15 @@ compiler/superInLambdas(target=es2015)
   2 missing (first TS2855 at superInLambdas.ts(47,49))
 compiler/templateStringsArrayTypeDefinedInES5Mode(target=es2015)
   1 unexpected (first TS2345 at templateStringsArrayTypeDefinedInES5Mode.ts(7,3)), 1 missing
+compiler/templateStringsArrayTypeNotDefinedES5Mode(target=es2015)
+  1 unexpected (first TS2345 at templateStringsArrayTypeNotDefinedES5Mode.ts(4,3)), 1 missing
+compiler/tripleSlashTypesReferenceWithMissingExports(module=commonjs)
+  1 missing (first TS2688 at usage.ts(1,23))
+compiler/tripleSlashTypesReferenceWithMissingExports(module=node16)
+  1 missing (first TS2688 at usage.ts(1,23))
+compiler/tripleSlashTypesReferenceWithMissingExports(module=node18)
+  1 missing (first TS2688 at usage.ts(1,23))
+compiler/tripleSlashTypesReferenceWithMissingExports(module=node20)
+  1 missing (first TS2688 at usage.ts(1,23))
+compiler/tripleSlashTypesReferenceWithMissingExports(module=nodenext)
+  1 missing (first TS2688 at usage.ts(1,23))
