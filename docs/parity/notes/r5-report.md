@@ -102,3 +102,69 @@ Converted `inheritance1`, `classImplementsClass4`, `fuzzy`,
 gained a mismatch (missing/extra positions 5057/1329 → 5051/1323). Perf
 (median child CPU, new/old): domain-model 1.020, generic-imports 1.002 at 41
 samples (21-sample generic-imports read 1.056 and was re-run per protocol).
+
+## 2. A JSX attributes source drops the outer head (root cause B, tsr-2zk.918)
+
+### Forcing constraint
+
+`reportErrorResults` (`relater.go:4722`) returns before `reportRelationError`
+when the source carries `ObjectFlagsJsxAttributes` and the target is an
+intersection holding `JSX.IntrinsicAttributes` or
+`JSX.IntrinsicClassAttributes` (both `getJsxType`s must be non-error; the
+generic `IntrinsicClassAttributes<T>`'s declared type is never itself a
+constituent, so in practice the test is `IntrinsicAttributes`). The only
+message left is the chain of the constituent `typeRelatedToEachType` failed
+first — e.g. TS2741 against `IntrinsicAttributes` in
+`tsxIntrinsicAttributeErrors`, against the props object elsewhere. TSR
+reported TS2322 against the whole intersection.
+
+TSR's types carry no `JsxAttributes` object flag (`jsx_component.rs`, the
+hyphenated-name decline), so the reporter cannot see the fact. The JSX
+caller states it instead: `check_jsx_attributes_assignable` now calls
+`report_jsx_attributes_relation_failure` (`assignreport.rs`), whose source is
+by construction the attributes type `createJsxAttributesTypeFromAttributesProperty`
+built. (Native's spread of a *generic* object yields the spread type itself
+or an intersection, neither flagged; TSR's attributes builder declines such a
+spread before this point, via `spread_properties`.)
+
+### What was ported
+
+Each constituent is related in order, as `typeRelatedToEachType` does under
+`IntersectionStateTarget`:
+
+- **no excess-property check** — the source is read regular
+  (`getRegularTypeOfObjectLiteral`); the caller already ran
+  `hasExcessProperties` against the whole target;
+- **no common-property check** — a weak constituent that shares no property
+  with the source is counted related. That is exact, not a guess: a weak type
+  (`isWeakType`) has no required property, no signature and no index, and
+  the source has no property in common to compare, so the structural walk
+  cannot fail.
+
+The first `NotRelated` constituent is reported through
+`report_relation_failure` with no head override, so the missing-property swap
+of §1 applies to it. An undecided constituent declines; all constituents
+relating means the failure came from the combined property pass
+(`relater.go:3232`), whose chain this port does not build, and declines too.
+
+### Alternatives
+
+- **Add an `ObjectFlagsJsxAttributes` bit to TSR's types.** The faithful
+  representation; it touches the type store and every attributes builder,
+  none owned here, and the hyphenated-name decline needs the same bit in the
+  relater (`isComparingJsxAttributes`). Worth doing when that lane runs; this
+  entry point then becomes a check of the bit.
+- **Relate per constituent with `relate_ternary` on the fresh source.** Wrong:
+  the top-level excess and weak checks would reject `IntrinsicAttributes`
+  itself for any attribute it does not declare.
+
+### Measured
+
+Converted `tsxIntrinsicAttributeErrors`, `tsxSpreadAttributesResolution2`,
+`tsxSpreadAttributesResolution16`, `tsxReactComponentWithDefaultTypeParameter3`,
+`checkJsxChildrenProperty2`, `checkJsxChildrenProperty5`. `tsxUnionElementType3`
+and `tsxUnionElementType6` each convert one position; the other is an element
+with a hyphenated attribute (`data-extra`), which the caller still declines
+for want of the JSX-attributes relater flag. Loss checks empty; missing/extra
+positions 5051/1323 → 5037/1309. Perf (21 samples, new/old): domain-model
+1.027, generic-imports 1.027.

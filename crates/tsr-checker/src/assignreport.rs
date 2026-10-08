@@ -2179,6 +2179,73 @@ impl<'a> Checker<'a, '_> {
         self.report(file, diagnostic);
     }
 
+    /// [`Checker::report_relation_failure`] for a JSX attributes source
+    /// (`ObjectFlagsJsxAttributes`, which TSR's types do not carry: the JSX
+    /// caller states it). `reportErrorResults` (`relater.go:4722`) returns
+    /// without an outer head when the target is an intersection holding
+    /// `JSX.IntrinsicAttributes` or `JSX.IntrinsicClassAttributes` (both
+    /// `getJsxType`s non-error), so only the chain of the constituent that
+    /// failed is reported.
+    ///
+    /// That constituent is the first one `typeRelatedToEachType`
+    /// (`relater.go`) fails, related under `IntersectionStateTarget`: no
+    /// excess-property check (the source is read regular; the caller already
+    /// ran `hasExcessProperties` on the whole target) and no common-property
+    /// check (a weak constituent sharing no property with the source has no
+    /// required member and no signature or index to fail, so it relates).
+    /// An undecided constituent, or every constituent relating (the failure
+    /// was the combined property pass, `relater.go:3232`), reports nothing.
+    pub(crate) fn report_jsx_attributes_relation_failure(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        location: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let TypeData::Intersection { types, .. } = self.type_of(target).data.clone() else {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        };
+        let intrinsic = |checker: &mut Self, name: &str| {
+            checker
+                .jsx_type_symbol(location, name)
+                .filter(|&symbol| {
+                    checker.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE)
+                })
+                .map(|symbol| checker.get_declared_type_of_symbol(symbol))
+                .filter(|&declared| !checker.is_error(declared))
+        };
+        let (Some(attributes), Some(class_attributes)) =
+            (intrinsic(self, "IntrinsicAttributes"), intrinsic(self, "IntrinsicClassAttributes"))
+        else {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        };
+        if !types.contains(&attributes) && !types.contains(&class_attributes) {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        }
+        let regular = self.get_regular_type_of_object_literal(source);
+        for constituent in types {
+            if self.fails_common_property_check(regular, constituent) {
+                continue;
+            }
+            match self.relate_ternary(regular, constituent, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => {}
+                crate::relater::Ternary::NotRelated => {
+                    return self.report_relation_failure(
+                        at,
+                        span,
+                        None,
+                        regular,
+                        constituent,
+                        None,
+                    );
+                }
+                crate::relater::Ternary::Unknown => return false,
+            }
+        }
+        false
+    }
+
     /// Ported from typescript-go's `Relater.reportRelationError`
     /// (`internal/checker/relater.go`): the type-parameter explanation branch.
     /// Native also launches Checker-level assignability queries here, with no
