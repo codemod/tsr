@@ -475,17 +475,22 @@ impl<'a> Checker<'a, '_> {
     /// yield iteration type (`getIterationTypesOfGeneratorFunctionReturnType`,
     /// orElse `anyType`), at the operand or else the `yield` itself.
     ///
-    /// Declined: `yield*` (its yielded type is the delegated iterable's
-    /// iterated type, `checkIteratedTypeOrElementType`) and async generators
-    /// (the yielded type is awaited first, `getAwaitedType`).
+    /// For `yield*`, the yielded type is the delegated iterable's iterated
+    /// type (`checkIteratedTypeOrElementType` with `IterationUseYieldStar`,
+    /// [`Checker::yield_star_operand_types`]: `anyType` for a `never` or
+    /// non-iterable operand, whose own errors the iteration check reports);
+    /// an undecided protocol declines. The excess-property check is the
+    /// plain operand's only: a `yield*` operand's elements are related, not
+    /// the written literal.
+    ///
+    /// Declined: async generators (the yielded type is awaited first,
+    /// `getAwaitedType`).
     pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
         if self.in_js_file(node) {
             return;
         }
         let Some(Node::YieldExpression(expression)) = self.node_map.get(node) else { return };
-        if expression.asterisk_token.is_some() {
-            return;
-        }
+        let yield_star = expression.asterisk_token.is_some();
         let Some(container) = self.containing_function(node) else { return };
         let (asterisk, annotation, modifiers) = match self.node_map.get(container) {
             Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.r#type, f.modifiers),
@@ -521,14 +526,22 @@ impl<'a> Checker<'a, '_> {
         };
         let target = yield_type.unwrap_or(self.intrinsics.any);
         if let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) {
-            let source = self.check_expression_at_node(operand);
+            let operand_type = self.check_expression_at_node(operand);
+            if yield_star {
+                // getYieldedTypeOfYieldExpression (`checker.go:11019`).
+                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, false) else {
+                    return;
+                };
+                self.report_assignability_failure(operand, operand, yielded, target);
+                return;
+            }
             let before = self.diagnostics.len();
             self.check_excess_properties(target, operand);
             if self.diagnostics.len() != before {
                 return;
             }
-            self.report_assignability_failure(operand, operand, source, target);
-        } else {
+            self.report_assignability_failure(operand, operand, operand_type, target);
+        } else if !yield_star {
             let undefined = self.intrinsics.undefined;
             self.report_assignability_failure_with(node, None, undefined, target);
         }
