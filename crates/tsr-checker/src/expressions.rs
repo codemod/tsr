@@ -970,11 +970,10 @@ impl Checker<'_, '_> {
                             // with no import machinery: `getResolvedSymbol`
                             // answers `unknownSymbol` and `checkIdentifier`
                             // returns `errorType` (`checker.go:11048`).
-                            // ADR-0048: still the `any` stand-in; switching it
-                            // to `native_error` waits on a consumer audit
-                            // outside this function
-                            // (`docs/parity/notes/r5-errorsplit2.md` §2).
-                            self.intrinsics.any
+                            // ADR-0048: upstream's own error identity, after
+                            // the consumer audit
+                            // (`docs/parity/notes/r5-errorsplit3.md` §5).
+                            self.intrinsics.native_error
                         }
                     }
                 }
