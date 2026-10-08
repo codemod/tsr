@@ -258,3 +258,50 @@ Against the frozen base (`ac56208`), at the head of this lane:
 1499, EMPTY_WRONG 96 → 93. `verdictdump` RIGHT 543119 → 543125. Both loss
 checks are empty. The coverage run gives `checker_types` 8176 → 8183 and
 `diagnostics` 4394 → 4414 (before is the checked-in snapshot at `ac56208`).
+
+## 10. `tsr-2zk.978` — `typeRelatedToDiscriminatedType`: held as a patch
+
+Assigned after the round started (r5-triage2322 buckets X4/B12/D/B8: 16 lines,
+5 cases, all false positives). The port is in
+[`r5-relater3-discriminated-type.diff`](r5-relater3-discriminated-type.diff).
+It contains `type_related_to_discriminated_type` (relater.go:3989),
+`discriminant_property_related_to` (propertyRelatedTo with the source read as
+one discriminant type), `is_discriminant_of` (isDiscriminantProperty over the
+target's object-only constituents), `properties_related_to_excluding`
+(propertiesRelatedTo's `excludedProperties`), and the call from the union-target
+arm (relater.go:3889-3897). It also carries a single-combination early return
+(see the last bullet).
+
+**Measured on probes:** all the triage repros relate as native does. That covers
+`{ type: 'a' | 'b' }` → `{ type: 'a' } | { type: 'b' }`, `{ a: 0 | 2, b: 4 }`
+→ the three-way `T`, the tuple union `[b, 1]`, `{ foo?: number | undefined }`
+→ `{ foo?: undefined } | { foo: number }`, and the conditional-type
+`{ x: 'x' | 'y', y }` extends `Y`. The two negatives are kept:
+`{ type: 'a' | 'c' }` → `Action`, and a discriminant match whose other
+property fails.
+
+**Not landed. Neither corpus dump finished.**
+`varianceProblingAndZeroOrderIndexSignatureRelationsAlign` and `…Align2` take
+about 0 s on the base binary. With the arm they run out of memory in about 18 s
+(a 3 GB cap; the unbounded dump reached 6.9 GB). The trace is a recursive
+expansion. In order, it goes `properties_related_to_excluding` →
+`related_signatures` → `instantiate_signature_in_context` →
+`create_type_reference_with_display`, over `Either<L, (a: A) => B>`
+(Left/Right classes discriminated by `_tag`, whose `map`/`ap` return `Either`
+of a growing argument). Native has the same arm. It survives because
+`recursiveTypeRelatedTo`'s `isDeeplyNestedType` cuts expanding generic
+recursion by type identity. This port's relation stack does not cut that
+expansion, and each discriminated decomposition multiplies the work at every
+level. Returning early for a single combination (every discriminant one
+type) did not bound it.
+
+**Prerequisite:** a faithful `isDeeplyNestedType` recursion identity for
+expanding generic instantiations in `recursive_type_related_to`. That is the
+relation stack, not an arm, so it is not this lane's to change. A falsifier for
+the patch once the cut exists: both `varianceProbing…` cases finish at base
+speed, and the dumps show zero losses.
+
+Corpus sweep tool, for whoever picks this up: a per-file `tsr --noEmit
+--strict` run with `ulimit -v 3000000; timeout 20`. Of the files it flags,
+`recursiveConditionalCrash3` aborts and `relationComplexityError` /
+`templateLiteralTypes1` take 30–55 s on the **base** binary too.
