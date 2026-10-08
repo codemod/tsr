@@ -7321,6 +7321,19 @@ impl<'a> Checker<'a, '_> {
     /// parameter as the declared type. Parentheses are transparent, as in
     /// `getTypeFromTypeNode`. `None` for every other body.
     fn type_parameter_body_index(&self, symbol: SymbolId) -> Option<usize> {
+        self.type_parameter_body_index_at(symbol, 0)
+    }
+
+    /// `instantiateTypeWithAlias` over a type-parameter declared type answers
+    /// the mapper's image, so a body that references another alias whose
+    /// declared type is its parameter (`type V<in out T> = Unconstrained<T>`,
+    /// `type Unconstrained<T> = T`) declares the argument written at that
+    /// position: here one of `symbol`'s own parameters. Bounded like the alias
+    /// chain; a cyclic chain answers `None` and keeps the circularity route.
+    fn type_parameter_body_index_at(&self, symbol: SymbolId, depth: usize) -> Option<usize> {
+        if depth > 8 {
+            return None;
+        }
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
@@ -7332,9 +7345,29 @@ impl<'a> Checker<'a, '_> {
         while let TypeNode::ParenthesizedTypeNode(inner) = body {
             body = inner.r#type?;
         }
-        let TypeNode::TypeReferenceNode(reference) = body else { return None };
+        let TypeNode::TypeReferenceNode(mut reference) = body else { return None };
         if !reference.type_arguments.is_empty() {
-            return None;
+            let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+            let target_declaration =
+                self.binder.symbols().get(target).declarations.first().copied()?;
+            let Some(Node::TypeAliasDeclaration(target_alias)) =
+                self.node_map.get(target_declaration)
+            else {
+                return None;
+            };
+            if target_alias.type_parameters.len() != reference.type_arguments.len() {
+                return None;
+            }
+            let index = self.type_parameter_body_index_at(target, depth + 1)?;
+            let mut argument = *reference.type_arguments.get(index)?;
+            while let TypeNode::ParenthesizedTypeNode(inner) = argument {
+                argument = inner.r#type?;
+            }
+            let TypeNode::TypeReferenceNode(inner) = argument else { return None };
+            if !inner.type_arguments.is_empty() {
+                return None;
+            }
+            reference = inner;
         }
         let owner = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
         alias.type_parameters.iter().position(|parameter| {
