@@ -472,14 +472,22 @@ impl<'a> Program<'a> {
     /// Publication relocates all private edges and merges globals in file order
     /// (libs first), preserving the accumulating binder's identities. UMD alias
     /// declarations keep the ordered path because declaration itself can reuse
-    /// a previous file's alias. Small programs and `singleThreaded` stay serial.
+    /// a previous file's alias. Small programs, programs dominated by one file
+    /// (`lib.dom.d.ts` beside a few sources), and `singleThreaded` stay serial.
     ///
     /// Idempotent, as upstream's `file.IsBound()` guard makes it: only the files
     /// past `bound_file_count` are bound, so calling this twice binds nothing
     /// the second time.
     pub fn bind_source_files(&mut self, arena: &'a Arena) {
         let files = &self.files[self.bound_file_count..];
-        let workers = if self.nodes.len() < 10_000 {
+        let (total, largest) = files.iter().fold((0, 0), |(total, largest), file| {
+            let nodes = file.node_range().len();
+            (total + nodes, largest.max(nodes))
+        });
+        // The largest file's private bind is the critical path, and every
+        // publication runs on the caller after it. Fan out only when the other
+        // files hold at least as much work as the largest (r5-loader.md §3).
+        let workers = if total < 10_000 || 2 * largest > total {
             1
         } else {
             front_end::workers(&self.options, files.len())

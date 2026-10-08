@@ -5,7 +5,7 @@ use tsr_conformance::{TestCase, types_producer};
 use tsr_core::Arena;
 
 #[test]
-fn merged_augmentation_does_not_yet_prove_function_relation() {
+fn merged_augmentation_proves_function_relation() {
     for interop in [false, true] {
         for synthetic in [false, true] {
             for reversed in [false, true] {
@@ -41,8 +41,9 @@ fn merged_augmentation_does_not_yet_prove_function_relation() {
                 // Native merges the augmentation into the module symbol
                 // (`mergeModuleAugmentation`), and so does this port since
                 // names-modules §4: the export and the declaration are there.
-                // The relation below still answers `Unknown` — the relater
-                // does not yet close a module object's export bound.
+                // The relater relates a namespace object structurally over its
+                // exports (r5-relater3.md §6), so the module object is
+                // Function-related, as native's is.
                 assert_eq!(entry.declarations.len(), 2);
                 assert_eq!(entry.declarations[0], root);
                 assert!(entry.exports.contains_key("requiredToken"));
@@ -55,7 +56,7 @@ fn merged_augmentation_does_not_yet_prove_function_relation() {
                     {
                         assert_eq!(
                             checker.relate_ternary(source, target, relation),
-                            Ternary::Unknown,
+                            Ternary::Related,
                             "merged augmentation, interop={interop}, synthetic={synthetic}, \
                              reversed={reversed}, relation={relation:?}"
                         );

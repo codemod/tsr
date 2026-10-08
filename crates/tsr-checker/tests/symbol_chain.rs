@@ -1187,8 +1187,22 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                         // signatures and is assignable to an EMPTY global
                         // Function, so calling it is an untyped call.
                         let namespace_value = !clone && !class;
+                        // A namespace object has an inferable index
+                        // (isObjectTypeWithInferableIndex, ValueModule), so
+                        // it is also assignable to a Function whose only
+                        // member is `[key: string]: any`, and to one that is
+                        // empty through a generic base (r5-relater3.md §6).
+                        let namespace_assignable = empty
+                            || matches!(
+                                global,
+                                "interface Function { [key: string]: any; }"
+                                    | "interface Parent { [key: string]: any; } interface Function extends Parent {}"
+                                    | "interface Parent<T> {} interface Function extends Parent<number> {}"
+                            );
                         let expected = match text {
-                            "Head(1)" | "Twin(2)" | "Raw(5)" if namespace_value && empty => {
+                            "Head(1)" | "Twin(2)" | "Raw(5)"
+                                if namespace_value && namespace_assignable =>
+                            {
                                 intrinsics.any
                             }
                             "Head(1)" | "Twin(2)" => untyped,

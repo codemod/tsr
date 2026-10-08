@@ -465,6 +465,29 @@ impl<'a> Parser<'a> {
             self.parse_new_expression()
         } else if self.at(SyntaxKind::SuperKeyword) {
             self.parse_super_expression()
+        } else if self.at(SyntaxKind::ImportKeyword)
+            && !self.peek_kind(|kind| {
+                matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
+            })
+            && self.peek_kind(|kind| kind == SyntaxKind::DotToken)
+        {
+            // `parseLeftHandSideExpressionOrHigher` (`parser.go:5176`):
+            // `import` followed by `.` (and not by `(`/`<`, the import call)
+            // is an `import.*` meta-property, `import.meta` or `import.defer`,
+            // named by `parseIdentifierName`. The checker answers its type and
+            // module-kind errors (`tsr-checker/src/import_meta.rs`). bd
+            // tsr-9or.4 / tsr-2zk.990.
+            let import_token = self.token;
+            self.next_token();
+            self.next_token();
+            let name = self.parse_identifier_name();
+            let keyword_token = self.alloc_token(import_token.kind, import_token.span);
+            let node = self.finish_node(
+                MetaProperty::new(keyword_token, Some(name)),
+                SyntaxKind::MetaProperty,
+                start,
+            );
+            Expression::MetaProperty(node)
         } else {
             self.parse_primary_expression()
         };

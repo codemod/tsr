@@ -1123,6 +1123,32 @@ impl<'a> Checker<'a, '_> {
         self.report_assignability_failure(error_node, effective, source, target);
     }
 
+    /// The object literal expression a fresh object-literal type was checked
+    /// from (its symbol's single declaration), when it has no spread.
+    fn fresh_object_literal_node(&self, source: TypeId) -> Option<NodeId> {
+        if !self.fresh_object_literal_types.contains(&source) {
+            return None;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(source).data else {
+            return None;
+        };
+        let &[literal] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let Some(Node::ObjectLiteralExpression(node)) = self.node_map.get(literal) else {
+            return None;
+        };
+        // shouldCheckAsExcessProperty reads each *final* property's
+        // declaration parent: a key a later spread overrides is the spread's,
+        // which `excess_properties_verdict`'s written-member walk cannot see.
+        if node.properties.iter().any(|property| {
+            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        }) {
+            return None;
+        }
+        Some(literal)
+    }
+
     /// `ast.SkipParentheses`.
     fn skip_outer_parentheses(&self, mut node: NodeId) -> NodeId {
         while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
@@ -2071,6 +2097,19 @@ impl<'a> Checker<'a, '_> {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
             return false;
         }
+        // When `elaborateError` stays silent, `checkTypeRelatedToEx` relates
+        // the fresh literal, and `isRelatedTo` meets `hasExcessProperties`
+        // (`relater.go:2714`) before the structural relation; its report
+        // moves the error node to the excess member (TS2353/TS2561). A union
+        // target took that path in `union_object_literal_failure`.
+        if union_literal.is_none()
+            && let Some(literal) = self.fresh_object_literal_node(source)
+            && let Some(ExcessProperties::Excess { at, name, error_target }) =
+                self.excess_properties_verdict(literal, source, target)
+        {
+            probe!(PROBE_REPORTED);
+            return self.report_excess_property(at, &name, error_target);
+        }
         if self.report_weak_type_failure(at, span, source, target) {
             probe!(PROBE_REPORTED);
             return true;
@@ -2177,6 +2216,73 @@ impl<'a> Checker<'a, '_> {
         }
         diagnostic.add_message_chain(chain);
         self.report(file, diagnostic);
+    }
+
+    /// [`Checker::report_relation_failure`] for a JSX attributes source
+    /// (`ObjectFlagsJsxAttributes`, which TSR's types do not carry: the JSX
+    /// caller states it). `reportErrorResults` (`relater.go:4722`) returns
+    /// without an outer head when the target is an intersection holding
+    /// `JSX.IntrinsicAttributes` or `JSX.IntrinsicClassAttributes` (both
+    /// `getJsxType`s non-error), so only the chain of the constituent that
+    /// failed is reported.
+    ///
+    /// That constituent is the first one `typeRelatedToEachType`
+    /// (`relater.go`) fails, related under `IntersectionStateTarget`: no
+    /// excess-property check (the source is read regular; the caller already
+    /// ran `hasExcessProperties` on the whole target) and no common-property
+    /// check (a weak constituent sharing no property with the source has no
+    /// required member and no signature or index to fail, so it relates).
+    /// An undecided constituent, or every constituent relating (the failure
+    /// was the combined property pass, `relater.go:3232`), reports nothing.
+    pub(crate) fn report_jsx_attributes_relation_failure(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        location: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let TypeData::Intersection { types, .. } = self.type_of(target).data.clone() else {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        };
+        let intrinsic = |checker: &mut Self, name: &str| {
+            checker
+                .jsx_type_symbol(location, name)
+                .filter(|&symbol| {
+                    checker.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE)
+                })
+                .map(|symbol| checker.get_declared_type_of_symbol(symbol))
+                .filter(|&declared| !checker.is_error(declared))
+        };
+        let (Some(attributes), Some(class_attributes)) =
+            (intrinsic(self, "IntrinsicAttributes"), intrinsic(self, "IntrinsicClassAttributes"))
+        else {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        };
+        if !types.contains(&attributes) && !types.contains(&class_attributes) {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        }
+        let regular = self.get_regular_type_of_object_literal(source);
+        for constituent in types {
+            if self.fails_common_property_check(regular, constituent) {
+                continue;
+            }
+            match self.relate_ternary(regular, constituent, crate::relater::Relation::Assignable) {
+                crate::relater::Ternary::Related => {}
+                crate::relater::Ternary::NotRelated => {
+                    return self.report_relation_failure(
+                        at,
+                        span,
+                        None,
+                        regular,
+                        constituent,
+                        None,
+                    );
+                }
+                crate::relater::Ternary::Unknown => return false,
+            }
+        }
+        false
     }
 
     /// Ported from typescript-go's `Relater.reportRelationError`

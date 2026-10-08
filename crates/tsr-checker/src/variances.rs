@@ -49,7 +49,7 @@ impl Checker<'_, '_> {
             })
             && !self.binder.symbols().get(symbol).declarations.iter().any(|id| {
                 matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(node)) if matches!(node.r#type,
-                    Some(TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) | TypeNode::TypeLiteralNode(_))))
+                    Some(TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) | TypeNode::TypeLiteralNode(_) | TypeNode::UnionTypeNode(_))))
             })
         {
             self.variance_cache.insert(symbol, None);
@@ -172,6 +172,13 @@ impl Checker<'_, '_> {
                 let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
                 let map: Vec<_> = own.iter().copied().zip(arguments).collect();
                 self.instantiate_type(declared, &map, &own, &names)
+            } else if matches!(body, TypeNode::UnionTypeNode(_)) {
+                // createMarkerType's alias arm (`relater.go:1420`) is
+                // getTypeAliasInstantiation: the instantiated union body. The
+                // relater relates two instantiations of a union alias body to
+                // body (its alias-variance gate, `relater.go:3392`), so the
+                // markers measure the members' directions (tsr-2zk.927).
+                self.evaluate_alias_body(symbol, &arguments)?
             } else {
                 return None;
             }
@@ -383,6 +390,18 @@ mod tests {
                 "variance.js"
             ),
             Some(vec![Variance::Contravariant])
+        );
+    }
+
+    #[test]
+    fn a_union_alias_measures_its_members() {
+        assert_eq!(
+            measured("type Func2<T> = ((x: T) => void) | undefined;", "Func2"),
+            Some(vec![Variance::Contravariant])
+        );
+        assert_eq!(
+            measured("type R<T> = { value: T | undefined } | undefined;", "R"),
+            Some(vec![Variance::Covariant])
         );
     }
 

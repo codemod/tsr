@@ -4428,7 +4428,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// distinguished only by identity, which is the whole point of them being
     /// separate types (`checker.go:979`).
     ///
-    /// Both of the port's error identities answer true (ADR-0047): its gap
+    /// Both of the port's error identities answer true (ADR-0048): its gap
     /// ([`Intrinsics::error`](crate::Intrinsics)) and upstream's own
     /// `errorType` ([`Intrinsics::native_error`](crate::Intrinsics)).
     pub(crate) fn is_error(&self, id: TypeId) -> bool {
@@ -4441,7 +4441,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// type, joins the error already `seen` (`IncludesError`,
     /// `checker.go:25659` / `:26092`): upstream's `errorType` while every error
     /// constituent was upstream's, the port's gap as soon as one was not — a
-    /// gap in a constituent is a gap in the whole (ADR-0047).
+    /// gap in a constituent is a gap in the whole (ADR-0048).
     pub(crate) fn included_error(&self, seen: Option<TypeId>, constituent: TypeId) -> TypeId {
         let native = self.intrinsics.native_error;
         if constituent == native && seen.is_none_or(|seen| seen == native) {

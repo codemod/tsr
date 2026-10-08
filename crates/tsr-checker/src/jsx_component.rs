@@ -358,7 +358,7 @@ impl Checker<'_, '_> {
             return;
         }
         let span = self.error_span(tag_id);
-        self.report_relation_failure(tag_id, span, None, source, target, None);
+        self.report_jsx_attributes_relation_failure(tag_id, span, node, source, target);
     }
 
     /// `elaborateJsxComponents` (`jsx.go:295`), the attributes half: each

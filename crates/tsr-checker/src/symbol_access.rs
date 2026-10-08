@@ -684,6 +684,17 @@ pub enum EmitAccessibility {
     NotResolved,
 }
 
+/// A `SymbolTracker` call the node builder makes while serializing an
+/// inferred type (`checker/symboltracker.go`), as
+/// [`DeclarationEmitResolver::inferred_type_reports`] answers it. The
+/// declaration transform turns each into its diagnostic
+/// (`transformers/declarations/tracker.go`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrackerReport {
+    /// `ReportPrivateInBaseOfClassExpression(propertyName)`.
+    PrivateInBaseOfClassExpression(String),
+}
+
 /// Pinned tsgo 5b1047d: `EmitResolver` (`checker/emitresolver.go`), the
 /// accessibility half: `isDeclarationVisible`, `determineIfDeclarationIsVisible`,
 /// `PrecalculateDeclarationEmitVisibility`/`markLinkedAliases`,
@@ -1232,6 +1243,164 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
             })
             .collect();
         signatures.len() > 1 || (signatures.len() == 1 && signatures[0] != node)
+    }
+
+    /// The `SymbolTracker` reports the node builder makes while serializing
+    /// the **inferred** type of `node` for declaration emit, for the arms this
+    /// port reaches (`docs/parity/notes/r5-declemit2.md` §2).
+    ///
+    /// `node` is what the transform hands the node builder:
+    /// `CreateTypeOfDeclaration` for a variable declaration or an
+    /// `export default <expr>` (`transform.go:1667`), or
+    /// `CreateTypeOfExpression` for a class's `extends <expr>`
+    /// (`transform.go:2018`), whose type is
+    /// `getWidenedType(getRegularTypeOfExpression(expr))`
+    /// (`emitresolver.go`). An object type is its own widened and regular
+    /// form, and the one arm below only reads object types.
+    ///
+    /// # The arm: a class expression written as a type literal
+    ///
+    /// Declaration emit builds with `FlagsWriteClassExpressionAsTypeLiteral`
+    /// (`transform.go:216`). `createAnonymousTypeNode`
+    /// (`nodebuilderimpl.go:2805`) then expands the static side of a class
+    /// whose value declaration is a class *expression* — unconditionally, the
+    /// `!IsClassDeclaration` disjunct — and `createTypeNodesFromResolvedType`
+    /// (`:2660`) reports each property that is private, protected or
+    /// `#private` (`ReportPrivateInBaseOfClassExpression`). The static side's
+    /// construct signature returns the instance type, which `typeToTypeNode`
+    /// (`:3047`) expands too because a class expression's symbol is never
+    /// value-accessible outside its own body, so its properties report as well.
+    ///
+    /// Only the **top-level** type is read: a class expression nested inside a
+    /// union, a property type or a signature is reached by native's
+    /// recursion and not here, so those errors are missed, never invented.
+    /// The same holds for a class *declaration* whose name is not accessible
+    /// (the `IsSymbolAccessible` disjunct), which needs
+    /// `getAccessibleSymbolChain`.
+    pub fn inferred_type_reports(&mut self, node: NodeId) -> Vec<TrackerReport> {
+        use tsr_ast::Node;
+        let ty = match self.checker.node_map.get(node) {
+            Some(Node::VariableDeclaration(_)) => {
+                let Some(symbol) = self.checker.binder.symbol_of(node) else { return Vec::new() };
+                self.checker.get_type_of_symbol(symbol)
+            }
+            Some(Node::ExportAssignment(assignment)) => {
+                let Some(expression) = assignment.expression else { return Vec::new() };
+                self.checker.check_expression(expression)
+            }
+            Some(Node::ExpressionWithTypeArguments(heritage)) => {
+                let Some(expression) = heritage.expression else { return Vec::new() };
+                self.checker.check_expression(expression)
+            }
+            _ => return Vec::new(),
+        };
+        let crate::types::TypeData::Anonymous { symbol: class, .. } =
+            self.checker.store.get(ty).data
+        else {
+            return Vec::new();
+        };
+        let symbols = self.checker.binder.symbols().get(class);
+        // `symbol.ValueDeclaration`. This port's binder leaves it unset on a
+        // class expression's symbol, whose one declaration is the expression.
+        let value_declaration =
+            symbols.value_declaration.or_else(|| symbols.declarations.first().copied());
+        let is_class_expression =
+            value_declaration.is_some_and(|d| self.kind(d) == tsr_ast::SyntaxKind::ClassExpression);
+        if !symbols.flags.contains(SymbolFlags::CLASS) || !is_class_expression {
+            return Vec::new();
+        }
+        let mut reports = Vec::new();
+        // The instance side first: the construct signature precedes the
+        // static properties in `createTypeNodesFromResolvedType`.
+        let instance = self.checker.get_declared_type_of_symbol(class);
+        self.report_private_properties(instance, &mut reports);
+        self.report_private_properties(ty, &mut reports);
+        reports
+    }
+
+    /// The `FlagsWriteClassExpressionAsTypeLiteral` arm of
+    /// `createTypeNodesFromResolvedType` (`nodebuilderimpl.go:2660`) over
+    /// `ty`'s resolved properties. An unenumerable property list declines.
+    fn report_private_properties(&mut self, ty: TypeId, reports: &mut Vec<TrackerReport>) {
+        use tsr_ast::SyntaxKind as K;
+        let Some(names) = self.checker.get_property_names_of_type(ty) else { return };
+        for name in names {
+            let Some(property) = self.checker.get_property_of_type(ty, &name) else { continue };
+            let symbol = self.checker.binder.symbols().get(property);
+            if symbol.flags.contains(SymbolFlags::PROTOTYPE) {
+                continue;
+            }
+            // `getDeclarationModifierFlagsFromSymbol`: the value
+            // declaration's combined modifier flags.
+            let declaration =
+                symbol.value_declaration.or_else(|| symbol.declarations.first().copied());
+            if let Some(declaration) = declaration {
+                if self.has_modifier(declaration, K::PrivateKeyword)
+                    || self.has_modifier(declaration, K::ProtectedKeyword)
+                {
+                    reports.push(TrackerReport::PrivateInBaseOfClassExpression(name.clone()));
+                }
+                // `IsPrivateIdentifierSymbol`, reported under `SymbolName`.
+                if self.checker.is_private_identifier_class_element_declaration(declaration) {
+                    reports.push(TrackerReport::PrivateInBaseOfClassExpression(name));
+                }
+            }
+        }
+    }
+
+    /// `EmitResolver.IsImportRequiredByAugmentation` (`emitresolver.go:504`):
+    /// the imported file augments one of this file's own exports.
+    ///
+    /// Native asks whether `getMergedSymbol(s) != s` for each symbol of the
+    /// *parse-tree* module symbol's `getExportsOfModule`, then whether the
+    /// merged symbol has a declaration in the import's target file. This
+    /// port's augmentation merge (`merge_module_augmentations`) unions into
+    /// the target symbol in place, so "merged into" reads as: an export
+    /// declared in this file that also carries a declaration from the target.
+    /// The "declared in this file" half is what native's original table
+    /// guarantees: a name the augmentation *adds* lives only in native's
+    /// merged clone, never in `file.Symbol.exports`. `export *` re-exports
+    /// are not walked; upstream reaches them through `getExportsOfModule`
+    /// but they are only "merged" when augmented, so this declines rather
+    /// than invents.
+    pub fn is_import_required_by_augmentation(&mut self, node: NodeId) -> bool {
+        let Some(tsr_ast::Node::ImportDeclaration(import)) = self.checker.node_map.get(node) else {
+            return false;
+        };
+        let Some(file) = self.checker.source_file_of(node) else { return false };
+        // A script file has no module symbol.
+        let Some(module) = self.checker.binder.symbol_of(file) else { return false };
+        // `GetExternalModuleFileFromDeclaration`: the resolved module's
+        // source-file declaration.
+        let Some(specifier) = import.module_specifier.and_then(|s| s.node_id()) else {
+            return false;
+        };
+        let Some(target) = self.checker.resolve_external_module_name(node, specifier) else {
+            return false;
+        };
+        let target = self.checker.binder.merged_symbol(target);
+        let Some(target_file) = self
+            .checker
+            .binder
+            .symbols()
+            .get(target)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&d| self.kind(d) == tsr_ast::SyntaxKind::SourceFile)
+        else {
+            return false;
+        };
+        if target_file == file {
+            return false;
+        }
+        let symbols = self.checker.binder.symbols();
+        symbols.get(module).exports.values().any(|&export| {
+            let declarations = &symbols.get(export).declarations;
+            let file_of = |d: NodeId| self.checker.source_file_of(d);
+            declarations.iter().any(|&d| file_of(d) == Some(file))
+                && declarations.iter().any(|&d| file_of(d) == Some(target_file))
+        })
     }
 }
 

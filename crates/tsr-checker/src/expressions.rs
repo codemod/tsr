@@ -639,9 +639,12 @@ impl Checker<'_, '_> {
                 // a missing identifier (`!ast.NodeIsMissing(node)`): parser
                 // recovery's empty name must not find a declaration whose name
                 // was also lost. `unknownSymbol` makes `checkIdentifier` answer
-                // `errorType`, printed `any` — deterministically, so the §31
-                // "the port might be the one failing to resolve it" gate below
-                // does not apply (the same reasoning as its §475 arm).
+                // `errorType` (`checker.go:11048`) — deterministically, so the
+                // §31 "the port might be the one failing to resolve it" gate
+                // below does not apply (the same reasoning as its §475 arm).
+                // ADR-0048: still the `any` stand-in. `native_error` is the
+                // faithful answer, held until `signatures.rs`' `yield*` arm
+                // accepts it (`docs/parity/notes/r5-errorsplit2.md` §2).
                 if node.text.is_empty() {
                     return self.intrinsics.any;
                 }
@@ -681,7 +684,8 @@ impl Checker<'_, '_> {
                         // checkIdentifier (5b1047d:11076-11094): assignment
                         // targets test the local/export symbol, not the alias's
                         // value target. The diagnostic walk owns the reporter;
-                        // this semantic read must retain native errorType.
+                        // this semantic read must retain native errorType
+                        // (`checker.go:11094`) — ADR-0048's upstream identity.
                         if self.assignment_target_kind(id) != AssignmentTargetKind::None {
                             let local_or_export =
                                 self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
@@ -694,7 +698,7 @@ impl Checker<'_, '_> {
                                 || self.in_js_file(id)
                                     && flags.intersects(SymbolFlags::VALUE_MODULE))
                             {
-                                return self.intrinsics.error;
+                                return self.intrinsics.native_error;
                             }
                         }
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
@@ -705,14 +709,15 @@ impl Checker<'_, '_> {
                         if self.is_narrowable_symbol(symbol) {
                             let node_id = node.node_id.expect("checked above");
                             let target_kind = self.assignment_target_kind(node_id);
-                            // `checker.go:11096`: assigning to a readonly
+                            // `checker.go:11102`: assigning to a readonly
                             // symbol reports and answers `errorType` — whose
                             // observable is `any` (the §14/§27 boundary
-                            // argument, `checker-notes-narrow.md`).
+                            // argument, `checker-notes-narrow.md`). ADR-0048:
+                            // upstream's own error identity.
                             if target_kind != AssignmentTargetKind::None
                                 && self.is_readonly_symbol(symbol)
                             {
-                                return self.intrinsics.any;
+                                return self.intrinsics.native_error;
                             }
                             match target_kind {
                                 // `checker.go:11109`: a variable in a definite
@@ -899,16 +904,38 @@ impl Checker<'_, '_> {
                                 return declared;
                             }
                         }
+                        // `resolveNameHelper`'s last resort
+                        // (`binder/nameresolver.go:322-326`): an unresolved
+                        // name in a JS file whose parent is a
+                        // `require(x)` call (`ast.IsRequireCall`, any
+                        // argument) resolves to `requireSymbol`, whose type
+                        // is `anyType` (`checker.go:16584`) — a genuine
+                        // `any`, not `errorType`, and not the port's gap:
+                        // the name is upstream's by construction, whatever
+                        // import machinery the file carries.
+                        if self.in_js_file(id)
+                            && self.nodes.parent(id).is_some_and(|parent| matches!(
+                                self.node_map.get(parent),
+                                Some(Node::CallExpression(call))
+                                    if call.arguments.len() == 1
+                                        && matches!(call.expression,
+                                            Some(Expression::Identifier(callee)) if callee.text == "require")
+                            ))
+                        {
+                            return self.intrinsics.any;
+                        }
                         // §475: a name that resolves ONLY to a TYPE
                         // PARAMETER is upstream's TS2693 ("only refers to a
                         // type") DETERMINISTICALLY — a type parameter can
                         // never carry a value meaning in any file this port
                         // has not loaded, so the §31 gate's "the port might
                         // be the one failing to resolve it" argument does
-                        // not apply, and the answer is `errorType`, printed
+                        // not apply, and the answer is `errorType`
+                        // (`checker.go:11048`, `unknownSymbol`), printed
                         // `any` (`class C<T> extends T` records `>T : any`,
                         // `typeParameterAsBaseClass`,
-                        // `inheritFromGenericTypeParameter`).
+                        // `inheritFromGenericTypeParameter`). ADR-0048:
+                        // upstream's own error identity.
                         if let Some(found) = anywhere
                             && self
                                 .binder
@@ -917,7 +944,7 @@ impl Checker<'_, '_> {
                                 .flags
                                 .contains(SymbolFlags::TYPE_PARAMETER)
                         {
-                            return self.intrinsics.any;
+                            return self.intrinsics.native_error;
                         }
                         if anywhere.is_some()
                             || node.text == "arguments"
@@ -941,6 +968,14 @@ impl Checker<'_, '_> {
                         {
                             self.intrinsics.error
                         } else {
+                            // The name is absent in every meaning in a file
+                            // with no import machinery: `getResolvedSymbol`
+                            // answers `unknownSymbol` and `checkIdentifier`
+                            // returns `errorType` (`checker.go:11048`).
+                            // ADR-0048: still the `any` stand-in; switching it
+                            // to `native_error` waits on a consumer audit
+                            // outside this function
+                            // (`docs/parity/notes/r5-errorsplit2.md` §2).
                             self.intrinsics.any
                         }
                     }
@@ -1152,6 +1187,7 @@ impl Checker<'_, '_> {
             // guard on `name` came off and the naming lives with the other
             // spellings in `symbols.rs`. A symbol the walk cannot name still
             // refuses there, exactly as this guard refused here.
+            Expression::MetaProperty(node) => self.check_meta_property_type(node),
             Expression::ClassExpression(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {

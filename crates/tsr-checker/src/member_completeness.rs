@@ -321,12 +321,37 @@ impl Checker<'_, '_> {
         }
         // An identity map preserves its source's own keys, but replaces the
         // declaration's optionality. Compose modifiers only after certifying
-        // the source table; an ordinary generic reference still declines.
+        // the source table.
         let optionality = self.mapped_identity_optionality.get(&id).map(|&(optional, _)| optional);
-        let mut out = if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
-            optionality?;
+        let reference = self.type_reference_targets.get(&id).cloned();
+        let mut out = if let Some((_, arguments)) = &reference
+            && optionality.is_some()
+        {
             let [source] = arguments.as_slice() else { return None };
             self.declared_property_table_worker(*source, depth + 1, true)?
+        } else if let Some((target, _)) = reference {
+            // An ordinary reference to a generic class or interface:
+            // resolveTypeReferenceMembers instantiates the target's members,
+            // and every name and SymbolFlagsOptional survive instantiation,
+            // so the (name, optional) table is the target symbol's.
+            let target = self.binder.merged_symbol(target);
+            if !self
+                .binder
+                .symbols()
+                .get(target)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                || self.tuple_element_lists.contains_key(&id)
+                || self.variadic_tuple_elements.contains_key(&id)
+            {
+                return None;
+            }
+            let mut visiting = Vec::new();
+            let mut out = Vec::new();
+            if !self.collect_declared_properties(target, &mut out, &mut visiting, 0, None) {
+                return None;
+            }
+            out
         } else {
             let owner = match &self.store.get(id).data {
                 TypeData::Named { members: Some(owner), .. } => *owner,
@@ -460,13 +485,18 @@ impl Checker<'_, '_> {
         true
     }
 
-    /// Does this member declaration carry a `?`?
+    /// Does this member declaration carry a `?`? A property's postfix token
+    /// can also be the definite-assignment `!`, which is not optional
+    /// (`ast.HasQuestionToken`, `isOptionalDeclaration`).
     fn declaration_is_optional_member(&self, declaration: NodeId) -> bool {
+        let question = |token: Option<&tsr_ast::Token<'_>>| {
+            token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken)
+        };
         match self.node_map.get(declaration) {
-            Some(Node::PropertySignatureDeclaration(property)) => property.postfix_token.is_some(),
-            Some(Node::PropertyDeclaration(property)) => property.postfix_token.is_some(),
-            Some(Node::MethodSignatureDeclaration(method)) => method.postfix_token.is_some(),
-            Some(Node::MethodDeclaration(method)) => method.postfix_token.is_some(),
+            Some(Node::PropertySignatureDeclaration(property)) => question(property.postfix_token),
+            Some(Node::PropertyDeclaration(property)) => question(property.postfix_token),
+            Some(Node::MethodSignatureDeclaration(method)) => question(method.postfix_token),
+            Some(Node::MethodDeclaration(method)) => question(method.postfix_token),
             Some(Node::ParameterDeclaration(_)) => self.is_optional_declaration(declaration),
             _ => false,
         }
@@ -477,19 +507,13 @@ impl Checker<'_, '_> {
     fn declaration_property_names_are_readable(&mut self, declaration: NodeId) -> bool {
         match self.node_map.get(declaration) {
             Some(Node::ClassDeclaration(class)) => {
-                class.type_parameters.is_empty()
-                    && class.members.iter().all(|member| self.class_member_name_is_written(*member))
+                class.members.iter().all(|member| self.class_member_name_is_written(*member))
             }
             Some(Node::ClassExpression(class)) => {
-                class.type_parameters.is_empty()
-                    && class.members.iter().all(|member| self.class_member_name_is_written(*member))
+                class.members.iter().all(|member| self.class_member_name_is_written(*member))
             }
             Some(Node::InterfaceDeclaration(interface)) => {
-                interface.type_parameters.is_empty()
-                    && interface
-                        .members
-                        .iter()
-                        .all(|member| self.type_member_name_is_written(*member))
+                interface.members.iter().all(|member| self.type_member_name_is_written(*member))
             }
             Some(Node::TypeLiteralNode(literal)) => {
                 literal.members.iter().all(|member| self.type_member_name_is_written(*member))

@@ -35,3 +35,97 @@ r5-operators3 (docs only, a5d6c35) found no operator-side remainder:
 
 `r5-intersections` takes `.971` and owns `intersections.rs`. Main has not
 touched that file in 36 hours.
+
+### r5-triage2322 census → issues; r5-jsx3 dispatched (`tsr-2zk.982`)
+
+r5-triage2322 bucketed 863 TS2322/TS2345 lines in 351 plain cases; 259 of the
+lines are false positives (`docs/parity/notes/r5-triage2322.md`). Its buckets
+are filed as `tsr-2zk.974`–`.984` and routed to the lane that owns each file:
+
+- `r5-report` (`assignreport.rs`): excess properties (`.974`), literal
+  elaboration (`.975`), the parse-error gate (`.981`).
+- `r5-relater3` (`relater.rs`): conditional arms (`.976`), generic mapped arms
+  (`.977`), discriminated targets (`.978`), Unknown on decidable pairs (`.983`).
+- `r5-typeparams2` (`declared.rs`): qualified alias/enum references (`.979`).
+- `r5-variants2` (harness): `@noCheck` (`.984`).
+- Main's calls lane (`calls.rs`, active): chooseOverload applicability (`.980`,
+  the largest at 154 lines). It is not dispatched.
+
+The new box `r5-jsx3` takes `.982` (52 lines, `jsx_component.rs`).
+
+### r5-variants2 finished; r5-modules dispatched (`tsr-2zk.994`)
+
+r5-variants2 (64d9890, 9dbbf73) made two harness changes:
+- test directives now go through `SetOptionsFromTestConfig`'s option table;
+  27 vary-by options and `noCheck` had been silently dropped;
+- varied `.trace.json` files are judged per configuration.
+
+Its insensitivity probe found that the remaining configured gap is almost all
+checker work, not harness work. Its checker causes are filed as
+`tsr-2zk.985`–`.993`. The new box `r5-modules` takes printed module specifiers
+(`.989`, 375 lines), `import.meta` (`.990`, 197 lines) and
+`checkImportAttributes` (`.986`, 59 rows).
+
+### r5-perf4 finished; r5-loader dispatched (`tsr-2zk.995`)
+
+r5-perf4 delivered:
+- **2c088ee**, a receiver signature-kind memo for getPropertyOfTypeEx's
+  fallback: −3.97% Ir on p100.
+- **Five measured diffs.** Four are landed by the integrator: shared relater
+  names, a TypeData borrow, the property-walk buffer, and the mapped early
+  return. With 2c088ee they total −12.7% p100 Ir, measured on the full stack.
+- **One diff held:** the `resolve_name` memo, which rewrites 132 call sites
+  across 20 files (`tsr-2zk.996`).
+
+Its wall attribution on generic-imports matters more than any of these. That
+project's check phase is 1 ms. Program construction is 98% of Ir, and TSR's
+parallel loader is slower than its own single-threaded mode (82.9 vs 73.4 ms;
+tsgo 71.6 ms). The new box `r5-loader` takes the loader. Lazy JSDoc (37% of
+Ir) stays with `tsr-2zk.17.1`, which is claimed on main. Main's perf lane
+(`tsr-2zk.17`) is active on checker memos, so no second checker-perf box is
+dispatched.
+
+### r5-declemit2 finished; r5-modfmt dispatched (`tsr-2zk.1002`)
+
+r5-declemit2 landed two fixes, +3 cases: TS9026 for augmentation imports and
+TS4094 for class expressions written as type literals. Its remaining clusters
+are filed:
+- `tsr-2zk.999`, module specifiers into `node_modules` (TS2883 ×12, plus the
+  same cases' `.types` lines). It goes to `r5-modules`, which is the single
+  owner of module-specifier generation.
+- `tsr-2zk.1000`, a declaration-emit SymbolTracker with IsSymbolAccessible.
+- `tsr-2zk.1001`, checker-side TS4xxx producers.
+
+The new box `r5-modfmt` takes the module-format grammar (`.985`, 94 configured
+rows) and the readers for newly applied options (`.993`).
+
+### r5-report finished (+19 diagnostics cases); r5-report2 dispatched
+
+r5-report landed three fixes:
+- `170b30f`, the chainArgsMatch head gate (removes 5 extra TS2741);
+- `2ccf35d`, the JSX-attributes arm with no outer head (`.918`, 6 tsx cases);
+- `6ce0ff4`, hasExcessProperties before the structural relation for fresh
+  literals (9 cases).
+
+Its generic-reference property-table diff (`member_completeness.rs`/`declared`
+tables) is landed by the integrator and re-measured in the batch gate.
+`r5-report2` keeps the same `assignreport.rs` ownership for the census buckets
+`.974`, `.975` and `.981`.
+
+### r5-loader finished; r5-classfields dispatched (`tsr-2zk.1004`)
+
+r5-loader `ec62ee2`:
+- embedded lib texts are never dependency-pool jobs;
+- parallel bind only runs when no single file dominates.
+
+Results:
+- generic-imports wall vs tsgo went from 1.165 to **0.978**, and its CPU fell
+  20%.
+- domain-model went from 0.929 to 0.865.
+- Both dumps are byte-identical.
+
+tsgo gets nothing from parallelism on generic-imports either, so the rest of
+that ratio is per-file front-end speed: lazy JSDoc (`tsr-2zk.17.1`, main) and a
+pipelined bind (`tsr-2zk.1003`, an ADR-0003-level change). The new box
+`r5-classfields` takes the target- and useDefineForClassFields-gated class
+checks (`.987`).

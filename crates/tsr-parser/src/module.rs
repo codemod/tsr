@@ -558,13 +558,16 @@ impl<'a> Parser<'a> {
         if !self.eat(SyntaxKind::CommaToken) {
             return None;
         }
-        let start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
         }
         let token = self.take_token();
         self.expect(SyntaxKind::ColonToken);
+        // `parseImportAttributes(currentToken, skipKeyword=true)` takes its
+        // `pos` here, after `with:`: the node is the inner `{ … }`, which is
+        // where `getResolutionModeOverride`'s TS1464 is reported.
+        let start = self.pos();
         let attributes = self.parse_import_attributes_body(start, token);
         self.eat(SyntaxKind::CommaToken);
         self.expect(SyntaxKind::CloseBraceToken);

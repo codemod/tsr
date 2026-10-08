@@ -41,7 +41,7 @@ pub struct Intrinsics {
     /// `error` everywhere, so every instrument can tell a gap from a wrong
     /// answer. It is `TypeFlagsAny` and behaves as upstream's `errorType`
     /// semantically (it suppresses follow-on errors that `any` would not),
-    /// because until ADR-0047 it was the port's only error type.
+    /// because until ADR-0048 it was the port's only error type.
     ///
     /// Upstream's own `errorType` — the answer upstream *computes* — is
     /// [`Intrinsics::native_error`]. Answering this one claims nothing about
@@ -59,7 +59,7 @@ pub struct Intrinsics {
     /// with the printed name `any`, which is what every rendering inside the
     /// checker (and every nested position of a baseline line) shows, and the
     /// writer's fast path restores `"error"` by identity
-    /// (`types_producer::render`). ADR-0047.
+    /// (`types_producer::render`). ADR-0048.
     pub native_error: TypeId,
     /// Native unresolvedType: private unresolved aliases link to this distinct intrinsic.
     pub unresolved: TypeId,
@@ -155,7 +155,7 @@ impl Intrinsics {
         // the two regular boolean literal types, so those must exist first.
         let any = store.new_intrinsic(TypeFlags::ANY, "any");
         let error = store.new_intrinsic(TypeFlags::ANY, "error");
-        // ADR-0047: upstream's own `errorType`, beside the port's gap.
+        // ADR-0048: upstream's own `errorType`, beside the port's gap.
         let native_error = store.new_intrinsic(TypeFlags::ANY, "any");
         let unresolved = store.new_intrinsic(TypeFlags::ANY, "unresolved");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");

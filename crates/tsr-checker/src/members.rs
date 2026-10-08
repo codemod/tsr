@@ -2563,7 +2563,7 @@ impl Checker<'_, '_> {
                     return None;
                 }
                 let object = self.global_type_symbol_with_arity("Object", 0)?;
-                return self.get_property_of_declared_symbol(object, name, &mut Vec::new());
+                return self.get_property_of_declared_symbol_fresh(object, name);
             }
             _ => return None,
         };
@@ -2585,8 +2585,7 @@ impl Checker<'_, '_> {
         } else {
             match owner {
                 Owner::Declared(owner) => {
-                    let mut visiting = Vec::new();
-                    let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
+                    let found = self.get_property_of_declared_symbol_fresh(owner, name);
                     // `bindThisPropertyAssignment` (`binder.go:1115`) declares a
                     // JS `this.x = …` inside an object-literal method on the
                     // literal's symbol, but `checkObjectLiteral` builds the
@@ -2636,7 +2635,12 @@ impl Checker<'_, '_> {
             && !withheld
             && self.store.get(id).flags.contains(TypeFlags::OBJECT)
         {
-            let mut fallbacks: Vec<&str> = Vec::new();
+            let mut fallbacks: [&str; 3] = [""; 3];
+            let mut fallback_count = 0;
+            let mut push = |global| {
+                fallbacks[fallback_count] = global;
+                fallback_count += 1;
+            };
             // §395: a CLASS's static side is a constructor function — its
             // misses fall through the Function interface before Object
             // (`Foo.name : string`, `deleteReadonlyInStrictNullChecks`).
@@ -2652,12 +2656,7 @@ impl Checker<'_, '_> {
                     .contains(SymbolFlags::CLASS),
                 Owner::Declared(_) => false,
             } && !self.module_value_clones.contains_key(&id);
-            let has_call = self
-                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Call)
-                .is_some_and(|signatures| !signatures.is_empty());
-            let has_construct = self
-                .signatures_of_type_kind(id, crate::signatures::SignatureKind::Construct)
-                .is_some_and(|signatures| !signatures.is_empty());
+            let (has_call, has_construct) = self.receiver_signature_kinds(id);
             if has_call || has_construct {
                 let all_construct = !has_call;
                 // §846: `CallableFunction`/`NewableFunction` are
@@ -2682,29 +2681,22 @@ impl Checker<'_, '_> {
                 // `ElementRef & Function` rows, via
                 // `narrow_type_by_type_facts`' third arm.
                 if self.strict_bind_call_apply {
-                    fallbacks.push(if all_construct {
-                        "NewableFunction"
-                    } else {
-                        "CallableFunction"
-                    });
+                    push(if all_construct { "NewableFunction" } else { "CallableFunction" });
                 }
-                fallbacks.push("Function");
+                push("Function");
             }
             // Resolved class constructors use NewableFunction before Function,
             // just as getPropertyOfTypeEx selects by signature kind. Retain the
             // previous fallback only when constructor resolution is unsupported.
             if class_static && !has_call && !has_construct {
-                fallbacks.push("Function");
+                push("Function");
             }
-            fallbacks.push("Object");
-            for global in fallbacks {
+            push("Object");
+            for &global in &fallbacks[..fallback_count] {
                 let Some(interface) = self.global_type_symbol_with_arity(global, 0) else {
                     continue;
                 };
-                let mut visiting = Vec::new();
-                if let Some(found) =
-                    self.get_property_of_declared_symbol(interface, name, &mut visiting)
-                {
+                if let Some(found) = self.get_property_of_declared_symbol_fresh(interface, name) {
                     return Some(found);
                 }
             }
@@ -3668,6 +3660,21 @@ impl Checker<'_, '_> {
                 self.binder.symbol_of(declaration).map(|symbol| (name, symbol))
             })
             .collect()
+    }
+
+    /// [`Self::get_property_of_declared_symbol`] from an empty `visiting`
+    /// path, on a reused buffer: the walk's path vector was allocated and freed
+    /// on every property lookup (`r5-perf4.md` §4).
+    fn get_property_of_declared_symbol_fresh(
+        &mut self,
+        owner: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
+        let mut visiting = std::mem::take(&mut self.perf_links.visiting_scratch);
+        visiting.clear();
+        let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
+        self.perf_links.visiting_scratch = visiting;
+        found
     }
 
     /// One step of the walk: `owner`'s own members, then its base types'.

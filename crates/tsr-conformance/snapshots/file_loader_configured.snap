@@ -1,0 +1,9 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+file_loader_configured Summary:
+What a pass means: the file_loader suite's judgement for each configuration upstream's runner compiles a configuration-varied case under, against that configuration's suffixed .trace.json
+Passed         : 42/42 (100.00%)
+Skipped        : 4126 (excluded from the denominator)
+
+  4125  skipped: case does not set @traceResolution, so upstream records no trace
+  1  skipped: libReplacement resolves the bundled lib files through the module resolver, which the loader does not do (bd tsr-9or.5)

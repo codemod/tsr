@@ -124,6 +124,37 @@ impl Suite for FileLoaderRequests {
     }
 }
 
+/// `file_loader`, over each named configuration of a case whose directives
+/// vary, against that configuration's own `case(<configuration>).trace.json`.
+///
+/// Kept beside [`crate::module_suite::ModuleResolutionConfigured`] so the two
+/// halves of a trace keep sharing one denominator per population
+/// ([`crate::trace_case`]).
+pub struct FileLoaderRequestsConfigured;
+
+impl Suite for FileLoaderRequestsConfigured {
+    fn name(&self) -> &'static str {
+        "file_loader_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the file_loader suite's judgement for each configuration upstream's runner \
+         compiles a configuration-varied case under, against that configuration's \
+         suffixed .trace.json"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.configuration.is_none() {
+            return Outcome::Skipped { reason: "not a named configuration".into() };
+        }
+        FileLoaderRequests.run(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
+    }
+}
+
 /// The lines that describe a *request*, and nothing else.
 ///
 /// Two shapes survive: the opening block header, which is the loader's
