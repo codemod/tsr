@@ -287,7 +287,8 @@ declines: the shared helper `check_type_name_is_reserved` returns early in a
 file with parse errors (port-local; upstream has no such gate). Removing that
 bail measured +3 cases (`enumErrors`, `reservedNamesInAliases`,
 `interfacesWithPredefinedTypesAsNames`) with no line lost; it is a shared
-helper, so it is reported to the integrator rather than changed here.
+helper, so it was reported to the integrator rather than changed here.
+Round 3 was assigned the change: the bail is removed (§18).
 
 **TS2477 / TS2478**: `computeConstantEnumMemberValue`'s const arm
 (`checker.go:24001`) reports a `const` enum member whose initializer
@@ -481,3 +482,125 @@ test and therefore does not certify the whole main workspace as clean. The
 test remains preserved while its native producer fix is ported. Interrupted
 runs and lost `/tmp` artifacts are not verification evidence.
 
+
+## §18 TS2414/TS2427/TS2431/TS2457: reserved type names in files with parse errors
+
+`checkTypeNameIsReserved` (`checker.go:6901`) has no parse-error gate; the
+port's `check_type_name_is_reserved` returned early when the file had parse
+errors, which withheld the diagnostic from every recovery fixture. The rule
+reads only the declaration's name text, which the parser produces the same way
+in a recovered file, so there is nothing for the gate to protect. Removed.
+
+**Measured** (round 3, re-measured on the integration branch at `8b24e49`):
+`enumErrors`, `reservedNamesInAliases`, `interfacesWithPredefinedTypesAsNames`
+converted; none lost.
+
+## §19 TS2451 / TS2300: a merge into an alias target
+
+**Forcing constraint.** `mergeSymbol` (`checker.go:14146`) tests
+`target.Flags & getExcludedSymbolFlags(source.Flags)` first; when that passes
+and the target is not transient it resolves the target (`resolveSymbol`) and
+re-tests the excludes against the *resolved* symbol, reporting
+`reportMergeSymbolError(target, source)` when they hit. The binder's
+`merge_symbol` returned on any alias before the excludes test, unreported, so
+`export as namespace THREE` (an alias of its module) against
+`declare global { const THREE }` drew nothing where upstream reports TS2451 on
+both names (the module is a `ValueModule`, which a `const` excludes).
+
+**What was ported.** The excludes test now runs first, as upstream's does, so
+an alias whose own flags the source excludes (alias against alias) goes to
+`merge_conflicts`. A merge whose *target* is an alias is recorded in a new
+`BindResult::alias_merges`; `Checker::report_merge_conflicts` resolves it with
+`resolve_alias_fully` and reports the error arm. The span of an
+`export as namespace N` declaration is its name (`GetNameOfDeclaration`),
+handled locally because the shared `error_span` declaration list lacks it.
+
+**Why the merge arm stays a decline.** The binder follows no aliases
+(`bd tsr-y4u.12`), and the checker cannot rewrite the binder's tables. The
+same limit leaves one upstream consequence unported: on the error arm
+`mergeSymbol` returns `source`, and `mergeSymbolTable` stores it, so the table
+entry *becomes* the refused source. In `umdGlobalAugmentationNoCrash` the
+global `React` is then the `const`, not the UMD alias, and upstream reports no
+TS2686; this port keeps the alias and still reports it. Likewise
+`mergeSymbolRexportFunction`'s TS1362 (the export stays the `export type`
+alias). Both are pre-existing wrong lines, not new ones.
+
+**Measured.** `checkMergedGlobalUMDSymbol` converted; the TS2451 lines of
+`crashDeclareGlobalTypeofExport`, `mergeSymbolRexportFunction`,
+`umdGlobalAugmentationNoCrash` and
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular` are now right (those
+cases still owe the table replacement above, or TS2502).
+
+## §20 TS2668 / TS2435 / TS1147, and TS2664 only on external augmentations
+
+**Forcing constraint.** `privacyImportParseErrors` and
+`privacyGloImportParseErrors` owe 49 lines from three unported position rules,
+and the port drew a wrong TS2664 on every `declare module "x"` nested in a
+namespace of a module file, where upstream reports TS2435 instead.
+
+**What was ported** (check.rs, beside `check_module_augmentation_name`):
+- TS2668, `bindModuleDeclaration` (`binder.go:773`): an ambient module
+  (`IsAmbientModule`) with a syntactic `export`, at the first token — the
+  first modifier, so `declare export module "m"` reports at `declare`. A
+  binder diagnostic upstream; reported from the check walk because it reads
+  only syntax and the port's binder has no first-token helper.
+- TS2435, `checkModuleDeclaration`'s last arm (`checker.go:5214`): a
+  string-named module in a module block that is not a script's top-level
+  ambient module (not `IsModuleAugmentationExternal`, parent not a global
+  source file).
+- TS1147, `checkExternalImportOrExportDeclaration` (`checker.go:5345`): an
+  `import … from "m"` or `import x = require("m")` whose parent is a module
+  block not owned by an ambient module. The position test is
+  `external_import_is_positioned_for_resolution`, which already withheld
+  resolution there; the diagnostic it stood in for now exists. Declarations
+  outside a file or module block are skipped
+  (`checkGrammarModuleElementContext` returns first).
+
+**TS2664 narrowed.** `check_module_augmentation_name` treated any
+`declare module "x"` in a module file as an augmentation. Upstream's
+`mergeModuleAugmentation` sees only `IsModuleAugmentationExternal`
+declarations and validates the name only when `moduleName.Parent.Parent` (the
+declaration's parent) is not ambient: a top-level statement of the module
+file. The nested ambient-module arm is in an ambient block (exempt), and a
+module nested in a namespace is not an augmentation.
+
+**Remaining.** TS2664 is still reported where upstream finds the module
+through a pattern ambient module (`"a.foo"` against `declare module "*.foo"`,
+`ambientDeclarationsPatterns_merging1`–`3`) or reports TS2665 for an untyped
+JavaScript target (`untypedModuleImport_withAugmentation`): both are
+`resolveExternalModuleNameWorker` arms of the shared resolver, not this rule.
+The same cases' TS2307 lines for `import x = require("m")` inside a namespace
+(`privacyImportParseErrors`, `importInsideModule`) come from upstream resolving
+the alias later (`checkImportBinding` is skipped, but the alias's type is
+still asked for); not ported.
+
+**Measured.** `importDeclarationInModuleDeclaration1`,
+`ambientExternalModuleInsideNonAmbient`,
+`ambientExternalModuleInsideNonAmbientExternalModule` converted; every TS1147,
+TS2435 and TS2668 line of `privacyImportParseErrors` (+42 lines, 10 wrong
+TS2664 removed) and `privacyGloImportParseErrors` (+13) is right; none lost.
+
+## §21 TS17009 / TS17011 on the flow graph: `isPostSuperFlowNode` ported
+
+**Supersedes §17's structural walk.** The binder already records a flow node
+for every `this` and `super` keyword and a `FlowFlags::CALL` node after every
+`super(...)` call (`bind_call_expression_flow`), so `checkThisBeforeSuper`'s
+real test, `!isPostSuperFlowNode(node.FlowNode)` (`flow.go:2604`), is ported
+arm for arm as `Checker::is_post_super_flow_node` in `flow.rs`: assignment,
+condition, array-mutation and switch-clause nodes pass through; a call node
+whose callee is `super` answers post-super; a branch label needs every
+(reduce-label-aware) antecedent post-super; a loop label follows its entry
+edge; anything else is post-super only when unreachable. A keyword with no
+flow node is in unreachable code (silence, as upstream).
+
+**Cache.** Upstream's `c.flowNodePostSuper` lives for the checker; this one is
+per query (a local map keyed by shared `FlowId`, published when its worker
+returns). It keeps one walk linear; a checker-lifetime cache would need a new
+`Checker` field for a rare diagnostic. Falsifier: a profile showing repeated
+walks of one large constructor graph.
+
+**Measured.** The `?:`, `&&`/`||` and loop declines §17 listed are gone:
+`checkSuperCallBeforeThisAccess`'s last TS17009 (line 39) is right (the case
+still owes five TS2855 lines); none lost in the diagnostics dump.
+§17's helpers (`super_free_completion`, `subtree_has_jump`,
+`super_calls_follow`, `subtree_calls_super`) are deleted.

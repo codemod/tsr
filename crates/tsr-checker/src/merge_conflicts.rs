@@ -45,6 +45,39 @@ impl Checker<'_, '_> {
         for &(target, source) in self.binder.merge_conflicts() {
             self.report_one_merge_conflict(target, source);
         }
+        for &(target, source) in self.binder.alias_merges() {
+            self.report_alias_merge_conflict(target, source);
+        }
+    }
+
+    /// `mergeSymbol`'s alias arm (`checker.go:14152-14164`), for a pair the
+    /// binder declined because the target is an alias.
+    ///
+    /// Upstream resolves the (never transient, here) target with
+    /// `resolveSymbol`; an unresolvable alias (`unknownSymbol`) takes the
+    /// source silently, a resolved symbol the source's excludes miss is merged
+    /// into (still declined here, `bd tsr-y4u.12`), and one they hit is
+    /// `reportMergeSymbolError(target, source)` — on the **alias's**
+    /// declarations and the source's, not the resolved symbol's. A chain this
+    /// port cannot follow to a non-alias declines.
+    ///
+    /// `checkMergedGlobalUMDSymbol`: `export as namespace THREE` (an alias of
+    /// the module) and `declare global { const THREE }` — the module is a
+    /// `ValueModule`, which a `const` excludes. `misc-checks.md` §19.
+    fn report_alias_merge_conflict(&mut self, target: SymbolId, source: SymbolId) {
+        let resolved = self.resolve_alias_fully(target);
+        let resolved = self.binder.merged_symbol(resolved);
+        let resolved_flags = self.binder.symbols().get(resolved).flags;
+        if resolved_flags.intersects(SymbolFlags::ALIAS) {
+            return;
+        }
+        let source_flags = self.binder.symbols().get(source).flags;
+        if (source_flags | resolved_flags).intersects(SymbolFlags::ASSIGNMENT)
+            || !source_flags.excludes().intersects(resolved_flags)
+        {
+            return;
+        }
+        self.report_merge_symbol_error(target, source);
     }
 
     /// `reportMergeSymbolError` for one pair, and the arm that precedes it.
@@ -70,7 +103,6 @@ impl Checker<'_, '_> {
             return;
         }
         let target_flags = self.binder.symbols().get(target).flags;
-        let source_flags = self.binder.symbols().get(source).flags;
         // `checker.go:14188` — the arm **between** the merge and
         // `reportMergeSymbolError`, and it is not a duplicate-identifier error
         // at all. Merging anything into a *non-instantiated* namespace is
@@ -98,6 +130,13 @@ impl Checker<'_, '_> {
             }
             return;
         }
+        self.report_merge_symbol_error(target, source);
+    }
+
+    /// `reportMergeSymbolError` (`checker.go:14201`).
+    fn report_merge_symbol_error(&mut self, target: SymbolId, source: SymbolId) {
+        let target_flags = self.binder.symbols().get(target).flags;
+        let source_flags = self.binder.symbols().get(source).flags;
         // The three-way choice at `checker.go:14203-14212`. Both sides are
         // tested for each, which is the difference from the *same-file* site in
         // `Binder::declare_into_with_excludes`: there upstream tests only the
@@ -157,7 +196,17 @@ impl Checker<'_, '_> {
             // `getAdjustedNodeForError` then `NewDiagnosticForNode` — the
             // declaration's *name*, which is what `error_span` centralises
             // (§48). `class c1 {}` reports at the `c1`.
-            let span = self.error_span(declaration);
+            //
+            // `GetNameOfDeclaration` also names an `export as namespace N`,
+            // which `error_span`'s declaration list does not; it is a
+            // declaration only an alias merge reaches here (§19).
+            let span = match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
+                    .name
+                    .and_then(|name| name.node_id)
+                    .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
+                _ => self.error_span(declaration),
+            };
             let diagnostic = if needs_name {
                 Diagnostic::with_args(message, span, [name.clone()])
             } else {

@@ -1,0 +1,34 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index a0ad2cb..12f294a 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -1199,6 +1199,29 @@ impl<'a> BindResult<'a> {
+                 }
+                 return Some(self.merged_symbol(found));
+             }
++            // **A class's type parameters are not in scope in its base class
++            // expression** (`nameresolver.go:196-208`): coming up from the
++            // expression of an `extends` clause's `ExpressionWithTypeArguments`
++            // of a class, a name the class's members table holds as a type
++            // resolves to nothing. Upstream also reports TS2562 when the caller
++            // passed a not-found message; the checker owns that report.
++            if nodes.kind(node) == SyntaxKind::ExpressionWithTypeArguments
++                && let Some(tsr_ast::Node::ExpressionWithTypeArguments(with_arguments)) =
++                    node_map.get(node)
++                && last.is_some()
++                && with_arguments.expression.and_then(|expression| expression.node_id()) == last
++                && let Some(clause) = nodes.parent(node)
++                && matches!(node_map.get(clause), Some(tsr_ast::Node::HeritageClause(heritage))
++                    if heritage.token.kind == SyntaxKind::ExtendsKeyword)
++                && let Some(container) = nodes.parent(clause)
++                && matches!(
++                    nodes.kind(container),
++                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
++                )
++                && self.lookup_type_member(container, name, meaning).is_some()
++            {
++                return None;
++            }
+             // A named class expression's own name, in its body
+             // (`nameresolver.go:189-195`): reached only when the members
+             // lookup missed (a type parameter declared elsewhere `break`s out

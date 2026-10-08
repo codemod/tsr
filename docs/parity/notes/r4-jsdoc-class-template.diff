@@ -1,0 +1,69 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 362991d..e1fe22a 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8853,8 +8853,18 @@ impl<'a> Checker<'a, '_> {
+             return &[];
+         };
+         match self.node_map.get(declaration) {
+-            Some(Node::ClassDeclaration(node)) => node.type_parameters,
+-            Some(Node::ClassExpression(node)) => node.type_parameters,
++            Some(Node::ClassDeclaration(node)) if !node.type_parameters.is_empty() => {
++                node.type_parameters
++            }
++            Some(Node::ClassExpression(node)) if !node.type_parameters.is_empty() => {
++                node.type_parameters
++            }
++            // `reparseHosted`'s `KindJSDocTemplateTag` class arms
++            // (`parser/reparser.go:459-470`): an unparameterised JS class
++            // takes `gatherTypeParameters(jsDoc, false)` from its last comment.
++            Some(Node::ClassDeclaration(_) | Node::ClassExpression(_)) => {
++                self.jsdoc_class_template_parameters(declaration)
++            }
+             Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
+             Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
+             // `gatherTypeParameters(jsDoc, typedefOrCallback=true)`
+@@ -8874,6 +8884,43 @@ impl<'a> Checker<'a, '_> {
+         }
+     }
+ 
++    /// `gatherTypeParameters(jsDoc, typedefOrCallback=false)`
++    /// (`parser/reparser.go:293`) over a class's last comment: nothing when
++    /// the comment declares a typedef or callback, else every `@template`
++    /// tag's parameters in order. The written slices cannot be concatenated
++    /// without an allocation this borrowed return has no owner for, so a
++    /// comment with several parameter-carrying `@template` tags keeps the
++    /// unparameterised answer (a known limitation, not native).
++    fn jsdoc_class_template_parameters(
++        &self,
++        class: NodeId,
++    ) -> &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] {
++        if !self.in_js_file(class) {
++            return &[];
++        }
++        let Some(doc) = self.jsdoc_entries.get(&class).and_then(|docs| docs.last()) else {
++            return &[];
++        };
++        let mut found: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] = &[];
++        for tag in doc.tags {
++            match tag {
++                tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_) => {
++                    return &[];
++                }
++                tsr_ast::JSDocTag::JSDocTemplateTag(template)
++                    if !template.type_parameters.is_empty() =>
++                {
++                    if !found.is_empty() {
++                        return &[];
++                    }
++                    found = template.type_parameters;
++                }
++                _ => {}
++            }
++        }
++        found
++    }
++
+     /// The JSDoc comment whose `@typedef`/`@callback` tag declares `symbol` —
+     /// the tag's parent, as in native's tree, where the reparsed alias also
+     /// gathers that comment's `@template` tags.

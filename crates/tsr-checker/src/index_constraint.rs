@@ -34,60 +34,115 @@ use crate::{
 impl<'a> Checker<'a, '_> {
     /// TS2374 — `Duplicate index signature for type '{0}'.`
     ///
-    /// `checkObjectTypeForDuplicateDeclarations` (`checker.go`): two index
-    /// signatures of the same key kind on **one declaration**, reported on the
-    /// second and every later one. Entirely syntactic — the key kind is the
-    /// index parameter's written annotation and nothing else is consulted.
-    /// `docs/architecture/checker-notes-diag2.md` §69.
+    /// `checkTypeForDuplicateIndexSignatures` (`checker.go:4904`), reached from
+    /// `checkTypeLiteral` and, once per symbol, from
+    /// `checkClassOrInterfaceForDuplicateIndexSignatures` (`checker.go:4896`).
+    /// The signatures are the declarations of the symbol's `__index` **member**
+    /// (`getIndexSymbol` = `getMembersOfSymbol(symbol)["__index"]`), so every
+    /// merged class/interface declaration contributes and a class's `static`
+    /// signatures (bound into its exports) do not. Each signature with exactly
+    /// one typed parameter files itself under every constituent of the written
+    /// key type (`getTypeFromTypeNode(...).Distributed()`), and every signature
+    /// of a key type filed more than once is reported, with the key printed by
+    /// `typeToString`. Late-bound `__index` declarations are not
+    /// `IndexSignatureDeclaration`s and never take part.
+    ///
+    /// The once-per-symbol flag (`links.indexSignaturesChecked`) is replaced by
+    /// locality: every declaration computes the symbol-wide grouping and
+    /// reports only the signatures it owns, which yields each native
+    /// diagnostic exactly once without a side table, including for a
+    /// declaration merged into a default-library interface that is never
+    /// checked itself. `docs/parity/notes/r4-index2.md` §1.
     pub(crate) fn check_duplicate_index_signatures(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
-        let signatures: Vec<(&'static str, NodeId)> = match self.node_map.get(node) {
-            Some(Node::ClassDeclaration(class)) => class
-                .members
-                .iter()
-                .filter_map(|member| match member {
-                    tsr_ast::ClassElement::IndexSignatureDeclaration(signature) => Some(*signature),
-                    _ => None,
-                })
-                .filter_map(|signature| self.index_signature_key(signature))
-                .collect(),
-            Some(Node::InterfaceDeclaration(interface)) => interface
-                .members
-                .iter()
-                .filter_map(|member| match member {
-                    tsr_ast::TypeElement::IndexSignatureDeclaration(signature) => Some(*signature),
-                    _ => None,
-                })
-                .filter_map(|signature| self.index_signature_key(signature))
-                .collect(),
-            Some(Node::TypeLiteralNode(literal)) => literal
-                .members
-                .iter()
-                .filter_map(|member| match member {
-                    tsr_ast::TypeElement::IndexSignatureDeclaration(signature) => Some(*signature),
-                    _ => None,
-                })
-                .filter_map(|signature| self.index_signature_key(signature))
-                .collect(),
+        let carriers: Vec<NodeId> = match self.nodes.kind(node) {
+            SyntaxKind::TypeLiteral => vec![node],
+            SyntaxKind::ClassDeclaration
+            | SyntaxKind::ClassExpression
+            | SyntaxKind::InterfaceDeclaration => {
+                let Some(symbol) = self.binder.symbol_of(node) else { return };
+                let symbol = self.binder.merged_symbol(symbol);
+                self.binder
+                    .symbols()
+                    .get(symbol)
+                    .declarations
+                    .iter()
+                    .copied()
+                    .filter(|&declaration| {
+                        matches!(
+                            self.nodes.kind(declaration),
+                            SyntaxKind::ClassDeclaration
+                                | SyntaxKind::ClassExpression
+                                | SyntaxKind::InterfaceDeclaration
+                        )
+                    })
+                    .collect()
+            }
             _ => return,
         };
-        if signatures.len() < 2 {
+        let mut signatures: Vec<(NodeId, bool, tsr_ast::TypeNode<'a>)> = Vec::new();
+        for carrier in carriers {
+            let owned = carrier == node;
+            let mut push = |signature: &tsr_ast::IndexSignatureDeclaration<'a>| {
+                if let (Some(at), [parameter]) = (signature.node_id, signature.parameters)
+                    && let Some(key) = parameter.r#type
+                {
+                    signatures.push((at, owned, key));
+                }
+            };
+            let (class_members, type_members) = match self.node_map.get(carrier) {
+                Some(Node::ClassDeclaration(class)) => (class.members, &[][..]),
+                Some(Node::ClassExpression(class)) => (class.members, &[][..]),
+                Some(Node::InterfaceDeclaration(interface)) => (&[][..], interface.members),
+                Some(Node::TypeLiteralNode(literal)) => (&[][..], literal.members),
+                _ => continue,
+            };
+            for member in class_members {
+                if let tsr_ast::ClassElement::IndexSignatureDeclaration(signature) = member
+                    && !has_modifier(signature.modifiers, SyntaxKind::StaticKeyword)
+                {
+                    push(signature);
+                }
+            }
+            for member in type_members {
+                if let tsr_ast::TypeElement::IndexSignatureDeclaration(signature) = member {
+                    push(signature);
+                }
+            }
+        }
+        if signatures.len() < 2 || !signatures.iter().any(|&(_, owned, _)| owned) {
             return;
         }
-        // **Every declaration of a repeated kind, first included.**
-        // `checkObjectTypeForDuplicateDeclarations` reports each of them, so two
-        // `[x: number]` signatures produce two diagnostics. §69 kept a `seen`
-        // list and reported the extras, which is a subset of the baseline —
-        // invisible unless the positions are compared. §762.
-        let repeated: Vec<&'static str> = signatures
-            .iter()
-            .filter(|(kind, _)| signatures.iter().filter(|(seen, _)| seen == kind).count() > 1)
-            .map(|(kind, _)| *kind)
-            .collect();
-        for (kind, at) in signatures {
-            if repeated.contains(&kind) {
+        // `indexSignatureMap`, keyed by the distributed key type. A key this
+        // port could not compute (`error`) is declined, not filed as `any`.
+        let mut groups: Vec<(TypeId, Vec<(NodeId, bool)>)> = Vec::new();
+        for (at, owned, key) in signatures {
+            let key = self.get_type_from_type_node(key);
+            let keys = match &self.store.get(key).data {
+                crate::types::TypeData::Union { types, .. } => types.clone(),
+                _ => vec![key],
+            };
+            for key in keys {
+                if key == self.intrinsics.error {
+                    continue;
+                }
+                match groups.iter_mut().find(|(seen, _)| *seen == key) {
+                    Some((_, declarations)) => declarations.push((at, owned)),
+                    None => groups.push((key, vec![(at, owned)])),
+                }
+            }
+        }
+        for (key, declarations) in groups {
+            if declarations.len() < 2 {
+                continue;
+            }
+            let key_text = self.type_to_string(key);
+            for (at, owned) in declarations {
+                if !owned {
+                    continue;
+                }
                 let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
                 let span = self.error_span(at);
                 self.report(
@@ -95,28 +150,11 @@ impl<'a> Checker<'a, '_> {
                     Diagnostic::with_args(
                         &messages::DUPLICATE_INDEX_SIGNATURE_FOR_TYPE_0,
                         span,
-                        [kind.to_string()],
+                        [key_text.clone()],
                     ),
                 );
             }
         }
-    }
-
-    /// An index signature's key kind — `"string"` or `"number"`, read off the
-    /// index parameter's written annotation — with the signature's own node.
-    fn index_signature_key(
-        &self,
-        signature: &tsr_ast::IndexSignatureDeclaration<'_>,
-    ) -> Option<(&'static str, NodeId)> {
-        let at = signature.node_id?;
-        let [parameter] = signature.parameters else { return None };
-        let annotation = parameter.r#type?.node_id()?;
-        let kind = match self.nodes.kind(annotation) {
-            SyntaxKind::StringKeyword => "string",
-            SyntaxKind::NumberKeyword => "number",
-            _ => return None,
-        };
-        Some((kind, at))
     }
 
     /// `checkIndexConstraints`' four call sites (`checker.go:4786`):
@@ -245,7 +283,10 @@ impl<'a> Checker<'a, '_> {
                 let name_type = self.check_expression(expression);
                 let member_type = self.get_type_of_symbol(member_symbol);
                 let member_type = self.remove_missing_type(member_type);
-                let name = self.binder.symbols().get(member_symbol).name.to_string();
+                // `symbolToString(prop)` of an anonymous `__computed` symbol
+                // is its declaration name as written (`getNameOfSymbolAsWritten`
+                // -> `getTextOfNode`): `Property '[+s]' of type ...`.
+                let Some(name) = self.computed_member_name_text(member) else { continue };
                 self.check_index_constraint_for_property(
                     ty,
                     owner,
@@ -304,6 +345,16 @@ impl<'a> Checker<'a, '_> {
             _ => {}
         }
         Some(expression)
+    }
+
+    /// The source text of a member's computed name, brackets included.
+    fn computed_member_name_text(&self, member: NodeId) -> Option<String> {
+        let name = self.declaration_name_of(member)?;
+        let span = self.error_span(name);
+        let text = self
+            .source_file_of_for_diagnostics(name)
+            .and_then(|file| self.module_host?.source_text(file, self.nodes))?;
+        Some(text.get(span.start as usize..span.end as usize)?.to_string())
     }
 
     /// `getLiteralTypeFromProperty(prop, TypeFlagsStringOrNumberLiteralOrUnique,
