@@ -347,3 +347,16 @@ idle for hours waiting on a yes/no for its follow-ons. It was told to take
 `.1034`, `.1010`, the alias naming and `.979`. Lesson: follow-on messages to a
 box say "take it" explicitly. The new box `r5-vardecl` takes
 checkVariableLikeDeclaration (TS2502, the remaining TS2403).
+
+### r5-errorsplit3 finished; r5-errorsplit4 dispatched (`tsr-2zk.1038`)
+
+r5-errorsplit3:
+- audited all 205 `is_error` call sites against the pinned Go code: 110 became
+  `is_gap`, 37 `is_type_any`, and 43 stay `is_error`;
+- propagated `errorType` through spread, destructuring rests and element access;
+- with its final-else diff (landed by the integrator), took the credited gap
+  from 14,715 lines to 4,243 with zero losses.
+
+No rewrite narrowing is free yet: every rewrite still matches some RIGHT gap
+lines. The new box `r5-errorsplit4` takes the next producer, the §31 gate's 838
+lines, and the held IsTypeAny arms.
