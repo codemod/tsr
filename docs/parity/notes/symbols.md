@@ -77,3 +77,14 @@ not set it), read by `resolve_name` and the suggestion walk. Fact keyed by the
 module declaration node, owned by the file bind, published once at bind.
 Converts `compiler/es5ExportDefaultClassDeclaration4` (target=es2015) and
 `compiler/defaultIsNotVisibleInLocalScope` (+2 type rows).
+
+## `arguments` outside functions resolves normally (tsr-2zk.6)
+
+`NameResolver.Resolve` synthesizes `arguments` only in function-like
+containers; elsewhere the name walks the ordinary scopes, so a declared
+`var arguments` resolves. `check_value_identifier`'s §951 arm reported TS2304
+without resolving; it now asks `resolve_name_with_export_alias` at
+`Value | ExportValue` first. Converts
+`conformance/emitArrowFunctionWhenUsingArguments03` (alwaysstrict=true,
+target=es2015) and `..._ES6` (alwaysstrict=true) in the exact oracle; not in
+the legacy suite.
