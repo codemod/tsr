@@ -646,3 +646,23 @@ their own (native links copy the head's file and span), which the exact oracle
 must render as the head location; related information for TS2448/TS2449/
 TS2554/TS2813/TS2814/TS9027 belongs to other lanes and can use
 `diagnostic_for_node`.
+
+## Type-parameter constraint note — tsr-2zk.1
+
+`reportErrorResults` (relater.go:4744) closes every reported pair whose source
+is an unconstrained type parameter with a declaration with TS2208 "This type
+parameter might need an `extends {target}` constraint" when the clone
+constrained to the target has a non-circular base constraint
+(`hasNonCircularBaseConstraint`). Port: `type_parameter_constraint_note`, called
+from `relation_diagnostic` (top-level and nested links) and the signature
+this/parameter/return links the relater builds directly. Unconstrained means
+no written constraint, not `infer`, not polymorphic `this`.
+`base_constraint_avoids` walks `computeBaseConstraint`'s arms (union,
+intersection, template literal, string mapping, non-mapped `keyof`; another
+type parameter ends the walk, its constraint names the original, not the
+clone). A clone inside a union/intersection is treated as circular, so
+`T & string` publishes no note although native settles it; indexed access,
+conditional and substitution targets decline. The unconstrained source's
+constraint retry now marks the pair's own link as its explanation
+(`simple_error`), as native relates the `unknown` constraint without
+`reportErrors`; `nested_relation_link` no longer declines such sources.

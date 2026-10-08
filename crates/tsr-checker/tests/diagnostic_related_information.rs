@@ -108,3 +108,23 @@ fn elaborated_member_names_expected_property_or_index_signature() {
         ]
     );
 }
+
+#[test]
+fn unconstrained_type_parameter_source_suggests_target_constraint() {
+    let source = "function f<T>(t: T) { let o: object = t; }\n\
+                  function g<T>(t: { p: T }) { let n: { p: object } = t; }\n\
+                  function h<T extends object>(t: T) { let n: string = t; }";
+    let first = u32::try_from(source.find("T>").unwrap()).unwrap();
+    let second = u32::try_from(source.rfind("g<T").unwrap() + 2).unwrap();
+    let file = || "/a.ts".to_string();
+    assert_eq!(
+        report(source),
+        [
+            (2322, vec![(2208, first, file())], vec![]),
+            // The nested pair's note is shared by every chain link.
+            (2322, vec![(2208, second, file())], vec![vec![2208], vec![2208]]),
+            // A written constraint is not nil: no note.
+            (2322, vec![], vec![vec![]]),
+        ]
+    );
+}

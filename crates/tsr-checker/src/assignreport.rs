@@ -59,6 +59,32 @@ pub(crate) fn missing_property_chain_names_pair(
     }
 }
 
+/// Hang a failed pair's structural `child` under its `reportRelationError`
+/// link. The arbitrary-type explanation first sets `r.errorChain = nil`
+/// (relater.go:4774): the child's links are dropped, but the walk's related
+/// information (`r.relatedInfo`) survives, ahead of the pair's own note.
+fn attach_relation_child(diagnostic: &mut Diagnostic, child: Option<Diagnostic>) {
+    match diagnostic.message_chain_mut().first_mut() {
+        Some(explanation)
+            if explanation.message
+                == &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1 =>
+        {
+            if let Some(mut child) = child {
+                child.publish_chain_related_information();
+                for related in child.related_information() {
+                    explanation.add_related_information(Some(related.clone()));
+                }
+            }
+        }
+        Some(explanation) => {
+            explanation.add_message_chain(child);
+        }
+        None => {
+            diagnostic.add_message_chain(child);
+        }
+    }
+}
+
 fn set_relation_chain_span(diagnostic: &mut Diagnostic, span: tsr_core::Span) {
     diagnostic.span = span;
     for child in diagnostic.message_chain_mut() {
@@ -1863,7 +1889,7 @@ impl<'a> Checker<'a, '_> {
         );
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
-            diagnostic.add_message_chain(Some(signature_error));
+            attach_relation_child(&mut diagnostic, Some(signature_error));
         }
         self.report_relation_chain(file, diagnostic);
         true
@@ -2071,7 +2097,7 @@ impl<'a> Checker<'a, '_> {
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
         if let Some(mut signature_error) = signature_error {
             set_relation_chain_span(&mut signature_error, span);
-            diagnostic.add_message_chain(Some(signature_error));
+            attach_relation_child(&mut diagnostic, Some(signature_error));
         }
         self.report_relation_chain(file, diagnostic);
         RelationReport::Reported
@@ -2088,6 +2114,118 @@ impl<'a> Checker<'a, '_> {
     /// member walk or semantic cache. This direct-target port has no recursive
     /// Relater errorChain to preserve/reset; it does not certify those consumers.
     fn relation_diagnostic(
+        &mut self,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        message: &'static tsr_diagnostics::Message,
+        source_text: String,
+        target_text: String,
+    ) -> Diagnostic {
+        let mut diagnostic =
+            self.relation_explanation(span, source, target, message, source_text, target_text);
+        let note = self.type_parameter_constraint_note(source, target);
+        diagnostic.add_related_information(note);
+        diagnostic
+    }
+
+    /// `reportErrorResults`' closing note (5b1047d `relater.go:4744`): an
+    /// unconstrained type-parameter source with a declaration gets "This type
+    /// parameter might need an `extends {target}` constraint" when a clone
+    /// constrained to `target` (source mapped to the clone) has a
+    /// non-circular base constraint. `None` also where this port cannot
+    /// answer `hasNonCircularBaseConstraint`.
+    pub(crate) fn type_parameter_constraint_note(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Diagnostic> {
+        if !self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return None;
+        }
+        let symbol = *self.type_parameter_symbols.get(&source)?;
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let &declaration = declarations.first()?;
+        // getConstraintOfTypeParameter: a written constraint, a polymorphic
+        // `this`, or an `infer` parameter's inferred constraint is not nil.
+        let constrained = declarations.iter().any(|&declaration| {
+            !matches!(self.node_map.get(declaration),
+                Some(Node::TypeParameterDeclaration(parameter)) if parameter.constraint.is_none())
+                || self
+                    .nodes
+                    .parent(declaration)
+                    .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::InferType)
+        });
+        if constrained || !self.base_constraint_avoids(target, source)? {
+            return None;
+        }
+        let target_text = self.type_to_string(target);
+        self.diagnostic_for_node(
+            declaration,
+            &messages::THIS_TYPE_PARAMETER_MIGHT_NEED_AN_EXTENDS_0_CONSTRAINT,
+            [target_text],
+        )
+    }
+
+    /// `hasNonCircularBaseConstraint` of a type parameter constrained to
+    /// `constraint` with `parameter` mapped to itself: `computeBaseConstraint`
+    /// (checker.go:27490) of the constraint must not reach the parameter.
+    /// Unions, intersections, template literals and string mappings recurse;
+    /// `keyof` of a non-mapped type is `string | number | symbol`; another
+    /// type parameter's constraint names the original, not the clone; object
+    /// and primitive types end the walk. A clone reached inside a union or
+    /// intersection answers `false` (circular) although native resolution can
+    /// still settle some of those: no note is published there. `None` for
+    /// kinds whose arm this port does not walk.
+    fn base_constraint_avoids(&self, constraint: TypeId, parameter: TypeId) -> Option<bool> {
+        if constraint == parameter {
+            return Some(false);
+        }
+        if let Some(parts) = self.template_literal_parts.get(&constraint) {
+            for &part in &parts.types {
+                if !self.base_constraint_avoids(part, parameter)? {
+                    return Some(false);
+                }
+            }
+            return Some(true);
+        }
+        if let Some(&(_, mapped)) = self.string_mapping_types.get(&constraint) {
+            return self.base_constraint_avoids(mapped, parameter);
+        }
+        if let Some(operand) = self.deferred_keyof_operands.get(&constraint) {
+            return (!self.mapped_types.contains_key(operand)).then_some(true);
+        }
+        let ty = self.type_of(constraint);
+        match &ty.data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                for &part in types {
+                    if !self.base_constraint_avoids(part, parameter)? {
+                        return Some(false);
+                    }
+                }
+                Some(true)
+            }
+            _ if ty.flags.contains(TypeFlags::TYPE_PARAMETER) => Some(true),
+            _ if ty.flags.intersects(
+                TypeFlags::INDEXED_ACCESS
+                    | TypeFlags::CONDITIONAL
+                    | TypeFlags::SUBSTITUTION
+                    | TypeFlags::INDEX
+                    | TypeFlags::TEMPLATE_LITERAL
+                    | TypeFlags::STRING_MAPPING
+                    | TypeFlags::UNION
+                    | TypeFlags::INTERSECTION,
+            ) || self.deferred_keyof_operands.contains_key(&constraint) =>
+            {
+                None
+            }
+            _ => Some(true),
+        }
+    }
+
+    /// [`Checker::relation_diagnostic`] without the related note:
+    /// `reportRelationError`'s type-parameter target explanation.
+    fn relation_explanation(
         &mut self,
         span: tsr_core::Span,
         source: TypeId,
@@ -2167,8 +2305,6 @@ impl<'a> Checker<'a, '_> {
                     .type_of(target)
                     .flags
                     .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE))
-            || (source_flags.contains(TypeFlags::TYPE_PARAMETER)
-                && self.base_constraint_of_type(source).is_none())
         {
             return Err(child);
         }
@@ -2231,17 +2367,7 @@ impl<'a> Checker<'a, '_> {
             source_text,
             target_text,
         );
-        match diagnostic.message_chain_mut().first_mut() {
-            Some(explanation)
-                if explanation.message
-                    == &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1 => {}
-            Some(explanation) => {
-                explanation.add_message_chain(child);
-            }
-            None => {
-                diagnostic.add_message_chain(child);
-            }
-        }
+        attach_relation_child(&mut diagnostic, child);
         Ok(diagnostic)
     }
 

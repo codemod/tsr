@@ -2147,6 +2147,9 @@ impl Relater<'_, '_, '_> {
                             ],
                         );
                         child.add_message_chain(error);
+                        let note =
+                            self.checker.type_parameter_constraint_note(target_this, source_this);
+                        child.add_related_information(note);
                         self.property_error = Some(Diagnostic::new_chain(
                             Some(child),
                             &messages::THE_THIS_TYPES_OF_EACH_SIGNATURE_ARE_INCOMPATIBLE,
@@ -2319,6 +2322,8 @@ impl Relater<'_, '_, '_> {
                                     span, [minimum.to_string(), count.to_string()],
                                 )));
                             }
+                            let note = self.checker.type_parameter_constraint_note(to, from);
+                            child.add_related_information(note);
                             self.property_error = Some(Diagnostic::new_chain(
                                 Some(child),
                                 &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
@@ -2419,6 +2424,10 @@ impl Relater<'_, '_, '_> {
                                 ],
                             );
                             diagnostic.add_message_chain(error);
+                            let note = self
+                                .checker
+                                .type_parameter_constraint_note(source_return, target_return);
+                            diagnostic.add_related_information(note);
                             self.property_error = Some(diagnostic);
                             self.return_marker = Some((
                                 source_signature.kind != crate::signatures::SignatureKind::Call,
@@ -3470,7 +3479,10 @@ impl Relater<'_, '_, '_> {
             } else {
                 self.property_error = saved_error;
                 self.signature_error = saved_signature;
-                self.simple_error = saved_simple;
+                // Without nested reporting (an unconstrained source, or a
+                // type-parameter target) the failed pair's own
+                // reportRelationError link is the whole explanation.
+                self.simple_error = saved_simple || retry == RelationResult::NotRelated;
                 self.return_marker = saved_marker;
             }
             return retry;
