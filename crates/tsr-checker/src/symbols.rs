@@ -5873,11 +5873,14 @@ impl<'a> Checker<'a, '_> {
                 Err(())
             };
         };
-        if self.is_error(iterator) {
+        // `getIterationTypesOfIterableSlow` (`checker.go:6463`):
+        // `IsTypeAny(methodType)` answers all-`any`, upstream's `errorType`
+        // included (ADR-0048). Only the port's gap declines.
+        if self.is_gap(iterator) {
             return Err(());
         }
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         if self
             .get_property_of_type(source, name)
@@ -5893,7 +5896,7 @@ impl<'a> Checker<'a, '_> {
         let mut returns = Vec::new();
         for signature in signatures {
             if self.signature_min_argument_count(&signature) == 0 {
-                if self.is_error(signature.r#type) {
+                if self.is_gap(signature.r#type) {
                     return Err(());
                 }
                 returns.push(signature.r#type);
@@ -5903,8 +5906,10 @@ impl<'a> Checker<'a, '_> {
             return Ok(None);
         }
         let iterator = self.get_intersection_type(&returns, None);
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        // `getIterationTypesOfIteratorWorker` (`checker.go:6496`): the
+        // intersection is `IsTypeAny` when any return is, `errorType` too.
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         let mut yields = Vec::new();
         let mut has_iteration_types = false;
@@ -5924,7 +5929,7 @@ impl<'a> Checker<'a, '_> {
                 // for a missing method. Other methods may still yield.
                 continue;
             };
-            if self.is_error(method) {
+            if self.is_gap(method) {
                 return Err(());
             }
             if name == "next"
@@ -5937,8 +5942,10 @@ impl<'a> Checker<'a, '_> {
             if name != "next" {
                 method = self.get_non_nullable_type(method);
             }
-            if method == self.intrinsics.any {
-                return Ok(Some(vec![method]));
+            // `getIterationTypesOfMethod` (`checker.go:6555`):
+            // `IsTypeAny(methodType)` answers all-`any`, `errorType` included.
+            if self.is_type_any(method) {
+                return Ok(Some(vec![self.intrinsics.any]));
             }
             let signatures = if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
                 Vec::new()
@@ -5952,7 +5959,7 @@ impl<'a> Checker<'a, '_> {
             }
             has_iteration_types = true;
             let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
-            if returns.iter().any(|&ty| self.is_error(ty)) {
+            if returns.iter().any(|&ty| self.is_gap(ty)) {
                 return Err(());
             }
             let mut result = self.get_intersection_type(&returns, None);
@@ -5979,7 +5986,10 @@ impl<'a> Checker<'a, '_> {
                 crate::types::TypeData::Union { types, .. } => types,
                 _ => vec![result],
             };
-            if parts.contains(&self.intrinsics.any) {
+            // `getIterationTypesOfIteratorResult` (`checker.go:6650`):
+            // `IsTypeAny` on the result; a union holding an any-flagged
+            // constituent (`errorType` too) is that constituent natively.
+            if parts.iter().any(|&part| self.is_type_any(part)) {
                 return Ok(Some(vec![self.intrinsics.any]));
             }
             // getIterationTypesOfIteratorResult filters yield and return
