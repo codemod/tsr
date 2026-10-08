@@ -476,3 +476,22 @@ The freed slot went to r5-missingprop, picked from the batch-T base clusters:
 TS2353. Also from those clusters: the gate's "gains" figure counts only
 WRONG→RIGHT, not EMPTY_WRONG→EMPTY_RIGHT. That explains why batch T showed +2
 cases where the boxes measured about +5.
+
+### Batch V merged from green box heads; r5-relater6 dispatched (`tsr-2zk.1051`)
+
+With the queue idle, batch V merges the green heads of four boxes ahead of their
+final reports: r5-declared, r5-relater5, r5-mapped3 and r5-vardecl. A box pushes
+only commits that pass its own gate, and the batch gate re-proves them together.
+
+r5-relater5 finished with `fe31884`: the generic mapped relation arms
+(mappedTypeRelatedTo and the generic-mapped source/target arms) and decidable
+IA/keyof endings. That is +3 cases, 33 diagnostic lines and +2 type lines,
+with no losses and Ir down 0.09%. It declined three pieces, each because a
+measured loss names an upstream piece that is missing:
+- the mapped iteration-parameter constraint (`tsr-2zk.1053`);
+- IAM;
+- inferFromObjectTypes' mapped arm (`.1052`).
+
+Its successor, r5-relater6, takes IAM, Unknown for unprovable generic keys
+(`.1049`, which unblocks TS2536), the as-clause mapped types, IAW, B16, and a
+cached isDiscriminantProperty. The uncached version measured +0.41% Ir.
