@@ -1,0 +1,31 @@
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3617,6 +3617,13 @@
+                 let conditional = self.conditional_source_related_to(source, target);
+                 return RelationResult::any([result, conditional]);
+             }
++            // The same fallthrough for a type variable: it meets the whole
++            // target through its constraint (relater.go:3652).
++            if !result.is_success()
++                && let Some(variable) = self.type_variable_source_related_to(source, target)
++            {
++                return RelationResult::any([result, variable]);
++            }
+             return result;
+         }
+         if let Some(constituents) = self.union_constituents(target) {
+@@ -3635,6 +3642,14 @@
+                 let conditional = self.conditional_source_related_to(source, target);
+                 return RelationResult::any([result, conditional]);
+             }
++            // The same fallthrough for a type variable: `E[K]` whose
++            // constraint is `A | B` relates to `A | B` through it
++            // (relater.go:3652), not through either constituent.
++            if !result.is_success()
++                && let Some(variable) = self.type_variable_source_related_to(source, target)
++            {
++                return RelationResult::any([result, variable]);
++            }
+             // structuredTypeRelatedToWorker (relater.go:3889): an object or
+             // intersection source that failed every constituent may still
+             // cover a discriminated union, one constituent per combination
