@@ -470,3 +470,18 @@ optional `{ a = 1 }: { a?: string|number } = {}` stays `string | number` in
 both. Gate vs §18: +15 type lines, cases `controlFlowDestructuringDeclaration`,
 `for-of43`, `stringLiteralTypesAndTuples01`; 0 losses. CPU (41) 1.009 /
 (21) 0.983 (a first 21-sample domain-model read was 1.070).
+
+## 20. Equality always replaces primitives (`replacePrimitivesWithLiterals`)
+
+Pinned `flow.go:595-598` calls `replacePrimitivesWithLiterals` after
+`filterType` even when the filter kept every constituent; TSR returned the
+unchanged `t`, so `x === "a"` on `string` stayed `string`. The worker now
+follows `flow.go:1907` through the existing origin-aware `map_narrowing_type`
+and `filter_type` (= `mapType` / `extractTypesOfKind`): `String` extracts the
+string-like domain, a pattern template/mapping extracts string literals only
+when the comparand has no string/template/mapping, number and bigint keep
+their primitive+literal domains. No cache; only a changed map builds a union.
+Native control: `"a"`, `"prefix-one"` narrow in both; `!==` keeps `string`;
+`n == 1` on `number | boolean` → `1`. Gate vs §19: +31 type lines, cases
+`literalTypes3`, `stringLiteralTypesInUnionTypes02`, `typeofThis`,
+`sourceMapValidationStatements`; 0 losses. CPU (21) 1.024 / 0.994.
