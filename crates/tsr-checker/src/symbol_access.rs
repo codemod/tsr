@@ -701,6 +701,12 @@ pub enum TrackerReport {
         /// `symbol.Name`; empty selects the two-argument message.
         symbol_name: String,
     },
+    /// `TrackSymbol(symbol, enclosingDeclaration, meaning)` (`tracker.go:200`):
+    /// `IsSymbolAccessible`'s answer, which `handleSymbolAccessibilityError`
+    /// turns into late-painted aliases or an accessibility error.
+    TrackSymbol(crate::symbol_accessibility::SymbolAccessibilityResult),
+    /// `ReportInaccessibleUniqueSymbolError` (`tracker.go:52`): TS2527.
+    InaccessibleUniqueSymbol,
 }
 
 /// Pinned tsgo 5b1047d: `EmitResolver` (`checker/emitresolver.go`), the
@@ -727,9 +733,11 @@ pub enum TrackerReport {
 /// - **Expensive work**: name resolution and alias resolution, both the
 ///   checker's; the walk itself is one ancestor chain per query.
 pub struct DeclarationEmitResolver<'c, 'a, 'n> {
-    checker: &'c mut crate::checker::Checker<'a, 'n>,
+    pub(crate) checker: &'c mut crate::checker::Checker<'a, 'n>,
     is_visible: FxHashMap<NodeId, bool>,
     aliases_marked: rustc_hash::FxHashSet<NodeId>,
+    /// `IsSymbolAccessible`'s side tables (`crate::symbol_accessibility`).
+    pub(crate) accessibility: crate::symbol_accessibility::AccessibilityCache,
 }
 
 impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
@@ -739,6 +747,7 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
             checker,
             is_visible: FxHashMap::default(),
             aliases_marked: rustc_hash::FxHashSet::default(),
+            accessibility: crate::symbol_accessibility::AccessibilityCache::default(),
         }
     }
 
@@ -1108,7 +1117,7 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
         if flags.contains(SymbolFlags::TYPE_PARAMETER) && meaning.intersects(SymbolFlags::TYPE) {
             return EmitAccessibility::Accessible { aliases_to_make_visible: Vec::new() };
         }
-        match self.has_visible_declarations(symbol) {
+        match self.has_visible_declarations(symbol, true) {
             Some(aliases) => EmitAccessibility::Accessible { aliases_to_make_visible: aliases },
             None => EmitAccessibility::NotAccessible {
                 error_symbol_name: text.to_string(),
@@ -1120,13 +1129,21 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
     /// `EmitResolver.hasVisibleDeclarations` (`emitresolver.go:384`) with
     /// `shouldComputeAliasToMakeVisible`: `None` is native's `nil`; the
     /// aliases come back in first-painted order (native collects a map).
-    fn has_visible_declarations(&mut self, symbol: SymbolId) -> Option<Vec<NodeId>> {
+    pub(crate) fn has_visible_declarations(
+        &mut self,
+        symbol: SymbolId,
+        compute_aliases: bool,
+    ) -> Option<Vec<NodeId>> {
         use tsr_ast::SyntaxKind as K;
         let record = self.checker.binder.symbols().get(symbol);
         let flags = record.flags;
         let declarations = record.declarations.clone();
         let mut aliases: Vec<(NodeId, NodeId)> = Vec::new();
         let mut add_visible_alias = |this: &mut Self, declaration: NodeId, statement: NodeId| {
+            // `addVisibleAlias` paints only when asked to compute aliases.
+            if !compute_aliases {
+                return;
+            }
             this.is_visible.insert(declaration, true);
             match aliases.iter_mut().find(|(d, _)| *d == declaration) {
                 Some(entry) => entry.1 = statement,
@@ -1304,6 +1321,8 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
         };
         let mut reports = Vec::new();
         self.unsafe_import_reports(ty, node, &mut reports);
+        let mut visited = rustc_hash::FxHashSet::default();
+        self.track_type_symbols(ty, node, &mut visited, &mut reports);
         let crate::types::TypeData::Anonymous { symbol: class, .. } =
             self.checker.store.get(ty).data
         else {
@@ -1325,6 +1344,229 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
         self.report_private_properties(instance, &mut reports);
         self.report_private_properties(ty, &mut reports);
         reports
+    }
+
+    /// The `TrackSymbol` calls the node builder makes while writing `ty` at
+    /// `enclosing`, for the shapes this port can follow
+    /// (`docs/parity/notes/r5-declemit3.md` §2).
+    ///
+    /// Followed:
+    ///
+    /// - a union or intersection with no alias name: each constituent
+    ///   (`typeToTypeNode`'s union arm);
+    /// - an anonymous object type the printer writes as a type literal — an
+    ///   object literal, spread or type literal whose captured properties
+    ///   ([`crate::checker::Checker::anonymous_properties`]) are the
+    ///   resolved member list: each property goes through
+    ///   `addPropertyToElementList` (`nodebuilderimpl.go:2481`), whose
+    ///   late-bound arm calls `trackComputedName` on the declaration's
+    ///   computed name, and its type is written in turn;
+    /// - `typeof globalThis`, written through `lookupSymbolChain` on
+    ///   native's `globalThisSymbol` with value meaning.
+    ///
+    /// Not followed, so their reports are missed and never invented: named
+    /// references (`TrackSymbol` on a class, interface or alias), signatures,
+    /// index signatures, mapped types, and an alias-named literal.
+    ///
+    /// Whether a literal is written structurally is read off the printer's own
+    /// decision — its text opens with `{` — because this port records no
+    /// alias for a non-generic type-literal alias (`alias_of` holds only
+    /// deferred references), and an alias name prints instead of the members.
+    ///
+    /// `visited` is `createAnonymousTypeNode`'s visited-symbol check, by type
+    /// identity: a recursive literal is written once.
+    fn track_type_symbols(
+        &mut self,
+        ty: TypeId,
+        enclosing: NodeId,
+        visited: &mut rustc_hash::FxHashSet<TypeId>,
+        reports: &mut Vec<TrackerReport>,
+    ) {
+        use crate::types::TypeData;
+        if !visited.insert(ty) {
+            return;
+        }
+        if Some(ty) == self.checker.global_this_type {
+            if !self.is_global_this_accessible(enclosing) {
+                reports.push(TrackerReport::TrackSymbol(
+                    crate::symbol_accessibility::SymbolAccessibilityResult {
+                        accessibility:
+                            crate::symbol_accessibility::SymbolAccessibility::NotAccessible,
+                        aliases_to_make_visible: Vec::new(),
+                        error_symbol_name: "globalThis".to_string(),
+                        error_module_name: String::new(),
+                        error_node: None,
+                    },
+                ));
+            }
+            return;
+        }
+        let constituents = match &self.checker.store.get(ty).data {
+            TypeData::Union { types, symbol: None, .. }
+            | TypeData::Intersection { types, symbol: None, .. } => Some(types.clone()),
+            _ => None,
+        };
+        if let Some(types) = constituents {
+            if self.checker.alias_of.contains_key(&ty) {
+                return;
+            }
+            for constituent in types {
+                self.track_type_symbols(constituent, enclosing, visited, reports);
+            }
+            return;
+        }
+        if self.checker.store.get(ty).flags.contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL) {
+            // `typeToTypeNode`'s unique-symbol arm (`nodebuilderimpl.go:3316`):
+            // written as `typeof sym` when the symbol is value-accessible,
+            // else `ReportInaccessibleUniqueSymbolError`. Only a unique type
+            // minted for a written `unique symbol` records its symbol here
+            // (`unique_symbol_nodes`); one minted for a `Symbol()` call has
+            // none (`tsr-2zk.1005`) and is not asked.
+            if let Some(symbol) = self.unique_symbol_type_symbol(ty)
+                && !self.is_value_symbol_accessible(symbol, enclosing)
+            {
+                reports.push(TrackerReport::InaccessibleUniqueSymbol);
+            }
+            return;
+        }
+        let TypeData::Named { text, members: Some(owner) } = &self.checker.store.get(ty).data
+        else {
+            return;
+        };
+        let owner = *owner;
+        let owner_flags = self.checker.binder.symbols().get(owner).flags;
+        if !owner_flags.intersects(SymbolFlags::TYPE_LITERAL | SymbolFlags::OBJECT_LITERAL)
+            || self.checker.alias_of.contains_key(&ty)
+        {
+            return;
+        }
+        if !text.starts_with('{') {
+            // The alias arm (`nodebuilderimpl.go:3362`): an alias that is
+            // type-accessible here is written by name (and tracked, which
+            // reports nothing for an accessible symbol); an inaccessible one
+            // falls through to the structural form.
+            let text = text.clone();
+            let Some(alias) = self.type_literal_alias(owner, &text) else { return };
+            if self.is_type_symbol_accessible(alias, enclosing) {
+                return;
+            }
+        }
+        // The resolved properties: a literal's captured image, else (a type
+        // literal reached through its alias) the declared members.
+        let properties: Vec<(Option<SymbolId>, TypeId)> =
+            if let Some((properties, _)) = self.checker.anonymous_properties.get(&ty).cloned() {
+                properties
+                    .iter()
+                    .map(|property| (property.origin, self.checker.property_type(property)))
+                    .collect()
+            } else {
+                let Some(names) = self.checker.get_property_names_of_type(ty) else { return };
+                let mut out = Vec::with_capacity(names.len());
+                for name in names {
+                    let Some(property) = self.checker.get_property_of_type(ty, &name) else {
+                        continue;
+                    };
+                    out.push((Some(property), self.checker.get_type_of_symbol(property)));
+                }
+                out
+            };
+        for (origin, property_type) in properties {
+            // `isLateBoundName(propertySymbol.Name)`: a name bound from a
+            // `unique symbol` (`__@…`); a literal-typed computed name binds
+            // its plain text and takes no arm.
+            if let Some(origin) = origin
+                && let Some(&declaration) =
+                    self.checker.binder.symbols().get(origin).declarations.first()
+                && let Some(expression) = self.late_bound_unique_symbol_name(declaration)
+            {
+                self.track_computed_name(expression, enclosing, reports);
+            }
+            self.track_type_symbols(property_type, enclosing, visited, reports);
+        }
+    }
+
+    /// `t.symbol` of a unique-symbol type minted for a written
+    /// `unique symbol` (`getESSymbolLikeTypeForNode`): the declaration the
+    /// operator is written in.
+    fn unique_symbol_type_symbol(&self, ty: TypeId) -> Option<SymbolId> {
+        let (&node, _) = self.checker.unique_symbol_nodes.iter().find(|&(_, &t)| t == ty)?;
+        let mut declaration = self.parent(node)?;
+        while self.kind(declaration) == tsr_ast::SyntaxKind::ParenthesizedType {
+            declaration = self.parent(declaration)?;
+        }
+        let symbol = self.checker.binder.symbol_of(declaration)?;
+        Some(self.checker.binder.merged_symbol(symbol))
+    }
+
+    /// The type alias a type-literal type prints as: the alias declaration
+    /// directly holding the literal, when the printed name is its name.
+    fn type_literal_alias(&self, owner: SymbolId, printed: &str) -> Option<SymbolId> {
+        let &literal = self.checker.binder.symbols().get(owner).declarations.first()?;
+        let alias_declaration = self.parent(literal)?;
+        if self.kind(alias_declaration) != tsr_ast::SyntaxKind::TypeAliasDeclaration {
+            return None;
+        }
+        let alias = self.checker.binder.symbol_of(alias_declaration)?;
+        let alias = self.checker.binder.merged_symbol(alias);
+        (self.checker.binder.symbols().get(alias).name == printed).then_some(alias)
+    }
+
+    /// The computed-name expression of `declaration` when `hasLateBindableName`
+    /// holds and the name type is a `unique symbol` — the declarations whose
+    /// property name `isLateBoundName` recognises.
+    fn late_bound_unique_symbol_name(&mut self, declaration: NodeId) -> Option<NodeId> {
+        let name = self.checker.declaration_name_of(declaration)?;
+        let Some(tsr_ast::Node::ComputedPropertyName(computed)) = self.checker.node_map.get(name)
+        else {
+            return None;
+        };
+        let expression = computed.expression?;
+        let id = tsr_ast::Node::from(expression).node_id()?;
+        // `isLateBindableName`: an entity name expression.
+        self.first_identifier(id)?;
+        let name_type = self.checker.check_expression(expression);
+        self.checker
+            .store
+            .get(name_type)
+            .flags
+            .contains(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+            .then_some(id)
+    }
+
+    /// `trackComputedName` (`nodebuilderimpl.go:2361`): the first identifier
+    /// resolved at the enclosing declaration, else at its own location (the
+    /// name is then inaccessible at the target), and tracked with value
+    /// meaning.
+    fn track_computed_name(
+        &mut self,
+        access_expression: NodeId,
+        enclosing: NodeId,
+        reports: &mut Vec<TrackerReport>,
+    ) {
+        let Some((first, text)) = self.first_identifier(access_expression) else { return };
+        let meaning = SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE;
+        let resolved = self
+            .checker
+            .resolve_name_with_export_alias(enclosing, text, meaning)
+            .or_else(|| self.checker.resolve_name_with_export_alias(first, text, meaning));
+        let Some(symbol) = resolved else { return };
+        self.track_symbol(symbol, enclosing, SymbolFlags::VALUE, reports);
+    }
+
+    /// `SymbolTrackerImpl.TrackSymbol` (`tracker.go:200`): a type parameter
+    /// is never tracked; anything else is put through `IsSymbolAccessible`.
+    fn track_symbol(
+        &mut self,
+        symbol: SymbolId,
+        enclosing: NodeId,
+        meaning: SymbolFlags,
+        reports: &mut Vec<TrackerReport>,
+    ) {
+        if self.checker.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
+            return;
+        }
+        let result = self.is_symbol_accessible(symbol, enclosing, meaning);
+        reports.push(TrackerReport::TrackSymbol(result));
     }
 
     /// `ReportLikelyUnsafeImportRequiredError` (`nodebuilderimpl.go:681`-`:710`)

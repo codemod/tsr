@@ -400,7 +400,8 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     // accessibility errors for names written in emitted declarations
     // (`tsr_dts::accessibility`, over the checker's `EmitResolver`). Of the
     // errors the node builder's `SymbolTracker` raises for *inferred* types,
-    // only the arms in `docs/parity/notes/r5-declemit2.md` §3 have a producer
+    // only the arms in `docs/parity/notes/r5-declemit2.md` §3 and
+    // `r5-declemit3.md` §2 have a producer
     // (`r4-declemit.md` §3 for the rest).
     let emit_declarations = options.declaration.is_true() || options.composite.is_true();
     if emit_declarations {
@@ -539,6 +540,23 @@ impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '
                 }
                 Checker::LikelyUnsafeImportRequired { specifier, symbol_name } => {
                     Walk::LikelyUnsafeImportRequired { specifier, symbol_name }
+                }
+                Checker::InaccessibleUniqueSymbol => Walk::InaccessibleUniqueSymbol,
+                Checker::TrackSymbol(result) => {
+                    use tsr_checker::symbol_accessibility::SymbolAccessibility as From;
+                    use tsr_dts::accessibility::SymbolAccessibility as To;
+                    Walk::TrackSymbol(tsr_dts::accessibility::SymbolAccessibilityResult {
+                        accessibility: match result.accessibility {
+                            From::Accessible => To::Accessible,
+                            From::NotAccessible => To::NotAccessible,
+                            From::CannotBeNamed => To::CannotBeNamed,
+                            From::NotResolved => To::NotResolved,
+                        },
+                        aliases_to_make_visible: result.aliases_to_make_visible,
+                        error_symbol_name: result.error_symbol_name,
+                        error_module_name: result.error_module_name,
+                        error_node: result.error_node,
+                    })
                 }
             })
             .collect()

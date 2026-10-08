@@ -25,7 +25,8 @@
 //! upstream *infers* go through the node builder's `SymbolTracker`
 //! (`transform.go:1667`, `CreateTypeOfDeclaration`); this port has the
 //! tracker side ([`TrackerReport`]) and asks the resolver for the reports of
-//! the node-builder arms it reaches (`docs/parity/notes/r5-declemit2.md` §3).
+//! the node-builder arms it reaches (`docs/parity/notes/r5-declemit2.md` §3,
+//! `r5-declemit3.md` §2: `TrackSymbol` through `IsSymbolAccessible`).
 //! Every other inferred type's errors are missed rather than invented. The
 //! same holds for every arm below marked *declined*: each skips a subtree
 //! upstream would visit, never visits one upstream skips.
@@ -95,6 +96,38 @@ pub enum TrackerReport {
         /// `symbolName`; empty selects the two-argument message.
         symbol_name: String,
     },
+    /// `TrackSymbol` (`tracker.go:200`) with `IsSymbolAccessible`'s answer.
+    TrackSymbol(SymbolAccessibilityResult),
+    /// `ReportInaccessibleUniqueSymbolError` (`tracker.go:52`).
+    InaccessibleUniqueSymbol,
+}
+
+/// `printer.SymbolAccessibility`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolAccessibility {
+    /// `SymbolAccessibilityAccessible`.
+    Accessible,
+    /// `SymbolAccessibilityNotAccessible`.
+    NotAccessible,
+    /// `SymbolAccessibilityCannotBeNamed`.
+    CannotBeNamed,
+    /// `SymbolAccessibilityNotResolved`.
+    NotResolved,
+}
+
+/// `printer.SymbolAccessibilityResult`, as `IsSymbolAccessible` returns it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SymbolAccessibilityResult {
+    /// The verdict.
+    pub accessibility: SymbolAccessibility,
+    /// `AliasesToMakeVisible`.
+    pub aliases_to_make_visible: Vec<NodeId>,
+    /// `ErrorSymbolName`.
+    pub error_symbol_name: String,
+    /// `ErrorModuleName`, empty when none.
+    pub error_module_name: String,
+    /// `ErrorNode`, which overrides the diagnostic context's node.
+    pub error_node: Option<NodeId>,
 }
 
 /// The `SymbolTrackerSharedState` options the walk reads.
@@ -335,6 +368,17 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                         vec![name],
                     ));
                 }
+                TrackerReport::TrackSymbol(result) => {
+                    self.handle_symbol_accessibility_error(node, result);
+                }
+                TrackerReport::InaccessibleUniqueSymbol => {
+                    let declaration = self.error_declaration_name_with_fallback();
+                    self.out.push(Diagnostic::with_args(
+                        &m::THE_INFERRED_TYPE_OF_0_REFERENCES_AN_INACCESSIBLE_1_TYPE_A_TYPE_ANNOTATION_IS_NECESSARY,
+                        span,
+                        vec![declaration, "unique symbol".to_string()],
+                    ));
+                }
                 TrackerReport::LikelyUnsafeImportRequired { specifier, symbol_name } => {
                     let declaration = self.error_declaration_name_with_fallback();
                     self.out.push(if symbol_name.is_empty() {
@@ -351,6 +395,63 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                         )
                     });
                 }
+            }
+        }
+    }
+
+    /// `handleSymbolAccessibilityError` (`tracker.go:217`) for a node-builder
+    /// `TrackSymbol` call while `node`'s inferred type is serialized: an
+    /// accessible symbol's aliases are late-painted; an inaccessible one is
+    /// reported through the declaration's diagnostic context, whose message
+    /// is picked by `selectDiagnosticBasedOnModuleName`. Only a variable
+    /// declaration's context is ported for the module-name variants
+    /// (`getVariableDeclarationTypeVisibilityDiagnosticMessage`,
+    /// `diagnostics.go:223`); another context declines a result that names a
+    /// module.
+    fn handle_symbol_accessibility_error(
+        &mut self,
+        node: NodeId,
+        result: SymbolAccessibilityResult,
+    ) {
+        match result.accessibility {
+            SymbolAccessibility::Accessible => {
+                for alias in result.aliases_to_make_visible {
+                    if !self.late_marked.contains(&alias) {
+                        self.late_marked.push(alias);
+                    }
+                }
+            }
+            SymbolAccessibility::NotResolved => {}
+            SymbolAccessibility::NotAccessible | SymbolAccessibility::CannotBeNamed => {
+                let has_module = !result.error_module_name.is_empty();
+                let (message, type_name) = if matches!(
+                    self.kind(node),
+                    K::VariableDeclaration | K::BindingElement
+                ) {
+                    let message: &'static Message = match (has_module, result.accessibility) {
+                        (true, SymbolAccessibility::CannotBeNamed) => &m::EXPORTED_VARIABLE_0_HAS_OR_IS_USING_NAME_1_FROM_EXTERNAL_MODULE_2_BUT_CANNOT_BE_NAMED,
+                        (true, _) => &m::EXPORTED_VARIABLE_0_HAS_OR_IS_USING_NAME_1_FROM_PRIVATE_MODULE_2,
+                        (false, _) => &m::EXPORTED_VARIABLE_0_HAS_OR_IS_USING_PRIVATE_NAME_1,
+                    };
+                    (message, self.name_of_declaration(node))
+                } else {
+                    if has_module {
+                        return;
+                    }
+                    let Some(found) = self.diagnostic_for_node(node) else { return };
+                    found
+                };
+                // `diagNode`: the result's error node, else the context's
+                // (`errorNode: node`, spanned at its name).
+                let location =
+                    result.error_node.or_else(|| self.name_of_declaration(node)).unwrap_or(node);
+                let mut args = Vec::with_capacity(3);
+                if let Some(type_name) = type_name {
+                    args.push(self.text_of(type_name));
+                }
+                args.push(result.error_symbol_name);
+                args.push(result.error_module_name);
+                self.out.push(Diagnostic::with_args(message, self.nodes.span(location), args));
             }
         }
     }
