@@ -499,3 +499,51 @@ native does.
 **Cases converted: none yet.** This is a correctness prerequisite for the 16
 r5-modexports witness lines and the 16 `spreadExpressionContextualTypeWithNamespace`
 lines. Both sets then wait on `.39`.
+
+### 8.2 Line terminators in string literal types print escaped
+
+**Forcing constraint.** `escapeStringWorker` (`printer/utilities.go:85`)
+escapes U+2028, U+2029 and U+0085 under every quote character and every flag
+set, `NeverAsciiEscape` included. The literal-type node builder sets that
+flag, so these three are the only non-ASCII characters a string literal
+type prints escaped. `printing::quote` had LF/CR/TAB and the C0 controls,
+but not these three, and printed them raw.
+
+**Change (`printing.rs` `quote`).** Three arms, using the
+`escapedCharsMap` spellings. `quote` is the one shared quoting table:
+`quote_ascii` and the object-name, module-specifier and mapped-key callers
+all route through it. Native's `escapeString` and `escapeNonAsciiString`
+both escape these characters, so the change is correct for every caller.
+
+**Not changed here:**
+- **`(typeof E)["gold ✰"]`** (`enumWithUnicodeEscape1`). Native builds
+  that element-access literal without `NoAsciiEscaping`, so the printer uses
+  `escapeNonAsciiString`. The port's call site is in `declared.rs`, which
+  belongs to r5-declared. The one-line diff
+  (`quote` → `quote_ascii` at the two enum-member element-access sites) is
+  in §9.
+- **Octal escapes in templates and lone surrogates.** These are scanner
+  values (§5 item 6).
+
+**Measured** against the frozen base (`ccb48e7`), unfiltered:
+- **Lines:** +13 RIGHT type lines (544,166 → 544,179). The cases that flip
+  are:
+  - `compiler/fileWithNextLine1` (plain);
+  - `conformance/allowUnescapedParagraphAndLineSeparatorsInStringLiteral`
+    (plain, 11 lines);
+  - `compiler/sourceMap-LineBreaks(target=es2015)` (configured).
+
+  That is 2 plain cases and 1 configured case.
+- **Loss checks:** both are empty, and the diagnostics verdicts are
+  byte-identical. No other line's text changed.
+- **Perf:** median child CPU, new/old, 41 samples:
+  - generic-imports reads 0.983 at 21 samples;
+  - domain-model reads 1.033 and 1.042 in the standard slot order. Two
+    controls taken in the same session put that inside noise:
+    - identical binaries in that same order read 1.016;
+    - with the slots swapped (old in the `--tsr` slot), the run reads
+      old/new 1.003, i.e. new/old 0.997.
+
+  The change adds three `match` arms to a function that runs only while
+  printing.
+- **Tests:** `printing::tests` pins the three escapes.
