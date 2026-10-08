@@ -1166,3 +1166,15 @@ its 459,549 RIGHT baseline, passes 140 focused tests with one retained ignored
 control and preserves every full diagnostic case. It also covers a native raw
 parent with an empty name. Separate rebase identities are recorded in the
 production evidence; initial timing/storage controls remain attributed to b047.
+
+The [property-owner continuation](checker-property-owner-continuation.json) after
+`39cdcdd9` widens the existing property and export-star result channels,
+composite constituents and static/instance name walks to selected handles.
+The existing structured-name table and path guard use actual selected owners;
+publication marks, cycle/unsettled state and frame policy are retained, with no
+new cache. Genuine bound producer outputs are lifted at their boundaries.
+Final ordinary/work-trace both retain 80 compiler errors. One existing actual
+store-copy/member/export control passes in extraction; it does not execute the
+property producer or certify full member/alias/native/corpus/speed behavior.
+Remaining property diagnostics, entity/module/naming and conditional-frame
+channels still block the six-ticket goal and canonical runtime integration.

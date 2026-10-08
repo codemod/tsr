@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected property-owner continuation after evidence delivery `39cdcdd9`, native
+`5b1047d`: existing property/declared/anonymous/export-star results and composite
+constituents now carry selected identities. Instance/static name walks and the
+existing structured-name cache retain actual owner keys. Exact 29-file
+replay covers 1,053 inputs/1024 unchanged. Compiler history is
+198→156→110→88→81→80; final ordinary/work-trace both **80 errors**
+(77 E0308, one E0609, two E0615). One extracted existing actual symbol-store
+copy/member/export test passes; it does not execute the private property producer.
+No canonical Rust, native member runtime/corpus/performed-work or speed claim.
+[Source-bound replay](docs/architecture/checker-property-owner-continuation.json).
+
+
 ### Current parity checkpoint — round 4 cloud boxes (tsr-2zk), session wrap
 
 Measured at integration **`405b55ce`** (`claude/beautiful-shannon-ar5gh0`),
@@ -3807,6 +3819,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Property-owner continuation at `39cdcdd9`: complete the remaining selected
+property diagnostic/result consumers, module/entity alias and semantic naming
+channels, then the conditional frame keys. Full test-target expectations and
+actual property/native member controls still need a compiling draft. **80 errors**
+in both compiler modes refuse runtime integration; only the existing extracted
+store-copy control passes. Keep all six tickets in progress until their full
+requirements are verified. [Replay](docs/architecture/checker-property-owner-continuation.json).
+
+
 Member-origin continuation after `276f3419`: migrate the existing property
 lookup result producer and its selected consumers, then conditional binding keys.
 The image's origin field and origin-only readers now retain actual handles;
@@ -7571,6 +7592,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The property-owner draft after `39cdcdd9` is refused for canonical integration
+by **80 errors** in both ordinary/work-trace modes. Widening actual producer
+results first exposed 198 errors; successive actual reader/cache migrations
+leave 80, without removing private targets or projecting them to origins.
+One extracted actual store table/copy test is green, but full property producer,
+private checker tests, native member runtime, corpus/performed-work and speed
+qualification are absent. Existing synthetic composite and mapped/publication
+policy is retained, not certified by compilation. [Exact checkpoint](docs/architecture/checker-property-owner-continuation.json).
+
 
 The member-origin draft after `276f3419` is refused for canonical runtime
 integration by **84 E0308** in both ordinary and work-trace checks. Its first
@@ -15629,6 +15660,8 @@ holds only the numbers.
 | 2026-10-08 | `835ef559` plus two owned Rust overlays / native `5b1047d` | — | — | **Template alias selected-owner prerequisite.** Existing evaluator/active set migrated to actual SymbolRef; captured syntax-parameter frames preserved. Two focused controls and final 197 library tests pass; compiling origin mutant fails. Four cold/checked-first native owner rows repeat identically with distinct alias links and shared literal identity. Workspace 3,243 passes/19 existing ignores before test relocation; strict Clippy reproduces seven inherited errors, fmt passes. All 552,533 eligible type rows/12,238 diagnostic cases byte identical. Wider private owner draft moves from 69 mismatches through 60 mismatches plus 13 borrow/move errors to 60 mismatches only; exact deltas and diagnostics retained. Full factory/mapper/natural alias controls unexecuted; six goal tickets remain unfinished, no speed/coverage claim. [Evidence](docs/architecture/checker-template-alias-owner.json). |
 
 | 2026-10-08 | `189a2c1d` plus five owned Rust overlays / native `5b1047d` | — | — | **String mapping selected-owner prerequisite and general factory continuation.** Existing mapping stores and consumers retain actual owners; two controls, 3,245 workspace passes/19 existing ignores and 212 private reader passes. Compiling origin mutant fails. Four native fresh/checked-first order rows repeat identically. Full 552,533 type rows/12,238 diagnostic rows byte identical to qualified baseline; seven distinct inherited Clippy errors, no new ones, fmt passes. Private general factory/computed rebuild, alias/mapped/union and variance state preserve owners; 60→84→65→59→51 compile mismatches retained with exact five/16-file replayable deltas. Full factory/mapper/natural alias controls unexecuted. All six tickets unfinished, no speed or coverage gain. [Evidence](docs/architecture/checker-string-mapping-owner.json). |
+
+| 2026-10-08 | `39cdcdd9` / native `5b1047d` | — | — | **Selected property-owner private continuation.** Existing property/export-star producer results, composite constituents, static/instance names and existing structured-name cache carry actual selected identities. Exact 29-file replay across all 1,053 inputs; 1,024 unchanged. Compiler 198→156→110→88→81→80; final ordinary/work-trace 80 errors. One extracted actual existing symbol-store copy/member/export test passes, with opaque TypeId fixture and no private property/runtime qualification. No canonical Rust/corpus/performed-work/speed claim; all six tickets and complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-property-owner-continuation.json). |
 
 ## 8. Updating this file
 
