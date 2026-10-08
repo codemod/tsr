@@ -325,7 +325,10 @@ impl Checker<'_, '_> {
                 let displayed = self.remove_missing_type(value);
                 AnonymousProperty {
                     accessor_write: origin.and_then(|symbol| self.accessor_write_parameter(symbol)),
-                    method: flags.contains(SymbolFlags::METHOD),
+                    // getSpreadSymbol (checker.go:13585) returns the property
+                    // symbol itself, so a `Function`-flagged export keeps the
+                    // flag addPropertyToElementList reads for the method form.
+                    method: flags.intersects(SymbolFlags::METHOD | SymbolFlags::FUNCTION),
                     origin,
                     checked_declaration: None,
                     printed_name: self.spread_property_name(origin?, &name)?,
@@ -523,6 +526,21 @@ impl Checker<'_, '_> {
             }
             let property_type = self.property_type(property);
             let value = self.remove_missing_or_undefined_type(property_type);
+            // addPropertyToElementList (nodebuilderimpl.go:2581) prints the
+            // method form only when getPropertiesOfObjectType(propertyType) is
+            // empty: a function merged with a namespace or carrying expando
+            // members stays a property. Asked only for a `Function` origin:
+            // getPropertyNamesOfType on an overloaded method's image answers
+            // the apparent members, not the empty own table native reads
+            // (spreadInvalidArgumentType's Array<T> methods,
+            // r5-typetriage.md §8).
+            if property.origin.is_some_and(|symbol| {
+                self.binder.symbols().get(symbol).flags.contains(SymbolFlags::FUNCTION)
+            }) && self.get_property_names_of_type(value).is_none_or(|names| !names.is_empty())
+            {
+                members.extend(self.property_members(std::slice::from_ref(property)));
+                continue;
+            }
             let signatures = if let Some(signatures) = self.signature_types.get(&value) {
                 signatures.clone()
             } else {

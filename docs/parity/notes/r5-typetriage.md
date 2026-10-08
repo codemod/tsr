@@ -433,3 +433,69 @@ Results are recorded in section 8 as they land.
   listed individually.
 - **"Cases solely blocked" understates shared roots** (§2). A routing
   decision should also read `dominant_cause` in `cases.tsv`.
+
+## 8. Fixes landed by this lane
+
+### 8.1 Spread members copied from a `Function` symbol print in method form
+
+**Forcing constraint.** `getSpreadSymbol` (`checker.go:13585`) returns the
+property symbol itself unless readonly-ness changes or the property is a
+set-only accessor. A spread of a namespace or module object therefore keeps
+each exported function's `Function` flag. `addPropertyToElementList`
+(`nodebuilderimpl.go:2581`) prints a property in method form when all of
+these hold:
+- its symbol is `Function | Method`;
+- its type has no own properties (`getPropertiesOfObjectType`);
+- it is not readonly.
+
+The port set `AnonymousProperty::method` from `METHOD` alone, so it printed
+`exportedDirectly: () => void` where native prints `exportedDirectly(): void`.
+
+**Change (`spreads.rs`).**
+- `spread_properties` sets `method` for `METHOD | FUNCTION` origins.
+- `anonymous_property_members` falls back to the property form when a
+  `Function` origin's value has own properties: a function merged with a
+  namespace, or one with expando members.
+
+**Alternative taken seriously, and refused.** The first version asked the
+property-table question for every method-form property, which is what
+native does. That changed the overloaded `Array<T>` methods in three
+WRONG lines from `concat(…): T[]; concat(…): T[]` to
+`concat: { (…): T[]; (…): T[] }`:
+- `spreadInvalidArgumentType:0:35/36`
+- `restInvalidArgumentType:0:34`
+- `restElementWithNumberPropertyName(target=es2015):0:1`
+
+The reason is that `get_property_names_of_type` on the port's image of an
+overloaded method answers a non-empty list, while native's own-member table
+for that type is empty. The question is therefore asked only for `Function`
+origins, where the port's answer matched the witnesses.
+
+Revisit if the port grows a faithful `getPropertiesOfObjectType`
+(resolved own members only). With it, the check can cover `Method` too, as
+native does.
+
+**Measured** against the frozen base (`ccb48e7`), unfiltered:
+- **Loss checks:** both are empty, and the diagnostics verdicts are
+  byte-identical.
+- **Type verdicts:** unchanged, at 544,166 RIGHT. 16 WRONG lines in
+  `spreadExpressionContextualTypeWithNamespace` now differ from native only
+  by the symbol-chain qualifier `typeof stuff.klass` (main `.39`).
+- **With r5-modexports' two measured diffs applied**
+  (`r5-modexports-string-names.diff`, then
+  `r5-modexports-synthetic-default.diff`): the witness lines in
+  `nodeModules{,AllowJs}SynchronousCallErrors` now print
+  `{ f(): Promise<void>; default: typeof import("./index.js"); }` instead of
+  `{ f: () => Promise<void>; … }`. What remains is the import-site name
+  `typeof mod2`. That is the symbol-chain printer's alias lookup (main
+  `.39`), not this lane's work.
+- **Perf:** median child CPU, new/old binary, is 0.984 on domain-model
+  (21 samples) and 1.001 on generic-imports (41 samples; 1.053 at 21).
+  Diagnostics match.
+- **Tests:** `tests/spread_function_member_form.rs`. The method-form test
+  is red on the base. The two controls, an arrow-valued export and a
+  namespace-merged function, are green on both.
+
+**Cases converted: none yet.** This is a correctness prerequisite for the 16
+r5-modexports witness lines and the 16 `spreadExpressionContextualTypeWithNamespace`
+lines. Both sets then wait on `.39`.
