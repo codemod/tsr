@@ -60,6 +60,86 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS1061 — `Enum member must have initializer.`
+    ///
+    /// `computeEnumMemberValue` (`checker.go:23958`) for a member without an
+    /// initializer: in an ambient non-`const` enum it is computed and takes no
+    /// value (`checker.go:23973`); otherwise it takes `autoValue`, which is `0`
+    /// for the declaration's first member and the previous member's value
+    /// plus one when that value is a number — and `nil` (this report, at the
+    /// name) when it is not. `docs/parity/notes/r4-templates.md` §5.
+    pub(crate) fn check_enum_member_auto_value(&mut self, node: NodeId) {
+        let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
+        if member.initializer.is_some() {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent) else { return };
+        let is_const = declaration.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::ConstKeyword)
+        });
+        if !is_const && self.is_ambient_declaration(parent) {
+            return;
+        }
+        let Some(index) = declaration.members.iter().position(|m| m.node_id == Some(node)) else {
+            return;
+        };
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        else {
+            return;
+        };
+        if matches!(self.enum_member_value_of(previous, 0), Some(EnumConstant::Number(_))) {
+            return;
+        }
+        let Some(at) = member.name.node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::new(&messages::ENUM_MEMBER_MUST_HAVE_INITIALIZER, span));
+    }
+
+    /// `enumMemberLinks.value` of one member declaration
+    /// (`computeEnumMemberValue`'s result): the published declared literal
+    /// type's value for a member the binder named, and for a member it
+    /// could not (a non-literal computed name, which this port's enum type
+    /// skips) the same computation done here — its initializer evaluated
+    /// with it as `location`, or the auto value from its predecessor.
+    fn enum_member_value_of(&mut self, member: NodeId, depth: u32) -> Option<EnumConstant> {
+        if depth > EVALUATE_DEPTH_LIMIT {
+            return None;
+        }
+        let Some(Node::EnumMember(node)) = self.node_map.get(member) else { return None };
+        if let Some(symbol) = self.binder.symbol_of(member)
+            && !(matches!(node.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+                && self.binder.symbols().get(symbol).name == "__computed")
+        {
+            return self.enum_member_constant(self.binder.merged_symbol(symbol));
+        }
+        if let Some(initializer) = node.initializer.and_then(|e| e.node_id()) {
+            return self.evaluate_constant(initializer, member);
+        }
+        let parent = self.nodes.parent(member)?;
+        let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent) else {
+            return None;
+        };
+        let is_const = declaration.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::ConstKeyword)
+        });
+        if !is_const && self.is_ambient_declaration(parent) {
+            return None;
+        }
+        let index = declaration.members.iter().position(|m| m.node_id == Some(member))?;
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        else {
+            return Some(EnumConstant::Number(0.0));
+        };
+        match self.enum_member_value_of(previous, depth + 1)? {
+            EnumConstant::Number(value) => Some(EnumConstant::Number(value + 1.0)),
+            EnumConstant::String(_) => None,
+        }
+    }
+
     /// TS2477 / TS2478 — `computeConstantEnumMemberValue`'s const arm
     /// (`checker.go:24001`): a `const` enum member whose initializer evaluates
     /// to a non-finite number reports at the initializer, `NaN` with its own

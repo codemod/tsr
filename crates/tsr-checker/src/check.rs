@@ -365,6 +365,7 @@ impl Checker<'_, '_> {
                         self.check_computed_enum_member_initializer(at, ambient);
                         self.check_const_enum_member_value(at);
                         self.check_enum_member_forward_references(at);
+                        self.check_enum_member_auto_value(at);
                     }
                 }
                 self.check_reserved_enum_name(declaration);

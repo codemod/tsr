@@ -165,3 +165,34 @@ TS2452/TS1066/TS2474/TS18033/TS2477 for the same member) rather than
 mid-switch. Only `const enum E { A = A }` puts two of them (TS2565, TS2474)
 on one span, where upstream emits TS2565 first; diagnostics are compared
 sorted by position, so the order is not observable there.
+
+## §5 TS1061 from `computeEnumMemberValue`'s auto value
+
+**Forcing constraint.** `computeEnumMemberValue` (`checker.go:23958`) gives a
+member without an initializer `autoValue`: `0` first in its declaration, the
+previous member's value plus one when that is a number, and `nil` — TS1061
+`Enum member must have initializer.` at the name — when it is not
+(`enumWithComputedMember`: `Y = X` after `X = "".length`;
+`enumNoInitializerFollowsNonLiteralInitializer`: `e` after
+`d = (c)! satisfies number as any`, which the evaluator does not fold because
+it skips only parentheses). An ambient non-`const` enum's initializer-less
+members are computed and never report. The port did not report TS1061.
+
+**What was ported.** `check_enum_member_auto_value`, called from the enum
+member arm of `check.rs` next to the other `computeEnumMemberValue` reports.
+The previous member's value is `enumMemberLinks.value`: for a member the
+binder named, the published declared literal type (§1's owner); for an
+unnamed computed-name member — which `get_declared_type_of_enum` skips, so it
+has no published value — the same computation done directly
+(`enum_member_value_of`).
+
+**Residue: TS18055 / TS18056 need `isolatedModules`.** Both are
+`c.compilerOptions.GetIsolatedModules()` arms of the same two functions and
+need the evaluator's `IsSyntacticallyString` / `ResolvedOtherFiles` bits
+(§1 does not carry them). The checker keeps no `isolatedModules` flag (only
+`preserve_const_enums`, which folds it together with `preserveConstEnums`),
+and adding one is a `checker.rs` field — outside this lane. Proposed hunk:
+`docs/parity/notes/r4-templates-isolated-modules.diff`. Cases waiting on it:
+`enumNoInitializerFollowsNonLiteralInitializer` (TS18056),
+`enumWithNonLiteralStringInitializer` and
+`isolatedModulesGlobalNamespacesAndEnums` (TS18055).
