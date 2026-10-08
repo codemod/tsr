@@ -52,3 +52,27 @@ would drop TSR's. Converts `functionOverloads39`, `overloadResolutionTest1`.
 Native control: `f4(bar: {a: string}[])` / `f4(bar: {a: 1|2}[])` with
 `[{a:1}]` now selects the `number` overload, as tsgo does (its TS2322 names
 `number`), and the literal prints `{ a: 1; }[]`.
+
+## Union callees resolve through the composite list (tsr-2zk.16.58)
+
+`check_resolve_call_arity` declined every union callee because composite
+returns lacked `UnionReductionSubtype` (`getReturnTypeOfSignature`,
+`checker.go:20013`). `combine_union_signature_returns` now reduces them with
+the existing `union_with_subtype_reduction` (an undecidable reduction keeps the
+literal-reduced union), and union callees run the ordinary arity/argument
+rules. `non_generic_overload_candidates` orders candidates with the existing
+`reorder_candidates` instead of declining composite lists whose signatures come
+from different declarations (`(a: string, b?: number)` and `(a: string)` of
+two constituents). Still declined: a union callee that could contain type
+variables (`head_could_contain_type_variables`), because producers leave such
+unions unreduced (`a ?? []` over a generic indexed access keeps `never[]`;
+binary.rs/relater, out of lane) and the composite `push` then takes `never`.
+No cache or traversal added; the composite list stays in
+`composite_signature_types`. Converts `unionTypeCallSignatures`,
+`unionTypeCallSignatures4`, `signatureCombiningRestParameters3/4/5`,
+`functionCallOnConstrainedTypeVariable`. Native control: `u3('h', 'h')` on
+`{(a: string, b?: number): string} | {(a: string): number}` reports TS2345 and
+`u3('h', 1)` stays clean; `iterable[Symbol.asyncIterator]().return()` on
+`AsyncGenerator | AsyncIterable` stays clean (the return reduces to
+`AsyncIterator`). TS2345 message text still prints `'"h"'`/`'number |
+undefined'` where tsgo prints `'string'`/`'number'` (relation reporting).
