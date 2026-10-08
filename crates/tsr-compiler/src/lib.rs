@@ -241,6 +241,14 @@ pub struct Program<'a> {
     /// matching `files`. Empty for a program built from a file list, which ran
     /// no loader and has no resolutions to key by mode.
     meta_datas: Vec<loader::SourceFileMetaData>,
+    /// The `package.json` of the `node_modules` package root of every program
+    /// file inside one, read once after loading
+    /// for module-specifier generation
+    /// (`tsr_checker::module_specifiers`, `GetPackageJsonInfo`). Keyed by
+    /// directory; `None` where there is no `package.json`. Empty for a
+    /// program built from a file list. Immutable after construction.
+    package_jsons_for_specifiers:
+        FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
     /// One rather than one per file, which is the whole of the widening: a
     /// `SymbolId` names one symbol across the program, and its declarations
     /// index `nodes`, so a symbol from another file can be handed to the checker
@@ -369,6 +377,7 @@ impl<'a> Program<'a> {
             // anything, so there is nothing to record. See `resolved_modules`.
             resolved_modules: Vec::new(),
             meta_datas: Vec::new(),
+            package_jsons_for_specifiers: FxHashMap::default(),
             current_directory,
             use_case_sensitive_file_names,
             lib_file_count: 0,
@@ -431,6 +440,9 @@ impl<'a> Program<'a> {
             use_case_sensitive_file_names,
         );
 
+        let package_jsons_for_specifiers =
+            package_jsons_for_specifiers(&loaded.files, host, &current_directory);
+
         let mut program = Self {
             options: compiler_options,
             files: loaded.files,
@@ -438,6 +450,7 @@ impl<'a> Program<'a> {
             files_by_source_file,
             resolved_modules,
             meta_datas: loaded.meta_datas,
+            package_jsons_for_specifiers,
             // From the host, which is where the loader took them from too — so
             // a name looked up afterwards canonicalises exactly as the path it
             // is being compared against did.
@@ -1170,6 +1183,28 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         Program::emit_syntax_for_usage_location(self, importing_file, usage)
     }
 
+    fn package_json_for_specifiers(
+        &self,
+        package_directory: &str,
+    ) -> Option<&tsr_checker::resolution::PackageJsonView> {
+        self.package_jsons_for_specifiers.get(package_directory)?.as_ref()
+    }
+
+    fn specifier_options(&self, mode: ResolutionMode) -> tsr_checker::resolution::SpecifierOptions {
+        tsr_checker::resolution::SpecifierOptions {
+            resolve_package_json_exports: self.options.get_resolve_package_json_exports(),
+            module_resolution_is_node_next: matches!(
+                self.options.module_resolution_kind(),
+                tsr_core::ModuleResolutionKind::Node16 | tsr_core::ModuleResolutionKind::NodeNext
+            ),
+            conditions: tsr_module::types::get_conditions(&self.options, mode),
+        }
+    }
+
+    fn is_applicable_versioned_types_key(&self, key: &str) -> bool {
+        tsr_module::util::is_applicable_versioned_types_key(key)
+    }
+
     fn import_helpers_module(&self, file: NodeId) -> ImportHelpersModule {
         Program::import_helpers_module(self, file)
     }
@@ -1382,6 +1417,81 @@ fn resolution_mode_override(
             Some(ResolutionMode::CommonJS)
         }
         _ => None,
+    }
+}
+
+/// The `package.json` reads module-specifier generation makes
+/// (`tryDirectoryWithPackageJson`, `modulespecifiers/specifiers.go:832`),
+/// done once after loading: for every program file under `node_modules`, its
+/// package root's.
+///
+/// Upstream reads them lazily through the program's `package.json` cache.
+/// This port's loader drops its resolver (and that cache) when the load ends,
+/// and the checker holds the program only by shared reference, so the reads
+/// happen here, eagerly, deduplicated by directory. A program with no
+/// `node_modules` file reads nothing. r5-modules §5.
+fn package_jsons_for_specifiers(
+    files: &[ProgramFile<'_>],
+    host: &dyn tsr_module::types::ResolutionHost,
+    current_directory: &str,
+) -> FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>> {
+    let mut found = FxHashMap::default();
+    for file in files {
+        if !file.file_name().contains("/node_modules/") {
+            continue;
+        }
+        let path = tsr_path::get_normalized_absolute_path(file.file_name(), current_directory);
+        let Some(parts) = tsr_checker::module_specifiers::node_module_path_parts(&path) else {
+            continue;
+        };
+        // `tryDirectoryWithPackageJson` reads the package root's
+        // `package.json` only (r5-modules §5.2).
+        let directory = &path[..tsr_checker::module_specifiers::package_root_end(parts, &path)];
+        if !found.contains_key(directory) {
+            let package_json = format!("{directory}/package.json");
+            let view = host
+                .fs()
+                .file_exists(&package_json)
+                .then(|| host.fs().read_file(&package_json))
+                .flatten()
+                .map(|text| {
+                    package_json_view(&tsr_module::package_json::PackageJson::parse(&text))
+                });
+            found.insert(directory.to_string(), view);
+        }
+    }
+    found
+}
+
+/// [`tsr_checker::resolution::PackageJsonView`] of a parsed `package.json`.
+fn package_json_view(
+    package_json: &tsr_module::package_json::PackageJson,
+) -> tsr_checker::resolution::PackageJsonView {
+    fn json(value: &tsr_module::json::Json) -> tsr_checker::resolution::SpecifierJson {
+        use tsr_checker::resolution::SpecifierJson;
+        use tsr_module::json::Json;
+        match value {
+            Json::Null => SpecifierJson::Null,
+            Json::String(text) => SpecifierJson::String(text.clone()),
+            Json::Array(values) => SpecifierJson::Array(values.iter().map(json).collect()),
+            Json::Object(entries) => SpecifierJson::Object(
+                entries.iter().map(|(key, value)| (key.clone(), json(value))).collect(),
+            ),
+            Json::Bool(_) | Json::Number(_) => SpecifierJson::Other,
+        }
+    }
+    let types_versions_paths =
+        matches!(package_json.types_versions, Some(tsr_module::json::Json::Object(_)))
+            .then(|| &package_json.get_version_paths().0)
+            .filter(|paths| paths.exists())
+            .map(|paths| paths.paths.clone());
+    tsr_checker::resolution::PackageJsonView {
+        package_type: package_json.package_type.value.clone(),
+        typings: package_json.typings.value.clone(),
+        types: package_json.types.value.clone(),
+        main: package_json.main.value.clone(),
+        exports: package_json.exports.value.as_ref().map(json),
+        types_versions_paths,
     }
 }
 

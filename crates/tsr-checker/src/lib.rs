@@ -165,6 +165,7 @@ pub mod members;
 pub mod merge_conflicts;
 mod merged_export_spaces;
 mod module_format;
+pub mod module_specifiers;
 mod name_suggestion;
 pub mod node_reuse;
 pub mod nonexistent_property;
