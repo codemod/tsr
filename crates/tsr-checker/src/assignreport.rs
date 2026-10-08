@@ -148,12 +148,37 @@ enum ExcessProperties {
 
 /// [`Checker::union_object_literal_failure`]'s answer.
 enum UnionLiteralFailure {
-    /// The check ends here; whether it reported.
+    /// The check ends here; whether `elaborateObjectLiteral` reported.
     Settled(bool),
+    /// The check ends here; whether `checkTypeRelatedToEx` reported its one
+    /// diagnostic (the excess member).
+    Direct(bool),
     /// The relation failed and nothing finer was reported: the caller reports
     /// the whole expression. `excess` is a failure only `hasExcessProperties`
     /// saw, which the relater's verdict must not override.
     Outer { excess: bool },
+}
+
+/// The expected type an elaborated element was related to, for its related
+/// information.
+enum ElementOrigin {
+    /// A tuple or array element: native names no declaration there.
+    Unnamed,
+    /// Property `name` (name type `name_type`) of the elaborated `container`.
+    Member { container: TypeId, name: String, name_type: TypeId },
+    /// The return of `arrow` checked against function type `target`.
+    ArrowReturn { target: TypeId, arrow: NodeId, source_return: TypeId, target_return: TypeId },
+}
+
+/// Who reported a failed relation, if anyone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RelationReport {
+    Silent,
+    /// `elaborateError` reported on an inner node.
+    Elaborated,
+    /// `checkTypeRelatedToEx` reported one diagnostic at the error node, last
+    /// in the collection.
+    Reported,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -1475,7 +1500,22 @@ impl<'a> Checker<'a, '_> {
         let Some(value) = self.object_literal_member_value(literal, name) else { return };
         let Some(member) = self.get_type_of_property_of_type(target, name) else { return };
         let source = self.check_expression_at_node(value);
-        self.report_assignability_failure(at, value, source, member);
+        let span = self.error_span(at);
+        // elaborateElement (relater.go:588): the direct report names the
+        // member's declaration.
+        if self.report_relation_failure_ex(at, span, Some(value), source, member, None)
+            == RelationReport::Reported
+        {
+            let name_type = self.elaboration_name_type(at, name);
+            let origin =
+                ElementOrigin::Member { container: target, name: name.to_string(), name_type };
+            let related = self.element_related_information(origin);
+            if let Some((_, diagnostic)) = self.diagnostics.last_mut() {
+                for related in related {
+                    diagnostic.add_related_information(Some(related));
+                }
+            }
+        }
     }
 
     /// The initialiser node of the literal's property called `name`.
@@ -1622,7 +1662,42 @@ impl<'a> Checker<'a, '_> {
         properties: &[String],
     ) {
         let diagnostic = self.missing_properties_diagnostic(span, source, target, properties);
+        self.report_relation_chain(file, diagnostic);
+    }
+
+    /// `checkTypeRelatedToEx`'s report of a failed relation's error chain
+    /// (`relater.go:396`): every link shares the walk's related information.
+    fn report_relation_chain(&mut self, file: NodeId, mut diagnostic: Diagnostic) {
+        diagnostic.publish_chain_related_information();
         self.report(file, diagnostic);
+    }
+
+    /// `NewDiagnosticForNode` (5b1047d `checker/utilities.go:22`), as
+    /// `createDiagnosticForNode` builds related information: the node's error
+    /// span in its own source file, which may differ from the reported
+    /// diagnostic's. `None` when the host holds no file text for the node
+    /// (unit checkers): the related record is omitted, never misplaced.
+    pub(crate) fn diagnostic_for_node(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Option<Diagnostic> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let image = if let Some(image) = self.diagnostic_files.get(&file) {
+            image.clone()
+        } else {
+            let image = self.module_host.and_then(|host| {
+                let name = host.file_path(file)?;
+                let text = host.source_text(file, self.nodes)?;
+                Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
+            });
+            self.diagnostic_files.insert(file, image.clone());
+            image
+        }?;
+        let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
+        diagnostic.set_file(image);
+        Some(diagnostic)
     }
 
     /// The `reportUnmatchedProperty` message for `properties` (`relater.go:4345`).
@@ -1656,7 +1731,21 @@ impl<'a> Checker<'a, '_> {
                 vec![source_text, target_text, properties.join(", ")],
             )
         };
-        Diagnostic::with_args(message, span, args)
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        // One missing property also points at its first declaration
+        // (`X_0_is_declared_here`, appended to the walk's related list).
+        if let [property] = properties
+            && let Some(symbol) = self.property_origin(target, property)
+            && let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first()
+        {
+            let related = self.diagnostic_for_node(
+                declaration,
+                &messages::_0_IS_DECLARED_HERE,
+                [property.clone()],
+            );
+            diagnostic.add_related_information(related);
+        }
+        diagnostic
     }
 
     /// `tryElaborateArrayLikeErrors`' TS4104 (`relater.go:4379`), reported by
@@ -1704,7 +1793,9 @@ impl<'a> Checker<'a, '_> {
         let mut excess_failed = false;
         if union_literal {
             match self.union_object_literal_failure(at, source, target) {
-                UnionLiteralFailure::Settled(reported) => return reported,
+                UnionLiteralFailure::Settled(reported) | UnionLiteralFailure::Direct(reported) => {
+                    return reported;
+                }
                 UnionLiteralFailure::Outer { excess } => excess_failed = excess,
             }
         }
@@ -1774,7 +1865,7 @@ impl<'a> Checker<'a, '_> {
             set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
-        self.report(file, diagnostic);
+        self.report_relation_chain(file, diagnostic);
         true
     }
 
@@ -1822,6 +1913,22 @@ impl<'a> Checker<'a, '_> {
         target: TypeId,
         head: Option<&'static tsr_diagnostics::Message>,
     ) -> bool {
+        self.report_relation_failure_ex(at, span, source_node, source, target, head)
+            != RelationReport::Silent
+    }
+
+    /// [`Checker::report_relation_failure`], telling an `elaborateError`
+    /// report apart from `checkTypeRelatedToEx`'s own one diagnostic at `at`,
+    /// which `elaborateElement` decorates.
+    fn report_relation_failure_ex(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source_node: Option<NodeId>,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> RelationReport {
         // An object literal against a **union** target is the excess-property
         // and discriminated-union machinery
         // (`getMatchingUnionConstituentForObjectLiteral`,
@@ -1864,7 +1971,19 @@ impl<'a> Checker<'a, '_> {
             match self.union_object_literal_failure(node, source, target) {
                 UnionLiteralFailure::Settled(reported) => {
                     probe!(if reported { PROBE_REPORTED } else { PROBE_OBJECT_LITERAL_UNION });
-                    return reported;
+                    return if reported {
+                        RelationReport::Elaborated
+                    } else {
+                        RelationReport::Silent
+                    };
+                }
+                UnionLiteralFailure::Direct(reported) => {
+                    probe!(if reported { PROBE_REPORTED } else { PROBE_OBJECT_LITERAL_UNION });
+                    return if reported {
+                        RelationReport::Reported
+                    } else {
+                        RelationReport::Silent
+                    };
                 }
                 UnionLiteralFailure::Outer { excess } => excess_failed = excess,
             }
@@ -1877,17 +1996,19 @@ impl<'a> Checker<'a, '_> {
             && source_node.is_some_and(|node| self.elaborate_error(node, source, target, head))
         {
             probe!(PROBE_REPORTED);
-            return true;
+            return RelationReport::Elaborated;
         }
         if !self.assignability_pair_is_reportable(source, target) {
             probe!(PROBE_PAIR_NOT_REPORTABLE);
-            return false;
+            return RelationReport::Silent;
         }
         if self.report_weak_type_failure(at, span, source, target) {
             probe!(PROBE_REPORTED);
-            return true;
+            return RelationReport::Reported;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else {
+            return RelationReport::Silent;
+        };
         // getNormalizedType (relater.go:2619) unwraps `NoInfer<T>`; the
         // missing-property messages name the normalized target.
         let normalized = self.no_infer_base_type(target).unwrap_or(target);
@@ -1897,7 +2018,7 @@ impl<'a> Checker<'a, '_> {
         {
             probe!(PROBE_REPORTED);
             self.report_missing_properties(file, span, source, normalized, &properties);
-            return true;
+            return RelationReport::Reported;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
         // three-valued (`crate::relater::Ternary`) and its own doc comment names
@@ -1919,19 +2040,19 @@ impl<'a> Checker<'a, '_> {
         let not_related = relation == crate::relater::Ternary::NotRelated;
         if !not_related && !self.object_against_primitive(source, target) {
             probe!(PROBE_RELATION_DECLINED);
-            return false;
+            return RelationReport::Silent;
         }
         probe!(PROBE_REPORTED);
         if not_related && self.readonly_to_mutable_array_like(source, target) {
             self.report_readonly_to_mutable(file, span, source, target);
-            return true;
+            return RelationReport::Reported;
         }
         if not_related
             && union_literal.is_none()
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
             self.report_missing_properties(file, span, source, normalized, &properties);
-            return true;
+            return RelationReport::Reported;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
@@ -1952,8 +2073,8 @@ impl<'a> Checker<'a, '_> {
             set_relation_chain_span(&mut signature_error, span);
             diagnostic.add_message_chain(Some(signature_error));
         }
-        self.report(file, diagnostic);
-        true
+        self.report_relation_chain(file, diagnostic);
+        RelationReport::Reported
     }
 
     /// Ported from typescript-go's `Relater.reportRelationError`
@@ -2164,7 +2285,7 @@ impl<'a> Checker<'a, '_> {
             None => return UnionLiteralFailure::Settled(false),
         }
         if let ExcessProperties::Excess { at, name, error_target } = excess {
-            return UnionLiteralFailure::Settled(self.report_excess_property(
+            return UnionLiteralFailure::Direct(self.report_excess_property(
                 at,
                 &name,
                 error_target,
@@ -2485,9 +2606,9 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
     /// `kind` signature of the source returns a type (not `any`/`never`)
     /// related to the target, the failure is reported at the expression
-    /// itself — upstream adds "Did you mean to call this expression?" as
-    /// related information, which the suite does not compare. A pair the
-    /// relation does not reject falls through to the remaining arms.
+    /// itself, with "Did you mean to call this expression?" (or `new`) as
+    /// related information at it. A pair the relation does not reject falls
+    /// through to the remaining arms.
     fn elaborate_did_you_mean_to_call_or_construct(
         &mut self,
         node: NodeId,
@@ -2516,7 +2637,22 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let span = self.error_span(node);
-        self.report_relation_failure(node, span, None, source, target, head)
+        match self.report_relation_failure_ex(node, span, None, source, target, head) {
+            RelationReport::Silent => false,
+            RelationReport::Elaborated => true,
+            RelationReport::Reported => {
+                let message = if kind == crate::signatures::SignatureKind::Construct {
+                    &messages::DID_YOU_MEAN_TO_USE_NEW_WITH_THIS_EXPRESSION
+                } else {
+                    &messages::DID_YOU_MEAN_TO_CALL_THIS_EXPRESSION
+                };
+                let related = self.diagnostic_for_node(node, message, []);
+                if let Some((_, diagnostic)) = self.diagnostics.last_mut() {
+                    diagnostic.add_related_information(related);
+                }
+                true
+            }
+        }
     }
 
     /// `getBestMatchingType` (`relater.go:879`) for an object-literal source
@@ -2618,13 +2754,16 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateElement` (`relater.go:546`) once its member types are known:
     /// a related pair is not elaborated; otherwise `next` elaborates first and
     /// the failure is reported on `prop` (excess properties of a fresh `next`
-    /// first, as `checkTypeRelatedToEx` would meet them).
+    /// first, as `checkTypeRelatedToEx` would meet them). That one direct
+    /// diagnostic, not an inner elaboration's, carries `origin`'s related
+    /// information.
     fn elaborate_element(
         &mut self,
         prop: NodeId,
         next: Option<NodeId>,
         source: TypeId,
         target: TypeId,
+        origin: ElementOrigin,
     ) -> bool {
         // getBestMatchIndexedAccessTypeOrUndefined: no elaboration into an
         // index on a generic variable.
@@ -2637,10 +2776,138 @@ impl<'a> Checker<'a, '_> {
         let source_node = next.unwrap_or(prop);
         let before = self.diagnostics.len();
         self.check_excess_properties(target, source_node);
-        if self.diagnostics.len() != before {
-            return true;
+        let direct = if self.diagnostics.len() == before {
+            let span = self.error_span(prop);
+            match self.report_relation_failure_ex(
+                prop,
+                span,
+                Some(source_node),
+                source,
+                target,
+                None,
+            ) {
+                RelationReport::Silent => return false,
+                RelationReport::Elaborated => return true,
+                RelationReport::Reported => self.diagnostics.len() - 1,
+            }
+        } else {
+            before
+        };
+        let related = self.element_related_information(origin);
+        let diagnostic = &mut self.diagnostics[direct].1;
+        for related in related {
+            diagnostic.add_related_information(Some(related));
         }
-        self.report_assignability_failure(prop, source_node, source, target)
+        true
+    }
+
+    /// The related information `elaborateElement` (`relater.go:588`) and
+    /// `elaborateArrowFunction` (`relater.go:666`) add to their direct
+    /// diagnostic: where the expected type was declared, skipping the default
+    /// library for members.
+    fn element_related_information(&mut self, origin: ElementOrigin) -> Vec<Diagnostic> {
+        let mut related = Vec::new();
+        match origin {
+            ElementOrigin::Unnamed => {}
+            ElementOrigin::Member { container, name, name_type } => {
+                let target_property = self.get_property_of_type(container, &name);
+                if target_property.is_none()
+                    && let Some(declaration) = self
+                        .get_applicable_index_info(container, name_type)
+                        .and_then(|info| info.declaration)
+                    && !self.in_default_library(declaration)
+                {
+                    related.extend(self.diagnostic_for_node(
+                        declaration,
+                        &messages::THE_EXPECTED_TYPE_COMES_FROM_THIS_INDEX_SIGNATURE,
+                        [],
+                    ));
+                    return related;
+                }
+                let declaration = match target_property {
+                    Some(property) => {
+                        self.binder.symbols().get(property).declarations.first().copied()
+                    }
+                    None => None,
+                };
+                let Some(declaration) =
+                    declaration.or_else(|| self.type_symbol_declaration(container))
+                else {
+                    return related;
+                };
+                if !self.in_default_library(declaration) {
+                    let container_text = self.type_to_string(container);
+                    related.extend(self.diagnostic_for_node(
+                        declaration,
+                        &messages::THE_EXPECTED_TYPE_COMES_FROM_PROPERTY_0_WHICH_IS_DECLARED_HERE_ON_TYPE_1,
+                        [name, container_text],
+                    ));
+                }
+            }
+            ElementOrigin::ArrowReturn { target, arrow, source_return, target_return } => {
+                if let Some(declaration) = self.type_symbol_declaration(target) {
+                    related.extend(self.diagnostic_for_node(
+                        declaration,
+                        &messages::THE_EXPECTED_TYPE_COMES_FROM_THE_RETURN_TYPE_OF_THIS_SIGNATURE,
+                        [],
+                    ));
+                }
+                let is_async = matches!(self.node_map.get(arrow),
+                    Some(Node::ArrowFunction(function)) if has_async(function.modifiers));
+                if !is_async
+                    && self.get_type_of_property_of_type(source_return, "then").is_none()
+                    && let Some(promise) = self.global_type_symbol_with_arity("Promise", 1)
+                {
+                    let promised = self.create_type_reference(promise, vec![source_return]);
+                    if self.relate_ternary(
+                        promised,
+                        target_return,
+                        crate::relater::Relation::Assignable,
+                    ) == crate::relater::Ternary::Related
+                    {
+                        related.extend(self.diagnostic_for_node(
+                            arrow,
+                            &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
+                            [],
+                        ));
+                    }
+                }
+            }
+        }
+        related
+    }
+
+    /// The first declaration of `type.symbol`, where this port can name the
+    /// symbol native types carry: an anonymous type's own symbol, a class,
+    /// interface or enum, and an alias written as a type literal (whose
+    /// `__type` symbol is declared by that literal). `None` otherwise.
+    fn type_symbol_declaration(&self, t: TypeId) -> Option<NodeId> {
+        let symbol = match &self.type_of(t).data {
+            TypeData::Anonymous { symbol, .. } => *symbol,
+            TypeData::Named { members: Some(owner), .. } => *owner,
+            _ => return None,
+        };
+        let anonymous = matches!(self.type_of(t).data, TypeData::Anonymous { .. });
+        let symbol = self.binder.symbols().get(symbol);
+        let &declaration = symbol.declarations.first()?;
+        if anonymous
+            || symbol
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE | SymbolFlags::ENUM)
+        {
+            return Some(declaration);
+        }
+        if symbol.flags.contains(SymbolFlags::TYPE_ALIAS)
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(written) = alias.r#type.and_then(|written| written.node_id())
+            && matches!(
+                self.nodes.kind(written),
+                SyntaxKind::TypeLiteral | SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+            )
+        {
+            return Some(written);
+        }
+        None
     }
 
     /// `elaborateObjectLiteral` (`relater.go:498`): each named member is an
@@ -2738,8 +3005,15 @@ impl<'a> Checker<'a, '_> {
             else {
                 continue;
             };
-            reported |=
-                self.elaborate_element(name_id, next, source_property_type, target_property_type);
+            let name_type = self.elaboration_name_type(name_id, &name);
+            let origin = ElementOrigin::Member { container: target, name, name_type };
+            reported |= self.elaborate_element(
+                name_id,
+                next,
+                source_property_type,
+                target_property_type,
+                origin,
+            );
         }
         Some(reported)
     }
@@ -3508,7 +3782,15 @@ impl<'a> Checker<'a, '_> {
         name_id: NodeId,
         name: &str,
     ) -> Option<TypeId> {
-        let name_type = if self.nodes.kind(name_id) == SyntaxKind::NumericLiteral {
+        let name_type = self.elaboration_name_type(name_id, name);
+        self.get_applicable_index_info(target, name_type).map(|info| info.value)
+    }
+
+    /// `getLiteralTypeFromProperty` of an object-literal member named `name`
+    /// at `name_id`: a number literal for a numeric name, else a string
+    /// literal.
+    fn elaboration_name_type(&mut self, name_id: NodeId, name: &str) -> TypeId {
+        if self.nodes.kind(name_id) == SyntaxKind::NumericLiteral {
             let literal = self.check_expression_at_node(name_id);
             self.get_regular_type_of_literal_type(literal)
         } else {
@@ -3517,8 +3799,7 @@ impl<'a> Checker<'a, '_> {
                 TypeData::StringLiteral(name.to_owned()),
                 false,
             )
-        };
-        self.get_applicable_index_info(target, name_type).map(|info| info.value)
+        }
     }
 
     /// `elaborateArrayLiteral` (`relater.go:522`): each element is an element
@@ -3578,6 +3859,9 @@ impl<'a> Checker<'a, '_> {
             if self.nodes.kind(element) == SyntaxKind::OmittedExpression {
                 continue;
             }
+            // Tuple element symbols have no declarations and an array's
+            // index signature is in the default library.
+            let mut origin = ElementOrigin::Unnamed;
             let target_element = if let Some(prefix) = &variadic_prefix {
                 let Some(&member) = prefix.get(index) else { continue };
                 member
@@ -3609,6 +3893,7 @@ impl<'a> Checker<'a, '_> {
                 }) else {
                     continue;
                 };
+                origin = ElementOrigin::Member { container: target, name, name_type: index_type };
                 member
             };
             let check_node = self.effective_check_node(element);
@@ -3626,6 +3911,7 @@ impl<'a> Checker<'a, '_> {
                 Some(check_node),
                 source_element,
                 target_element,
+                origin,
             );
         }
         reported
@@ -3663,7 +3949,9 @@ impl<'a> Checker<'a, '_> {
             returns.push(target_return);
         }
         let target_return = self.get_union_type(&returns);
-        self.elaborate_element(body, Some(body), source_return, target_return)
+        let origin =
+            ElementOrigin::ArrowReturn { target, arrow: node, source_return, target_return };
+        self.elaborate_element(body, Some(body), source_return, target_return, origin)
     }
 }
 

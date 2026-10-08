@@ -610,5 +610,39 @@ type-parameter explanation, TS2820 string-literal suggestion
 (`getSuggestedTypeForNonexistentStringLiteralType`; union constituents arrive in
 CompareTypes order so the tie-break never prefers a later candidate) and
 `getChainMessage(0)` missing-property suppression (`chainArgsMatch`). A declined
-link keeps the previous plain head. The checker publishes no related
-information yet, so TS2728 "declared here" notes stay absent (as at top level).
+link keeps the previous plain head.
+
+## Related information for relation reports — tsr-2zk.1
+
+Before this port the checker published no related information at all, so every
+native case carrying `!!! related` was inexact. Pinned functions:
+`NewDiagnosticForNode`/`createDiagnosticForNode` (utilities.go:22) →
+`Checker::diagnostic_for_node`; `createDiagnosticChainFromErrorChain`
+(relater.go:402) + `ast.NewDiagnosticChain` → `Diagnostic::
+publish_chain_related_information` (every link shares the walk's list, gathered
+children-first; a `new_chain` parent's inherited list counts once);
+`reportUnmatchedProperty` (relater.go:4345) TS2728 at the single missing
+property's first declaration; `elaborateElement` (relater.go:588) TS6500/TS6501
+on its one direct report (`RelationReport::Reported`, never on an inner
+elaboration), skipping default-library declarations; `elaborateArrowFunction`
+(relater.go:666) TS6502 and TS1356; `elaborateDidYouMeanToCallOrConstruct`
+(relater.go:480) TS6212/TS6213. `check_object_literal_member` is this port's
+elaborateElement for known members and decorates the same way.
+`type_symbol_declaration` names `type.symbol` only where this port can: an
+anonymous type's symbol, a class/interface/enum, or an alias written as a type
+literal/function type (the literal's `__type` symbol); otherwise no record.
+
+Side table `Checker::diagnostic_files` (convention record): native op is the
+`*SourceFile` pointer `createDiagnosticForNode` stores; key = `SourceFile`
+`NodeId` of this Checker's node table, value = `Arc<DiagnosticFile>` built from
+the host's `file_path` + `source_text` (`None` = host without text, a completed
+decline: no record, never a misplaced one). Owner: the Checker, program
+lifetime; filled only on reporting paths, so relation queries never pay. The
+expensive work (line-start index of one file) runs once per file with related
+information.
+
+Measurement still needed outside this lane: TSR chain links carry no file of
+their own (native links copy the head's file and span), which the exact oracle
+must render as the head location; related information for TS2448/TS2449/
+TS2554/TS2813/TS2814/TS9027 belongs to other lanes and can use
+`diagnostic_for_node`.

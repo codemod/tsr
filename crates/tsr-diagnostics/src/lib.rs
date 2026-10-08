@@ -333,6 +333,44 @@ impl Diagnostic {
         self
     }
 
+    /// `createDiagnosticChainFromErrorChain` (5b1047d `checker/relater.go:402`)
+    /// for a chain built top-down: the relation walk's related information,
+    /// gathered from every link in walk order (children before their parent,
+    /// as `r.relatedInfo` is appended while the walk unwinds), is set on the
+    /// innermost link and shared by each enclosing link as
+    /// `ast.NewDiagnosticChain` does. A link's own list counts once: a parent
+    /// built by [`Diagnostic::new_chain`] already shares its child's list. A
+    /// chain without related information is left untouched.
+    pub fn publish_chain_related_information(&mut self) -> &mut Self {
+        fn gather(diagnostic: &Diagnostic, out: &mut Vec<Diagnostic>) {
+            let Some(details) = &diagnostic.details else { return };
+            for child in &details.chain {
+                gather(child, out);
+            }
+            let inherited = details.chain.iter().any(|child| {
+                child
+                    .details
+                    .as_ref()
+                    .is_some_and(|child| std::sync::Arc::ptr_eq(&child.related, &details.related))
+            });
+            if !inherited {
+                out.extend(details.related.iter().cloned());
+            }
+        }
+        fn share(diagnostic: &mut Diagnostic, related: &std::sync::Arc<Vec<Diagnostic>>) {
+            diagnostic.set_related_information(related.clone());
+            for child in diagnostic.message_chain_mut() {
+                share(child, related);
+            }
+        }
+        let mut related = Vec::new();
+        gather(self, &mut related);
+        if !related.is_empty() {
+            share(self, &std::sync::Arc::new(related));
+        }
+        self
+    }
+
     /// Runtime category (`Diagnostic.Category`), initialized by `NewDiagnostic`.
     #[must_use]
     pub const fn category(&self) -> Category {
