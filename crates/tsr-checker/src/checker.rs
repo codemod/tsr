@@ -1185,6 +1185,9 @@ pub struct Checker<'a, 'n> {
     /// getReducedType's discriminant-conflict result, computed before reading
     /// intersection signatures without changing written annotation identity.
     pub(crate) never_intersection_types: FxHashMap<TypeId, bool>,
+    /// `emptyTypeLiteralType` (checker.go:22939): the one type every
+    /// member-less, unaliased type literal resolves to. Minted on first use.
+    pub(crate) empty_type_literal_type: Option<TypeId>,
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
@@ -1608,6 +1611,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
             never_intersection_types: FxHashMap::default(),
+            empty_type_literal_type: None,
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
             uninstantiated_context_node: None,
