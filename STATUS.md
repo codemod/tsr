@@ -54,13 +54,33 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Signature-owner continuation, frozen `85f9c4cb` / native `5b1047d`: private
+Symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
+value/declared-type cache keys and symbol resolution frames now use validated
+identities privately. Current-main baseline passes 194 library tests; the final
+slice passes 453 debug tests (206 library, 16 domain, 231 integration), with one
+ignore and the known parsed owner red filtered. Two native direct observations
+and a compiling origin-key mutant qualify copy identity/publication. Full
+cutover remains uncompiled: 69 diagnostics across twelve files, from 85 at
+replay. Strict Clippy has six errors versus baseline five. No canonical runtime,
+full corpus or speed claim. [Source-qualified continuation](docs/architecture/checker-symbol-completion-contract.md#symbol-key-continuation-on-current-main).
+
+Earlier raw-owner continuation, frozen `85f9c4cb` / native `5b1047d`: ten private
+anonymous-owner readers now preserve raw flags, declarations, export keys and
+exact enum-owner identity. Final slice passes 446 debug tests (199 library,
+16 domain, 231 integration), with one existing ignore and the known red owner
+control filtered. Four native direct observations pass; compiling source-edge
+and empty-export mutants fail two and one controls. Full owner migration is
+still uncompiled: 85 diagnostics across 16 files, down from 98. Strict slice
+Clippy has one unused-writer error. No canonical runtime, full corpus or speed
+claim. [Source-qualified continuation](docs/architecture/checker-symbol-completion-contract.md#raw-owner-continuation).
+
+Earlier signature-owner continuation, frozen `85f9c4cb` / native `5b1047d`: private
 validated declaration reader and five callable consumer migrations pass 346
 debug tests (195 library, 16 domain, 135 integration), with one existing ignore
 and the known red parsed owner control filtered. Four native observations and
 a compiling source-fallback mutant prove the copy's own declaration channel.
 Cached callable return slots remain deferred. Broader Anonymous owner migration
-now has 98 compiler diagnostics across 20 files; strict slice Clippy fails on
+at that stage had 98 compiler diagnostics across 20 files; strict slice Clippy fails on
 one unused writer. No canonical runtime, full corpus or speed claim.
 [Source-qualified continuation](docs/architecture/checker-symbol-completion-contract.md#signature-owner-continuation).
 
@@ -3597,11 +3617,20 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
+Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
+cache and symbol resolution keys now carry validated identities privately.
+Finish type/declared/member/class/naming consumers, other owner caches and native
+merged publication. The full cutover has 69 compiler diagnostics across twelve
+files; the green 453-test key slice does not execute it. Native one-hop private
+redirects must not become the Binder's bound chain or a clone-origin fallback.
+Compile and run unfiltered parsed owner/alias-stack controls, then requalify
+advancing main against full fidelity/performed-work and ordinary speed gates.
+
 Continue `tsr-1yb.7.7.2.1` from the existing owner-migration source. The
 validated raw-signature reader and five callable consumers are implemented
 privately; propagated/instantiated/alias signature mints retain actual handles.
 Next migrate merged owner reads and declared/member/class-signature/cache
-consumers (latest check: 98 diagnostics across 20 files), then execute parsed
+consumers (earlier check: 98 diagnostics across 20 files), then execute parsed
 owner/alias-stack gates and requalify on advancing main. Completed module-value
 signature state must not be replaced with raw copied declarations.
 
@@ -7236,6 +7265,15 @@ version of bare `any`.
 
 ## 5. Refused, with the number that refused it
 
+Frozen `1cea3449`'s 453-pass key slice is refused as full private-owner or
+alias completion: the actual cutover still has 69 compiler errors across twelve
+files, and the parsed owner red is explicitly filtered. Strict Clippy reports
+six errors versus baseline five; the new unused writer remains unintegrated.
+The publication predicate's unsupported/error distinction is also unfinished.
+Two direct native observations and a failing origin-key mutant establish the
+owned key boundary, not natural whole-CLI scope or a speed gain. No runtime
+change is retained. [Lossless current-main progress](docs/architecture/checker-module-clone-progress.json).
+
 Round 4 (tsr-2zk), measured against the integration baseline of the day:
 - **r4-typeparams merged-parameter diff.** Held: +126 type lines, but 6 losses
   and +3% Ir. It needs a per-symbol memo first.
@@ -7252,8 +7290,16 @@ Round 4 (tsr-2zk), measured against the integration baseline of the day:
   lost mappedTypeRelationships TS2322 line 88, because it skips
   resolve_mapped_type_members' side effect.
 
-The frozen `85f9c4cb` signature slice's 346 passes are refused as full private
-owner migration: 98 compiler diagnostics across 20 files remain in that
+The frozen `85f9c4cb` raw-reader slice's 446 passes are refused as full
+private-owner completion: the broader migration still has 85 compiler errors
+across 16 files, and the parsed owner control is explicitly filtered from the
+green slice. Strict Clippy fails on one unused writer. Compiling source-edge
+and empty-export mutants fail two and one tests; API-red runs only establish
+missing APIs. No current-main runtime, full-corpus preservation or speed win
+is established by these frozen controls.
+
+The earlier frozen `85f9c4cb` signature slice's 346 passes are refused as full private
+owner migration: at that stage 98 compiler diagnostics across 20 files remained in that
 migration, and its parsed owner control is not executed by the green slice.
 Strict slice Clippy has one unused-writer error. A compiling source-fallback
 mutant fails the copy-only declaration control (two signatures versus three);
@@ -14104,6 +14150,10 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `1cea3449` / native `5b1047d` | — | — | **Validated symbol-key migration, tsr-1yb.7.7.2.1.** Prior patches replay without conflicts onto current main; baseline library 194 passes. Existing value/declared caches and symbol resolution frames use actual handles privately. Source-qualified final slice 453 passes (one ignore, known parsed owner red filtered); native two direct observations match private identity/property/publication, and compiling origin-key mutant fails one test before exact restoration. Twelve additional full-cutover consumers migrated; compiler gate 85 -> 89 -> 72 -> 69 across twelve files. Strict Clippy six versus baseline five. Lossless 26/32-file patches preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
+
+| 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Raw-owner migration progress, tsr-1yb.7.7.2.1.** Ten raw flag/declaration/export/enum-identity consumers ported privately. Two bound characterizations and four native direct operations pass; source-edge and empty-export mutants fail two/one controls. Final source-qualified slice passes 446 debug tests (one ignore, known owner red filtered); broader cutover falls 98 -> 85 compiler errors across 16 files. One unused-writer Clippy error remains. Eight-file slice and seventeen-file full patches preserved. No canonical runtime, corpus or speed claim. [Lossless progress](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Signature-owner migration progress, tsr-1yb.7.7.2.1.** Actual validated declaration reader, five callable consumer sites and signature owner propagation implemented privately. Four native direct-operation observations qualify raw copied overloads versus completed empty module signatures. Source-fallback mutant fails; restoration/final debug suite passes 346 (one existing ignore, known red owner test filtered). Broader migration drops 107 -> 98 compiler diagnostics across 20 files; strict slice Clippy still has one unused writer. No canonical runtime, full corpus or speed claim. [Lossless progress](docs/architecture/checker-module-clone-progress.json). |
 
