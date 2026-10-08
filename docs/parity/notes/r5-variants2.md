@@ -38,7 +38,7 @@ keys `suite/case(<configuration>)`):
    were options outside the vary-by set (`noCheck`).
    Native has no such list: it applies every directive whose name is a
    declared option. That is a harness cause and is fixed (§2.1).
-3. **The per-configuration trace rows** (added by the commit after this one)
+3. **The per-configuration trace rows** (§3)
    surfaced a third: list-valued directives were
    trimmed entry by entry where native keeps a string entry's whitespace
    (§2.2).
@@ -100,11 +100,37 @@ traces failed on exactly that line before, and one `.types` line of
 `customConditions(resolvepackagejsonexports=true)` was WRONG for the same
 reason (the condition set decides which `exports` arm resolves).
 
-Measured (with those rows in place): `module_resolution_configured` 40/42 → **42/42**,
+Measured (with the §3 rows in place): `module_resolution_configured` 40/42 → **42/42**,
 `file_loader_configured` 40/42 → **42/42**, types **+1 line**
 (`conformance/customConditions(resolvepackagejsonexports=true):3:0`
 WRONG → RIGHT), plain rows unchanged (no plain case writes a string list with
 a space after the comma that any judged row depends on), zero losses.
+
+## 3. `module_resolution` and `file_loader` judge varied traces per configuration
+
+`trace_case::prepare` now skips a varied case as itself
+(`CaseEntry::is_expanded`, the same predicate `diagverdictdump` uses) and
+names the configured rows; for a configured entry `case.load()` has already
+applied the configuration and `baseline_path` is the suffixed
+`case(<configuration>).trace.json`, so the judgement needs no second path.
+`ModuleResolutionConfigured` and `FileLoaderRequestsConfigured` are the two
+suites over `Corpus::configured` (`Suite::per_configuration`), exactly as
+`diagnostics_configured` is — both halves of a trace, so the two suites keep
+sharing one denominator per population (`trace_case`'s module docs).
+
+`module_suite::configured_tests` pins what the 14 varied `@traceResolution`
+cases expand into: **42 configurations judged, 0 skipped by upstream's
+option predicate, 1 empty trace** (`compiler/libReplacement(libreplacement=false)`:
+without `libReplacement` the lib files do not go through the module resolver
+and the case imports nothing else), and asserts no configuration is skipped
+for any other reason. The plain-run bucket test is unchanged (14 varied).
+
+| row | before | after |
+|---|---:|---:|
+| `module_resolution` | 95/95 | 95/95 |
+| `module_resolution_configured` | — | **42/42** |
+| `file_loader` | 96/96 | 96/96 |
+| `file_loader_configured` | — | **42/42** |
 
 ## 4. Checker causes, ranked
 

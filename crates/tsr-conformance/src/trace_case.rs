@@ -138,16 +138,35 @@ pub fn prepare(case: &CaseEntry) -> Setup {
         );
     }
 
+    // A case whose directives vary (`// @moduleResolution: node16, nodenext`)
+    // is never compiled as itself: upstream traces each named configuration
+    // into its own `case(<configuration>).trace.json`, and those are judged
+    // by the `*_configured` rows, where `case.load()` has already applied the
+    // configuration's values (ADR-0047). Loaded as itself, its raw directive
+    // `node16, nodenext` would parse as unset — a compilation upstream never
+    // ran.
+    if case.is_expanded() {
+        return Setup::Skip(
+            "configuration-varied trace baselines, judged per configuration by \
+             module_resolution_configured and file_loader_configured"
+                .to_string(),
+        );
+    }
+
     let prepared = match prepare_loaded_compilation(&parsed) {
         CompilationSetup::Ready(prepared) => prepared,
         CompilationSetup::Skip(reason) => return Setup::Skip(reason),
     };
 
+    // For a named configuration `baseline_path` is the suffixed
+    // `case(<configuration>).trace.json`.
     let expected = if let Ok(expected) = std::fs::read_to_string(case.baseline_path("trace.json")) {
         expected
     } else {
         if case.baselines.has_variant(case.stem(), "trace.json") {
-            return Setup::Skip("configuration-varied trace baselines (bd tsr-bb4.1)".to_string());
+            return Setup::Skip(
+                "configuration-varied trace baselines this enumeration does not name".to_string(),
+            );
         }
         // Not skipped and no baseline means upstream ran the case and traced
         // *nothing*: `baseline.Run` deletes the reference file when the content
