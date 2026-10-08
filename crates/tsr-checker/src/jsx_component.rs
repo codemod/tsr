@@ -347,7 +347,8 @@ impl Checker<'_, '_> {
     /// report on the attribute name. `Some(reported)`; `None` where this port
     /// cannot decide an element (a union target's best match, an undecided
     /// member relation) — the caller then reports nothing rather than a
-    /// different line. The children half (TS2745/2746/2747) is not ported.
+    /// different line. The children half (TS2745/2746/2747) follows, in
+    /// upstream's order, from [`Self::elaborate_jsx_children`].
     pub(crate) fn elaborate_jsx_components(
         &mut self,
         attributes: NodeId,
@@ -425,7 +426,328 @@ impl Checker<'_, '_> {
                 )
             };
         }
+        let children = self.elaborate_jsx_children(attributes, source, target)?;
+        Some(reported || children)
+    }
+
+    /// `elaborateJsxComponents`' children half (`jsx.go:306-363`): for an
+    /// opening element whose `JsxElement` has semantic children, the target's
+    /// `children` member (`getIndexedAccessType`) is split into the parts
+    /// assignable to `Iterable<any>` — or, without a global `Iterable`,
+    /// `isArrayOrTupleLikeType` — and the rest. Several children against an
+    /// array-like part elaborate element-wise
+    /// (`elaborateIterableOrArrayLikeTargetElementwise`); against none, a
+    /// failed `children` relation is TS2746 on the tag name. One child
+    /// against a non-array-like part is `elaborateElement` (TS2747 for text);
+    /// against none, TS2745. `Some(reported)`; `None` where a relation,
+    /// member or iteration type this port cannot decide would choose the line.
+    fn elaborate_jsx_children(
+        &mut self,
+        attributes: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<bool> {
+        let Some(opening) = self.nodes.parent(attributes) else { return Some(false) };
+        let Some(Node::JsxOpeningElement(opening_node)) = self.node_map.get(opening) else {
+            return Some(false);
+        };
+        let Some(Node::JsxElement(element)) =
+            self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent))
+        else {
+            return Some(false);
+        };
+        if element.opening_element.and_then(|node| node.node_id) != Some(opening) {
+            return Some(false);
+        }
+        let valid: Vec<_> = element
+            .children
+            .iter()
+            .copied()
+            .filter(crate::jsx_intrinsic::semantic_jsx_child)
+            .collect();
+        if valid.is_empty() {
+            return Some(false);
+        }
+        // `getJsxElementChildrenPropertyName`, with `InternalSymbolNameMissing`
+        // read as `"children"`. A present container this port cannot read
+        // (`""`, or more than one property) declines.
+        let name = match self.jsx_children_name(attributes) {
+            Some(name) => name,
+            None if self.jsx_type_symbol(attributes, "ElementChildrenAttribute").is_none() => {
+                "children".to_string()
+            }
+            None => return None,
+        };
+        let tag = opening_node.tag_name.and_then(|tag| tag.node_id())?;
+        // `getIndexedAccessType(target, "children")` without an access node:
+        // a target with no such member answers `unknown`, which nothing
+        // below reports against (`getBestMatchIndexedAccessTypeOrUndefined`
+        // misses it; every type relates to `unknown`).
+        let Some(children_target) = self.get_type_of_property_of_type(target, &name) else {
+            return Some(false);
+        };
+        let parts = match self.store.get(children_target).data.clone() {
+            crate::types::TypeData::Union { types, .. } => types,
+            _ => vec![children_target],
+        };
+        let iterable = self.global_type_symbol_with_arity("Iterable", 3).map(|iterable| {
+            self.create_type_reference(
+                iterable,
+                vec![self.intrinsics.any, self.intrinsics.void, self.intrinsics.undefined],
+            )
+        });
+        let mut array_like = Vec::new();
+        let mut non_array_like = Vec::new();
+        for part in parts {
+            let is = match iterable {
+                Some(iterable) => match self.relate_ternary(part, iterable, Relation::Assignable) {
+                    Ternary::Related => true,
+                    Ternary::NotRelated => false,
+                    Ternary::Unknown => return None,
+                },
+                None => self.jsx_is_array_or_tuple_like(part)?,
+            };
+            if is {
+                array_like.push(part);
+            } else {
+                non_array_like.push(part);
+            }
+        }
+        let child_type = |checker: &mut Self| checker.get_type_of_property_of_type(source, &name);
+        if valid.len() > 1 {
+            if !array_like.is_empty() {
+                let array_like = self.get_union_type(&array_like);
+                return self.elaborate_jsx_children_elementwise(element.children, array_like);
+            }
+            let source_children = child_type(self)?;
+            return match self.relate_ternary(source_children, children_target, Relation::Assignable)
+            {
+                Ternary::Related => Some(false),
+                Ternary::Unknown => None,
+                Ternary::NotRelated => {
+                    let text = self.type_to_string(children_target);
+                    self.report_jsx_children_arity(
+                        tag,
+                        &messages::THIS_JSX_TAG_S_0_PROP_EXPECTS_A_SINGLE_CHILD_OF_TYPE_1_BUT_MULTIPLE_CHILDREN_WERE_PROVIDED,
+                        vec![name, text],
+                    );
+                    Some(true)
+                }
+            };
+        }
+        if non_array_like.is_empty() {
+            let source_children = child_type(self)?;
+            return match self.relate_ternary(source_children, children_target, Relation::Assignable)
+            {
+                Ternary::Related => Some(false),
+                Ternary::Unknown => None,
+                Ternary::NotRelated => {
+                    let text = self.type_to_string(children_target);
+                    self.report_jsx_children_arity(
+                        tag,
+                        &messages::THIS_JSX_TAG_S_0_PROP_EXPECTS_TYPE_1_WHICH_REQUIRES_MULTIPLE_CHILDREN_BUT_ONLY_A_SINGLE_CHILD_WAS_PROVIDED,
+                        vec![name, text],
+                    );
+                    Some(true)
+                }
+            };
+        }
+        // `elaborateElement(source, target, …, "children")`: the target member
+        // through `getBestMatchIndexedAccessTypeOrUndefined`, whose union arm
+        // (`getBestMatchingType`) this port does not model.
+        if self.store.get(target).flags.intersects(TypeFlags::UNION) {
+            return None;
+        }
+        // "Don't elaborate on indexes on generic variables".
+        if self.store.get(children_target).flags.intersects(TypeFlags::INDEXED_ACCESS) {
+            return Some(false);
+        }
+        let source_children = child_type(self)?;
+        match self.relate_ternary(source_children, children_target, Relation::Assignable) {
+            Ternary::Related => return Some(false),
+            Ternary::Unknown => return None,
+            Ternary::NotRelated => {}
+        }
+        let child = valid[0];
+        self.report_jsx_child_failure(child, tag, &name, source_children, children_target)
+    }
+
+    /// `elaborateIterableOrArrayLikeTargetElementwise` (`jsx.go:419`) over
+    /// `generateJsxChildren` (`jsx.go:373`): each child that is not
+    /// whitespace-only text takes the next numeric index (an empty `{}`
+    /// expression keeps its index, as upstream's counter does); its target is
+    /// the iterated type of the non-array-like parts unioned with the
+    /// array-like parts' element at that index, its source the child's own
+    /// type (`checkJsxChildren`'s tuple element).
+    fn elaborate_jsx_children_elementwise(
+        &mut self,
+        children: &[tsr_ast::JsxChild<'_>],
+        target: TypeId,
+    ) -> Option<bool> {
+        let parts = match self.store.get(target).data.clone() {
+            crate::types::TypeData::Union { types, .. } => types,
+            _ => vec![target],
+        };
+        let mut tuple_like = Vec::new();
+        let mut rest = Vec::new();
+        for part in parts {
+            if self.jsx_is_array_or_tuple_like(part)? {
+                tuple_like.push(part);
+            } else {
+                rest.push(part);
+            }
+        }
+        // `getBestMatchIndexedAccessTypeOrUndefined` over a union of
+        // array-likes needs `getBestMatchingType`; not modelled.
+        if tuple_like.len() > 1 {
+            return None;
+        }
+        let iteration = if rest.is_empty() {
+            None
+        } else {
+            let rest = self.get_union_type(&rest);
+            let types = self
+                .get_iteration_types_of_iterable(rest, crate::iteration::IterationUse::FOR_OF)
+                .ok()?;
+            Some(types.yield_type?)
+        };
+        let mut reported = false;
+        let mut index = 0usize;
+        for child in children {
+            if let tsr_ast::JsxChild::JsxText(text) = child
+                && text.contains_only_trivia_white_spaces
+            {
+                continue;
+            }
+            let position = index;
+            index += 1;
+            let indexed = match tuple_like.first() {
+                Some(&array) => {
+                    let key = self.store.intern_literal(
+                        TypeFlags::NUMBER_LITERAL,
+                        crate::types::TypeData::NumberLiteral(position.to_string()),
+                        false,
+                    );
+                    self.array_or_tuple_element_access(array, key, false)
+                }
+                None => None,
+            };
+            let indexed = indexed
+                .filter(|&ty| !self.store.get(ty).flags.intersects(TypeFlags::INDEXED_ACCESS));
+            let target_member = match (iteration, indexed) {
+                (Some(iteration), Some(indexed)) => self.get_union_type(&[iteration, indexed]),
+                (Some(only), None) | (None, Some(only)) => only,
+                (None, None) => continue,
+            };
+            let source_member = match child {
+                tsr_ast::JsxChild::JsxText(_) => self.intrinsics.string,
+                tsr_ast::JsxChild::JsxExpression(expression) if expression.expression.is_none() => {
+                    continue;
+                }
+                _ => {
+                    let expression = Expression::try_from(Node::from(*child)).ok()?;
+                    self.check_expression_for_mutable_location(expression)
+                }
+            };
+            match self.relate_ternary(source_member, target_member, Relation::Assignable) {
+                Ternary::Related => continue,
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {}
+            }
+            let tag = self.jsx_children_tag(child)?;
+            let name = self.jsx_children_name_for(child)?;
+            reported |=
+                self.report_jsx_child_failure(*child, tag, &name, source_member, target_member)?;
+        }
         Some(reported)
+    }
+
+    /// The tag name and children property for a child's own containing
+    /// element, for the TS2747 text.
+    fn jsx_children_tag(&mut self, child: &tsr_ast::JsxChild<'_>) -> Option<NodeId> {
+        let element = self.nodes.parent(child.node_id()?)?;
+        let Some(Node::JsxElement(element)) = self.node_map.get(element) else { return None };
+        element.opening_element?.tag_name?.node_id()
+    }
+
+    fn jsx_children_name_for(&mut self, child: &tsr_ast::JsxChild<'_>) -> Option<String> {
+        let element = self.nodes.parent(child.node_id()?)?;
+        let opening = match self.node_map.get(element) {
+            Some(Node::JsxElement(element)) => element.opening_element?.node_id?,
+            _ => return None,
+        };
+        match self.jsx_children_name(opening) {
+            Some(name) => Some(name),
+            None if self.jsx_type_symbol(opening, "ElementChildrenAttribute").is_none() => {
+                Some("children".to_string())
+            }
+            None => None,
+        }
+    }
+
+    /// `elaborateElement`'s report for one child (`getElaborationElementForJsxChild`,
+    /// `jsx.go:390`): text reports TS2747 on the text through the custom
+    /// diagnostic factory; an expression child reports on the `JsxExpression`
+    /// with its inner expression elaborated; an element child is both the
+    /// error node and the expression.
+    fn report_jsx_child_failure(
+        &mut self,
+        child: tsr_ast::JsxChild<'_>,
+        tag: NodeId,
+        name: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<bool> {
+        let at = child.node_id()?;
+        match child {
+            tsr_ast::JsxChild::JsxText(_) => {
+                let tag_text = self.jsx_tag_text(tag);
+                let target_text = self.type_to_string(target);
+                self.report_jsx_children_arity(
+                    at,
+                    &messages::_0_COMPONENTS_DON_T_ACCEPT_TEXT_AS_CHILD_ELEMENTS_TEXT_IN_JSX_HAS_THE_TYPE_STRING_BUT_THE_EXPECTED_TYPE_OF_1_IS_2,
+                    vec![tag_text, name.to_string(), target_text],
+                );
+                Some(true)
+            }
+            tsr_ast::JsxChild::JsxExpression(expression) => {
+                let Some(next) = expression.expression.and_then(|inner| inner.node_id()) else {
+                    let span = self.error_span(at);
+                    return Some(
+                        self.report_relation_failure(at, span, None, source, target, None),
+                    );
+                };
+                let before = self.diagnostics.len();
+                self.check_excess_properties(target, next);
+                Some(
+                    self.diagnostics.len() != before
+                        || self.report_assignability_failure(at, next, source, target),
+                )
+            }
+            _ => Some(self.report_assignability_failure(at, at, source, target)),
+        }
+    }
+
+    fn report_jsx_children_arity(
+        &mut self,
+        at: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        args: Vec<String>,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::with_args(message, span, args));
+    }
+
+    /// `isArrayOrTupleLikeType` (`checker.go:23556`): `isArrayLikeType`
+    /// (an array reference, or a non-nullable type assignable to
+    /// `readonly any[]`) or `isTupleLikeType`'s `"0"` member. `None` where
+    /// the readonly-array relation is undecided.
+    fn jsx_is_array_or_tuple_like(&mut self, ty: TypeId) -> Option<bool> {
+        if self.binding_parent_is_array_like(ty)? {
+            return Some(true);
+        }
+        Some(self.get_property_of_type(ty, "0").is_some())
     }
 
     /// `hasExcessProperties` (`relater.go:2714`) for a JSX attributes source

@@ -2561,11 +2561,24 @@ impl Checker<'_, '_> {
             SyntaxKind::DeleteExpression => return Some(self.intrinsics.undefined),
             _ => {}
         }
-        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`), restricted to a
-        // plain `x = e`. A destructuring default (`[x = 1] = y`) reaches the same
-        // upstream function by a different route and is not handled.
+        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`) for an
+        // assignment whose left operand is the target: `x = e` and the
+        // logical assignments `x ??= e`, `x ||= e`, `x &&= e`. The binder
+        // gives the logical forms an assignment flow node on the branch that
+        // evaluates `e` (`bindLogicalLikeExpression`), and upstream answers
+        // `getTypeOfExpression(right)` for every operator that reaches here.
+        // Compound operators (`+=`) never do: `getTypeAtFlowAssignment`
+        // returns the antecedent's type for them first. A destructuring
+        // default (`[x = 1] = y`) reaches the same upstream function by a
+        // different route and is not handled.
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
-        if binary.operator_token?.kind != SyntaxKind::EqualsToken {
+        if !matches!(
+            binary.operator_token?.kind,
+            SyntaxKind::EqualsToken
+                | SyntaxKind::QuestionQuestionEqualsToken
+                | SyntaxKind::BarBarEqualsToken
+                | SyntaxKind::AmpersandAmpersandEqualsToken
+        ) {
             return None;
         }
         if binary.left.and_then(|left| Node::from(left).node_id()) != Some(node) {
@@ -3626,6 +3639,129 @@ impl Checker<'_, '_> {
         };
         let t = self.recombine_unknown_type(t);
         FlowType { t, incomplete: false }
+    }
+
+    /// `isPostSuperFlowNode` (`flow.go:2604`): does every flow path that
+    /// reaches `flow` pass a `super(...)` call? Read by `checkThisBeforeSuper`
+    /// (`checker.go:12263`).
+    ///
+    /// Upstream caches the answer per shared flow node in
+    /// `c.flowNodePostSuper` for the checker's lifetime. This keeps the cache
+    /// per query instead: a `this`/`super` before `super()` is rare and each
+    /// query walks one constructor's graph, so the cache only has to keep
+    /// one walk linear in the graph (a shared node reached from several
+    /// labels is answered once), which a local map does without a new
+    /// checker field. Owner: the call; key: the shared `FlowId`; published
+    /// once its worker returns, as upstream does.
+    /// `docs/parity/notes/misc-checks.md` §21.
+    pub(crate) fn is_post_super_flow_node(&self, flow: FlowId) -> bool {
+        let mut cache: rustc_hash::FxHashMap<FlowId, bool> = rustc_hash::FxHashMap::default();
+        let mut reduce_labels: Vec<ReduceLabel> = Vec::new();
+        self.is_post_super_flow_node_worker(&mut cache, &mut reduce_labels, flow, false, 0)
+    }
+
+    /// `isPostSuperFlowNodeWorker` (`flow.go:2611`), arm for arm.
+    fn is_post_super_flow_node_worker(
+        &self,
+        cache: &mut rustc_hash::FxHashMap<FlowId, bool>,
+        reduce_labels: &mut Vec<ReduceLabel>,
+        mut flow: FlowId,
+        mut no_cache_check: bool,
+        depth: u32,
+    ) -> bool {
+        // Upstream recurses without a bound; a branch label per nesting
+        // level is the recursion, so this guard only turns a pathological
+        // graph into "post-super" (silence) rather than a stack overflow.
+        if depth > MAX_FLOW_DEPTH {
+            return true;
+        }
+        let store = self.binder.flow();
+        loop {
+            let flags = store.flags(flow);
+            if flags.contains(FlowFlags::SHARED) {
+                if !no_cache_check {
+                    if let Some(&post_super) = cache.get(&flow) {
+                        return post_super;
+                    }
+                    let post_super = self.is_post_super_flow_node_worker(
+                        cache,
+                        reduce_labels,
+                        flow,
+                        true,
+                        depth + 1,
+                    );
+                    cache.insert(flow, post_super);
+                    // Upstream falls through to walk the node again here
+                    // (its `noCacheCheck = false` then the switch); the
+                    // answer is the one just computed.
+                    return post_super;
+                }
+                no_cache_check = false;
+            }
+            if flags.intersects(
+                FlowFlags::ASSIGNMENT
+                    | FlowFlags::CONDITION
+                    | FlowFlags::ARRAY_MUTATION
+                    | FlowFlags::SWITCH_CLAUSE,
+            ) {
+                match store.antecedent(flow) {
+                    Some(next) => flow = next,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::CALL) {
+                let is_super_call = store.node(flow).is_some_and(|call| {
+                    matches!(self.node_map.get(call), Some(Node::CallExpression(call))
+                        if call.expression.and_then(|e| e.node_id())
+                            .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
+                });
+                if is_super_call {
+                    return true;
+                }
+                match store.antecedent(flow) {
+                    Some(next) => flow = next,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::BRANCH_LABEL) {
+                let antecedents: Vec<FlowId> =
+                    branch_label_antecedents(store, flow, reduce_labels).collect();
+                for antecedent in antecedents {
+                    if !self.is_post_super_flow_node_worker(
+                        cache,
+                        reduce_labels,
+                        antecedent,
+                        false,
+                        depth + 1,
+                    ) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if flags.contains(FlowFlags::LOOP_LABEL) {
+                // A loop is post-super if the control flow path that leads to
+                // the top is post-super.
+                match store.antecedents(flow).next() {
+                    Some(entry) => flow = entry,
+                    None => return false,
+                }
+            } else if flags.contains(FlowFlags::REDUCE_LABEL) {
+                let Some(reduce) = store.reduce_label(flow) else { return false };
+                let Some(antecedent) = store.antecedent(flow) else { return false };
+                reduce_labels.push(reduce);
+                let result = self.is_post_super_flow_node_worker(
+                    cache,
+                    reduce_labels,
+                    antecedent,
+                    false,
+                    depth + 1,
+                );
+                reduce_labels.pop();
+                return result;
+            } else {
+                // Unreachable nodes are considered post-super to silence
+                // errors.
+                return flags.contains(FlowFlags::UNREACHABLE);
+            }
+        }
     }
 
     /// `isReachableFlowNode` (`flow.go:2513`): can control reach this flow

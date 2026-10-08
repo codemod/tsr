@@ -368,3 +368,23 @@ on TypeScript's src/jsTyping; filed as `tsr-2zk.923`-`.935`, cause 1 noted on
 against the extending config's directory (`tsr-2zk.932`, config-breaking)
 and the composite TS6307 check (`tsr-2zk.931`). Owns `crates/tsr-tsoptions`
 config resolution and a new program-diagnostics function in `tsr-compiler`.
+
+### r4-realworld2 (`tsr-2zk.938`)
+
+Dispatched when `r4-classsyntax` finished (c7d0969, 6c196ce, ac3b6af, 58dacd9,
+213a326: TS2314 qualified/heritage arity, `this` in type queries and
+parameters (TS2683/2331/2680/2681/2730), compound-assignment contextual
+`this`, super-property accessibility TS2855/2513 via a measured call-site
+patch). Second read-only triage pass on TypeScript's `src/compiler` and
+`src/services`, which hung before the relation cache. Also: the unmerged
+r3-misc branch (reserved-name gate, mergeSymbol alias-target error, ambient
+module position checks, flow-graph isPostSuperFlowNode) is merged in batch C.
+
+### r4-heritage (`tsr-2zk.939`, `.3.2`)
+
+Dispatched when `r4-index2` finished (7d4e420 TS2374 key-type grouping over
+merged declarations, b9dd8e2 TS7053 any-key arm; its tuple-number-index and
+class-expression patches are in batch D). Owns `heritage_conformance.rs` (no
+`main` commit since `b3cd078d`): interface index constraints once per symbol
+from the first checked declaration, no parse-error early return, and the
+TS2415/2416/2417/2420/2430 clusters. Not `tsr-2zk.3.6` (main's decls lane).
