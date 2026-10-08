@@ -192,7 +192,18 @@ need the evaluator's `IsSyntacticallyString` / `ResolvedOtherFiles` bits
 (§1 does not carry them). The checker keeps no `isolatedModules` flag (only
 `preserve_const_enums`, which folds it together with `preserveConstEnums`),
 and adding one is a `checker.rs` field — outside this lane. Proposed hunk:
-`docs/parity/notes/r4-templates-isolated-modules.diff`. Cases waiting on it:
-`enumNoInitializerFollowsNonLiteralInitializer` (TS18056),
-`enumWithNonLiteralStringInitializer` and
-`isolatedModulesGlobalNamespacesAndEnums` (TS18055).
+`docs/parity/notes/r4-templates-isolated-modules.diff` (applies to
+`1606bb0`). It adds `Checker::isolated_modules` (set from
+`CompilerOptions::get_isolated_modules` in `apply_compiler_options`), makes
+the evaluator return the whole `evaluator.Result` (`Evaluation`: value plus
+the three bits, propagated arm for arm as in `evaluator.go`, with a member
+read recomputing that member's bits from its initializer only when a caller
+asks for them), and adds `check_enum_member_isolated_modules` beside
+`check_enum_member_auto_value` in `check.rs`'s enum member arm.
+
+Measured against this box's frozen baseline (built on `1606bb0`): diag
+`enumNoInitializerFollowsNonLiteralInitializer` (TS18056) and
+`enumWithNonLiteralStringInitializer` (TS18055) WRONG -> RIGHT, and
+`isolatedModulesGlobalNamespacesAndEnums` gains its TS18055 line (still WRONG
+on TS1280/TS1281); both loss checks empty; types unchanged; perf CPU ratio
+domain-model 1.007, generic-imports 1.000 (21 samples).
