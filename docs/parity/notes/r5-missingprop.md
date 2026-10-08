@@ -24,7 +24,7 @@ report function was asked about the position at all.
 | B. Calls: the argument check never runs or is lost | `fixingTypeParametersRepeatedly2`, `typeParameterFixingWithContextSensitiveArguments2`/`3`, `overloadresolutionWithConstraintCheckingDeferred` (×3), `inferenceFromIncompleteSource`, `mappedTypeAsStringTemplate`, `narrowingGenericTypeFromInstanceof01`, `objectLiteralThisWidenedOnUse` (10) | Not reached, or reached only inside a callback body checked during overload resolution whose diagnostics are discarded (`overloadresolution…` 19,14 is asked `D → A`, NotRelated, and nothing survives). Inference fixing / inferred-type-argument constraint fallback (`getInferredType` replaces an inferred argument that fails its constraint with the constraint, so `new G(x)` relates `D → A`). | `calls.rs`, `inference.rs` (main's calls lane) |
 | C. Type-only re-export aliases resolve to `error` | `chained`, `renamed`, `mergeSymbolReexportInterface` (3) | The target of `const d: D = {}` is `error` (`export type { A as B }` chains), so `assignability_pair_is_reportable` declines. | alias resolution (`symbols.rs`/`declared.rs`, not owned) |
 | D. `using` without `strictNullChecks` | `usingDeclarations.14`, `usingDeclarationsWithIteratorObject` (2) | `check_using_declaration_initializer` declines when `Disposable \| null \| undefined` collapses to `Disposable`, saying the missing-property reporter is private to `assignreport.rs`. It is `pub(crate)` (`report_relation_failure` with a head). | §2.3 (owned prerequisite) + `using_declaration.rs` diff, §3b |
-| E. JSX hyphenated attributes | `ignoredJsxAttributes`, `tsxUnionElementType3`, `tsxUnionElementType6` (3) | The element with a `data-*` attribute is declined by the JSX caller for want of the `isComparingJsxAttributes` relater flag (r5-report §2). | `jsx_component.rs` / `relater.rs` |
+| E. JSX hyphenated attributes | `ignoredJsxAttributes`, `tsxUnionElementType3`, `tsxUnionElementType6` (3) | The element with a `data-*` attribute is declined by the JSX caller for want of the `isComparingJsxAttributes` relater flag (r5-report §2). The decline also covered intersection targets, where the weak-type half cannot apply (§5). `ignoredJsxAttributes` remains: `Props` has a string index signature, which `membersRelatedToIndexInfo` relates without the hyphenated member. | diff §5 (2 cases); the flag itself, `relater.rs` |
 | F. Mapped relation | `assignmentCompatWithEnumIndexer` (`{}` vs `Record<E, any>` answers **Related**), `mappedTypeWithAsClauseAndLateBoundProperty` (**Unknown**) (2) | `Record<E, any>` over a numeric enum must have the required property `"0"`; the `as`-clause mapped type over `keyof number[]` is undecided. | `mapped.rs` (r5-mapped3), `relater.rs` (r5-relater5) |
 | G. `yield*` assignability | `generatorTypeCheck20` (1) | `check_yield_expression_assignability` declined every `yield*`. | **`assignreport.rs` — fixed, §2.1** |
 | H. Generator return annotation | `generatorTypeCheck7` (1) | `checkSignatureDeclaration`'s `checkGeneratorInstantiationAssignabilityToReturnType(returnType, flags, returnTypeNode)` (`checker.go:2763`) and TS2505 were not ported. Ported in §2.2; this case stays blocked because `WeirdIter extends IterableIterator<number>`'s iteration types are undecided (members inherited through type-argument bases, `tsr-2zk.1013`, `members.rs`). | §2.2, then `tsr-2zk.1013` |
@@ -331,3 +331,36 @@ Probe: a discriminated-union switch type (`case { kind: "a", x: 1, z: 2 }`) is
 still silent where native reports `z` against the whole union. TSR's
 comparable relation for that pair is not `NotRelated`, so it declines rather
 than reporting wrong.
+
+## 5. JSX hyphenated attributes against intersections — [r5-missingprop-jsx-hyphen-intersection.diff](r5-missingprop-jsx-hyphen-intersection.diff)
+
+This diff touches `jsx_component.rs` (not owned).
+`jsx_hyphen_sensitive_target` declines a source with hyphenated attributes
+whenever some constituent of the target, through unions **and
+intersections**, has index signatures or is weak and lacks a hyphenated name.
+Those are the two rules `isComparingJsxAttributes` changes:
+`membersRelatedToIndexInfo` and `hasCommonProperties`. The weak-type rule
+does not reach intersection constituents. `typeRelatedToEachType` relates
+them under `IntersectionStateTarget`, and `isPerformingCommonPropertyChecks`
+requires that state clear. So an intersection is weak-sensitive only when it
+is weak as a whole, which needs every constituent to be weak (`isWeakType`).
+A JSX target is almost always `IntrinsicAttributes & … & Props`, and
+`IntrinsicAttributes` is weak, so the old test declined every hyphenated
+element whose props were not themselves weak.
+
+The diff splits the predicate:
+- index sensitivity stays per constituent;
+- weak sensitivity goes through unions per constituent and through an
+  intersection as a whole. Any constituent with a required member, or any
+  non-object constituent, settles it as not weak.
+
+Measured on top of `51fca9c`:
+- `tsxUnionElementType3` (38:10) and `tsxUnionElementType6` (23:10) go
+  WRONG → RIGHT.
+- `tsxStatelessFunctionComponents1` gains its expected 36:10 TS2741 and is
+  still WRONG on other lines.
+- Nothing else moves, and both loss checks are empty.
+
+Perf, median child CPU new/old at 21 samples: domain-model 1.009,
+generic-imports 0.996. There is no unit test, because the shapes need the
+React declarations; the three corpus cases pin it.

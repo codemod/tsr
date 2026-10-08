@@ -1,0 +1,75 @@
+diff --git a/crates/tsr-checker/src/jsx_component.rs b/crates/tsr-checker/src/jsx_component.rs
+index c70ecd6..67b476e 100644
+--- a/crates/tsr-checker/src/jsx_component.rs
++++ b/crates/tsr-checker/src/jsx_component.rs
+@@ -787,17 +787,66 @@ impl Checker<'_, '_> {
+     /// index table answers `true`. Every other relater rule treats a
+     /// hyphenated member as an ordinary property, so outside these targets
+     /// this port's flagless relation is upstream's.
++    ///
++    /// The weak-type half applies to the target `isRelatedTo` meets with
++    /// `intersectionState` clear: an intersection's constituents are related
++    /// under `IntersectionStateTarget` (`typeRelatedToEachType`), which skips
++    /// `isPerformingCommonPropertyChecks`, so only an intersection that is
++    /// weak as a whole (`isWeakType`: every constituent weak) is sensitive
++    /// that way. The index-signature half applies to every constituent.
+     fn jsx_hyphen_sensitive_target(&mut self, target: TypeId, hyphenated: &[String]) -> bool {
++        self.jsx_hyphen_index_sensitive(target)
++            || self.jsx_hyphen_weak_sensitive(target, hyphenated)
++    }
++
++    /// `membersRelatedToIndexInfo` skips a hyphenated member: sensitive when
++    /// some object constituent has index signatures (or an unreadable table).
++    fn jsx_hyphen_index_sensitive(&mut self, target: TypeId) -> bool {
+         match self.store.get(target).data.clone() {
+             crate::types::TypeData::Union { types, .. }
+             | crate::types::TypeData::Intersection { types, .. } => {
+-                types.into_iter().any(|part| self.jsx_hyphen_sensitive_target(part, hyphenated))
++                types.into_iter().any(|part| self.jsx_hyphen_index_sensitive(part))
+             }
+             _ if !self.store.get(target).flags.intersects(TypeFlags::OBJECT) => false,
+-            _ => {
+-                if self.get_index_infos_of_type(target).is_none_or(|infos| !infos.is_empty()) {
+-                    return true;
++            _ => self.get_index_infos_of_type(target).is_none_or(|infos| !infos.is_empty()),
++        }
++    }
++
++    /// `hasCommonProperties` counts a hyphenated member as common: sensitive
++    /// when the target `isRelatedTo` checks for weakness may be weak and lack
++    /// a hyphenated name. A union relates each constituent with
++    /// `intersectionState` clear; an intersection is weak only when every
++    /// constituent is, and then lacks a name every constituent lacks.
++    fn jsx_hyphen_weak_sensitive(&mut self, target: TypeId, hyphenated: &[String]) -> bool {
++        match self.store.get(target).data.clone() {
++            crate::types::TypeData::Union { types, .. } => {
++                types.into_iter().any(|part| self.jsx_hyphen_weak_sensitive(part, hyphenated))
++            }
++            crate::types::TypeData::Intersection { types, .. } => {
++                // One constituent that is certainly not weak (a required
++                // member, or not an object) settles it; an unreadable table
++                // otherwise leaves it undecided.
++                let mut tables = Vec::with_capacity(types.len());
++                let mut unreadable = false;
++                for part in types {
++                    if !self.store.get(part).flags.intersects(TypeFlags::OBJECT) {
++                        return false;
++                    }
++                    match self.relation_property_table(part) {
++                        Some(table) if !table.iter().all(|(_, optional)| *optional) => {
++                            return false;
++                        }
++                        Some(table) => tables.push(table),
++                        None => unreadable = true,
++                    }
+                 }
++                unreadable
++                    || hyphenated.iter().any(|name| {
++                        tables.iter().all(|table| !table.iter().any(|(seen, _)| seen == name))
++                    })
++            }
++            _ if !self.store.get(target).flags.intersects(TypeFlags::OBJECT) => false,
++            _ => {
+                 let Some(table) = self.relation_property_table(target) else { return true };
+                 table.iter().all(|(_, optional)| *optional)
+                     && hyphenated.iter().any(|name| !table.iter().any(|(seen, _)| seen == name))
