@@ -257,43 +257,6 @@ impl Checker<'_, '_> {
         self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
     }
 
-    /// Whether the node's source file carries COMMONJS module machinery — a
-    /// reference to `require`, `module` or `exports`. §784.
-    ///
-    /// The sibling [`Checker::file_has_import_machinery`] asks the same
-    /// question — *can an unresolved name here be this port's own binding gap
-    /// rather than the source's?* — but only over ES `import`/`export`
-    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
-    /// the shape `allowJs` corpora are written in.
-    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
-        let mut root = node;
-        while let Some(parent) = self.nodes.parent(root) {
-            root = parent;
-        }
-        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
-            return cached;
-        }
-        let answer = self.node_map.get(root).is_none_or(|file| {
-            let mut stack = vec![file];
-            let mut children = Vec::new();
-            let mut found = false;
-            while let Some(current) = stack.pop() {
-                if let Node::Identifier(identifier) = current
-                    && matches!(identifier.text, "require" | "module" | "exports")
-                {
-                    found = true;
-                    break;
-                }
-                children.clear();
-                tsr_ast::push_children(current, &mut children);
-                stack.extend(children.iter().copied());
-            }
-            found
-        });
-        self.file_commonjs_machinery.insert(root, answer);
-        answer
-    }
-
     /// Whether the node's source file carries any import/export declaration
     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
     pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
@@ -944,9 +907,8 @@ impl Checker<'_, '_> {
                         // chose how the name PRINTED, which is now the
                         // writer's decision; measured against a native build
                         // every line they kept as the gap is `errorType`
-                        // natively. Two arms stay the gap because there the
-                        // miss can be this port's own resolution, and one is
-                        // held (below):
+                        // natively. Two arms stay the gap, because there the
+                        // miss can be this port's own resolution:
                         //
                         // - a name found only as an ALIAS: the alias may
                         //   resolve to a value the port does not reach
@@ -968,13 +930,7 @@ impl Checker<'_, '_> {
                             self.binder.symbols().get(found).flags.intersects(SymbolFlags::ALIAS)
                         });
                         let arguments_unread = node.text == "arguments" && arguments_container();
-                        // Held (§3): a JS file with no CommonJS machinery is
-                        // `errorType` natively too, but there the writer's
-                        // fast path prints the call through it, and the
-                        // call road lacks `resolveCallExpression`'s
-                        // `isErrorType` arm (`checker.go:8516`, `calls.rs`).
-                        let held_js = self.in_js_file(id) && !self.file_has_commonjs_machinery(id);
-                        if found_as_alias || arguments_unread || held_js {
+                        if found_as_alias || arguments_unread {
                             self.intrinsics.error
                         } else {
                             self.intrinsics.native_error
