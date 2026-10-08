@@ -654,3 +654,603 @@ mod tests {
         assert!(weak.upgrade().is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Declaration-emit symbol accessibility (`EmitResolver`).
+// ---------------------------------------------------------------------------
+
+/// `printer.SymbolAccessibility` (`printer/emitresolver.go`), restricted to
+/// the answers [`DeclarationEmitResolver::is_entity_name_visible`] produces.
+/// `CannotBeNamed` comes only from `isSymbolAccessible`'s module-specifier
+/// arm, which nothing here ports yet (`docs/parity/notes/r4-declemit.md` §3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EmitAccessibility {
+    /// `SymbolAccessibilityAccessible`, with `AliasesToMakeVisible`: the
+    /// statements `hasVisibleDeclarations` painted visible on the way.
+    Accessible {
+        /// The aliasing statements to emit after all.
+        aliases_to_make_visible: Vec<NodeId>,
+    },
+    /// `SymbolAccessibilityNotAccessible`, with `ErrorSymbolName` and
+    /// `ErrorNode` (the entity name's first identifier).
+    NotAccessible {
+        /// The first identifier's text.
+        error_symbol_name: String,
+        /// The first identifier.
+        error_node: NodeId,
+    },
+    /// `SymbolAccessibilityNotResolved`: the checker reports unresolvable
+    /// names itself, so declaration emit stays silent.
+    NotResolved,
+}
+
+/// Pinned tsgo 5b1047d: `EmitResolver` (`checker/emitresolver.go`), the
+/// accessibility half: `isDeclarationVisible`, `determineIfDeclarationIsVisible`,
+/// `PrecalculateDeclarationEmitVisibility`/`markLinkedAliases`,
+/// `isEntityNameVisible` and `hasVisibleDeclarations`.
+///
+/// Checker port convention record (`docs/conventions.md`):
+///
+/// - **Native operation**: `EmitResolver.declarationLinks.isVisible` and
+///   `declarationFileLinks.aliasesMarked`.
+/// - **Key identity and owner**: declaration `NodeId` / source-file `NodeId`;
+///   owned by this resolver value, which plays native's per-program
+///   `EmitResolver` (its links are the resolver's, not the checker's — native
+///   keeps them on `EmitResolver`, so the checker's own declaration
+///   visibility used by type printing is untouched).
+/// - **Publication states**: absent = unknown (`TSUnknown`); `true`/`false`
+///   once `determineIfDeclarationIsVisible` ran. `hasVisibleDeclarations`'
+///   `addVisibleAlias` and `markLinkedAliases` *paint* an entry `true`, which
+///   is native's mutation and is what makes a referenced non-exported
+///   statement emittable.
+/// - **Receiver/alias context**: none; names resolve at the enclosing
+///   declaration through the checker's `resolve_name_with_export_alias`.
+/// - **Expensive work**: name resolution and alias resolution, both the
+///   checker's; the walk itself is one ancestor chain per query.
+pub struct DeclarationEmitResolver<'c, 'a, 'n> {
+    checker: &'c mut crate::checker::Checker<'a, 'n>,
+    is_visible: FxHashMap<NodeId, bool>,
+    aliases_marked: rustc_hash::FxHashSet<NodeId>,
+}
+
+impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
+    /// A resolver with no visibility decided yet.
+    pub fn new(checker: &'c mut crate::checker::Checker<'a, 'n>) -> Self {
+        Self {
+            checker,
+            is_visible: FxHashMap::default(),
+            aliases_marked: rustc_hash::FxHashSet::default(),
+        }
+    }
+
+    fn kind(&self, node: NodeId) -> tsr_ast::SyntaxKind {
+        self.checker.nodes.kind(node)
+    }
+
+    fn parent(&self, node: NodeId) -> Option<NodeId> {
+        self.checker.nodes.parent(node)
+    }
+
+    fn modifiers(&self, node: NodeId) -> &'a [tsr_ast::ModifierLike<'a>] {
+        use tsr_ast::Node;
+        match self.checker.node_map.get(node) {
+            Some(Node::PropertySignatureDeclaration(n)) => n.modifiers,
+            Some(Node::MethodSignatureDeclaration(n)) => n.modifiers,
+            Some(node) => crate::check::modifiers_of(node).unwrap_or(&[]),
+            None => &[],
+        }
+    }
+
+    /// `ast.HasSyntacticModifier(node, flag)` for one modifier keyword.
+    fn has_modifier(&self, node: NodeId, kind: tsr_ast::SyntaxKind) -> bool {
+        self.modifiers(node)
+            .iter()
+            .any(|m| matches!(m, tsr_ast::ModifierLike::Token(token) if token.kind == kind))
+    }
+
+    /// `getCombinedModifierFlagsCached(node) & ModifierFlagsExport`
+    /// (`ast.GetCombinedModifierFlags`): a variable declaration also carries
+    /// its list's and statement's modifiers.
+    fn has_combined_export(&self, node: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut node = self.root_declaration(node);
+        if self.has_modifier(node, K::ExportKeyword) {
+            return true;
+        }
+        if self.kind(node) == K::VariableDeclaration
+            && let Some(list) = self.parent(node)
+        {
+            node = list;
+        }
+        if self.kind(node) == K::VariableDeclarationList
+            && let Some(statement) = self.parent(node)
+        {
+            return self.kind(statement) == K::VariableStatement
+                && self.has_modifier(statement, K::ExportKeyword);
+        }
+        false
+    }
+
+    /// `ast.GetRootDeclaration`: up through binding elements and patterns.
+    fn root_declaration(&self, mut node: NodeId) -> NodeId {
+        use tsr_ast::SyntaxKind as K;
+        while self.kind(node) == K::BindingElement {
+            match self.parent(node).and_then(|pattern| self.parent(pattern)) {
+                Some(owner) => node = owner,
+                None => break,
+            }
+        }
+        node
+    }
+
+    /// `ast.GetDeclarationContainer`.
+    fn declaration_container(&self, node: NodeId) -> Option<NodeId> {
+        use tsr_ast::SyntaxKind as K;
+        let mut current = self.root_declaration(node);
+        while matches!(
+            self.kind(current),
+            K::VariableDeclaration
+                | K::VariableDeclarationList
+                | K::ImportSpecifier
+                | K::NamedImports
+                | K::NamespaceImport
+                | K::ImportClause
+        ) {
+            current = self.parent(current)?;
+        }
+        self.parent(current)
+    }
+
+    fn source_file(&self, node: NodeId) -> Option<&'a tsr_ast::SourceFile<'a>> {
+        match self.checker.node_map.get(node) {
+            Some(tsr_ast::Node::SourceFile(file)) => Some(file),
+            _ => None,
+        }
+    }
+
+    /// `ast.IsGlobalSourceFile`.
+    fn is_global_source_file(&self, node: NodeId) -> bool {
+        self.source_file(node).is_some_and(|file| !tsr_binder::is_external_module(file))
+    }
+
+    /// `ast.IsAmbientModule`: a string-named module or `declare global`.
+    fn is_ambient_module(&self, node: NodeId) -> bool {
+        matches!(self.checker.node_map.get(node), Some(tsr_ast::Node::ModuleDeclaration(module))
+            if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                || module.keyword.kind == tsr_ast::SyntaxKind::GlobalKeyword)
+    }
+
+    /// `ast.IsExternalModuleAugmentation` (`ast/utilities.go:3567`).
+    fn is_external_module_augmentation(&self, node: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        if !self.is_ambient_module(node) {
+            return false;
+        }
+        let Some(parent) = self.parent(node) else { return false };
+        match self.kind(parent) {
+            K::SourceFile => self.source_file(parent).is_some_and(tsr_binder::is_external_module),
+            K::ModuleBlock => self.parent(parent).is_some_and(|grand| {
+                self.is_ambient_module(grand)
+                    && self.parent(grand).is_some_and(|file| self.is_global_source_file(file))
+            }),
+            _ => false,
+        }
+    }
+
+    /// `EmitResolver.isDeclarationVisible` (`emitresolver.go:111`).
+    pub fn is_declaration_visible(&mut self, node: NodeId) -> bool {
+        if self.checker.nodes.flags(node).contains(tsr_ast::NodeFlags::SYNTHESIZED) {
+            return false;
+        }
+        if let Some(&visible) = self.is_visible.get(&node) {
+            return visible;
+        }
+        let visible = self.determine_if_declaration_is_visible(node);
+        self.is_visible.insert(node, visible);
+        visible
+    }
+
+    /// `EmitResolver.determineIfDeclarationIsVisible` (`emitresolver.go:131`).
+    /// The JSDoc typedef arms are not reached: JavaScript files are not
+    /// walked (`tsr_dts::accessibility`).
+    fn determine_if_declaration_is_visible(&mut self, node: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        match self.kind(node) {
+            K::BindingElement => self
+                .parent(node)
+                .and_then(|pattern| self.parent(pattern))
+                .is_some_and(|owner| self.is_declaration_visible(owner)),
+            K::VariableDeclaration
+            | K::ModuleDeclaration
+            | K::ClassDeclaration
+            | K::InterfaceDeclaration
+            | K::TypeAliasDeclaration
+            | K::FunctionDeclaration
+            | K::EnumDeclaration
+            | K::ImportEqualsDeclaration => {
+                if let Some(tsr_ast::Node::VariableDeclaration(declaration)) =
+                    self.checker.node_map.get(node)
+                    && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name
+                    && pattern.elements.is_empty()
+                {
+                    return false;
+                }
+                if self.is_external_module_augmentation(node) {
+                    return true;
+                }
+                let Some(parent) = self.declaration_container(node) else { return false };
+                // Not exported, and not an ambient module element (an import
+                // declaration excepted).
+                let ambient_member = self.kind(node) != K::ImportEqualsDeclaration
+                    && self.kind(parent) != K::SourceFile
+                    && self.checker.nodes.flags(parent).contains(tsr_ast::NodeFlags::AMBIENT);
+                if !self.has_combined_export(node) && !ambient_member {
+                    return self.is_global_source_file(parent);
+                }
+                self.is_declaration_visible(parent)
+            }
+            K::PropertyDeclaration
+            | K::PropertySignature
+            | K::GetAccessor
+            | K::SetAccessor
+            | K::MethodDeclaration
+            | K::MethodSignature => {
+                if self.has_modifier(node, K::PrivateKeyword)
+                    || self.has_modifier(node, K::ProtectedKeyword)
+                {
+                    return false;
+                }
+                self.parent(node).is_some_and(|parent| self.is_declaration_visible(parent))
+            }
+            K::Constructor
+            | K::ConstructSignature
+            | K::CallSignature
+            | K::IndexSignature
+            | K::Parameter
+            | K::ModuleBlock
+            | K::FunctionType
+            | K::ConstructorType
+            | K::TypeLiteral
+            | K::TypeReference
+            | K::ArrayType
+            | K::TupleType
+            | K::UnionType
+            | K::IntersectionType
+            | K::ParenthesizedType
+            | K::NamedTupleMember => {
+                self.parent(node).is_some_and(|parent| self.is_declaration_visible(parent))
+            }
+            K::TypeParameter | K::SourceFile | K::NamespaceExportDeclaration => true,
+            K::ExportSpecifier => {
+                let export = self.parent(node).and_then(|named| self.parent(named));
+                match export.map(|id| (id, self.checker.node_map.get(id))) {
+                    Some((id, Some(tsr_ast::Node::ExportDeclaration(declaration))))
+                        if declaration.module_specifier.is_none() =>
+                    {
+                        self.parent(id).is_some_and(|parent| self.is_declaration_visible(parent))
+                    }
+                    _ => false,
+                }
+            }
+            // Import clauses, namespace imports and specifiers are visible
+            // only on demand; export assignments bind nothing outside.
+            _ => false,
+        }
+    }
+
+    /// `EmitResolver.PrecalculateDeclarationEmitVisibility`
+    /// (`emitresolver.go:236`): mark what `export =`, `export default` and
+    /// `export { … }` name as visible before the transform runs.
+    pub fn precalculate_declaration_emit_visibility(&mut self, file: NodeId) {
+        if !self.aliases_marked.insert(file) {
+            return;
+        }
+        let mut stack = vec![file];
+        while let Some(node) = stack.pop() {
+            match self.checker.node_map.get(node) {
+                Some(tsr_ast::Node::ExportAssignment(assignment)) => {
+                    if let Some(tsr_ast::Expression::Identifier(identifier)) = assignment.expression
+                        && let Some(id) = identifier.node_id
+                    {
+                        self.mark_linked_aliases(id, Some(identifier.text));
+                    }
+                }
+                Some(tsr_ast::Node::ExportSpecifier(_)) => self.mark_linked_aliases(node, None),
+                _ => {}
+            }
+            if let Some(typed) = self.checker.node_map.get(node) {
+                tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+            }
+        }
+    }
+
+    /// `EmitResolver.markLinkedAliases` (`emitresolver.go:278`). For an
+    /// export specifier the target is `getTargetOfExportSpecifier`, here the
+    /// specifier symbol's resolved alias. The `CommonJS` `module.exports =`
+    /// arm is not reached (JavaScript files are not walked).
+    fn mark_linked_aliases(&mut self, node: NodeId, export_assignment_name: Option<&str>) {
+        let all =
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE | SymbolFlags::ALIAS;
+        let mut export_symbol = match export_assignment_name {
+            Some(name) => self.checker.resolve_name_with_export_alias(node, name, all),
+            None => self
+                .checker
+                .binder
+                .symbol_of(node)
+                .and_then(|alias| self.checker.resolve_alias(alias)),
+        };
+        let mut visited = rustc_hash::FxHashSet::default();
+        while let Some(symbol) = export_symbol {
+            let symbol = self.checker.binder.merged_symbol(symbol);
+            if !visited.insert(symbol) {
+                break;
+            }
+            let mut next = None;
+            let declarations = self.checker.binder.symbols().get(symbol).declarations.clone();
+            for declaration in declarations {
+                self.is_visible.insert(declaration, true);
+                // `IsInternalModuleImportEqualsDeclaration`.
+                if let Some(tsr_ast::Node::ImportEqualsDeclaration(import)) =
+                    self.checker.node_map.get(declaration)
+                    && let Some(reference) = import.module_reference
+                    && !matches!(reference, tsr_ast::ModuleReference::ExternalModuleReference(_))
+                {
+                    let first = first_identifier_of_module_reference(reference);
+                    next = first.and_then(|(_, text)| {
+                        self.checker.resolve_name_with_export_alias(declaration, text, all)
+                    });
+                }
+            }
+            export_symbol = next;
+        }
+    }
+
+    /// `ast.GetFirstIdentifier` over an entity name or entity-name
+    /// expression, with its text.
+    fn first_identifier(&self, mut node: NodeId) -> Option<(NodeId, &'a str)> {
+        use tsr_ast::Node;
+        loop {
+            match self.checker.node_map.get(node)? {
+                Node::Identifier(identifier) => return Some((node, identifier.text)),
+                Node::QualifiedName(name) => node = name.left?.node_id()?,
+                Node::PropertyAccessExpression(access) => node = access.expression?.node_id()?,
+                _ => return None,
+            }
+        }
+    }
+
+    /// `getMeaningOfEntityNameReference` (`emitresolver.go:311`).
+    fn meaning_of_entity_name_reference(&self, entity_name: NodeId) -> SymbolFlags {
+        use tsr_ast::{Node, SyntaxKind as K};
+        let parent = self.parent(entity_name);
+        let parent_kind = parent.map(|p| self.kind(p));
+        let is_value = match parent_kind {
+            Some(K::TypeQuery | K::ComputedPropertyName | K::BinaryExpression) => true,
+            Some(K::ExpressionWithTypeArguments) => {
+                let tree = tsr_ast::Tree { nodes: self.checker.nodes, map: self.checker.node_map };
+                !tsr_ast::predicates::is_part_of_type_node(parent.unwrap_or(entity_name), tree)
+            }
+            Some(K::TypePredicate) => matches!(
+                parent.and_then(|p| self.checker.node_map.get(p)),
+                Some(Node::TypePredicateNode(predicate))
+                    if predicate.parameter_name.and_then(|n| n.node_id()) == Some(entity_name)
+            ),
+            _ => false,
+        };
+        if is_value {
+            return SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE;
+        }
+        let left_of = |p: NodeId| match self.checker.node_map.get(p) {
+            Some(Node::QualifiedName(name)) => {
+                name.left.and_then(|n| n.node_id()) == Some(entity_name)
+            }
+            Some(Node::PropertyAccessExpression(access)) => {
+                access.expression.and_then(|n| n.node_id()) == Some(entity_name)
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                access.expression.and_then(|n| n.node_id()) == Some(entity_name)
+            }
+            _ => false,
+        };
+        if matches!(self.kind(entity_name), K::QualifiedName | K::PropertyAccessExpression)
+            || parent_kind == Some(K::ImportEqualsDeclaration)
+            || parent.is_some_and(left_of)
+        {
+            return SymbolFlags::NAMESPACE;
+        }
+        SymbolFlags::TYPE
+    }
+
+    /// `EmitResolver.isEntityNameVisible` (`emitresolver.go:340`) with
+    /// `shouldComputeAliasToMakeVisible`.
+    ///
+    /// The `this` arm (`typeof this` resolved through the `this` container's
+    /// symbol) answers `NotResolved` here; native answers `Accessible` or
+    /// falls through to the same `NotResolved`, and neither reports.
+    pub fn is_entity_name_visible(
+        &mut self,
+        entity_name: NodeId,
+        enclosing_declaration: NodeId,
+    ) -> EmitAccessibility {
+        if self.checker.nodes.flags(entity_name).contains(tsr_ast::NodeFlags::SYNTHESIZED) {
+            return EmitAccessibility::NotResolved;
+        }
+        let meaning = self.meaning_of_entity_name_reference(entity_name);
+        let Some((first, text)) = self.first_identifier(entity_name) else {
+            return EmitAccessibility::NotResolved;
+        };
+        let Some(symbol) =
+            self.checker.resolve_name_with_export_alias(enclosing_declaration, text, meaning)
+        else {
+            return EmitAccessibility::NotResolved;
+        };
+        let symbol = self.checker.binder.merged_symbol(symbol);
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        if flags.contains(SymbolFlags::TYPE_PARAMETER) && meaning.intersects(SymbolFlags::TYPE) {
+            return EmitAccessibility::Accessible { aliases_to_make_visible: Vec::new() };
+        }
+        match self.has_visible_declarations(symbol) {
+            Some(aliases) => EmitAccessibility::Accessible { aliases_to_make_visible: aliases },
+            None => EmitAccessibility::NotAccessible {
+                error_symbol_name: text.to_string(),
+                error_node: first,
+            },
+        }
+    }
+
+    /// `EmitResolver.hasVisibleDeclarations` (`emitresolver.go:384`) with
+    /// `shouldComputeAliasToMakeVisible`: `None` is native's `nil`; the
+    /// aliases come back in first-painted order (native collects a map).
+    fn has_visible_declarations(&mut self, symbol: SymbolId) -> Option<Vec<NodeId>> {
+        use tsr_ast::SyntaxKind as K;
+        let record = self.checker.binder.symbols().get(symbol);
+        let flags = record.flags;
+        let declarations = record.declarations.clone();
+        let mut aliases: Vec<(NodeId, NodeId)> = Vec::new();
+        let mut add_visible_alias = |this: &mut Self, declaration: NodeId, statement: NodeId| {
+            this.is_visible.insert(declaration, true);
+            match aliases.iter_mut().find(|(d, _)| *d == declaration) {
+                Some(entry) => entry.1 = statement,
+                None => aliases.push((declaration, statement)),
+            }
+        };
+        for declaration in declarations {
+            let kind = self.kind(declaration);
+            if kind == K::Identifier || self.is_declaration_visible(declaration) {
+                continue;
+            }
+            // `getAnyImportSyntax` (`checker/utilities.go:1602`).
+            let import = match kind {
+                K::ImportEqualsDeclaration => Some(declaration),
+                K::ImportClause => self.parent(declaration),
+                K::NamespaceImport => self.parent(declaration).and_then(|p| self.parent(p)),
+                K::ImportSpecifier => self
+                    .parent(declaration)
+                    .and_then(|p| self.parent(p))
+                    .and_then(|p| self.parent(p)),
+                _ => None,
+            };
+            if let Some(import) = import
+                && !self.has_modifier(import, K::ExportKeyword)
+                && self.parent(import).is_some_and(|parent| self.is_declaration_visible(parent))
+            {
+                add_visible_alias(self, declaration, import);
+                continue;
+            }
+            if kind == K::VariableDeclaration
+                && let Some(statement) = self.parent(declaration).and_then(|list| self.parent(list))
+                && self.kind(statement) == K::VariableStatement
+                && !self.has_modifier(statement, K::ExportKeyword)
+                && self.parent(statement).is_some_and(|parent| self.is_declaration_visible(parent))
+            {
+                add_visible_alias(self, declaration, statement);
+                continue;
+            }
+            // `ast.IsLateVisibilityPaintedStatement` (`ast/utilities.go:3548`).
+            if matches!(
+                kind,
+                K::ImportDeclaration
+                    | K::ImportEqualsDeclaration
+                    | K::VariableStatement
+                    | K::ClassDeclaration
+                    | K::FunctionDeclaration
+                    | K::ModuleDeclaration
+                    | K::TypeAliasDeclaration
+                    | K::InterfaceDeclaration
+                    | K::EnumDeclaration
+            ) && !self.has_modifier(declaration, K::ExportKeyword)
+                && self
+                    .parent(declaration)
+                    .is_some_and(|parent| self.is_declaration_visible(parent))
+            {
+                add_visible_alias(self, declaration, declaration);
+                continue;
+            }
+            if kind == K::BindingElement && flags.contains(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
+                // The JavaScript `require` arm is not reached: JavaScript
+                // files are not walked.
+                let root = self.root_declaration(declaration);
+                if self.kind(root) == K::Parameter {
+                    return None;
+                }
+                let statement = self.parent(root).and_then(|list| self.parent(list))?;
+                if self.kind(statement) != K::VariableStatement {
+                    return None;
+                }
+                if self.has_modifier(statement, K::ExportKeyword) {
+                    continue;
+                }
+                if !self.parent(statement).is_some_and(|parent| self.is_declaration_visible(parent))
+                {
+                    return None;
+                }
+                add_visible_alias(self, declaration, statement);
+                continue;
+            }
+            return None;
+        }
+        Some(aliases.into_iter().map(|(_, statement)| statement).collect())
+    }
+
+    /// `EmitResolver.IsImplementationOfOverload` (`emitresolver.go:463`):
+    /// a body-carrying function-like declaration whose symbol has more than
+    /// one signature, or one that is not this declaration.
+    /// `getSignaturesOfSymbol` is read as the symbol's function-like
+    /// declarations, one signature each, which is what it computes for the
+    /// TypeScript files this resolver is asked about.
+    pub fn is_implementation_of_overload(&mut self, node: NodeId) -> bool {
+        use tsr_ast::{Node, SyntaxKind as K};
+        let has_body = match self.checker.node_map.get(node) {
+            Some(Node::FunctionDeclaration(n)) => n.body.is_some(),
+            Some(Node::MethodDeclaration(n)) => n.body.is_some(),
+            Some(Node::ConstructorDeclaration(n)) => n.body.is_some(),
+            _ => return false,
+        };
+        if !has_body {
+            return false;
+        }
+        let Some(symbol) = self.checker.binder.symbol_of(node) else { return false };
+        let symbol = self.checker.binder.merged_symbol(symbol);
+        let signatures: Vec<NodeId> = self
+            .checker
+            .binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .copied()
+            .filter(|&d| {
+                matches!(
+                    self.kind(d),
+                    K::FunctionDeclaration
+                        | K::MethodDeclaration
+                        | K::MethodSignature
+                        | K::Constructor
+                        | K::FunctionExpression
+                        | K::ArrowFunction
+                )
+            })
+            .collect();
+        signatures.len() > 1 || (signatures.len() == 1 && signatures[0] != node)
+    }
+}
+
+fn first_identifier_of_module_reference(
+    reference: tsr_ast::ModuleReference<'_>,
+) -> Option<(NodeId, &str)> {
+    let mut name = match reference {
+        tsr_ast::ModuleReference::Identifier(identifier) => {
+            return Some((identifier.node_id?, identifier.text));
+        }
+        tsr_ast::ModuleReference::QualifiedName(name) => name,
+        tsr_ast::ModuleReference::ExternalModuleReference(_) => return None,
+    };
+    loop {
+        match name.left? {
+            tsr_ast::EntityName::Identifier(identifier) => {
+                return Some((identifier.node_id?, identifier.text));
+            }
+            tsr_ast::EntityName::QualifiedName(left) => name = left,
+        }
+    }
+}
