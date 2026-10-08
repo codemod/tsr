@@ -29,3 +29,93 @@ WRONG → RIGHT), types unchanged, zero losses in both checks.
 **Falsifier.** A for-of case whose baseline lacks a TS18048/TS2532 that TSR
 now reports on the operand: that points at the operand's *type* (narrowing,
 or a declared type carrying `undefined` it should not), not at this call.
+
+## 2. The iteration protocol carries native's error node (`tsr-2zk.957`)
+
+**Forcing constraint.** Upstream threads `errorNode` and a
+`diagnosticOutput` buffer through `getIterationTypesOfIterableWorker`
+(`checker.go:6287`) into the slow path: `getIterationTypesOfIterableSlow`
+(`:6460`), `getIterationTypesOfIteratorWorker` (`:6495`) and
+`getIterationTypesOfMethod` (`:6541`), whose `resolveIterationType(t,
+errorNode)` is the async resolver's `getAwaitedTypeEx(t, errorNode, Type of
+'await' operand must …)` (`:1287`). This port's engine had no error node, so
+every diagnostic raised *inside* the protocol was lost:
+
+| Code | Raised by | Witness |
+|---|---|---|
+| TS1320 | async `resolveIterationType` of `next()`'s result (`then(){}` thenable) | `crashInYieldStarInAsyncFunction` |
+| TS2490 / TS2547 | `mustHaveAValueDiagnostic`: the `next()` result has no `value` | `for-of15` |
+| TS2767 / TS2768 | `mustBeAMethodDiagnostic`: `return = 0` | `for-of30` |
+| TS2489 / TS2519 | `mustHaveANextMethodDiagnostic` | (none in the corpus) |
+
+**What was ported.** `get_iteration_types_of_iterable_ex(ty, use, error_node)`
+is the error-node form; the existing `get_iteration_types_of_iterable` is
+its nil-node wrapper, so every type query is unchanged. Only
+`check_iterated_type_or_element_type` (upstream's
+`getIteratedTypeOrElementType` with `iterableExists`) passes a node. The
+worker keeps one buffer across the async and sync slow attempts, as
+upstream's local `diags` does, and emits it only when a slow attempt then
+finds iteration types (`checker.go:6315`, `:6330`); on failure upstream
+attaches the buffer as related information of `reportTypeNotIterableError`,
+which this port's diagnostics do not carry, so it is dropped. Union
+constituents are asked with a nil node (`checker.go:6291`). The fast paths
+pass nil (`getResolvedIterationTypes`, `:6386`), and so does this port.
+
+**Called, not copied.** The awaited resolution with a node is
+`check_awaited_type` (`expressions.rs`, r4-awaited), the reporting form of
+`getAwaitedTypeNoAliasEx`: its `errorType` answer is native's nil (already
+reported), `None` is a step the awaited family cannot decide. Without a
+node `awaited_type` cannot tell those apart, so the nil-node road still
+declines native's nil; that is unchanged and is why the type of the
+witness's `yield*` stays a gap.
+
+**Accepted gaps.**
+
+- The `Iterable` assignability elaboration that the slow path buffers when
+  every `[Symbol.iterator]` signature needs arguments
+  (`checkTypeAssignableToEx(t, getGlobalIterableTypeChecked(), …)`,
+  `:6474`) is not built. The buffer is marked incomplete instead, and a
+  success that would emit it declines (reports nothing) rather than emit
+  part of the buffer. A failure drops the buffer anyway.
+- The `getGlobalAwaitedSymbol()` probe of `getAsyncFromSyncIterationTypes`
+  (`:6443`, TS2318 for a lib without `Awaited`) is not made.
+- **No cache.** Upstream skips the walk, and therefore the diagnostics, when
+  `iterationTypesCache` already holds a result *with* types from an earlier
+  nil-node query (`checker.go:6273`). This port recomputes, so a reporting
+  query always reports. Upstream's check sites (for-of head, spread,
+  destructuring, `yield*`) are normally the first to ask for their
+  operand, and the corpus agrees: after this change no case gained a
+  diagnostic its baseline lacks. A case that reports a protocol diagnostic
+  native suppresses would be the falsifier.
+
+**Measured** (against `ac56208`, stacked on §1): diagnostics +3
+(`crashInYieldStarInAsyncFunction`, `for-of15`, `for-of30` WRONG → RIGHT;
+5071 → 5074), types unchanged, zero losses in both checks, and no other
+case's diagnostic list changed.
+
+## 3. Blocked outside this lane
+
+- **`for-of58` (extra TS18048 ×2, three `X & Y` type lines).** The engine
+  declines `X[] & Y[]`: its iterator `ArrayIterator<X> & ArrayIterator<Y>`
+  has a computable `next` *type* but `get_property_of_type` answers no
+  symbol for it, because `next` is inherited through `IteratorObject<T, …>`'s
+  type-argument heritage (the gap `get_iteration_types_of_method`'s doc
+  comment names). A missing symbol that is not decidably absent declines.
+  The plain-name for-of variable then falls to `symbols.rs`'
+  `for_of_yield_types`, which answers `(X & Y) | undefined`. Owner:
+  `members.rs` (inherited-member symbol through a type-argument base).
+  Probed: routing the plain-name arm through `for_of_iterated_type` first
+  (as `destructure.rs` already does) changes nothing until the lookup is
+  fixed. A second step will then be needed here: the two `next` return
+  types are alias references (`IteratorResult<X, undefined>`), which this
+  port's intersection does not distribute the way native's union body
+  does. That step was written, changed nothing on `for-of58` or on a
+  hand-written intersection probe, and was reverted, since nothing reaches
+  it yet.
+- **`asyncIteratorExtraParameters` (TS2504 ×2).** The for-await query
+  declines on the sync fallback: `[Symbol.iterator]` is not *decidably*
+  absent on an object-literal type whose members include a computed name
+  (`object_literal_property_table`, `member_completeness.rs`, declines
+  computed names by design). Native's lookup misses and reports TS2504.
+  Owner: member completeness. Once the absence is decidable, §2's
+  incomplete-buffer rule already gives TS2504 without the related TS2322.

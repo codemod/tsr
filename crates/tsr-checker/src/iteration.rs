@@ -82,6 +82,36 @@ impl IterationTypes {
     }
 }
 
+/// Native's `errorNode` and `diagnosticOutput` pair for one
+/// `getIterationTypesOfIterableWorker` call (`checker.go:6287`): the node a
+/// protocol diagnostic is reported on, and the buffer `reportDiagnostic`
+/// appends to. The buffer is emitted only when a slow path then finds
+/// iteration types; on failure upstream attaches it as related information
+/// of `reportTypeNotIterableError`, which this port does not carry.
+/// `incomplete` marks a buffered diagnostic this port could not build (the
+/// `Iterable` assignability elaboration), so a success that would emit the
+/// buffer declines instead of emitting part of it.
+struct ProtocolReports {
+    node: NodeId,
+    output: Vec<Diagnostic>,
+    incomplete: bool,
+}
+
+impl ProtocolReports {
+    /// `reportDiagnostic(NewDiagnosticForNode(errorNode, message,
+    /// methodName), diagnosticOutput)`; a message without `{0}` ignores the
+    /// argument, as upstream's formatter does.
+    fn push(
+        &mut self,
+        checker: &Checker<'_, '_>,
+        message: &'static tsr_diagnostics::Message,
+        name: &str,
+    ) {
+        let span = checker.error_span(self.node);
+        self.output.push(Diagnostic::with_args(message, span, [name.to_string()]));
+    }
+}
+
 /// `IterationTypeKind` (`checker.go:219`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IterationTypeKind {
@@ -127,6 +157,29 @@ impl Resolver {
         }
     }
 
+    /// `mustHaveANextMethodDiagnostic`, `mustBeAMethodDiagnostic` and
+    /// `mustHaveAValueDiagnostic` (`checker.go:1273`, `:1290`).
+    fn must_have_a_next_method(self) -> &'static tsr_diagnostics::Message {
+        match self {
+            Self::Sync => &messages::AN_ITERATOR_MUST_HAVE_A_NEXT_METHOD,
+            Self::Async => &messages::AN_ASYNC_ITERATOR_MUST_HAVE_A_NEXT_METHOD,
+        }
+    }
+
+    fn must_be_a_method(self) -> &'static tsr_diagnostics::Message {
+        match self {
+            Self::Sync => &messages::THE_0_PROPERTY_OF_AN_ITERATOR_MUST_BE_A_METHOD,
+            Self::Async => &messages::THE_0_PROPERTY_OF_AN_ASYNC_ITERATOR_MUST_BE_A_METHOD,
+        }
+    }
+
+    fn must_have_a_value(self) -> &'static tsr_diagnostics::Message {
+        match self {
+            Self::Sync => &messages::THE_TYPE_RETURNED_BY_THE_0_METHOD_OF_AN_ITERATOR_MUST_HAVE_A_VALUE_PROPERTY,
+            Self::Async => &messages::THE_TYPE_RETURNED_BY_THE_0_METHOD_OF_AN_ASYNC_ITERATOR_MUST_BE_A_PROMISE_FOR_A_TYPE_WITH_A_VALUE_PROPERTY,
+        }
+    }
+
     /// `getGlobalBuiltinIteratorTypes`.
     fn builtin_iterator_globals(self) -> &'static [&'static str] {
         match self {
@@ -138,12 +191,30 @@ impl Resolver {
 
 impl Checker<'_, '_> {
     /// `getIterationTypesOfIterable` (`checker.go:6265`) without its cache
-    /// and without diagnostics; [`Checker::report_iteration_diagnostics`] is
-    /// the error-node half.
+    /// and with a nil error node; [`Checker::check_iterated_type_or_element_type`]
+    /// asks the error-node form.
     pub(crate) fn get_iteration_types_of_iterable(
         &mut self,
         ty: TypeId,
         use_: IterationUse,
+    ) -> Result<IterationTypes, Unsupported> {
+        self.get_iteration_types_of_iterable_ex(ty, use_, None)
+    }
+
+    /// `getIterationTypesOfIterable` (`checker.go:6265`) with its error
+    /// node: the protocol diagnostics of the slow path (TS2489/TS2519,
+    /// TS2767/TS2768, TS2490/TS2547) and the awaited-type TS1320 of an async
+    /// resolver are reported on `error_node`. Not-iterable itself
+    /// (`reportTypeNotIterableError`) stays with the caller, which sees the
+    /// same empty answer. Without upstream's cache a reporting query is
+    /// never short-circuited by an earlier non-reporting one; the check
+    /// sites that pass a node are normally the ones native reaches first
+    /// (`docs/parity/notes/r5-iteration.md` §2).
+    fn get_iteration_types_of_iterable_ex(
+        &mut self,
+        ty: TypeId,
+        use_: IterationUse,
+        error_node: Option<NodeId>,
     ) -> Result<IterationTypes, Unsupported> {
         if self.is_error(ty) {
             return Err(());
@@ -151,19 +222,21 @@ impl Checker<'_, '_> {
         if ty == self.intrinsics.any {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
-        self.get_iteration_types_of_iterable_worker(ty, use_)
+        self.get_iteration_types_of_iterable_worker(ty, use_, error_node)
     }
 
-    /// `getIterationTypesOfIterableWorker` (`checker.go:6287`).
+    /// `getIterationTypesOfIterableWorker` (`checker.go:6287`). A union's
+    /// constituents are asked with a nil error node, as upstream does.
     fn get_iteration_types_of_iterable_worker(
         &mut self,
         ty: TypeId,
         use_: IterationUse,
+        error_node: Option<NodeId>,
     ) -> Result<IterationTypes, Unsupported> {
         if let TypeData::Union { types, .. } = self.store.get(ty).data.clone() {
             let mut all = Vec::with_capacity(types.len());
             for constituent in types {
-                let types = self.get_iteration_types_of_iterable_worker(constituent, use_)?;
+                let types = self.get_iteration_types_of_iterable_worker(constituent, use_, None)?;
                 if !types.has_types() {
                     return Ok(IterationTypes::NONE);
                 }
@@ -174,17 +247,22 @@ impl Checker<'_, '_> {
         if self.is_error(ty) {
             return Err(());
         }
+        // `diags`: one buffer across both slow attempts, as upstream's.
+        let mut reports =
+            error_node.map(|node| ProtocolReports { node, output: Vec::new(), incomplete: false });
         if use_.contains(IterationUse::ALLOWS_ASYNC_ITERABLES) {
             let types = self.get_iteration_types_of_iterable_fast(ty, Resolver::Async)?;
             if types.has_types() {
                 return if use_.contains(IterationUse::FOR_OF_FLAG) {
-                    self.get_async_from_sync_iteration_types(types)
+                    self.get_async_from_sync_iteration_types(types, error_node)
                 } else {
                     Ok(types)
                 };
             }
-            let types = self.get_iteration_types_of_iterable_slow(ty, Resolver::Async)?;
+            let types =
+                self.get_iteration_types_of_iterable_slow(ty, Resolver::Async, reports.as_mut())?;
             if types.has_types() {
+                self.emit_protocol_reports(reports)?;
                 return Ok(types);
             }
         }
@@ -192,21 +270,44 @@ impl Checker<'_, '_> {
             let types = self.get_iteration_types_of_iterable_fast(ty, Resolver::Sync)?;
             if types.has_types() {
                 return if use_.contains(IterationUse::ALLOWS_ASYNC_ITERABLES) {
-                    self.get_async_from_sync_iteration_types(types)
+                    self.get_async_from_sync_iteration_types(types, error_node)
                 } else {
                     Ok(types)
                 };
             }
-            let types = self.get_iteration_types_of_iterable_slow(ty, Resolver::Sync)?;
+            let types =
+                self.get_iteration_types_of_iterable_slow(ty, Resolver::Sync, reports.as_mut())?;
             if types.has_types() {
+                self.emit_protocol_reports(reports)?;
                 return if use_.contains(IterationUse::ALLOWS_ASYNC_ITERABLES) {
-                    self.get_async_from_sync_iteration_types(types)
+                    self.get_async_from_sync_iteration_types(types, error_node)
                 } else {
                     Ok(types)
                 };
             }
         }
         Ok(IterationTypes::NONE)
+    }
+
+    /// `for _, d := range diags { c.addDiagnostic(d) }` after a slow path
+    /// found iteration types. A buffer holding a diagnostic this port could
+    /// not build declines rather than report part of it.
+    fn emit_protocol_reports(
+        &mut self,
+        reports: Option<ProtocolReports>,
+    ) -> Result<(), Unsupported> {
+        let Some(reports) = reports else { return Ok(()) };
+        if reports.incomplete {
+            return Err(());
+        }
+        if reports.output.is_empty() {
+            return Ok(());
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(reports.node) else { return Ok(()) };
+        for diagnostic in reports.output {
+            self.report(file, diagnostic);
+        }
+        Ok(())
     }
 
     /// The global type named `name` at `arity`, or `None` where upstream's
@@ -298,9 +399,33 @@ impl Checker<'_, '_> {
         resolver: Resolver,
         ty: TypeId,
     ) -> Result<Option<TypeId>, Unsupported> {
-        match resolver {
-            Resolver::Sync => Ok(Some(ty)),
-            Resolver::Async => self.awaited_type(ty).map(Some).ok_or(()),
+        self.resolve_iteration_type_ex(resolver, ty, None)
+    }
+
+    /// `resolveIterationType(t, errorNode)` (`checker.go:1270`, `:1287`):
+    /// the async resolver's `getAwaitedTypeEx(t, errorNode, Type of 'await'
+    /// operand must …)`. With an error node the awaited family's reporting
+    /// form ([`Checker::check_awaited_type`]) tells native's nil (TS1320
+    /// reported, `Ok(None)`) from a step this port cannot decide (`Err`);
+    /// without one the two are not told apart and both decline.
+    fn resolve_iteration_type_ex(
+        &mut self,
+        resolver: Resolver,
+        ty: TypeId,
+        error_node: Option<NodeId>,
+    ) -> Result<Option<TypeId>, Unsupported> {
+        match (resolver, error_node) {
+            (Resolver::Sync, _) => Ok(Some(ty)),
+            (Resolver::Async, None) => self.awaited_type(ty).map(Some).ok_or(()),
+            (Resolver::Async, Some(node)) => {
+                let awaited = self.check_awaited_type(
+                    ty,
+                    true,
+                    node,
+                    &messages::TYPE_OF_AWAIT_OPERAND_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+                ).ok_or(())?;
+                Ok((awaited != self.intrinsics.error).then_some(awaited))
+            }
         }
     }
 
@@ -326,10 +451,13 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `getAsyncFromSyncIterationTypes` (`checker.go:6436`).
+    /// `getAsyncFromSyncIterationTypes` (`checker.go:6436`). With an error
+    /// node a nil awaited yield or return is reported (TS1320) and answers
+    /// `anyType`, upstream's `OrElse`; without one it declines.
     fn get_async_from_sync_iteration_types(
         &mut self,
         types: IterationTypes,
+        error_node: Option<NodeId>,
     ) -> Result<IterationTypes, Unsupported> {
         let any = self.intrinsics.any;
         if !types.has_types()
@@ -344,9 +472,22 @@ impl Checker<'_, '_> {
         let (Some(yield_type), Some(return_type)) = (types.yield_type, types.return_type) else {
             return Err(());
         };
+        let any = self.intrinsics.any;
+        let Some(node) = error_node else {
+            return Ok(IterationTypes {
+                yield_type: Some(self.awaited_type(yield_type).ok_or(())?),
+                return_type: Some(self.awaited_type(return_type).ok_or(())?),
+                next_type: types.next_type,
+            });
+        };
+        let yield_type =
+            self.resolve_iteration_type_ex(Resolver::Async, yield_type, Some(node))?.unwrap_or(any);
+        let return_type = self
+            .resolve_iteration_type_ex(Resolver::Async, return_type, Some(node))?
+            .unwrap_or(any);
         Ok(IterationTypes {
-            yield_type: Some(self.awaited_type(yield_type).ok_or(())?),
-            return_type: Some(self.awaited_type(return_type).ok_or(())?),
+            yield_type: Some(yield_type),
+            return_type: Some(return_type),
             next_type: types.next_type,
         })
     }
@@ -413,7 +554,7 @@ impl Checker<'_, '_> {
         if result.has_types() {
             return Ok(result);
         }
-        self.get_iteration_types_of_iterator_worker(ty, resolver)
+        self.get_iteration_types_of_iterator_worker(ty, resolver, None)
     }
 
     /// `getIterationTypeOfGeneratorFunctionReturnType` (`checker.go:6216`):
@@ -564,11 +705,12 @@ impl Checker<'_, '_> {
         &mut self,
         ty: TypeId,
         resolver: Resolver,
+        reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
         if !self.resolving_iteration_types.insert(ty) {
             return Err(());
         }
-        let result = self.get_iteration_types_of_iterable_slow_worker(ty, resolver);
+        let result = self.get_iteration_types_of_iterable_slow_worker(ty, resolver, reports);
         self.resolving_iteration_types.remove(&ty);
         result
     }
@@ -577,6 +719,7 @@ impl Checker<'_, '_> {
         &mut self,
         ty: TypeId,
         resolver: Resolver,
+        reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
         let name = resolver.iterator_symbol_name();
         // getPropertyOfType reads the apparent type: `string` iterates through
@@ -614,10 +757,18 @@ impl Checker<'_, '_> {
             }
         }
         if returns.is_empty() {
+            // `checkTypeAssignableToEx(t, getGlobalIterableTypeChecked(), …,
+            // diagnosticOutput)` buffers an elaboration this port does not
+            // build; mark the buffer so a later success declines.
+            if let Some(reports) = reports
+                && !signatures.is_empty()
+            {
+                reports.incomplete = true;
+            }
             return Ok(IterationTypes::NONE);
         }
         let iterator = self.get_intersection_type(&returns, None);
-        self.get_iteration_types_of_iterator_worker(iterator, resolver)
+        self.get_iteration_types_of_iterator_worker(iterator, resolver, reports)
     }
 
     /// The call signatures of a member type; a primitive has none.
@@ -636,6 +787,7 @@ impl Checker<'_, '_> {
         &mut self,
         ty: TypeId,
         resolver: Resolver,
+        mut reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
         if self.is_error(ty) {
             return Err(());
@@ -648,9 +800,11 @@ impl Checker<'_, '_> {
             return Ok(types);
         }
         // getIterationTypesOfIteratorSlow (`checker.go:6533`).
-        let next = self.get_iteration_types_of_method(ty, resolver, "next")?;
-        let ret = self.get_iteration_types_of_method(ty, resolver, "return")?;
-        let throw = self.get_iteration_types_of_method(ty, resolver, "throw")?;
+        let next =
+            self.get_iteration_types_of_method(ty, resolver, "next", reports.as_deref_mut())?;
+        let ret =
+            self.get_iteration_types_of_method(ty, resolver, "return", reports.as_deref_mut())?;
+        let throw = self.get_iteration_types_of_method(ty, resolver, "throw", reports)?;
         Ok(self.combine_iteration_types(&[next, ret, throw]))
     }
 
@@ -667,6 +821,7 @@ impl Checker<'_, '_> {
         ty: TypeId,
         resolver: Resolver,
         name: &str,
+        reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
         let method = self.get_property_of_type(ty, name);
         if method.is_none() && !self.iteration_member_decidably_absent(ty, name) {
@@ -697,8 +852,17 @@ impl Checker<'_, '_> {
             None => Vec::new(),
         };
         if signatures.is_empty() {
+            if let Some(reports) = reports {
+                let message = if name == "next" {
+                    resolver.must_have_a_next_method()
+                } else {
+                    resolver.must_be_a_method()
+                };
+                reports.push(self, message, name);
+            }
             return Ok(IterationTypes::NONE);
         }
+        let error_node = reports.as_ref().map(|reports| reports.node);
         let mut parameter_types = Vec::new();
         let mut return_types = Vec::new();
         for signature in &signatures {
@@ -726,19 +890,23 @@ impl Checker<'_, '_> {
                 next_type = Some(parameter_type);
             } else {
                 let resolved_parameter = self
-                    .resolve_iteration_type(resolver, parameter_type)?
+                    .resolve_iteration_type_ex(resolver, parameter_type, error_node)?
                     .unwrap_or(self.intrinsics.any);
                 returns.push(resolved_parameter);
             }
         }
         let method_return = self.get_intersection_type(&return_types, None);
-        let resolved_return =
-            self.resolve_iteration_type(resolver, method_return)?.unwrap_or(self.intrinsics.any);
+        let resolved_return = self
+            .resolve_iteration_type_ex(resolver, method_return, error_node)?
+            .unwrap_or(self.intrinsics.any);
         let result = self.get_iteration_types_of_iterator_result(resolved_return)?;
         let yield_type = if result.has_types() {
             returns.push(result.return_type.ok_or(())?);
             result.yield_type
         } else {
+            if let Some(reports) = reports {
+                reports.push(self, resolver.must_have_a_value(), name);
+            }
             returns.push(self.intrinsics.any);
             Some(self.intrinsics.any)
         };
@@ -859,7 +1027,7 @@ impl Checker<'_, '_> {
             self.check_array_like_iteration(use_, input, error_node);
             return;
         }
-        if let Ok(types) = self.get_iteration_types_of_iterable(input, use_)
+        if let Ok(types) = self.get_iteration_types_of_iterable_ex(input, use_, Some(error_node))
             && !types.has_types()
         {
             self.report_type_not_iterable_error(error_node, input, allow_async);
