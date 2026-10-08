@@ -1819,28 +1819,26 @@ impl Checker<'_, '_> {
                 }
             };
             let name = match name_node {
-                // §537: a **parser-recovery placeholder** contributes nothing,
-                // for the same reason the private-name arm above does — a
-                // member with no spellable name is not a member.
+                // A **parser-recovery placeholder** is a member named `""`.
+                // `{ m.x }` parses as the shorthand `m` and then a property
+                // assignment whose name is a missing identifier (an
+                // `Identifier` with empty text) and whose initializer is
+                // `.x`. The binder's `getDeclarationName` returns the
+                // identifier's text, `""`, and `checkObjectLiteral` puts that
+                // member in `propertiesTable` like any other; the node builder
+                // prints a name that is not identifier text quoted:
+                // `objectLiteralShorthandPropertiesErrorWithModule` records
+                // `{ m: typeof m; "": any; }`.
                 //
-                // `var x = { `a`: 321 }` is a syntax error: a template literal
-                // cannot be a property name. The parser reports it and, to keep
-                // going, hands the property assignment a **missing identifier**
-                // — an `Identifier` whose `text` is empty. Nothing in
-                // `checkObjectLiteral` puts such a thing in `propertiesTable`,
-                // and `templateStringInPropertyName1.types` records the literal
-                // as `>{ : {}`.
-                //
-                // Without this the port printed **`{ : any; }`** — a shape no
-                // compiler emits, with a colon and no name in front of it — in
-                // the four `templateStringInPropertyName*` cases, each of which
-                // is one line from passing.
-                //
-                // Gated on the empty text rather than on the node kind: the
-                // recovery placeholder is the only way an identifier reaches
-                // here with no text, and gating on the kind would need one arm
-                // per token the parser might have swallowed.
-                tsr_ast::PropertyName::Identifier(name) if name.text.is_empty() => continue,
+                // CORRECTED (r5-shapes §2.3): §537 skipped this member, citing
+                // `templateStringInPropertyName1`'s `>{ : {}`. That literal
+                // has no such member because its parse yields none, not
+                // because the checker drops one: with the skip removed, the
+                // four `templateStringInPropertyName*` cases print exactly as
+                // before, and the two shorthand cases flip.
+                tsr_ast::PropertyName::Identifier(name) if name.text.is_empty() => {
+                    printing::quote(name.text)
+                }
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                 // A string-named property prints its name **unquoted** when it
                 // is a valid identifier and **re-quoted** otherwise, which is

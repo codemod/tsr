@@ -222,3 +222,13 @@ The `check_expression` arm calls it, and the hub file gains only that
 function. Outside strict mode, `{ c: void 4 }` widens to `c: any` in an
 inferred return. In strict mode the two intrinsics are the same type, so
 nothing else moves. Cases converted: `declInput`, `declInput3`.
+
+### 4.3 A missing-name object member is `""` (`objects.rs`)
+
+§537 skipped a property assignment whose name is the parser's missing
+identifier. Its evidence was wrong, and the comment now says so in place.
+Upstream binds the member as `""`, and the node builder quotes it. The
+`templateStringInPropertyName*` cases §537 cited print identically with the
+skip removed, because their parse has no such member. Cases converted:
+`objectLiteralShorthandPropertiesErrorFromNotUsingIdentifier`,
+`objectLiteralShorthandPropertiesErrorWithModule`.
