@@ -252,3 +252,181 @@ reporter lands once that resolution is fixed, re-measured to zero extras.
   `circularIndexedAccessErrors`, `unknownControlFlow` 283,
   `assignmentToAnyArrayRestParameters` 18 (a literal key into a generic
   object, declined above): not traced.
+
+## 3. As-clause mapped types — measured, blocked outside relater.rs
+
+Target lines: `mappedTypeAsClauseRelationships` 12 and 22;
+`mappedTypeConstraints2` 10, 16, 59 and 90. `conditionalTypes1` 114-117
+moved here from §1.
+
+**The gate.** Every pair with a mapped-template conditional
+(`mapped_conditionals`) answers `Unknown` (r5-relater4 §2). That covers an
+`as` clause such as `T[P] extends Function ? P : never`, and a substituted
+template conditional such as `FunctionPropertyNames<T>`'s. All the target
+lines pass through it.
+
+**Experiment** (relater.rs only; lift that decline). Diagnostics against
+§2's dumps:
+- no target line converted;
+- 3 new extras:
+  - `mappedTypeAsClauseRelationships` 11:9 (`T → Filter<T>`, native OK);
+  - `mappedTypeConstraints2` 32:7 and 50:7 (`obj[key]` with `key: keyof
+    Mapped5<K>` against `` `_${string}` ``, native OK).
+
+Refused.
+
+**Cause 1: the mapped iteration parameter's identity.** `T → Filter<T>`
+enters the generic-mapped-target arm. It relates the `as` type `T[P]
+extends Function ? P : never` to `keyof T` through its default constraint
+`P`. Native's `P` is `getTypeParameterFromMappedType(Filter<T>)`, the
+declared parameter instantiated with the instance's mapper, so its
+constraint is `keyof T` of the *caller's* `T`. The port shares the
+declaration's `P` (TypeId 10499 in the trace), whose constraint is the
+*alias's* `keyof T`. `keyof T_alias → keyof T_fun` needs `T_fun →
+T_alias`, which is NotRelated. `T → Modify<T>` (line 12) stops at the same
+step and ends `Unknown`.
+
+This is r5-relater5 §2's "mapped iteration parameter" decline, met from
+the name-type side. The faithful fix gives each mapped instance its own
+parameter, with the instance's constraint, and substitutes it in the
+template and the `as` type. That is a capture change in `mapped.rs`
+(r5-mapped3) plus a type-parameter identity the checker does not have. A
+relater-scoped constraint override for the target's `P` was considered
+and not built. It would cover only pairs where one instance's `P` is in
+play, and the extras of cause 2 would keep the lift refused anyway.
+
+**Cause 2: the filtering kind's keys.** With the decline lifted, `name →
+P` relates, so `mapped.rs`'s `mapped_indexed_access_constraint` classifies
+`Mapped5`'s `as` clause as filtering (native's
+`getMappedTypeNameTypeKind`). It then substitutes as native does. But the
+base constraint the port computes for `keyof Mapped5<K>` is the whole key
+domain. Native's is the filtered keys (`getIndexTypeForMappedType` over a
+generic constraint, `forEachType(constraintType, addMemberForKeyType)`,
+checker.go:26892). So `obj[key]` reads the template at keys the filter
+removes. `mapped_index_type` computes remapped keys only for non-generic
+constraints (`mapped.rs`, r5-mapped3).
+
+**Remapping lines** (`mappedTypeConstraints2` 10, 16, 42, 59 and 90) are
+`Mapped2<K>[`get${K}`]`-shaped sources. Native relates them through
+`computeBaseConstraint` of the indexed access, since the remapping kind is
+not substituted. Not traced further. They wait on the same `keyof`
+computation.
+
+**Needed outside this lane:**
+- per-instance mapped type parameters (`mapped.rs` capture, checker type
+  identity);
+- `getIndexTypeForMappedType` for a generic constraint with an `as` clause
+  (`mapped.rs` `mapped_index_type`).
+
+With both in place, re-run the experiment above: lift the
+`mapped_conditionals` decline in the relater gate.
+
+## 4. IAW — the indexed-access target's write constraint
+
+**Forcing constraint.** `structuredTypeRelatedToWorker`'s indexed-access
+target arm (relater.go:3443-3488) relates `S` to `T[K]` through
+`getIndexedAccessTypeOrUndefined(baseConstraintOrType(T),
+baseConstraintOrType(K), Writing | (NoIndexSignatures when T had a
+constraint))`, when neither base is generic. The port built no write
+constraint. It answered `Unknown` there, both for a non-indexed source in
+the gate and after a failed `S[K] → T[J]` component pair
+(r5-relater5 §2).
+
+**Ported** (`indexed_access_write_constraint_related_to`,
+`indexed_access_write_constraint`):
+- a union key gives the intersection of the constituents' write types
+  (writing), and nil when any is nil;
+- a key naming a property gives the property's type;
+- otherwise an applicable index signature's value, without
+  `noUncheckedIndexedAccess`'s `undefined`, since this is a write;
+- with index signatures excluded, a non-literal key selects nothing: nil.
+- `S[K] → T[J]` takes the same step once the components fail and `T`'s base
+  is not generic.
+
+Each step the port cannot certify answers `Unknown`:
+- an accessor (write types are not ported);
+- a property this port cannot find;
+- a tuple, array, union, intersection or `any` object.
+
+**Held decline: a constrained object's property key.** With index
+signatures excluded (`T` had a constraint), a property key's write type is
+native's constraint. Deciding it lost `contextuallyTypedSymbolNamedProperties`
+(EMPTY_RIGHT → EMPTY_WRONG, two TS2339 on `ap.description`):
+- `typeof A → T['type']` became Related (write constraint `string |
+  symbol`), as in native;
+- that turned on `mapped.rs`'s `generic_mapped_contextual_property_type`;
+- that function keys the computed symbol property by its display name, a
+  string literal `"[A]"`, where native passes the name's type (`typeof A`,
+  `getIndexedMappedTypeSubstitutedTypeOfContextualType`'s `nameType`);
+- so `ap` was typed `"[A]"`.
+
+The relation is right and the key is wrong. The path stays `Unknown` until
+`mapped.rs` (r5-mapped3) passes the name type.
+
+**Forced declines: the mapped substitution an indexed-access source cannot
+reach.** Deciding the write constraint also lost `correlatedUnions` (three
+TS2322s). Native relates each of those sources through
+`isMappedTypeGenericIndexedAccess` (checker.go:21715): an indexed access
+with a generic index into a non-generic mapped type. Its constraint is the
+substitution `E[P := X]` (`getConstraintFromIndexedAccess`, :17227), and
+after a failed union walk native explores `{ [P in K]: E }[constraint of
+X]` (relater.go:3681). The port misses this in two ways:
+1. **A concrete instance of a mapped alias is resolved to its members**
+   (`Partial<Foo1>`, `Partial<Config>`). `constraint_of_type` then cannot
+   see the mapped identity and answers the weaker
+   `{ … }[constraint of X]`: `string | number | undefined` for
+   `Partial<Foo1>[K]`, where native's is `Foo1[K] | undefined`.
+2. **The union/intersection-target fallthrough is not taken for an
+   indexed-access source** (§2.2(3)'s stated divergence).
+
+Three declines, each answering `Unknown`, and each naming the native step it
+stands in for:
+- the type-variable arm, for a source whose object is such a resolved
+  instance (`mapped_substitution_out_of_reach`);
+- the intersection-source effective constraint, when a constituent is one
+  (`NonNullable<Partial<Config>[T]> → Config[T]`);
+- a failed union/intersection-target walk, for a source that is
+  `isMappedTypeGenericIndexedAccess` (`is_mapped_type_generic_indexed_access`,
+  native's predicate including its no-`-?`, no-`as` conditions):
+  `Funcs[K] → Func<"a"> | Func<"b">`, which native relates as `Funcs[keyof
+  ArgMap]`.
+
+An earlier version declined every failed indexed-access union walk. It lost
+`mappedTypes6`, §1's `mappedTypeRelationships` 41 and 46, `conditionalTypes1`
+29 and the 6 quickinfo type lines. It was narrowed to the native predicate.
+
+**Also changed:** the type-variable arm for an indexed-access source now
+asks `getConstraintOfType` first (`constraint_of_type`, which carries the
+mapped substitution for a captured mapped object), as relater.go:3667
+does. Before, it asked the base constraint. The base constraint remains
+where the port's constraint is undecided. A lazily captured mapped object is
+captured first.
+
+**Measured** against §2's dumps (`aea460a`), both loss checks empty:
+- `errorInfoForRelatedIndexTypesNoConstraintElaboration` WRONG → RIGHT;
+- `templateLiteralTypes5` WRONG → RIGHT (its 10:7 TS2322);
+- `noUncheckedIndexedAccess` 98:5 TS2322 converted;
+- types: RIGHT unchanged; `correlatedUnions:0:469` and `:0:475` move WRONG
+  → GAP.
+
+**Not converted:**
+- `noUncheckedIndexedAccess` 39 and 85 are element-access writes
+  (`strMap["baz"] = undefined`). Their target is the access's write type
+  (`members.rs`/`expressions.rs`, main's), not an indexed-access relation.
+- `keyofAndIndexedAccessErrors` 114: `T[K] → T[J]` fails on `K → J`, where
+  `K extends Extract<keyof T, string>`. That ends `Unknown` in the
+  conditional source arms (r5-relater4 §2).
+- `keyofAndIndexedAccessErrors` 122 and 123: the `keyof T` constraint of `T
+  extends { [K in keyof T]: string }` meets §3's mapped-parameter
+  identity.
+
+**Perf.**
+- `Ir`: generic-imports 343,574,526 → 342,944,726 (−0.18%); domain-model
+  1,232,346,522 → 1,197,029,508 (−2.9%). CLI output is identical. Pairs
+  that used to walk on to an `Unknown` now end at the write constraint.
+- Median child CPU (21 samples): 0.996 and 1.000.
+
+Unit test: `relater.rs`
+`generic_key_tests::an_indexed_access_target_relates_through_its_write_constraint`
+(`string → R[K]` Related, `number → R[K]` NotRelated). On §2's commit the
+first answers `Unknown`.
