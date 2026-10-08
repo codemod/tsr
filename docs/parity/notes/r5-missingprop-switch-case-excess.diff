@@ -1,0 +1,102 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index 7df9bf5..e1bbd10 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -3199,6 +3199,24 @@ impl<'a> Checker<'a, '_> {
+         Some(ExcessProperties::None)
+     }
+ 
++    /// `hasExcessProperties` (`relater.go:2714`) as `isRelatedTo` runs it for
++    /// a fresh object literal source in any relation, reported: TS2353 /
++    /// TS2561 at the excess member. Answers whether it reported; a decided
++    /// "no excess" and an undecided verdict both answer `false`.
++    pub(crate) fn report_fresh_literal_excess_property(
++        &mut self,
++        node: NodeId,
++        source: TypeId,
++        target: TypeId,
++    ) -> bool {
++        match self.excess_properties_verdict(node, source, target) {
++            Some(ExcessProperties::Excess { at, name, error_target }) => {
++                self.report_excess_property(at, &name, error_target)
++            }
++            _ => false,
++        }
++    }
++
+     /// TS2353 / TS2561 for [`ExcessProperties::Excess`]: `hasExcessProperties`'
+     /// object-literal report (`relater.go:2714`). An identifier name with a
+     /// spelling suggestion among the error target's properties
+diff --git a/crates/tsr-checker/src/comparison_overlap.rs b/crates/tsr-checker/src/comparison_overlap.rs
+index 6f7f223..b99356b 100644
+--- a/crates/tsr-checker/src/comparison_overlap.rs
++++ b/crates/tsr-checker/src/comparison_overlap.rs
+@@ -144,10 +144,19 @@ impl Checker<'_, '_> {
+             // A fresh object literal fails `checkTypeComparableTo` in
+             // `hasExcessProperties` first (`relater.go:2714`), which reports
+             // TS2353 on the property instead of TS2678 on the clause
+-            // (`switchStatements`' `case { id: 12, name: '' }`). That
+-            // reporter is not this rule's, so the clause is left silent.
+-            if self.fresh_object_literal_types.contains(&case_type)
+-                || self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
++            // (`switchStatements`' `case { id: 12, name: '' }`), once
++            // `isTypeEqualityComparableTo(expressionType, caseType)` has
++            // failed. Any other fresh-literal outcome is left silent.
++            if self.fresh_object_literal_types.contains(&case_type) {
++                if self.relate_ternary(expression_type, case_type, Relation::Comparable)
++                    == Ternary::NotRelated
++                    && let Some(at) = case_expression.node_id()
++                {
++                    self.report_fresh_literal_excess_property(at, case_type, expression_type);
++                }
++                continue;
++            }
++            if self.type_of(case_type).flags.intersects(TypeFlags::NULLABLE)
+                 || !self.assignability_pair_is_reportable(case_type, expression_type)
+                 || self.relate_ternary(expression_type, case_type, Relation::Comparable)
+                     != Ternary::NotRelated
+diff --git a/crates/tsr-checker/tests/switch_case_excess.rs b/crates/tsr-checker/tests/switch_case_excess.rs
+new file mode 100644
+index 0000000..a8bdfac
+--- /dev/null
++++ b/crates/tsr-checker/tests/switch_case_excess.rs
+@@ -0,0 +1,39 @@
++//! `checkSwitchStatement`'s case arm (`checker.go:4188`): a fresh object
++//! literal case that the switch type is not comparable to fails
++//! `checkTypeComparableTo` in `hasExcessProperties` (`relater.go:2714`),
++//! TS2353 at the member. Expected texts are native tsgo's (vendor `5b1047d`).
++
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::Arena;
++
++fn diagnostics(source: &str) -> Vec<(u32, String)> {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    assert!(parsed.diagnostics.is_empty());
++    let root = parsed.source_file.node_id.unwrap();
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    checker.diagnostics().iter().map(|(_, d)| (d.message.code(), d.text())).collect()
++}
++
++#[test]
++fn a_fresh_literal_case_reports_its_excess_member() {
++    let actual = diagnostics(
++        "class C { id!: number; }\n\
++         switch (new C()) {\n\
++             case { id: 12, name: '' }:\n\
++             case { id: 12 }:\n\
++         }\n",
++    );
++    assert_eq!(actual, [(
++        2353,
++        "Object literal may only specify known properties, and 'name' does not exist in type 'C'."
++            .to_string()
++    )]);
++}

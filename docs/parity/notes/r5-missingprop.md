@@ -306,3 +306,28 @@ Measured against commit 4: `excessPropertyErrorForFunctionTypes` WRONG → RIGHT
 no other line moved. Both loss checks are empty and types RIGHT is unchanged.
 Perf, median child CPU new/old at 21 samples: domain-model 0.997,
 generic-imports 1.012.
+
+### 4.3 Switch-case excess — [r5-missingprop-switch-case-excess.diff](r5-missingprop-switch-case-excess.diff)
+
+This diff touches `comparison_overlap.rs` (not owned), plus a new
+`pub(crate)` entry `report_fresh_literal_excess_property` in `assignreport.rs`
+and a test. Both land together, because the entry has no other caller.
+
+`checkSwitchStatement` (`checker.go:4188`) calls
+`checkTypeComparableTo(caseType, expressionType, clause.Expression())` once
+`isTypeEqualityComparableTo(expressionType, caseType)` fails. For a fresh
+object literal case, `isRelatedTo` runs `hasExcessProperties` before the
+structural comparison, so the report is TS2353 at the member.
+`check_switch_case_comparability` skipped every fresh literal because it
+could not reach the reporter. With the diff, a fresh literal whose switch type
+is definitely not comparable to it goes through the shared excess verdict.
+Any other fresh-literal outcome stays silent, as before.
+
+Measured on top of `04a3aeb`: `switchStatements` WRONG → RIGHT, no other line
+moves. Both loss checks are empty. Perf, median child CPU new/old at 21
+samples: domain-model 0.988, generic-imports 1.025.
+
+Probe: a discriminated-union switch type (`case { kind: "a", x: 1, z: 2 }`) is
+still silent where native reports `z` against the whole union. TSR's
+comparable relation for that pair is not `NotRelated`, so it declines rather
+than reporting wrong.
