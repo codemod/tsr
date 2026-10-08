@@ -125,8 +125,47 @@ impl Checker<'_, '_> {
         self.template_literal_parts.insert(id, spans);
         id
     }
+    /// A template part's text as the printer writes it: `escapeStringWorker`
+    /// (`printer/utilities.go:77`) with `QuoteCharBacktick` and
+    /// `getLiteralTextFlagsNeverAsciiEscape` — the node builder marks every
+    /// part `EFNoAsciiEscaping` (`nodebuilderimpl.go:3482`). Escaped: `\`,
+    /// the backtick, `$` before `{`, CR (a CRLF pair as one `\r\n`), the
+    /// C0 controls other than LF (which a template keeps), and U+2028,
+    /// U+2029, U+0085. `docs/parity/notes/r4-templates.md` §6.
     pub(crate) fn escape_template_text(text: &str) -> String {
-        text.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            let next = chars.peek().copied();
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '`' => out.push_str("\\`"),
+                '$' if next == Some('{') => out.push_str("\\$"),
+                '\r' if next == Some('\n') => {
+                    chars.next();
+                    out.push_str("\\r\\n");
+                }
+                '\r' => out.push_str("\\r"),
+                '\n' => out.push('\n'),
+                '\t' => out.push_str("\\t"),
+                '\u{000B}' => out.push_str("\\v"),
+                '\u{000C}' => out.push_str("\\f"),
+                '\u{0008}' => out.push_str("\\b"),
+                '\0' => {
+                    out.push_str(if next.is_some_and(|c| c.is_ascii_digit()) {
+                        "\\x00"
+                    } else {
+                        "\\0"
+                    });
+                }
+                '\u{2028}' | '\u{2029}' | '\u{0085}' => {
+                    out.push_str(&format!("\\u{:04X}", u32::from(ch)));
+                }
+                c if u32::from(c) <= 0x1f => out.push_str(&format!("\\u{:04X}", u32::from(c))),
+                c => out.push(c),
+            }
+        }
+        out
     }
     fn add_template_spans(
         &mut self,
