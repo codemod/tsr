@@ -80,6 +80,18 @@ fn is_assignment_operator(kind: SyntaxKind) -> bool {
     )
 }
 
+/// Where an identifier reference sits, as far as the meaning upstream
+/// resolves it with is concerned. See [`Checker::reference_position`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReferencePosition {
+    /// An expression slot: `Value` only.
+    Expression,
+    /// A type reference's name in a TypeScript file: `Type` only.
+    TypeName,
+    /// Anything else: every meaning, the over-approximating default.
+    Other,
+}
+
 /// `UnusedKind` (`checker.go:7077`) — which option decides whether the
 /// diagnostic is an error or a suggestion.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -191,15 +203,18 @@ impl Checker<'_, '_> {
         //
         // This is the one place the module marks *less* than the naive reading,
         // and it is here because upstream says so rather than because it pays.
+        let position = self.reference_position(node);
         let mut meanings: Vec<SymbolFlags> = Vec::with_capacity(3);
-        if !self.is_write_only_access(node) {
+        if !self.is_write_only_access(node) && position != ReferencePosition::TypeName {
             meanings.push(SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE | SymbolFlags::ALIAS);
         }
         // `SymbolFlagsAlias` rides along with every meaning: an `import x from
         // "y"` symbol carries *only* `Alias`, and leaving it out would leave
         // every used import unmarked — the one direction this module may not
         // fail in.
-        meanings.push(SymbolFlags::TYPE | SymbolFlags::ALIAS);
+        if position != ReferencePosition::Expression {
+            meanings.push(SymbolFlags::TYPE | SymbolFlags::ALIAS);
+        }
         meanings.push(SymbolFlags::NAMESPACE | SymbolFlags::ALIAS);
         for meaning in meanings {
             if let Some(symbol) =
@@ -217,6 +232,73 @@ impl Checker<'_, '_> {
                 *self.symbol_reference_kinds.entry(symbol).or_default() |= meaning;
             }
         }
+    }
+
+    /// Which single meaning upstream resolves this identifier with, where the
+    /// position decides it unambiguously (§9).
+    ///
+    /// Upstream marks a symbol with the meaning of the `resolveName` that
+    /// found it, and two positions ask exactly one meaning:
+    ///
+    /// - an identifier in an **expression** slot is `checkIdentifier`'s
+    ///   `getResolvedSymbol` — `Value | ExportValue` (`checker.go:13896`) —
+    ///   so `return T` never marks a type parameter `T`;
+    /// - the identifier **name of a type reference** in a TypeScript file is
+    ///   `resolveTypeReferenceName` with `Type` (`checker.go`
+    ///   `getTypeFromTypeReference`) — so `(T: T)` never marks the parameter
+    ///   `T`. A JavaScript file falls back to a value lookup there, so it
+    ///   stays [`ReferencePosition::Other`].
+    ///
+    /// Every other position keeps all three meanings — the module's
+    /// over-approximating default. `Namespace` is kept in both narrowed
+    /// positions: the left of `N.x` is an expression slot, and marking a
+    /// namespace that upstream finds through `Value` (an instantiated module)
+    /// or not at all costs only a missing line.
+    fn reference_position(&self, node: NodeId) -> ReferencePosition {
+        let Some(parent) = self.nodes.parent(node) else { return ReferencePosition::Other };
+        let Some(typed) = self.node_map.get(parent) else { return ReferencePosition::Other };
+        let is = |slot: Option<NodeId>| slot == Some(node);
+        let expression_slot = match typed {
+            Node::TypeReferenceNode(reference) => {
+                let name = reference.type_name.and_then(|n| n.node_id());
+                return if is(name) && !self.in_js_file(node) {
+                    ReferencePosition::TypeName
+                } else {
+                    ReferencePosition::Other
+                };
+            }
+            Node::ReturnStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ExpressionStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ThrowStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::BinaryExpression(n) => {
+                is(n.left.and_then(|e| e.node_id())) || is(n.right.and_then(|e| e.node_id()))
+            }
+            Node::ConditionalExpression(n) => {
+                is(n.condition.and_then(|e| e.node_id()))
+                    || is(n.when_true.and_then(|e| e.node_id()))
+                    || is(n.when_false.and_then(|e| e.node_id()))
+            }
+            Node::ParenthesizedExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::PrefixUnaryExpression(n) => is(n.operand.and_then(|e| e.node_id())),
+            Node::PostfixUnaryExpression(n) => is(n.operand.and_then(|e| e.node_id())),
+            Node::CallExpression(n) => {
+                is(n.expression.and_then(|e| e.node_id()))
+                    || n.arguments.iter().any(|a| is(a.node_id()))
+            }
+            Node::NewExpression(n) => {
+                is(n.expression.and_then(|e| e.node_id()))
+                    || n.arguments.iter().any(|a| is(a.node_id()))
+            }
+            Node::VariableDeclaration(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::ArrayLiteralExpression(n) => n.elements.iter().any(|e| is(e.node_id())),
+            Node::SpreadElement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::AwaitExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::TypeOfExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::VoidExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::TemplateSpan(n) => is(n.expression.and_then(|e| e.node_id())),
+            _ => false,
+        };
+        if expression_slot { ReferencePosition::Expression } else { ReferencePosition::Other }
     }
 
     /// Is this reference inside one of the symbol's own declarations?

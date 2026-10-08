@@ -214,3 +214,37 @@ do not cover element accesses with symbol keys); all three keep the old
 answer, no report — the missing-line direction.
 
 Case converted: `compiler/noUnusedLocals_writeOnlyProperty_dynamicNames`.
+
+## §9 The meaning of a reference, where its position fixes it
+
+**Forcing fact.** `noUnusedLocals_typeParameterMergedWithParameter`
+(`function useParam<T>(T: number) { return T; }` and
+`function useTypeParam<T>(T: T) {}`) missed a TS6196 and a TS6133: the
+marking pass resolved every identifier under Value, Type *and* Namespace, so
+`return T` marked the type parameter and the annotation `T` marked the
+parameter.
+
+**Native.** `referenceKinds` is written by the `resolveName` callback with
+the meaning that call asked for (`checker.go:1499`). An expression identifier
+is resolved by `getResolvedSymbol` with `Value | ExportValue`; a type
+reference's name by `resolveTypeReferenceName` with `Type` (with a value
+fallback only in JavaScript).
+
+**Choice.** `reference_position` narrows exactly those two positions and
+leaves every other one at all three meanings:
+
+- the name of a `TypeReference` in a TypeScript file → Type (+ Namespace);
+- a slot that only an expression can fill — return/throw/expression
+  statement, binary and conditional operands, unary operands, call/new callee
+  and arguments, a variable initializer, array elements and spreads,
+  `await`/`typeof`/`void` operands, template spans → Value (+ Namespace).
+
+The whitelist is deliberately short: a position missing from it keeps the
+old over-approximation (a missing line at worst). Namespace stays in both
+because dropping it could only add lines, and no corpus case needs it gone.
+Rejected: deriving the meaning from a general "is part of a type node" walk —
+heritage clauses, `export =`, export specifiers, decorators, JSDoc and type
+queries each resolve with a different meaning, and getting any of them wrong
+is a wrong line, not a missing one.
+
+Case converted: `compiler/noUnusedLocals_typeParameterMergedWithParameter`.
