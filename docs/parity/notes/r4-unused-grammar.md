@@ -56,3 +56,38 @@ Cases converted: `compiler/letDeclarations-scopes`,
 `compiler/withStatement`, `compiler/withStatementNestedScope`,
 `conformance/typedefOnStatements`. The other eight cases with these codes now
 match on them and stay WRONG on unrelated codes.
+
+## §3 TS1355: `as const` on an operand it cannot apply to
+
+**Forcing fact.** No producer: the baseline had two cases expecting TS1355
+(`compiler/constantEnumAssert`, `conformance/constAssertions`), both WRONG
+on that code alone.
+
+**Native.** `checkAssertion` (`checker.go:12303`): when the type node
+`isConstTypeReference`, report `c.error(node.Expression(), …)` unless
+`isValidConstAssertionArgument` (`checker.go:13623`) holds — a literal,
+array/object literal or template, a parenthesised valid argument, `-`/`+` on
+a numeric (or `-` on a bigint) literal, or a property/element access whose
+receiver, parentheses skipped, is an entity name expression resolving
+(`resolveEntityName`, `Value`, `ignoreErrors`) to an `Enum` symbol.
+
+**Choice.** `check_const_assertion_argument` (`grammar.rs`), dispatched from
+`check_node`'s `AsExpression | TypeAssertion` arm beside
+`check_assertion_overlap` — the port's existing home for the non-typing half
+of `checkAssertion` (TS2352). The alternative, reporting from
+`check_const_assertion` in `assertions.rs`, is the faithful call position but
+not this lane's file; and it would run once per *type* request of the
+expression, where the walk visits the node once — upstream dedups the
+repeated `c.error` in `SortAndDeduplicateDiagnostics`, this port does not.
+`isConstTypeReference` reuses `assertions::is_const_type_reference`, which
+already knows the parser's nameless encoding of `as const`. A first draft
+tested for an identifier `const` and reported nothing: the parser writes
+`as const` as a type reference with *no* name.
+
+The entity-name resolution is a local copy of
+`meaning_mismatch.rs`'s private `resolve_entity_name_expression` (same
+`resolveQualifiedName` shape) plus `resolveEntityName`'s final alias walk;
+making that one `pub(crate)` is the smaller change but is outside this lane.
+
+**Falsifier.** A TS1355 at a node this predicate accepts, or an `as const`
+in an ambient or never-checked position that native does not report.

@@ -625,6 +625,7 @@ impl Checker<'_, '_> {
             }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {
                 self.check_assertion_overlap(node, ambient);
+                self.check_const_assertion_argument(node);
                 ambient
             }
             Node::MetaProperty(_) => {
