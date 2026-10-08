@@ -4,7 +4,7 @@
 //! are recorded in `docs/parity/notes/r4-perf.md` (the checker port
 //! convention, `docs/conventions.md`).
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_ast::{NodeId, SyntaxKind};
 use tsr_binder::SymbolId;
 
@@ -39,7 +39,22 @@ pub(crate) struct PerfLinks {
     /// `resolveObjectTypeMembers` publishing the declared type's
     /// `resolvedProperties`, read by name. Holds only decided answers
     /// (`r4-perf2.md` §3).
-    pub(crate) structured_property_names: FxHashMap<SymbolId, Vec<String>>,
+    pub(crate) structured_property_names: FxHashMap<SymbolId, std::rc::Rc<[String]>>,
+    /// A class's, interface's or type literal's own-then-inherited index
+    /// infos (`false`) or a class's static ones (`true`), values
+    /// uninstantiated: native `resolveObjectTypeMembers` /
+    /// `resolveAnonymousTypeMembers` publishing the declared type's
+    /// `indexInfos`. Holds only decided answers (`r4-perf3.md` §5).
+    pub(crate) symbol_index_infos:
+        FxHashMap<(SymbolId, bool), Vec<crate::index_signatures::IndexInfo>>,
+    /// The `(owner, is_static)` entries of `Checker::late_bound_member_names`
+    /// whose `late_bound_members_of` computation is running: their parked
+    /// empty list is a placeholder, not a completed answer. Native resolves
+    /// late-bound members inside `getResolvedMembersOrExportsOfSymbol`, whose
+    /// in-progress state is the `lateSymbol` links; a reader that publishes
+    /// (`structured_property_names`) must not take the placeholder for the
+    /// answer (`r4-perf2.md` §3, `r4-perf3.md` §3).
+    pub(crate) late_bound_active: FxHashSet<(SymbolId, bool)>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
 }
@@ -50,16 +65,38 @@ pub(crate) struct PerfLinks {
 /// length name the slice.
 pub(crate) type HeritageBaseKey = (SymbolId, Option<NodeId>, Option<NodeId>, usize);
 
+/// [`Checker::publication_mark`]'s answer.
+#[derive(Clone, Copy)]
+pub(crate) struct PublicationMark {
+    top_level: bool,
+    observations: u64,
+}
+
 impl Checker<'_, '_> {
-    /// Whether an answer computed now may be published. Native resolves a
-    /// type's members once and publishes them unconditionally; this port's
-    /// resolution can answer provisionally inside an active resolution (a
-    /// circular read answers error) and inside a flow loop (an incomplete
-    /// loop type), so those do not publish. Read only after
-    /// [`Self::memo_frames`] admitted the request, which already excluded the
-    /// mapper frames.
-    pub(crate) fn signature_links_publishable(&self) -> bool {
-        self.resolutions.depth() == 0 && self.flow_loop_stack.is_empty()
+    /// Open a computation whose answer a memo may publish under
+    /// [`Self::publishable_since`]. Native resolves a type's members once and
+    /// publishes them unconditionally; this port's resolution can answer
+    /// provisionally inside an active resolution (a circular read answers
+    /// error) and inside a flow loop (an incomplete loop type), so those do
+    /// not publish. Read only after [`Self::memo_frames`] admitted the
+    /// request, which already excluded the mapper frames.
+    pub(crate) fn publication_mark(&self) -> PublicationMark {
+        PublicationMark {
+            top_level: self.resolutions.depth() == 0,
+            observations: self.resolutions.observations(),
+        }
+    }
+
+    /// Whether the computation opened at `mark` may publish: no flow loop is
+    /// active, and either no resolution was open when it began
+    /// (the rule before `r4-perf3.md` §2) or nothing it did
+    /// depended on the open frames — no cycle closed and no probe saw a frame
+    /// (`resolution::Resolutions::observations`). A circular read inside an
+    /// active resolution is how such an answer turns provisional, and it is
+    /// exactly what the count sees (`r4-perf3.md` §2).
+    pub(crate) fn publishable_since(&self, mark: PublicationMark) -> bool {
+        self.flow_loop_stack.is_empty()
+            && (mark.top_level || self.resolutions.observations() == mark.observations)
     }
 
     /// Admit a memo request whose answer is computed from the syntax under

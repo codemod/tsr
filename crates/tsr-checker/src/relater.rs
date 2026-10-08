@@ -1858,7 +1858,7 @@ impl Relater<'_, '_, '_> {
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
-        if self.checker.get_property_names_of_type(id).is_some_and(|names| !names.is_empty())
+        if self.checker.get_property_names_of_type_shared(id).is_some_and(|names| !names.is_empty())
             || self.checker.get_index_infos_of_type(id).is_none_or(|infos| !infos.is_empty())
         {
             return false;

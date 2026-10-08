@@ -38,3 +38,20 @@ that case, restore the round-4 publication rule in main's
 `signature_candidates_of_interface_symbol` (admission through `memo_frames`,
 publication through `signature_links_publishable` and the decided-returns
 test).
+
+## r4-perf3 merged after main (batch G)
+
+r4-perf3 was built on the pre-main integration head, so it still edited the
+round-4 interface-signature memo that the main merge had removed (C1 above). It
+also had its own placeholder marker for `late_bound_members_of`, a set of
+`(owner, static)` keys, `PerfLinks::late_bound_active`. Main had added a
+counter for the same purpose.
+
+How it was resolved:
+- **C1:** main's memo stays. r4-perf3's `publication_mark` / `publishable_since`
+  change to it is dropped with that memo. The other memos keep it.
+- **Late-bound marker:** r4-perf3's keyed set is kept. Main's counter
+  (`Checker::late_bound_active`) only fed main's C2 memo, which was not kept,
+  so it is removed. The set is the stricter rule: it withholds publication only
+  for an owner whose placeholder is live, not for every owner while any
+  placeholder is live (`r4-perf3.md`).

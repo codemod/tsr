@@ -447,9 +447,6 @@ pub struct Checker<'a, 'n> {
     /// with an empty entry installed while resolving to break recursive keys.
     pub(crate) late_bound_member_names:
         rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
-    /// How many `late_bound_members_of` workers are active, i.e. how many
-    /// `late_bound_member_names` entries are still the empty placeholder.
-    pub(crate) late_bound_active: u32,
     /// §469's other half of the signature-links table: DECLARATIONS whose
     /// inferred return type is currently consulting the contextual road.
     /// Upstream's `signatureLinks` is keyed per NODE and serves both the
@@ -1435,7 +1432,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
-            late_bound_active: 0,
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),
             contextual_return_depth: 0,

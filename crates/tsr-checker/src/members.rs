@@ -2135,6 +2135,7 @@ impl Checker<'_, '_> {
         let result = match self.perf_links.reference_member_types.get(&key) {
             Some(&(published_this, result)) if published_this == this_type => result,
             _ => {
+                let mark = self.publication_mark();
                 let (result, mapped) = self.instantiate_for_reference_with_this_worker(
                     symbol,
                     receiver,
@@ -2149,7 +2150,7 @@ impl Checker<'_, '_> {
                 let decided = result != self.intrinsics.error
                     && (!mapped || result != declared || self.is_leaf_type(declared));
                 if decided
-                    && self.signature_links_publishable()
+                    && self.publishable_since(mark)
                     && self.polymorphic_this_of(symbol) == this_type
                 {
                     self.perf_links.reference_member_types.insert(key, (this_type, result));
@@ -3056,7 +3057,7 @@ impl Checker<'_, '_> {
             return members.clone();
         }
         self.late_bound_member_names.insert(cache_key, Vec::new());
-        self.late_bound_active += 1;
+        self.perf_links.late_bound_active.insert(cache_key);
         let declarations: Vec<tsr_ast::NodeId> =
             self.binder.symbols().get(owner).declarations.iter().copied().collect();
         let mut out = Vec::new();
@@ -3132,7 +3133,7 @@ impl Checker<'_, '_> {
             }
         }
         self.late_bound_member_names.insert(cache_key, out.clone());
-        self.late_bound_active -= 1;
+        self.perf_links.late_bound_active.remove(&cache_key);
         out
     }
 
@@ -3166,6 +3167,23 @@ impl Checker<'_, '_> {
     /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
     /// and is why the walk cannot silently under-report a requirement.
     pub(crate) fn get_property_names_of_type(&mut self, id: TypeId) -> Option<Vec<String>> {
+        self.property_names_of_type(id).map(PropertyNames::into_vec)
+    }
+
+    /// [`Self::get_property_names_of_type`] without copying a memoised list:
+    /// a class's or interface's names are shared with
+    /// [`PerfLinks::structured_property_names`](crate::perf_links::PerfLinks)
+    /// (`r4-perf3.md` §4). Same answer, same work, same side effects.
+    pub(crate) fn get_property_names_of_type_shared(
+        &mut self,
+        id: TypeId,
+    ) -> Option<std::rc::Rc<[String]>> {
+        self.property_names_of_type(id).map(PropertyNames::into_shared)
+    }
+
+    /// [`Self::get_property_names_of_type`]'s enumeration, answering a
+    /// memoised list without copying it.
+    fn property_names_of_type(&mut self, id: TypeId) -> Option<PropertyNames> {
         // Pinned 5b1047d checker.go:18846/18861: composite enumeration reads
         // completed constituent own tables, then certifies combined properties.
         // Checker-local TypeIds retain alias/receiver identity; temporary name
@@ -3175,7 +3193,7 @@ impl Checker<'_, '_> {
         // this traversal and type forcing run per query (tsr-1yb.11), not a speed
         // claim. Unknown tables or unsupported partial/privacy metadata decline.
         if id == self.intrinsics.empty_object || id == self.intrinsics.unknown_empty_object {
-            return Some(Vec::new());
+            return Some(Vec::new().into());
         }
         let composite = match &self.store.get(id).data {
             TypeData::Union { types, .. } => Some((types.clone(), true)),
@@ -3343,7 +3361,7 @@ impl Checker<'_, '_> {
                 }
                 names.push(name);
             }
-            return Some(names);
+            return Some(names.into());
         }
         if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
             let mut names = self.get_property_names_of_type(source)?;
@@ -3368,7 +3386,7 @@ impl Checker<'_, '_> {
             {
                 names.push("default".to_owned());
             }
-            return Some(names);
+            return Some(names.into());
         }
         // resolveMappedTypeMembers supplies guaranteed keys of an open keyof
         // map from its apparent object constraint. Sequence apparent types keep
@@ -3377,11 +3395,13 @@ impl Checker<'_, '_> {
             self.resolve_mapped_type_members(id);
         }
         if let Some((properties, true)) = self.anonymous_properties.get(&id) {
-            return Some(properties.iter().map(|property| property.name.clone()).collect());
+            return Some(
+                properties.iter().map(|property| property.name.clone()).collect::<Vec<_>>().into(),
+            );
         }
         if let Some(symbol) = self.class_static_symbol(id) {
             let mut names = vec!["prototype".to_owned()];
-            return self.collect_static_property_names(symbol, &mut names).then_some(names);
+            return self.collect_static_property_names(symbol, &mut names).then(|| names.into());
         }
         if let TypeData::Anonymous { symbol, .. } = self.type_of(id).data
             && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
@@ -3394,7 +3414,8 @@ impl Checker<'_, '_> {
                     .iter()
                     .filter(|(_, member)| self.symbol_is_value(**member))
                     .map(|(&name, _)| name.to_owned())
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
             );
         }
         // resolveAnonymousTypeMembers: function, enum and module values expose
@@ -3424,15 +3445,15 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            return Some(names);
+            return Some(names.into());
         }
         let TypeData::Named { members: Some(owner), .. } = self.type_of(id).data else {
             return None;
         };
         if let Some(names) = self.mapped_alias_literal_key_names(id, owner) {
-            return Some(names);
+            return Some(names.into());
         }
-        self.structured_property_names(owner)
+        self.structured_property_names(owner).map(PropertyNames::Shared)
     }
 
     /// A class's or interface's instance property names, own then
@@ -3447,21 +3468,25 @@ impl Checker<'_, '_> {
     /// [`PerfLinks::structured_property_names`](crate::perf_links::PerfLinks)
     /// keeps the decided lists; key, publication and context are
     /// `docs/parity/notes/r4-perf2.md` §3.
-    fn structured_property_names(&mut self, owner: SymbolId) -> Option<Vec<String>> {
+    fn structured_property_names(&mut self, owner: SymbolId) -> Option<std::rc::Rc<[String]>> {
         let binder = self.binder;
         let Some(frames) = self.memo_frames(&binder.symbols().get(owner).declarations, None) else {
             let mut walk = StructuredNamesWalk::uncached();
-            return self.collect_structured_property_names(owner, &mut walk).then_some(walk.names);
+            return self
+                .collect_structured_property_names(owner, &mut walk)
+                .then(|| walk.names.into());
         };
         let names = if let Some(names) = self.perf_links.structured_property_names.get(&owner) {
             Some(names.clone())
         } else {
             let mut walk = StructuredNamesWalk::memoised();
+            let mark = self.publication_mark();
             let complete = self.collect_structured_property_names(owner, &mut walk);
-            if complete && !walk.cycle && !walk.unsettled && self.signature_links_publishable() {
-                self.perf_links.structured_property_names.insert(owner, walk.names.clone());
+            let names: std::rc::Rc<[String]> = walk.names.into();
+            if complete && !walk.cycle && !walk.unsettled && self.publishable_since(mark) {
+                self.perf_links.structured_property_names.insert(owner, names.clone());
             }
-            complete.then_some(walk.names)
+            complete.then_some(names)
         };
         self.alias_evaluation_bindings = frames;
         names
@@ -3588,7 +3613,7 @@ impl Checker<'_, '_> {
             && !walk.visiting.is_empty()
             && let Some(published) = self.perf_links.structured_property_names.get(&owner)
         {
-            for name in published {
+            for name in published.iter() {
                 if !walk.names.contains(name) {
                     walk.names.push(name.clone());
                 }
@@ -3610,13 +3635,10 @@ impl Checker<'_, '_> {
             .collect();
         // Late-bound own declarations belong to this same ordered partition,
         // not an appended table. Instance and static identities stay separate.
-        // `late_bound_members_of` parks an empty list while it computes, so an
-        // empty answer for an owner that declares computed names may be that
-        // placeholder, and the walk's list is not published.
-        if walk.memoised
-            && self.late_bound_member_names.get(&(owner, false)).is_some_and(Vec::is_empty)
-            && self.declares_computed_member_name(owner)
-        {
+        // `late_bound_members_of` parks an empty list while it computes and
+        // marks the entry active; the placeholder's empty answer is not the
+        // owner's late-bound names, so the walk's list is not published.
+        if walk.memoised && self.perf_links.late_bound_active.contains(&(owner, false)) {
             walk.unsettled = true;
         }
         own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
@@ -3632,69 +3654,6 @@ impl Checker<'_, '_> {
             return false;
         };
         bases.into_iter().all(|base| self.collect_structured_property_names(base, walk))
-    }
-
-    /// Whether one of `owner`'s class, interface or literal declarations
-    /// has a member named by a computed property name — the members
-    /// [`Self::late_bound_members_of`] considers.
-    fn declares_computed_member_name(&self, owner: SymbolId) -> bool {
-        use tsr_ast::PropertyName::ComputedPropertyName;
-        self.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
-            let members: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
-                Some(Node::ClassDeclaration(class)) => {
-                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
-                }
-                Some(Node::ClassExpression(class)) => {
-                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
-                }
-                Some(Node::InterfaceDeclaration(interface)) => interface
-                    .members
-                    .iter()
-                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
-                    .collect(),
-                Some(Node::TypeLiteralNode(literal)) => literal
-                    .members
-                    .iter()
-                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
-                    .collect(),
-                Some(Node::ObjectLiteralExpression(literal)) => literal
-                    .properties
-                    .iter()
-                    .filter_map(|member| tsr_ast::Node::from(*member).node_id())
-                    .collect(),
-                _ => return false,
-            };
-            members.into_iter().any(|member| {
-                matches!(
-                    self.node_map.get(member),
-                    Some(
-                        Node::PropertyDeclaration(tsr_ast::PropertyDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::PropertySignatureDeclaration(
-                            tsr_ast::PropertySignatureDeclaration {
-                                name: ComputedPropertyName(_),
-                                ..
-                            }
-                        ) | Node::MethodDeclaration(tsr_ast::MethodDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::MethodSignatureDeclaration(
-                            tsr_ast::MethodSignatureDeclaration {
-                                name: ComputedPropertyName(_),
-                                ..
-                            }
-                        ) | Node::GetAccessorDeclaration(tsr_ast::GetAccessorDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::SetAccessorDeclaration(tsr_ast::SetAccessorDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        })
-                    )
-                )
-            })
-        })
     }
 
     pub(crate) fn late_bound_static_members_of(
@@ -4279,10 +4238,10 @@ mod property_name_tests {
                 // This is the marker late_bound_members_of publishes, with its
                 // active count, while its worker runs.
                 checker.late_bound_member_names.insert((owner, false), Vec::new());
-                checker.late_bound_active += 1;
+                checker.perf_links.late_bound_active.insert((owner, false));
                 assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["early"]);
                 checker.late_bound_member_names.remove(&(owner, false));
-                checker.late_bound_active -= 1;
+                checker.perf_links.late_bound_active.remove(&(owner, false));
                 let mut completed = checker.get_property_names_of_type(ty).unwrap();
                 completed.sort();
                 assert_eq!(completed, ["early", "late"]);
@@ -4740,10 +4699,12 @@ static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
             |checker, root| {
                 let left = checker.binder.lookup_local(root, "Left").unwrap();
                 checker.late_bound_member_names.insert((left, false), Vec::new());
+                checker.perf_links.late_bound_active.insert((left, false));
                 let both = checker.binder.lookup_local(root, "Both").unwrap();
                 let both = checker.get_declared_type_of_symbol(both);
                 assert_eq!(checker.get_property_names_of_type(both), None);
                 checker.late_bound_member_names.remove(&(left, false));
+                checker.perf_links.late_bound_active.remove(&(left, false));
                 // The existing completion contract does not certify computed
                 // names even when a separate lookup has forced their value.
                 assert_eq!(checker.get_property_names_of_type(both), None);
@@ -4995,6 +4956,36 @@ type Tree = [string, Tree][]; declare const tree: Tree;"
                 assert_eq!(publication(checker), before);
             });
         }
+    }
+}
+
+/// [`Checker::property_names_of_type`]'s answer: a list built for this
+/// query, or a memoised one shared with
+/// [`PerfLinks::structured_property_names`](crate::perf_links::PerfLinks).
+enum PropertyNames {
+    Owned(Vec<String>),
+    Shared(std::rc::Rc<[String]>),
+}
+
+impl PropertyNames {
+    fn into_vec(self) -> Vec<String> {
+        match self {
+            Self::Owned(names) => names,
+            Self::Shared(names) => names.to_vec(),
+        }
+    }
+
+    fn into_shared(self) -> std::rc::Rc<[String]> {
+        match self {
+            Self::Owned(names) => names.into(),
+            Self::Shared(names) => names,
+        }
+    }
+}
+
+impl From<Vec<String>> for PropertyNames {
+    fn from(names: Vec<String>) -> Self {
+        Self::Owned(names)
     }
 }
 
