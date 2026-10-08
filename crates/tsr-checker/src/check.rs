@@ -735,6 +735,7 @@ impl Checker<'_, '_> {
             Node::TypeParameterDeclaration(_) => {
                 self.check_circular_type_parameter_constraint(node);
                 self.check_circular_type_parameter_default(node);
+                self.check_type_parameter_default_constraint(node);
                 self.check_type_alias_variance_annotation(node);
                 ambient
             }

@@ -919,6 +919,96 @@ impl Checker<'_, '_> {
     }
 }
 
+impl Checker<'_, '_> {
+    /// `checkTypeParameter`'s default arm (`checker.go`, after the circular
+    /// default check): a type parameter with both a constraint and a default
+    /// must have a default assignable to the constraint instantiated with the
+    /// parameter mapped to that default, else TS2344 at the written default:
+    ///
+    /// ```text
+    /// checkTypeAssignableTo(defaultType, getTypeWithThisArgument(
+    ///     instantiateType(constraintType, newSimpleTypeMapper(tp, defaultType)),
+    ///     defaultType, false), tpNode.DefaultType, Type_0_does_not_satisfy_the_constraint_1)
+    /// ```
+    ///
+    /// The default is `getDefaultFromTypeParameter`'s resolved default; a
+    /// circular or not-yet-ported default (`Unsupported`) declines. A
+    /// declaration without its own default node reports nothing upstream
+    /// either (a nil error node). The relation is gated exactly as
+    /// [`Self::check_type_argument_constraints`] gates it (the generic
+    /// declines of §4 in `docs/parity/notes/r5-constraints2.md`), and a
+    /// constraint that is a class or interface type declines because
+    /// `getTypeWithThisArgument` is not ported here. No cache or side table.
+    pub(crate) fn check_type_parameter_default_constraint(&mut self, node: NodeId) {
+        let Some(tsr_ast::Node::TypeParameterDeclaration(declaration)) = self.node_map.get(node)
+        else {
+            return;
+        };
+        let (Some(default_node), Some(name)) = (declaration.default_type, declaration.name) else {
+            return;
+        };
+        let (Some(at), Some(symbol)) = (default_node.node_id(), self.binder.symbol_of(node)) else {
+            return;
+        };
+        let parameter = self.get_declared_type_of_symbol(symbol);
+        if parameter == self.intrinsics.error {
+            return;
+        }
+        let Some(constraint) = self.type_parameter_constraint(parameter) else { return };
+        let crate::declared::TypeParameterDefaultState::Resolved(Some(default)) =
+            self.get_resolved_type_parameter_default(parameter)
+        else {
+            return;
+        };
+        if self.is_error(constraint) || self.is_error(default) {
+            return;
+        }
+        let name = name.text.to_string();
+        let target =
+            self.instantiate_type(constraint, &[(parameter, default)], &[parameter], &[&name]);
+        if self.is_error(target)
+            || self.constraint_needs_this_argument(target)
+            || self.type_argument_node_is_generic(at)
+            || self.relation_undecidable_for_constraint(default)
+            || self.relation_undecidable_for_constraint(target)
+            || self.relate_ternary(default, target, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+            || !self.pair_is_reportable(default, target)
+        {
+            return;
+        }
+        let span = self.error_span(at);
+        self.report_relation_failure(
+            at,
+            span,
+            None,
+            default,
+            target,
+            Some(&tsr_diagnostics::messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
+        );
+    }
+
+    /// Whether `getTypeWithThisArgument(ty, this)` could differ from `ty`: a
+    /// class or interface type (or a reference to one), whose `this` type
+    /// the default would replace.
+    fn constraint_needs_this_argument(&self, ty: TypeId) -> bool {
+        if !self.store.get(ty).flags.intersects(TypeFlags::OBJECT) {
+            return false;
+        }
+        let symbol = match &self.store.get(ty).data {
+            TypeData::Named { members, .. } => *members,
+            _ => self.type_reference_targets.get(&ty).map(|(symbol, _)| *symbol),
+        };
+        symbol.is_some_and(|symbol| {
+            self.binder
+                .symbols()
+                .get(self.binder.merged_symbol(symbol))
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        })
+    }
+}
+
 /// One type parameter of a referenced class, interface or alias, as
 /// `checkTypeArgumentConstraints` sees it: its declared type, name and the
 /// first written default among its merged declarations.

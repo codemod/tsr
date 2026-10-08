@@ -110,6 +110,32 @@ EMPTY_RIGHT and 9 RIGHT turned WRONG by extra TS2344). The relater's
 `NotRelated` on these pairs is wrong more often than right, so the declines
 stay; the generic cases wait on relater arms (`relater.rs`, r5-relater4).
 
+## §6 TS2344: a type parameter's default against its constraint
+
+`checkTypeParameter` checks a parameter that has both a constraint and a
+default: `checkTypeAssignableTo(defaultType, getTypeWithThisArgument(
+instantiateType(constraintType, newSimpleTypeMapper(tp, defaultType)),
+defaultType), tpNode.DefaultType, Type_0_does_not_satisfy_the_constraint_1)`.
+TSR had no counterpart. `check_type_parameter_default_constraint` ports it,
+called from the `TypeParameterDeclaration` arm of `check_node` right after the
+circular-default check, which is native's order.
+
+- The default is `getResolvedTypeParameterDefault`'s `Resolved` answer;
+  `Circular` reports nothing (TS2716 has), and `Unsupported` (a default this
+  port cannot build) declines.
+- A declaration without its own default node reports nothing: native's error
+  node is nil there.
+- The relation is gated by the same generic declines as the reference check
+  (§4).
+- `getTypeWithThisArgument` is not ported, so a constraint that is a class or
+  interface type declines; no measured case has one.
+
+Measured with the commits above, both dumps: 0 lost, no verdict changed;
+`compiler/genericDefaultsErrors` gains its two concrete lines (3,41 and
+26,34). Its other six lines relate a type parameter (§4), and it also misses
+TS2706. Median child CPU against the baseline binary at 21 samples:
+domain-model 0.990, generic-imports 0.963.
+
 ## §5 Measurements
 
 Baseline: integration `2919d8c`, frozen dumps. Both loss checks empty unless
