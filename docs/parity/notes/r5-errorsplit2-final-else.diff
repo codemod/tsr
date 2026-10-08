@@ -1,0 +1,54 @@
+diff --git a/crates/tsr-checker/src/array_literals.rs b/crates/tsr-checker/src/array_literals.rs
+index f3cef4a..ea9a0c8 100644
+--- a/crates/tsr-checker/src/array_literals.rs
++++ b/crates/tsr-checker/src/array_literals.rs
+@@ -1229,8 +1229,12 @@ impl Checker<'_, '_> {
+         // `trailingCommasInBindingPatterns`). Identity against the intrinsic,
+         // not a flag test: `errorType` carries ANY and must stay the gap
+         // above.
+-        if operand == self.intrinsics.any {
+-            return Some(self.intrinsics.any);
++        // ADR-0048: upstream's `errorType` is any-flagged too, so
++        // `IsTypeAny(inputType)` returns it unchanged — the element is
++        // `errorType` (`[...c] = tupel` records `[...c] : any[]`,
++        // `assignmentRestElementWithErrorSourceType`).
++        if operand == self.intrinsics.any || operand == self.intrinsics.native_error {
++            return Some(operand);
+         }
+         if let Some((target, arguments)) = self.type_reference_targets.get(&operand).cloned()
+             && arguments.len() == 1
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index ee07d42..15fab6e 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -972,11 +972,8 @@ impl Checker<'_, '_> {
+                             // with no import machinery: `getResolvedSymbol`
+                             // answers `unknownSymbol` and `checkIdentifier`
+                             // returns `errorType` (`checker.go:11048`).
+-                            // ADR-0048: still the `any` stand-in; switching it
+-                            // to `native_error` waits on a consumer audit
+-                            // outside this function
+-                            // (`docs/parity/notes/r5-errorsplit2.md` §2).
+-                            self.intrinsics.any
++                            // ADR-0048: upstream's own error identity.
++                            self.intrinsics.native_error
+                         }
+                     }
+                 }
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index fa6234d..5d0bd00 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -255,6 +255,12 @@ impl Checker<'_, '_> {
+         if receiver_type == error {
+             return error;
+         }
++        // ADR-0048: an any-like receiver that is upstream's `errorType`
++        // answers `errorType` (`checker.go:11314-11320`, `isAnyLike` then
++        // `isErrorType(apparentType)`), whatever the member.
++        if receiver_type == self.intrinsics.native_error {
++            return receiver_type;
++        }
+         // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
+         // to the lookup (`checker.go:11258`), and a chain link goes through
+         // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is

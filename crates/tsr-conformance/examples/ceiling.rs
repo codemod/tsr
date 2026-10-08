@@ -65,7 +65,7 @@
 //! cargo run --release -p tsr-conformance --example ceiling
 //! ```
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use tsr_conformance::types_baseline::{self, FileTypes};
@@ -96,14 +96,14 @@ struct Tally {
     c1_overlap: usize,
     /// Cases with an `.errors.txt`.
     cases_with_errors: usize,
-    /// ADR-0047: matched lines whose top-level type is the port's GAP — the
+    /// ADR-0048: matched lines whose top-level type is the port's GAP — the
     /// writer printed it `any` and upstream printed `any`. Each is credited
     /// although this port computed nothing: the falsely-credited population
     /// ADR-0038 feared, now counted by identity rather than estimated.
     credited_gap: usize,
     /// Of those, with a name-resolution error on the same source line.
     credited_gap_attributed: usize,
-    /// ADR-0047: lines whose top-level type is upstream's `errorType`
+    /// ADR-0048: lines whose top-level type is upstream's `errorType`
     /// (`native_error`), by verdict, and of the matched ones how many carry a
     /// name-resolution error on their source line.
     native_total: usize,
@@ -111,6 +111,18 @@ struct Tally {
     native_matched_attributed: usize,
     /// Of the matched ones in a case with an `.errors.txt`.
     native_matched_with_errors: usize,
+    /// ADR-0048 (d): what narrowing the writer's gap->`any` rewrites to
+    /// upstream's `errorType` would do. Every line a rewrite printed `any` for
+    /// the port's gap would print `error` instead: a matched one goes
+    /// RIGHT->GAP, an unmatched one WRONG->GAP.
+    narrow_right_to_gap: usize,
+    narrow_wrong_to_gap: usize,
+    /// Cases with at least one RIGHT->GAP line.
+    narrow_cases: usize,
+    /// RIGHT->GAP lines by the rewrite that printed them.
+    narrow_by_rewrite: BTreeMap<String, usize>,
+    /// RIGHT->GAP lines by producer (`gap_reason`, its leading clause).
+    narrow_by_producer: BTreeMap<String, usize>,
 }
 
 impl Tally {
@@ -130,6 +142,15 @@ impl Tally {
         self.native_matched += o.native_matched;
         self.native_matched_attributed += o.native_matched_attributed;
         self.native_matched_with_errors += o.native_matched_with_errors;
+        self.narrow_right_to_gap += o.narrow_right_to_gap;
+        self.narrow_wrong_to_gap += o.narrow_wrong_to_gap;
+        self.narrow_cases += o.narrow_cases;
+        for (key, n) in &o.narrow_by_rewrite {
+            *self.narrow_by_rewrite.entry(key.clone()).or_default() += n;
+        }
+        for (key, n) in &o.narrow_by_producer {
+            *self.narrow_by_producer.entry(key.clone()).or_default() += n;
+        }
     }
 }
 
@@ -223,15 +244,26 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Tally> {
         };
 
         for (position, assertion) in our_file.iter().enumerate() {
-            let kind = kinds
-                .get(index)
-                .and_then(|k| k.get(position))
-                .copied()
-                .unwrap_or(types_producer::TopError::Other);
+            let identity = kinds.get(index).and_then(|k| k.get(position));
+            let kind = identity.map_or(types_producer::TopError::Other, |line| line.top);
             let matched = expected_file
                 .assertions
                 .get(position)
                 .is_some_and(|baseline| baseline.text == assertion.line());
+            if let Some(line) = identity
+                && let Some(rewrite) = line.rewrite
+            {
+                if matched {
+                    tally.narrow_right_to_gap += 1;
+                    *tally.narrow_by_rewrite.entry(format!("{rewrite:?}")).or_default() += 1;
+                    *tally
+                        .narrow_by_producer
+                        .entry(producer_bucket(line.producer.as_deref()))
+                        .or_default() += 1;
+                } else {
+                    tally.narrow_wrong_to_gap += 1;
+                }
+            }
             match kind {
                 types_producer::TopError::Gap if matched => {
                     tally.credited_gap += 1;
@@ -290,7 +322,17 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Tally> {
         }
     }
 
+    tally.narrow_cases = usize::from(tally.narrow_right_to_gap > 0);
     Some(tally)
+}
+
+/// A `gap_reason` string's leading clause, so the producer table groups
+/// rather than listing every symbol: `symbol has no type: VARIABLE / …`
+/// keeps its flags and declaration kind and drops the rest.
+fn producer_bucket(reason: Option<&str>) -> String {
+    let Some(reason) = reason else { return "(none)".to_string() };
+    let head: Vec<&str> = reason.split(" / ").take(2).collect();
+    head.join(" / ")
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -344,7 +386,7 @@ fn main() {
         0.80 * t.total as f64 / reachable as f64 * 100.0
     );
 
-    println!("\nADR-0047: THE SPLIT, BY IDENTITY");
+    println!("\nADR-0048: THE SPLIT, BY IDENTITY");
     println!(
         "  matched lines whose type is the port's GAP     {:>7}  ({} attributed)   <- falsely credited",
         t.credited_gap, t.credited_gap_attributed
@@ -353,6 +395,24 @@ fn main() {
         "  lines whose type is upstream's errorType        {:>7}  ({} matched; {} of those in a case with errors, {} attributed)",
         t.native_total, t.native_matched, t.native_matched_with_errors, t.native_matched_attributed
     );
+
+    println!("\nADR-0048 (d): NARROWING THE GAP->`any` REWRITES TO `native_error`");
+    println!(
+        "  RIGHT->GAP {:>7} lines in {} cases; WRONG->GAP {:>7}",
+        t.narrow_right_to_gap, t.narrow_cases, t.narrow_wrong_to_gap
+    );
+    println!("  by rewrite:");
+    let mut rows: Vec<_> = t.narrow_by_rewrite.iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(a.1));
+    for (key, n) in rows {
+        println!("    {n:>7}  {key}");
+    }
+    println!("  by producer (top 25):");
+    let mut rows: Vec<_> = t.narrow_by_producer.iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(a.1));
+    for (key, n) in rows.into_iter().take(25) {
+        println!("    {n:>7}  {key}");
+    }
 
     println!("\nCONTROLS");
     println!(

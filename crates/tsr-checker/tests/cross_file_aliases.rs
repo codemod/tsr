@@ -202,14 +202,15 @@ fn imported_value_read_and_assignment_keep_distinct_native_results() {
     else {
         panic!()
     };
+    // `checker.go:11094`: upstream's own `errorType` (ADR-0048), not the gap.
     let assignment_type = checker.check_expression(increment.operand.unwrap());
-    assert_eq!(assignment_type, checker.intrinsics().error);
+    assert_eq!(assignment_type, checker.intrinsics().native_error);
     let tsr_ast::Statement::ExpressionStatement(assignment) = file.statements[3] else { panic!() };
     let tsr_ast::Expression::BinaryExpression(assignment) = assignment.expression.unwrap() else {
         panic!()
     };
     let target_type = checker.check_expression(assignment.left.unwrap());
-    assert_eq!(target_type, checker.intrinsics().error);
+    assert_eq!(target_type, checker.intrinsics().native_error);
 }
 
 /// The type of the alias declared by an import or export specifier named `name`.
