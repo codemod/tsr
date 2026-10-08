@@ -512,3 +512,14 @@ member written through `import * as ns`. The existing
 `receiver_alias_is_namespace_import` (readonly_target.rs, now crate-visible)
 answers the alias question in both property and element assignment typing; the
 TS2540 reporter is unchanged. Local namespaces stay writable (control).
+
+## 20. An `object` receiver reads as the empty object (tsr-2zk.4)
+
+`getApparentType` maps `TypeFlagsNonPrimitive` to `emptyObjectType`, so
+`checkPropertyAccessExpressionOrQualifiedName` misses `a.nonExist` on
+`a: object` against `{}`'s table and reports TS2339 printing the receiver
+(`'object'`). `property_is_known_absent` answered `object` itself, which no
+completeness certificate covers, so the miss declined. It now takes the
+canonical empty object, the same road the destructuring twin already used.
+No cache. Control: `a.toString()` (the `Object` augment) stays silent.
+Converts `nonPrimitiveAccessProperty`.

@@ -658,6 +658,9 @@ impl Checker<'_, '_> {
         }
         let apparent = if flags.intersects(TypeFlags::PRIMITIVE) {
             self.primitive_apparent_type(receiver)
+        } else if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+            // getApparentType (checker.go): `object` reads as emptyObjectType.
+            self.intrinsics.empty_object
         } else if let Some(&symbol) = self.type_parameter_symbols.get(&receiver) {
             // A declared type parameter (the polymorphic `this` keeps the
             // class-table road below). Certify the receiver: declared by a
