@@ -143,6 +143,21 @@ impl Checker<'_, '_> {
         minted
     }
 
+    /// The `resolveCallExpression` caller (`checker.go:8351`): the declaration
+    /// is `WalkUpParenthesizedExpressions(node.Parent)`.
+    pub(crate) fn get_es_symbol_like_type_for_call(&mut self, call: NodeId) -> TypeId {
+        let mut parent = self.nodes.parent(call);
+        while let Some(node) = parent
+            && self.nodes.kind(node) == SyntaxKind::ParenthesizedExpression
+        {
+            parent = self.nodes.parent(node);
+        }
+        match parent {
+            Some(declaration) => self.get_es_symbol_like_type_for_node(declaration),
+            None => self.intrinsics.es_symbol,
+        }
+    }
+
     /// The declaration a JSDoc `@type {…}` expression is reparsed onto.
     fn jsdoc_type_tag_host(&self, expression: NodeId) -> Option<NodeId> {
         let tag = self.nodes.parent(expression)?;

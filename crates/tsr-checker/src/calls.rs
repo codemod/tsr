@@ -3174,11 +3174,9 @@ impl Checker<'_, '_> {
             // §26 (`checker-notes-callres.md`): the position the gate
             // detected now MINTS — one distinct `unique symbol` per site
             // (`getESSymbolLikeTypeForNode`, `checker.go:22982`).
-            return self.store.new_named(
-                TypeFlags::UNIQUE_ES_SYMBOL,
-                "unique symbol".to_string(),
-                None,
-            );
+            return node
+                .node_id
+                .map_or(self.intrinsics.es_symbol, |id| self.get_es_symbol_like_type_for_call(id));
         }
         if counters::counting() {
             if signature.r#type == error {
