@@ -6587,7 +6587,7 @@ impl<'a> Checker<'a, '_> {
                             parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
                                 || !{
                                     let parameter_type = self.parameter_type(parameter);
-                                    self.mentions_any_type_parameter(parameter_type, 2)
+                                    self.mentions_type_parameter_out_of_scope(parameter_type, 2, node)
                                 }
                         }),
                         // A computed nil context licenses ordinary implicit
@@ -6610,6 +6610,111 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return error };
         self.get_type_of_symbol(symbol)
+    }
+
+    /// GROUNDED's question, asked of the type parameters native could still
+    /// replace. `instantiateContextualSignature` (`checker.go`) maps a
+    /// contextual signature through the *call's* inference context, and that
+    /// mapper only ever binds the callee's own type parameters. A type
+    /// parameter declared by a declaration enclosing `node` — the generic
+    /// function or class the arrow is written in — is a fixed type at the
+    /// arrow, and native prints it: `(x) => f(g(x))` under `(r: U) => S` in a
+    /// generic function is `(x: U) => S` (`contextualSignatureInstantiation2`).
+    ///
+    /// The same walk as `mentions_any_type_parameter` (`contextual.rs`), which
+    /// asks about every type parameter. This one exempts the in-scope ones.
+    /// The exemption is withdrawn for a type parameter of the signature being
+    /// *called* at the arrow's position: those are exactly what the call's
+    /// inference context re-binds (a recursive call to the enclosing generic
+    /// function, for one).
+    fn mentions_type_parameter_out_of_scope(
+        &mut self,
+        id: TypeId,
+        depth: u8,
+        node: NodeId,
+    ) -> bool {
+        if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
+            return !self.type_parameter_is_fixed_at(id, symbol, node);
+        }
+        if depth == 0 {
+            return false;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && arguments.iter().any(|&argument| {
+                self.mentions_type_parameter_out_of_scope(argument, depth - 1, node)
+            })
+        {
+            return true;
+        }
+        if let Some(signatures) = self.signatures_of_type(id) {
+            let signatures = signatures.clone();
+            for signature in &signatures {
+                if signature.type_parameters.is_empty()
+                    && (signature.parameters.iter().any(|parameter| {
+                        let parameter_type = self.parameter_type(parameter);
+                        self.mentions_type_parameter_out_of_scope(parameter_type, depth - 1, node)
+                    }) || self.mentions_type_parameter_out_of_scope(
+                        signature.r#type,
+                        depth - 1,
+                        node,
+                    ))
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Whether the type parameter `id` (symbol `symbol`) is declared by a
+    /// declaration that encloses `node`, and is not a type parameter of the
+    /// signature being called or constructed at `node`'s argument position
+    /// (see [`Self::mentions_type_parameter_out_of_scope`]). An unresolvable
+    /// callee answers `false`, which keeps GROUNDED's decline.
+    fn type_parameter_is_fixed_at(&mut self, id: TypeId, symbol: SymbolId, node: NodeId) -> bool {
+        let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
+            return false;
+        };
+        if self.nodes.kind(declaration) != SyntaxKind::TypeParameter {
+            return false;
+        }
+        let Some(owner) = self.nodes.parent(declaration) else { return false };
+        let mut current = self.nodes.parent(node);
+        let mut encloses = false;
+        while let Some(ancestor) = current {
+            if ancestor == owner {
+                encloses = true;
+                break;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        if !encloses {
+            return false;
+        }
+        let mut position = node;
+        while let Some(parent) = self.nodes.parent(position) {
+            let (callee, kind) = match self.node_map.get(parent) {
+                Some(Node::ParenthesizedExpression(_)) => {
+                    position = parent;
+                    continue;
+                }
+                Some(Node::CallExpression(call)) => (call.expression, SignatureKind::Call),
+                Some(Node::NewExpression(call)) => (call.expression, SignatureKind::Construct),
+                _ => return true,
+            };
+            let Some(callee) = callee else { return false };
+            let callee_type = self.check_expression(callee);
+            let Some(signatures) = self.signatures_of_type_kind(callee_type, kind) else {
+                return false;
+            };
+            return !signatures.iter().any(|signature| {
+                signature
+                    .type_parameters
+                    .iter()
+                    .any(|parameter| parameter.resolved_type == Some(id))
+            });
+        }
+        true
     }
 
     /// §93 (`checker-notes-narrow.md`): a call ARGUMENT whose contextual

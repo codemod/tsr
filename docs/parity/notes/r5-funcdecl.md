@@ -301,3 +301,61 @@ generic-imports. Two controls on the same box, 41 samples each, show this is
 slot noise and not the change. The base binary against a copy of itself reads
 **0.975**. Item 2 against item 1 directly reads **0.967**. The per-slot bias
 on this container is about ±3%, and the deterministic Ir is the tie-breaker.
+
+## 6. `tsr-2zk.16.70`: GROUNDED refused type parameters native never re-binds
+
+Added by the integrator after §1–§5, from r5-shapes' split
+(`r5-shapes.md` §2.5, branch `claude/beautiful-shannon-ar5gh0-r5-shapes`). It
+covers all 8 `any:function-expression-error` cases.
+`get_type_of_function_expression` answers `error` for a function expression
+with an unannotated parameter unless its contextual signature is
+**grounded**: no contextual parameter type may mention a type parameter
+(§192, §137). The gate is this port's own. Native
+`checkFunctionExpressionOrObjectLiteralMethod` (`checker.go:9077`) always
+answers. The gate was added because an uninstantiated contextual signature
+typed arrows confidently wrong (generatedContextualTyping's 48 G→W).
+
+The hazard is narrower than the test. `instantiateContextualSignature` maps a
+contextual signature through the call's inference context, and that mapper
+binds only the *called signature's own* type parameters. A type parameter
+declared by a declaration enclosing the arrow (the generic function or class
+it is written in) is a fixed type there, and native prints it:
+
+- `(x) => f(g(x))` under `(r: U) => S` inside a generic arrow:
+  `(x: U) => S` (`contextualSignatureInstantiation2`);
+- `a.forEach(x => …)` in `map<A, B>`: `(x: A) => void`
+  (`inferFromGenericFunctionReturnTypes1` ×3);
+- `xs.forEach(x => ys.push(f(x)))` in `map<T, U>`: `(x: T) => number`
+  (`mismatchedExplicitTypeParameterAndArgumentType`);
+- `return function*(state) {…}` under `(a: T) => …`:
+  `(state: T) => Generator<…>` (`generatorTypeCheck62/63`).
+
+GROUNDED now asks `mentions_type_parameter_out_of_scope`. It is the same
+walk as `mentions_any_type_parameter` (`contextual.rs`, not owned), but it
+exempts a type parameter whose declaring node encloses the arrow, *unless*
+that type parameter belongs to a signature of the callee at the arrow's
+argument position, because the call re-binds it (a recursive call to the
+enclosing function, for one). An unresolvable callee keeps the decline.
+
+Measured against item 2's dumps: types +18 RIGHT (15 WRONG→RIGHT,
+3 GAP→RIGHT), 0 RIGHT→non-RIGHT; diagnostics `restTuplesFromContextualTypes`
+WRONG→RIGHT and nothing else moved. Tests pass (with the §2 fixture diff).
+Ir: domain-model 1,193,328,321 → 1,193,338,729, generic-imports
+342,886,620 → 342,904,733. Median CPU against item 2: 1.010 and 0.989.
+
+One GAP→WRONG: `esDecorators-contextualTypes.2:0:56`. There
+`return function (this, ...args) {…}` under
+`(this: This, ...args: Args) => Return`, with both type parameters in scope,
+prints `(this: any, ...args: any[]) => Return`. The gate was hiding a
+contextual *parameter* typing producer: an unannotated `this` parameter and a
+rest parameter whose contextual type is a type parameter both type `any`
+(`assignContextualParameterTypes`, in `contextual.rs`/`symbols.rs`, not
+owned). `restTuplesFromContextualTypes:0:250` shows the same producer as
+WRONG→WRONG (`(...x: [x: number, ...args: T])`).
+
+Still declined, as the brief's mechanism predicts (callee type parameters,
+which need the call's inference mapper at the arrow):
+`genericCallAtYieldExpressionInGenericCall1`,
+`partiallyAnnotatedFunctionInferenceError` ×3. `tsxInArrowFunction` is a
+different producer: its context is a JSX child, which mentions no type
+parameter.
