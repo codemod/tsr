@@ -1307,6 +1307,8 @@ impl Relater<'_, '_, '_> {
             || (self.is_structural_tuple_source(source)
                 && t.contains(TypeFlags::OBJECT)
                 && self.has_members(target))
+            || ((self.has_members(source) || self.is_structural_tuple_source(source))
+                && self.is_memberless_object_intrinsic(target))
             || s.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
             || self.checker.deferred_keyof_operands.contains_key(&source)
             || self.checker.deferred_keyof_operands.contains_key(&target)
@@ -3366,6 +3368,23 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
+        // structuredTypeRelatedToWorker's structural arm (relater.go:3864)
+        // against an intrinsic object with no members: propertiesRelatedTo
+        // and indexSignaturesRelatedTo have nothing to require, and
+        // signaturesRelatedTo (relater.go:4449) rejects every source of the
+        // anyFunctionType wildcard but the wildcard itself (identity above).
+        if self.is_memberless_object_intrinsic(target)
+            && (self.has_members(source)
+                || source_intersection_result.is_some()
+                || self.is_structural_tuple_source(source))
+        {
+            let structural = if self.checker.any_function_type == Some(target) {
+                RelationResult::NotRelated
+            } else {
+                RelationResult::Related
+            };
+            return RelationResult::any(source_intersection_result.into_iter().chain([structural]));
+        }
         // structuredTypeRelatedToWorker (relater.go:3853): under the subtype
         // relations a fresh empty object literal `{}` admits only empty
         // sources. Emptiness is certified here only for sources whose members
@@ -3625,6 +3644,16 @@ impl Relater<'_, '_, '_> {
             return Some(RelationResult::NotRelated);
         }
         Some(RelationResult::Unknown)
+    }
+
+    /// The intrinsic object types with no properties, signatures or index
+    /// infos: `emptyObjectType`, `unknownEmptyObjectType` and the
+    /// `anyFunctionType` wildcard (`checker.go:1029`). This port mints them
+    /// as `Named` images without a member table.
+    fn is_memberless_object_intrinsic(&self, id: TypeId) -> bool {
+        id == self.checker.intrinsics.empty_object
+            || id == self.checker.intrinsics.unknown_empty_object
+            || self.checker.any_function_type == Some(id)
     }
 
     /// A tuple reference whose members `propertiesRelatedTo` can read
