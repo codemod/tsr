@@ -219,10 +219,39 @@ impl Checker<'_, '_> {
         if self.is_error(ty) {
             return Err(());
         }
+        let ty = self.iteration_reduced_type(ty);
         if ty == self.intrinsics.any {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
         self.get_iteration_types_of_iterable_worker(ty, use_, error_node)
+    }
+
+    /// `getReducedType` (`checker.go:21819`) as `getIterationTypesOfIterable`
+    /// takes it: an intersection with a never-reduced discriminant is
+    /// `never`, and a union maps its constituents through the same rule
+    /// (`getReducedUnionType`, `:21844`, where `getUnionType` drops the
+    /// `never`s), keeping the union itself when nothing reduced. The
+    /// predicate is the shared `isDiscriminantWithNeverType` port
+    /// (`intersection_has_never_discriminant`); `isConflictingPrivateProperty`
+    /// is not ported there, so such an intersection is left unreduced.
+    fn iteration_reduced_type(&mut self, ty: TypeId) -> TypeId {
+        match self.store.get(ty).data.clone() {
+            TypeData::Intersection { .. } => {
+                if self.intersection_has_never_discriminant(ty) {
+                    self.intrinsics.never
+                } else {
+                    ty
+                }
+            }
+            TypeData::Union { types, .. } => {
+                let reduced: Vec<_> = types
+                    .iter()
+                    .map(|&constituent| self.iteration_reduced_type(constituent))
+                    .collect();
+                if reduced == types { ty } else { self.get_union_type(&reduced) }
+            }
+            _ => ty,
+        }
     }
 
     /// `getIterationTypesOfIterableWorker` (`checker.go:6287`). A union's
@@ -729,6 +758,14 @@ impl Checker<'_, '_> {
         } else {
             ty
         };
+        // getPropertyOfType's getReducedApparentType (`checker.go:21860`): a
+        // type parameter whose constraint reduces to `never` has no members.
+        if self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            let apparent = self.apparent_type(ty);
+            if self.iteration_reduced_type(apparent) == self.intrinsics.never {
+                return Ok(IterationTypes::NONE);
+            }
+        }
         let Some(method) = self.get_property_of_type(ty, name) else {
             return if self.iteration_member_decidably_absent(ty, name) {
                 Ok(IterationTypes::NONE)
@@ -1040,7 +1077,9 @@ impl Checker<'_, '_> {
             self.check_iteration_sent_type(use_, sent_type, next_type, error_node);
         }
         if !types.has_types() {
-            self.report_type_not_iterable_error(error_node, input, allow_async);
+            // reportTypeNotIterableError names the reduced type the worker saw.
+            let reduced = self.iteration_reduced_type(input);
+            self.report_type_not_iterable_error(error_node, reduced, allow_async);
         }
     }
 
