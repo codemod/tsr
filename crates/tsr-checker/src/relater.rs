@@ -4741,6 +4741,21 @@ impl Relater<'_, '_, '_> {
         }
         let mut parts = Vec::with_capacity(names.len());
         for name in names.iter() {
+            // propertiesRelatedTo returns on the first failing property
+            // (relater.go:4240). `RelationResult::all` would answer the same
+            // NotRelated; stopping skips relating the remaining members,
+            // which for a matched discriminated constituent can expand
+            // recursive generic signatures without bound (`Either<L, (a: A)
+            // => B>` in `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`
+            // ran out of memory). Only the discriminated walk (the one caller
+            // with exclusions) stops early: on the other roads the skipped
+            // pairs' published results feed later relations
+            // (`arrayDestructuringInSwitch1`'s subtype reduction of `every`
+            // changed), a separate inconsistency recorded in
+            // `docs/parity/notes/r5-relater4.md` §1.
+            if !excluded.is_empty() && parts.last() == Some(&RelationResult::NotRelated) {
+                return RelationResult::NotRelated;
+            }
             if excluded.contains(name) {
                 continue;
             }

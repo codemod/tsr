@@ -88,6 +88,29 @@ empty. Three cases go EMPTY_WRONG → EMPTY_RIGHT: `unionRelationshipCheckPasses
 goes WRONG → RIGHT. Its union-of-tuples row also converts, through the whole
 tuple relation. Types: RIGHT unchanged, GAP unchanged.
 
+**Unbounded expansion, found after landing (fixed in a later commit).**
+`varianceProblingAndZeroOrderIndexSignatureRelationsAlign` ran out of memory
+when run alone with `TSR_FILTER` (exit 137). Base finishes the same run in
+~35 s. r5-relater3 hit the same thing with its held version of this port. Both
+full dumps had recorded the case EMPTY_RIGHT, so the loss checks did not see
+it. Cause: native `propertiesRelatedTo` returns on the first failing property.
+`Left<L, A>` against the matched constituent `Left<L, B>` stops at `_A`. This
+port's property walk related every member before combining, so it went on to
+`map`/`ap`, whose `Either<L, (a: A) => B>` signatures expand without bound.
+`properties_related_to_excluding` now returns NotRelated at the first failing
+property when it runs with exclusions, which only this arm uses. The run is
+back to base's ~36 s.
+
+The early return is the same answer `RelationResult::all` gives, but it is not
+applied on the other roads. Applied everywhere, it changed two
+`arrayDestructuringInSwitch1` type lines: the subtype reduction of `every`'s
+union merged two members. The pairs it skips are published to the results
+store, and later relations read them. That dependence on publication order is
+a separate inconsistency, outside this lane's write set (the results store).
+The integrator's sweep also named `relationComplexityError` (~52 s). With this
+fix it takes ~40 s alone, and `recursiveConditionalCrash3` and
+`templateLiteralTypes1` take 0.1 s.
+
 The unit test `discriminated_target_tests::a_union_discriminant_covers_a_discriminated_target`
 pins three answers: a covering union discriminant is Related; an uncovered
 discriminant value is NotRelated; a covered discriminant with an incompatible
