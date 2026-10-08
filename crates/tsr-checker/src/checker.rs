@@ -558,6 +558,9 @@ pub struct Checker<'a, 'n> {
     /// used by `getVariancesWorker` (internal/checker/relater.go).
     pub(crate) variance_cache: FxHashMap<SymbolId, Option<Vec<crate::variances::Variance>>>,
     pub(crate) variance_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    /// Native `Relation.results` for every relation kind, for the checker's
+    /// lifetime (`tsr-2zk.902`); see [`crate::relation_cache`].
+    pub(crate) relation_results: crate::relation_cache::RelationResults,
     pub(crate) variance_markers: Option<[TypeId; 3]>,
     pub(crate) variance_marker_types: rustc_hash::FxHashSet<TypeId>,
     /// Contextual signature instantiations and their recursion sentinel,
@@ -1431,6 +1434,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             silent_never_type: None,
             variance_cache: FxHashMap::default(),
             variance_in_progress: rustc_hash::FxHashSet::default(),
+            relation_results: crate::relation_cache::RelationResults::default(),
             variance_markers: None,
             variance_marker_types: rustc_hash::FxHashSet::default(),
             signature_context_cache: FxHashMap::default(),
