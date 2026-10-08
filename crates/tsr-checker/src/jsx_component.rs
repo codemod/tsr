@@ -56,6 +56,7 @@ impl Checker<'_, '_> {
         }
         let Some(tag_id) = tag.node_id() else { return };
         self.check_jsx_signatureless_tag(tag, tag_id);
+        self.check_jsx_class_attributes_member(node, typed, tag);
         if let Some(constraint) = self.jsx_element_type_type_at(node) {
             self.check_jsx_element_type_constraint(tag, tag_id, constraint);
             return;
@@ -153,6 +154,76 @@ impl Checker<'_, '_> {
                 &messages::JSX_ELEMENT_TYPE_0_DOES_NOT_HAVE_ANY_CONSTRUCT_OR_CALL_SIGNATURES,
                 span,
                 [text],
+            ),
+        );
+    }
+
+    /// `getJsxPropsTypeFromClassType`'s missing-member report (`jsx.go:953-958`):
+    /// for a component reference (`getJsxReferenceKind`: construct signatures
+    /// on the tag's apparent type) whose `JSX.ElementAttributesProperty` names
+    /// a member, an instance type (the signature's return type, not `any`)
+    /// without that member reports TS2607 on the element when the element
+    /// has attributes (spreads count: `Attributes().Properties()`).
+    ///
+    /// Upstream reaches this from `getEffectiveFirstArgumentForJsxSignature`
+    /// for every candidate `resolveCall` evaluates; the port answers only a
+    /// single non-generic construct signature — the one candidate that is
+    /// certainly evaluated — and declines overloads, generics and composite
+    /// (union) signatures, whose `getJsxPropsTypeForSignatureFromMember` arm
+    /// reads each constituent. Absence is a complete property table without
+    /// the name.
+    fn check_jsx_class_attributes_member(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        tag: JsxTagNameExpression<'_>,
+    ) {
+        let attributes = match typed {
+            Node::JsxOpeningElement(element) => element.attributes,
+            Node::JsxSelfClosingElement(element) => element.attributes,
+            _ => return,
+        };
+        if attributes.is_none_or(|attributes| attributes.properties.is_empty()) {
+            return;
+        }
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
+        {
+            return;
+        }
+        let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+        let tag_type = self.check_expression(expression);
+        if self.is_error(tag_type) || self.store.get(tag_type).flags.intersects(TypeFlags::ANY) {
+            return;
+        }
+        let Some(signatures) = self.signatures_of_type_kind(tag_type, SignatureKind::Construct)
+        else {
+            return;
+        };
+        let [signature] = signatures.as_slice() else { return };
+        if !signature.type_parameters.is_empty() {
+            return;
+        }
+        let signature = signature.clone();
+        let Some(name) = self.jsx_element_properties_member_name(node) else { return };
+        let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
+        if self.is_error(instance)
+            || self.store.get(instance).flags.intersects(TypeFlags::ANY | TypeFlags::UNION)
+        {
+            return;
+        }
+        let Some(names) = self.get_property_names_of_type(instance) else { return };
+        if names.contains(&name) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::JSX_ELEMENT_CLASS_DOES_NOT_SUPPORT_ATTRIBUTES_BECAUSE_IT_DOES_NOT_HAVE_A_0_PROPERTY,
+                span,
+                [name],
             ),
         );
     }

@@ -66,6 +66,18 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `getJsxElementPropertiesName` (`jsx.go:1084`) when it answers a member
+    /// name: `JSX.ElementAttributesProperty` with exactly one property. `None`
+    /// covers upstream's `""` and `InternalSymbolNameMissing` answers as well
+    /// as an unenumerable container — callers act only on a definite name.
+    pub(crate) fn jsx_element_properties_member_name(
+        &mut self,
+        location: NodeId,
+    ) -> Option<String> {
+        self.jsx_container_property(location, "ElementAttributesProperty")
+            .filter(|name| !name.is_empty())
+    }
+
     pub(crate) fn jsx_children_name(&mut self, location: NodeId) -> Option<String> {
         if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
             return Some("children".to_string());

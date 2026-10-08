@@ -130,3 +130,37 @@ loss checks empty; diagnostics verdicts unchanged; five false diagnostics
 removed from WRONG cases — TS2349 ×2 in `jsdocCallbackAndType`, TS2349 ×2 in
 `typeTagNoErasure`, TS2345 ×1 in `coAndContraVariantInferences6`. It is
 `signatures.rs` (not owned), so it is routed through the report.
+
+## 3. TS2607 from `getJsxPropsTypeFromClassType`
+
+**Forcing constraint.** `jsx.go:953-958`: for a component reference
+(`getJsxReferenceKind`, `jsx.go:1159`: construct signatures on the tag's
+apparent type) whose `getJsxElementPropertiesName` is a member name, a
+signature whose instance type (return type, not `any`) has no such property
+reports TS2607 `JSX element class does not support attributes because it does
+not have a '{0}' property.` on the element, if the element has any attribute
+or spread. Upstream reaches it from `getEffectiveFirstArgumentForJsxSignature`
+for each candidate `resolveCall` evaluates.
+
+**What is ported.** `check_jsx_class_attributes_member` (`jsx_component.rs`)
+and `jsx_element_properties_member_name` (a new function in
+`jsx_intrinsic.rs` over the existing `jsx_container_property`; `None` folds
+upstream's `""`, `Missing` and an unenumerable container, so only a definite
+member name acts). Only a single non-generic construct signature is answered —
+the one candidate certainly evaluated, once; overloads, generics and composite
+union signatures (`getJsxPropsTypeForSignatureFromMember`'s per-constituent
+arm) decline, as does a union instance. Absence is a complete
+`get_property_names_of_type` table without the name. No cache is added.
+
+**Measured.** Three TS2607 lines become right in `tsxElementResolution12`
+(23:1, 25:1, 26:1). The case stays WRONG on 33:7 TS2322 (the attribute
+relation against the `pr` member's type), which is the attribute-assignability
+road, not this rule. No other output changed.
+
+**Remaining.** `tsxSpreadAttributesResolution17`: the instance type of a
+class whose base is `any` (`extends React.Component` with `React: any`).
+Upstream inherits no properties from an `any` base and adds a
+`string → any` index (`resolveObjectTypeMembers`), so `props` is absent and
+TS2607 fires; TSR's `get_property_names_of_type` answers `None` for that
+base (unfollowable), so the check declines. The fix is in the members
+producer (`members.rs`), not this lane.
