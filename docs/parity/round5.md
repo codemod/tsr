@@ -52,3 +52,16 @@ are filed as `tsr-2zk.974`–`.984` and routed to the lane that owns each file:
   the largest at 154 lines). It is not dispatched.
 
 The new box `r5-jsx3` takes `.982` (52 lines, `jsx_component.rs`).
+
+### r5-variants2 finished; r5-modules dispatched (`tsr-2zk.994`)
+
+r5-variants2 (64d9890, 9dbbf73) made two harness changes:
+- test directives now go through `SetOptionsFromTestConfig`'s option table;
+  27 vary-by options and `noCheck` had been silently dropped;
+- varied `.trace.json` files are judged per configuration.
+
+Its insensitivity probe found that the remaining configured gap is almost all
+checker work, not harness work. Its checker causes are filed as
+`tsr-2zk.985`–`.993`. The new box `r5-modules` takes printed module specifiers
+(`.989`, 375 lines), `import.meta` (`.990`, 197 lines) and
+`checkImportAttributes` (`.986`, 59 rows).
