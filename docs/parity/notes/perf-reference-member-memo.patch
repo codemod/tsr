@@ -1,0 +1,188 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index cc9dbc0..84d7c1e 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -313,6 +313,13 @@ pub struct Checker<'a, 'n> {
+     /// (`checker.go:17334`). One per class, so `this` has a stable identity
+     /// inside one.
+     pub(crate) this_types: FxHashMap<SymbolId, TypeId>,
++    /// `(receiver, declared member type, this argument) -> (receiver's
++    /// polymorphic this at publication, member type seen through receiver)`:
++    /// the completed answers of `instantiate_for_reference_with_this`,
++    /// standing in for native's instantiated-symbol type links
++    /// (`getTypeOfInstantiatedSymbol`, `checker.go:15987`). Ownership,
++    /// publication and context: `docs/parity/notes/perf.md` §12.
++    pub(crate) reference_member_types: FxHashMap<(TypeId, TypeId, TypeId), (Option<TypeId>, TypeId)>,
+     /// `ObjectFlagsIsConstrainedTypeVariable`: intersection -> (variable, primitive).
+     pub(crate) constrained_type_variables: FxHashMap<TypeId, (TypeId, TypeId)>,
+     /// `symbol -> the type it *declares*`, upstream's
+@@ -1337,6 +1344,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             flow_loop_stack: Vec::new(),
+             declared_types: FxHashMap::default(),
+             this_types: FxHashMap::default(),
++            reference_member_types: FxHashMap::default(),
+             constrained_type_variables: FxHashMap::default(),
+             instantiations: FxHashMap::default(),
+             type_reference_targets: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 5009264..d2225be 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1890,39 +1890,104 @@ impl Checker<'_, '_> {
+         self.instantiate_for_reference_with_this(receiver, declared, receiver)
+     }
+ 
++    ///
++    /// # Memoised like native's instantiated-symbol links
++    ///
++    /// Native computes an instantiated member's type once, in
++    /// `getTypeOfInstantiatedSymbol` (`checker.go:15987`), and keeps it in the
++    /// instantiated symbol's links. Without instantiated symbols every read
++    /// re-ran the substitution here (42,468 instantiations for 55,205 reads on
++    /// a 100-module project). [`Checker::reference_member_types`] keeps the
++    /// completed answers; the contract — key, publication, context — is
++    /// `docs/parity/notes/perf.md` §12.
+     fn instantiate_for_reference_with_this(
+         &mut self,
+         receiver: TypeId,
+         declared: TypeId,
+         this_argument: TypeId,
+     ) -> TypeId {
+-        // resolveTypeReferenceMembers also supplies a this argument for a
+-        // non-generic class or interface. The port keeps those as Named types
+-        // rather than entries in type_reference_targets.
+-        let (symbol, arguments) =
+-            if let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver) {
+-                (*symbol, Some(arguments.clone()))
+-            } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
+-                && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
+-                && self
+-                    .binder
+-                    .symbols()
+-                    .get(symbol)
+-                    .flags
+-                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+-            {
+-                (symbol, None)
+-            } else {
+-                return declared;
+-            };
++        // Print-mode substitution and alias/mapper frames read context the
++        // key does not carry; they neither read nor publish.
++        let cacheable = !self.identity_unmapped_type_parameters
++            && self.alias_evaluation_bindings.is_empty()
++            && self.mapped_template_depth == 0;
++        let key = (receiver, declared, this_argument);
++        if cacheable
++            && let Some(&(this_type, result)) = self.reference_member_types.get(&key)
++            && self.reference_target_symbol(receiver).map(|symbol| self.polymorphic_this_of(symbol))
++                == Some(this_type)
++        {
++            return result;
++        }
++        let (result, publishable) =
++            self.instantiate_for_reference_with_this_worker(receiver, declared, this_argument);
++        if cacheable
++            && publishable
++            && let Some(symbol) = self.reference_target_symbol(receiver)
++        {
++            let this_type = self.polymorphic_this_of(symbol);
++            self.reference_member_types.insert(key, (this_type, result));
++        }
++        result
++    }
++
++    /// The class or interface whose members `receiver` reads: a reference's
++    /// target, or a non-generic class/interface kept as a Named type
++    /// (`resolveTypeReferenceMembers` supplies a this argument for those too).
++    fn reference_target_symbol(&self, receiver: TypeId) -> Option<SymbolId> {
++        if let Some((symbol, _)) = self.type_reference_targets.get(&receiver) {
++            return Some(*symbol);
++        }
++        if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
++            && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
++            && self
++                .binder
++                .symbols()
++                .get(symbol)
++                .flags
++                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++        {
++            return Some(symbol);
++        }
++        None
++    }
++
++    /// The target's polymorphic `this` type if one has been minted yet; it is
++    /// minted lazily on the first `this` reference, so the answer can change.
++    fn polymorphic_this_of(&self, symbol: SymbolId) -> Option<TypeId> {
++        self.this_types.get(&symbol).copied().or_else(|| {
++            self.binder
++                .symbols()
++                .get(symbol)
++                .declarations
++                .iter()
++                .find_map(|node| self.this_type_nodes.get(node).copied())
++        })
++    }
++
++    /// The substitution itself, and whether its answer is complete enough to
++    /// publish: `errorType` (an unresolved parameter list, an arity mismatch,
++    /// a pending return or the depth limit) and an unchanged `declared` that
++    /// depended on inspecting `declared`'s current contents are not.
++    fn instantiate_for_reference_with_this_worker(
++        &mut self,
++        receiver: TypeId,
++        declared: TypeId,
++        this_argument: TypeId,
++    ) -> (TypeId, bool) {
++        let Some(symbol) = self.reference_target_symbol(receiver) else {
++            return (declared, false);
++        };
++        let arguments =
++            self.type_reference_targets.get(&receiver).map(|(_, arguments)| arguments.clone());
+         let error = self.intrinsics.error;
+         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+-            return error;
++            return (error, false);
+         };
+         let arguments = arguments
+             .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
+         if parameters.len() != arguments.len() {
+-            return error;
++            return (error, false);
+         }
+         // instantiateSymbol (checker.go:20753) retains the complete receiver
+         // mapper. A member's own same-named parameter has a distinct TypeId,
+@@ -1939,25 +2004,19 @@ impl Checker<'_, '_> {
+         }
+         // resolveTypeReferenceMembers pads the type arguments with the
+         // reference itself for the target's polymorphic this parameter.
+-        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
+-            self.binder
+-                .symbols()
+-                .get(symbol)
+-                .declarations
+-                .iter()
+-                .find_map(|node| self.this_type_nodes.get(node).copied())
+-        });
+-        if let Some(this_type) = this_type
++        if let Some(this_type) = self.polymorphic_this_of(symbol)
+             && this_type != this_argument
+         {
+             types.push(this_type);
+             map.push((this_type, this_argument));
+         }
+-        // A reference without type parameters or a polymorphic this needs no map.
++        // A reference without type parameters or a polymorphic this needs no
++        // map; that answer does not depend on `declared`'s contents.
+         if map.is_empty() {
+-            return declared;
++            return (declared, true);
+         }
+-        self.instantiate_type(declared, &map, &types, &names)
++        let result = self.instantiate_type(declared, &map, &types, &names);
++        (result, result != error && result != declared)
+     }
+ 
+     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through
