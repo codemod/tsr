@@ -270,3 +270,17 @@ round 1, decls §1). This box is the only one that changes that contract. It
 edits only the specific producer functions it names in its notes, re-checks
 `main`'s history of each before every push, and delivers anything else as a
 measured patch.
+
+### r4-jsx2 — JSX attributes type with a members table (`tsr-2zk.907`)
+
+Dispatched when `r4-jsx` finished (c107f13, 691449a, a853638, de35cd6: +8
+diagnostics cases; TS2604, TS2607, JSX.ElementType and the attributes
+relation/elaboration). Its main blocker (~60 cases):
+`jsx_attributes_inference_type` (`jsx_intrinsic.rs`) mints a `Named` type with
+no members table, so `relate_ternary(attributes, IntrinsicAttributes & Props)`
+answers Unknown (`NoMembersTable`). Native builds the attributes type in
+`createJsxAttributesTypeFromAttributesProperty` over the binder's
+`JsxAttributes` symbol. Owns that function and JSX attributes-type
+construction in `jsx_intrinsic.rs` (no `main` commit touched it since
+`b3cd078d`), plus the r4-jsx files. Other r4-jsx blockers are filed as
+`tsr-2zk.917`-`.920`.
