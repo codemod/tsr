@@ -58,20 +58,20 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(tag) = tag else { return };
-        if matches!(tag, JsxTagNameExpression::JsxNamespacedName(_)) {
-            return;
-        }
         let Some(tag_id) = tag.node_id() else { return };
-        self.check_jsx_signatureless_tag(tag, tag_id);
-        self.check_jsx_class_attributes_member(node, typed, tag);
+        // `isJsxIntrinsicTagName`: an intrinsic identifier or any namespaced
+        // name (`<a:b />`) resolves through the intrinsic-element table.
+        let intrinsic = crate::jsx_intrinsic::jsx_intrinsic_tag_text(tag).is_some();
+        if !intrinsic {
+            self.check_jsx_signatureless_tag(tag, tag_id);
+            self.check_jsx_class_attributes_member(node, typed, tag);
+        }
         self.check_jsx_attributes_assignable(node, typed, tag, tag_id);
         if let Some(constraint) = self.jsx_element_type_type_at(node) {
             self.check_jsx_element_type_constraint(tag, tag_id, constraint);
             return;
         }
-        if let JsxTagNameExpression::Identifier(name) = tag
-            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
-        {
+        if intrinsic {
             return;
         }
         let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
@@ -269,8 +269,15 @@ impl Checker<'_, '_> {
         };
         let Some(attributes) = attributes else { return };
         let Some(attributes_id) = attributes.node_id else { return };
-        let intrinsic = matches!(tag, JsxTagNameExpression::Identifier(name)
-            if crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text));
+        let intrinsic = crate::jsx_intrinsic::jsx_intrinsic_tag_text(tag).is_some();
+        // `getJsxNamespaceAt` (`jsx.go:1306`) takes the automatic runtime's
+        // module first. When the file selects that runtime and this port does
+        // not resolve its module (a per-file `@jsxImportSource` the loader
+        // does not read), the namespace found next is not upstream's — and
+        // where the module truly is missing upstream reports TS2875 instead.
+        if self.jsx_implicit_import_unresolved(node) {
+            return;
+        }
         if !intrinsic {
             let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
             let tag_type = self.check_expression(expression);
@@ -280,16 +287,6 @@ impl Checker<'_, '_> {
             }
         }
         for attribute in attributes.properties {
-            // `isComparingJsxAttributes` (`relater.go`, `ObjectFlagsJsxAttributes`
-            // on the source): `hasCommonProperties` and `isKnownProperty` treat
-            // a hyphenated name (`isHyphenatedJsxName`) as known. The relater
-            // here carries no JSX-attributes flag, so such an element declines.
-            if let JsxAttributeLike::JsxAttribute(attribute) = attribute
-                && let Some(JsxAttributeName::Identifier(name)) = attribute.name
-                && name.text.contains('-')
-            {
-                return;
-            }
             if let JsxAttributeLike::JsxSpreadAttribute(spread) = attribute {
                 let Some(expression) = spread.expression else { return };
                 let spread_type = self.check_expression(expression);
@@ -305,10 +302,25 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(source) = self.jsx_checked_attributes_type(node) else { return };
-        // A hyphenated member that arrived through a spread is ignored the
-        // same way (`isIgnoredJsxProperty` reads the source's properties).
-        let Some(source_names) = self.get_property_names_of_type(source) else { return };
-        if source_names.iter().any(|name| name.contains('-')) {
+        // `isComparingJsxAttributes` (`ObjectFlagsJsxAttributes` on the
+        // source): a hyphenated member, written or spread, is known to
+        // `hasCommonProperties` and skipped by `membersRelatedToIndexInfo`
+        // (`isIgnoredJsxProperty`); everywhere else the relater relates it
+        // like any member. This port's relater carries no such flag, so a
+        // hyphenated source declines only where one of those two rules can
+        // decide the answer (`jsx_hyphen_sensitive_target`).
+        // Only the minted object carries `ObjectFlagsJsxAttributes`; an
+        // intersection over a generic spread does not, and relates as any
+        // intersection.
+        let hyphenated: Vec<String> = match self.anonymous_properties.get(&source) {
+            Some((properties, _)) => properties
+                .iter()
+                .filter(|property| property.name.contains('-'))
+                .map(|property| property.name.clone())
+                .collect(),
+            None => Vec::new(),
+        };
+        if !hyphenated.is_empty() && self.jsx_hyphen_sensitive_target(target, &hyphenated) {
             return;
         }
         if self.is_error(source)
@@ -317,17 +329,27 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated {
+        // The attributes type is a fresh object literal (`ObjectFlagsFreshLiteral`,
+        // `jsx.go:721`), so `isRelatedTo` meets `hasExcessProperties` before
+        // the structural relation: an excess attribute fails the relation by
+        // itself, whatever the members relate to. Only without one does the
+        // structural answer decide. An excess member overrides a relation this
+        // port did not answer `NotRelated` only when every object constituent
+        // of the target has a complete member table: a name missing from an
+        // unresolved table (a mapped or conditional target this port does not
+        // enumerate) is not evidence.
+        let Some(excess) = self.jsx_excess_attribute(attributes_id, source, target) else {
+            return;
+        };
+        if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
+            && (matches!(excess, JsxExcess::None) || !self.jsx_target_members_complete(target))
+        {
             return;
         }
         // `checkTypeRelatedToAndOptionallyElaborate` (`checker.go`):
         // `elaborateError` on the attributes node first — its `JsxAttributes`
         // arm is `elaborateJsxComponents` — and only when that stays silent
-        // `checkTypeRelatedToEx`, whose relation meets `hasExcessProperties`
-        // before anything else for this fresh attributes type.
-        let Some(excess) = self.jsx_excess_attribute(attributes_id, source, target) else {
-            return;
-        };
+        // `checkTypeRelatedToEx`, whose relation reports the excess member.
         if self.elaborate_jsx_components(attributes_id, source, target) != Some(false) {
             return;
         }
@@ -362,18 +384,21 @@ impl Checker<'_, '_> {
         let mut elements = Vec::new();
         for attribute in node.properties {
             let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
-            let Some(JsxAttributeName::Identifier(name)) = attribute.name else { continue };
-            if name.text.contains('-') {
+            let Some(name_node) = attribute.name else { continue };
+            let Some(text) = crate::jsx_intrinsic::jsx_attribute_name_text(name_node) else {
+                continue;
+            };
+            if text.contains('-') {
                 continue;
             }
-            let Some(name_id) = name.node_id else { continue };
-            let target_member = match self.get_type_of_property_of_type(target, name.text) {
+            let Some(name_id) = name_node.node_id() else { continue };
+            let target_member = match self.get_type_of_property_of_type(target, &text) {
                 Some(member) => Some(member),
                 None if union_target => return None,
                 None => {
                     let key = self.store.intern_literal(
                         TypeFlags::STRING_LITERAL,
-                        crate::types::TypeData::StringLiteral(name.text.to_owned()),
+                        crate::types::TypeData::StringLiteral(text.clone()),
                         false,
                     );
                     self.get_applicable_index_info(target, key).map(|info| info.value)
@@ -383,7 +408,7 @@ impl Checker<'_, '_> {
             if self.store.get(target_member).flags.intersects(TypeFlags::INDEXED_ACCESS) {
                 continue;
             }
-            let Some(source_member) = self.get_type_of_property_of_type(source, name.text) else {
+            let Some(source_member) = self.get_type_of_property_of_type(source, &text) else {
                 continue;
             };
             match self.relate_ternary(source_member, target_member, Relation::Assignable) {
@@ -750,6 +775,80 @@ impl Checker<'_, '_> {
         Some(self.get_property_of_type(ty, "0").is_some())
     }
 
+    /// Whether `isComparingJsxAttributes` can decide this relation for a
+    /// source with these hyphenated members: some object constituent of the
+    /// target (through unions and intersections) has index signatures, which
+    /// `membersRelatedToIndexInfo` (`relater.go:4645`) does not relate a
+    /// hyphenated member to, or may be a weak type that lacks one of them —
+    /// `hasCommonProperties` (`relater.go:697`) counts such a member as
+    /// common where the flagless check does not. A weak constituent declaring
+    /// every hyphenated name knows them either way. An unreadable member or
+    /// index table answers `true`. Every other relater rule treats a
+    /// hyphenated member as an ordinary property, so outside these targets
+    /// this port's flagless relation is upstream's.
+    fn jsx_hyphen_sensitive_target(&mut self, target: TypeId, hyphenated: &[String]) -> bool {
+        match self.store.get(target).data.clone() {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.into_iter().any(|part| self.jsx_hyphen_sensitive_target(part, hyphenated))
+            }
+            _ if !self.store.get(target).flags.intersects(TypeFlags::OBJECT) => false,
+            _ => {
+                if self.get_index_infos_of_type(target).is_none_or(|infos| !infos.is_empty()) {
+                    return true;
+                }
+                let Some(table) = self.relation_property_table(target) else { return true };
+                table.iter().all(|(_, optional)| *optional)
+                    && hyphenated.iter().any(|name| !table.iter().any(|(seen, _)| seen == name))
+            }
+        }
+    }
+
+    /// Whether the file selects the automatic runtime
+    /// (`GetJSXImplicitImportBase`) but its module does not resolve here
+    /// ([`Checker::jsx_implicit_import_container`]).
+    fn jsx_implicit_import_unresolved(&mut self, location: NodeId) -> bool {
+        let Some(file) = self.source_file_of_for_diagnostics(location) else { return false };
+        let Some(host) = self.module_host else { return false };
+        host.jsx_implicit_import_base(file).is_some()
+            && self.jsx_implicit_import_container(location).is_none()
+    }
+
+    /// Whether every object constituent of `target` (through unions and
+    /// intersections) has a complete member table
+    /// ([`Checker::relation_members_are_complete`]), so a name it lacks is
+    /// excess and not merely unenumerated.
+    fn jsx_target_members_complete(&mut self, target: TypeId) -> bool {
+        match self.store.get(target).data.clone() {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.into_iter().all(|part| self.jsx_target_members_complete(part))
+            }
+            _ if !self.store.get(target).flags.intersects(TypeFlags::OBJECT) => true,
+            _ => {
+                if self.relation_members_are_complete(target) {
+                    return true;
+                }
+                // An instantiated class or interface reference enumerates its
+                // members through its (generic) heritage, which the declared
+                // table refuses (§202) but `get_property_names_of_type` walks
+                // with the instantiation; `IntrinsicClassAttributes<T>` is one.
+                // A type-alias reference is not trusted: an alias whose body
+                // this port does not resolve (`Defaultize<…>`) enumerates as an
+                // empty object.
+                let class_or_interface =
+                    self.type_reference_targets.get(&target).is_some_and(|&(symbol, _)| {
+                        self.binder
+                            .symbols()
+                            .get(symbol)
+                            .flags
+                            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                    });
+                class_or_interface && self.get_property_names_of_type(target).is_some()
+            }
+        }
+    }
+
     /// `hasExcessProperties` (`relater.go:2714`) for a JSX attributes source
     /// (`isComparingJsxAttributes`): the first written attribute — or the
     /// synthesized `children` member, which reports on the tag — that
@@ -765,6 +864,22 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<JsxExcess> {
+        let Some(Node::JsxAttributes(node)) = self.node_map.get(attributes) else {
+            return Some(JsxExcess::None);
+        };
+        // `isPerformingExcessPropertyChecks` needs `ObjectFlagsFreshLiteral`,
+        // which `createJsxAttributesTypeFromAttributesProperty` (`jsx.go:722`)
+        // adds to the shared flags only when it builds a chunk of written
+        // attributes. Spreads and the children chunk are `getSpreadType`
+        // results carrying the flags as they stand, so an element with no
+        // written attribute — only spreads, only children — is not fresh.
+        // A generic spread leaves an intersection, which is not an object
+        // literal type (`isObjectLiteralType`).
+        if !node.properties.iter().any(|p| matches!(p, JsxAttributeLike::JsxAttribute(_)))
+            || !self.anonymous_properties.contains_key(&source)
+        {
+            return Some(JsxExcess::None);
+        }
         if !self.is_excess_property_check_target(target) {
             return Some(JsxExcess::None);
         }
@@ -776,21 +891,15 @@ impl Checker<'_, '_> {
         {
             return Some(JsxExcess::None);
         }
-        let Some(Node::JsxAttributes(node)) = self.node_map.get(attributes) else {
-            return Some(JsxExcess::None);
-        };
         let mut written: Vec<(Option<NodeId>, String)> = Vec::new();
         for attribute in node.properties {
             let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
-            let name = match attribute.name {
-                Some(JsxAttributeName::Identifier(name)) => name,
-                Some(JsxAttributeName::JsxNamespacedName(_)) => return None,
-                None => continue,
-            };
-            if name.text.contains('-') || written.iter().any(|(_, seen)| seen == name.text) {
+            let Some(name) = attribute.name else { continue };
+            let text = crate::jsx_intrinsic::jsx_attribute_name_text(name)?;
+            if text.contains('-') || written.iter().any(|(_, seen)| *seen == text) {
                 continue;
             }
-            written.push((name.node_id, name.text.to_string()));
+            written.push((name.node_id(), text));
         }
         if let Some(children) = self.jsx_children_name(attributes)
             && !written.iter().any(|(_, seen)| *seen == children)
@@ -874,10 +983,13 @@ impl Checker<'_, '_> {
             "class" => candidates.iter().find(|c| *c == "className").cloned(),
             _ => None,
         };
-        let suggestion = jsx_specific.or_else(|| {
-            let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
-            crate::check::spelling_suggestion(name, &candidates).map(str::to_string)
-        });
+        // `symbolToString(suggestion)`: a non-identifier name prints quoted.
+        let suggestion = jsx_specific
+            .or_else(|| {
+                let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
+                crate::check::spelling_suggestion(name, &candidates).map(str::to_string)
+            })
+            .map(|suggestion| crate::jsx_intrinsic::jsx_printed_member_name(&suggestion));
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         let printed = self.type_to_string(error_target);
@@ -962,20 +1074,15 @@ impl Checker<'_, '_> {
         tag_id: NodeId,
         constraint: TypeId,
     ) {
-        let tag_type = match tag {
-            JsxTagNameExpression::Identifier(name)
-                if crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text) =>
-            {
-                self.store.intern_literal(
-                    crate::flags::TypeFlags::STRING_LITERAL,
-                    crate::types::TypeData::StringLiteral(name.text.to_owned()),
-                    false,
-                )
-            }
-            _ => {
-                let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
-                self.check_expression(expression)
-            }
+        let tag_type = if let Some(name) = crate::jsx_intrinsic::jsx_intrinsic_tag_text(tag) {
+            self.store.intern_literal(
+                crate::flags::TypeFlags::STRING_LITERAL,
+                crate::types::TypeData::StringLiteral(name),
+                false,
+            )
+        } else {
+            let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+            self.check_expression(expression)
         };
         if self.is_error(tag_type)
             || self.relate_ternary(tag_type, constraint, Relation::Assignable)

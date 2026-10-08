@@ -44,6 +44,45 @@ pub(crate) fn is_intrinsic_jsx_name(name: &str) -> bool {
     first.is_ascii_lowercase() || name.contains('-')
 }
 
+/// `JsxNamespacedName.Text()` (`ast.go`): the two halves joined by a colon.
+pub(crate) fn jsx_namespaced_text(name: &tsr_ast::JsxNamespacedName<'_>) -> Option<String> {
+    Some(format!("{}:{}", name.namespace?.text, name.name?.text))
+}
+
+/// `prop.Name().Text()` for a `JsxAttribute` (`ast.go`): an identifier's text,
+/// or a namespaced name's `ns:name`.
+pub(crate) fn jsx_attribute_name_text(name: tsr_ast::JsxAttributeName<'_>) -> Option<String> {
+    match name {
+        tsr_ast::JsxAttributeName::Identifier(name) => Some(name.text.to_string()),
+        tsr_ast::JsxAttributeName::JsxNamespacedName(name) => jsx_namespaced_text(name),
+    }
+}
+
+/// The text `getIntrinsicAttributesTypeFromJsxOpeningLikeElement` looks up
+/// for a tag `isJsxIntrinsicTagName` (`checker/utilities.go:1116`) accepts:
+/// an identifier with an intrinsic name, or any namespaced name. `None` for
+/// a value tag.
+pub(crate) fn jsx_intrinsic_tag_text(tag: tsr_ast::JsxTagNameExpression<'_>) -> Option<String> {
+    match tag {
+        tsr_ast::JsxTagNameExpression::Identifier(name) if is_intrinsic_jsx_name(name.text) => {
+            Some(name.text.to_string())
+        }
+        tsr_ast::JsxTagNameExpression::JsxNamespacedName(name) => jsx_namespaced_text(name),
+        _ => None,
+    }
+}
+
+/// How the type printer spells a JSX attribute member: an identifier as
+/// written, anything else (`data-foo`, `ns:attr`) as a string literal, as
+/// `getPropertyNameNodeForSymbol` does for a non-identifier symbol name.
+pub(crate) fn jsx_printed_member_name(name: &str) -> String {
+    if crate::objects::is_identifier_text(name) {
+        name.to_string()
+    } else {
+        crate::printing::quote_ascii(name)
+    }
+}
+
 impl Checker<'_, '_> {
     /// Pinned tsgo 5b1047d, jsx.go getJsxType/getJsxNamespaceAt. Factory
     /// namespace selection precedes the global fallback, including Element.
@@ -150,24 +189,22 @@ impl Checker<'_, '_> {
             inference::{InferenceContextSnapshot, InferenceFlags},
             signatures::SignatureKind,
         };
-        use tsr_ast::{Expression, JsxTagNameExpression};
+        use tsr_ast::Expression;
         let (tag, arguments) = match self.node_map.get(opening)? {
             Node::JsxOpeningElement(node) => (node.tag_name?, node.type_arguments),
             Node::JsxSelfClosingElement(node) => (node.tag_name?, node.type_arguments),
             _ => return None,
         };
-        if let JsxTagNameExpression::Identifier(name) = tag
-            && is_intrinsic_jsx_name(name.text)
-        {
+        if let Some(name) = jsx_intrinsic_tag_text(tag) {
             let symbol = self.jsx_type_symbol(opening, INTRINSIC_ELEMENTS)?;
             let table = self.get_declared_type_of_symbol(symbol);
-            return self.get_type_of_property_of_type(table, name.text).or_else(|| {
+            return self.get_type_of_property_of_type(table, &name).or_else(|| {
                 // getIntrinsicAttributesTypeFromJsxOpeningLikeElement
                 // (pinned 5b1047d jsx.go:1190) uses the actual tag key, so
                 // overlapping pattern indexes retain their intersection.
                 let key = self.store.intern_literal(
                     crate::flags::TypeFlags::STRING_LITERAL,
-                    crate::types::TypeData::StringLiteral(name.text.to_owned()),
+                    crate::types::TypeData::StringLiteral(name),
                     false,
                 );
                 self.get_applicable_index_info(table, key).map(|info| info.value)
@@ -363,7 +400,7 @@ impl Checker<'_, '_> {
         opening: NodeId,
         skip: bool,
     ) -> Option<crate::types::TypeId> {
-        use tsr_ast::{Expression, JsxAttributeLike, JsxAttributeName};
+        use tsr_ast::{Expression, JsxAttributeLike};
         let attributes = match self.node_map.get(opening)? {
             Node::JsxOpeningElement(node) => node.attributes?,
             Node::JsxSelfClosingElement(node) => node.attributes?,
@@ -374,10 +411,13 @@ impl Checker<'_, '_> {
         // The source is still partially inferable through its other properties.
         let mut non_inferrable = false;
         let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
+        // The intersection a generic spread starts (`getSpreadType`); the
+        // trailing object chunk stays in `properties` until the end.
+        let mut generic_parts: Vec<crate::types::TypeId> = Vec::new();
         for attribute in attributes.properties {
             let property = match attribute {
                 JsxAttributeLike::JsxAttribute(node) => {
-                    let JsxAttributeName::Identifier(name) = node.name? else { return None };
+                    let name = jsx_attribute_name_text(node.name?)?;
                     let expression = node
                         .initializer
                         .and_then(|value| Expression::try_from(Node::from(value)).ok());
@@ -395,8 +435,8 @@ impl Checker<'_, '_> {
                         self.add_intra_expression_inference_site(id, ty);
                     }
                     crate::objects::AnonymousProperty {
-                        name: name.text.to_string(),
-                        printed_name: name.text.to_string(),
+                        printed_name: jsx_printed_member_name(&name),
+                        name,
                         printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
                         slot: crate::objects::PropertySlot::resolved(ty),
                         origin: node.node_id.and_then(|id| self.binder.symbol_of(id)),
@@ -410,6 +450,19 @@ impl Checker<'_, '_> {
                 JsxAttributeLike::JsxSpreadAttribute(node) => {
                     let ty = self.check_expression(node.expression?);
                     non_inferrable |= self.non_inferrable_types.contains(&ty);
+                    // `getSpreadType`'s generic arm (`checker.go:13419`): a
+                    // generic object spread is not flattened. Written
+                    // attributes so far close into their own chunk, and the
+                    // spread joins the intersection (`isEmptyObjectType(left)`
+                    // answers the spread alone).
+                    if self.spread_generic_flags(ty, &mut Vec::new()).0 {
+                        if !properties.is_empty() {
+                            let chunk = std::mem::take(&mut properties);
+                            generic_parts.push(self.mint_jsx_attributes_chunk(chunk, attributes)?);
+                        }
+                        generic_parts.push(ty);
+                        continue;
+                    }
                     let (spread, _) = self.spread_properties(ty, false)?;
                     for property in spread {
                         if let Some(index) = properties.iter().position(|p| p.name == property.name)
@@ -491,6 +544,31 @@ impl Checker<'_, '_> {
                 });
             }
         }
+        let ty = if generic_parts.is_empty() {
+            self.mint_jsx_attributes_chunk(properties, attributes)?
+        } else {
+            if !properties.is_empty() {
+                generic_parts.push(self.mint_jsx_attributes_chunk(properties, attributes)?);
+            }
+            match generic_parts.as_slice() {
+                [only] => *only,
+                parts => self.get_intersection_type(parts, None),
+            }
+        };
+        if non_inferrable {
+            self.non_inferrable_types.insert(ty);
+        }
+        Some(ty)
+    }
+
+    /// One object chunk of `createJsxAttributesTypeFromAttributesProperty`:
+    /// an anonymous type over the `JsxAttributes` symbol with the captured
+    /// member list (`docs/parity/notes/r4-jsx2.md` §1).
+    fn mint_jsx_attributes_chunk(
+        &mut self,
+        properties: Vec<crate::objects::AnonymousProperty>,
+        attributes: &tsr_ast::JsxAttributes<'_>,
+    ) -> Option<crate::types::TypeId> {
         let members = self.property_members(&properties);
         let symbol = self.binder.symbol_of(attributes.node_id?);
         let ty = self.store.new_named(
@@ -498,9 +576,6 @@ impl Checker<'_, '_> {
             crate::objects::render_object_type(&members),
             symbol,
         );
-        if non_inferrable {
-            self.non_inferrable_types.insert(ty);
-        }
         self.anonymous_properties.insert(ty, (properties, true));
         self.object_literal_members.insert(ty, members);
         Some(ty)
@@ -526,7 +601,7 @@ impl Checker<'_, '_> {
             relater::{Relation, Ternary},
             types::TypeData,
         };
-        use tsr_ast::{Expression, JsxAttributeLike, JsxAttributeName};
+        use tsr_ast::{Expression, JsxAttributeLike};
         let TypeData::Union { types, .. } = self.store.get(contextual).data.clone() else {
             return None;
         };
@@ -539,15 +614,15 @@ impl Checker<'_, '_> {
         let mut present = Vec::new();
         for attribute in attributes.properties {
             let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
-            let JsxAttributeName::Identifier(name) = attribute.name? else { return None };
-            present.push(name.text);
+            let name = jsx_attribute_name_text(attribute.name?)?;
+            present.push(name.clone());
             let expression = attribute
                 .initializer
                 .and_then(|value| Expression::try_from(Node::from(value)).ok());
             if expression.is_some_and(|expression| !possibly_jsx_discriminant_value(expression)) {
                 continue;
             }
-            if !self.jsx_is_discriminant_property(&types, name.text)? {
+            if !self.jsx_is_discriminant_property(&types, &name)? {
                 continue;
             }
             let value = match expression {
@@ -557,7 +632,7 @@ impl Checker<'_, '_> {
             if value == self.intrinsics.error {
                 return None;
             }
-            items.push((name.text.to_string(), self.get_regular_type_of_literal_type(value)));
+            items.push((name, self.get_regular_type_of_literal_type(value)));
         }
         let semantic_children =
             self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)).is_some_and(
@@ -580,7 +655,7 @@ impl Checker<'_, '_> {
             }
         }
         for name in common.unwrap_or_default() {
-            if present.contains(&name.as_str())
+            if present.contains(&name)
                 || (semantic_children && children_name.as_deref() == Some(name.as_str()))
             {
                 continue;
@@ -773,18 +848,18 @@ impl Checker<'_, '_> {
             return None;
         }
         if let Node::JsxAttribute(node) = self.node_map.get(attribute)?
-            && let tsr_ast::JsxAttributeName::Identifier(name) = node.name?
+            && let Some(name) = jsx_attribute_name_text(node.name?)
             && let Some(selected) = self.discriminate_jsx_attributes(opening, props)
         {
-            return self.contextual_property_type(selected, name.text);
+            return self.contextual_property_type(selected, &name);
         }
         match self.node_map.get(attribute)? {
             Node::JsxAttribute(node) => {
-                let tsr_ast::JsxAttributeName::Identifier(name) = node.name? else { return None };
+                let name = jsx_attribute_name_text(node.name?)?;
                 if context_sensitive {
-                    self.certified_jsx_property_context(props, name.text)
+                    self.certified_jsx_property_context(props, &name)
                 } else {
-                    self.contextual_property_type(props, name.text)
+                    self.contextual_property_type(props, &name)
                 }
             }
             Node::JsxSpreadAttribute(_) => Some(props),
