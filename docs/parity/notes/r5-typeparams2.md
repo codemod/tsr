@@ -24,6 +24,16 @@ became `.iter()`.
 | merged list alone | +131 | 6 | +3 | 0 |
 | merged list + memo (§2) + alias sweep (§4) | +145 | 6 | +3 | 0 |
 | … + identity substitution (§3 diff) | +148 | 3 | +3 | 0 |
+| … + other files' alias call sites (§4 diff) | +148 | 3 | +3 | 0 |
+
+The held set is `r5-typeparams2-merged-parameters.diff` (applies on this
+branch's head) plus `r5-typeparams2-identity-substitution.diff`; the final row
+was re-measured on the final code of both. Tests pass and clippy reports
+nothing in `declared.rs`, `perf_links.rs` or `inference.rs` on that set.
+
+**Why it is held.** The three remaining losses (§5) are lines the merged list
+unmasks in code outside this lane. Without the `inference.rs` diff the set has
+six. Nothing in the owned functions can avoid them without special-casing.
 
 The diagnostics loss r4 recorded (interfaceExtendsObjectIntersection's 11×
 TS2507) no longer appears: main's `8460f71` port of
@@ -62,7 +72,11 @@ there is no provisional state: the first query computes and publishes a
 completed answer, and an absent entry means "never asked". `Empty` is a
 completed answer (no parameters), distinct from absent.
 
-**Encoding.** `PerfLinks` has no arena lifetime, so the value names nodes:
+**Encoding.** The table is a dense `Vec` indexed by `SymbolId::index()`, not
+a hash map: the hot reader is `global_type_symbol_with_arity` (306,889 calls
+on dml, every one a multi-declaration lib global), and the hash-probe build
+measured dml +0.30% / p100 +0.15% Ir against the dense build's ±0.006%.
+`PerfLinks` has no arena lifetime, so the value names nodes:
 `Declared(declaration)` when one declaration's own list is the whole answer
 (re-read through the node map, which is what the pre-memo code did on every
 call), `Merged(Rc<[NodeId]>)` for the parameter nodes of a list several
@@ -77,10 +91,18 @@ Instantiation and defaults stay with their existing owners.
 declaration, `declared_type_parameters_of`, de-duplicate by merged parameter
 symbol). It runs once per symbol. The common case — one declaration with at
 most one parameter — returns that declaration's list without probing the memo,
-because the probe costs more than the read.
+because the probe costs more than the read. A single declaration with two or
+more parameters still goes through the memo: native de-duplicates within one
+list too (`class C<T, T>` prints `C<T>`, typesWithDuplicateTypeParameters
+0:0/0:1, genericsWithDuplicateTypeParameters1 0:4 — a build that skipped it
+lost exactly those three lines).
 
-**Measured.** memo build: p100 2,841,811,003 → **2,841,599,466** (−0.007%);
-dml 5,732,440,233 → **5,732,552,900** (+0.002%). Both include the §4 sweep.
+**Measured** (final held set, merged + memo + §3 diff, on this branch's §4
+head): p100 2,841,811,003 → **2,841,994,554** (+0.006%); dml 5,732,440,233 →
+**5,732,709,666** (+0.005%); generic-imports 399,676,039 → **399,680,186**
+(+0.001%). The Ir of these variants moves by up to ±0.3% with inlining
+decisions under `codegen-units = 16`; the hash-probe and two-borrow drafts are
+the measured examples.
 
 **Falsifier.** If a symbol's declarations could change after binding (a late
 merge the checker performs), a stale `Declared` would answer the old list.
@@ -112,7 +134,7 @@ Measured on top of §1's full set: the three genericDefaults lines
 (1052/1053/1057) return to RIGHT, no other verdict moves (148 gains, 3
 losses).
 
-## §4 `type_alias_declaration_of` (`core.Find(IsEitherTypeAliasDeclaration)`) — committed
+## §4 `type_alias_declaration_of` (`core.Find(IsEitherTypeAliasDeclaration)`) — committed (`ab375ec`, gated in the next commit)
 
 `getDeclaredTypeOfTypeAlias` (`:23845`) and its readers locate the alias
 declaration with `core.Find(symbol.Declarations,
@@ -129,6 +151,17 @@ intrinsic contract is not this lane's).
 verdict changes either way — the alias readers only diverge for a symbol whose
 local type parameters the first declaration hides, which is §1's job. With §1
 it adds 14 type lines (131 → 145).
+
+**Correction (Ir).** The first commit was pushed without an Ir run; measured
+afterwards it cost p100 +0.47% / dml +0.45%: `alias_free_generic_alias_body`
+and others call it for non-alias symbols, and `find` scanned all of a lib
+global's declarations where `first()` read one. The follow-up commit returns
+`None` unless the symbol has `SymbolFlags::TYPE_ALIAS` — exact, since every
+declaration the search accepts binds that flag (`TypeAliasDeclaration`, and
+`declare_jsdoc_symbol(…, TYPE_ALIAS, …)` for typedef and callback tags) —
+giving p100 **2,841,931,079** (+0.004%) and dml **5,732,211,326** (−0.004%),
+zero verdict changes, perf 1.003 / 0.966 (domain-model / generic-imports, 21
+samples).
 
 The remaining call sites in other files (`constraints.rs`, `mapped.rs`,
 `members.rs`, `signatures.rs`, `string_mapping.rs`, `templates.rs`) are held in
