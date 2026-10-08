@@ -1,0 +1,31 @@
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 9b01307..0f82680 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -6478,6 +6478,26 @@ impl<'a> Checker<'a, '_> {
+         if names.is_empty() {
+             return false;
+         }
++        // A non-generic class or interface's own declared type: native
++        // `instantiateType` maps it through `couldContainTypeVariables`
++        // (`checker.go:22184`) and gets the same type back — its only type
++        // argument, if it is a reference at all, is its own `this`, never one
++        // of the owner's parameters. Its printed name can still spell a
++        // parameter's (`interface i07 { a: A } interface i07<A = number>`,
++        // the global `A`), which is the coincidence the name fallback must not
++        // take for a mention (`docs/parity/notes/r5-typeparams2.md` §3).
++        if let TypeData::Named { members: Some(symbol), .. } = &ty.data
++            && self.declared_types.get(symbol) == Some(&id)
++            && self
++                .binder
++                .symbols()
++                .get(*symbol)
++                .flags
++                .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
++            && self.local_type_parameters_of(*symbol).is_empty()
++        {
++            return false;
++        }
+         let text = crate::printing::type_to_string(ty);
+         names.iter().any(|name| mentions_identifier(&text, name))
+     }
