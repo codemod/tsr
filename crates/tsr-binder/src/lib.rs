@@ -178,6 +178,7 @@ pub struct BindResult<'a> {
     /// its declared type — seeding the slot unconditionally would clobber it.
     undefined_symbol: Option<SymbolId>,
     computed_names: FxHashMap<NodeId, NodeId>,
+    jsdoc_hosts: FxHashMap<NodeId, NodeId>,
     diagnostics: Vec<Diagnostic>,
     flow: FlowStore,
     node_flow: Vec<Option<FlowId>>,
@@ -277,6 +278,7 @@ impl<'a> BindResult<'a> {
             pattern_ambient_module_augmentations: FxHashMap::default(),
             undefined_symbol: None,
             computed_names: FxHashMap::default(),
+            jsdoc_hosts: FxHashMap::default(),
             diagnostics: Vec::new(),
             flow: FlowStore::new(),
             node_flow: Vec::new(),
@@ -328,6 +330,37 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn computed_name(&self, declaration: NodeId) -> Option<NodeId> {
         self.computed_names.get(&declaration).copied()
+    }
+
+    /// The node a JSDoc comment documents — the parent edge the tree omits
+    /// (the parser's `attach_jsdoc`).
+    #[must_use]
+    pub fn jsdoc_host(&self, doc: NodeId) -> Option<NodeId> {
+        self.jsdoc_hosts.get(&doc).copied()
+    }
+
+    /// The next location of a name-resolution walk. Native's reparser
+    /// (`parser/reparser.go` `reparseTags`, `finishReparsedNode`) parents a
+    /// JSDoc type under its host, so `resolveName`
+    /// (`binder/nameresolver.go`) climbs from a JSDoc type reference through
+    /// the host's scopes; here the walk dead-ends at the comment and crosses
+    /// to its host instead.
+    ///
+    /// The walk's every step runs this, so the parent edge is inlined and the
+    /// comment crossing — reached only when a walk runs off a parentless
+    /// node — is kept out of line.
+    #[inline]
+    fn scope_parent(&self, nodes: &NodeTable, node: NodeId) -> Option<NodeId> {
+        match nodes.parent(node) {
+            Some(parent) => Some(parent),
+            None => self.jsdoc_scope_host(nodes, node),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn jsdoc_scope_host(&self, nodes: &NodeTable, node: NodeId) -> Option<NodeId> {
+        if nodes.kind(node) == SyntaxKind::JSDoc { self.jsdoc_host(node) } else { None }
     }
 
     /// Duplicate-identifier and related errors, in discovery order.
@@ -1222,7 +1255,7 @@ impl<'a> BindResult<'a> {
                     // Upstream clears `result` and falls out of the switch, so
                     // the walk continues outward rather than stopping here.
                     last = Some(node);
-                    current = nodes.parent(node);
+                    current = self.scope_parent(nodes, node);
                     continue;
                 }
                 // TypeScript 1.0 spec (April 2014) §3.4.1: a type parameter's
@@ -1405,7 +1438,7 @@ impl<'a> BindResult<'a> {
             }
 
             last = Some(node);
-            current = nodes.parent(node);
+            current = self.scope_parent(nodes, node);
         }
         // The walk has run off the top of the file. Upstream's
         // `resolveNameHelper` ends at `c.globals` (`nameresolver.go`), which is
