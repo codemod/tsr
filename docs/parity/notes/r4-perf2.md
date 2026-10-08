@@ -239,6 +239,73 @@ more than the walk they replace. **What would change this:** a pre-order
 node-range table (r4-perf §3), which makes the enclosure test two integer
 comparisons without a hash.
 
-## §6 Wall versus CPU (candidate 4)
+## §6 Wall versus CPU (candidate 4; measurement only, no code)
 
-Written after the measurements below; see the end of this file.
+**Question.** Why does TSR's median wall ratio against tsgo (0.80–1.15) lag
+its median CPU ratio (0.50–0.61)? Measured at C3+C2 merged with the
+integration branch at `0399578`; native tsgo from the pinned submodule.
+
+**Measurements** (domain-model-large unless named; default mode = 4
+checkers, both tools; medians):
+
+| | TSR wall | TSR CPU | TSR CPU/wall | tsgo wall | tsgo CPU | tsgo CPU/wall |
+|---|---:|---:|---:|---:|---:|---:|
+| default, 21 samples | 792 ms | 1,713 ms | 2.16 | 943 ms | 3,253 ms | 3.45 |
+| `--singleThreaded`, 9 samples | 1,684 ms | 1,663 ms | 0.99 | 1,048 ms | 1,313 ms | 1.25 |
+| domain-model default | 197 ms | 391 ms | 1.99 | 246 ms | 776 ms | 3.15 |
+| domain-model single | 355 ms | 351 ms | 0.99 | 252 ms | 325 ms | 1.29 |
+
+`--extendedDiagnostics`, 7 default runs (medians): TSR Program 0.164 s
+(parse 0.103, bind 0.036), Check 0.587 s; tsgo Parse 0.134 s, Bind 0.059 s,
+Check 0.707 s. Three single-threaded runs: TSR Check 1.45–1.56 s, tsgo
+Check 0.67–0.71 s.
+
+**Finding 1: the CPU ratio is mostly tsgo's duplicated work, not TSR's
+efficiency.** tsgo's four checkers burn 3,253 ms of CPU for work one checker
+does in 1,313 ms (2.5x): each native checker resolves, privately, every
+declaration its files reach, and on these projects every file reaches most of
+the shared model types. tsgo's check *wall* barely moves with four checkers
+(0.71 s default against 0.69 s single): its slowest checker does nearly the
+whole job. TSR's four checkers cost 1,713 ms against 1,663 ms single (3%
+duplication) and its check wall falls 2.6x (1.53 s → 0.59 s). On equivalent
+work — the single-threaded run, where neither tool duplicates — TSR is
+**1.27x tsgo's CPU** on domain-model-large and 1.08x on domain-model, and its
+checker alone is about 2.2x slower than tsgo's (1.5 s vs 0.69 s). The
+default-mode CPU ratio (0.53) compares TSR's split work against tsgo's
+duplicated work and overstates TSR's lead; it should not be read as headroom.
+
+**Finding 2: what TSR's default wall is made of.** 792 ms ≈ program
+construction (~165 ms, serial apart from the parallel parse workers) +
+the slowest checker (~590 ms) + process start and reporting. With
+`TSR_WORK_TRACE` (feature `work-trace`; two runs, tracing inflates absolute
+times about 5x, proportions only), the `i % count` assignment gives checker 0
+51 files including `main.ts` (9–10% of its check time, the largest file);
+the four checkers' summed `source_file_check` time is 3,435 / 3,101 / 3,063 /
+3,115 ms and 3,351 / 2,931 / 3,048 / 3,059 ms: mean/max **0.92–0.93**.
+Perfect balance would cut the check wall by about 7–8% (≈ 45 ms, wall ratio
+≈ 0.84 → ≈ 0.79).
+
+**What would have to change.**
+1. *Per-checker work.* The release target is wall <= 0.50 of tsgo (≈ 470 ms
+   here). With the serial program phase at ~165 ms the checkers get ~305 ms;
+   at 4-way split and 0.92 balance that is ≈ 1.1 s of total check CPU,
+   against 1.5–1.6 s today: about 30% less checker work, on top of everything
+   in this note. Memo tables like C2/C3 are the route; balance alone cannot
+   reach it.
+2. *Balance.* Native assigns file `i` to checker `i % count`
+   (`checkerpool.go:98`), and TSR mirrors it. Size-aware or work-stealing
+   assignment would recover the 7–8%, but it is a deliberate deviation from
+   native and **can change output**: a checker's type ids, and so union member
+   order in printed types and the order in which lazily resolved declarations
+   report, depend on which files that checker checked first. Diagnostics
+   themselves are collected per owning file and sorted at reporting, so
+   their order would not move, but their text could. It would need its own
+   decision record and a corpus/bench check that every diagnostic text is
+   unchanged.
+3. *Program phase.* TSR's program time (~165 ms) is already comparable to
+   tsgo's parse+bind (~190 ms); nothing to gain there relative to tsgo.
+
+**How we would know this is wrong.** A tsgo build with `--checkers 1` that
+does *not* match its `--singleThreaded` check time (the duplication
+explanation predicts it matches), or a TSR single-threaded CPU that falls
+below tsgo's single-threaded CPU while default-mode wall stays above 0.80.
