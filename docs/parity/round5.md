@@ -669,3 +669,18 @@ conflict had kept the §31 gate's JS arm as the gap. The run was killed before
 its accept step, and the plain-JS patch was landed first, without its
 redundant calls.rs hunk. Both gate cores now end with
 `STOP: losses` when either count is non-zero.
+
+### r5-typetriage finished; r5-align dispatched (`tsr-2zk.1071`)
+
+r5-typetriage's fixes:
+- the spread method form (getSpreadSymbol's rule; it changes no verdict alone);
+- U+2028/U+2029/U+0085 escaping in `quote()` (+13 lines, 3 cases).
+
+The T_1 renaming cause turned out to be decided in inference.rs, not
+printing.rs, so it is filed for main as `.1072` and `.16.65` is unclaimed
+again. The enum-member ASCII-escape diff goes to r5-declared2.
+
+The freed slot went to r5-align, the largest cause left in unowned files: 52
+cases fail only on type lines that never align with the baseline (the types
+producer's walker). It also takes `.1069`, the timing pass for known-divergence
+cases.
