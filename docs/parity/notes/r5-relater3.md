@@ -136,3 +136,31 @@ and `derivedClassTransitivity4`. Types are unchanged and both loss checks are
 empty. Perf (21 samples): domain-model 0.990, generic-imports 0.993. `Ir`
 against base is the same as §2's (+0.59% / +0.001%), so this arm adds nothing
 measurable.
+
+## 5. Inherited call/construct signatures as target requirements
+
+The relater's structural arm (relater.go:3864) ran its signature conjunct only
+when the target *declared* call or construct signatures itself
+(`declares_call_or_construct`, which reads the owner's own interface or
+type-literal members). Native `signaturesRelatedTo` (relater.go:4441) reads
+resolved signatures, and those include every base type's
+(`resolveDeclaredMembers`). So `{ own: number }` was assignable to `interface F
+extends P {}` with a callable `P`. Both the base and this branch accepted
+`const b: F = o`, where native reports TS2322.
+
+`call_or_construct_bearing` extends the test over `get_base_types` for a class
+or interface owner. `signatures_of_type_kind` already resolves the inherited
+signatures, which is how calls through `F` already worked. It is used at the
+structural arm and at `related_signatures`' entry. `signature_bearing`'s
+inferable-index use (`object_type_has_inferable_index`) is unchanged; native
+`isObjectTypeWithInferableIndex` reads the symbol's own declarations there.
+
+The corpus does not move (no diagnostics or types change, and both loss
+checks are empty). It is the prerequisite for §6: without it, a namespace value
+would satisfy a global `Function` that inherits a call signature, and
+`symbol_chain::module_copy_calls_require_a_certified_empty_global_function`
+pins that it must not. Test:
+`relater::inherited_call_and_construct_signatures_are_target_requirements`.
+Perf (21 samples): domain-model 1.011, generic-imports 1.021. `Ir` over §4's
+binary is +0.04% / +0.004%: one base walk per structural pair whose target
+declares no signature of its own.

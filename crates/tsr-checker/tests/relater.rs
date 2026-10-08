@@ -1902,3 +1902,26 @@ fn inferred_parameter_constraint_absence_does_not_certify_primitive_projection()
         },
     );
 }
+
+/// signaturesRelatedTo (relater.go:4441) reads the target's RESOLVED call and
+/// construct signatures, which include its base types' (`resolveDeclaredMembers`).
+/// A property-only source does not satisfy an inherited call signature.
+#[test]
+fn inherited_call_and_construct_signatures_are_target_requirements() {
+    let source = "interface P { (value: number): number }
+        interface F extends P {}
+        let a: F; let b: { own: number };";
+    with_checker(source, |checker, statements| {
+        let callable = annotation_type(checker, statements, 2);
+        let plain = annotation_type(checker, statements, 3);
+        assert!(!checker.is_type_assignable_to(plain, callable));
+    });
+    let source = "interface P { new (value: number): object }
+        interface F extends P {}
+        let a: F; let b: { own: number };";
+    with_checker(source, |checker, statements| {
+        let constructable = annotation_type(checker, statements, 2);
+        let plain = annotation_type(checker, statements, 3);
+        assert!(!checker.is_type_assignable_to(plain, constructable));
+    });
+}
