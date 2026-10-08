@@ -144,3 +144,32 @@ false positive. It refused UNIQUE_ES_SYMBOL decidability at −3 cases, because
 unique-symbol identity is minted per node (`tsr-2zk.1005`). It also filed
 `.1006` and `.1007`. The new box `r5-relater4` keeps `relater.rs` for the
 census buckets `.976`, `.977`, `.978` and `.983`.
+
+### r5-errorsplit2 finished; decision on the gap rewrites; r5-errorsplit3 dispatched
+
+r5-errorsplit2 delivered:
+- `8d7a436`: checkIdentifier's deterministic errorType arms and requireSymbol
+  answer `native_error`, each verified against a native probe;
+- ADR-0048, which supersedes ADR-0038;
+- three landable diffs (empty-name, P4 alias symbols, flow TS2563), landed by
+  the integrator.
+
+**Decision.** The writer's gap→`any` rewrites are not narrowed wholesale. That
+would turn 5,063 RIGHT lines in 1,028 cases into GAP. They are narrowed per
+producer instead: when a producer is switched to `native_error`, its lines stop
+needing the rewrite. The gradient becomes honest step by step, and each step
+costs zero RIGHT lines.
+
+Why not narrow wholesale? The "no previously passing test regresses" rule is
+written against verdicts, and some of those 5,063 lines may be right for the
+right reason in places nobody has audited. Wholesale narrowing would discard
+those along with the falsely credited ones. Per-producer narrowing keeps the
+gate meaningful.
+
+How we would know this is wrong: the credited-gap count (`ceiling.rs`) stops
+falling while producers are being switched. That would mean the rewrites are
+covering lines no producer switch reaches.
+
+`r5-errorsplit3` (`tsr-2zk.1009`) is now the single owner of the contract. It
+audits `Checker::is_error`'s 201 call sites and propagates `native_error`
+through access, spread and destructuring.
