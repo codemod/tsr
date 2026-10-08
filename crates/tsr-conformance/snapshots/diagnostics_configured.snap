@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 782/1089 (71.81%)
-Failed         : 307
+Passed         : 798/1089 (73.28%)
+Failed         : 291
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 307 failures:
+First 100 of 291 failures:
 compiler/abstractPropertyNegative(target=es2015)
   1 unexpected (first TS2610 at abstractPropertyNegative.ts(34,5)), 5 missing
 compiler/accessorWithInitializer(target=es2015)
@@ -50,18 +50,6 @@ compiler/classStaticPropertyAccess(target=es2015)
   2 missing (first TS2576 at classStaticPropertyAccess.ts(10,1))
 compiler/classUsedBeforeInitializedVariables(target=es2015)
   1 missing (first TS2729 at classUsedBeforeInitializedVariables.ts(35,64))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=auto)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=force)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=legacy)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=auto)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=force)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
-compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=legacy)
-  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
 compiler/commonJsExportTypeDeclarationError(target=es2015)
   1 unexpected (first TS1110 at types2.ts(3,1)), 2 missing
 compiler/complicatedPrivacy(target=es2015)
@@ -141,15 +129,11 @@ compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodu
 compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodulesyntax=true)
   3 missing (first TS1295 at bad.ts(1,10))
 compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
-  2 missing (first TS7029 at a.js(3,9))
+  1 missing (first TS7028 at a.js(19,1))
 compiler/jsxChildrenArrayWrongType(target=es2015)
   2 missing (first TS2769 at index.tsx(12,9))
 compiler/jsxFragmentFactoryReference(jsx=react)
   1 missing (first TS2879 at jsxFragmentFactoryReference.tsx(3,9))
-compiler/jsxFragmentFactoryReference(jsx=react-jsx)
-  1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
-compiler/jsxFragmentFactoryReference(jsx=react-jsxdev)
-  1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
 compiler/jsxSpreadTag(target=es2015)
   4 missing (first TS2304 at /a.tsx(5,13))
 compiler/jsxSpreadTag(target=esnext)
@@ -226,3 +210,19 @@ conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
   3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
   3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
+  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
+  3 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
+conformance/arrowFunctionContexts(alwaysstrict=true)
+  1 unexpected (first TS2331 at arrowFunctionContexts.ts(44,23)), 0 missing
+conformance/asyncFunctionDeclaration15_es5(target=es2015)
+  1 missing (first TS1058 at asyncFunctionDeclaration15_es5.ts(17,16))
+conformance/asyncFunctionDeclarationParameterEvaluation(target=es2015)
+  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
+conformance/asyncFunctionDeclarationParameterEvaluation(target=es2017)
+  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
+conformance/asyncGeneratorParameterEvaluation(target=es2015)
+  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
+conformance/asyncGeneratorParameterEvaluation(target=es2017)
+  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
