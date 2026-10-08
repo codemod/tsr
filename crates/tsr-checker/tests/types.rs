@@ -448,7 +448,7 @@ fn a_cycle_through_two_symbols_resolves_instead_of_hanging() {
 }
 
 #[test]
-fn an_unresolved_name_is_upstreams_any() {
+fn an_unresolved_name_is_upstreams_error_type() {
     // The name outlived its truth at §31: upstream's TS2304 answer IS
     // `errorType` printed `any`, and this port now answers the observable.
     let arena = Arena::new();
@@ -469,8 +469,10 @@ fn an_unresolved_name_is_upstreams_any() {
     // OBSERVABLE is `any`, and this port answers the `any` intrinsic
     // directly. The fixture's original claim (errorType, to keep gaps
     // distinguishable) was ADR-0038's; §31 argues the boundary: this is
-    // upstream's own deliberate error-answer, not a port failure.
-    assert_eq!(id, checker.intrinsics().any);
+    // upstream's own deliberate error-answer, not a port failure. ADR-0048
+    // (`r5-errorsplit3.md` §6): the answer is that identity itself,
+    // `native_error`, no longer the `any` stand-in.
+    assert_eq!(id, checker.intrinsics().native_error);
 }
 
 #[test]

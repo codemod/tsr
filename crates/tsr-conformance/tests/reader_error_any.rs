@@ -43,13 +43,16 @@ fn records(
                 id,
                 &mut false,
             );
-            let identity = if raw == checker.intrinsics().error {
-                "error"
-            } else if raw == checker.intrinsics().any {
-                "any"
-            } else {
-                "concrete"
-            };
+            // ADR-0048: either error identity, the port's gap or upstream's
+            // own `errorType` (`native_error`), is the computed error-any.
+            let identity =
+                if raw == checker.intrinsics().error || raw == checker.intrinsics().native_error {
+                    "error"
+                } else if raw == checker.intrinsics().any {
+                    "any"
+                } else {
+                    "concrete"
+                };
             (assertion, identity)
         })
         .collect()

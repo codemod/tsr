@@ -2911,6 +2911,13 @@ impl Checker<'_, '_> {
         // `any` answered here is an honest computation, not a failed one wearing
         // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
         // from those two adjacent upstream lines.
+        // ADR-0048: `resolveCallExpression` asks `isErrorType(apparentType)`
+        // before the untyped-call test (`checker.go:8516`) and answers
+        // `resolveErrorCall`, whose `unknownSignature` returns `errorType`
+        // (`checker.go:1043`): upstream's own error callee calls to itself.
+        if callee_type == self.intrinsics.native_error {
+            return callee_type;
+        }
         if self.is_untyped_call_target(callee_type) {
             bump(&COUNTERS.untyped_call);
             return self.intrinsics.any;

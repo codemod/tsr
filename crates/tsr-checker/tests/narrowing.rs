@@ -72,6 +72,12 @@ fn type_of_last_expression_with_null_checks(
     let last = last_expression_statement(parsed.source_file.statements)
         .expect("the fixture must end with an expression statement");
     let id = checker.check_expression(last);
+    // ADR-0048: upstream's `errorType` prints `any` inside the checker and
+    // `error` through the baseline writer's intrinsic-name fast path; these
+    // fixtures pin the identity, so they read it the writer's way.
+    if id == checker.intrinsics().native_error {
+        return "error".to_string();
+    }
     checker.type_to_string(id)
 }
 

@@ -170,8 +170,6 @@ pub struct Checker<'a, 'n> {
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
-    /// §784: the `CommonJS` half of the same cache.
-    pub(crate) file_commonjs_machinery: FxHashMap<NodeId, bool>,
     /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
     pub(crate) global_this_type: Option<TypeId>,
     /// One `unique symbol` per WRITTEN `unique symbol` type node
@@ -1405,7 +1403,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             base_symbols: FxHashMap::default(),
             interface_signatures: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
-            file_commonjs_machinery: FxHashMap::default(),
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),

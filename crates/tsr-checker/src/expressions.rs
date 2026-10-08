@@ -257,43 +257,6 @@ impl Checker<'_, '_> {
         self.maybe_type_of_kind(constraint, TypeFlags::STRING_LIKE)
     }
 
-    /// Whether the node's source file carries COMMONJS module machinery — a
-    /// reference to `require`, `module` or `exports`. §784.
-    ///
-    /// The sibling [`Checker::file_has_import_machinery`] asks the same
-    /// question — *can an unresolved name here be this port's own binding gap
-    /// rather than the source's?* — but only over ES `import`/`export`
-    /// DECLARATIONS, so it answers `false` for every `CommonJS` file, which is
-    /// the shape `allowJs` corpora are written in.
-    pub(crate) fn file_has_commonjs_machinery(&mut self, node: NodeId) -> bool {
-        let mut root = node;
-        while let Some(parent) = self.nodes.parent(root) {
-            root = parent;
-        }
-        if let Some(&cached) = self.file_commonjs_machinery.get(&root) {
-            return cached;
-        }
-        let answer = self.node_map.get(root).is_none_or(|file| {
-            let mut stack = vec![file];
-            let mut children = Vec::new();
-            let mut found = false;
-            while let Some(current) = stack.pop() {
-                if let Node::Identifier(identifier) = current
-                    && matches!(identifier.text, "require" | "module" | "exports")
-                {
-                    found = true;
-                    break;
-                }
-                children.clear();
-                tsr_ast::push_children(current, &mut children);
-                stack.extend(children.iter().copied());
-            }
-            found
-        });
-        self.file_commonjs_machinery.insert(root, answer);
-        answer
-    }
-
     /// Whether the node's source file carries any import/export declaration
     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
     pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
@@ -944,25 +907,17 @@ impl Checker<'_, '_> {
                         {
                             return self.intrinsics.native_error;
                         }
+                        // ADR-0048 (`r5-errorsplit3.md` §6): §784's JS
+                        // clause is gone. It sent an unresolved name in a JS
+                        // file without COMMONJS machinery to the gap because
+                        // the final `else`'s `any` stand-in was wrong there
+                        // (upstream reports TS2304 and records `errorType`);
+                        // with the final `else` answering `native_error`,
+                        // that file is the final `else`'s case exactly as a
+                        // TS file is.
                         if anywhere.is_some()
                             || node.text == "arguments"
                             || self.file_has_import_machinery(id)
-                            // §784: the JS half the §31 comment above already
-                            // argues for but the gate never tested. A `.js`
-                            // file is checked with `allowJs`, where upstream
-                            // still reports TS2304 on an unresolved name and
-                            // the oracle records `error` — so `any` is this
-                            // port's own over-answer, not upstream's. The
-                            // exception is a JS file carrying COMMONJS
-                            // machinery: `require`/`module.exports` bring
-                            // names into scope through roads this port only
-                            // partly has, so an unresolved name THERE may be
-                            // the port's miss, exactly as the ES-declaration
-                            // test above allows. The ES-only detector cannot
-                            // see them; measured at 11 RIGHT->GAP without
-                            // this second half.
-                            || (self.in_js_file(id)
-                                && !self.file_has_commonjs_machinery(id))
                         {
                             self.intrinsics.error
                         } else {
@@ -970,11 +925,10 @@ impl Checker<'_, '_> {
                             // with no import machinery: `getResolvedSymbol`
                             // answers `unknownSymbol` and `checkIdentifier`
                             // returns `errorType` (`checker.go:11048`).
-                            // ADR-0048: still the `any` stand-in; switching it
-                            // to `native_error` waits on a consumer audit
-                            // outside this function
-                            // (`docs/parity/notes/r5-errorsplit2.md` §2).
-                            self.intrinsics.any
+                            // ADR-0048: upstream's own error identity, after
+                            // the consumer audit
+                            // (`docs/parity/notes/r5-errorsplit3.md` §5).
+                            self.intrinsics.native_error
                         }
                     }
                 }
@@ -2348,6 +2302,12 @@ impl Checker<'_, '_> {
         // `resolveNewExpression` (`checker.go:8593`): `new` through an `any`
         // callee is the same untyped call the call arm answers
         // (`resolveUntypedCall`, `checker.go:9902`).
+        // ADR-0048: `isErrorType(apparentType)` answers `resolveErrorCall`
+        // before the untyped `new` (`checker.go:8586`), and its
+        // `unknownSignature` returns `errorType`.
+        if callee_type == self.intrinsics.native_error {
+            return callee_type;
+        }
         if self.is_untyped_call_target(callee_type) {
             return self.intrinsics.any;
         }

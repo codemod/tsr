@@ -22,6 +22,15 @@
 //! already excuses. [`Checker::file_has_import_machinery`] cannot see those,
 //! because it looks for ES `import`/`export` DECLARATIONS and a `CommonJS` file
 //! has none.
+//!
+//! **Superseded by ADR-0048 (`docs/parity/notes/r5-errorsplit3.md` §6).** The
+//! split above existed because the final `else` answered an `any` stand-in
+//! that was wrong for a JS file. With that arm answering upstream's own
+//! `errorType` identity (`native_error`), every file with no ES import
+//! machinery — TS, plain JS, `CommonJS` JS — gets the same answer, which is
+//! what native does (a probe of `var y = nosuch3;` beside `require("fs")`
+//! answers `GetErrorType()`). The fixtures now pin that identity; they read it
+//! as the baseline writer's fast path prints it, `error`.
 
 use tsr_ast::{NodeFlags, Statement};
 use tsr_checker::Checker;
@@ -56,6 +65,9 @@ fn type_of_initializer(source: &str, javascript: bool) -> String {
         .expect("one declaration");
     let initializer = declaration.initializer.expect("an initializer");
     let id = checker.check_expression(initializer);
+    if id == checker.intrinsics().native_error {
+        return "error".to_string();
+    }
     checker.type_to_string(id)
 }
 
@@ -66,26 +78,24 @@ fn an_unresolved_identifier_in_a_plain_js_file_is_error() {
     assert_eq!(type_of_initializer("var x = f;", true), "error");
 }
 
-/// The TS half is unchanged: with no machinery of any kind the gate still
-/// answers `any`, because a TS file's unresolved name is upstream's TS2304 on
-/// a source this port read in full.
+/// The TS half: with no machinery of any kind the name is upstream's TS2304
+/// on a source this port read in full, and the answer is its `errorType`.
 #[test]
-fn an_unresolved_identifier_in_a_plain_ts_file_is_still_any() {
-    assert_eq!(type_of_initializer("var x = f;", false), "any");
+fn an_unresolved_identifier_in_a_plain_ts_file_is_error_too() {
+    assert_eq!(type_of_initializer("var x = f;", false), "error");
 }
 
-/// The measured exception. A `.js` file that binds names through `CommonJS` is
-/// one whose unresolved names this port may itself be failing to bind, so it
-/// keeps the `any` the §31 gate gives every other incompletely-read file.
-/// Reverting [`Checker::file_has_commonjs_machinery`] reddens this and costs
-/// 11 RIGHT->GAP on the corpus.
+/// The former exception. A `.js` file that binds names through `CommonJS`
+/// took the final `else`'s `any` stand-in; it now takes upstream's
+/// `errorType` like every file without ES import machinery (measured with
+/// zero losses, `r5-errorsplit3.md` §6).
 #[test]
-fn an_unresolved_identifier_in_a_commonjs_js_file_is_any() {
-    assert_eq!(type_of_initializer("var lib = require('./lib');\nvar x = f;", true), "any");
+fn an_unresolved_identifier_in_a_commonjs_js_file_is_error() {
+    assert_eq!(type_of_initializer("var lib = require('./lib');\nvar x = f;", true), "error");
 }
 
-/// `module.exports` counts as the same machinery as `require`.
+/// `module.exports` is the same.
 #[test]
-fn module_exports_is_commonjs_machinery_too() {
-    assert_eq!(type_of_initializer("module.exports = {};\nvar x = f;", true), "any");
+fn an_unresolved_identifier_beside_module_exports_is_error() {
+    assert_eq!(type_of_initializer("module.exports = {};\nvar x = f;", true), "error");
 }

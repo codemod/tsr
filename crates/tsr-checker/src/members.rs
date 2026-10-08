@@ -255,6 +255,12 @@ impl Checker<'_, '_> {
         if receiver_type == error {
             return error;
         }
+        // ADR-0048: an any-like receiver that is upstream's `errorType`
+        // answers `errorType` (`checker.go:11314-11320`, `isAnyLike` then
+        // `isErrorType(apparentType)`), whatever the member.
+        if receiver_type == self.intrinsics.native_error {
+            return receiver_type;
+        }
         // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
         // to the lookup (`checker.go:11258`), and a chain link goes through
         // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is
