@@ -96,3 +96,56 @@ natively; this port prints `any`) is in `declared.rs`'s
 `get_type_from_type_literal`, which declines the whole literal when
 `index_signature_member` answers `None` (no value annotation, invalid key).
 Not owned; see the lane report.
+
+## 3. TS7053 / TS7015 for a key that names no property (tsr-2zk.905)
+
+**Forcing constraint.** `getPropertyTypeForIndexType`'s access-expression arm
+(`checker.go:27129-27184`) reports, under `noImplicitAny`, an element access
+whose key has no applicable index info and no string fallback (`:27085`):
+TS7015 at the index when the object has a number index
+(`getIndexTypeOfType(objectType, numberType)`), else TS7053 at the access.
+This port reported only the literal-name half (`nonexistent_property.rs`,
+argument written as a string literal); `obj[k]` with `k: string` over
+`{}` (`noImplicitAnyForIn`) or `any[] | Record<string, any>`
+(`narrowingMutualSubtypes`) was silent. Native messages were compared line
+by line with the pinned `tsgo` on `indexSignatures1` (21 of 23 reported
+lines, identical text; the two left are a literal key and a type-literal
+receiver).
+
+**Where it lives and why.** `check_element_access_index_type` already hosts
+the TS2538 arm of the same function as a check-site reporter, so the new arm
+sits beside it rather than inside `indexed.rs`' lookup (not owned). It does
+not re-derive the lookup's answer: it reports only when the element access
+itself failed (`check_expression` of the access is `error`), so the for-in
+numeric substitution, tuple reads and mapped indexes the lookup answers are
+never reported over. The literal-name arm stays where it is; a union key
+mixing literal and non-literal constituents is declined whole so the two
+arms cannot both fire.
+
+**Certification.** "No applicable index info" is believed only for receivers
+whose infos `get_index_infos_of_type` reads completely
+(`index_infos_are_declared`): classes, interfaces, type literals, class/enum
+objects, primitives' apparent interfaces, and mapped/alias instantiations
+that published a non-empty index set. Measured before that gate: tuples
+(`unionsOfTupleTypes1`, `avoidNarrowingUsingConstVariable...`: this port has
+no `Array` base number index on a tuple) and `{ [P in keyof any]: V }`
+(`mappedTypeWithAny`: key set unresolved, no index published) produced false
+TS7053s. Declined, with the upstream piece each waits for: nullable receivers
+(`checkNonNullExpression` precedes), generic object or key
+(`shouldDeferIndexedAccessType`), JS literal (`isJSLiteralType` answers
+`any`), object literal (`:27135` answers the property union), `typeof
+globalThis` (its own TS7017/TS2339 road), and a receiver with a `get`/`set`
+member (TS7052's `getSuggestionForNonexistentIndexSignature` is not ported).
+
+Port convention record: no cache, side table, mapper or traversal is added;
+the arm reads `check_expression` and `get_index_infos_of_type`, both already
+cached or computed for the access, once per checked element access with
+`noImplicitAny` on. Perf at 21 samples, median child CPU new/old:
+domain-model 1.004, generic-imports 1.007.
+
+Measured: missing TS7053/TS7015 lines 51 -> 25, extra 0; cases converted
+`noImplicitAnyForIn`, `narrowingMutualSubtypes`, `for-inStatementsArrayErrors`.
+The 25 left are literal keys from non-string-literal nodes (number literal,
+unique symbol, enum member, `const` string; they need the property-absence
+certification `nonexistent_property.rs` owns), tuple receivers, and
+type-literal receivers whose index infos live in `declared.rs`.
