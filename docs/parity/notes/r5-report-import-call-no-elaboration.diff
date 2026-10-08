@@ -1,0 +1,18 @@
+diff --git a/crates/tsr-checker/src/import_call.rs b/crates/tsr-checker/src/import_call.rs
+index 98bd872d..5a7923b2 100644
+--- a/crates/tsr-checker/src/import_call.rs
++++ b/crates/tsr-checker/src/import_call.rs
+@@ -82,10 +82,12 @@ impl Checker<'_, '_> {
+                     == Ternary::NotRelated
+                     && let Some(at) = options.node_id()
+                 {
++                    // checkTypeAssignableTo (checker.go:8291) passes no
++                    // expression, so nothing is elaborated.
+                     self.report_relation_failure(
+                         at,
+                         self.error_span(at),
+-                        options.node_id(),
++                        None,
+                         options_type,
+                         target,
+                         None,

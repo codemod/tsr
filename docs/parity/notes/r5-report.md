@@ -251,3 +251,67 @@ On top of §2: `excessPropertyCheckIntersectionWithIndexSignature`,
 `propertyAccess` WRONG → RIGHT; identical with and without the spread
 limit. Loss checks empty; positions 5037/1309 → 5014/1286.
 Perf (41 samples, new/old): domain-model 0.977, generic-imports 1.015.
+
+## 5. Excess properties through optional members and spreads (tsr-2zk.974)
+
+Routed by the integrator from the r5-triage2322 census (bucket X2/B1).
+
+### Forcing constraints
+
+- **An optional member's `T | undefined`.** `hasExcessProperties` on a union
+  target reads each constituent's member through `getTypeOfPropertyInTypes`
+  (`relater.go:2796`). For `undefined`, `getApparentType` leaves the type as
+  it is, and `getPropertyOfObjectType` plus the index lookup find nothing, so
+  the constituent contributes `undefined`. TSR's
+  `type_of_property_or_index_signature` asked `certified_property_names` of
+  `undefined`, got no answer, and declined the whole excess check. Every
+  literal nested under an optional property then fell back to a TS2322 head
+  at the outer declaration (`nestedFreshLiteral`: native TS2561 three levels
+  down). Fix: `undefined`, `null` and `void` answer nil there.
+- **A spread literal.** §4 excluded spreads, because
+  `excess_properties_verdict` walks written members and
+  `shouldCheckAsExcessProperty` reads final properties.
+  `spread_literal_excess_property` now walks the fresh type's final
+  properties (`anonymous_properties`, in property order). It admits one only
+  when its origin's value declaration has the literal as its parent, so a
+  spread's keys and an overridden written key are never excess. The first
+  property `isKnownProperty` rejects is reported at its declaration's name.
+  Non-union targets only: the union arm's discriminant reduction reads
+  written members.
+
+### Measured (on top of §4)
+
+- **Converted (+7):** `nestedFreshLiteral`, `objectLiteralFreshnessWithSpread`,
+  `deepExcessPropertyCheckingWhenTargetIsIntersection`, `typeArgInference2`,
+  `intlNumberFormatES5UseGrouping(target=es2015)`, `optionalBindingParameters2`,
+  `optionalBindingParametersInOverloads2`.
+- **Losses:** none on either dump. Positions went 5014/1286 → 5004/1287.
+- **Accepted: two already-WRONG cases gained extra lines.** Elaboration now
+  reaches members behind `| undefined`, which exposes two existing defects
+  in files I don't own:
+  - `es2020IntlAPIs`, +2 TS2322 (`new Intl.RelativeTimeFormat('en',
+    { style: 'narrow' })`). TSR types the argument's `'narrow'` as `string`
+    in a `new` call. This is the same false positive the case already showed
+    twice at 32:62/33:78 (`DisplayNames`). The fix belongs in the
+    contextual/calls lane; the reporter only stopped hiding it.
+  - `importAttributes9`, +1 TS2322 at the nested `type`. `import_call.rs`
+    hands its options object to `report_relation_failure` as a source node,
+    which elaborates. Native's `checkTypeAssignableTo` (`checker.go:8291`)
+    passes no expression. Passing `None`
+    ([r5-report-import-call-no-elaboration.diff](r5-report-import-call-no-elaboration.diff))
+    removes the extra and also produces the expected 11:25. On every
+    import-named case: positions 1567/230 → 1566/229, no verdict change.
+
+### Still open in X2/B1
+
+These need machinery outside the reporter:
+- computed names (`usingDeclarationsWithObjectLiterals1`'s `[Symbol.dispose]`
+  makes `excess_properties_verdict` decline);
+- generic conditional/mapped alias targets
+  (`excessPropertyCheckIntersectionWithRecursiveType`);
+- template-literal and symbol index signatures (`indexSignatures1`);
+- `ThisType<any>` intersections and `Object.defineProperty`'s descriptor
+  (`excessPropertyCheckWithEmptyObject`);
+- the union-of-array elaboration in `objectLiteralExcessProperties`, which is
+  bucket B3 (tsr-2zk.975).
+Perf (21 samples, new/old): domain-model 0.959, generic-imports 0.997.
