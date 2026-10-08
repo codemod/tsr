@@ -1201,6 +1201,10 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         }
     }
 
+    fn has_node_modules_files(&self) -> bool {
+        !self.package_jsons_for_specifiers.is_empty()
+    }
+
     fn is_applicable_versioned_types_key(&self, key: &str) -> bool {
         tsr_module::util::is_applicable_versioned_types_key(key)
     }

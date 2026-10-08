@@ -209,9 +209,12 @@ impl Checker<'_, '_> {
     /// without `allowImportingTsExtensions` (`None` there, as the caller
     /// declines it): `[Js]` for an ESM file under `node16`..`nodenext`
     /// resolution, else the preferred ending first.
-    pub(crate) fn allowed_endings(&self, importing: NodeId) -> Option<Vec<Ending>> {
+    pub(crate) fn allowed_endings(
+        &self,
+        importing: NodeId,
+        mode: ModuleKind,
+    ) -> Option<Vec<Ending>> {
         let host = self.module_host?;
-        let mode = host.default_resolution_mode_for_file(importing);
         if mode == ModuleKind::ESNext && host.specifier_options(mode).module_resolution_is_node_next
         {
             return Some(vec![Ending::Js]);
@@ -233,9 +236,16 @@ impl Checker<'_, '_> {
         importing: NodeId,
         source_directory: &str,
         module_path: &str,
+        override_mode: ModuleKind,
     ) -> Option<String> {
         let parts = node_module_path_parts(module_path)?;
-        let allowed = self.allowed_endings(importing)?;
+        let host = self.module_host?;
+        let mode = if override_mode == ModuleKind::None {
+            host.default_resolution_mode_for_file(importing)
+        } else {
+            override_mode
+        };
+        let allowed = self.allowed_endings(importing, mode)?;
         // Upstream's loop advances a local `packageRootIndex` but hands
         // `tryDirectoryWithPackageJson` the unchanged `*parts`, so every
         // iteration re-tries the package root and the loop ends in
@@ -243,7 +253,7 @@ impl Checker<'_, '_> {
         // attempt it is at the pinned commit (strada passed the advancing
         // index). r5-modules §5.2.
         let module_specifier =
-            match self.try_directory_with_package_json(importing, parts, module_path, &allowed) {
+            match self.try_directory_with_package_json(mode, parts, module_path, &allowed) {
                 DirectoryAttempt::BlockedByExports => return None,
                 DirectoryAttempt::VerbatimFromExports(specifier) => return Some(specifier),
                 DirectoryAttempt::PackageRoot(path) => path,
@@ -265,7 +275,7 @@ impl Checker<'_, '_> {
     /// for the directory `module_path[..root]`.
     fn try_directory_with_package_json(
         &self,
-        importing: NodeId,
+        mode: ModuleKind,
         parts: NodeModulePathParts,
         module_path: &str,
         allowed: &[Ending],
@@ -285,7 +295,7 @@ impl Checker<'_, '_> {
                 module_file()
             };
         };
-        let mut import_mode = host.default_resolution_mode_for_file(importing);
+        let mut import_mode = mode;
         if [".cjs", ".cts", ".d.cts"].iter().any(|extension| module_path.ends_with(extension)) {
             import_mode = ModuleKind::CommonJS;
         } else if [".mjs", ".mts", ".d.mts"]
@@ -546,6 +556,46 @@ impl Checker<'_, '_> {
             }
         }
         None
+    }
+}
+
+/// A specifier the node builder generated that dives into `node_modules`
+/// — the arguments of `ReportLikelyUnsafeImportRequiredError`
+/// (`nodebuilderimpl.go:709`) before its mode-swap retry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnsafeImport {
+    /// The specifier, unquoted (`oldSpecifier`).
+    pub specifier: String,
+    /// `symbol.Name` of the symbol being named.
+    pub symbol_name: String,
+    /// The module the chain is rooted at (`chain[0]`).
+    pub module: tsr_binder::SymbolId,
+}
+
+impl Checker<'_, '_> {
+    /// Record a generated `import("…")` specifier for the active
+    /// declaration-emit tracker when it contains `/node_modules/`
+    /// (`nodebuilderimpl.go:681`'s test; `FlagsAllowNodeModulesRelativePaths`
+    /// is never set by declaration emit). A no-op outside one.
+    pub(crate) fn track_unsafe_import(
+        &mut self,
+        quoted_specifier: &str,
+        symbol: tsr_binder::SymbolId,
+        module: tsr_binder::SymbolId,
+    ) {
+        let Some(tracker) = self.unsafe_import_tracker.as_mut() else { return };
+        let specifier = quoted_specifier
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .unwrap_or(quoted_specifier);
+        if !specifier.contains("/node_modules/") {
+            return;
+        }
+        let symbol_name = self.binder.symbols().get(symbol).name.to_string();
+        let entry = UnsafeImport { specifier: specifier.to_string(), symbol_name, module };
+        if !tracker.contains(&entry) {
+            tracker.push(entry);
+        }
     }
 }
 

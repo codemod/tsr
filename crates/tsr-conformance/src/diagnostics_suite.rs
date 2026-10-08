@@ -537,6 +537,9 @@ impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '
                 Checker::PrivateInBaseOfClassExpression(name) => {
                     Walk::PrivateInBaseOfClassExpression(name)
                 }
+                Checker::LikelyUnsafeImportRequired { specifier, symbol_name } => {
+                    Walk::LikelyUnsafeImportRequired { specifier, symbol_name }
+                }
             })
             .collect()
     }

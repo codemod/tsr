@@ -87,6 +87,14 @@ pub trait AccessibilityResolver {
 pub enum TrackerReport {
     /// `ReportPrivateInBaseOfClassExpression(propertyName)` (`tracker.go:131`).
     PrivateInBaseOfClassExpression(String),
+    /// `ReportLikelyUnsafeImportRequiredError(specifier, symbolName)`
+    /// (`tracker.go:97`): TS2883, or TS2742 without a symbol name.
+    LikelyUnsafeImportRequired {
+        /// The `node_modules` specifier.
+        specifier: String,
+        /// `symbolName`; empty selects the two-argument message.
+        symbol_name: String,
+    },
 }
 
 /// The `SymbolTrackerSharedState` options the walk reads.
@@ -327,8 +335,46 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                         vec![name],
                     ));
                 }
+                TrackerReport::LikelyUnsafeImportRequired { specifier, symbol_name } => {
+                    let declaration = self.error_declaration_name_with_fallback();
+                    self.out.push(if symbol_name.is_empty() {
+                        Diagnostic::with_args(
+                            &m::THE_INFERRED_TYPE_OF_0_CANNOT_BE_NAMED_WITHOUT_A_REFERENCE_TO_1_THIS_IS_LIKELY_NOT_PORTABLE_A_TYPE_ANNOTATION_IS_NECESSARY,
+                            span,
+                            vec![declaration, specifier],
+                        )
+                    } else {
+                        Diagnostic::with_args(
+                            &m::THE_INFERRED_TYPE_OF_0_CANNOT_BE_NAMED_WITHOUT_A_REFERENCE_TO_2_FROM_1_THIS_IS_LIKELY_NOT_PORTABLE_A_TYPE_ANNOTATION_IS_NECESSARY,
+                            span,
+                            vec![declaration, specifier, symbol_name],
+                        )
+                    });
+                }
             }
         }
+    }
+
+    /// `errorDeclarationNameWithFallback` (`tracker.go:166`): the error name
+    /// node's text, else the fallback node's declaration name, else
+    /// `export=`/`default` for an export assignment, else `(Missing)`.
+    fn error_declaration_name_with_fallback(&self) -> String {
+        let name_text = |id: NodeId| {
+            let span = self.nodes.span(id);
+            self.text.get(span.start as usize..span.end as usize).unwrap_or("").trim().to_string()
+        };
+        if let Some(name) = self.error_name_node {
+            return name_text(name);
+        }
+        if let Some(&fallback) = self.fallback.last() {
+            if let Some(name) = self.name_of_declaration(fallback) {
+                return name_text(name);
+            }
+            if let Some(Node::ExportAssignment(assignment)) = self.map.get(fallback) {
+                return if assignment.is_export_equals { "export=" } else { "default" }.to_string();
+            }
+        }
+        "(Missing)".to_string()
     }
 
     /// `transformAndReplaceLatePaintedStatements` (`transform.go:386`): the
