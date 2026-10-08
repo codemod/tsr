@@ -4427,8 +4427,28 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// Not a flag test: `errorType` and `anyType` share `TypeFlagsAny` and are
     /// distinguished only by identity, which is the whole point of them being
     /// separate types (`checker.go:979`).
+    ///
+    /// Both of the port's error identities answer true (ADR-0047): its gap
+    /// ([`Intrinsics::error`](crate::Intrinsics)) and upstream's own
+    /// `errorType` ([`Intrinsics::native_error`](crate::Intrinsics)).
     pub(crate) fn is_error(&self, id: TypeId) -> bool {
-        id == self.intrinsics.error || self.unresolved_types.contains(&id)
+        id == self.intrinsics.error
+            || id == self.intrinsics.native_error
+            || self.unresolved_types.contains(&id)
+    }
+
+    /// The error a union or intersection answers once `constituent`, an error
+    /// type, joins the error already `seen` (`IncludesError`,
+    /// `checker.go:25659` / `:26092`): upstream's `errorType` while every error
+    /// constituent was upstream's, the port's gap as soon as one was not — a
+    /// gap in a constituent is a gap in the whole (ADR-0047).
+    pub(crate) fn included_error(&self, seen: Option<TypeId>, constituent: TypeId) -> TypeId {
+        let native = self.intrinsics.native_error;
+        if constituent == native && seen.is_none_or(|seen| seen == native) {
+            native
+        } else {
+            self.intrinsics.error
+        }
     }
 
     /// Ported from `ast.GetCombinedNodeFlags` / `getCombinedFlags`

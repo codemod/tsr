@@ -1201,6 +1201,15 @@ fn render(
     id: tsr_checker::types::TypeId,
 ) -> String {
     let error = checker.intrinsics().error;
+    // ADR-0047: the intrinsic-name fast path of `writeTypeOrSymbol`
+    // (`type_symbol_baseline.go:378`) prints `errorType`'s intrinsic name,
+    // `"error"`; every other rendering prints the node builder's `any`, which is
+    // the name the checker gives `native_error`. The writer guards in
+    // `render_case` then route the guarded positions back to `any` exactly as
+    // they do for the gap.
+    if id == checker.intrinsics().native_error {
+        return "error".to_string();
+    }
     checker.type_to_string_at(id, reference).unwrap_or_else(|| checker.type_to_string(error))
 }
 
@@ -1287,7 +1296,7 @@ pub fn assertions_for_case(
     // widening's effect and nothing else.
     let arena = tsr_core::Arena::new();
     let program = program_for_case(&arena, case);
-    render_case(&program, case, expected, explain, None)
+    render_case(&program, case, expected, explain, None, None)
 }
 
 /// [`assertions_for_case`], in a caller-owned program, with the node behind
@@ -1313,7 +1322,7 @@ pub fn assertions_for_case_with_ids<'a>(
 ) -> (tsr_compiler::Program<'a>, Vec<Vec<Assertion>>, Vec<Vec<NodeId>>) {
     let program = program_for_case(arena, case);
     let mut ids = Vec::new();
-    let rendered = render_case(&program, case, expected, false, Some(&mut ids));
+    let rendered = render_case(&program, case, expected, false, Some(&mut ids), None);
     debug_assert_eq!(ids.len(), rendered.len(), "one id section per rendered section");
     (program, rendered, ids)
 }
@@ -1341,6 +1350,36 @@ pub fn configured_checker<'a>(
     checker
 }
 
+/// Which error identity, if any, a rendered line's **top-level** type is.
+///
+/// The instrument ADR-0047 adds: with the port's gap and upstream's `errorType`
+/// split into two intrinsics, a line printed `any` by the writer can be traced
+/// back to which of the two the checker answered — the question ADR-0038 said
+/// no `.types` file could answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopError {
+    /// The port's gap, [`tsr_checker::Intrinsics::error`].
+    Gap,
+    /// Upstream's `errorType`, [`tsr_checker::Intrinsics::native_error`].
+    Native,
+    /// Neither.
+    Other,
+}
+
+/// [`assertions_for_case_with_ids`] plus each line's [`TopError`]. Same walk,
+/// same checker, so the classification is of the very type the line printed.
+#[must_use]
+pub fn assertions_for_case_with_error_kinds(
+    arena: &tsr_core::Arena,
+    case: &crate::TestCase,
+    expected: &[FileTypes],
+) -> (Vec<Vec<Assertion>>, Vec<Vec<TopError>>) {
+    let program = program_for_case(arena, case);
+    let mut kinds = Vec::new();
+    let rendered = render_case(&program, case, expected, false, None, Some(&mut kinds));
+    (rendered, kinds)
+}
+
 /// The body both entry points share, so they cannot drift apart.
 fn render_case(
     program: &tsr_compiler::Program<'_>,
@@ -1348,6 +1387,7 @@ fn render_case(
     expected: &[FileTypes],
     explain: bool,
     mut ids: Option<&mut Vec<Vec<NodeId>>>,
+    mut kinds: Option<&mut Vec<Vec<TopError>>>,
 ) -> Vec<Vec<Assertion>> {
     // One checker for the whole program, not one per unit — which is upstream's
     // shape (`Program` has one `Checker`) and also means a lib type resolved for
@@ -1425,12 +1465,18 @@ fn render_case(
             if let Some(ids) = ids.as_deref_mut() {
                 ids.push(Vec::new());
             }
+            if let Some(kinds) = kinds.as_deref_mut() {
+                kinds.push(Vec::new());
+            }
             continue;
         };
-        let (rendered, visited) =
-            render_file(&mut checker, program, file, case.had_error_baseline, explain);
+        let (rendered, visited, tops) =
+            render_file_with_kinds(&mut checker, program, file, case.had_error_baseline, explain);
         if let Some(ids) = ids.as_deref_mut() {
             ids.push(visited);
+        }
+        if let Some(kinds) = kinds.as_deref_mut() {
+            kinds.push(tops);
         }
         ours.push(rendered);
     }
@@ -1451,6 +1497,20 @@ pub fn render_file<'a>(
     had_error_baseline: bool,
     explain: bool,
 ) -> (Vec<Assertion>, Vec<NodeId>) {
+    let (rendered, visited, _) =
+        render_file_with_kinds(checker, program, file, had_error_baseline, explain);
+    (rendered, visited)
+}
+
+/// [`render_file`] plus each line's [`TopError`]: which error identity, if
+/// any, the line's computed type is (`docs/parity/notes/r4-errorsplit.md`).
+fn render_file_with_kinds<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    program: &tsr_compiler::Program<'a>,
+    file: &tsr_compiler::ProgramFile<'_>,
+    had_error_baseline: bool,
+    explain: bool,
+) -> (Vec<Assertion>, Vec<NodeId>, Vec<TopError>) {
     let nodes = program.nodes();
     let node_map = program.node_map();
     let bound = program.binder();
@@ -1461,6 +1521,7 @@ pub fn render_file<'a>(
         let text = file.text();
         let mut gaps = Vec::new();
         let mut visited = Vec::new();
+        let mut tops = Vec::new();
         let mut rendered = assertions_for_file(
             &Node::SourceFile(file.source_file()),
             text,
@@ -1468,7 +1529,15 @@ pub fn render_file<'a>(
             node_map,
             |id| {
                 visited.push(id);
-                let mut answer = type_at_location(checker, bound, nodes, node_map, id);
+                let computed = type_id_at_location(checker, bound, nodes, node_map, id);
+                tops.push(if computed == checker.intrinsics().error {
+                    TopError::Gap
+                } else if computed == checker.intrinsics().native_error {
+                    TopError::Native
+                } else {
+                    TopError::Other
+                });
+                let mut answer = render(checker, id, computed);
                 // SS180 `hadErrorBaseline` (`type_symbol_baseline.go:379`,
                 // the FIRST condition of the guard chain): in a case that
                 // produced diagnostics, the intrinsic-name fast path is
@@ -1631,7 +1700,7 @@ pub fn render_file<'a>(
                 }
             }
         }
-        (rendered, visited)
+        (rendered, visited, tops)
     }
 }
 

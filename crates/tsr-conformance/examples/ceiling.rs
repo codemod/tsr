@@ -96,6 +96,21 @@ struct Tally {
     c1_overlap: usize,
     /// Cases with an `.errors.txt`.
     cases_with_errors: usize,
+    /// ADR-0047: matched lines whose top-level type is the port's GAP — the
+    /// writer printed it `any` and upstream printed `any`. Each is credited
+    /// although this port computed nothing: the falsely-credited population
+    /// ADR-0038 feared, now counted by identity rather than estimated.
+    credited_gap: usize,
+    /// Of those, with a name-resolution error on the same source line.
+    credited_gap_attributed: usize,
+    /// ADR-0047: lines whose top-level type is upstream's `errorType`
+    /// (`native_error`), by verdict, and of the matched ones how many carry a
+    /// name-resolution error on their source line.
+    native_total: usize,
+    native_matched: usize,
+    native_matched_attributed: usize,
+    /// Of the matched ones in a case with an `.errors.txt`.
+    native_matched_with_errors: usize,
 }
 
 impl Tally {
@@ -109,6 +124,12 @@ impl Tally {
         self.no_errors_file += o.no_errors_file;
         self.c1_overlap += o.c1_overlap;
         self.cases_with_errors += o.cases_with_errors;
+        self.credited_gap += o.credited_gap;
+        self.credited_gap_attributed += o.credited_gap_attributed;
+        self.native_total += o.native_total;
+        self.native_matched += o.native_matched;
+        self.native_matched_attributed += o.native_matched_attributed;
+        self.native_matched_with_errors += o.native_matched_with_errors;
     }
 }
 
@@ -182,7 +203,9 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Tally> {
         tally.cases_with_errors = 1;
     }
 
-    let rendered = types_producer::assertions_for_case(&parsed, &expected, false);
+    let arena = tsr_core::Arena::new();
+    let (rendered, kinds) =
+        types_producer::assertions_for_case_with_error_kinds(&arena, &parsed, &expected);
     let ours: Vec<FileTypes> = rendered
         .iter()
         .zip(&expected)
@@ -193,8 +216,48 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Tally> {
     for (index, expected_file) in expected.iter().enumerate() {
         let Some(our_file) = rendered.get(index) else { continue };
         let source_lines = assertion_source_lines(&text, &expected_file.file);
+        let attributed_at = |position: usize| {
+            error_lines.as_ref().is_some_and(|lines| {
+                lines.contains(&source_lines.get(position).copied().unwrap_or(0))
+            })
+        };
 
         for (position, assertion) in our_file.iter().enumerate() {
+            let kind = kinds
+                .get(index)
+                .and_then(|k| k.get(position))
+                .copied()
+                .unwrap_or(types_producer::TopError::Other);
+            let matched = expected_file
+                .assertions
+                .get(position)
+                .is_some_and(|baseline| baseline.text == assertion.line());
+            match kind {
+                types_producer::TopError::Gap if matched => {
+                    tally.credited_gap += 1;
+                    tally.credited_gap_attributed += usize::from(attributed_at(position));
+                }
+                types_producer::TopError::Native => {
+                    tally.native_total += 1;
+                    if matched {
+                        tally.native_matched += 1;
+                        tally.native_matched_attributed += usize::from(attributed_at(position));
+                        tally.native_matched_with_errors += usize::from(error_lines.is_some());
+                    }
+                }
+                _ => {}
+            }
+            if std::env::var_os("TSR_CEILING_DUMP").is_some()
+                && kind != types_producer::TopError::Other
+            {
+                println!(
+                    "LINE\t{}:{index}:{position}\t{kind:?}\t{}\t{}\t{}",
+                    case.name,
+                    if matched { "RIGHT" } else { "OTHER" },
+                    if attributed_at(position) { "attributed" } else { "unattributed" },
+                    assertion.line()
+                );
+            }
             if assertion.type_string != "error" {
                 continue;
             }
@@ -279,6 +342,16 @@ fn main() {
     println!(
         "  80% of the FULL denominator is {:.2}% of the reachable one",
         0.80 * t.total as f64 / reachable as f64 * 100.0
+    );
+
+    println!("\nADR-0047: THE SPLIT, BY IDENTITY");
+    println!(
+        "  matched lines whose type is the port's GAP     {:>7}  ({} attributed)   <- falsely credited",
+        t.credited_gap, t.credited_gap_attributed
+    );
+    println!(
+        "  lines whose type is upstream's errorType        {:>7}  ({} matched; {} of those in a case with errors, {} attributed)",
+        t.native_total, t.native_matched, t.native_matched_with_errors, t.native_matched_attributed
     );
 
     println!("\nCONTROLS");

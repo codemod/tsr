@@ -115,8 +115,9 @@ struct Includes {
     /// are dropped — which is what makes the `undefined`-with-`void` and
     /// literal-with-base reductions see them.
     flags: TypeFlags,
-    /// `TypeFlagsIncludesError`: one of the constituents was `errorType`.
-    error: bool,
+    /// `TypeFlagsIncludesError`: one of the constituents was `errorType`, and
+    /// which error the union answers — see [`Checker::included_error`].
+    error: Option<TypeId>,
     /// A constituent was a union that prints as a name — an enum's declared type
     /// or the body of a named type alias. Upstream keeps those unexpanded
     /// through `origin`; this port has no origin and gaps instead.
@@ -519,6 +520,9 @@ impl Checker<'_, '_> {
         if types.contains(&self.intrinsics.error) {
             return self.intrinsics.error;
         }
+        if types.contains(&self.intrinsics.native_error) {
+            return self.intrinsics.native_error;
+        }
         if types.len() == 1 || types.iter().all(|&id| id == types[0]) {
             return types[0];
         }
@@ -656,7 +660,7 @@ impl Checker<'_, '_> {
                 // `checker.go:25659`: `IncludesError` wins over `IncludesAny`,
                 // which is upstream's own "a gap in a constituent is a gap in
                 // the union" and needs no deviation from this port.
-                return if includes.error { self.intrinsics.error } else { self.intrinsics.any };
+                return includes.error.unwrap_or(self.intrinsics.any);
             }
             return self.intrinsics.unknown;
         }
@@ -1169,7 +1173,7 @@ impl Checker<'_, '_> {
         }
         includes.flags |= flags;
         if self.is_error(id) {
-            includes.error = true;
+            includes.error = Some(self.included_error(includes.error, id));
         }
         // `checker.go:25783`: with `strictNullChecks` off, `null` and
         // `undefined` never enter a union's constituent set — `T | undefined |
