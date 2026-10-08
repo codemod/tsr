@@ -409,3 +409,15 @@ with `PURGE_DELAY=0` 759 ms / 122 MB. No configuration is faster than glibc
 within +10% RSS on this Linux box. macOS (no THP, slower system malloc) is
 unmeasured; setting options in code needs unsafe FFI, which the workspace
 denies.
+
+## §15 Checker 0 hot-path round (base `5d8d97f3`, this box)
+
+14-vCPU Linux box, `perf` with frame pointers on a `profiling` build of
+`domain-model-large`; shares are of checker 0's samples (it owns `main.ts` and
+finishes last). Each step is output-preserving: same answers, less work.
+
+### §15.1 C2: the `TSR_PROJ_TRACE` probe is gone
+
+`get_type_of_property_with_this_argument` (`members.rs`) read the
+environment on every property access for a behaviour-free debugging probe
+(§829.2): `getenv` was 0.8% of checker 0. Removed with its `eprintln!`.
