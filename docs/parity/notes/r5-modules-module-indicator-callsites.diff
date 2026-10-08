@@ -1,0 +1,179 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index a389930..03400cb 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -5715,7 +5715,7 @@ impl<'a> Checker<'a, '_> {
+             file = parent;
+         }
+         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
+-        if !tsr_binder::is_external_module(source) {
++        if !tsr_binder::is_external_module_in(source, self.nodes) {
+             return false;
+         }
+         for statement in source.statements {
+diff --git a/crates/tsr-checker/src/emit_helpers.rs b/crates/tsr-checker/src/emit_helpers.rs
+index 5132477..03fe620 100644
+--- a/crates/tsr-checker/src/emit_helpers.rs
++++ b/crates/tsr-checker/src/emit_helpers.rs
+@@ -269,7 +269,7 @@ impl Checker<'_, '_> {
+     /// indicator, which is not exposed, so such a JS file declines.
+     fn is_effective_external_module(&self, file: NodeId) -> bool {
+         matches!(self.node_map.get(file), Some(Node::SourceFile(source))
+-            if tsr_binder::is_external_module(source))
++            if tsr_binder::is_external_module_in(source, self.nodes))
+     }
+ 
+     /// `GetEmitModuleFormatOfFile` (`program.go`): the file's implied format
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index bae293c..a3b25e7 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -1766,7 +1766,7 @@ impl Checker<'_, '_> {
+                 // baselines and must be one `TypeId` here.
+                 SyntaxKind::SourceFile => {
+                     let is_module = self.node_map.get(id).is_some_and(|node| match node {
+-                        Node::SourceFile(source) => tsr_binder::is_external_module(source),
++                        Node::SourceFile(source) => tsr_binder::is_external_module_in(source, self.nodes),
+                         _ => false,
+                     });
+                     if is_module {
+diff --git a/crates/tsr-checker/src/index_signatures.rs b/crates/tsr-checker/src/index_signatures.rs
+index 2253ecb..f0f1707 100644
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -1187,7 +1187,7 @@ impl<'a> Checker<'a, '_> {
+                     self.emit_declaration_is_visible(container)
+                 } else {
+                     matches!(self.node_map.get(container), Some(Node::SourceFile(file))
+-                        if !tsr_binder::is_external_module(file))
++                        if !tsr_binder::is_external_module_in(file, self.nodes))
+                 }
+             }
+             K::PropertyDeclaration | K::PropertySignature | K::GetAccessor | K::SetAccessor
+diff --git a/crates/tsr-checker/src/meaning_mismatch.rs b/crates/tsr-checker/src/meaning_mismatch.rs
+index cd571d8..94c29a9 100644
+--- a/crates/tsr-checker/src/meaning_mismatch.rs
++++ b/crates/tsr-checker/src/meaning_mismatch.rs
+@@ -564,7 +564,7 @@ impl Checker<'_, '_> {
+         for ancestor in self.nodes.ancestors(declaration) {
+             match self.node_map.get(ancestor) {
+                 Some(Node::SourceFile(source)) => {
+-                    return !tsr_binder::is_external_module(source);
++                    return !tsr_binder::is_external_module_in(source, self.nodes);
+                 }
+                 Some(Node::ModuleDeclaration(_)) => return false,
+                 _ => {}
+diff --git a/crates/tsr-checker/src/member_completeness.rs b/crates/tsr-checker/src/member_completeness.rs
+index 5768d2d..0d2f1ec 100644
+--- a/crates/tsr-checker/src/member_completeness.rs
++++ b/crates/tsr-checker/src/member_completeness.rs
+@@ -174,7 +174,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return true };
+         match self.node_map.get(file) {
+-            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
++            Some(Node::SourceFile(source)) => tsr_binder::is_external_module_in(source, self.nodes),
+             _ => true,
+         }
+     }
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index c2269ff..05e4fc7 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -617,7 +617,7 @@ impl<'a> Checker<'a, '_> {
+ 
+     fn is_global_source_file(&self, node: NodeId) -> bool {
+         matches!(self.node_map.get(node), Some(Node::SourceFile(source))
+-            if !tsr_binder::is_external_module(source))
++            if !tsr_binder::is_external_module_in(source, self.nodes))
+     }
+ 
+     fn has_modifier_keyword(&self, declaration: NodeId, kinds: &[SyntaxKind]) -> bool {
+@@ -655,7 +655,7 @@ impl<'a> Checker<'a, '_> {
+                 if let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node)
+                     && matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                     && matches!(self.node_map.get(container), Some(Node::SourceFile(source))
+-                        if tsr_binder::is_external_module(source))
++                        if tsr_binder::is_external_module_in(source, self.nodes))
+                 {
+                     return true;
+                 }
+@@ -902,7 +902,7 @@ impl<'a> Checker<'a, '_> {
+         };
+         let Some(file) = self.source_file_of(declaration) else { return false };
+         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
+-        if tsr_binder::is_external_module(source) {
++        if tsr_binder::is_external_module_in(source, self.nodes) {
+             return false;
+         }
+         self.binder.resolve_name(self.nodes, self.node_map, file, text, meaning).is_some_and(
+diff --git a/crates/tsr-checker/src/strict_mode.rs b/crates/tsr-checker/src/strict_mode.rs
+index 5eb1df3..0cf5421 100644
+--- a/crates/tsr-checker/src/strict_mode.rs
++++ b/crates/tsr-checker/src/strict_mode.rs
+@@ -195,7 +195,7 @@ impl Checker<'_, '_> {
+         // statements in `tsr_binder::is_external_module`, which is the same
+         // question and is documented there.
+         if let Some(Node::SourceFile(source)) = self.node_map.get(file) {
+-            if tsr_binder::is_external_module(source) {
++            if tsr_binder::is_external_module_in(source, self.nodes) {
+                 return &messages::INVALID_USE_OF_0_MODULES_ARE_AUTOMATICALLY_IN_STRICT_MODE;
+             }
+         }
+@@ -294,7 +294,7 @@ impl Checker<'_, '_> {
+             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+             let external = matches!(
+                 self.node_map.get(file),
+-                Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
++                Some(Node::SourceFile(source)) if tsr_binder::is_external_module_in(source, self.nodes)
+             );
+             // **`IsInTopLevelContext` stops at an arrow; §951's helper does
+             // not.** That helper answers *"is there an `arguments` object
+@@ -326,7 +326,7 @@ impl Checker<'_, '_> {
+         // same order.
+         let message = if self.containing_class_of(node).is_some() {
+             &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_IN_STRICT_MODE_CLASS_DEFINITIONS_ARE_AUTOMATICALLY_IN_STRICT_MODE
+-        } else if matches!(self.node_map.get(file), Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source))
++        } else if matches!(self.node_map.get(file), Some(Node::SourceFile(source)) if tsr_binder::is_external_module_in(source, self.nodes))
+         {
+             &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_IN_STRICT_MODE_MODULES_ARE_AUTOMATICALLY_IN_STRICT_MODE
+         } else {
+diff --git a/crates/tsr-checker/src/symbol_access.rs b/crates/tsr-checker/src/symbol_access.rs
+index f8f3bf0..417d070 100644
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -829,7 +829,7 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
+ 
+     /// `ast.IsGlobalSourceFile`.
+     fn is_global_source_file(&self, node: NodeId) -> bool {
+-        self.source_file(node).is_some_and(|file| !tsr_binder::is_external_module(file))
++        self.source_file(node).is_some_and(|file| !tsr_binder::is_external_module_in(file, self.checker.nodes))
+     }
+ 
+     /// `ast.IsAmbientModule`: a string-named module or `declare global`.
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 6be41fc..18f2635 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1842,7 +1842,7 @@ impl<'a> Checker<'a, '_> {
+             && self.in_js_file(file)
+             && let Some(Node::SourceFile(source)) = self.node_map.get(file)
+         {
+-            return !tsr_binder::is_external_module(source) && !exports.contains_key("__esModule");
++            return !tsr_binder::is_external_module_in(source, self.nodes) && !exports.contains_key("__esModule");
+         }
+         exports.contains_key("export=")
+     }
+diff --git a/crates/tsr-checker/src/this_expression.rs b/crates/tsr-checker/src/this_expression.rs
+index 8dae933..2b633ac 100644
+--- a/crates/tsr-checker/src/this_expression.rs
++++ b/crates/tsr-checker/src/this_expression.rs
+@@ -151,7 +151,7 @@ impl Checker<'_, '_> {
+         }
+         if let Some(Node::SourceFile(source)) = self.node_map.get(container) {
+             // A module's top-level `this` is `undefined`.
+-            return if tsr_binder::is_external_module(source) {
++            return if tsr_binder::is_external_module_in(source, self.nodes) {
+                 ThisTypeAnswer::Present
+             } else {
+                 ThisTypeAnswer::GlobalThis

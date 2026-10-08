@@ -210,6 +210,21 @@ forced file is a module to the binder and a script to
 `is_external_module_in`'s callers; r5-modfmt's measurement was taken the
 same way.
 
+
+### 2.6 The remaining call sites, as a diff
+
+The integrator asked for the statement-only `tsr_binder::is_external_module`
+calls in other lanes' files as one measured diff, not edits:
+[`r5-modules-module-indicator-callsites.diff`](r5-modules-module-indicator-callsites.diff),
+fifteen calls in `meaning_mismatch.rs`, `symbol_access.rs`, `declared.rs`,
+`symbols.rs`, `strict_mode.rs` (3), `index_signatures.rs`, `expressions.rs`,
+`node_reuse.rs` (3), `emit_helpers.rs`, `this_expression.rs`,
+`member_completeness.rs` — eleven when §2.4 was written, four more arrived
+with merges. Each passes the node table to `is_external_module_in`.
+Measured on top of commit 9, unfiltered: no verdict and no printed line
+changes on either dump; callgrind −90 / −21,446 instructions. (The checker
+call sites do not see `Force`, §2.5; that is the binder's alone.)
+
 ## 3. `checkImportAttributes` (tsr-2zk.986)
 
 `crates/tsr-checker/src/import_attributes.rs`, one hook line at the end of
