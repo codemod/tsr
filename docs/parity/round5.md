@@ -300,3 +300,15 @@ generic import types and calls.rs overloads (main). The new box `r5-jsdoc2`
 takes the JSDoc type-hosting roots: about 50 blocked cases across
 `.16.98`/`.105`/`.106`/`.107`/`.120`/`.147`/`.163`/`.38`, none of them
 claimed, with the JSDoc files quiet on main.
+
+### r5-modules finished; r5-tuples dispatched (`tsr-2zk.1030`)
+
+r5-modules was the round's largest lane. It delivered `import.meta`,
+`checkImportAttributes`, printed module specifiers including `node_modules`
+packages, the TS2883 producer, and the once-per-file module indicator with
+`moduleDetection` Force folded in. Its statement-only call-site diff (15
+sites, zero verdict change) is held until the end of the round, because it
+touches files other lanes own.
+
+The new box `r5-tuples` takes the tuple roots. About 428 WRONG plain type
+lines mention tuple shapes; `tuples.rs` and `spreads.rs` are quiet on main.
