@@ -1342,7 +1342,7 @@ impl Checker<'_, '_> {
         // the projection has in hand for one property name, so the 193-line
         // "the property TYPES; the projection fails" bucket can be told apart
         // from the already-refused inference legs. Behaviour-free.
-        if std::env::var("TSR_PROJ_TRACE").ok().as_deref() == Some(name) {
+        if crate::debug_env::var("TSR_PROJ_TRACE") == Some(name) {
             let reference = self.type_reference_targets.get(&id).cloned();
             let arguments = reference.as_ref().map(|(_, args)| {
                 args.iter()
