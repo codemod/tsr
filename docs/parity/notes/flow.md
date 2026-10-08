@@ -501,3 +501,14 @@ cases `logicalNotOperatorWithAnyOtherType`, `definiteAssignmentOfDestructuredVar
 `manyCompilerErrorsInTheTwoFiles`, `typePredicateStructuralMatch`,
 `parserRealSource12`; 0 losses. CPU domain-model (41) 0.943 (21: 1.047) /
 generic-imports (21) 0.999.
+
+## 22. `instanceof Function` keeps the empty instance type (`narrowTypeByInstanceof`)
+
+Pinned `flow.go:837-843`: `getInstanceType` of a constructor-less type such as
+`Function` is the empty object type, which narrows the true branch through
+`getNarrowedType`; the false branch returns `t` when the instance type is not
+a non-empty object. TSR returned `t` early on both branches. Native control:
+`x instanceof ctor` (`ctor: Function`) narrows `(() => void) | null` to
+`() => void`, false branch unchanged. Gate vs §21: +2 type lines
+(`controlFlowInstanceof`); 0 losses. CPU domain-model (41) 0.989 /
+generic-imports (21) 0.996.
