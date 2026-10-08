@@ -108,3 +108,54 @@ Left, with the piece each waits for:
 - **`new.target`'s type** (`checkNewTargetMetaProperty`'s return,
   `checker.go:10768`) keeps the dispatch's previous `errorType`. Not this
   lane's cluster; no census row names it.
+
+## 3. `checkImportAttributes` (tsr-2zk.986)
+
+`crates/tsr-checker/src/import_attributes.rs`, one hook line at the end of
+the check walk's `ImportDeclaration` and `ExportDeclaration` arms (where
+`checkImportDeclaration`, `checker.go:5330`, and `checkExportDeclaration`,
+`:5548`, call it) and one in its `ImportTypeNode` visit.
+
+- `check_import_attributes` is `checkImportAttributes` (`checker.go:5408`)
+  in upstream's order: the type-only-with-override early return; TS2823
+  when `ModuleKind.SupportsImportAttributes` is false (`node18`..`nodenext`,
+  `preserve`, `esnext`); TS2856 when the specifier's
+  `GetEmitSyntaxForUsageLocation` is CommonJS (the host question
+  `emit_syntax_for_usage_location` already answers it; the eight-line
+  string-literal guard is repeated here rather than widening
+  `symbols.rs`'s private `usage_emit_syntax`, which this lane may not touch);
+  TS2857 on a type-only declaration; TS1454 for a resolution-mode override
+  on a value import. Every report is a `grammarErrorOnNode`, so all of them
+  stand behind `!file_has_parse_errors`. A declaration outside a source
+  file, module block or module declaration is the
+  `checkGrammarModuleElementContext` bail both callers take first.
+- `resolution_mode_override` is `getResolutionModeOverride`
+  (`checker.go:3332`) with its three `reportErrors` arms (TS1464, TS1463,
+  TS1453). `checkImportAttributes` passes `reportErrors = isTypeOnly`;
+  `checkImportType` (`:3327`) passes `true`, which is the
+  `check_import_type_attributes` hook.
+- **Parser span, fixed alongside:** an import type's `ImportAttributes` node
+  started at the outer `{` of `{ with: { … } }`. Upstream's
+  `parseImportAttributes(currentToken, skipKeyword=true)` takes `pos` after
+  `with:`, so the node — and TS1464's span — is the inner `{ … }`
+  (`tsr-parser/src/module.rs`, `parse_import_type_attributes`).
+
+**Not ported:** the opening relation check
+(`checkTypeAssignableTo(getTypeFromImportAttributes(node), ImportAttributes
+| undefined)`, TS2322 on a non-string value). `getTypeFromImportAttributes`
+builds a synthetic object-literal type, and this port's store has no
+constructor for one outside `check_object_literal`'s own walk; building a
+second one here would be a new type identity the convention would need to
+own. It is the only arm whose absence matters, and only to the TS2322 rows
+(`importAttributes6` ×3 configurations, `importAttributes9`,
+`compiler/importAssertionNonstring`); every grammar arm runs after it
+unconditionally upstream, so its absence changes no other report. Those rows
+also want TS2858 (`checkGrammarImportAttribute`'s value check), which is not
+this function.
+
+Remaining rows in the cluster are other callers: JSDoc `@import`
+(`importTag15`, a `JSImportDeclaration` upstream, a side table here),
+triple-slash `resolution-mode` (TS1453 in
+`nodeModulesTripleSlashReferenceModeOverrideModeError`, a program
+diagnostic), and the dynamic-import option checks in `import_call.rs`
+(`importAttributes1`/`importAssertion1(module=commonjs)`: TS1009, TS1450).

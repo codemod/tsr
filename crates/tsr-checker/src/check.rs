@@ -219,6 +219,7 @@ impl Checker<'_, '_> {
                         side_effect,
                     );
                 }
+                self.check_import_attributes(node);
                 ambient
             }
             Node::ExportDeclaration(declaration) => {
@@ -227,6 +228,7 @@ impl Checker<'_, '_> {
                     declaration.module_specifier.and_then(|s| s.node_id()),
                     false,
                 );
+                self.check_import_attributes(node);
                 ambient
             }
             Node::ImportEqualsDeclaration(declaration) => {
@@ -1023,6 +1025,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
+            self.check_import_type_attributes(node);
         }
         if matches!(
             typed,
