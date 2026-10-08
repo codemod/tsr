@@ -54,6 +54,18 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected class/base continuation after verified production delivery `2ae37af8`,
+native `5b1047d`: the full private draft now preserves actual constructor,
+base-list and heritage-reference cache owners, plus their class narrowing,
+nominal/privacy, prototype and own-name consumers. Qualified compiler checks
+move from 51 errors to 48 (including seven exposed borrow/move errors), then
+41 and finally 38 type mismatches. Exact nine-file delta replay verifies all
+1,053 inputs, with 1,044 unchanged. The first sccache launch failed before
+compilation and is retained separately. This draft remains uncompiled; its
+factory/mapper/natural alias controls and runtime/corpus/performance gates
+have not run. All six tickets remain unfinished; no speed or coverage gain.
+[Evidence](docs/architecture/checker-class-base-owner-continuation.json).
+
 Production string-mapping ownership integration, frozen main `189a2c1d` plus
 five Rust overlays in [the evidence](docs/architecture/checker-string-mapping-owner.json):
 existing generic mapping images/cache and their constraint/substitution/inference/
@@ -3715,11 +3727,11 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Owner continuation at `189a2c1d`: finish the selected base/class, member, naming,
-index and flow callers from the 51 compiler mismatches retained in
-[the string-mapping evidence](docs/architecture/checker-string-mapping-owner.json).
-The private general factory/computed rebuild and variance state now retain
-selected owners, but do not compile or qualify the full execution path yet.
+Owner continuation after delivery `2ae37af8`: finish the member/property, naming,
+index, enum and printing boundaries from the 38 compiler mismatches retained in
+[the class/base evidence](docs/architecture/checker-class-base-owner-continuation.json).
+The private general factory, variance, constructor/base and heritage workers now
+retain selected owners, but do not compile or qualify the full execution path yet.
 Then execute full factory/mapper, natural alias and member-publication controls
 before broader integration. Shipped owner helpers are prerequisites, not
 completion of `tsr-1yb.7.7.3`, `tsr-1yb.33.1` or the performance goal.
@@ -7444,6 +7456,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+After delivery `2ae37af8`, the class/base private continuation is still refused
+for production by 38 `E0308` mismatches. Step6 initially failed before
+compilation because sandboxed sccache could not execute `rustc -vV`; that launch
+is not compiler evidence. The qualified checks with `RUSTC_WRAPPER` disabled
+retain 48 errors, then 41 and 38. Seven exposed borrow/move errors were repaired;
+this is not a test pass. Actual native constructor/member slots, full factories,
+mapper order and natural alias controls remain unexecuted for the draft.
+The prior production string-mapping controls do not certify these nine files.
+[Evidence](docs/architecture/checker-class-base-owner-continuation.json).
 
 At `189a2c1d` plus the five string-mapping overlays, the compiling origin mutant
 is refused by one failing owner control while its bound control passes. The
@@ -15673,3 +15695,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `f2325620` / native `5b1047d` | — | — | **Compiling signature-admission handoff, tsr-1yb.27/.28.** Final 189 library/package/strict-Clippy/fmt checks, 204 combined member library checks, four compiling mutants detected and exact restoration. Six parsed native injected-budget controls expose/fix early identity resource bypass; all 4,988 Go files restored. Three public matrices total 360 terminal children; final 20/24 baseline/seam/member-plus-seam case/mode native agreements versus member16, zero bounded agreement losses. Merged and original subtypesOfUnion TS2411 restored; TS2577/thisless still differ. No fresh full corpus, runtime retention, coverage or speed gain; previous18/one remains frozen538. [Replay](docs/architecture/checker-signature-admission-rust.md). |
 
 | 2026-10-06 | `0b18d357` / native `5b1047d` | — | — | **Mapped contextual ownership prerequisite, tsr-1yb.33.1.** Existing semantic contextual reader fixes Partial-wrapped inherited option inference privately; qualified red/green and one compiling raw-reader mutant, exact restoration and 205 library passes. Fresh477970 type rows improve49 and10570 diagnostic cases improve6, zero prior passing losses; all54/6 changed rows kept.344 public children: final66/86 native agreements versus main56, no lost agreement and172 full mode pairs equal;36 additional native contract children qualify explicit old-gap/circular-shortcut test corrections. Corrected full checker package1523pass/3pre-existing ignored over101blocks. Release/full corpus11-source and test-corrected12-source boundaries remain separate. No main runtime, strict-lint, CPU/RSS or speed claim;4.2.1 cost/benefit and PR5 regression34 remain. [Replay and limits](docs/architecture/checker-member-mapped-contextual.md). |
+
+| 2026-10-08 | `2ae37af8` / native `5b1047d` | — | — | **Selected class/base private continuation.** Exact nine-file delta replay verifies 1,053 inputs, 1,044 unchanged. Actual constructor/base/heritage caches and class consumers retain selected owners. Qualified terminal compiler errors 51→48→41→38; seven exposed borrow/move errors repaired. The initial sccache launch failed before compilation and is retained separately. Draft remains uncompiled; no fresh native class/base, runtime, corpus or performance controls. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-class-base-owner-continuation.json). |

@@ -841,6 +841,33 @@ native string worker controls do not stand in for those gates. All six goal
 tickets remain unfinished; equivalent complete-work wall ratio <=0.50 remains
 unverified.
 
+### Selected class constructor and base owner continuation
+
+After production delivery `2ae37af8`,
+[the private continuation](checker-class-base-owner-continuation.json) carries
+actual selected class owners through the existing constructor slot, base list,
+heritage reference cache and narrowing/nominal/property metadata consumers.
+Pinned native `5b1047d` operations are `resolveAnonymousTypeMembers`,
+`getDefaultConstructSignatures`, `getBaseTypes`, `resolveBaseTypesOfClass`,
+`resolveBaseTypesOfInterface` and `hasBaseType`. A private copy shares syntax
+declarations, not its source's active frame or completed class-owned link.
+
+The constructor placeholder remains the existing `None`; base lists preserve
+partial re-entry and resolved publication. Heritage keys retain location and
+ordered written argument syntax as well as the actual target. Alias-frame
+admission, default substitution and publication guards keep their policy.
+Genuine bound entry points lift Program-owned symbols; no private owner is
+projected to an origin. This is an owner migration, not certification of native
+`__constructor`/structured member publication or a new reuse policy. Expensive
+worker counts and wall/CPU/RSS effects remain unmeasured in `tsr-1yb.11`.
+
+The exact nine-file patch replays against the prior 1,053-input full draft,
+with 1,044 inputs unchanged. Qualified checks retain 48, 41 and 38 errors in
+order; the final 38 are type mismatches at other owner boundaries. The initial
+sccache launch failed before compilation. No runtime, corpus or fresh native
+class/base controls ran for this uncompiled draft. The six goal tickets and
+the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
