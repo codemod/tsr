@@ -533,41 +533,26 @@ impl Checker<'_, '_> {
             return;
         }
         let source = self.get_declared_type_of_class_or_interface(symbol);
-        // `getBaseTypes(t)`, across every declaration; `None` marks a base
-        // this port cannot resolve, which the identity walk cannot skip.
-        let mut bases: Vec<Option<(SymbolId, TypeId)>> = Vec::new();
-        for declaration in declarations {
-            let Some(Node::InterfaceDeclaration(each)) = self.node_map.get(declaration) else {
-                continue;
-            };
-            for clause in each.heritage_clauses {
-                if clause.token.kind != SyntaxKind::ExtendsKeyword {
-                    continue;
-                }
-                for entry in clause.types {
-                    let base = entry
-                        .expression
-                        .and_then(|e| self.heritage_entity_symbol(e, SymbolFlags::TYPE))
-                        .filter(|&base| {
-                            self.binder
-                                .symbols()
-                                .get(base)
-                                .flags
-                                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                        })
-                        .and_then(|base| {
-                            let ty = self.instantiated_heritage_base(
-                                base,
-                                entry.type_arguments,
-                                entry.node_id,
-                            )?;
-                            (!self.is_error(ty)).then_some((base, ty))
-                        });
-                    bases.push(base);
-                }
-            }
-        }
-        match self.check_inherited_properties_are_identical(symbol, source, &bases, name) {
+        // `getBaseTypes(t)` (`base_types.rs`), which resolves each written
+        // `extends` entry, aliases of object types included, and drops an
+        // invalid one. A dropped entry is either native's invalid base or a
+        // base this port cannot resolve; the two are indistinguishable here,
+        // so a count short of the written entries declines the identity walk
+        // (and with it the base loop, which upstream runs only after it).
+        let written: usize = declarations
+            .iter()
+            .filter_map(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(each)) => Some(each.heritage_clauses),
+                _ => None,
+            })
+            .flat_map(|clauses| clauses.iter())
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .map(|clause| clause.types.len())
+            .sum();
+        let resolved = self.get_base_types(symbol);
+        let bases: Option<Vec<TypeId>> = (resolved.len() == written).then_some(resolved);
+        match self.check_inherited_properties_are_identical(symbol, source, bases.as_deref(), name)
+        {
             Some(true) => {}
             Some(false) | None => return,
         }
@@ -575,7 +560,7 @@ impl Checker<'_, '_> {
         // declarations, and upstream's merge is not this port's for private
         // and inherited members (`mergedInterfacesWithInheritedPrivates3`).
         if self.binder.symbols().get(symbol).declarations.len() == 1 {
-            for (_, target) in bases.into_iter().flatten() {
+            for target in bases.into_iter().flatten() {
                 if !self.pair_is_reportable(source, target) {
                     continue;
                 }
@@ -615,18 +600,18 @@ impl Checker<'_, '_> {
         &mut self,
         symbol: SymbolId,
         source: TypeId,
-        bases: &[Option<(SymbolId, TypeId)>],
+        bases: Option<&[TypeId]>,
         name: NodeId,
     ) -> Option<bool> {
+        let bases = bases?;
         if bases.len() < 2 {
             return Some(true);
         }
-        let bases: Vec<(SymbolId, TypeId)> = bases.iter().copied().collect::<Option<_>>()?;
         // `seen`: the base that first contributed each inherited name.
         let mut seen: Vec<(String, SymbolId, TypeId)> = Vec::new();
         let mut identical = true;
         let mut undecided = false;
-        for (_, base) in bases {
+        for &base in bases {
             let names = self.get_property_names_of_type(base)?;
             for property_name in names {
                 if self.binder.symbols().get(symbol).members.get(property_name.as_str()).is_some() {

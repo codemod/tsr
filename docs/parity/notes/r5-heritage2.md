@@ -194,3 +194,27 @@ missing-property suppression (`relater.go:4816`) keeps the head for the
 implements messages (`isConversionOrInterfaceImplementationMessage`), but
 for TS2415 and TS2430 it gives way to the TS2741/TS2739 chain. No case in
 the population needs that yet.
+
+## 6. Interface bases through `getBaseTypes`
+
+`check_interface_heritage_conformance` resolved each `extends` entry itself
+and kept only class and interface symbols. Native loops
+`getBaseTypes(t)`, which also includes an alias of an object type, an
+intersection or an array (`resolveBaseTypesOfInterface`,
+`isValidBaseType`). The check now reads `get_base_types` (`base_types.rs`),
+which is the port of that function.
+
+That function drops an entry either because native would (an invalid or
+circular base) or because the port cannot resolve it, and the two cannot be
+told apart here. When fewer bases come back than entries are written, the
+`checkInheritedPropertiesAreIdentical` walk declines, and so does the base
+loop that upstream runs only after it. That keeps the earlier "an
+unresolved base declines" rule.
+
+Measured on top of commit 1, both dumps unfiltered: no verdict changes and
+no losses. `interfaceExtendsObjectIntersectionErrors` gains 7 of its 12
+missing TS2430 lines (`I1`, `I2`, `I3`, `I10`, `I12`, `I20`, `I21`). The
+other five still miss: `I4` (a tuple base), `I5` (a mapped alias), `I11`
+(`typeof` an enum), and `I22`/`I23` (a generic intersection alias). No line
+was removed in any case. Median child CPU over the frozen binary, 21 samples: domain-model
+0.987, generic-imports 1.023.
