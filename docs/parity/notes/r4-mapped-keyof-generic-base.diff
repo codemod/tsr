@@ -1,0 +1,16 @@
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8702,7 +8702,12 @@
+                 names.push(name);
+             }
+         }
+-        for base in self.base_symbols_of(owner)? {
++        // getIndexType -> getLiteralTypeFromProperties reads the base's
++        // property *names*, which a base's type arguments cannot change
++        // (an interface or class member name is never computed from T).
++        // base_symbols_of's type-argument refusal guards member *types*;
++        // names follow `extends Base<number>` (r4-mapped.md §1).
++        for base in self.base_symbols_of_ex(owner, false)? {
+             self.collect_keyof_property_names(base, names, visiting)?;
+         }
+         visiting.pop();

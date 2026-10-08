@@ -143,7 +143,6 @@ export const r: number = g(x, cb);
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: homomorphic mapped type over a union loses inherited generic-base members"]
 fn mapped_type_over_union_with_generic_base_member() {
     // `Mutable<HasContainerFlags>` in binder.ts; `Mutable<OLE>` alone is fine.
     check(
@@ -153,8 +152,9 @@ interface OLE extends Base<number> {}
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 declare const x: Mutable<OLE | Node>;
 export const n: Node = x;
+export const k: string = x.kind;
 ",
-        &[],
+        &[(7, 14, 2322)],
     );
 }
 
@@ -174,17 +174,18 @@ export const y: SearchResult<string> = x;
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: homomorphic mapped type over an array intersection is not distributed"]
 fn mapped_type_over_array_intersection_maps_each_constituent() {
     // `Readonly<PathPathComponents>` (`Path[] & { brand }`): native
-    // `instantiateMappedType` maps intersection constituents
-    // (`isArrayOrTupleOrIntersection`), giving a readonly array with `length`.
+    // `isArrayOrTupleOrIntersection` is false (not every constituent is an
+    // array), so `resolveMappedTypeMembers` enumerates the intersection's
+    // properties, `length` among them (`docs/parity/notes/r4-mapped.md` §2).
     check(
         "type P = string[] & { __brand: any };
 declare const p: Readonly<P>;
 export const n: number = p.length;
+export const s: string = p.length;
 ",
-        &[],
+        &[(4, 14, 2322)],
     );
 }
 

@@ -282,17 +282,7 @@ impl<'a> Checker<'a, '_> {
             && operator.operator.kind == SyntaxKind::KeyOfKeyword
             && let Some(operand) = operator.r#type
         {
-            if let TypeNode::TypeReferenceNode(reference) = operand {
-                homomorphic_symbol = reference.type_name.and_then(|name| {
-                    self.resolve_entity_name(name, SymbolFlags::TYPE).filter(|&symbol| {
-                        self.binder
-                            .symbols()
-                            .get(symbol)
-                            .flags
-                            .contains(SymbolFlags::TYPE_PARAMETER)
-                    })
-                });
-            }
+            homomorphic_symbol = self.keyof_operand_type_parameter(operand);
             let operand = self.get_type_from_type_node(operand);
             modifiers_source = Some(operand);
             self.resolved_keyof_type(operand).unwrap_or(self.intrinsics.error)
@@ -325,6 +315,35 @@ impl<'a> Checker<'a, '_> {
                 if operator.operator.kind == SyntaxKind::KeyOfKeyword),
             homomorphic_symbol,
         })
+    }
+
+    /// getHomomorphicTypeVariable (checker.go): the type parameter a
+    /// `keyof T` constraint names, read from the written operand.
+    fn keyof_operand_type_parameter(&mut self, operand: TypeNode<'a>) -> Option<SymbolId> {
+        let TypeNode::TypeReferenceNode(reference) = operand else { return None };
+        reference.type_name.and_then(|name| {
+            self.resolve_entity_name(name, SymbolFlags::TYPE).filter(|&symbol| {
+                self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+            })
+        })
+    }
+
+    /// The homomorphic type variable of a mapped alias body, without
+    /// resolving its constraint (getHomomorphicTypeVariable reads only the
+    /// constraint declaration's operand).
+    fn mapped_alias_homomorphic_parameter(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type else { return None };
+        let Some(TypeNode::TypeOperatorNode(operator)) = mapped.type_parameter?.constraint else {
+            return None;
+        };
+        if operator.operator.kind != SyntaxKind::KeyOfKeyword {
+            return None;
+        }
+        self.keyof_operand_type_parameter(operator.r#type?)
     }
 
     /// getModifiersTypeFromMappedType (checker.go:28127): a declared key
@@ -505,6 +524,8 @@ impl<'a> Checker<'a, '_> {
             }
             // An open homomorphic map can enumerate an object constraint, but
             // an unsupported constraint is not a proven empty member table.
+            let composite =
+                self.store.get(source).flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION);
             let names = if info
                 .modifiers_source
                 .is_some_and(|source| self.signature_parameter_type_is_generic(source))
@@ -515,16 +536,14 @@ impl<'a> Checker<'a, '_> {
                 // A complete name list is not that symbol image: generic
                 // composite modifiers still need represented property roots
                 // before this producer can publish mapped members. tsr-6.47.4.1.
-                if self
-                    .store
-                    .get(source)
-                    .flags
-                    .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+                if composite
                     && names.iter().any(|name| self.get_property_of_type(source, name).is_none())
                 {
                     return None;
                 }
                 names
+            } else if composite {
+                self.composite_modifiers_property_names(source)
             } else {
                 self.property_names_of(source)
             };
@@ -590,6 +609,45 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(keys)
+    }
+
+    /// getPropertiesOfUnionOrIntersectionType (checker.go:18861) for a
+    /// concrete composite modifiers type: candidate names come from each
+    /// constituent's own properties in order, and a name is kept when the
+    /// composite resolves it (getPropertyOfUnionOrIntersectionType, which
+    /// drops a union's partial properties). A union reads past its first
+    /// constituent only while constituents carry index signatures.
+    ///
+    /// `Readonly<string[] & { brand }>` reaches this through
+    /// instantiateAnonymousType, because isArrayOrTupleOrIntersection needs
+    /// every constituent to be an array or tuple. The certified enumeration
+    /// (`get_property_names_of_type`) declines on array methods that mention
+    /// `this`; names alone are all a key walk needs, since each member's value
+    /// is the template under its key (r4-mapped.md §2). Nothing is published
+    /// here: the caller's member image is the only table.
+    fn composite_modifiers_property_names(&mut self, source: TypeId) -> Vec<String> {
+        use crate::types::TypeData;
+        let (types, is_union) = match &self.store.get(source).data {
+            TypeData::Union { types, .. } => (types.clone(), true),
+            TypeData::Intersection { types, .. } => (types.clone(), false),
+            _ => return self.property_names_of(source),
+        };
+        let mut checked = rustc_hash::FxHashSet::default();
+        let mut names = Vec::new();
+        for part in types {
+            for name in self.property_names_of(part) {
+                if checked.insert(name.clone())
+                    && self.get_property_of_type(source, &name).is_some()
+                {
+                    names.push(name);
+                }
+            }
+            if is_union && self.get_index_infos_of_type(part).is_some_and(|infos| infos.is_empty())
+            {
+                break;
+            }
+        }
+        names
     }
 
     fn resolve_mapped_type_members_worker(&mut self, id: TypeId) {
@@ -875,8 +933,11 @@ impl<'a> Checker<'a, '_> {
         symbol: SymbolId,
         arguments: &[TypeId],
     ) -> Option<TypeId> {
-        let info = self.mapped_types.get(&id)?.clone();
-        let parameter = info.homomorphic_symbol?;
+        let info = self.mapped_types.get(&id).cloned();
+        let parameter = match &info {
+            Some(info) => info.homomorphic_symbol?,
+            None => self.mapped_alias_homomorphic_parameter(symbol)?,
+        };
         let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
@@ -890,7 +951,41 @@ impl<'a> Checker<'a, '_> {
             arguments[slot] = source;
             checker.create_type_reference(symbol, arguments)
         };
+        let Some(info) = info else {
+            // instantiateMappedType (checker.go:22535) distributes over the
+            // mapped type variable before it reads the constraint, so a union
+            // argument whose `keyof` this port cannot resolve (capture
+            // declined) still maps per constituent (r4-mapped.md §1).
+            let source = *arguments.get(slot)?;
+            return self.distribute_mapped_union(source, Some(id), replace_source);
+        };
         self.instantiate_mapped_sequence(&info, Some(id), replace_source)
+    }
+
+    /// The union arm of instantiateMappedType: mapTypeWithAlias over the
+    /// instantiated type variable, one instantiation per constituent.
+    fn distribute_mapped_union(
+        &mut self,
+        source: TypeId,
+        alias: Option<TypeId>,
+        mut replace_source: impl FnMut(&mut Self, TypeId) -> TypeId,
+    ) -> Option<TypeId> {
+        use crate::types::TypeData;
+        let TypeData::Union { types, .. } = &self.store.get(source).data else { return None };
+        let types = types.clone();
+        let mapped: Vec<_> = types.into_iter().map(|ty| replace_source(self, ty)).collect();
+        let union = self.get_union_type(&mapped);
+        if union == self.intrinsics.error {
+            return None;
+        }
+        // mapTypeWithAlias retains the mapped alias and its arguments
+        // on a distributed union, while exposing its constituents.
+        Some(if let Some(alias) = alias {
+            let alias_text = self.type_to_string(alias);
+            self.union_with_origin_text(union, alias_text)
+        } else {
+            union
+        })
     }
 
     fn instantiate_mapped_sequence(
@@ -907,21 +1002,8 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(source);
         }
-        if let TypeData::Union { types, .. } = &self.store.get(source).data {
-            let types = types.clone();
-            let mapped: Vec<_> = types.into_iter().map(|ty| replace_source(self, ty)).collect();
-            let union = self.get_union_type(&mapped);
-            if union == self.intrinsics.error {
-                return None;
-            }
-            // mapTypeWithAlias retains the mapped alias and its arguments
-            // on a distributed union, while exposing its constituents.
-            return Some(if let Some(alias) = alias {
-                let alias_text = self.type_to_string(alias);
-                self.union_with_origin_text(union, alias_text)
-            } else {
-                union
-            });
+        if self.store.get(source).flags.contains(TypeFlags::UNION) {
+            return self.distribute_mapped_union(source, alias, &mut replace_source);
         }
         // An as clause remaps properties even on arrays and tuples.
         if info.name_type.is_some() {
