@@ -83,8 +83,16 @@ impl Checker<'_, '_> {
         self.get_type_for_binding_element_impl(declaration, Some(parent_override))
     }
 
+    /// A binding element's declared type: `getWidenedTypeForVariableLikeDeclaration`
+    /// (`checker.go:16647`), i.e. `getWidenedType` over `getTypeForBindingElement`.
+    /// The parent road of a nested pattern reads the unwidened type
+    /// (`getTypeForBindingElementParent`, `checker.go:17704`).
     pub(crate) fn get_type_for_binding_element(&mut self, declaration: NodeId) -> TypeId {
-        self.get_type_for_binding_element_impl(declaration, None)
+        let ty = self.get_type_for_binding_element_impl(declaration, None);
+        if ty == self.intrinsics.error {
+            return ty;
+        }
+        self.widen_object_literal_freshness(ty)
     }
 
     fn get_type_for_binding_element_impl(
@@ -249,6 +257,22 @@ impl Checker<'_, '_> {
                         && let Some(array) = self.global_type_symbol("Array")
                     {
                         return self.create_type_reference(array, vec![element_type]);
+                    }
+                    // `checkIteratedTypeOrElementType` answers `anyType` when
+                    // the protocol decidably fails (`checker.go:6103`), and
+                    // the rest element is `createArrayType(anyType)`
+                    // (`checker.go:17766`): `function f([...r] = null)` has
+                    // `r: any[]` beside its TS2488.
+                    if !self.tuple_element_lists.contains_key(&parent_type)
+                        && self
+                            .get_iteration_types_of_iterable(
+                                parent_type,
+                                crate::iteration::IterationUse::DESTRUCTURING,
+                            )
+                            .is_ok_and(|types| !types.has_types())
+                        && let Some(array) = self.global_type_symbol("Array")
+                    {
+                        return self.create_type_reference(array, vec![self.intrinsics.any]);
                     }
                     return error;
                 }
@@ -420,7 +444,7 @@ impl Checker<'_, '_> {
         match self.nodes.kind(holder) {
             // A nested pattern: the holder is itself a binding element, and
             // its type is this module again (`checker.go:16672`'s dispatch).
-            SyntaxKind::BindingElement => self.get_type_for_binding_element(holder),
+            SyntaxKind::BindingElement => self.get_type_for_binding_element_impl(holder, None),
             SyntaxKind::VariableDeclaration | SyntaxKind::Parameter => {
                 // An annotation wins over an initialiser, always
                 // (`checker.go:16694`).
@@ -508,6 +532,38 @@ impl Checker<'_, '_> {
                                     | SyntaxKind::IndexSignature
                             )
                         });
+                        // `getTypeForBindingElementParent` reads
+                        // `getTypeForVariableLikeDeclaration` (checker.go:17704):
+                        // an initializer arm with `includeOptionality` false and
+                        // no `getWidenedType`, so `function f([...r] = null)`
+                        // destructures `null`, not the declaration's widened
+                        // `any` (`restElementWithNullInitializer`). Padding is
+                        // `checkDeclarationInitializer`'s.
+                        if let Some(initializer) = self.initializer_of(holder)
+                            && let Some(Node::ParameterDeclaration(parameter)) =
+                                self.node_map.get(holder)
+                            && let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
+                                parameter.name
+                        {
+                            let source = self.check_expression(initializer);
+                            if source == error {
+                                return error;
+                            }
+                            let Some(padded) =
+                                self.pad_binding_pattern_initializer(holder, source, pattern)
+                            else {
+                                return error;
+                            };
+                            // `widen_type_inferred_from_initializer` also runs
+                            // `getWidenedTypeWithContext`'s nullable arm (a
+                            // declared type's widening); upstream's
+                            // `getWidenedLiteralType` leaves `null` and
+                            // `undefined` as they are.
+                            if !self.strict_null_checks && self.is_purely_nullable(padded) {
+                                return padded;
+                            }
+                            return self.widen_type_inferred_from_initializer(holder, padded);
+                        }
                         let implied = if signature_container
                             && self.initializer_of(holder).is_none()
                             && let Some(Node::ParameterDeclaration(parameter)) =
@@ -815,6 +871,19 @@ impl Checker<'_, '_> {
 
     /// The kind of the pattern a holder declares — `holder.name` when it is a
     /// pattern. `None` for an identifier name, which cannot reach this module.
+    /// `null`, `undefined`, or a union of only those.
+    fn is_purely_nullable(&self, ty: TypeId) -> bool {
+        let nullable = |flags: TypeFlags| {
+            flags.intersects(TypeFlags::NULLABLE) && !flags.intersects(!TypeFlags::NULLABLE)
+        };
+        match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.iter().all(|&part| nullable(self.store.get(part).flags))
+            }
+            _ => nullable(self.store.get(ty).flags),
+        }
+    }
+
     fn holder_pattern_kind(&self, holder: NodeId) -> Option<SyntaxKind> {
         let name = match self.node_map.get(holder)? {
             Node::VariableDeclaration(declaration) => declaration.name,
