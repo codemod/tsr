@@ -54,6 +54,19 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected member/enum continuation after evidence delivery `26da4dd0`, native
+`5b1047d`: actual selected owners now survive completeness/signature walks,
+spread/privacy/optional metadata, rest and tuple-relation member iteration,
+enum literal/value interning and fresh/regular ownership, one union worker,
+enum widening/comparison/index access, and completed printing/reuse checks.
+Qualified compiler errors move 38→34→37→26; the intermediate checks retain
+three iterator/name/borrow errors and two move errors exposed during migration.
+Final 26 are `E0308` mismatches. Exact 13-file delta replay verifies all 1,053
+inputs, with 1,040 unchanged. No canonical Rust changed. The private draft
+remains uncompiled; native runtime/factory/alias/member/corpus/performance gates
+have not run. All six tickets remain unfinished; no speed or coverage gain.
+[Evidence](docs/architecture/checker-member-enum-owner-continuation.json).
+
 Selected class/base continuation after verified production delivery `2ae37af8`,
 native `5b1047d`: the full private draft now preserves actual constructor,
 base-list and heritage-reference cache owners, plus their class narrowing,
@@ -3727,11 +3740,14 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Owner continuation after delivery `2ae37af8`: finish the member/property, naming,
-index, enum and printing boundaries from the 38 compiler mismatches retained in
-[the class/base evidence](docs/architecture/checker-class-base-owner-continuation.json).
-The private general factory, variance, constructor/base and heritage workers now
-retain selected owners, but do not compile or qualify the full execution path yet.
+Owner continuation after evidence delivery `26da4dd0`: finish the naming/alias,
+member/property/ordering, index and callable boundaries from the 26 compiler
+mismatches retained in
+[the member/enum evidence](docs/architecture/checker-member-enum-owner-continuation.json).
+Private general factory, variance, class/base, metadata walks and enum/union
+workers now retain selected owners, but do not compile or qualify the full
+execution path yet. Enum parent preparation and actual member publication remain
+native control requirements, not completed contracts.
 Then execute full factory/mapper, natural alias and member-publication controls
 before broader integration. Shipped owner helpers are prerequisites, not
 completion of `tsr-1yb.7.7.3`, `tsr-1yb.33.1` or the performance goal.
@@ -7456,6 +7472,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+After evidence delivery `26da4dd0`, the member/enum private continuation is
+refused for production by 26 `E0308` mismatches. Qualified terminal compiler
+checks retain 34, then 37 and 26 errors; five newly exposed iterator/name/borrow
+and move errors were repaired. This is compiler migration evidence, not a
+runtime test pass. Actual native enum parent/publication, full factories,
+mapper/natural alias and member controls remain unexecuted for this draft.
+No new canonical runtime, corpus or speed claim follows.
+[Evidence](docs/architecture/checker-member-enum-owner-continuation.json).
 
 After delivery `2ae37af8`, the class/base private continuation is still refused
 for production by 38 `E0308` mismatches. Step6 initially failed before
@@ -15697,3 +15722,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `0b18d357` / native `5b1047d` | — | — | **Mapped contextual ownership prerequisite, tsr-1yb.33.1.** Existing semantic contextual reader fixes Partial-wrapped inherited option inference privately; qualified red/green and one compiling raw-reader mutant, exact restoration and 205 library passes. Fresh477970 type rows improve49 and10570 diagnostic cases improve6, zero prior passing losses; all54/6 changed rows kept.344 public children: final66/86 native agreements versus main56, no lost agreement and172 full mode pairs equal;36 additional native contract children qualify explicit old-gap/circular-shortcut test corrections. Corrected full checker package1523pass/3pre-existing ignored over101blocks. Release/full corpus11-source and test-corrected12-source boundaries remain separate. No main runtime, strict-lint, CPU/RSS or speed claim;4.2.1 cost/benefit and PR5 regression34 remain. [Replay and limits](docs/architecture/checker-member-mapped-contextual.md). |
 
 | 2026-10-08 | `2ae37af8` / native `5b1047d` | — | — | **Selected class/base private continuation.** Exact nine-file delta replay verifies 1,053 inputs, 1,044 unchanged. Actual constructor/base/heritage caches and class consumers retain selected owners. Qualified terminal compiler errors 51→48→41→38; seven exposed borrow/move errors repaired. The initial sccache launch failed before compilation and is retained separately. Draft remains uncompiled; no fresh native class/base, runtime, corpus or performance controls. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-class-base-owner-continuation.json). |
+
+| 2026-10-08 | `26da4dd0` / native `5b1047d` | — | — | **Selected member/enum private continuation.** Exact13-file replay verifies1,053 inputs/1,040 unchanged. Metadata/completeness walks, rest/tuple iteration, enum literal/value/fresh/regular owners, one union worker and enum/printing consumers retain actual selected handles. Qualified terminal compiler errors38→34→37→26; five exposed iterator/borrow/move errors repaired. Draft remains uncompiled; no canonical Rust/runtime, fresh native enum/parent/member/factory/alias, corpus or performance gates. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-member-enum-owner-continuation.json). |

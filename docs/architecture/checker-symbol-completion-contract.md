@@ -870,6 +870,31 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [member/enum private continuation](checker-member-enum-owner-continuation.json)
+after `26da4dd0` migrates the existing declaration/flag metadata readers and
+completeness paths to actual selected owners. Optionality, spreadability/privacy,
+rest and tuple-relation iteration retain the selected member; bound wrappers
+lift genuine Program symbols into one worker. Visited paths retain private
+identity, while shared heritage syntax still selects actual Program bases.
+
+Pinned native `5b1047d` `getDeclaredTypeOfEnum`, `getDeclaredTypeOfEnumMember`
+and `getUnionTypeEx` keep enum-owned literal and declared-type links distinct.
+The draft carries `SymbolRef` in enum literal payloads, value interning,
+computed/fresh/regular owner links and the existing union worker. Declaration
+syntax selects member symbols as native `getSymbolOfDeclaration` does; a private
+enum copy does not invent a second syntax/member producer. Parent forcing and
+fallback publication use the selected links. Completed printing and source reuse
+compare actual handles, never a private copy's origin. Existing name/refusal,
+recursion, reduction and singleton policies remain; native late parent and
+full enum/member publication are still unqualified.
+
+Exact 13-file replay verifies 1,053 inputs, with 1,040 unchanged. Qualified
+compiler errors move 38→34→37→26, including five exposed iterator/borrow/move
+errors that were repaired. The final 26 are owner mismatches. No private runtime,
+fresh native enum/metadata, full factory/mapper/natural alias, corpus or CLI
+performance control ran. Actual work/copy attribution remains `tsr-1yb.11`;
+all six tickets and the equivalent complete-work <=0.50 target remain unfinished.
+
 | Consumer | Required result and work after static selection |
 |---|---|
 | Identifier expressions (`expressions.rs`) | Value symbol, including a local import alias when native keeps it. Continue class-field initialization checks, value typing, assignment/write handling and flow narrowing. Flow results cannot enter the static symbol memo. |
