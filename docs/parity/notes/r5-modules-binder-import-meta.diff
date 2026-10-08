@@ -1,0 +1,42 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index d6da683..81e9cb9 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -4914,11 +4914,34 @@ fn has_export_declarations(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
+ /// scan is over top-level statements only, so it is a few dozen comparisons on a
+ /// list the binder is about to walk anyway.
+ ///
+-/// One indicator is **not** implemented: upstream also treats a file containing
+-/// `import.meta` anywhere as a module (`getImportMetaIfNecessary`), which needs a
+-/// full-tree walk under specific module settings the binder does not have.
++/// The last indicator is `getImportMetaIfNecessary` (`ast/parseoptions.go:101`):
++/// `import.meta` anywhere makes the file a module. It is the tree walk in
++/// walk below, taken only when no statement is an indicator (the same walk
++/// as `tsr_parser::is_file_probably_external_module`'s).
+ #[must_use]
+ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
++    has_external_module_indicator_statement(file) || contains_import_meta(file)
++}
++
++/// `findChildNode(file, ast.IsImportMeta)`.
++fn contains_import_meta(file: &SourceFile<'_>) -> bool {
++    let mut stack = vec![Node::from(file)];
++    let mut children = Vec::new();
++    while let Some(node) = stack.pop() {
++        if let Node::MetaProperty(meta) = node
++            && meta.keyword_token.kind == tsr_ast::SyntaxKind::ImportKeyword
++            && meta.name.is_some_and(|name| name.text == "meta")
++        {
++            return true;
++        }
++        children.clear();
++        tsr_ast::push_children(node, &mut children);
++        stack.extend(children.iter().copied());
++    }
++    false
++}
++
++fn has_external_module_indicator_statement(file: &SourceFile<'_>) -> bool {
+     file.statements.iter().any(|statement| {
+         let node = Node::from(*statement);
+         match node {

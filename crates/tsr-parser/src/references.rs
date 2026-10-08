@@ -392,7 +392,13 @@ pub fn is_file_probably_external_module(file: &SourceFile<'_>) -> bool {
     }
     contains_node(
         file,
-        |node| matches!(node, Node::MetaProperty(meta) if meta.keyword_token.kind == SyntaxKind::ImportKeyword),
+        // `ast.IsImportMeta` (`ast/utilities.go:1275`): `import.meta` only,
+        // not `import.defer`, which is a `MetaProperty` too.
+        |node| {
+            matches!(node, Node::MetaProperty(meta)
+            if meta.keyword_token.kind == SyntaxKind::ImportKeyword
+                && meta.name.is_some_and(|name| name.text == "meta"))
+        },
     )
 }
 
@@ -675,5 +681,9 @@ mod tests {
         // does (bd tsr-9or.4, tsr-2zk.990).
         let import_meta = parse(&arena, "const u = import.meta.url;");
         assert!(is_file_probably_external_module(import_meta.source_file));
+        // `ast.IsImportMeta` names `meta` only: `import.defer` is a
+        // `MetaProperty` too, and is no module indicator.
+        let import_defer = parse(&arena, "const d = import.defer;");
+        assert!(!is_file_probably_external_module(import_defer.source_file));
     }
 }
