@@ -408,3 +408,19 @@ and index_signatures.rs.
 The freed slot went to r5-harness, for gate robustness: `tsr-2zk.1041`
 (per-case wall time and a budget check), `.46` (intermittent SIGABRT), `.37`,
 and then `.1017`.
+
+### r5-heritage2 finished; r5-modexports dispatched
+
+r5-heritage2 landed two commits. `23c10f0` narrows the merged-declaration
+declines in checkClassLikeDeclaration (+3 cases). `b3b54d3` makes interface
+bases go through getBaseTypes, which adds 7 TS2430 lines and changes no
+verdict. Its weak-target diff (+1 case, a TS2559 report) lands in batch T.
+
+The inherited-this diff is held as `tsr-2zk.1045`. It gains +3 cases but loses
+3 type lines, until the relater can decide the distinct generic signature pair
+`set<K extends keyof this>`. Private-name binder keys are filed as
+`tsr-2zk.1044`.
+
+The freed slot went to r5-modexports, for `tsr-2zk.991` and `.992`: string-literal
+export names, and the JSON/ESM synthetic default, 438 type lines between them.
+Its symbols.rs part ships as a measured diff, because symbols.rs is main's file.
