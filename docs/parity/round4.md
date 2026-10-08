@@ -388,3 +388,14 @@ class-expression patches are in batch D). Owns `heritage_conformance.rs` (no
 `main` commit since `b3cd078d`): interface index constraints once per symbol
 from the first checked declaration, no parse-error early return, and the
 TS2415/2416/2417/2420/2430 clusters. Not `tsr-2zk.3.6` (main's decls lane).
+
+### r4-mapped (`tsr-2zk.925`, `.16.121`)
+
+Dispatched when `r4-config` finished (b87c323: inherited include/exclude/files
+rebased per extends hop, a config in another directory now finds 83 files
+instead of 0; f1a82fc: composite TS6307 with native include-reason chains, all
+77/83 lines on jsTyping/typingsInstallerCore byte-identical to native). Owns
+`mapped.rs`' instantiation and member-resolution functions (main touched the
+file only for laziness accessor routing, 39dd8de9): homomorphic mapped types
+over a union with a generic base and over an array intersection (real-world
+causes 5 and 8), and the template optionality/index arm.
