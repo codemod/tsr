@@ -204,8 +204,9 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::StaticKeyword) && self.next_is_open_brace() {
             self.next_token();
             // `parseClassStaticBlockBody` turns the await context ON
-            // unconditionally: `static { await x }` is legal.
-            let body = self.with_await_context(true, Self::parse_block);
+            // unconditionally (`static { await x }` is legal) and the yield
+            // context OFF.
+            let body = self.with_function_context(false, true, Self::parse_block);
             let modifiers = self.arena.alloc_slice(&modifiers);
             return ClassElement::ClassStaticBlockDeclaration(self.finish_node(
                 ClassStaticBlockDeclaration::new(modifiers, Some(body)),
@@ -238,13 +239,14 @@ impl<'a> Parser<'a> {
             let type_parameters = self.parse_type_parameters();
             // A constructor cannot be `async`, so its signature flags carry no
             // `ParseFlagsAwait` and its context is OFF however it is nested.
-            let (parameters, return_type, body) = self.with_await_context(false, |parser| {
-                let parameters = parser.parse_parameter_list();
-                let return_type = parser.parse_return_type_annotation();
-                let body =
-                    parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
-                (parameters, return_type, body)
-            });
+            let (parameters, return_type, body) =
+                self.with_function_context(false, false, |parser| {
+                    let parameters = parser.parse_parameter_list();
+                    let return_type = parser.parse_return_type_annotation();
+                    let body = parser
+                        .parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
+                    (parameters, return_type, body)
+                });
             let modifiers = self.arena.alloc_slice(&modifiers);
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -324,7 +326,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_property_name();
         let type_parameters = self.parse_type_parameters();
         // An accessor cannot be `async`: its context is OFF.
-        let (parameters, return_type, body) = self.with_await_context(false, |parser| {
+        let (parameters, return_type, body) = self.with_function_context(false, false, |parser| {
             let parameters = parser.parse_parameter_list();
             let return_type = parser.parse_return_type_annotation();
             let body = parser.parse_function_block_or_semicolon(is_type, None);
@@ -418,13 +420,16 @@ impl<'a> Parser<'a> {
             let type_parameters = self.parse_type_parameters();
             // A method's own await context, from its own `async` — §193.
             let is_async = Self::is_async(modifiers);
-            let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
-                let parameters = parser.parse_parameter_list();
-                let return_type = parser.parse_return_type_annotation();
-                let body =
-                    parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
-                (parameters, return_type, body)
-            });
+            // `ParseFlagsYield` from its `*`.
+            let is_generator = asterisk.is_some();
+            let (parameters, return_type, body) =
+                self.with_function_context(is_generator, is_async, |parser| {
+                    let parameters = parser.parse_parameter_list();
+                    let return_type = parser.parse_return_type_annotation();
+                    let body = parser
+                        .parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
+                    (parameters, return_type, body)
+                });
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
             let node = self.finish_node(
@@ -460,8 +465,13 @@ impl<'a> Parser<'a> {
                 .then(|| self.take_token())
         });
         let type_node = self.parse_type_annotation();
+        // `doInContext(Yield|Await|DisallowIn, false, parseInitializer)`.
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
-            Some(self.parse_assignment_expression())
+            let saved_no_in = std::mem::take(&mut self.no_in);
+            let initializer =
+                self.with_function_context(false, false, Self::parse_assignment_expression);
+            self.no_in = saved_no_in;
+            Some(initializer)
         } else {
             None
         };
@@ -635,7 +645,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_identifier();
         let members = if self.expect(SyntaxKind::OpenBraceToken) {
             // Enum members are in neither a yield nor an await context.
-            let (members, _) = self.with_await_context(false, |parser| {
+            let (members, _) = self.with_function_context(false, false, |parser| {
                 parser.parse_delimited_list(ParsingContext::EnumMembers, Self::parse_enum_member)
             });
             self.expect(SyntaxKind::CloseBraceToken);
