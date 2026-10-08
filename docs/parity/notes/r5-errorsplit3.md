@@ -432,9 +432,54 @@ samples): domain-model 0.954, generic-imports 1.007.
 
 ## §4 Held diffs
 
-- [`r5-errorsplit3-members-receiver.diff`](r5-errorsplit3-members-receiver.diff):
-  `check_property_access_expression`'s `errorType` receiver answers
-  `errorType` (`checker.go:11314-11320`). `members.rs` is main's active file
-  (commits in the 24 hours before this lane), so the arm ships as a diff.
-  Measured inside the commit-1 tree: zero transitions; it matters once the
-  final `else` switches (§5).
+- [`r5-errorsplit3-final-else.diff`](r5-errorsplit3-final-else.diff), applies
+  to `ca1e75a6`: `checkIdentifier`'s final `else` (a name absent in every
+  meaning in a file with no import machinery, `checker.go:11048`) answers
+  `native_error`, **together with** `check_property_access_expression`'s
+  `errorType` receiver arm (`members.rs`, `checker.go:11314-11320`: an
+  any-like receiver that `isErrorType` answers `errorType` whatever the
+  member). `members.rs` is main's active file (commits on `origin/main` in
+  the 24 hours before this lane, re-checked before shipping), so the pair is
+  a diff for the integrator. §5 has the measurements.
+
+## §5 The final `else` switch, measured
+
+Measured three ways, unfiltered, both dumps:
+
+| tree | base | type losses | diag losses | other transitions | credited gap | `native_error` lines (matched) | narrowing RIGHT→GAP |
+|---|---|---:|---:|---|---:|---:|---:|
+| commit 1 + switch + `members.rs` arm | `2919d8c` | 0 | 0 | +2 WRONG→RIGHT, 5 WRONG→GAP | — | — | — |
+| commit 1 + switch, **no** `members.rs` arm | `2919d8c` | **2** | **1** | as above | — | — | — |
+| `ca1e75a6` + switch + `members.rs` arm (the diff) | `a1e453dc` | 0 | 0 | +2 WRONG→RIGHT, 1 WRONG→GAP | 4,710 → **4,554** | 20,895 → 24,385 (24,310) | 5,380 → 5,158 |
+
+- **r5-errorsplit2's residual is gone.** `assignmentRestElementWithErrorSourceType`
+  (`[...c] : any[]`) holds: the destructuring-target road and the
+  normalizer arm of §3.1 carry upstream's `errorType` as a Rest of itself.
+- **The `members.rs` arm is required.** Without it the property-access
+  road answers the gap for an `errorType` receiver and the gap's contextual
+  decline drops `parser509534:0:5`/`:0:11` (the function assigned to
+  `module.exports.route`) and adds `destructuringParameterDeclaration4`'s
+  extra TS2345 — r5-errorsplit2's §2 finding, reproduced.
+- **Gains:** `jsFileCompilationExternalPackageError:2:6` (`c : error`, a case
+  with no `.errors.txt`: upstream's `errorType` takes the writer's fast path)
+  and `typeofInObjectLiteralType:0:0` (`c: typeof b` inside a type literal).
+- **The WRONG→GAP lines are false `native_error` claims**, not upstream's
+  `errorType`: names the port fails to resolve reach the final `else`.
+  - `jsDeclarationsComputedNames(target=es2015):1:13`: a JSDoc
+    `@param {typeof TopLevelSym | typeof InnerSym}` whose names resolve
+    natively (`unique symbol | unique symbol`). JSDoc name resolution is
+    not this lane's.
+  - On `2919d8c` also `importMetaNarrowing` ×4, the `meta` name of
+    `import.meta` reaching `checkIdentifier`. Gone on `a1e453dc`:
+    r5-modules ported `checkMetaProperty`.
+
+  Before the switch these lines answered `any` (WRONG). Now they print
+  `error` (GAP), which is the honest verdict. The identity claim is still
+  wrong, so they are listed here rather than counted as converted.
+- **P10 (the return aggregate) needs no code.** With the switch,
+  `function r() { return nosuch; }` aggregates `native_error`, which
+  `awaited_type_no_alias` passes through (any-flagged) and
+  `inferred_return_type` keeps. Its `error → any` stand-in still applies to
+  the gap only, which is the native-verified rule (r5-errorsplit2 §6).
+- **P11/P12 are left alone**, per r5-errorsplit2 §6: natively they are the
+  unresolved-reference type, not `errorType`.
