@@ -27,13 +27,16 @@
 //! (`fileloader.go:543`) — is the loader's; the checker reads its result
 //! through [`crate::resolution::ModuleHost::import_helpers_module`].
 //!
-//! Call sites: upstream has 26 (`checker.go`, one per construct). This module
-//! is reached from the names lane's import/export checks; the others belong to
-//! other lanes' files and are listed with a measured patch in
-//! `docs/parity/notes/names-emit-helpers.diff` (notes §7).
+//! Call sites: upstream has 26 (`checker.go`, one per construct). The
+//! import/export ones are reached from the names lane's checks; the
+//! construct-level ones from [`Checker::check_construct_emit_helpers`], one
+//! call at the top of the check walk (`docs/parity/notes/r4-helpers.md`).
+//! The `@importHelpers` harness directive is a patch outside this lane:
+//! `docs/parity/notes/r4-helpers-harness.diff`.
 
-use tsr_ast::{Node, NodeId};
+use tsr_ast::{Node, NodeFlags, NodeId, SyntaxKind};
 use tsr_binder::{SymbolFlags, SymbolId};
+use tsr_core::ScriptTarget;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -41,7 +44,7 @@ use crate::resolution::ImportHelpersModule;
 
 /// `ExternalEmitHelpers` (`internal/checker/types.go:114`): one bit per
 /// helper, in upstream's order, so a mask walks them as upstream does.
-#[allow(dead_code)] // the constants other lanes' call sites pass (notes §7)
+#[allow(dead_code)] // the constants of call sites not yet ported (r4-helpers notes)
 pub(crate) mod helpers {
     pub(crate) const REST: u32 = 1 << 0;
     pub(crate) const DECORATE: u32 = 1 << 1;
@@ -359,6 +362,131 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of(specifier) else { return };
         if is_default && self.emit_module_format_of_file(file) == tsr_core::ModuleKind::CommonJS {
             self.check_external_emit_helpers(specifier, helpers::IMPORT_DEFAULT);
+        }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// The construct-level `checkExternalEmitHelpers` requests, one arm per
+    /// upstream call site, each under the condition its owner tests. Called
+    /// once per node at the top of the check walk (`check_node`); the walk is
+    /// pre-order in source order, which is the order upstream's
+    /// `checkSourceElement` reaches these nodes, so the first request in a
+    /// file — the one a missing helper is reported at — is upstream's.
+    pub(crate) fn check_construct_emit_helpers(&mut self, node: NodeId, typed: Node<'_>) {
+        if !self.import_helpers {
+            return;
+        }
+        self.check_signature_emit_helpers(node, typed);
+        match typed {
+            Node::VariableDeclarationList(_) => {
+                self.check_variable_declaration_list_emit_helpers(node);
+            }
+            Node::BindingElement(element) => {
+                self.check_binding_element_emit_helpers(node, element);
+            }
+            _ => {}
+        }
+        self.check_decorators_emit_helpers(typed);
+    }
+
+    /// `checkVariableLikeDeclaration`'s binding-element arm
+    /// (`checker.go:5821`): an object rest element before ES2018.
+    fn check_binding_element_emit_helpers(
+        &mut self,
+        node: NodeId,
+        element: &tsr_ast::BindingElement<'_>,
+    ) {
+        if element.dot_dot_dot_token.is_some()
+            && element.name.is_some()
+            && self
+                .nodes
+                .parent(node)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ObjectBindingPattern)
+            && self.language_version < ScriptTarget::ES2018
+        {
+            self.check_external_emit_helpers(node, helpers::REST);
+        }
+    }
+
+    /// `checkSignatureDeclaration`'s requests (`checker.go:2731-2741`), on
+    /// `GetFunctionFlags` (`ast/functionflags.go:13`): a generator only for
+    /// the three kinds that can carry `*`, async by syntactic modifier, and
+    /// invalid without a body.
+    fn check_signature_emit_helpers(&mut self, node: NodeId, typed: Node<'_>) {
+        let (modifiers, generator, body) = match typed {
+            Node::FunctionDeclaration(n) => {
+                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
+            }
+            Node::MethodDeclaration(n) => {
+                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
+            }
+            Node::FunctionExpression(n) => {
+                (n.modifiers, n.asterisk_token.is_some(), n.body.is_some())
+            }
+            Node::ArrowFunction(n) => (n.modifiers, false, n.body.is_some()),
+            _ => return,
+        };
+        if !body || !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword) {
+            return;
+        }
+        if generator && self.language_version < ScriptTarget::ES2018 {
+            self.check_external_emit_helpers(node, helpers::ASYNC_GENERATOR_INCLUDES);
+        }
+        if !generator && self.language_version < ScriptTarget::ES2017 {
+            self.check_external_emit_helpers(node, helpers::AWAITER);
+        }
+    }
+
+    /// `checkVariableDeclarationList` (`checker.go:5774`): `using` and
+    /// `await using` before `ESNext`.
+    fn check_variable_declaration_list_emit_helpers(&mut self, node: NodeId) {
+        let scope = self.nodes.flags(node) & NodeFlags::BLOCK_SCOPED;
+        if (scope == NodeFlags::USING || scope == NodeFlags::USING | NodeFlags::CONST)
+            && self.language_version < ScriptTarget::ESNext
+        {
+            self.check_external_emit_helpers(
+                node,
+                helpers::ADD_DISPOSABLE_RESOURCE_AND_DISPOSE_RESOURCES,
+            );
+        }
+    }
+
+    /// `checkDecorators`' legacy and ES requests (`checker.go:6031-6038`), at
+    /// the first decorator.
+    ///
+    /// Not ported here: the `ast.NodeCanBeDecorated` half of the entry
+    /// guard (its port is private to `grammar.rs`; a node it rejects already
+    /// carries TS1206), and the `__setFunctionName` / `__propKey` arms.
+    fn check_decorators_emit_helpers(&mut self, typed: Node<'_>) {
+        let Some(first) = crate::check::modifiers_of(typed).and_then(|modifiers| {
+            modifiers.iter().find_map(|modifier| match modifier {
+                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+                tsr_ast::ModifierLike::Token(_) => None,
+            })
+        }) else {
+            return;
+        };
+        // `ast.CanHaveDecorators`.
+        if !matches!(
+            typed,
+            Node::ParameterDeclaration(_)
+                | Node::PropertyDeclaration(_)
+                | Node::MethodDeclaration(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::ClassExpression(_)
+                | Node::ClassDeclaration(_)
+        ) {
+            return;
+        }
+        if self.legacy_decorators {
+            self.check_external_emit_helpers(first, helpers::DECORATE);
+            if matches!(typed, Node::ParameterDeclaration(_)) {
+                self.check_external_emit_helpers(first, helpers::PARAM);
+            }
+        } else if self.language_version < ScriptTarget::ESNext {
+            self.check_external_emit_helpers(first, helpers::ES_DECORATE_AND_RUN_INITIALIZERS);
         }
     }
 }

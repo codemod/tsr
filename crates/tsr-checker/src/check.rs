@@ -195,6 +195,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(typed) = self.node_map.get(node) else { return };
+        self.check_construct_emit_helpers(node, typed);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 // `import "x"` with no clause is a **side-effect import**, and
