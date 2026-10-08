@@ -68,6 +68,33 @@ query over a concrete value is decidable.
 converts. Measured on both dumps against the baseline: diagnostics +1 case,
 0 lost; type lines unchanged (543,275 RIGHT).
 
+## §3 TS2403: an object type against an enum is not identical
+
+`identity.rs` declined every flags difference involving an enum, for two
+reasons recorded in `decls.md` §2: one enum has two representations in this
+port, and a qualified enum annotation (`M3.Color` in
+`conformance/instantiatedModule`) resolves to an object-flagged type.
+
+Probing `instantiatedModule` shows what that object-flagged type is: a
+`TypeData::Named` interface image whose symbol is the enum itself. Upstream's
+only object type carrying an enum symbol is `typeof E`, an anonymous type, so
+the image is identifiable. The decline is narrowed to:
+
+- both sides enum-like (the two-representation hazard): `Unknown`, unchanged;
+- one side enum-like, the other not an object type (a narrowed enum that came
+  back as `number`): `Unknown`, unchanged;
+- one side enum-like, the other the misresolved image: `Unknown`;
+- otherwise (`typeof E` vs `E`, `Object` vs `E`): `NotRelated`, which is
+  upstream's flags-differ answer in `isTypeRelatedTo`.
+
+Converts `compiler/duplicateLocalVariable4` and
+`conformance/enumAssignabilityInInheritance` (messages identical to the
+baseline). Measured numbers in §5.
+
+**Falsifier.** A TS2403 that upstream does not report on an enum-vs-object
+pair means TSR built the object side wrong for some other reason; the fix is
+then in that producer, and the image test above is the place to extend.
+
 ## §4 Census: the generic declines are relater limits, not constraint-site bugs
 
 Most remaining TS2344 misses relate a type parameter, an indexed access, a
@@ -92,6 +119,7 @@ stated.
 |---|---|---|
 | baseline | 10,746 | 543,275 |
 | §1 committed + §2 | 10,747 (+`parameterListAsTupleType`) | 543,275 |
+| + §3 | 10,749 (+`duplicateLocalVariable4`, `enumAssignabilityInInheritance`) | 543,275 |
 
 Diagnostics counts are over all dump keys (plain and configured). The §1
 diff measured with the full native skip (no namespace stop), on top of the

@@ -120,9 +120,30 @@ impl Checker<'_, '_> {
             // Even an object type against an enum declines: a qualified
             // `M3.Color` annotation can resolve to an object-flagged type
             // (`instantiatedModule`, measured; notes §2).
+            //
+            // The object-vs-enum half is narrowed to that image: an object
+            // type against an enum or enum literal differs in flags upstream
+            // too, so it is `NotRelated` there (`typeof E` against `E`,
+            // `Object` against `E`), unless the object side is this port's
+            // misresolved enum reference — a `Named` interface image whose
+            // symbol is the enum itself, which upstream never builds
+            // (`docs/parity/notes/r5-constraints2.md` §3).
             let enum_like = TypeFlags::ENUM | TypeFlags::ENUM_LITERAL;
             if (source_flags | target_flags).intersects(enum_like) {
-                return Ternary::Unknown;
+                let object_side = if !source_flags.intersects(enum_like) {
+                    (source, source_flags)
+                } else if !target_flags.intersects(enum_like) {
+                    (target, target_flags)
+                } else {
+                    return Ternary::Unknown;
+                };
+                if !object_side.1.contains(TypeFlags::OBJECT)
+                    || object_side.1.intersects(TypeFlags::INSTANTIABLE)
+                    || self.is_misresolved_enum_image(object_side.0)
+                {
+                    return Ternary::Unknown;
+                }
+                return Ternary::NotRelated;
             }
             // `isTypeRelatedTo` tests flags only outside the simplifiable
             // kinds; `isRelatedTo` tests them again after `getNormalizedType`.
@@ -266,6 +287,19 @@ impl Checker<'_, '_> {
             return indexes;
         }
         and(result, indexes)
+    }
+
+    /// An object-flagged `Named` image whose symbol is an enum: a qualified
+    /// enum type reference (`M3.Color`) that this port resolved to an
+    /// interface image instead of the enum type (`tsr-2zk.979`). Upstream's
+    /// only object type carrying an enum symbol is `typeof E`, an anonymous
+    /// type, so this image is never upstream's type.
+    fn is_misresolved_enum_image(&self, ty: TypeId) -> bool {
+        let TypeData::Named { members: Some(symbol), .. } = self.type_of(ty).data else {
+            return false;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        self.binder.symbols().get(symbol).flags.intersects(tsr_binder::SymbolFlags::ENUM)
     }
 
     /// `eachTypeRelatedToSomeType` under identity.
