@@ -136,3 +136,32 @@ already published.
 **Falsifier.** A TS1066/TS2474/TS18033/TS2477/TS2478 line that differs from
 the baseline where the evaluator's answer is the cause.
 
+## §4 TS2565 / TS2651 come from `evaluateEnumMember`
+
+**Forcing constraint.** Upstream reports both from inside the evaluation of
+a member's initializer (`evaluateEnumMember`, `checker.go:24077`): TS2565
+when the reference resolves to the member being computed (`A = A`,
+`B = E.B`, `C = E["C"]`, `D = 1 + D` — `enumPropertyAccessBeforeInitalisation`),
+TS2651 when it is declared after the usage. The port had a separate walker
+(`collect_enum_forward_references` with a binder-only `evaluated_enum_member`)
+that reported TS2651 only, followed only a template's first span, resolved
+only `E.m` on an identifier naming the enum, and was gated on the enum not
+being ambient.
+
+**What changed.** The evaluator takes an optional report sink.
+`check_enum_member_forward_references` evaluates the member's initializer
+with a sink and reports what `evaluateEnumMember` would; the declared-type
+computation evaluates without one, so nothing is reported twice and a
+reference into another enum (whose values are forced through its declared
+type) is reported by that enum's own member check, as upstream reports it
+from that enum's `computeEnumMemberValues`. The ambient gate is gone:
+`isBlockScopedNameDeclaredBeforeUse`'s ambient-usage arm (in §1's helper)
+already answers "before" there, and a self-reference is TS2565 in an ambient
+enum too. The member name in TS2565 is the symbol's name, which is what the
+baseline spells (`Property 'B'` for `B = E.B`).
+
+**Accepted residue.** Reports are made in the member check's order (after
+TS2452/TS1066/TS2474/TS18033/TS2477 for the same member) rather than
+mid-switch. Only `const enum E { A = A }` puts two of them (TS2565, TS2474)
+on one span, where upstream emits TS2565 first; diagnostics are compared
+sorted by position, so the order is not observable there.

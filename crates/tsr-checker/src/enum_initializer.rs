@@ -91,173 +91,53 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(message, span));
     }
 
-    /// TS2651 — `A member initializer in a enum declaration cannot reference
-    /// members declared after it, including members defined in other enums.`
-    ///
-    /// `evaluateEnumMember` (`checker.go:24077`), reached when
-    /// `computeEnumMemberValues` evaluates an initializer with the member as
-    /// `location`. The evaluator (`evaluator.go`) visits a prefix operand,
-    /// both binary operands whatever the operator, and hands identifiers and
-    /// entity-name accesses to `evaluateEntity` (`checker.go:24024`); an
-    /// enum member it resolves that is declared after `location` in the same
-    /// file (`isBlockScopedNameDeclaredBeforeUse`, `checker.go:1922`) is
-    /// reported at the reference. `docs/parity/notes/misc-checks.md` §15.
-    pub(crate) fn check_enum_member_forward_references(&mut self, node: NodeId, ambient: bool) {
-        // `isInAmbientOrTypeNode(usage)` makes every ambient use legal.
-        if ambient {
-            return;
-        }
+    /// TS2565 / TS2651 — `evaluateEnumMember` (`checker.go:24077`), reached
+    /// when `computeEnumMemberValues` evaluates an initializer with the member
+    /// as `location`: a member reading itself is `Property '{0}' is used
+    /// before being assigned.`; one declared after the usage
+    /// (`isBlockScopedNameDeclaredBeforeUse`, `checker.go:1922`; an ambient
+    /// usage is always before) is `A member initializer in a enum declaration
+    /// cannot reference members declared after it, including members defined
+    /// in other enums.` Both at the reference, in the evaluator's visit order.
+    /// `docs/parity/notes/r4-templates.md` §4.
+    pub(crate) fn check_enum_member_forward_references(&mut self, node: NodeId) {
         let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
         let Some(initializer) = member.initializer.and_then(|initializer| initializer.node_id())
         else {
             return;
         };
-        if let Some(parent) = self.nodes.parent(node)
-            && let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent)
-            && declaration.modifiers.iter().any(|modifier| {
-                matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                    if token.kind == SyntaxKind::DeclareKeyword)
-            })
-        {
-            return;
-        }
-        let mut offenders = Vec::new();
-        self.collect_enum_forward_references(initializer, node, 0, &mut offenders);
-        for at in offenders {
+        let mut reports = Some(Vec::new());
+        self.evaluate_enum_constant(initializer, node, 0, &mut reports);
+        for report in reports.unwrap_or_default() {
+            let (at, diagnostic) = match report {
+                EnumMemberReport::UsedBeforeAssigned(at, symbol) => {
+                    // `symbolToString(symbol)` of an enum member: its name
+                    // (the baseline spells `Property 'B'` for `B = E.B`).
+                    let name = self.binder.symbols().get(symbol).name.to_string();
+                    let span = self.error_span(at);
+                    (
+                        at,
+                        Diagnostic::with_args(
+                            &messages::PROPERTY_0_IS_USED_BEFORE_BEING_ASSIGNED,
+                            span,
+                            [name],
+                        ),
+                    )
+                }
+                EnumMemberReport::DeclaredAfter(at) => {
+                    let span = self.error_span(at);
+                    (
+                        at,
+                        Diagnostic::new(
+                            &messages::A_MEMBER_INITIALIZER_IN_A_ENUM_DECLARATION_CANNOT_REFERENCE_MEMBERS_DECLARED_AFTER_IT_INCLUDING_MEMBERS_DEFINED_IN_OTHER_ENUMS,
+                            span,
+                        ),
+                    )
+                }
+            };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
-            let span = self.error_span(at);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::A_MEMBER_INITIALIZER_IN_A_ENUM_DECLARATION_CANNOT_REFERENCE_MEMBERS_DECLARED_AFTER_IT_INCLUDING_MEMBERS_DEFINED_IN_OTHER_ENUMS,
-                    span,
-                ),
-            );
+            self.report(file, diagnostic);
         }
-    }
-
-    /// The evaluator's visit order over `expr`. A template's spans are
-    /// visited only while earlier spans have values, which needs values;
-    /// only the first span (always visited) is followed.
-    fn collect_enum_forward_references(
-        &self,
-        expr: NodeId,
-        location: NodeId,
-        depth: u32,
-        offenders: &mut Vec<NodeId>,
-    ) {
-        if depth > 64 {
-            return;
-        }
-        match self.node_map.get(expr) {
-            Some(Node::ParenthesizedExpression(wrapper)) => {
-                if let Some(inner) = wrapper.expression.and_then(|e| e.node_id()) {
-                    self.collect_enum_forward_references(inner, location, depth + 1, offenders);
-                }
-            }
-            Some(Node::PrefixUnaryExpression(unary)) => {
-                if let Some(operand) = unary.operand.and_then(|e| e.node_id()) {
-                    self.collect_enum_forward_references(operand, location, depth + 1, offenders);
-                }
-            }
-            Some(Node::BinaryExpression(binary)) => {
-                for side in [binary.left, binary.right] {
-                    if let Some(side) = side.and_then(|e| e.node_id()) {
-                        self.collect_enum_forward_references(side, location, depth + 1, offenders);
-                    }
-                }
-            }
-            Some(Node::TemplateExpression(template)) => {
-                if let Some(first) =
-                    template.template_spans.first().and_then(|span| span.expression)
-                    && let Some(first) = first.node_id()
-                {
-                    self.collect_enum_forward_references(first, location, depth + 1, offenders);
-                }
-            }
-            Some(
-                Node::Identifier(_)
-                | Node::PropertyAccessExpression(_)
-                | Node::ElementAccessExpression(_),
-            ) => {
-                if let Some(member) = self.evaluated_enum_member(expr)
-                    && self.enum_member_declared_after(member, location)
-                {
-                    offenders.push(expr);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// The enum member `evaluateEntity` resolves `expr` to: an identifier
-    /// naming one, `E.m` or `E["m"]` on an identifier naming the enum.
-    /// Aliases and longer entity names decline (`resolveEntityName` follows
-    /// them; this binder lookup does not).
-    fn evaluated_enum_member(&self, expr: NodeId) -> Option<SymbolId> {
-        let resolve = |at: NodeId, text: &str| {
-            self.binder.resolve_name(self.nodes, self.node_map, at, text, SymbolFlags::VALUE)
-        };
-        let symbol = match self.node_map.get(expr)? {
-            Node::Identifier(identifier) => resolve(expr, identifier.text)?,
-            Node::PropertyAccessExpression(access) => {
-                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
-                let root = access.expression?.node_id()?;
-                let Some(Node::Identifier(root_name)) = self.node_map.get(root) else {
-                    return None;
-                };
-                let enumeration = self.binder.merged_symbol(resolve(root, root_name.text)?);
-                let record = self.binder.symbols().get(enumeration);
-                if !record.flags.intersects(SymbolFlags::ENUM) {
-                    return None;
-                }
-                *record.exports.get(name.text)?
-            }
-            Node::ElementAccessExpression(access) => {
-                let name = match access.argument_expression? {
-                    tsr_ast::Expression::StringLiteral(literal) => literal.text,
-                    tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal) => literal.text,
-                    _ => return None,
-                };
-                let root = access.expression?.node_id()?;
-                let Some(Node::Identifier(root_name)) = self.node_map.get(root) else {
-                    return None;
-                };
-                let enumeration = self.binder.merged_symbol(resolve(root, root_name.text)?);
-                let record = self.binder.symbols().get(enumeration);
-                if !record.flags.intersects(SymbolFlags::ENUM) {
-                    return None;
-                }
-                *record.exports.get(name)?
-            }
-            _ => return None,
-        };
-        let symbol = self.binder.merged_symbol(symbol);
-        self.binder
-            .symbols()
-            .get(symbol)
-            .flags
-            .intersects(SymbolFlags::ENUM_MEMBER)
-            .then_some(symbol)
-    }
-
-    /// `!isBlockScopedNameDeclaredBeforeUse(declaration, location)` for an
-    /// enum member declaration: same file and starting after `location`.
-    /// A self-reference (`declaration == location`) is TS2565's arm, not
-    /// this one.
-    fn enum_member_declared_after(&self, member: SymbolId, location: NodeId) -> bool {
-        let Some(declaration) = self.binder.symbols().get(member).value_declaration else {
-            return false;
-        };
-        if declaration == location {
-            return false;
-        }
-        if self.source_file_of_for_diagnostics(declaration)
-            != self.source_file_of_for_diagnostics(location)
-        {
-            return false;
-        }
-        self.nodes.span(declaration).start > self.nodes.span(location).start
     }
 }
 
@@ -280,6 +160,16 @@ impl EnumConstant {
             EnumConstant::String(value) => value.clone(),
         }
     }
+}
+
+/// A report `evaluateEnumMember` (`checker.go:24077`) makes while evaluating.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum EnumMemberReport {
+    /// TS2565 at the reference: the member reads itself (or has no value
+    /// declaration).
+    UsedBeforeAssigned(NodeId, SymbolId),
+    /// TS2651 at the reference: the member is declared after the usage.
+    DeclaredAfter(NodeId),
 }
 
 /// `jsnum.Number.toInt32` (`jsnum.go:52`): truncate, wrap modulo 2^32;
@@ -347,7 +237,7 @@ impl Checker<'_, '_> {
         expr: NodeId,
         location: NodeId,
     ) -> Option<EnumConstant> {
-        self.evaluate_enum_constant(expr, location, 0)
+        self.evaluate_enum_constant(expr, location, 0, &mut None)
     }
 
     /// The checker's evaluator (`c.evaluate`, built by
@@ -358,6 +248,7 @@ impl Checker<'_, '_> {
         expr: NodeId,
         location: NodeId,
         depth: u32,
+        reports: &mut Option<Vec<EnumMemberReport>>,
     ) -> Option<EnumConstant> {
         if depth > EVALUATE_DEPTH_LIMIT {
             return None;
@@ -370,7 +261,7 @@ impl Checker<'_, '_> {
             Node::PrefixUnaryExpression(unary) => {
                 let operand = unary.operand?.node_id()?;
                 let EnumConstant::Number(value) =
-                    self.evaluate_enum_constant(operand, location, depth + 1)?
+                    self.evaluate_enum_constant(operand, location, depth + 1, reports)?
                 else {
                     return None;
                 };
@@ -390,11 +281,11 @@ impl Checker<'_, '_> {
                 let left = binary
                     .left
                     .and_then(|e| e.node_id())
-                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1));
+                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1, reports));
                 let right = binary
                     .right
                     .and_then(|e| e.node_id())
-                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1));
+                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1, reports));
                 let operator = binary.operator_token?.kind;
                 match (left?, right?) {
                     (EnumConstant::Number(a), EnumConstant::Number(b)) => {
@@ -441,7 +332,7 @@ impl Checker<'_, '_> {
                 let mut text = template.head?.text.to_string();
                 for span in template.template_spans {
                     let inner = span.expression?.node_id()?;
-                    let value = self.evaluate_enum_constant(inner, location, depth + 1)?;
+                    let value = self.evaluate_enum_constant(inner, location, depth + 1, reports)?;
                     text.push_str(&value.render());
                     text.push_str(match span.literal? {
                         tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
@@ -453,20 +344,20 @@ impl Checker<'_, '_> {
             Node::NumericLiteral(literal) => {
                 Some(EnumConstant::Number(tsr_core::jsnum::numeric_value(literal.text)))
             }
-            Node::Identifier(_) => self.evaluate_enum_entity(expr, location, depth),
+            Node::Identifier(_) => self.evaluate_enum_entity(expr, location, depth, reports),
             Node::PropertyAccessExpression(access) => {
                 let root = access.expression?.node_id()?;
                 if !self.is_entity_name_expression(root) {
                     return None;
                 }
-                self.evaluate_enum_entity(expr, location, depth)
+                self.evaluate_enum_entity(expr, location, depth, reports)
             }
             Node::ElementAccessExpression(access) => {
                 let root = access.expression?.node_id()?;
                 if !self.is_entity_name_expression(root) {
                     return None;
                 }
-                self.evaluate_enum_entity(expr, location, depth)
+                self.evaluate_enum_entity(expr, location, depth, reports)
             }
             _ => None,
         }
@@ -478,6 +369,7 @@ impl Checker<'_, '_> {
         expr: NodeId,
         location: NodeId,
         depth: u32,
+        reports: &mut Option<Vec<EnumMemberReport>>,
     ) -> Option<EnumConstant> {
         if let Some(Node::ElementAccessExpression(access)) = self.node_map.get(expr) {
             let name = match access.argument_expression? {
@@ -492,7 +384,7 @@ impl Checker<'_, '_> {
                 return None;
             }
             let member = *self.binder.symbols().get(root_symbol).exports.get(name)?;
-            return self.evaluate_enum_member_reference(expr, member, location);
+            return self.evaluate_enum_member_reference(expr, member, location, reports);
         }
         let symbol = self.resolve_entity_name_expression_value(expr, SymbolFlags::VALUE)?;
         if let Some(Node::Identifier(identifier)) = self.node_map.get(expr)
@@ -503,7 +395,7 @@ impl Checker<'_, '_> {
         }
         let flags = self.binder.symbols().get(symbol).flags;
         if flags.intersects(SymbolFlags::ENUM_MEMBER) {
-            return self.evaluate_enum_member_reference(expr, symbol, location);
+            return self.evaluate_enum_member_reference(expr, symbol, location, reports);
         }
         if self.is_constant_variable(symbol) {
             let declaration = self.binder.symbols().get(symbol).value_declaration?;
@@ -517,27 +409,36 @@ impl Checker<'_, '_> {
                 return None;
             }
             let initializer = variable.initializer?.node_id()?;
-            return self.evaluate_enum_constant(initializer, declaration, depth + 1);
+            return self.evaluate_enum_constant(initializer, declaration, depth + 1, reports);
         }
         None
     }
 
-    /// `Checker.evaluateEnumMember` (`checker.go:24077`), value only: the
-    /// TS2565/TS2651 reports it makes are
-    /// [`Checker::check_enum_member_forward_references`]'s, issued from the
-    /// member check rather than from the declared-type computation.
+    /// `Checker.evaluateEnumMember` (`checker.go:24077`). Its TS2565/TS2651
+    /// reports are collected into `reports` when the caller asks
+    /// ([`Checker::check_enum_member_forward_references`], the member check);
+    /// the declared-type computation evaluates with no sink, so each report
+    /// is made once, by the member's own check.
     fn evaluate_enum_member_reference(
         &mut self,
-        _expr: NodeId,
+        expr: NodeId,
         symbol: SymbolId,
         location: NodeId,
+        reports: &mut Option<Vec<EnumMemberReport>>,
     ) -> Option<EnumConstant> {
         let symbol = self.binder.merged_symbol(symbol);
-        let declaration = self.binder.symbols().get(symbol).value_declaration?;
-        if declaration == location {
+        let declaration = self.binder.symbols().get(symbol).value_declaration;
+        if declaration.is_none_or(|declaration| declaration == location) {
+            if let Some(reports) = reports {
+                reports.push(EnumMemberReport::UsedBeforeAssigned(expr, symbol));
+            }
             return None;
         }
+        let declaration = declaration?;
         if !self.enum_evaluation_declared_before_use(declaration, location) {
+            if let Some(reports) = reports {
+                reports.push(EnumMemberReport::DeclaredAfter(expr));
+            }
             return Some(EnumConstant::Number(0.0));
         }
         self.enum_member_constant(symbol)
