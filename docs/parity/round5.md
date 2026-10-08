@@ -23,3 +23,15 @@ and `calls.rs` (5). Changes a lane needs in those files ship as measured diffs.
 | r5-declemit2 | `tsr-2zk.969` | the declaration-emit diagnostic files r4-declemit owned |
 
 Sessions: the integrator's board, `board5.tsv` (one cloud session per lane).
+
+### r5-operators3 finished; r5-intersections dispatched (`tsr-2zk.971`)
+
+r5-operators3 (docs only, a5d6c35) found no operator-side remainder:
+- **TS18046 unknown-operand diff:** held. Its one loss comes from an inference
+  gap with overloaded callees (`tsr-2zk.970`).
+- **in-operand diff:** measured lossless (+1 case). The integrator lands it in
+  `assignreport.rs` while r5-report owns other functions there.
+- **Other causes:** filed as `.971`-`.973`.
+
+`r5-intersections` takes `.971` and owns `intersections.rs`. Main has not
+touched that file in 36 hours.
