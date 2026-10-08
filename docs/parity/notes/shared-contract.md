@@ -74,3 +74,14 @@ the `type_reference_targets` pair, re-runs `capture_mapped_alias` and copies a
 signature bake, so members, relations and inference read the same
 instantiation; only `alias_of` differs. Published after every channel is
 installed; the union check reuses the cached `evaluate_alias_body`.
+
+## Type-parameter declared types through alias chains (tsr-2zk.16.2)
+
+`instantiateTypeWithAlias` over a type-parameter declared type answers the
+mapper's image, so `type V<in out T> = Unconstrained<T>` over
+`type Unconstrained<T> = T` declares `T` and `V<1>` is `1`.
+`type_parameter_body_index` follows a reference body to an alias whose own
+declared type is a parameter (bounded depth 8, exact arity, no defaults) and
+answers the own parameter written at that position. Callers (declared type,
+instantiation, annotation-reuse text) are unchanged; no new cache.
+Interface-bodied controls (`VarianceShape<1>`) stay references.
