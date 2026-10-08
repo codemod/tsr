@@ -332,15 +332,20 @@ impl Checker<'_, '_> {
                 normalized.push(element);
             }
         }
-        // `TupleNormalizer.add` retains optionality in the type even when a
-        // following required element removes the optional element flag.
+        // `TupleNormalizer.add` (checker.go:23440) stores every element as
+        // `addOptionalityEx(t, true, optional)`, so an optional element's type
+        // carries `undefined` under strictNullChecks whatever produced it.
+        if self.strict_null_checks {
+            for element in normalized.iter_mut().filter(|e| e.optional && !e.spread) {
+                element.r#type = self.get_optional_type(element.r#type, true);
+            }
+        }
+        // `normalize` then turns optional elements preceding the last required
+        // element into required ones. Only the flag changes; the type keeps the
+        // optionality `add` gave it.
         if let Some(last_required) = normalized.iter().rposition(|e| !e.spread && !e.optional) {
             for element in &mut normalized[..last_required] {
-                if element.optional {
-                    element.r#type =
-                        self.get_union_type(&[element.r#type, self.intrinsics.undefined]);
-                    element.optional = false;
-                }
+                element.optional = false;
             }
         }
         let first_rest = normalized
@@ -360,10 +365,8 @@ impl Checker<'_, '_> {
                 } else {
                     element.r#type
                 };
+                // An optional element's type already carries `add`'s optionality.
                 types.push(t);
-                if element.optional {
-                    types.push(self.intrinsics.undefined);
-                }
             }
             let union = self.get_union_type(&types);
             let Some(array) = self.global_type_symbol("Array") else {
