@@ -301,16 +301,145 @@ fails there. The parity branch took main's corrected test in `638b0ae7`
 `source_variable_initializer` tests. No assertion was changed here. `tsr-2zk.37`
 is a duplicate of `tsr-2i2` and can be closed.
 
+## 4. `tsr-2zk.1017`: where the slow cases spend their time
+
+All three cases are timed with the release `tsr` CLI at `1252ab9`,
+`--singleThreaded --noEmit`, using each case's own directives. They are
+profiled with callgrind on `--profile profiling` (symbols, same
+optimisation). Each profile is a snapshot (`callgrind_control -d`) of the
+first ~65–80 G Ir, which is 10 minutes under valgrind, so the percentages
+describe the steady state each case is stuck in, not a whole run. No checker
+file was edited.
+
+`recursiveConditionalCrash3` and `templateLiteralTypes1` have native
+`.types.diff` baselines, so both dumps skip them as known divergences
+(`CaseEntry::has_known_divergence`). Neither the zero-loss gate nor §1's
+guard sees their cost. Only `coverage` and a CLI sweep do.
+
+### `relationComplexityError`: 46 s, no TS2859 (native reports it twice)
+
+`f2`'s `x = y`, `T1 & T2` (a 4,096-literal template union distributed over
+`{a}|{b}`) against `T1 | null`. Of 65.3 G Ir, 97.2% is
+`check_assignment_operator → report_assignability_failure →
+report_relation_failure → relate_with_signature_diagnostic`, the reporting
+walk, with 14.8 M nested `is_related_to_with_flags` calls in the window. Self
+cost is spread out: `_int_free`/`malloc`/`free` 13.5%,
+`is_related_to_with_flags` 4.2%, `type_member_name_is_written` 2.1%. By
+inclusive cost, `is_pure_signature_type` is 54% and `get_index_infos_of_type`
+30%, both called once per pair.
+
+**Cause: the port has no relation-complexity budget.** Native
+`checkTypeRelatedToEx` (`relater.go:370`) gives each top-level check
+`relationCount = (16,000,000 − relation.size()) / 8`, decrements it for every
+result it caches (`:3163`, `:3174`), and sets `overflow` when it runs out
+(`:3086`). The check then reports TS2859 "Excessive complexity comparing
+types", or TS2321 "Excessive stack depth" for the depth arm (`:379`), and caches
+the pair as `ComplexityOverflow`. `crates/tsr-checker/src` has no
+`relationCount`, no `overflow`, and neither diagnostic. So the walk runs to
+completion, and the case is WRONG (missing both TS2859s) as well as slow. The
+per-pair `is_pure_signature_type` and `get_index_infos_of_type` costs are
+secondary: with the budget, native stops after ~2 M relations.
+
+### `recursiveConditionalCrash3`: does not finish in 400 s (native: fast, no errors)
+
+Of 79.1 G Ir, 98.8% is `check_type_argument_constraints →
+get_type_from_type_node → get_type_reference_type →
+get_instantiated_type_reference → evaluate_conditional_node →
+evaluate_conditional_alias → instantiate_type →
+evaluate_conditional_alias_reference → mapped_type_info`, recursively (the
+`'2` frames carry up to ~200× inclusive multiplicity). Under it:
+
+- `type_literal_key` (`declared.rs:2052`), 34.2% inclusive. Each call
+  flattens **every frame** of `alias_evaluation_bindings` into a fresh
+  `FxHashMap`, then sorts it into the key. The `HashMap<SymbolId, TypeId>`
+  insert/iterate code is about 35% of all self cost.
+- the same flattening in a closure of `get_type_from_type_node_worker`, 11.1%;
+- `written_type_text_flags`, 56.9% inclusive, and
+  `infer_conditional_parameters`, 44.7%.
+
+**Cause:** conditional aliases are evaluated by re-walking their type nodes
+under a growing stack of binding frames. Two things are missing. First, the
+recursion has no bound: native's `instantiateTypeWithAlias` stops at
+`instantiationDepth == 100 || instantiationCount >= 5,000,000`
+(`checker.go:22111`, TS2589). The port counts `instantiation_depth` only at
+`declared.rs:713` and `:7394`, not on the `evaluate_conditional_alias` road.
+Second, each step's cost is linear in the total number of bindings across all
+frames (`type_literal_key`), so deep evaluation is quadratic.
+
+### `templateLiteralTypes1`: 26 s (native: fast)
+
+Of 65.5 G Ir, 97.4% is `check_type_alias_circularity →
+get_declared_type_of_symbol → get_template_literal_type → get_union_type →
+union_type_worker → remove_string_literals_matched_by_template_literals →
+is_type_assignable_to → relate_with_signature_diagnostic`. That is
+**11.7 M top-level relations** in the window, each paying a full relater
+setup: `recursive_type_related_to` 49.8%, `is_pure_signature_type` 14.8%,
+allocator 27%.
+
+**Cause:** `remove_string_literals_matched_by_template_literals`
+(`unions.rs:1242`) decides "literal matched by template" with the general
+`is_type_assignable_to`. Native `removeStringLiteralsMatchedByTemplateLiterals`
+(`checker.go:25857`) calls `isTypeMatchedByTemplateLiteralOrStringMapping`
+(`:25874`), which goes to `isTypeMatchedByTemplateLiteralType` with
+`compareTypesAssignable`. That is the direct template matcher, which never
+opens a relation for a string literal source. The port already has a template
+matcher (`template_match.rs`, `template_literal_inferences` /
+`match_template_parts`). The fix is to route this arm through it as native
+does.
+
+### Also measured: `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`, 40 s
+
+From the same CLI, no diagnostics, which matches native. Of the first 13.6 G
+Ir, 92% is `relate_with_signature_diagnostic → … →
+properties_related_to_excluding → related_signatures →
+one_signature_related_to`, recursing about 15× (`'2` frames at 1,531%). At
+every level `inference_variances` (`variances.rs:26`, 88% inclusive) opens a
+nested top-level `relate_with_signature_diagnostic` for its marker
+comparisons, plus `infer_from_types_within`/`mentions_type_parameter_inner`
+(165% inclusive). The variance result is cached per symbol
+(`variance_cache`), so this is not a missing cache. The nesting is the
+suspect: each nested top-level relation starts with empty source/target
+stacks, so the outer walk's `isDeeplyNestedType` cut (r5-relater4 §1) cannot
+see the `Either<L, (a: A) => B>` expansion. This is a hypothesis for the
+relater lane, not established here.
+
 ## 5. Issues for the integrator to file
 
 `bd` cannot be installed in this container (`box-protocol.md` §1). These are
-written for the integrator to file:
+written for the integrator to file. None of them touches a harness file.
 
-- **The two `varianceProbling…` cases still take 45–62 s and 3,456 MiB at
-  `1252ab9`**, after `25a8f62` removed the unbounded growth. Native checks
-  them in well under a second. Same relater expansion as the one r5-relater3 hit with
-  its held discriminated-type port, and r5-relater4 §1: `Either<L, (a: A) => B>` through discriminated
-  decomposition. Checker lane (relater).
-- **`performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures`:
-  14–16 s and 1,470 MiB.** Checker lane.
-- `relationComplexityError` (46 s, 847 MiB) is `tsr-2zk.1017`.
+1. **Port the relation-complexity budget** (`relater.go:370`, `:3086`,
+   `:3163`, `:3174`): `relationCount`, `overflow`, TS2859/TS2321, and the
+   `ComplexityOverflow`/`StackDepthOverflow` cache marks. Case:
+   `relationComplexityError` (46 s, WRONG: both TS2859 missing). §4.
+   Checker relater lane. Refines `tsr-2zk.1017`.
+2. **Bound conditional-alias evaluation by `instantiationDepth`/`instantiationCount`**
+   (`checker.go:22111`, TS2589) on the `evaluate_conditional_alias` road. Also
+   make `type_literal_key` (`declared.rs:2052`) stop flattening every binding
+   frame per call: 34% of Ir. Case: `recursiveConditionalCrash3`, no result in
+   400 s. §4. Checker declared/alias lane.
+3. **`remove_string_literals_matched_by_template_literals` should use the
+   template matcher** (`isTypeMatchedByTemplateLiteralType`,
+   `checker.go:25876`), not `is_type_assignable_to`. Case:
+   `templateLiteralTypes1` (26 s; 11.7 M top-level relations). §4. Checker
+   unions/templates lane.
+4. **The two `varianceProbling…` cases still take 35–62 s and 3,456 MiB at
+   `1252ab9`**, after `25a8f62` removed the unbounded growth. Native checks
+   them in well under a second. Profile and hypothesis in §4: nested
+   top-level relations inside `inference_variances` hide the expansion from
+   `isDeeplyNestedType`. Checker relater lane.
+5. **`performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures`:
+   14–16 s and 1,470 MiB.** Not profiled here. Checker lane.
+6. **Gate coverage:** cases with a native `.types.diff` or `.errors.txt.diff`
+   are in neither dump, so their cost and their crashes are invisible to the
+   gate (`recursiveConditionalCrash3`, `templateLiteralTypes1`). A
+   timing-only pass over them (guarded, no verdict) would close that. Harness
+   lane, follow-on to `tsr-2zk.1041`.
+7. **`scripts/parity_gate.sh compare` should run `examples/slowcases.rs`** on
+   both dump pairs. `freeze` already stops on a dump's non-zero exit
+   (`set -e`). A two-line change in a file this box does not own. §1.
+8. **The types loss check misses lines that become unaligned.** A RIGHT line
+   whose expression text no longer aligns produces no row in the new dump.
+   `parity_gate.sh compare` counts it as `TYPE_MISSING`, but a hand-rolled
+   `join` drops it silently, and `scorepair` skips it. Noted while reading
+   `verdict.rs`; not changed here, because that is verdict semantics.
