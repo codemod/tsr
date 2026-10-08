@@ -1031,18 +1031,7 @@ impl Checker<'_, '_> {
             Expression::TypeOfExpression(node) => self.check_type_of_expression(node),
             // `checkVoidExpression` (`checker.go:10633`): the operand checks
             // for its own lines; the expression is `undefined`.
-            Expression::VoidExpression(node) => {
-                // §293: the answer does not consult the operand — upstream
-                // returns `undefinedType` whatever it is, exactly as the
-                // comparison arms return `boolean`. The error-propagation
-                // this arm carried was the per-site deviation §271/§291
-                // retired at their sites; `void e.toUpperCase()` on an
-                // `unknown` catch variable is `undefined`
-                // (`useUnknownInCatchVariables01`).
-                let Some(operand) = node.expression else { return self.intrinsics.error };
-                self.check_expression(operand);
-                self.intrinsics.undefined
-            }
+            Expression::VoidExpression(node) => self.check_void_expression(node),
             // `checkDeleteExpression` (`checker.go:10570`): the operand
             // checks; the expression is `boolean` — unconditionally, the
             // same §293 rule as `void`.
@@ -1211,6 +1200,27 @@ impl Checker<'_, '_> {
             return self.intrinsics.error;
         };
         self.get_declared_type_of_symbol(element)
+    }
+
+    /// Ported from `Checker.checkVoidExpression` (`checker.go:10840`): the
+    /// operand checks for its own lines, and the expression is
+    /// `undefinedWideningType` whatever the operand is.
+    ///
+    /// §293: the answer does not consult the operand, exactly as the
+    /// comparison arms return `boolean`. The error-propagation this arm once
+    /// carried was the per-site deviation §271/§291 retired at their sites;
+    /// `void e.toUpperCase()` on an `unknown` catch variable is `undefined`
+    /// (`useUnknownInCatchVariables01`).
+    ///
+    /// The widening flavour is observable outside strict mode: the object
+    /// literal `{ c: void 4 }` widens its member to `any` in an inferred
+    /// return type (`declInput`: `() => { a: bar; b: any; c: any; }`), as the
+    /// `undefined` keyword's member does. In strict mode the two are the same
+    /// type (`Intrinsics::undefined_widening`). r5-shapes §2.2.
+    fn check_void_expression(&mut self, node: &tsr_ast::VoidExpression<'_>) -> TypeId {
+        let Some(operand) = node.expression else { return self.intrinsics.error };
+        self.check_expression(operand);
+        self.intrinsics.undefined_widening
     }
 
     /// Ported from `Checker.checkTypeOfExpression` (`checker.go:10617`).

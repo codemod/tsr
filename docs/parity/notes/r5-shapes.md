@@ -214,3 +214,11 @@ wrong if the relater someday decided a union differently from its
 constituents. That cannot happen for a union *source* under
 `eachTypeRelatedToType`. The `never` arm would be wrong if a caller relied
 on `None` for a `never` object to mean "decline"; none lost a line.
+
+### 4.2 `void` answers `undefinedWideningType` (`expressions.rs`)
+
+`checkVoidExpression` (`checker.go:10840`) is now `check_void_expression`.
+The `check_expression` arm calls it, and the hub file gains only that
+function. Outside strict mode, `{ c: void 4 }` widens to `c: any` in an
+inferred return. In strict mode the two intrinsics are the same type, so
+nothing else moves. Cases converted: `declInput`, `declInput3`.
