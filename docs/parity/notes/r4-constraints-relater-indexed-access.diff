@@ -1,0 +1,31 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 03bbbfb..45a3e82 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3131,9 +3131,24 @@ impl Relater<'_, '_, '_> {
+         if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
+             && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
+         {
+-            return match self.checker.base_constraint_of_type(source) {
+-                Some(constraint) if constraint != source => {
++            if let Some(constraint) = self.checker.base_constraint_of_type(source) {
++                return if constraint != source {
+                     self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
++                } else {
++                    RelationResult::Unknown
++                };
++            }
++            // No base constraint: native relates getConstraintOfType, or
++            // `unknown` for a nil one (relater.go:3668).
++            return match self.checker.constraint_of_type(source) {
++                crate::constraints::ConstraintOfType::Constraint(constraint)
++                    if constraint != source =>
++                {
++                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
++                }
++                crate::constraints::ConstraintOfType::Nil => {
++                    let unknown = self.checker.intrinsics.unknown;
++                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
+                 }
+                 _ => RelationResult::Unknown,
+             };

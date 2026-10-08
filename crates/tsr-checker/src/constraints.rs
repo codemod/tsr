@@ -7,6 +7,37 @@ use crate::{
 use tsr_ast::{NodeId, SyntaxKind};
 use tsr_binder::{SymbolFlags, SymbolId};
 
+/// getResolvedBaseConstraint's three outcomes (checker.go:27447).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResolvedBaseConstraint {
+    Constraint(TypeId),
+    /// `noConstraintType`.
+    NoConstraint,
+    /// `circularConstraintType`.
+    Circular,
+}
+
+impl ResolvedBaseConstraint {
+    fn from_cached(cached: Option<TypeId>, error: TypeId) -> Self {
+        match cached {
+            Some(ty) if ty == error => Self::Circular,
+            Some(ty) => Self::Constraint(ty),
+            None => Self::NoConstraint,
+        }
+    }
+}
+
+/// An answer of `getConstraintOfType` (checker.go:17047) as far as this port
+/// can give it. `Nil` is native's decided nil, which the relater's
+/// source-variable arm reads as `unknown` (relater.go:3668); `Undecided`
+/// means a step on the way is not ported here, so no caller may act on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConstraintOfType {
+    Constraint(TypeId),
+    Nil,
+    Undecided,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct BaseConstraintKey {
     ty: TypeId,
@@ -43,12 +74,19 @@ impl Checker<'_, '_> {
                 let mut seen = vec![ty];
                 let mut current = ty;
                 loop {
-                    let constraint =
-                        if self.store.get(current).flags.contains(TypeFlags::TYPE_PARAMETER) {
-                            self.type_parameter_constraint(current)
-                        } else {
-                            self.base_constraint_of_type(current)
-                        };
+                    // getConstraintOfType; where this port cannot decide it,
+                    // the type parameter's constraint or base constraint.
+                    let constraint = match self.constraint_of_type(current) {
+                        ConstraintOfType::Constraint(constraint) => Some(constraint),
+                        ConstraintOfType::Nil => None,
+                        ConstraintOfType::Undecided => {
+                            if self.store.get(current).flags.contains(TypeFlags::TYPE_PARAMETER) {
+                                self.type_parameter_constraint(current)
+                            } else {
+                                self.base_constraint_of_type(current)
+                            }
+                        }
+                    };
                     let Some(constraint) = constraint else { break };
                     if self.is_error(constraint) || seen.contains(&constraint) {
                         break;
@@ -114,16 +152,34 @@ impl Checker<'_, '_> {
     /// include that mapper.
     ///
     /// `base_constraint_cache` (Checker-owned, whole-check lifetime) holds only
-    /// completed answers: `Some` constraint, or `None` for no constraint and
-    /// for a circular one (native `noConstraintType`/`circularConstraintType`,
-    /// both of which `getBaseConstraintOfType` answers as nil). In-progress
+    /// completed answers: `Some` constraint, `None` for no constraint
+    /// (`noConstraintType`), or `Some(error)` for a circular one
+    /// (`circularConstraintType`); `getBaseConstraintOfType` answers both
+    /// sentinels as nil, and [`Self::resolved_base_constraint`] keeps them
+    /// apart. In-progress
     /// work is the `ResolvedBaseConstraint` frame on the resolution stack: a
     /// re-entry fails every frame of the cycle, and a failed type parameter
     /// frame reports TS2313 at its constraint declaration.
     pub(crate) fn base_constraint_of_type(&mut self, ty: TypeId) -> Option<TypeId> {
+        match self.resolved_base_constraint(ty) {
+            ResolvedBaseConstraint::Constraint(constraint) => Some(constraint),
+            ResolvedBaseConstraint::NoConstraint | ResolvedBaseConstraint::Circular => None,
+        }
+    }
+
+    /// getResolvedBaseConstraint (checker.go:27447) with native's two
+    /// sentinels kept apart: `noConstraintType` and `circularConstraintType`.
+    /// `hasNonCircularBaseConstraint` (`:17066`) needs the difference, which
+    /// [`Self::base_constraint_of_type`] folds away as native's
+    /// `getBaseConstraintOfType` does.
+    ///
+    /// A circular answer is cached as `Some(error)`: no completed base
+    /// constraint is `error`, because [`Self::next_base_constraint`] maps an
+    /// error operand to no constraint. Only this function reads the cache.
+    fn resolved_base_constraint(&mut self, ty: TypeId) -> ResolvedBaseConstraint {
         use crate::resolution::{PropertyName, ResolutionTarget};
         if !self.has_base_constraint_shape(ty) || ty == self.intrinsics.error {
-            return None;
+            return ResolvedBaseConstraint::NoConstraint;
         }
         let bindings: rustc_hash::FxHashMap<_, _> = self
             .alias_evaluation_bindings
@@ -134,27 +190,28 @@ impl Checker<'_, '_> {
         bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
         let key = BaseConstraintKey { ty, bindings };
         if let Some(&cached) = self.base_constraint_cache.get(&key) {
-            return cached;
+            return ResolvedBaseConstraint::from_cached(cached, self.intrinsics.error);
         }
         // getResolvedBaseConstraint's final safety stop is 50 nested constraints.
         if self.base_constraint_depth >= 50 {
-            return None;
+            return ResolvedBaseConstraint::NoConstraint;
         }
         if !self.resolutions.push(
             ResolutionTarget::BaseConstraint(key.clone()),
             PropertyName::ResolvedBaseConstraint,
         ) {
-            return None;
+            return ResolvedBaseConstraint::Circular;
         }
         self.base_constraint_depth += 1;
         let mut result = self.compute_base_constraint(ty);
         self.base_constraint_depth -= 1;
-        if !self.resolutions.pop() {
+        let circular = !self.resolutions.pop();
+        if circular {
             self.report_circular_constraint(ty);
-            result = None;
+            result = Some(self.intrinsics.error);
         }
         self.base_constraint_cache.insert(key, result);
-        result
+        ResolvedBaseConstraint::from_cached(result, self.intrinsics.error)
     }
 
     /// getResolvedBaseConstraint's failed-pop report (checker.go:27447): a
@@ -190,6 +247,221 @@ impl Checker<'_, '_> {
                 [name],
             ),
         );
+    }
+
+    /// hasNonCircularBaseConstraint (checker.go:17066).
+    fn has_non_circular_base_constraint(&mut self, ty: TypeId) -> bool {
+        self.resolved_base_constraint(ty) != ResolvedBaseConstraint::Circular
+    }
+
+    /// getConstraintOfType (checker.go:17047).
+    ///
+    /// Ported arms: a type parameter (`getConstraintOfTypeParameter`), an
+    /// indexed access (`getConstraintOfIndexedAccess`), and the
+    /// `getBaseConstraintOfType` fallback. The conditional arm
+    /// (`getConstraintOfConditionalType`) needs the distributive constraint,
+    /// which is not ported here, so it is undecided. No cache: every step is
+    /// one of the checker's memoised queries (base constraints, deferred
+    /// indexed-access mints, type-parameter constraints).
+    pub(crate) fn constraint_of_type(&mut self, ty: TypeId) -> ConstraintOfType {
+        let flags = self.store.get(ty).flags;
+        if flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return self.constraint_of_type_parameter(ty);
+        }
+        if self.deferred_indexed_access_types.contains_key(&ty) {
+            return self.constraint_of_indexed_access(ty);
+        }
+        if flags.intersects(TypeFlags::INDEXED_ACCESS | TypeFlags::CONDITIONAL) {
+            return ConstraintOfType::Undecided;
+        }
+        // getBaseConstraintOfType (checker.go:27436): only these flags have a
+        // base constraint; every other type answers nil.
+        if self.has_base_constraint_shape(ty) {
+            return match self.base_constraint_of_type(ty) {
+                Some(constraint) => ConstraintOfType::Constraint(constraint),
+                None => ConstraintOfType::Undecided,
+            };
+        }
+        if flags.intersects(TypeFlags::INSTANTIABLE)
+            || self.unresolved_types.contains(&ty)
+            || self.type_reference_targets.contains_key(&ty)
+            || self.is_generic_tuple_constraint_candidate(ty)
+        {
+            return ConstraintOfType::Undecided;
+        }
+        ConstraintOfType::Nil
+    }
+
+    /// `isGenericTupleType` is in `getBaseConstraintOfType`'s gate; this port
+    /// does not compute a generic tuple's base constraint here.
+    fn is_generic_tuple_constraint_candidate(&self, ty: TypeId) -> bool {
+        self.variadic_tuple_elements.contains_key(&ty)
+    }
+
+    /// getConstraintOfTypeParameter (checker.go:17059): nil for a circular
+    /// constraint, else getConstraintFromTypeParameter. A declared parameter
+    /// with no constraint node is a decided nil; one whose written constraint
+    /// this port could not read is undecided (the relater's rule for the same
+    /// parameter, relater.go:3665).
+    fn constraint_of_type_parameter(&mut self, ty: TypeId) -> ConstraintOfType {
+        if !self.has_non_circular_base_constraint(ty) {
+            return ConstraintOfType::Nil;
+        }
+        if let Some(constraint) = self.type_parameter_constraint(ty) {
+            return ConstraintOfType::Constraint(constraint);
+        }
+        let Some(&symbol) = self.type_parameter_symbols.get(&ty) else {
+            return ConstraintOfType::Undecided;
+        };
+        if self.instantiated_type_parameters.contains_key(&ty) {
+            return ConstraintOfType::Undecided;
+        }
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let parameters: Vec<_> = declarations
+            .iter()
+            .filter_map(|&declaration| match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                _ => None,
+            })
+            .collect();
+        if !parameters.is_empty()
+            && parameters.iter().all(|parameter| parameter.constraint.is_none())
+        {
+            ConstraintOfType::Nil
+        } else {
+            ConstraintOfType::Undecided
+        }
+    }
+
+    /// getConstraintOfIndexedAccess (checker.go:17220).
+    fn constraint_of_indexed_access(&mut self, ty: TypeId) -> ConstraintOfType {
+        if !self.has_non_circular_base_constraint(ty) {
+            return ConstraintOfType::Nil;
+        }
+        self.constraint_from_indexed_access(ty)
+    }
+
+    /// getConstraintFromIndexedAccess (checker.go:17227): substitute a mapped
+    /// object's template, else index the object with the index's constraint,
+    /// else index the object's constraint with the index. The persistent
+    /// `IncludeUndefined` bit is the deferred access's own.
+    fn constraint_from_indexed_access(&mut self, ty: TypeId) -> ConstraintOfType {
+        let Some(&(object, index, include_undefined)) = self.deferred_indexed_access_types.get(&ty)
+        else {
+            return ConstraintOfType::Undecided;
+        };
+        // isMappedTypeGenericIndexedAccess/substituteIndexedMappedType: the
+        // port's mapped arm declines where native would not substitute.
+        if self.mapped_types.contains_key(&object) {
+            return match self.mapped_indexed_access_constraint(object, index) {
+                Some(substituted) => ConstraintOfType::Constraint(substituted),
+                None => ConstraintOfType::Undecided,
+            };
+        }
+        match self.simplified_type_or_constraint(index) {
+            ConstraintOfType::Undecided => return ConstraintOfType::Undecided,
+            ConstraintOfType::Constraint(constraint) if constraint != index => {
+                match self.indexed_access_type_or_undefined(object, constraint, include_undefined) {
+                    ConstraintOfType::Nil => {}
+                    answer => return answer,
+                }
+            }
+            _ => {}
+        }
+        match self.simplified_type_or_constraint(object) {
+            ConstraintOfType::Constraint(constraint) if constraint != object => {
+                self.indexed_access_type_or_undefined(constraint, index, include_undefined)
+            }
+            ConstraintOfType::Undecided => ConstraintOfType::Undecided,
+            _ => ConstraintOfType::Nil,
+        }
+    }
+
+    /// getSimplifiedTypeOrConstraint (checker.go:28033). getSimplifiedType
+    /// is the identity except on an indexed access or a conditional type;
+    /// where it could rewrite one (getSimplifiedIndexedAccessTypeWorker's
+    /// distributions, generic tuples and mapped objects, or any conditional)
+    /// this port does not simplify, so the answer is undecided.
+    fn simplified_type_or_constraint(&mut self, ty: TypeId) -> ConstraintOfType {
+        let flags = self.store.get(ty).flags;
+        if flags.contains(TypeFlags::CONDITIONAL) {
+            return ConstraintOfType::Undecided;
+        }
+        if flags.contains(TypeFlags::INDEXED_ACCESS) && !self.indexed_access_is_simplified(ty) {
+            return ConstraintOfType::Undecided;
+        }
+        self.constraint_of_type(ty)
+    }
+
+    /// Whether getSimplifiedIndexedAccessTypeWorker (checker.go) leaves this
+    /// deferred access unchanged: its operands are themselves unchanged, the
+    /// index is not a union, the object is not a union or intersection, a
+    /// tuple, or a mapped type.
+    fn indexed_access_is_simplified(&self, ty: TypeId) -> bool {
+        let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&ty) else {
+            return false;
+        };
+        let simple_operand = |id: TypeId| {
+            let flags = self.store.get(id).flags;
+            !flags.intersects(
+                TypeFlags::UNION
+                    | TypeFlags::INTERSECTION
+                    | TypeFlags::INDEXED_ACCESS
+                    | TypeFlags::CONDITIONAL,
+            )
+        };
+        simple_operand(object)
+            && simple_operand(index)
+            && !self.mapped_types.contains_key(&object)
+            && !self.tuple_element_lists.contains_key(&object)
+            && !self.variadic_tuple_elements.contains_key(&object)
+    }
+
+    /// getIndexedAccessTypeOrUndefined (checker.go:26935) with no access node,
+    /// as a constraint step. A resolved access is the constraint. A miss is
+    /// native's nil only where the port can prove the lookup has nothing to
+    /// find: see [`Self::indexed_access_miss_is_decided`].
+    fn indexed_access_type_or_undefined(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+        include_undefined: bool,
+    ) -> ConstraintOfType {
+        if let Some(value) = self.resolved_indexed_access_type(object, index, include_undefined) {
+            return ConstraintOfType::Constraint(value);
+        }
+        if self.indexed_access_miss_is_decided(object, index) {
+            ConstraintOfType::Nil
+        } else {
+            ConstraintOfType::Undecided
+        }
+    }
+
+    /// getPropertyTypeForIndexType (checker.go:27001) without an access node
+    /// returns nil when the key names no property and no index signature
+    /// applies. Proven here only for a non-generic `object`/`{}` intrinsic
+    /// object (getApparentType's `emptyObjectType`, which has no members or
+    /// index infos) indexed by `string`, `number` or `symbol`: those keys
+    /// have no property name, so the `Object` members that getPropertyOfType
+    /// would add for a literal key are never consulted. A union key returns
+    /// nil at its first missing constituent (getIndexedAccessTypeOrUndefined's
+    /// union loop), so one decided miss decides the union.
+    fn indexed_access_miss_is_decided(&self, object: TypeId, index: TypeId) -> bool {
+        let memberless = object == self.intrinsics.non_primitive
+            || object == self.intrinsics.empty_object
+            || object == self.intrinsics.unknown_empty_object;
+        if !memberless {
+            return false;
+        }
+        let non_literal_key = |id: TypeId| {
+            id == self.intrinsics.string
+                || id == self.intrinsics.number
+                || id == self.intrinsics.es_symbol
+        };
+        match &self.store.get(index).data {
+            TypeData::Union { types, .. } => types.iter().any(|&ty| non_literal_key(ty)),
+            _ => non_literal_key(index),
+        }
     }
 
     fn next_base_constraint(&mut self, ty: TypeId) -> Option<TypeId> {
