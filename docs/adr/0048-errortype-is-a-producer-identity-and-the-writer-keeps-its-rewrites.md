@@ -185,3 +185,18 @@ site, so each site now asks its own predicate:
 - the `IsTypeAny` sites call `is_type_any`.
 
 The measured outcome is in the notes.
+
+### 2026-10-08 — step 3 measured (r5-errorsplit3)
+
+- **Built:** the audit's predicates and the `errorType` propagation arms
+  (spreads, destructuring rests, element access). Against `a1e453dc`, with
+  zero transitions on both dumps, the credited gap fell from 14,715 to
+  4,710: the landed TS2563 flow diff's 10,000 element-access lines left the
+  gap.
+- **Held as a diff:** item 4's final-`else` producer, which needs consumer
+  arms in main's `members.rs` and `calls.rs`. With them it is lossless: the
+  credited gap goes 4,710 → 4,243, and wholesale narrowing would cost 5,105
+  RIGHT lines.
+- **Not narrowed:** every rewrite still prints RIGHT gap lines, so no
+  zero-cost narrowing exists yet. The residual and its producers are in
+  `docs/parity/notes/r5-errorsplit3.md` §8.
