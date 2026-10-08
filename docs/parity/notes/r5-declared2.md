@@ -271,3 +271,47 @@ The same pre-fill already exists for type references (`declared.rs` §136's
 fill, which uses `any` for the definite forward outcome) and for heritage
 bases (`signatures.rs`, which uses the gap and declines). Those two are
 unchanged here: neither moved a line in this run.
+
+## 4. `tsr-2zk.1059` — renamed ES import specifiers on the alias road
+
+`import { type "<A>" as typeA } from "./m"` with `export { type someType as
+"<A>" }` and `type someType = "someType"`: native's `const importTest: typeA`
+is `"someType"`, and the two literal initializers report TS2322
+(`arbitraryModuleNamespaceIdentifiers_module`, 10 module configurations). The
+port answered `any`.
+
+§491's alias road in `get_type_from_type_reference` admits only an
+*unrenamed* import specifier, because the target's declared type prints the
+target's own name and native prints the local one (the §158 per-site naming
+wall). That reason does not apply to a target whose declared type prints no
+name at all. resolveTypeReferenceName calls resolveAlias whatever the local
+name is, so the type is the same; only a name-carrying print would differ.
+
+**Port.** A renamed import specifier whose fully resolved target is a
+non-generic type alias declaring a primitive or literal type (not a union,
+not enum-like) answers that declared type in regular form. Two details:
+
+- resolveAlias follows the whole chain; this port's `resolve_alias` is one
+  hop, and the export here is itself an alias (`export { type someType as
+  "<A>" }`), so the road uses `resolve_alias_fully` (§501).
+- The §29 park (`deferred_since`) is honoured as in the unrenamed arm.
+
+Everything else a renamed specifier names (classes, interfaces, enums,
+aliased object types, generic aliases) keeps the old answer until printing
+can name the local alias (`tsr-e2u`).
+
+**Measured** unfiltered, against §2's commit (the §3 diff not applied):
+diagnostics RIGHT + EMPTY_RIGHT 10960 → 10970 (+10: every configuration of
+`arbitraryModuleNamespaceIdentifiers_module`), type lines 544738 → 544758
+(+20, two per configuration), zero losses on both dumps. Ir vs the base
+binary: generic-imports 342,895,758 → 342,856,319 (−0.01%); domain-model
+1,194,733,782 → 1,194,028,986 (−0.06%). Median child CPU: generic-imports
+0.982 (21 samples); domain-model 1.036 at 21 samples, 0.954 at 41;
+`diagnostics_match: true`. No unit test: the shape needs two files and a
+module resolution, which the corpus case exercises and the checker's unit
+harness does not.
+
+## 5. Not done: `.1034`(e)
+
+Operands for a conditional root whose only generic part is the extends type
+(r5-declared §1.4) were not attempted in this session.

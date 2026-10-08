@@ -1916,6 +1916,39 @@ impl<'a> Checker<'a, '_> {
             } else {
                 None
             };
+        // A RENAMED ES import specifier (`import { type "<A>" as typeA }`)
+        // resolves through the alias like any other: resolveTypeReferenceName
+        // calls resolveAlias whatever the local name is. Only the PRINTED name
+        // depends on the site (the §158 wall above), so a target whose
+        // declared type prints no name of its own (a non-generic type alias
+        // to a literal or primitive) answers that type here
+        // (`arbitraryModuleNamespaceIdentifiers_module`, `tsr-2zk.1059`).
+        if alias_road.is_none()
+            && node.type_arguments.is_empty()
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && matches!(
+                self.declaration_of_alias_symbol(symbol).and_then(|d| self.node_map.get(d)),
+                Some(Node::ImportSpecifier(specifier)) if specifier.property_name.is_some()
+            )
+        {
+            // resolveAlias follows the whole chain (`export { type T as "<A>" }`
+            // is itself an alias).
+            let merged = self.binder.merged_symbol(self.resolve_alias_fully(symbol));
+            if self.binder.symbols().get(merged).flags.contains(SymbolFlags::TYPE_ALIAS)
+                && self.local_type_parameters_of(merged).is_empty()
+                && !self.resolutions.deferred_since(merged, PropertyName::DeclaredType)
+            {
+                let declared = self.get_declared_type_of_symbol(merged);
+                let regular = self.get_regular_type_of_literal_type(declared);
+                let flags = self.store.get(regular).flags;
+                if flags.intersects(TypeFlags::PRIMITIVE)
+                    && !flags.intersects(TypeFlags::UNION | TypeFlags::ENUM_LIKE)
+                    && !self.is_error(regular)
+                {
+                    return regular;
+                }
+            }
+        }
         if let Some(required_name) = alias_road {
             if let Some(target) = self.resolve_alias(symbol) {
                 let merged = self.binder.merged_symbol(target);
