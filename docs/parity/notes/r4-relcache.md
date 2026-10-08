@@ -43,6 +43,22 @@ calls; 1.28 M structured-walk entries, 1.03 M completed hits, 66 k `Unknown`
 structured results. The call volume comes from narrowing callers
 (`map_narrowing_type`, flow), which this lane does not own.
 
+### Where `jsTyping`'s remaining time goes (after commit 2)
+
+- 30 all-thread `gdb` samples: relation frames in 10 of 16 checker stacks,
+  every one inside `recursive_type_related_to`; callers are narrowing
+  (`map_narrowing_type`/`get_flow_type_of_reference`, 7-8) and call
+  resolution (`check_call_expression`, 9; `choose_overload`, 4); member
+  reads under the walk (`get_property_of_type_ex` 9, `heritage_entity_symbol`
+  4, `resolve_name` 5).
+- `reasons` counters (temporary probe, f3fad58): at 8.0 M top-level calls,
+  3,230 top-level walks answered `Unknown`; site notes: no members table
+  26,566, unfollowable base 232, unported flag 810. Uncacheable `Unknown`
+  re-walks are therefore not the main remaining cost.
+- What is left is call volume (8.8 M top-level relations, a flow/narrowing
+  question) and the cost of first-time structured walks (member
+  resolution and relation arms). Neither is owned by this lane.
+
 ## Left in the lane
 
 - Generic-reference key equivalence (native `'g'` keys and the
