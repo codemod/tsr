@@ -1,0 +1,15 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 03bbbfb..6e47738 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3135,6 +3135,10 @@ impl Relater<'_, '_, '_> {
+                 Some(constraint) if constraint != source => {
+                     self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+                 }
++                None => {
++                    let unknown = self.checker.intrinsics.unknown;
++                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
++                }
+                 _ => RelationResult::Unknown,
+             };
+         }
