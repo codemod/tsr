@@ -1210,6 +1210,14 @@ impl Relater<'_, '_, '_> {
         if source == target {
             return RelationResult::Related;
         }
+        // getNormalizedType's getSimplifiedIndexedAccessType (checker.go:27915),
+        // reading on the source side and writing on the target side. The
+        // simplified pair is normalized again, as native's loop does.
+        let simplified_source = self.simplified_indexed_access(source, false);
+        let simplified_target = self.simplified_indexed_access(target, true);
+        if simplified_source != source || simplified_target != target {
+            return self.is_related_to_with_flags(simplified_source, simplified_target, flags);
+        }
         // getNormalizedType reduces source intersections before the simple
         // relation (relater.go:2625, checker.go:28041). Apparent constituents
         // expose generic constraints to the existing whole-never certification;
@@ -1984,6 +1992,153 @@ impl Relater<'_, '_, '_> {
             return RelationResult::NotRelated;
         }
         RelationResult::Unknown
+    }
+
+    /// getNormalizedType's `getSimplifiedIndexedAccessType` (`checker.go:27915`)
+    /// for its generic-mapped-object arm (`:27975`), applied to one side of a
+    /// relation entry. `{ [P in K]: E }[X]` becomes `E[P := X]`, plus
+    /// `undefined` when the mapped type, or its modifiers type, has `?`
+    /// (`substituteIndexedMappedType`, `checker.go:29291`).
+    ///
+    /// Ported with it, because they feed that arm: the object is simplified
+    /// first (a nested `{ [P in T]: { [Q in U]: X } }[T][U]`), a union index
+    /// distributes over a mapped object (`distributeObjectOverIndexType`:
+    /// a union when reading, an intersection when writing), the substituted
+    /// result's indexed-access constituents are simplified in turn (`mapType`),
+    /// and the input is removed from a union result (`removeType`).
+    ///
+    /// Stated divergences, each leaving the indexed access as written:
+    /// - the other arms are not ported: a union index over a non-mapped
+    ///   object, `(T | U)[K]`/`(T & U)[K]`, and a generic tuple read by a
+    ///   number. Native's simplification there changes what the pair relates
+    ///   through, not whether this arm applies.
+    /// - a substituted conditional constituent is not simplified here; the
+    ///   gate's `simplified_conditional` meets it when that constituent is
+    ///   related.
+    /// - an `as` clause leaves the type unsimplified, as native's remapping
+    ///   kind does; the filtering kind is the next port (`tsr-2zk.1035`).
+    /// - a step this port cannot compute (an unclassifiable mapped type, a
+    ///   failed instantiation, unknown modifiers, 32 nested levels) leaves
+    ///   the whole side unsimplified, and the indexed-access pair arm keeps
+    ///   its decline for a generic mapped object.
+    ///
+    /// No cache: native memoises in `cachedTypes`; here the substitution is
+    /// an `instantiate_type` of a template under one binding, reached only
+    /// for an indexed access whose object is a mapped type. Ir is measured
+    /// in `docs/parity/notes/r5-relater6.md` §1.
+    fn simplified_indexed_access(&mut self, id: TypeId, writing: bool) -> TypeId {
+        if !self.checker.type_of(id).flags.contains(TypeFlags::INDEXED_ACCESS) {
+            return id;
+        }
+        self.simplified_indexed_access_worker(id, writing, 0).unwrap_or(id)
+    }
+
+    /// The worker of [`Self::simplified_indexed_access`]: `None` when a step
+    /// cannot be computed, so the caller keeps the unsimplified type.
+    fn simplified_indexed_access_worker(
+        &mut self,
+        id: TypeId,
+        writing: bool,
+        depth: u32,
+    ) -> Option<TypeId> {
+        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
+            return Some(id);
+        };
+        if depth == 32 {
+            return None;
+        }
+        let object = self.simplified_indexed_access_worker(object, writing, depth + 1)?;
+        self.checker.ensure_mapped_type_info(object);
+        let Some(info) = self.checker.mapped_types.get(&object).cloned() else {
+            return Some(id);
+        };
+        if info.name_type.is_some() {
+            return Some(id);
+        }
+        match self.is_generic_mapped_type(object) {
+            Some(true) => {}
+            Some(false) => return Some(id),
+            None => return None,
+        }
+        let simplified_index = self.simplified_indexed_access_worker(index, writing, depth + 1)?;
+        let result = match self.union_constituents(simplified_index) {
+            Some(parts) => {
+                let mut types = Vec::with_capacity(parts.len());
+                for part in parts {
+                    types.push(self.substitute_indexed_mapped_type(
+                        &info,
+                        part,
+                        writing,
+                        depth + 1,
+                    )?);
+                }
+                if writing {
+                    self.checker.get_intersection_type(&types, None)
+                } else {
+                    self.checker.get_union_type(&types)
+                }
+            }
+            None => self.substitute_indexed_mapped_type(&info, index, writing, depth + 1)?,
+        };
+        // removeType(result, t).
+        if result == id {
+            return Some(id);
+        }
+        Some(match self.union_constituents(result) {
+            Some(parts) if parts.contains(&id) => {
+                let kept: Vec<TypeId> = parts.into_iter().filter(|&part| part != id).collect();
+                self.checker.get_union_type(&kept)
+            }
+            _ => result,
+        })
+    }
+
+    /// `substituteIndexedMappedType` (`checker.go:29291`) for a generic mapped
+    /// type, followed by `mapType(.., getSimplifiedType)` over the result's
+    /// indexed-access constituents. `isGenericType(objectType)` holds for a
+    /// generic mapped type, so optionality is the type's own `?` or its
+    /// modifiers type's combined optionality.
+    fn substitute_indexed_mapped_type(
+        &mut self,
+        info: &crate::mapped::MappedTypeInfo,
+        index: TypeId,
+        writing: bool,
+        depth: u32,
+    ) -> Option<TypeId> {
+        let template = self.checker.mapped_template_type(info);
+        let instantiated = self.checker.instantiate_type(
+            template,
+            &[(info.parameter, index)],
+            &[info.parameter],
+            &[],
+        );
+        if instantiated == self.checker.intrinsics.error {
+            return None;
+        }
+        let optional = info.optionality == Some(true)
+            || match info.modifiers_source {
+                Some(modifiers) => self.combined_mapped_optionality(modifiers, 0)? > 0,
+                None if info.keyof_constraint => return None,
+                None => false,
+            };
+        let result = if optional && self.checker.strict_null_checks {
+            self.checker.get_optional_type(instantiated, true)
+        } else {
+            instantiated
+        };
+        match self.union_constituents(result) {
+            Some(parts) => {
+                let mut types = Vec::with_capacity(parts.len());
+                let mut changed = false;
+                for part in parts {
+                    let simplified = self.simplified_indexed_access_worker(part, writing, depth)?;
+                    changed |= simplified != part;
+                    types.push(simplified);
+                }
+                Some(if changed { self.checker.get_union_type(&types) } else { result })
+            }
+            None => self.simplified_indexed_access_worker(result, writing, depth),
+        }
     }
 
     /// Whether `id` is (or has a constituent that is) the iteration
@@ -3652,9 +3807,11 @@ impl Relater<'_, '_, '_> {
             // (checker.go:27965) substitutes `{ [P in K]: E }[X]` to `E[P :=
             // X]` (plus `undefined` for a `?` mapped type) before any relation,
             // so native never relates such a pair as two indexed accesses.
-            // The substitution is not ported (the census's IAM bucket); the
-            // unsimplified pair is no proof (`mappedTypes5`'s
-            // `Partial<T>[P] -> T[P] | undefined`).
+            // The gate ports that substitution (`simplified_indexed_access`);
+            // a generic mapped object still here is one it declined: an `as`
+            // clause (whose filtering kind native does substitute), or a step
+            // it could not compute. The unsimplified pair is no proof
+            // (`mappedTypes5`'s `Partial<T>[P] -> T[P] | undefined`).
             if self.is_generic_mapped_type(source_object) != Some(false)
                 || self.is_generic_mapped_type(target_object) != Some(false)
             {
