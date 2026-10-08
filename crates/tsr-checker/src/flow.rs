@@ -411,22 +411,17 @@ impl Checker<'_, '_> {
             return self.intrinsics.error;
         }
         // §14: a reference inside a container whose analysis tripped the
-        // too-large bail answers upstream's give-up value — `errorType`,
-        // WHICH UPSTREAM PRINTS AS `any`. The `any` intrinsic here is that
-        // observable, not a computed claim; ADR-0038's `error` printing is
-        // for THIS port's failures, and this is upstream's own (TS2563).
+        // too-large bail answers upstream's give-up value — `errorType`
+        // (`flow.go:82`, `flowAnalysisDisabled`), upstream's own identity
+        // (ADR-0048), not this port's gap. The baseline writer prints it
+        // `any` under `hadErrorBaseline` and `error` through the
+        // intrinsic-name fast path otherwise (`types_producer::render`), so
+        // §14.1's TS/JS split is the writer's, not this function's.
         if !self.flow_disabled_containers.is_empty() {
             let mut ancestor = Some(reference);
             while let Some(id) = ancestor {
                 if self.flow_disabled_containers.contains(&id) {
-                    // §14.1: in a JS file the give-up value reaches the
-                    // baseline printer VERBATIM (` : error`, the §35
-                    // shape); the `any` rendering is the TS half only.
-                    return if self.in_js_file(reference) {
-                        self.intrinsics.error
-                    } else {
-                        self.intrinsics.any
-                    };
+                    return self.intrinsics.native_error;
                 }
                 ancestor = self.nodes.parent(id);
             }
@@ -776,19 +771,14 @@ impl Checker<'_, '_> {
             // Upstream disables flow analysis for the rest of the containing
             // function or module body and reports TS2563 (`flow.go:118`); the
             // diagnostic is not ported (`bd tsr-4sc`), the state change and
-            // the answer are. The answer is upstream's `errorType` — printed
-            // `any` there, so the `any` intrinsic IS the observable
+            // the answer are. The answer is upstream's `errorType`
             // (`checker-notes-narrow.md` §14).
             if let Some(container) = self.function_or_source_file_ancestor(state.reference) {
                 self.flow_disabled_containers.insert(container);
             }
-            // §14.1: the JS half prints `error` verbatim.
-            let t = if self.in_js_file(state.reference) {
-                self.intrinsics.error
-            } else {
-                self.intrinsics.any
-            };
-            return FlowType { t, incomplete: false };
+            // ADR-0048: `FlowType{t: c.errorType}` (`flow.go:125`),
+            // upstream's own identity; §14.1's JS split is the writer's.
+            return FlowType { t: self.intrinsics.native_error, incomplete: false };
         }
         state.depth += 1;
 
@@ -983,7 +973,8 @@ impl Checker<'_, '_> {
                         {
                             self.flow_disabled_containers.insert(container);
                         }
-                        break FlowType { t: self.intrinsics.any, incomplete: false };
+                        // The same depth bail (`flow.go:118-125`): ADR-0048.
+                        break FlowType { t: self.intrinsics.native_error, incomplete: false };
                     }
                 }
                 // An unrelated array mutation contributes no type change;
