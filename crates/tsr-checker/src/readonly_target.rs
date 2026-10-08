@@ -2036,12 +2036,10 @@ impl Checker<'_, '_> {
     }
 
     /// `c.emitStandardClassFields` (`GetEmitStandardClassFields`): the flag
-    /// not `false` **and** `target >= ES2022`. `standard_class_fields` is
-    /// `GetUseDefineForClassFields`, which differs only when the flag is set
-    /// on an older target; that combination is not distinguishable from here
-    /// (the checker keeps no target), so this reads the stored flag.
+    /// not `false` **and** `target >= ES2022` — `Checker::get_emit_standard_class_fields`.
+    /// `docs/parity/notes/r5-classfields.md` §7.
     fn emit_standard_class_fields(&self) -> bool {
-        self.standard_class_fields
+        self.get_emit_standard_class_fields()
     }
 
     /// `ast.FindAncestor(node, ast.IsBindingElement)`, including `node`.
