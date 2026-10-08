@@ -54,7 +54,43 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Selected metadata/heritage continuation, frozen main `27ec35b7` / native `5b1047d`:
+Production template-alias ownership integration, frozen main `835ef559` plus
+the two Rust overlays in the [evidence](docs/architecture/checker-template-alias-owner.json):
+the existing evaluator and active set retain actual selected owners, with
+shared syntax-parameter binding frames restored after evaluation. Workspace
+checks pass 3,243 tests/zero failures/19 existing ignores before test-module
+relocation; the final library passes 197 tests. All 552,533 eligible type rows
+and 12,238 unfiltered diagnostic cases are byte identical to the qualified
+baseline. A compiling origin-substitution mutant fails; four repeated fresh
+native owner controls confirm separate alias links with shared completed
+literal identity. Strict Clippy has the same seven inherited errors as the
+corrected characterization baseline; fmt passes. The wider private draft has
+60 type mismatches, down from 69, and no remaining borrow/move errors. Its full
+factory/mapper/natural alias controls remain unexecuted. No speed or coverage
+gain is claimed; all six active goal tickets and the <=0.50 target remain open.
+
+Production interface-signature ownership integration, frozen main `f1ba6b6b`
+plus the two source overlays in the
+[evidence](docs/architecture/checker-interface-signature-owner.json), native `5b1047d`:
+the existing signature store and declaration walk retain the actual selected
+owner, preserving Program merge redirects at the bound entry. Checker tests
+pass 1,556/zero failures (three existing ignores); workspace tests pass
+3,241/zero failures (19 existing ignores). All 552,533 current type
+rows and 12,238 unfiltered diagnostic cases are byte identical to baseline.
+A compiling origin-substitution mutant fails the strengthened clone control.
+Fresh native controls require a complete private `__call`/`__new` member slot;
+owner declarations alone do not publish signatures. This is an ownership
+prerequisite, not complete native member publication. Local review found and
+repaired a dropped cross-file merge redirect, with a compiled red/green test.
+Strict workspace Clippy reproduces five inherited checker library/test errors
+and two inherited dts-test errors on baseline and candidate; fmt passes.
+The private reader passes 209 library tests; the full owner draft still has
+69 type mismatches and cannot run its complete factory/mapper/alias controls.
+No measured speed or coverage improvement; the <=0.50 complete-work target
+remains unmet/unverified.
+[Contract](docs/architecture/checker-symbol-completion-contract.md#interface-signature-owner-integration).
+
+Earlier selected metadata/heritage continuation, frozen main `27ec35b7` / native `5b1047d`:
 actual owner views now supply flags, declarations, reference names and raw
 member/export presence. Generic-alias, narrowing-completeness and heritage walks
 retain selected identities. The reader passes all 209 library tests; its
@@ -3665,6 +3701,14 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Owner continuation at `835ef559`: finish the general reference factory and
+selected alias, member, naming, index and variance consumers from the 60
+compiler mismatches retained in [the template-owner evidence](docs/architecture/checker-template-alias-owner.json).
+Then execute the full factory/mapper and natural alias controls before broader
+integration. The template helper is a shipped ownership prerequisite, not
+completion of `tsr-1yb.7.7.3`, `tsr-1yb.33.1` or the performance goal.
+
+
 Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
 - **Error contract, step 2** (`tsr-2zk.944`). Switch the deterministic
   producers to `native_error` (checkIdentifier's unresolved arms, flow TS2563),
@@ -3684,7 +3728,18 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
-Continue `tsr-1yb.7.7.2.1` from frozen `27ec35b7`: consume
+Continue `tsr-1yb.7.7.2.1` from frozen `f1ba6b6b` plus the selected interface
+signature overlays: its production store/walk is qualified, and the lossless
+private two-file deltas continue the prior metadata/heritage draft. The full
+draft remains uncompiled at 69 `E0308` errors. Finish actual symbol/type/value,
+general alias/reference factories, member/static/index and naming dispatch,
+then run the full factory/mapper/natural alias controls. Native interface
+signature member slots and provisional/reset publication remain under
+`tsr-1yb.33.1`; no declaration-only projection qualifies their completion.
+All six performance goal tickets remain unfinished, including actual expensive
+worker reduction and equivalent complete-work median <=0.50 verification.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `27ec35b7`: consume
 `selected_metadata_heritage_continuation` on the preceding owner draft. Remaining
 70 errors are type-domain mismatches: finish actual symbol/type/value, general
 alias/reference factory, member/static/index/signature and naming dispatch.
@@ -7373,6 +7428,30 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Owner continuation at `835ef559`: the compiling origin-substitution mutant
+is refused by one failing selected-template-owner control (one bound control
+still passes). The full owner draft is not qualified for production: 60
+`E0308` errors prevent its full factory/mapper/natural alias controls. Both
+failures are retained in [the evidence](docs/architecture/checker-template-alias-owner.json);
+no optimization or coverage gain follows.
+
+
+At frozen `f1ba6b6b` plus the selected-signature overlays, source substitution
+compiles but fails the private clone control (`Some(0)` versus `Some(1)`).
+The initial bound wrapper also omitted the Program merge redirect: a two-file
+interface test compiled and failed `Some(1)` versus `Some(2)`. Restoring the
+redirect passes the control; this failure is retained in the evidence.
+Native owner-declaration-only setup returns `[1,1,1,1,1]`, not the expected
+`[1,2,1,2,1]`; only a complete private signature member slot qualifies that
+direct control. Neither setup nor the 209 private reader passes proves the
+full owner draft: it still has 69 compiler errors. Initial zero-case diagnostic
+scans with `TSR_FILTER=` are invalid; corrected unfiltered runs cover 12,238
+cases. Final strict workspace Clippy remains red on five inherited checker
+library/test errors and two dts-test errors, reproduced on baseline. The earlier
+five-error workspace result did not reach those two test errors; the final
+seven-error comparison supersedes it. No wall/CPU/allocation benefit measured.
+[Evidence](docs/architecture/checker-interface-signature-owner.json).
 
 Frozen `27ec35b7`'s 209 reader passes and distinct private-base assertions are
 refused as full-owner, native-alias, corpus or speed completion. Full compilation
@@ -14300,6 +14379,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 
 ## 7. Session log
 
+| 2026-10-08 | `f1ba6b6b` plus recorded two-file overlays / native `5b1047d` | — | — | **Production interface-signature owner prerequisite, tsr-1yb.7.7.2.1.** Existing result store/walk selects actual owner; checker 1,556 and workspace 3,241 passes, three/19 existing ignores. Current 552,533 type rows and 12,238 unfiltered diagnostic cases byte identical, zero RIGHT losses. Compiling origin mutant fails. Local review repairs dropped bound merge redirect with a compiled red/green cross-file test. Four fresh native controls repeat exactly only after complete private signature slot setup; declaration-only/native compile failures retained. Formatting passes; strict workspace Clippy reproduces five inherited checker library/test errors plus two dts-test errors. Private reader 209 passes, full owner draft uncompiled at 69 mismatches. No complete native member publication, natural alias/factory completion or speed gain. [Evidence](docs/architecture/checker-interface-signature-owner.json). |
+
 | 2026-10-08 | `27ec35b7` / native `5b1047d` | — | — | **Private metadata/heritage consumer progress, tsr-1yb.7.7.2.1.** Actual metadata/reference readers and generic-alias/narrowing/heritage walks retain selected owners. Reader 209 library passes, including same-declaration private-base distinction; parsed module-owner red fails. Full 70 type mismatches/19 files, down from 114; full factory/mapper controls unexecuted. Strict Clippy six library/five test errors after two lint repairs; both fmt checks pass. Stable 1,053 inputs each; canonical runtime plus inherited sources/deltas reconstructs all 684 Rust files per slice, new three/24-file deltas exact. No fresh native, main runtime, corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `55dd4941` / native `5b1047d` | — | — | **Private alias/relation owner progress, tsr-1yb.7.7.2.1.** Existing alias-body cache and six workers retain selected handles; actual relation/recursion identities, raw keyof, array-base and private-name walks migrated. Reader 209 library passes; separate parsed owner red fails. Full draft 114 errors across 25 files (108 mismatches/six moves); factory/mapper controls unexecuted. Strict Clippy six library/five test errors after new wrapper lint repair; both fmt checks pass. Stable 1,053 inputs each; exact three/35-file source delta replay on canonical inherited sources. No fresh native, runtime, corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
@@ -15321,6 +15402,8 @@ holds only the numbers.
 | 2026-10-06 | `4cfe2340` (measurement source) | — | — | **Intersection-clone attribution / restored rejection, tsr-1yb.16.3.6/.7:** 56 output-preserving probe controls and36 ordinary first-round public children; Next.js clone traffic2.20M/1.03M allocations,176.69MB/70.37MB. Default public gain fails; single RSS1.050321 exceeds1.05. Baseline corpora only; all665 source files/3binaries restored and ordinary CLI rebuild matches. Duplicate borrowed-name task5 closed; follow-up8 attributes anonymous prelookup copying. No runtime optimization or native ratio proof. [Evidence](docs/architecture/checker-intersection-clone.md). |
 | 2026-10-06 | `b3cd078d` (PR #5) | — | — | **Parity round 2 (tsr-2zk) merged:** diagnostics RIGHT 3,998 → 4,160 and type lines 467,631 → 469,110 against `main` at `cbca2803`; one type line lost (`tsr-2zk.901`); 4 `@pretty` verdicts are oracle changes. Release wall unchanged across #4/#5 on the bench projects; `jsTyping`/`typingsInstallerCore` hang predates both (`tsr-2zk.902`). Unmerged box work listed in §1. |
 | 2026-10-08 | `405b55ce` / native `5b1047d` | — | — | **Parity round 4 (tsr-2zk) wrap-up:** 30+ cloud lanes integrated through zero-loss gates. Plain checker_types 8,075 → 8,176 cases, plain type lines 469,946 → 470,766 RIGHT, diagnostics 4,232 → 4,394. Configured variants are now judged (ADR-0047). Upstream errorType is split from the gap (r4-errorsplit step 1). The relation-cache hang is fixed (jsTyping finishes). vs tsgo wall 0.90 (domain-model) / 1.22 (generic-imports); 0.50 not met. Main merged with four duplicated ports resolved (`docs/parity/notes/main-merge-r4.md`). Beads: 25 closed, 37 claims released. [Round record](docs/parity/round4.md). |
+
+| 2026-10-08 | `835ef559` plus two owned Rust overlays / native `5b1047d` | — | — | **Template alias selected-owner prerequisite.** Existing evaluator/active set migrated to actual SymbolRef; captured syntax-parameter frames preserved. Two focused controls and final 197 library tests pass; compiling origin mutant fails. Four cold/checked-first native owner rows repeat identically with distinct alias links and shared literal identity. Workspace 3,243 passes/19 existing ignores before test relocation; strict Clippy reproduces seven inherited errors, fmt passes. All 552,533 eligible type rows/12,238 diagnostic cases byte identical. Wider private owner draft moves from 69 mismatches through 60 mismatches plus 13 borrow/move errors to 60 mismatches only; exact deltas and diagnostics retained. Full factory/mapper/natural alias controls unexecuted; six goal tickets remain unfinished, no speed/coverage claim. [Evidence](docs/architecture/checker-template-alias-owner.json). |
 
 ## 8. Updating this file
 

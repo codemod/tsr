@@ -163,8 +163,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) base_symbols: FxHashMap<(SymbolId, bool), Vec<SymbolId>>,
     /// Completed declared call/construct signatures of an interface or type
     /// literal symbol, owned by `Checker::signature_candidates_of_interface_symbol`.
-    pub(crate) interface_signatures:
-        FxHashMap<(SymbolId, crate::signatures::SignatureKind), Vec<crate::signatures::Signature>>,
+    pub(crate) interface_signatures: FxHashMap<
+        (crate::symbol_access::SymbolRef, crate::signatures::SignatureKind),
+        Vec<crate::signatures::Signature>,
+    >,
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
@@ -1045,7 +1047,7 @@ pub struct Checker<'a, 'n> {
     /// self reference such as `Spec<T[P]>` inside `Spec<T>` still has them.
     pub(crate) deferred_mapped_aliases: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
-    pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<crate::symbol_access::SymbolRef>,
     pub(crate) template_literal_parts: FxHashMap<TypeId, crate::templates::TemplateLiteralParts>,
     pub(crate) string_mapping_types: FxHashMap<TypeId, (SymbolId, TypeId)>,
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
