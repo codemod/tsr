@@ -1230,7 +1230,8 @@ impl Checker<'_, '_> {
         Some(types.yield_type.unwrap_or(self.intrinsics.any))
     }
 
-    /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s iteration check.
+    /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s diagnostics: the
+    /// operand's nullability, then its iteration check.
     pub(crate) fn check_for_of_iteration(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
@@ -1246,8 +1247,10 @@ impl Checker<'_, '_> {
         } else {
             IterationUse::FOR_OF
         };
+        // checkNonNullExpression (`checker.go:17680`) with its reporter:
+        // `for (x of undefined)` is TS18050, `for (x of maybe)` TS18048.
         let checked = self.check_expression(expression);
-        let input = self.check_non_null_type(checked);
+        let input = self.check_non_null_type_reporting(checked, expression);
         self.check_iterated_type_or_element_type(use_, input, expression_id);
     }
 }
