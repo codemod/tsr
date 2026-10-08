@@ -4199,6 +4199,15 @@ impl Checker<'_, '_> {
             && !self.in_js_file(node)
             && !self.file_has_parse_errors
             && !self.reference_has_non_arrow_function_container(node)
+            // Outside a function `resolveName` is the ordinary walk, so a
+            // declared `var arguments` resolves (`emitArrowFunctionWhenUsingArguments03`).
+            && self
+                .resolve_name_with_export_alias(
+                    node,
+                    text,
+                    SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+                )
+                .is_none()
         {
             if self.check_and_report_error_for_missing_prefix(node, text) {
                 return;
