@@ -1,0 +1,22 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 612fb4e..e49f5e5 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -6749,7 +6749,7 @@ impl<'a> Checker<'a, '_> {
+                     let per_name = if identifier_like {
+                         format!("{name}.{member_name}")
+                     } else {
+-                        format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
++                        format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
+                     };
+                     let (flags, data) = literal_data(per_name);
+                     let fresh = self.store.intern_literal(flags, data, true);
+@@ -6764,7 +6764,7 @@ impl<'a> Checker<'a, '_> {
+                 let member_text = if identifier_like {
+                     format!("{name}.{member_name}")
+                 } else {
+-                    format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
++                    format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
+                 };
+                 // Value-keyed interning: a later member with a seen value
+                 // REUSES the first member's type (`B = A` prints `E9.A`);

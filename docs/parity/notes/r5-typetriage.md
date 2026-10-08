@@ -433,3 +433,235 @@ Results are recorded in section 8 as they land.
   listed individually.
 - **"Cases solely blocked" understates shared roots** (§2). A routing
   decision should also read `dominant_cause` in `cases.tsv`.
+
+## 8. Fixes landed by this lane
+
+### 8.1 Spread members copied from a `Function` symbol print in method form
+
+**Forcing constraint.** `getSpreadSymbol` (`checker.go:13585`) returns the
+property symbol itself unless readonly-ness changes or the property is a
+set-only accessor. A spread of a namespace or module object therefore keeps
+each exported function's `Function` flag. `addPropertyToElementList`
+(`nodebuilderimpl.go:2581`) prints a property in method form when all of
+these hold:
+- its symbol is `Function | Method`;
+- its type has no own properties (`getPropertiesOfObjectType`);
+- it is not readonly.
+
+The port set `AnonymousProperty::method` from `METHOD` alone, so it printed
+`exportedDirectly: () => void` where native prints `exportedDirectly(): void`.
+
+**Change (`spreads.rs`).**
+- `spread_properties` sets `method` for `METHOD | FUNCTION` origins.
+- `anonymous_property_members` falls back to the property form when a
+  `Function` origin's value has own properties: a function merged with a
+  namespace, or one with expando members.
+
+**Alternative taken seriously, and refused.** The first version asked the
+property-table question for every method-form property, which is what
+native does. That changed the overloaded `Array<T>` methods in three
+WRONG lines from `concat(…): T[]; concat(…): T[]` to
+`concat: { (…): T[]; (…): T[] }`:
+- `spreadInvalidArgumentType:0:35/36`
+- `restInvalidArgumentType:0:34`
+- `restElementWithNumberPropertyName(target=es2015):0:1`
+
+The reason is that `get_property_names_of_type` on the port's image of an
+overloaded method answers a non-empty list, while native's own-member table
+for that type is empty. The question is therefore asked only for `Function`
+origins, where the port's answer matched the witnesses.
+
+Revisit if the port grows a faithful `getPropertiesOfObjectType`
+(resolved own members only). With it, the check can cover `Method` too, as
+native does.
+
+**Measured** against the frozen base (`ccb48e7`), unfiltered:
+- **Loss checks:** both are empty, and the diagnostics verdicts are
+  byte-identical.
+- **Type verdicts:** unchanged, at 544,166 RIGHT. 16 WRONG lines in
+  `spreadExpressionContextualTypeWithNamespace` now differ from native only
+  by the symbol-chain qualifier `typeof stuff.klass` (main `.39`).
+- **With r5-modexports' two measured diffs applied**
+  (`r5-modexports-string-names.diff`, then
+  `r5-modexports-synthetic-default.diff`): the witness lines in
+  `nodeModules{,AllowJs}SynchronousCallErrors` now print
+  `{ f(): Promise<void>; default: typeof import("./index.js"); }` instead of
+  `{ f: () => Promise<void>; … }`. What remains is the import-site name
+  `typeof mod2`. That is the symbol-chain printer's alias lookup (main
+  `.39`), not this lane's work.
+- **Perf:** median child CPU, new/old binary, is 0.984 on domain-model
+  (21 samples) and 1.001 on generic-imports (41 samples; 1.053 at 21).
+  Diagnostics match.
+- **Tests:** `tests/spread_function_member_form.rs`. The method-form test
+  is red on the base. The two controls, an arrow-valued export and a
+  namespace-merged function, are green on both.
+
+**Cases converted: none yet.** This is a correctness prerequisite for the 16
+r5-modexports witness lines and the 16 `spreadExpressionContextualTypeWithNamespace`
+lines. Both sets then wait on `.39`.
+
+### 8.2 Line terminators in string literal types print escaped
+
+**Forcing constraint.** `escapeStringWorker` (`printer/utilities.go:85`)
+escapes U+2028, U+2029 and U+0085 under every quote character and every flag
+set, `NeverAsciiEscape` included. The literal-type node builder sets that
+flag, so these three are the only non-ASCII characters a string literal
+type prints escaped. `printing::quote` had LF/CR/TAB and the C0 controls,
+but not these three, and printed them raw.
+
+**Change (`printing.rs` `quote`).** Three arms, using the
+`escapedCharsMap` spellings. `quote` is the one shared quoting table:
+`quote_ascii` and the object-name, module-specifier and mapped-key callers
+all route through it. Native's `escapeString` and `escapeNonAsciiString`
+both escape these characters, so the change is correct for every caller.
+
+**Not changed here:**
+- **`(typeof E)["gold ✰"]`** (`enumWithUnicodeEscape1`). Native builds
+  that element-access literal without `NoAsciiEscaping`, so the printer uses
+  `escapeNonAsciiString`. The port's call site is in `declared.rs`, which
+  belongs to r5-declared. The one-line diff
+  (`quote` → `quote_ascii` at the two enum-member element-access sites) is
+  in §9.
+- **Octal escapes in templates and lone surrogates.** These are scanner
+  values (§5 item 6).
+
+**Measured** against the frozen base (`ccb48e7`), unfiltered:
+- **Lines:** +13 RIGHT type lines (544,166 → 544,179). The cases that flip
+  are:
+  - `compiler/fileWithNextLine1` (plain);
+  - `conformance/allowUnescapedParagraphAndLineSeparatorsInStringLiteral`
+    (plain, 11 lines);
+  - `compiler/sourceMap-LineBreaks(target=es2015)` (configured).
+
+  That is 2 plain cases and 1 configured case.
+- **Loss checks:** both are empty, and the diagnostics verdicts are
+  byte-identical. No other line's text changed.
+- **Perf:** median child CPU, new/old, 41 samples:
+  - generic-imports reads 0.983 at 21 samples;
+  - domain-model reads 1.033 and 1.042 in the standard slot order. Two
+    controls taken in the same session put that inside noise:
+    - identical binaries in that same order read 1.016;
+    - with the slots swapped (old in the `--tsr` slot), the run reads
+      old/new 1.003, i.e. new/old 0.997.
+
+  The change adds three `match` arms to a function that runs only while
+  printing.
+- **Tests:** `printing::tests` pins the three escapes.
+
+## 9. Needed changes outside this lane's files
+
+1. **`declared.rs`, enum-member element-access names (r5-declared).**
+   Native builds `(typeof E)["…"]` with a plain string literal
+   (`nodebuilderimpl.go:3276-3278`), which has no `NoAsciiEscaping` flag
+   (compare `:3291` for literal types). Its non-ASCII text therefore prints
+   through `escapeNonAsciiString`. The two `format!("(typeof {name})[…]")`
+   sites in the enum-literal mint should call `printing::quote_ascii`.
+   - Diff: `docs/parity/notes/r5-typetriage-enum-member-ascii-escape.diff`,
+     4 lines, fmt-clean.
+   - Measured on top of §8.1 and §8.2, unfiltered: +1 RIGHT line, and
+     `compiler/enumWithUnicodeEscape1` flips. Both loss checks are empty.
+2. **`inference.rs` `rename_type_parameters_for_site` (main `.9`, file not
+   ownable here).** The `T_1` shadow renaming is the cause with the
+   largest unclaimed sole-blocked count that belongs to a printer
+   (21 cases, §5 item 2). Its decision lives in this function, not in
+   `printing.rs`. `printing.rs` only allocates the names
+   (`allocate_type_parameter_name`). No diff is shipped. Two witness shapes
+   need different repairs:
+   - `computedPropertyNames33_ES6:0:8` needs a shadow found from the print
+     site (`<T_1>() => string` inside `class C<T>`);
+   - `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2:0:146`
+     needs the rename applied inside constraints (`<S extends S_1>`).
+
+   Port `typeParameterShadowsOtherTypeParameterInScope` against
+   `ctx.enclosingDeclaration` for both, as open roots `.16.65` and `.16.363`
+   describe.
+3. **Symbol-chain printer (main `.39`).** Fix 8.1 is a prerequisite for
+   these lines. They then wait only on the chain:
+   - `typeof stuff.klass` (16 lines,
+     `spreadExpressionContextualTypeWithNamespace`);
+   - `typeof mod2` (`nodeModules{,AllowJs}SynchronousCallErrors`, 4 lines × 8
+     configurations, once r5-modexports' two diffs land).
+
+## 10. Final numbers for this lane
+
+At `ccb48e7` + §8.1 + §8.2:
+- **`checker_types`:** 8,238/9,538 (base 8,236 by `casequery --list`).
+  Assertion lines are 471,372/478,855.
+- **`checker_types_configured`:** 1,644/1,928, which includes
+  `sourceMap-LineBreaks(target=es2015)` from §8.2.
+- **`diagnostics`:** 4,531/5,502, unchanged (the verdict dump is
+  byte-identical).
+- **Type verdict dump:** 544,166 → 544,179 RIGHT, with no losses.
+
+## 11. Shadowed type-parameter renaming (`T_1`): claimed, shipped as a measured diff
+
+The integrator assigned cause #2 (§5 item 2) to this lane. The decision is
+not in `printing.rs`. It sits in three files this lane may not edit:
+- the anchor in `signatures.rs` `signature_to_string_at`;
+- `inference.rs` `rename_type_parameters_for_site`;
+- the binder's `resolve_name`.
+
+It ships as `docs/parity/notes/r5-typetriage-shadow-site-anchor.diff`. The
+diff is fmt-clean, and it is not landed by this lane.
+
+**Forcing constraint.** `typeParameterToName` renames a type parameter when
+`typeParameterShadowsOtherTypeParameterInScope` finds a *different* type
+parameter of that name by resolving from `ctx.enclosingDeclaration`, the
+print site. The single-signature path anchored that resolution at the
+printed signature's own declaration instead. So a generic function printed
+inside `class C<T>` kept `<T>`, where native prints `<T_1>`
+(`computedPropertyNames33_ES6`, `subtypesOfUnion`,
+`instanceMemberInitialization`).
+
+**Why §107 refused the site anchor, and what was actually missing.** The
+earlier refusal measured four computed-name positions renamed wrongly. The
+measurement here traces those to two binder arms that are absent:
+- **`nameresolver.go:216-227`.** A class or interface member's computed
+  property name cannot see the container's type parameters. Native answers
+  nil, so `[foo<T>()]() {}` in `class C<T>` prints `foo : <T>() => string`
+  (`computedPropertyNames32/35`).
+- **`nameresolver.go:61-70` (`useResult`).** A function-like's own type
+  parameters are visible only from its parameters, return type and
+  type-parameter list. They are not visible from its computed name
+  (`typeParametersAndParametersInComputedNames`).
+
+  Porting the whole arm regressed **473 type lines** across 87 cases, all
+  `T`/`T_1` flips in overload and generic-call prints. Many of the port's
+  resolution call sites start where upstream's node builder resolves inside
+  a synthesized fake scope (`enterNewScope`, `lastLocation.Flags &
+  Synthesized`), and the port does not build that scope. The diff therefore
+  hides own type parameters only from the member's computed name.
+  Revisit when the printer builds fake scopes; the rest of the arm can
+  then land as written.
+
+**Measured** unfiltered, against this lane's tip (`ccb48e7` + §8.1 + §8.2):
+- **Type lines:** +27 RIGHT, −2. Five cases flip:
+  - `computedPropertyNames33_ES6` and `computedPropertyNames33_ES5(target=es2015)`;
+  - `subtypesOfUnion`;
+  - `instanceMemberInitialization`;
+  - `subclassWithPolymorphicThisIsAssignable`.
+
+  No case is lost.
+- **Diagnostics:** the verdicts are unchanged.
+- **The two losses are not lossless, so this diff must not land as is.**
+  They are in cases that already fail:
+  - `conditionalTypeAssignabilityWhenDeferred:0:47`: wants
+    `<T_1 extends [null] extends [T_1] ? any : never>` and gets
+    `<T_1 extends never>`;
+  - `declarationEmitInlinedDistributiveConditional:1:6`: the
+    `import("./internal")` qualifier is lost.
+
+  Both come from how `rename_type_parameters_for_site` (`inference.rs`)
+  renames: it *instantiates* the signature with fresh unconstrained type
+  parameters. That re-evaluates a deferred conditional constraint and drops
+  the written alias context. Native renames at print time only; the
+  semantic signature is untouched.
+
+  The faithful prerequisite is a print-only rename in `inference.rs`:
+  `typeParameterToName` allocates names while the type is printed, with no
+  instantiation. With that in place, this diff should be lossless.
+- **Remaining `T_1` witnesses not reached** (§5 item 2):
+  - constraint renaming,
+    `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2`
+    (`<S extends S_1>`);
+  - the composite (`.16.102`) layouts.
