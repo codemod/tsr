@@ -220,7 +220,6 @@ fn destructured_let_narrowing_reaches_closures() {
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: comparable relation rejects weak targets and optional source members"]
 fn assertion_to_weak_or_optional_target_is_comparable() {
     // `(node as TracingNode)` and `{ annotatedNodes } as EmitNode`: native
     // skips the weak-type check under comparability (relater.go:2675) and
