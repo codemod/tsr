@@ -5416,6 +5416,10 @@ impl<'a> Checker<'a, '_> {
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
             }
+            if let Some(twin) = self.qualified_declared_type_twin(resolved, &text, node.node_id) {
+                self.qualified_reference_types.insert(key, twin);
+                return twin;
+            }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
             if self.binder.symbols().get(resolved).flags.contains(SymbolFlags::ENUM_MEMBER) {
                 let declared = self.get_declared_type_of_symbol(resolved);
@@ -5495,6 +5499,86 @@ impl<'a> Checker<'a, '_> {
             return minted;
         }
         self.unresolved_type_reference(node)
+    }
+
+    /// getTypeReferenceType's declared type for an argument-less qualified
+    /// reference to a non-generic type alias or an enum (getTypeFromTypeAliasReference,
+    /// checker.go:23580; getDeclaredTypeOfEnum), spelled with the qualified
+    /// `text` the print-only mint carried. Native prints such a reference by
+    /// qualifying its symbol chain (NB-SYMBOL-CHAIN), which this port's
+    /// print-at-creation types cannot do from the declared type itself; the
+    /// twin shares the declared type's semantics (its constituents and owner
+    /// symbol, or its literal's member owner) and differs only in its text,
+    /// so no printed line moves and the relater sees the real type
+    /// (`tsr-2zk.979`). `None` where the declared type's semantics live in
+    /// TypeId-keyed side tables a twin would not share: the mint stays.
+    fn qualified_declared_type_twin(
+        &mut self,
+        resolved: SymbolId,
+        text: &str,
+        site: Option<NodeId>,
+    ) -> Option<TypeId> {
+        let flags = self.binder.symbols().get(resolved).flags;
+        let alias = flags.intersects(SymbolFlags::TYPE_ALIAS)
+            && self.local_type_parameters_of(resolved).is_empty();
+        let enumeration =
+            flags.intersects(SymbolFlags::ENUM) && !flags.intersects(SymbolFlags::ENUM_MEMBER);
+        if !alias && !enumeration {
+            return None;
+        }
+        if self.resolutions.on_stack(resolved, PropertyName::DeclaredType) {
+            return None;
+        }
+        let declared = self.get_declared_type_of_symbol(resolved);
+        if self.is_gap(declared) {
+            return None;
+        }
+        match self.store.get(declared).data.clone() {
+            // Stated divergence: a named union written as a constituent of
+            // a union type node keeps the mint. `get_union_type` answers
+            // `errorType` for a union holding a named union, because
+            // getUnionType's origin denormalisation (checker.go:25705) is
+            // unported; `boolean | X.Foo` printed `any` (3 lines in
+            // `enumLiteralAssignableToEnumInsideUnion`).
+            crate::types::TypeData::Union { .. } if self.written_in_union_type_node(site) => None,
+            crate::types::TypeData::Union { types, symbol: Some(owner), .. }
+                if owner == resolved =>
+            {
+                let extra = self.store.get(declared).flags
+                    & (TypeFlags::ENUM | TypeFlags::ENUM_LITERAL | TypeFlags::BOOLEAN);
+                Some(crate::unions::create_union(
+                    &mut self.store,
+                    extra,
+                    types,
+                    Some((resolved, text.to_string())),
+                ))
+            }
+            crate::types::TypeData::Named { members: Some(owner), .. }
+                if alias
+                    && self.type_literal_origins.contains_key(&declared)
+                    && !self.anonymous_properties.contains_key(&declared)
+                    && !self.signature_types.contains_key(&declared)
+                    && !self.object_literal_index_infos.contains_key(&declared) =>
+            {
+                let flags = self.store.get(declared).flags;
+                Some(self.store.new_named(flags, text.to_string(), Some(owner)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the type node `site` is a constituent of a union type node,
+    /// parentheses skipped.
+    fn written_in_union_type_node(&self, site: Option<NodeId>) -> bool {
+        let mut current = site;
+        while let Some(parent) = current.and_then(|id| self.nodes.parent(id)) {
+            match self.node_map.get(parent) {
+                Some(Node::ParenthesizedTypeNode(_)) => current = Some(parent),
+                Some(Node::UnionTypeNode(_)) => return true,
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// Whether a type alias's declared type carries the alias — upstream's
