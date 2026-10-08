@@ -425,6 +425,7 @@ impl Checker<'_, '_> {
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
+                self.check_this_parameter_position(node);
                 self.check_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
                 ambient
@@ -1072,6 +1073,9 @@ impl Checker<'_, '_> {
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_expression_diagnostics(node);
+        }
+        if self.nodes.kind(node) == SyntaxKind::Identifier {
+            self.check_this_in_type_query_diagnostics(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisType {
             self.check_this_type_node(node);
