@@ -90,3 +90,83 @@ walk asks the same host rule the relation check uses; no behaviour change.
 - `typedefMultipleTypeParameters` TS2314: the arity rule
   (`type_argument_arity.rs`) does not count a typedef's `@template`
   parameters.
+
+## 2. Heritage type-argument constraints (item 2, extendsTag5)
+
+**Forcing fact.** `check_type_argument_constraints` (`constraints.rs`) took
+`TypeReferenceNode` only, so TS2344 never fired on a heritage clause — in
+TypeScript as well as JS. Native reaches `checkTypeArgumentConstraints` from
+three heritage sites:
+
+- `checkClassLikeDeclaration` (`checker.go:4327`): the class base's
+  arguments, against each constructor `getConstructorsForTypeArguments`
+  keeps;
+- `checkTypeReferenceNode` on each `implements` element (`:4371`) and each
+  interface `extends` element (`:5022`).
+
+In JS the base's arguments may come from `@augments`/`@extends`:
+`reparseHosted`'s `KindJSDocAugmentsTag` arm (`reparser.go:589`) clones them
+onto an `extends` element that writes none, which
+`jsdoc_augments_type_arguments` (`type_argument_arity.rs`) already answers.
+
+**Port** (`constraints.rs`). `check_type_argument_constraints` dispatches an
+`ExpressionWithTypeArguments` to `check_heritage_type_argument_constraints`;
+the argument-against-constraint loop moved unchanged into
+`check_type_argument_constraints_of(symbol, arguments)`, which both arms call.
+`constraint_check_type_parameters` also reads a JS class's `@template`
+parameters (`jsdoc_class_template_parameters`, `reparser.go:459`), which a
+JS class declares in place of a written list.
+
+**Judgment calls.**
+
+- *A class base is checked against the class's own type parameters.* Every
+  construct signature of a class carries the class's type parameters, so
+  `getConstructorsForTypeArguments` over a class base checks the same list
+  once per signature and stops at the first failure. A base that is not a
+  class (a `var` with construct signatures) declines: its signatures are not
+  modelled here. The base must resolve as a **value** to a class, the same
+  test `type_argument_arity.rs` makes (`class_extends_entry_names_a_class`).
+- *Only identifier expressions.* A qualified base (`extends ns.A<X>`)
+  declines, as the arity rule's value test does.
+- *No new decline in the relation.* The heritage arm reuses every gate the
+  type-reference arm has (generic arguments, undecidable sides, reportable
+  pairs).
+
+**Measured** (on §1, unfiltered):
+
+- diagnostics **5,386 → 5,393 RIGHT** (+7, all TypeScript):
+  genericTypeConstraints, subtypingWithNumericIndexer2/3/4,
+  subtypingWithStringIndexer2/3/4. Types unchanged. Zero losses.
+- extendsTag5 does **not** convert on this commit: the `@augments` type
+  literal's members are unbound (§2.1).
+- **Ir: domain-model +1.9 M (+0.16%)**, 1,199,725,707 vs §1's
+  1,197.8 M; generic-imports flat (342,897,414). The whole difference is
+  inside `check_type_argument_constraints` (inclusive 56.31 M → 58.34 M):
+  domain-model declares 40 classes `extends Service<ModelNN, "modelNN">` over
+  `Service<T extends Entity<B>, B extends string>`, and each now relates
+  `ModelNN` to `Entity<"modelNN">` — about 50 k Ir per class, work tsgo's
+  `checkClassLikeDeclaration` does for the same declarations. Median child
+  CPU: domain-model 1.032 at 21 samples, **1.018 at 41**; generic-imports
+  1.009; `diagnostics_match` true.
+- `crates/tsr-checker/tests/heritage_type_argument_constraints.rs`: class
+  base, interface base, `implements`, and a satisfying base.
+
+**Falsifier.** A TypeScript case whose base is a constructor-typed `var`
+with several construct signatures of different type-parameter counts: native
+checks each kept signature, this arm declines.
+
+### 2.1 The `@augments` arguments are unbound (binder; diff)
+
+**Finding.** With §2 in place extendsTag5 still reported nothing: the
+relater answered `Unknown` for `{ a: string; b: string }` against `Foo`. The
+binder binds the type expressions of `@type`, `@param`, `@returns`, `@this`,
+`@satisfies` and typedefs (`bind_jsdoc_declarations`), but not
+`@augments`/`@implements`, so the argument's type-literal members carry no
+symbols. Native's arguments are deep clones placed in the class's heritage
+clause (`reparser.go:563`, `:589`) and bind like written ones.
+
+**Diff** `r5-jsdoc4-augments-binding.diff` (binder): bind each type argument
+of an `@augments`/`@implements` tag's class name, plus the walk's arm
+(`jsdoc_checks.rs`, `checkSourceElements(baseTypeNode.TypeArguments())`,
+`checker.go:4316`) that visits the `@augments` arguments the `extends`
+element takes. Measured in §2.2.
