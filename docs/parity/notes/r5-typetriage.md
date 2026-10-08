@@ -592,3 +592,76 @@ At `ccb48e7` + §8.1 + §8.2:
 - **`diagnostics`:** 4,531/5,502, unchanged (the verdict dump is
   byte-identical).
 - **Type verdict dump:** 544,166 → 544,179 RIGHT, with no losses.
+
+## 11. Shadowed type-parameter renaming (`T_1`): claimed, shipped as a measured diff
+
+The integrator assigned cause #2 (§5 item 2) to this lane. The decision is
+not in `printing.rs`. It sits in three files this lane may not edit:
+- the anchor in `signatures.rs` `signature_to_string_at`;
+- `inference.rs` `rename_type_parameters_for_site`;
+- the binder's `resolve_name`.
+
+It ships as `docs/parity/notes/r5-typetriage-shadow-site-anchor.diff`. The
+diff is fmt-clean, and it is not landed by this lane.
+
+**Forcing constraint.** `typeParameterToName` renames a type parameter when
+`typeParameterShadowsOtherTypeParameterInScope` finds a *different* type
+parameter of that name by resolving from `ctx.enclosingDeclaration`, the
+print site. The single-signature path anchored that resolution at the
+printed signature's own declaration instead. So a generic function printed
+inside `class C<T>` kept `<T>`, where native prints `<T_1>`
+(`computedPropertyNames33_ES6`, `subtypesOfUnion`,
+`instanceMemberInitialization`).
+
+**Why §107 refused the site anchor, and what was actually missing.** The
+earlier refusal measured four computed-name positions renamed wrongly. The
+measurement here traces those to two binder arms that are absent:
+- **`nameresolver.go:216-227`.** A class or interface member's computed
+  property name cannot see the container's type parameters. Native answers
+  nil, so `[foo<T>()]() {}` in `class C<T>` prints `foo : <T>() => string`
+  (`computedPropertyNames32/35`).
+- **`nameresolver.go:61-70` (`useResult`).** A function-like's own type
+  parameters are visible only from its parameters, return type and
+  type-parameter list. They are not visible from its computed name
+  (`typeParametersAndParametersInComputedNames`).
+
+  Porting the whole arm regressed **473 type lines** across 87 cases, all
+  `T`/`T_1` flips in overload and generic-call prints. Many of the port's
+  resolution call sites start where upstream's node builder resolves inside
+  a synthesized fake scope (`enterNewScope`, `lastLocation.Flags &
+  Synthesized`), and the port does not build that scope. The diff therefore
+  hides own type parameters only from the member's computed name.
+  Revisit when the printer builds fake scopes; the rest of the arm can
+  then land as written.
+
+**Measured** unfiltered, against this lane's tip (`ccb48e7` + §8.1 + §8.2):
+- **Type lines:** +27 RIGHT, −2. Five cases flip:
+  - `computedPropertyNames33_ES6` and `computedPropertyNames33_ES5(target=es2015)`;
+  - `subtypesOfUnion`;
+  - `instanceMemberInitialization`;
+  - `subclassWithPolymorphicThisIsAssignable`.
+
+  No case is lost.
+- **Diagnostics:** the verdicts are unchanged.
+- **The two losses are not lossless, so this diff must not land as is.**
+  They are in cases that already fail:
+  - `conditionalTypeAssignabilityWhenDeferred:0:47`: wants
+    `<T_1 extends [null] extends [T_1] ? any : never>` and gets
+    `<T_1 extends never>`;
+  - `declarationEmitInlinedDistributiveConditional:1:6`: the
+    `import("./internal")` qualifier is lost.
+
+  Both come from how `rename_type_parameters_for_site` (`inference.rs`)
+  renames: it *instantiates* the signature with fresh unconstrained type
+  parameters. That re-evaluates a deferred conditional constraint and drops
+  the written alias context. Native renames at print time only; the
+  semantic signature is untouched.
+
+  The faithful prerequisite is a print-only rename in `inference.rs`:
+  `typeParameterToName` allocates names while the type is printed, with no
+  instantiation. With that in place, this diff should be lossless.
+- **Remaining `T_1` witnesses not reached** (§5 item 2):
+  - constraint renaming,
+    `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2`
+    (`<S extends S_1>`);
+  - the composite (`.16.102`) layouts.
