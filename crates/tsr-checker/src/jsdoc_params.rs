@@ -500,10 +500,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// No cache: one `jsdoc_entries` probe that almost always misses, then
     /// one comment's tags, and only in a JS file.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-hosted-declaration-types.diff"
-    )]
     pub(crate) fn jsdoc_self_hosted_type(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         let doc = self.jsdoc_entries.get(&declaration)?.last()?;
         if !self.in_js_file(declaration) {

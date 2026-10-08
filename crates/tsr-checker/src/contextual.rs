@@ -2478,7 +2478,9 @@ impl<'a> Checker<'a, '_> {
         // (`checker.go:29921`). A `PropertyAssignment` cannot be an object
         // literal method, so the second half of upstream's test is the pattern
         // match above rather than a check here.
-        if let Some(annotation) = assignment.r#type {
+        // In JS, `element.Type()` is the reparsed `@type`.
+        if let Some(annotation) = assignment.r#type.or_else(|| self.jsdoc_self_hosted_type(element))
+        {
             return Some(self.get_type_from_type_node(annotation));
         }
         self.contextual_type_for_object_literal_named_element(element, assignment.name)

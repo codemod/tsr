@@ -5058,6 +5058,15 @@ impl<'a> Checker<'a, '_> {
                 else {
                     return self.intrinsics.error;
                 };
+                // `checkPropertyAssignment`'s `node.Type()` arm
+                // (`checker.go:13681`): in JS the reparsed `@type` is the
+                // member's type (the initializer is checked against it).
+                if let Some(annotation) = self.jsdoc_self_hosted_type(declaration) {
+                    if let Some(initializer) = assignment.initializer {
+                        self.check_expression_for_mutable_location(initializer);
+                    }
+                    return self.get_type_from_type_node(annotation);
+                }
                 match assignment.initializer {
                     // §105 slice 2a: const context beats retention — the
                     // member symbol's type is the initializer's REGULAR type
@@ -5292,12 +5301,29 @@ impl<'a> Checker<'a, '_> {
         // An annotation-less catch variable is `unknown` under
         // `useUnknownInCatchVariables` and `any` without it — never the
         // ordinary implicit-any road (`checker-notes-narrow.md` §21).
-        if self.type_annotation_of(declaration).is_none()
-            && self
-                .nodes
-                .parent(declaration)
-                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        if self
+            .nodes
+            .parent(declaration)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
         {
+            // `getTypeForVariableLikeDeclaration`'s catch arm
+            // (`checker.go:16678`): an annotation — in JS the reparsed `@type`
+            // — is accepted only when it is `any` or `unknown`.
+            if let Some(annotation) = self
+                .type_annotation_of(declaration)
+                .or_else(|| self.jsdoc_type_annotation(declaration))
+            {
+                let declared = self.get_type_from_type_node(annotation);
+                return if self
+                    .type_of(declared)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
+                {
+                    declared
+                } else {
+                    self.intrinsics.error
+                };
+            }
             return if self.use_unknown_in_catch_variables {
                 self.intrinsics.unknown
             } else {
@@ -6763,8 +6789,16 @@ impl<'a> Checker<'a, '_> {
         if !self.in_js_file(declaration) {
             return None;
         }
-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
-            return None;
+        // `reparseHosted`'s property and catch-variable hosts read their own
+        // comment (`jsdoc_self_hosted_type`); every other variable is the
+        // statement walk below.
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration
+            || self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return self.jsdoc_self_hosted_type(declaration);
         }
         let list_id = self.nodes.parent(declaration)?;
         let current = self.nodes.parent(list_id)?;
