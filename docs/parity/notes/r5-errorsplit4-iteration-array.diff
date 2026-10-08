@@ -1,0 +1,37 @@
+diff --git a/crates/tsr-checker/src/array_literals.rs b/crates/tsr-checker/src/array_literals.rs
+index b6fa6a0..b1b7aa8 100644
+--- a/crates/tsr-checker/src/array_literals.rs
++++ b/crates/tsr-checker/src/array_literals.rs
+@@ -1310,8 +1310,14 @@ impl Checker<'_, '_> {
+                 return Some(self.intrinsics.any);
+             }
+             if let Some(method) = self.get_type_of_property_of_type(operand, "[Symbol.iterator]")
+-                && !self.is_error(method)
++                && !self.is_gap(method)
+             {
++                // `getIterationTypesOfIterableSlow` (`checker.go:6463`):
++                // `IsTypeAny(methodType)` yields `anyType`, upstream's
++                // `errorType` included (ADR-0048).
++                if self.is_type_any(method) {
++                    return Some(self.intrinsics.any);
++                }
+                 if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
+                     return Some(self.intrinsics.any);
+                 }
+@@ -1324,9 +1330,14 @@ impl Checker<'_, '_> {
+                     if returns.is_empty() {
+                         return Some(self.intrinsics.any);
+                     }
+-                    if returns.iter().all(|&t| !self.is_error(t)) {
++                    if returns.iter().all(|&t| !self.is_gap(t)) {
+                         let iterator = self.get_intersection_type(&returns, None);
+-                        if self.iteration_methods_decidably_absent(iterator) {
++                        // `getIterationTypesOfIteratorWorker`
++                        // (`checker.go:6496`): an any-like iterator yields
++                        // `anyType`.
++                        if self.is_type_any(iterator)
++                            || self.iteration_methods_decidably_absent(iterator)
++                        {
+                             return Some(self.intrinsics.any);
+                         }
+                     }

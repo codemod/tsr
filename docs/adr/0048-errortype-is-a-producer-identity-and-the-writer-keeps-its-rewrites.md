@@ -200,3 +200,42 @@ The measured outcome is in the notes.
 - **Not narrowed:** every rewrite still prints RIGHT gap lines, so no
   zero-cost narrowing exists yet. The residual and its producers are in
   `docs/parity/notes/r5-errorsplit3.md` §8.
+
+### 2026-10-08 — step 4: the §31 gate switched by native line identity; no rewrite narrowed
+
+r5-errorsplit4 (tsr-2zk.1038) probed the corpus with the pinned tsgo, tagging
+every `.types` line whose type is `GetErrorType()` (notes
+[r5-errorsplit4](../parity/notes/r5-errorsplit4.md) §2.1). The probe confirms
+24,307 of the 24,310 matched `native_error` lines that the earlier steps had
+verified by fixture.
+
+The probe split the unresolved-name gate's remaining gap into five arms.
+Four are `errorType` on every line they move (§2.2):
+
+- a name found in another meaning but not as an alias;
+- `arguments` outside a function;
+- a file with import machinery;
+- a JS file without CommonJS.
+
+The first three switch here. The JS arm is held with a `calls.rs`
+`resolveErrorCall` arm (§3). A name found only as an ALIAS stays the gap: 19
+of its 34 lines are values natively.
+
+**Measured** (unfiltered, both dumps, against `c4e2746`):
+
+- zero losses;
+- types +7 WRONG→RIGHT;
+- credited gap 4,554 → **4,367**, and 4,056 with the held diff.
+
+**Narrowing.** Re-measured per rewrite after the switch:
+
+| rewrite | RIGHT→GAP |
+|---|---:|
+| `HadErrorBaseline` | 3,416 |
+| `AtLocation` | 741 |
+| `StatementName` | 312 |
+| `AccessOrQualifiedParent` | 65 |
+| `GlobalAugmentation` | 23 |
+
+None costs zero, so none is narrowed (§5). The residual fell 5,158 → 4,557.
+
