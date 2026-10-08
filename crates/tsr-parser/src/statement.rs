@@ -893,15 +893,22 @@ impl<'a> Parser<'a> {
             Some(ForInitializer::from(self.parse_expression_no_in()))
         };
 
-        if self.at(SyntaxKind::InKeyword) || self.at(SyntaxKind::OfKeyword) {
-            let is_of = self.at(SyntaxKind::OfKeyword);
-            self.next_token();
+        // `parseForOrForInOrForOfStatement`'s switch (`parser.go:1307`): after
+        // `for await` the `of` is *expected* (a missing one is `'of'
+        // expected`, then `in` may still make a for-in), otherwise optional.
+        // A for-in carries no `await` token.
+        let is_of = if is_await {
+            self.expect(SyntaxKind::OfKeyword)
+        } else {
+            self.eat(SyntaxKind::OfKeyword)
+        };
+        if is_of || self.eat(SyntaxKind::InKeyword) {
             let expression =
                 if is_of { self.parse_assignment_expression() } else { self.parse_expression() };
             self.expect(SyntaxKind::CloseParenToken);
             let body = self.parse_statement();
             let kind = if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
-            let await_token = if is_await {
+            let await_token = if is_await && is_of {
                 Some(self.alloc_token(SyntaxKind::AwaitKeyword, await_span))
             } else {
                 None
@@ -1375,6 +1382,16 @@ impl<'a> Parser<'a> {
             self.error_at_current_with(name_diagnostic, &[value]);
         }
     }
+}
+
+/// The source text of a keyword kind (`scanner.TokenToString`): the
+/// two-letter keywords, else the `textToKeyword` entry among
+/// [`VIABLE_KEYWORD_SUGGESTIONS`]. Error paths only.
+pub(crate) fn keyword_text(kind: SyntaxKind) -> Option<&'static str> {
+    ["as", "do", "if", "in", "is", "of"]
+        .into_iter()
+        .chain(VIABLE_KEYWORD_SUGGESTIONS.iter().copied())
+        .find(|text| tsr_scanner::keyword_kind(text) == Some(kind))
 }
 
 /// typescript-go's `viableKeywordSuggestions` (`parser.go`), which is

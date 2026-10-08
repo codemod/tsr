@@ -846,8 +846,10 @@ pub(crate) fn token_to_text(kind: SyntaxKind) -> &'static str {
         SyntaxKind::GreaterThanToken => ">",
         SyntaxKind::QuestionToken => "?",
         SyntaxKind::Identifier => "identifier",
-        SyntaxKind::WhileKeyword => "while",
-        SyntaxKind::FromKeyword => "from",
+        // `scanner.TokenToString` of a keyword is its text.
+        other if other.is_keyword() => {
+            crate::statement::keyword_text(other).unwrap_or(other.name())
+        }
         other => other.name(),
     }
 }
