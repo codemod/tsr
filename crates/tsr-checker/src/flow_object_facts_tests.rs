@@ -135,9 +135,10 @@ fn ordinary_and_runtime_this_false_branches_preserve_negation_limitation() {
             let kind = checker.nodes.kind(id);
             if kind == SyntaxKind::PrefixUnaryExpression {
                 let ty = checker.check_expression_at_node(id);
-                // Native loose mode returns boolean. The separate object
-                // negation consumer does not read these facts yet; held here.
-                assert_eq!(checker.type_to_string(ty), "false");
+                // The `!` arm reads these facts (`getTypeFacts(t,
+                // Truthy|Falsy)`): loose ObjectFacts carry Falsy, so native
+                // loose mode returns boolean; strict ObjectStrictFacts do not.
+                assert_eq!(checker.type_to_string(ty), if null { "false" } else { "boolean" });
             } else if kind == SyntaxKind::ThisKeyword
                 && checker
                     .nodes

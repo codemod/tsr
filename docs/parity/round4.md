@@ -259,3 +259,81 @@ once and caches in links. C1, C2 and C5 are integrated.
 - `r4-jsdoc` (7dd2df2): parameter-own `@type`, +7 type lines. Its three
   measured patches (+44 lines, +5 diagnostics cases) cost 4 losses and wait on
   `tsr-2zk.911`.
+
+### r4-anyaudit — single owner of the any/error-type split (`tsr-2zk.31`)
+
+Dispatched when `r4-arrays` finished (06ce5e6 with its relater patch, 907a249:
++39 type lines, +3 diagnostics cases). Several finished lanes stop on the same
+shared contract: TSR answers `any` (or prints its gap marker `error`) where
+native answers `errorType` or a concrete type (r4-arrays `.16.87`, calls
+round 1, decls §1). This box is the only one that changes that contract. It
+edits only the specific producer functions it names in its notes, re-checks
+`main`'s history of each before every push, and delivers anything else as a
+measured patch.
+
+### r4-jsx2 — JSX attributes type with a members table (`tsr-2zk.907`)
+
+Dispatched when `r4-jsx` finished (c107f13, 691449a, a853638, de35cd6: +8
+diagnostics cases; TS2604, TS2607, JSX.ElementType and the attributes
+relation/elaboration). Its main blocker (~60 cases):
+`jsx_attributes_inference_type` (`jsx_intrinsic.rs`) mints a `Named` type with
+no members table, so `relate_ternary(attributes, IntrinsicAttributes & Props)`
+answers Unknown (`NoMembersTable`). Native builds the attributes type in
+`createJsxAttributesTypeFromAttributesProperty` over the binder's
+`JsxAttributes` symbol. Owns that function and JSX attributes-type
+construction in `jsx_intrinsic.rs` (no `main` commit touched it since
+`b3cd078d`), plus the r4-jsx files. Other r4-jsx blockers are filed as
+`tsr-2zk.917`-`.920`.
+
+### r4-realworld — real-project diagnostic triage (`tsr-2zk.916`, parent `.914`)
+
+Dispatched when `r4-relcache` finished. `r4-relcache` (626495a, f3fad58)
+ported checker-lifetime `Relation.results`: corpus byte-identical, CPU -2..-6%,
+Ir -2.8%, and TypeScript's own `src/jsTyping` / `src/typingsInstallerCore`
+now finish (24.6 s / 24.9 s; native 1.50 s / 1.57 s) where every earlier
+binary hung. On them TSR reports 875 diagnostics against native's 163/169
+(`tsr-2zk.914`); the remaining time is `tsr-2zk.915`. This lane owns no
+checker source: it cuts minimal repros, attributes each to a native
+function and owning file, and files issues; it may add repro tests under
+`crates/tsr-conformance/tests/` that assert native's output with `#[ignore]`
+until fixed.
+
+### r4-typeparams — type-parameter gathering and constraints (`tsr-2zk.901`, `.913`, `.911`)
+
+Dispatched when `r4-templates` finished (8 commits: native enum evaluator,
+TS2565/TS1061 reporting, template-literal escaping, generic index spans; +8
+type cases, +3 diagnostics cases; its isolatedModules patch is queued).
+Several lanes stop on the same functions: `declared.rs`
+`local_type_parameters_of` / `local_type_parameter_names_of` read only the
+first declaration (native `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias`
+gathers every declaration, defaults from any), the constructor
+`SignatureParts` type-parameter arm (`signatures.rs`), JS `@template`
+gathering for class hosts (r4-jsdoc's class-template patch), and TS2313
+circular constraints (`constraints.rs`; native
+`getConstraintOfTypeParameter` -> `circularConstraintType`). Owns exactly
+those functions and `constraints.rs`; no `main` commit touched the
+`declared.rs` functions since `b3cd078d`.
+
+### r4-awaited — getAwaitedType family (`tsr-2zk.10.1`, `.10.5`)
+
+Dispatched when `r4-unused-grammar` finished (9 commits: TS1101/2410, TS1355,
+TS1211, TS1254 predicate, six unused-identifier fixes; +14 diagnostics cases,
+EMPTY_WRONG 100 -> 95). Its parser enum-member JSDoc patch duplicates main's
+cff77b4b and is dropped. Owns `expressions.rs` `awaited_type`,
+`awaited_type_no_alias(_worker)` and new promised/awaited functions; mirror
+`getAwaitedType`, `getAwaitedTypeNoAlias`, `getPromisedTypeOfPromise`,
+`getAwaitedTypeOfPromise`, `checkAwaitedType` and the thenable reports
+(TS1320, TS1058, TS1062, TS2794).
+
+### r4-subtype — strict-subtype relation arms (`tsr-2zk.921`)
+
+Dispatched when `r4-unions` finished (53b9ef8, 2f373c3, a128679, e8f0d2e:
++49 type lines, 5 cases; its alias-of-signature patch, +20 lines, is queued;
+patch B waits as `tsr-2zk.922`). Owns only the relater arms that leave the 40
+listed strict-subtype pairs in the undecided tail; not the indexed-access
+target arm (main's relate-7, f2c97d13) and not diagnostic-chain code (main's
+`tsr-2zk.22`).
+
+Note: `main` landed aee0d31b and d67ff023 (~03:05 UTC), which duplicate the
+r3-perf C1/C5/C2 patches integrated here at ~02:30; the next `main` merge keeps
+`main`'s versions.

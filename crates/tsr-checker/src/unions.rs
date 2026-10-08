@@ -1313,6 +1313,8 @@ impl Checker<'_, '_> {
     /// `compareSymbolsWorker`'s `s1 == nil => 1` (`:370`).
     fn compare_type_symbols(
         &self,
+        a: TypeId,
+        b: TypeId,
         left: &crate::types::Type,
         right: &crate::types::Type,
     ) -> Ordering {
@@ -1320,7 +1322,15 @@ impl Checker<'_, '_> {
         if !left.flags.intersects(TypeFlags::OBJECT) || !right.flags.intersects(TypeFlags::OBJECT) {
             return Ordering::Equal;
         }
-        let position = |data: &TypeData| -> Option<u32> {
+        let position = |id: TypeId, data: &TypeData| -> Option<u32> {
+            // A member-less, unaliased type literal is upstream's shared
+            // `emptyTypeLiteralType` (`checker.go:22939`), whose symbol is
+            // created with no declarations (`:1024`). `compareSymbolsWorker`
+            // sorts a declaration-less symbol AFTER a declared one (`:381`),
+            // so `{}` follows `{ b: number; }` whatever their source order.
+            if self.is_unaliased_empty_type_literal(id) {
+                return None;
+            }
             let symbol = match data {
                 TypeData::Anonymous { symbol, .. } => Some(*symbol),
                 TypeData::Named { members, .. } => *members,
@@ -1329,7 +1339,7 @@ impl Checker<'_, '_> {
             let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
             Some(self.nodes.span(declaration).start)
         };
-        match (position(&left.data), position(&right.data)) {
+        match (position(a, &left.data), position(b, &right.data)) {
             (Some(x), Some(y)) => x.cmp(&y),
             (Some(_), None) => Ordering::Less,
             (None, Some(_)) => Ordering::Greater,
@@ -1460,7 +1470,7 @@ impl Checker<'_, '_> {
             // decides two anonymous object literals, and without it they fell
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
-            .then_with(|| self.compare_type_symbols(left, right))
+            .then_with(|| self.compare_type_symbols(a, b, left, right))
             // compareTypeMappers orders instantiations of the same anonymous
             // member by their mapped types. Equal source lists identify the
             // flat mapper shape retained by instantiate_signature_type.
@@ -1524,6 +1534,16 @@ impl Checker<'_, '_> {
                 // `false` before `true` (`utilities.go:523`), which is what
                 // makes `boolean` print as `false | true` when it is expanded.
                 (TypeData::BooleanLiteral(x), TypeData::BooleanLiteral(y)) => x.cmp(y),
+                // "Intersections are ordered by their constituent type lists"
+                // (`utilities.go:504`). The lists are in source order
+                // (`orderedSet`, `checker.go:26258`), so `T & string` sorts
+                // before `T & F`: `T` ties, then `string`'s flags sort below
+                // an object's. Without this arm two intersections fell to the
+                // type-id tiebreak, i.e. this port's creation order.
+                (
+                    TypeData::Intersection { types: x, .. },
+                    TypeData::Intersection { types: y, .. },
+                ) => self.compare_type_lists(x, y),
                 // Enum members and type parameters are ordered by their symbols'
                 // declaration positions upstream (`compareSymbols`). Here they
                 // fall through to the type-id tiebreak below, which is creation
@@ -1560,6 +1580,20 @@ impl crate::checker::Checker<'_, '_> {
             // subtype pass could remove.
             _ => return Some(literal),
         };
+        // removeRedundantLiteralTypes (checker.go:25838) at
+        // `reduceVoidUndefined == true`, which only UnionReductionSubtype
+        // passes (`getUnionTypeWorker`, :25675): `undefined` is redundant
+        // beside `void`. The literal pass above ran without the clause.
+        if constituents.iter().any(|&ty| self.store.get(ty).flags.contains(TypeFlags::VOID)) {
+            let kept: Vec<_> = constituents
+                .iter()
+                .copied()
+                .filter(|&ty| !self.store.get(ty).flags.contains(TypeFlags::UNDEFINED))
+                .collect();
+            if kept.len() != constituents.len() {
+                return self.union_with_subtype_reduction(&kept);
+            }
+        }
         // §513: constituents with IDENTICAL PRINTED TEXT are one type to
         // every consumer of this port — print-at-creation is the data model
         // (ADR-0003) — where upstream reaches the same collapse through
@@ -1968,10 +2002,23 @@ impl crate::checker::Checker<'_, '_> {
 
     /// Whether a type is a class **instance** type — the shape upstream's
     /// `removeSubtypes` guards with `ObjectFlagsClass`.
+    ///
+    /// `ObjectFlagsClass` is set on a class's declared (instance) type only
+    /// (`getDeclaredTypeOfClassOrInterface`). A class's constructor type
+    /// `typeof C` is an anonymous object carrying the class symbol, and the
+    /// polymorphic `this` is a type parameter whose members are the class's;
+    /// neither has the flag, so neither takes the derivation gate — `[A, B]`
+    /// over two structurally identical classes reduces to `(typeof A)[]`
+    /// (`constructorTagOnClassConstructor`), and `b ? this.c : this.self`
+    /// to `C` (`typeRelationships`).
     fn is_class_instance(&self, id: crate::types::TypeId) -> bool {
-        let symbol = match &self.store.get(id).data {
-            crate::types::TypeData::Named { members: Some(symbol), .. }
-            | crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+        let ty = self.store.get(id);
+        if !ty.flags.contains(TypeFlags::OBJECT) {
+            return false;
+        }
+        let symbol = match &ty.data {
+            crate::types::TypeData::Named { members: Some(symbol), .. } => Some(*symbol),
+            crate::types::TypeData::Anonymous { .. } => None,
             _ => self.type_reference_targets.get(&id).map(|(symbol, _)| *symbol),
         };
         symbol.is_some_and(|s| {
