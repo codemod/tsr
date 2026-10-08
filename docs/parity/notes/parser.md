@@ -476,3 +476,6 @@ per-file flag must become per-node.
 - Function declaration names (`parseFunctionDeclaration`): the name is
   optional only under a `default` modifier (unless a binding identifier
   follows); otherwise `parseBindingIdentifier` reports TS1003.
+- Modifier nodes (`parseModifier` → `finishNode`): a modifier ends where its
+  keyword ends, so TS1029/TS1042/TS1044-family spans on a modifier no longer
+  include the trailing trivia up to the next token.

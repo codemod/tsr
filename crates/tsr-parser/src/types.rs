@@ -308,12 +308,8 @@ impl<'a> Parser<'a> {
                 // `abstract new (…) => T` — a constructor type that cannot be
                 // instantiated directly.
                 let modifiers = if self.at(SyntaxKind::AbstractKeyword) {
-                    let modifier_start = self.pos();
-                    self.next_token();
-                    let token = self.alloc_token(
-                        SyntaxKind::AbstractKeyword,
-                        tsr_core::Span::new(modifier_start, self.pos()),
-                    );
+                    // `parseModifier`: the node ends at the keyword's end.
+                    let token = self.take_token();
                     self.arena.alloc_slice(&[ModifierLike::Token(token)])
                 } else {
                     &[][..]

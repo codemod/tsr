@@ -469,10 +469,9 @@ impl<'a> Parser<'a> {
                 break;
             }
             seen_static |= kind == SyntaxKind::StaticKeyword;
-            let start = self.pos();
-            self.next_token();
-            let token = self.alloc_token(kind, tsr_core::Span::new(start, self.pos()));
-            modifiers.push(ModifierLike::Token(token));
+            // `parseModifier`'s `finishNode(factory.NewModifier(kind), pos)`:
+            // the node ends where the keyword ends, not at the next token.
+            modifiers.push(ModifierLike::Token(self.take_token()));
         }
         modifiers
     }
