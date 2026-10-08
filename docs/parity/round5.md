@@ -790,3 +790,20 @@ also explains the earlier pushes of un-gated merges. The daemon is stopped,
 so only an accepted gate pushes now. `58ead272` reverts the batch, leaving the
 source tree equal to batch AB's. r5-declared3 re-lands r5-declared2's work with
 the decline re-measured.
+
+### r5-shapes finished; r5-ts2322 dispatched (`tsr-2zk.1082`)
+
+r5-shapes split the typetriage's six mixed buckets by producer, then fixed
+three things: binding elements (getPropertyTypeForIndexType's string-index
+fallback, late-bound symbol keys, the per-constituent isArrayLikeType),
+checkVoidExpression's undefinedWideningType, and missing member names. That is
++9 cases and +25 type lines.
+
+Three diffs land in batch AE for +12 more cases:
+- the late-bound overload implementation exclusion (symbols.rs);
+- DeclarationNameToString's (Missing) (declared.rs);
+- getReturnTypeFromBody's implicit-undefined arm (signatures.rs).
+
+Identical-member collapse is filed for main as `.1083`. The freed slot went to
+r5-ts2322: the largest diagnostic cluster without an owner, 136 cases whose
+only wrong code is TS2322.
