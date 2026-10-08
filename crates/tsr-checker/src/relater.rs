@@ -1255,10 +1255,14 @@ impl Relater<'_, '_, '_> {
         {
             let apparent = self.checker.apparent_type(source);
             if apparent != source {
-                if self
-                    .checker
-                    .get_index_infos_of_type(target)
-                    .is_some_and(|infos| !infos.is_empty())
+                // A tuple's only index info is the number index its `Array`
+                // base contributes (`getTupleBaseType`); its element
+                // properties and `length` are judged on the tuple road below.
+                if !target_tuple
+                    && self
+                        .checker
+                        .get_index_infos_of_type(target)
+                        .is_some_and(|infos| !infos.is_empty())
                 {
                     // propertiesRelatedTo needs only the target's names: an
                     // enum object (`typeof E`, which carries a reverse-mapping
